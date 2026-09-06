@@ -455,6 +455,24 @@ export default function Registry() {
   const [hoveredPort, setHoveredPort] = useState<PortHover | null>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
+  /**
+   * Узел холста — состоянием, а не только ссылкой.
+   *
+   * Холст живёт внутри `AnimatePresence mode="wait"`: при возврате на вкладку
+   * он появляется в DOM НЕ сразу, а после того, как уходящий вид доиграет свой
+   * выход. Значит эффект, подписанный на смену вкладки, застаёт `boardRef`
+   * пустым, выходит ни с чем и больше не повторяется — а колесо и наблюдатель
+   * размера остаются без узла. Отсюда и «в тегах колесо не масштабирует»: на
+   * первом открытии всё работало, после первой же смены вкладки — нет.
+   *
+   * Ссылка через функцию даёт состояние ровно тогда, когда узел появился и
+   * когда исчез, а эффекты подписываются на него, а не на вкладку.
+   */
+  const [boardEl, setBoardEl] = useState<HTMLDivElement | null>(null);
+  const attachBoard = useCallback((node: HTMLDivElement | null) => {
+    boardRef.current = node;
+    setBoardEl(node);
+  }, []);
 
   const [selectedConnection, setSelectedConnection] = useState<{ sourceId: string; targetId: string } | null>(null);
   // Подсветки связи под курсором в состоянии больше нет: она означала полную
@@ -1211,7 +1229,7 @@ export default function Registry() {
    * колесо остановилось: состояние нужно только отсечению невидимого.
    */
   useEffect(() => {
-    const board = boardRef.current;
+    const board = boardEl;
     if (!board) return;
 
     const paint = () => {
@@ -1258,7 +1276,7 @@ export default function Registry() {
       board.removeEventListener('wheel', handleWheelEvent);
       if (wheelCommitRef.current) clearTimeout(wheelCommitRef.current);
     };
-  }, []);
+  }, [boardEl]);
 
   const splitCache = useRef<Record<string, string[]>>({});
   // Split Tag into parts using multiple separators (/ - . \)
@@ -1899,9 +1917,10 @@ export default function Registry() {
     addToast('Связь создана', 'success');
   };
 
-  // Следим за размером холста (для центрирования и отсечения невидимого)
+  // Следим за размером холста (для центрирования и отсечения невидимого).
+  // Подписка на узел, а не на вкладку, — по той же причине, что и у колеса
   useEffect(() => {
-    const board = boardRef.current;
+    const board = boardEl;
     if (!board) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -1910,7 +1929,7 @@ export default function Registry() {
     });
     observer.observe(board);
     return () => observer.disconnect();
-  }, [activeTab]);
+  }, [boardEl]);
 
   // Центрирует холст на конкретной карточке (сохраняя комфортный зум)
   const centerOnTag = (tagId: string) => {
@@ -3275,7 +3294,7 @@ export default function Registry() {
             >
               {/* THE GRAPH SPACE WITH OVERLAID CONTROLS */}
               <div 
-                ref={boardRef}
+                ref={attachBoard}
                 className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-lg shadow-lg relative select-none transition-colors"
               style={{ cursor: isPanning ? 'grabbing' : (linkingFrom ? 'crosshair' : 'default') }}
               onMouseDown={(e) => {

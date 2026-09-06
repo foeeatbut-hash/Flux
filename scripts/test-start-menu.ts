@@ -11,6 +11,8 @@ import {
   type StartSource,
 } from '../src/lib/startMenu';
 import { SECTIONS } from '../src/workspace/sections';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -137,6 +139,20 @@ console.log('Настоящий реестр');
   const admin = groupSections(SECTIONS as any, true);
   check('администратору видно больше', countFound(admin) > countFound(g));
   check('у всех показанных есть название', g.every((x) => x.items.every((i) => !!i.title)));
+}
+
+console.log('Список программ раскрыт, а закрепление отзывается');
+{
+  const src = readFileSync(join(__dirname, '../src/components/StartMenu.tsx'), 'utf8');
+  // Полный список был свёрнут за кнопку, и человек, не нашедший раздела среди
+  // закреплённых, видел вместо него полосу, по которой ещё надо догадаться
+  // нажать. Список программ — то, ради чего Пуск и открывают
+  check('кнопки «Все программы» нет', !src.includes('Все программы'));
+  check('раскрытость не хранится состоянием', !src.includes('allOpen'));
+  // Нажатие, после которого ничего не видно и не сказано, для человека не
+  // произошло: значок появлялся ЗА открытым Пуском
+  check('закрепление на столе закрывает Пуск', /pinApp\(path\);[\s\S]{0,200}onClose\(\)/.test(src));
+  check('закрепление говорит словами', src.includes('на рабочем столе') && src.includes('на панели задач'));
 }
 
 if (failed) {

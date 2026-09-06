@@ -195,7 +195,30 @@ const ok = (n: string, c: boolean, d?: any) =>
     ok('масштаб изменился', !!wheel?.grew, wheel);
     ok('точка под курсором осталась на месте', !!wheel && wheel.dx < 6 && wheel.dy < 6, wheel);
 
-    console.log('4. Ошибок в консоли нет');
+    console.log('4. Колесо переживает уход на другую вкладку и возврат');
+    // Ровно тот случай, на который жаловался владелец: на первом открытии
+    // колесо работает, а после «Спецификации» и обратно — уже нет. Холст в
+    // разметке условный, узел пересоздаётся, и слушатель с пустым списком
+    // зависимостей оставался на выброшенном
+    await page.click('button[title="Спецификация"]');
+    await page.waitForTimeout(300);
+    await page.click('button[title="Схема связей между тегами"]');
+    await page.waitForTimeout(600);
+    const again = await page.evaluate(async () => {
+      const el = document.querySelector('[id^="tag-card-"]') as HTMLElement;
+      if (!el) return null;
+      const before = el.getBoundingClientRect();
+      const board = el.closest('.overflow-hidden') || document.body;
+      board.dispatchEvent(new WheelEvent('wheel', {
+        deltaY: -120, clientX: before.x + before.width / 2, clientY: before.y + before.height / 2,
+        bubbles: true, cancelable: true,
+      }));
+      await new Promise((r) => setTimeout(r, 500));
+      return { grew: el.getBoundingClientRect().width > before.width };
+    });
+    ok('после возврата на вкладку масштаб по-прежнему меняется', !!again?.grew, again);
+
+    console.log('5. Ошибок в консоли нет');
     ok('страница не падала', errors.length === 0, errors.slice(0, 3));
   } catch (e: any) {
     f++;

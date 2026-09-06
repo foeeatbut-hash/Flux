@@ -141,7 +141,9 @@ const LEGACY: Record<string, number> = {
   'src/screens/ChatManagement.tsx': 1864,
   'src/screens/ConstructorScreen.tsx': 1905,
   'src/screens/SettingsScreen.tsx': 1530,
-  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
+  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
+  // Приветствие уехало туда же (assistant/greeting), но файл всё равно чуть
+  // выше планки: поднимать её не за что, живём в допуске
   'src/store/assistantStore.ts': 1246,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку

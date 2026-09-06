@@ -12,7 +12,7 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, ChevronDown, ChevronRight, FileClock } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
 import { rememberSectionUse } from '../store/workspaceStore';
@@ -25,6 +25,8 @@ import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON } from '../lib/metrics'
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
+import { useToastStore } from '../store/toastStore';
+import { hiddenIds } from '../lib/deskGroups';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
@@ -35,18 +37,18 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const togglePalette = useInsightStore((s) => s.togglePalette);
+  const addToast = useToastStore((s) => s.addToast);
   const navigate = useNavigate();
   const apps = useDesktopStore((s) => s.apps);
   const pinApp = useDesktopStore((s) => s.pinApp);
   const unpinApp = useDesktopStore((s) => s.unpinApp);
   const moveApp = useDesktopStore((s) => s.moveApp);
+  const deskFolders = useDesktopStore((s) => s.groups);
   const bar = useDesktopStore((s) => s.bar);
   const pinBar = useDesktopStore((s) => s.pinBar);
   const unpinBar = useDesktopStore((s) => s.unpinBar);
   const [q, setQ] = React.useState('');
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
-  /** Все программы списком: сначала закреплённое, полный список — по кнопке */
-  const [allOpen, setAllOpen] = React.useState(false);
   /** Клавиатура: какая плитка сейчас под выделением */
   const [focus, setFocus] = React.useState(-1);
   /** Откуда тянут закреплённую плитку — для перестановки внутри Пуска */
@@ -64,6 +66,11 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
     const onDown = (e: MouseEvent) => {
       if (dragging.current) return;
+      // Своё же меню правой кнопки — портал в body, и без этой оговорки
+      // нажатие по его пункту считалось нажатием мимо Пуска: Пуск закрывался,
+      // меню исчезало вместе с ним, и ни «Закрепить на рабочем столе», ни
+      // «Закрепить на панели задач» не срабатывали никогда
+      if ((e.target as Element)?.closest?.('[data-context-menu]')) return;
       if (!boxRef.current?.contains(e.target as Node)) onClose();
     };
     window.addEventListener('keydown', onKey);
@@ -96,8 +103,6 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     () => (q ? [] : pinnedTiles(apps, SECTIONS as any, isAdmin, (f) => can(user as any, f))),
     [apps, isAdmin, q, user],
   );
-  // Полный список раскрыт сам, если закреплять человеку пока нечего или он ищет
-  const showAll = allOpen || !!q || pinnedList.length === 0;
 
   /**
    * Плоский порядок плиток — по нему ходят стрелки.
@@ -107,10 +112,10 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
    * что подсвечено.
    */
   const order = React.useMemo(
-    () => [...pinnedList.map((s) => s.path), ...(showAll ? groups.flatMap((g) => g.items.map((i) => i.path)) : [])],
-    [pinnedList, groups, showAll],
+    () => [...pinnedList.map((s) => s.path), ...groups.flatMap((g) => g.items.map((i) => i.path))],
+    [pinnedList, groups],
   );
-  React.useEffect(() => { setFocus(-1); }, [q, allOpen]);
+  React.useEffect(() => { setFocus(-1); }, [q]);
 
   // Открыть — только перейти по адресу. Окно или вкладку панели заводит сама
   // оболочка: она одна знает, в каком виде сейчас показываются разделы, и
@@ -118,19 +123,64 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   // оконной оболочке нажатие в Пуске не открывало ничего
   const go = (path: string) => { rememberSectionUse(path); navigate(path); onClose(); };
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
+  const titleOf = (path: string) => SECTIONS.find((s) => s.path === path)?.title || path;
 
-  // Значок программы можно снять со стола — значит, его надо уметь вернуть.
-  // Место возврата очевидное: там же, где программы и перечислены
-  const pinned = (path: string) => apps.includes(path);
+  /**
+   * «Закреплено на столе» — это ВИДНО на столе, а не «есть в списке».
+   *
+   * Значок программы можно снять со стола — значит, его надо уметь вернуть, и
+   * место возврата очевидное: там же, где программы и перечислены.
+   *
+   * Значок, убранный в папку, из списка не исчезает: стол прячет его отдельно,
+   * по составу папок. Пока здесь смотрели только в список, меню предлагало
+   * «Убрать с рабочего стола» для значка, которого на столе нет, — то есть
+   * единственное действие, которое человеку было не нужно, а нужного не
+   * предлагало вовсе.
+   */
+  const inFolder = React.useMemo(() => hiddenIds(deskFolders), [deskFolders]);
+  const pinned = (path: string) => apps.includes(path) && !inFolder.has(`app:${path}`);
   const onBar = (path: string) => bar.includes(path);
+  /**
+   * Закрепление закрывает Пуск и говорит словами, что случилось.
+   *
+   * Стол Пуск закрывает собой: значок появлялся за меню, человек ничего не
+   * видел и нажимал ещё раз. Действие, которого не видно и о котором не
+   * сказано, для человека просто не произошло.
+   */
+  const desk = (path: string, title: string) => {
+    pinApp(path);
+    addToast(`«${title}» на рабочем столе`, 'success');
+    onClose();
+  };
+  const toBar = (path: string, title: string) => {
+    pinBar(path);
+    addToast(`«${title}» на панели задач`, 'success');
+    onClose();
+  };
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => go(menu.path) },
     pinned(menu.path)
-      ? { label: 'Убрать с рабочего стола', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinApp(menu.path) }
-      : { label: 'Закрепить на рабочем столе', icon: <Pin className="w-3.5 h-3.5" />, onClick: () => pinApp(menu.path) },
+      ? {
+        label: 'Убрать с рабочего стола',
+        icon: <PinOff className="w-3.5 h-3.5" />,
+        onClick: () => { unpinApp(menu.path); addToast(`«${titleOf(menu.path)}» убрана со стола`, 'info'); },
+      }
+      : {
+        label: 'Закрепить на рабочем столе',
+        icon: <Pin className="w-3.5 h-3.5" />,
+        onClick: () => desk(menu.path, titleOf(menu.path)),
+      },
     onBar(menu.path)
-      ? { label: 'Открепить от панели задач', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinBar(menu.path) }
-      : { label: 'Закрепить на панели задач', icon: <Pin className="w-3.5 h-3.5" />, onClick: () => pinBar(menu.path) },
+      ? {
+        label: 'Открепить от панели задач',
+        icon: <PinOff className="w-3.5 h-3.5" />,
+        onClick: () => { unpinBar(menu.path); addToast(`«${titleOf(menu.path)}» откреплена от панели`, 'info'); },
+      }
+      : {
+        label: 'Закрепить на панели задач',
+        icon: <Pin className="w-3.5 h-3.5" />,
+        onClick: () => toBar(menu.path, titleOf(menu.path)),
+      },
   ] : [];
 
   const Tile = ({ path, title, at }: { path: string; title: string; at?: number }) => {
@@ -279,23 +329,12 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           </section>
         )}
 
-        {/* «Все программы»: полный список нужен не каждый раз, но нужен всегда.
-            Свёрнут он только тогда, когда у человека есть свой набор наверху */}
-        {pinnedList.length > 0 && !q && (
-          <button
-            type="button"
-            onClick={() => setAllOpen((v) => !v)}
-            className="w-full flex items-center gap-1.5 px-4 py-2 border-t border-slate-200 dark:border-dark-border
-                       text-2xs font-bold uppercase tracking-wider text-slate-400 cursor-pointer
-                       hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
-          >
-            {allOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            Все программы
-          </button>
-        )}
-
-        {showAll && groups.map((g) => (
-          <section key={g.id} className={g.id === groups[0].id && suggested.length > 0 && pinnedList.length === 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
+        {/* Полный список всегда раскрыт. Он был свёрнут за кнопку «Все
+            программы», и человек, не нашедший раздела среди закреплённых, видел
+            вместо него полосу, по которой ещё надо догадаться нажать. Список
+            программ — то, ради чего Пуск и открывают */}
+        {groups.map((g) => (
+          <section key={g.id} className={g.id === groups[0].id && (suggested.length > 0 || pinnedList.length > 0) ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
             <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}

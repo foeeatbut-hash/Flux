@@ -165,9 +165,11 @@ export default function Layout() {
   // ПКМ по разделу в меню: открыть в конкретной панели / в отдельном окне
   const [navMenu, setNavMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   // Вход пользователя: восстанавливаем его сохранённую раскладку рабочего стола
+  // и даём помощнику имя — он заводится раньше, чем становится известен вход
   React.useEffect(() => {
     useWorkspaceStore.getState().bindUser(user?.id || null);
-  }, [user?.id]);
+    useAssistantStore.getState().greet(user as any);
+  }, [user?.id, user?.name]);
 
   /**
    * Ширина правого рельса — на корне документа, а не на этом узле.

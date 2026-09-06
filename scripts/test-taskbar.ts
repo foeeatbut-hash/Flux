@@ -11,6 +11,8 @@ import {
   fitButtons, LABELS_UNTIL, TIDY_FROM, trayFit, type TaskbarSource,
 } from '../src/lib/taskbar';
 import { SECTIONS } from '../src/workspace/sections';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -171,6 +173,17 @@ console.log('Тесная панель');
   check('ширина не измерена — ничего не прячем', trayFit(0).layout === true);
   check('чем у́же, тем короче название',
     trayFit(1440).projectMax >= trayFit(1100).projectMax && trayFit(1100).projectMax >= trayFit(820).projectMax);
+}
+
+console.log('В трее нет второго входа в учётную запись');
+{
+  const bar = readFileSync(join(__dirname, '../src/components/Taskbar.tsx'), 'utf8');
+  const start = readFileSync(join(__dirname, '../src/components/StartMenu.tsx'), 'utf8');
+  // Круг с инициалами в трее повторял подвал Пуска целиком, а второй вход в
+  // одно и то же место только заставляет гадать, чем они отличаются
+  check('в трее нет кнопки учётной записи', !bar.includes('setUserMenu'));
+  check('выход из программы остался в Пуске', start.includes('setUser(null)'));
+  check('параметры программы остались в Пуске', start.includes("go('/settings')"));
 }
 
 if (failed) {

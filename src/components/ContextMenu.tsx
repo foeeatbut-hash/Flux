@@ -135,6 +135,11 @@ export default function ContextMenu({ x, y, items, onClose }: {
   return createPortal(
     <div
       ref={ref}
+      /* Метка для тех, кто закрывается «по нажатию мимо себя»: меню — портал в
+         body, и без метки такое нажатие читается как «мимо». Пуск на этом и
+         спотыкался: нажатие по пункту его меню сначала закрывало сам Пуск,
+         пункт исчезал вместе с ним, и до срабатывания дело не доходило */
+      data-context-menu
       className="fixed min-w-56 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700
                  rounded-xl shadow-2xl select-none"
       style={style}

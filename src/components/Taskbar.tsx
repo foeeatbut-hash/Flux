@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import {
-  Bell, BellOff, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
+  Bell, BellOff, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
@@ -51,9 +51,6 @@ function useNow(): Date {
 export default function Taskbar() {
   const user = useStore((s) => s.user);
   const shell = useStore((s) => s.shell);
-  const setUser = useStore((s) => s.setUser);
-  const theme = useStore((s) => s.theme);
-  const toggleTheme = useStore((s) => s.toggleTheme);
   const activeProject = useStore((s) => s.activeProject);
   const navigate = useNavigate();
   const panes = useWorkspaceStore((s) => s.panes);
@@ -81,7 +78,6 @@ export default function Taskbar() {
   const unreadByAccount = useMailStore((s) => s.unreadByAccount);
   const now = useNow();
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
-  const [userMenu, setUserMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [startOpen, setStartOpen] = React.useState(false);
   // Наведение раскрывает список окон программы. 400 мс — столько же, сколько
   // ждёт всплывающая подсказка: быстрое движение мимо кнопки ничего не открывает
@@ -213,17 +209,6 @@ export default function Taskbar() {
     }] : []),
   ] : [];
 
-  // Всё, что жило в подвале левого меню: без этого спрятать меню было бы нельзя
-  const userItems: MenuItem[] = [
-    { label: 'Параметры программы', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => openSection('/settings') },
-    {
-      label: theme === 'dark' ? 'Светлая тема' : 'Тёмная тема',
-      icon: theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />,
-      onClick: toggleTheme,
-    },
-    { label: 'Выйти', icon: <LogOut className="w-3.5 h-3.5" />, onClick: () => { setUser(null); navigate('/'); } },
-  ];
-
   // Обе панели выезжают справа и заняли бы одно место — открываем по одной
   // Помощник открывается, не закрывая уведомления: правая колонка держит обоих
   // (components/RightDock), и терять начатое чтение при вопросе больше не надо
@@ -282,9 +267,6 @@ export default function Taskbar() {
         ? 'bg-emerald-600 text-white'
         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'
     }`;
-
-  const initials = (user?.name || '')
-    .split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
   return (
     <div
@@ -555,17 +537,10 @@ export default function Taskbar() {
           )}
         </button>
 
-        <button
-          type="button"
-          onClick={(e) => setUserMenu({ x: e.clientX, y: e.clientY })}
-          title={user?.name || 'Профиль'}
-          style={{ width: BAR_BTN, height: BAR_BTN }}
-          className="rounded-full cursor-pointer flex items-center justify-center shrink-0
-                     bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400
-                     text-2xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition-colors"
-        >
-          {initials}
-        </button>
+        {/* Учётная запись живёт в Пуске, как в системе. Круг с инициалами стоял
+            здесь же и повторял его подвал целиком — человек, роль, тема,
+            параметры, выход, завершение работы, — а второй вход в одно и то же
+            место только заставляет гадать, чем они отличаются */}
 
         {/* Полоска «показать стол» у самого края: мышь упирается в угол и
             попадает не глядя. Девять точек, которые ничего не стоят */}
@@ -601,7 +576,6 @@ export default function Taskbar() {
         />
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
-      {userMenu && <ContextMenu x={userMenu.x} y={userMenu.y} items={userItems} onClose={() => setUserMenu(null)} />}
     </div>
   );
 }

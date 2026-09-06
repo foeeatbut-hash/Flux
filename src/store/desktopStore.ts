@@ -196,7 +196,29 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
     set({ scale });
   },
 
+  /**
+   * Закрепить программу на столе.
+   *
+   * Закрепление считается по ВИДИМОСТИ, а не по списку. Раньше здесь стоял
+   * выход «уже закреплено», и этого хватало, чтобы кнопка перестала работать
+   * совсем: значок, однажды убранный в папку, из списка не исчезает — стол
+   * прячет его отдельно, по составу папок. Человек нажимал «Закрепить на
+   * рабочем столе», список уже содержал путь, папка по-прежнему прятала
+   * значок, и на столе не появлялось ничего.
+   *
+   * Поэтому закрепление всегда вынимает значок из папки. Обратное действие —
+   * убрать со стола — заодно чистит состав папок: путь, которого на столе нет,
+   * не должен продолжать числиться внутри папки.
+   */
   pinApp: (path) => {
+    const id = `app:${path}`;
+    // withoutItems всегда отдаёт новый массив, поэтому сравнивать надо не
+    // ссылки, а факт: числится ли значок хоть в одной папке
+    if (get().groups.some((g) => g.items.includes(id))) {
+      const groups = withoutItems(get().groups, [id]);
+      saveGroups(groups);
+      set({ groups });
+    }
     if (get().apps.includes(path)) return;
     const apps = [...get().apps, path];
     write(APPS_KEY, apps);
@@ -204,6 +226,12 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   },
 
   unpinApp: (path) => {
+    const id = `app:${path}`;
+    if (get().groups.some((g) => g.items.includes(id))) {
+      const groups = withoutItems(get().groups, [id]);
+      saveGroups(groups);
+      set({ groups });
+    }
     const apps = get().apps.filter((p) => p !== path);
     write(APPS_KEY, apps);
     set({ apps });

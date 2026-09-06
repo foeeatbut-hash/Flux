@@ -20,6 +20,7 @@ import { fileCard } from '../assistant/fileCard';
 import { asksToFindMail } from '../assistant/mailQueries';
 import { handbookMessage, mailSearchMessage } from '../assistant/answers';
 import { uid, type AssistantAction, type AssistantTable, type AssistantListItem, type AssistantMessage } from '../assistant/types';
+import { helloText, savedWho, type Greeted } from '../assistant/greeting';
 
 export type {
   AssistantAction, AssistantTable, AssistantListItem, AssistantMessage,
@@ -72,6 +73,8 @@ interface AssistantState {
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
+  /** Поздороваться по имени, когда вход уже случился */
+  greet: (who: Greeted | null | undefined) => void;
   toggleDemoMode: () => void;
   setRoute: (route: string) => void;
   ask: (text: string) => Promise<void>;
@@ -238,7 +241,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: [{
     id: uid(),
     role: 'assistant',
-    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на Схеме, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — строка «Спросить или найти»: там команды со слэша, поиск по проекту и вопрос мне последней строкой.',
+    text: helloText(savedWho()),
     actions: [
       { label: 'Покажи дубли', kind: 'ask', query: 'покажи дубли' },
       { label: 'Что не заказано', kind: 'ask', query: 'что не заказано' },
@@ -259,6 +262,18 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   recentDeeds: [],
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
+
+  /**
+   * Переписываем приветствие, когда стал известен вошедший, — но только пока
+   * разговор не начался. Иначе имя вписалось бы поверх реплики, на которую
+   * человек уже ответил, и переписка задним числом изменилась бы сама.
+   */
+  greet: (who) => set((s) => {
+    if (s.messages.length !== 1 || s.messages[0].role !== 'assistant') return {};
+    const text = helloText(who);
+    if (s.messages[0].text === text) return {};
+    return { messages: [{ ...s.messages[0], text }] };
+  }),
   setOpen: (open) => set({ isOpen: open }),
   toggleDemoMode: () => set(s => ({ demoMode: !s.demoMode })),
 
