@@ -56,7 +56,7 @@ console.log('0. Пометки доезжают до общей базы');
     await inputs[1].fill(LOGIN.password);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(8000);
-    ok('вход выполнен', await page.evaluate(() => /Главная|РАЗДЕЛЫ/.test(document.body.innerText)));
+    ok('вход выполнен', await page.evaluate(() => !!document.querySelector('[data-taskbar]')));
 
     console.log('1. Подпись сохраняется в профиль и читается обратно');
     const saved = await page.evaluate(async (pixel: string) => {

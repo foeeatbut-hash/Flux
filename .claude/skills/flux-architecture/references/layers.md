@@ -9,10 +9,10 @@
 |---|---|
 | `App.tsx`, `main.tsx` | вход, роутер, корневая граница ошибок, перехват консоли в Журнал |
 | `workspace/sections.tsx` | **реестр разделов**: путь → экран, значок, режим прокрутки. Единственное место, где раздел «появляется» в программе |
-| `components/Workspace.tsx` | рабочий стол: 1/2/4 панели, вкладки, keep-alive, замороженный роутер для скрытых панелей |
+| `components/WindowsLayer.tsx` | рабочий стол: окна разделов, их геометрия, keep-alive и замороженный роутер для скрытых окон |
 | `screens/` | экраны разделов и несколько крупных компонентов, оказавшихся здесь исторически |
-| `components/` | общий интерфейс: `Layout`, `RightRail`, `ModalProvider`, `ToastProvider`, `SocketProvider`, мастера импорта, `SectionErrorBoundary` |
-| `store/` | zustand: `store` (пользователь, проект), `chatStore`, `workspaceStore`, `notificationStore`, `logStore`, `toastStore`, `modalStore`, `shareStore`, `assistantStore` |
+| `components/` | общий интерфейс: `Layout`, `Taskbar`, `StartMenu`, `Desktop`, `ModalProvider`, `ToastProvider`, `SocketProvider`, мастера импорта, `SectionErrorBoundary` |
+| `store/` | zustand: `store` (пользователь, проект), `chatStore`, `workspaceStore` (память адресов открытых окон), `windowStore`, `notificationStore`, `logStore`, `toastStore`, `modalStore`, `shareStore`, `assistantStore` |
 | `services/dataService.ts` | все запросы к серверу |
 | `capture/` | захват с экрана: `recognize`, `vocab`, `plan`, `fields` |
 | `import/` | импорт документов: `recognize`, `extractors`, `ocr`, `valueGrammar`, `dictionary`, `learn`, воркер |

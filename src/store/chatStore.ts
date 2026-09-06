@@ -4,8 +4,8 @@
 // собеседника не открывались. Теперь путь один — работает и локально,
 // и с сервером компании (адрес подставляет fetch-прокси из config/env).
 import { create } from 'zustand';
-import { ENV_CONFIG, SERVER_BASE_URL, getAuthToken } from '../config/env';
-import { io, Socket } from 'socket.io-client';
+import { SERVER_BASE_URL } from '../config/env';
+import type { Socket } from 'socket.io-client';
 
 export interface ChatAttachment {
   id: string;
@@ -123,11 +123,17 @@ interface ChatState {
   openFile: (filePath: string) => Promise<void>;
   startPolling: (currentUserId: string) => void;
   stopPolling: () => void;
-  setupSocket: (currentUserId: string) => void;
-  disconnectSocket: () => void;
+  /** Подписаться на переписку общим сокетом оболочки */
+  bindSocket: (socket: Socket, currentUserId: string) => void;
+  unbindSocket: (socket: Socket) => void;
 }
 
-let socketInstance: Socket | null = null;
+/** Общий сокет оболочки, на который подписан чат, и сами подписки */
+let bound: Socket | null = null;
+let onReceived: ((msg: ChatMessage) => void) | null = null;
+let onUpdated: ((patch: Partial<ChatMessage> & { id: string }) => void) | null = null;
+let onDeleted: ((payload: { id: string }) => void) | null = null;
+let onConnect: (() => void) | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let visibilityHandler: (() => void) | null = null;
 
@@ -477,62 +483,59 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    setupSocket: (currentUserId) => {
-      {
-        get().disconnectSocket();
+    /**
+     * Переписка слушается ОБЩИМ сокетом оболочки.
+     *
+     * Раньше чат заводил ВТОРОЕ соединение и подписывался на нём, а звали его
+     * только из открытого Мессенджера. Значит вне раздела о новом сообщении
+     * узнавали лишь из опроса уведомлений — отсюда и задержка. Второе
+     * соединение рвалось при уходе с раздела, и в консоль летело
+     * «WebSocket is closed before the connection is established».
+     *
+     * Теперь подписка одна, живёт вместе с оболочкой и слушает всегда.
+     */
+    bindSocket: (socket, currentUserId) => {
+      if (bound === socket) return;
+      if (bound) get().unbindSocket(bound);
+      bound = socket;
 
-        console.log('[ChatStore] Connecting chat socket.io to:', ENV_CONFIG.socketUrl);
-        socketInstance = io(ENV_CONFIG.socketUrl, {
-          auth: { token: getAuthToken() },
-          transports: ['websocket', 'polling'],
-          reconnectionDelay: 800,
-          reconnectionDelayMax: 4000,
-        });
+      onReceived = (msg: ChatMessage) => {
+        const { activeReceiverId, activeGroupId, activeType } = get();
+        const mine = (activeType === 'DIRECT' && activeReceiverId
+            && (msg.senderId === activeReceiverId || msg.receiverId === activeReceiverId))
+          || (activeType === 'PROJECT' && activeGroupId && msg.chatGroupId === activeGroupId);
+        if (!mine) return;
+        set((state) => ({ messages: [...state.messages.filter((m) => m.id !== msg.id), msg] }));
+      };
+      // Правки в реальном времени: редактирование/реакции/пин приходят частичным
+      // объектом ({id, ...изменённые поля}) — сливаем в существующее сообщение
+      onUpdated = (patch: Partial<ChatMessage> & { id: string }) => {
+        if (!patch?.id) return;
+        set((state) => ({
+          messages: state.messages.map((m) => (m.id === patch.id ? { ...m, ...patch } : m)),
+        }));
+      };
+      onDeleted = (payload: { id: string }) => {
+        if (!payload?.id) return;
+        set((state) => ({ messages: state.messages.filter((m) => m.id !== payload.id) }));
+      };
+      // Пока связи не было, события до нас не дошли: догоняем сразу, а не
+      // ждём такта страховочного опроса
+      onConnect = () => { if (currentUserId) get().fetchMessages(currentUserId); };
 
-        socketInstance.on('connect', () => {
-          console.log('[ChatStore] Socket.io connected. Handshaking user:', currentUserId);
-          // Пока связи не было, события до нас не дошли. Догоняем сразу, а не
-          // ждём такта опроса: иначе после разрыва чат до 12 секунд «немой»
-          get().fetchMessages(currentUserId);
-        });
-
-        socketInstance.on('chat:message_received', (msg: ChatMessage) => {
-          const { activeReceiverId, activeGroupId, activeType } = get();
-
-          if (activeType === 'DIRECT' && activeReceiverId && (msg.senderId === activeReceiverId || msg.receiverId === activeReceiverId)) {
-            set((state) => {
-              const cleaned = state.messages.filter(m => m.id !== msg.id);
-              return { messages: [...cleaned, msg] };
-            });
-          } else if (activeType === 'PROJECT' && activeGroupId && msg.chatGroupId === activeGroupId) {
-            set((state) => {
-              const cleaned = state.messages.filter(m => m.id !== msg.id);
-              return { messages: [...cleaned, msg] };
-            });
-          }
-        });
-
-        // Правки в реальном времени: редактирование/реакции/пин приходят частичным
-        // объектом ({id, ...изменённые поля}) — сливаем в существующее сообщение
-        socketInstance.on('chat:message_updated', (patch: Partial<ChatMessage> & { id: string }) => {
-          if (!patch?.id) return;
-          set((state) => ({
-            messages: state.messages.map(m => m.id === patch.id ? { ...m, ...patch } : m),
-          }));
-        });
-
-        socketInstance.on('chat:message_deleted', (payload: { id: string }) => {
-          if (!payload?.id) return;
-          set((state) => ({ messages: state.messages.filter(m => m.id !== payload.id) }));
-        });
-      }
+      socket.on('chat:message_received', onReceived);
+      socket.on('chat:message_updated', onUpdated);
+      socket.on('chat:message_deleted', onDeleted);
+      socket.on('connect', onConnect);
     },
 
-    disconnectSocket: () => {
-      if (socketInstance) {
-        socketInstance.disconnect();
-        socketInstance = null;
-      }
-    }
+    unbindSocket: (socket) => {
+      if (onReceived) socket.off('chat:message_received', onReceived);
+      if (onUpdated) socket.off('chat:message_updated', onUpdated);
+      if (onDeleted) socket.off('chat:message_deleted', onDeleted);
+      if (onConnect) socket.off('connect', onConnect);
+      onReceived = null; onUpdated = null; onDeleted = null; onConnect = null;
+      if (bound === socket) bound = null;
+    },
   };
 });

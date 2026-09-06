@@ -79,3 +79,72 @@ export function downloadError(status: number, serverText = '', from = ''): strin
 /** Имя скачанного файла: с версией и без посторонних знаков в пути */
 export const installerName = (version: string): string =>
   `Flux-${String(version || '').replace(/[^0-9a-zA-Z.\-]/g, '')}.exe`;
+
+// ── Подмена программы новой версией ──────────────────────────────────────────
+//
+// Раньше подмену делал временный cmd-файл, и человек видел окно командной
+// строки, которое не закрывалось само: `detached` и `windowsHide` на Windows
+// несовместимы — при `DETACHED_PROCESS` консоль появляется, что бы ни просили.
+// А если `move` не удавался (файл ещё занят уходящей программой), повтора не
+// было вовсе: человек оставался на старой версии, считая, что обновился.
+//
+// Теперь подмену делает САМА новая версия: скачанный exe запускается с особым
+// доводом, ждёт ухода старой, кладёт себя на её место и запускает. Это
+// графическая программа — консоли у неё не бывает никогда.
+
+/** Довод, по которому запуск понимается не как запуск, а как установка */
+export const APPLY_FLAG = '--flux-apply-update';
+/** Чей уход ждать перед подменой */
+export const WAIT_FLAG = '--flux-wait-pid';
+
+export interface ApplyPlan {
+  /** Файл, который надо заменить собой */
+  target: string;
+  /** Процесс, который должен сначала уйти; 0 — ждать некого */
+  waitPid: number;
+}
+
+/**
+ * Доводы для запуска помощника. Отдельной функцией, потому что порядок и
+ * написание должны совпадать с разбором — а разбор живёт этажом ниже и
+ * проверяется тем же скриптом.
+ */
+export const applyArgs = (target: string, pid: number): string[] =>
+  [APPLY_FLAG, String(target || ''), WAIT_FLAG, String(pid | 0)];
+
+/**
+ * Разбор доводов. Пустой ответ значит «это обычный запуск программы».
+ *
+ * Путь к файлу берётся СЛЕДУЮЩИМ доводом, а не через знак равенства: у
+ * человека программа может лежать в «C:\Users\Иванов\Рабочий стол», и
+ * склейка через `=` разошлась бы с разбором на первом же пробеле.
+ */
+export function parseApplyArgs(argv: string[]): ApplyPlan | null {
+  const list = Array.isArray(argv) ? argv.map(String) : [];
+  const at = list.indexOf(APPLY_FLAG);
+  if (at < 0) return null;
+  const target = list[at + 1] || '';
+  if (!target || target.startsWith('--')) return null;
+  const pidAt = list.indexOf(WAIT_FLAG);
+  const waitPid = pidAt >= 0 ? Math.max(0, parseInt(list[pidAt + 1] || '0', 10) || 0) : 0;
+  return { target, waitPid };
+}
+
+/** Сколько ждать ухода старой программы, прежде чем считать её зависшей */
+export const WAIT_EXIT_MS = 30000;
+/** Сколько раз пробовать положить файл на место и с какой паузой */
+export const COPY_TRIES = 12;
+export const COPY_PAUSE_MS = 500;
+
+/**
+ * Стоит ли пробовать ещё раз.
+ *
+ * Занятый файл — дело времени: уходящая программа ещё держит его, и через
+ * полсекунды всё получится. А «нет такого пути» или «отказано в доступе»
+ * временем не лечится, и повторять двенадцать раз, чтобы в конце сказать то же
+ * самое, — только тянуть время у человека.
+ */
+export function retryCopy(code: string | undefined, tried: number): boolean {
+  if (tried >= COPY_TRIES) return false;
+  return code === 'EBUSY' || code === 'EPERM' || code === 'ETXTBSY' || code === 'EACCES';
+}

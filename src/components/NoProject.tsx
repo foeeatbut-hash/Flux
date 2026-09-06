@@ -10,7 +10,8 @@ import React from 'react';
 import { FolderKanban, Plus } from 'lucide-react';
 import { useStore } from '../store/store';
 import { dataService } from '../services/dataService';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { rememberSectionUse } from '../store/workspaceStore';
+import { useWindowStore } from '../store/windowStore';
 
 type Project = { id: string; name: string };
 
@@ -26,7 +27,7 @@ export default function NoProject({ what }: { what: string }) {
     return () => { alive = false; };
   }, []);
 
-  const openProjects = () => useWorkspaceStore.getState().openInActivePane('/projects');
+  const openProjects = () => { rememberSectionUse('/projects'); useWindowStore.getState().open('/projects'); };
 
   return (
     <div className="w-full h-full flex items-center justify-center p-6">
@@ -40,7 +41,7 @@ export default function NoProject({ what }: { what: string }) {
             получалось «Закупки привязано» и «Реестр тегов привязано» — из трёх
             мест верным было одно. Теперь род фразы не зависит от подстановки. */}
         <p className="text-sm text-slate-500 dark:text-dark-text-muted mt-1">
-          Раздел «{what}» ведётся по проекту. Выберите проект здесь или в левом верхнем углу.
+          Раздел «{what}» ведётся по проекту. Выберите проект здесь или в трее панели задач.
         </p>
 
         {projects === null && (

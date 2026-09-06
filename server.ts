@@ -2052,10 +2052,30 @@ app.delete('/api/projects/:id', async (req: Request, res: Response) => {
 async function notify(userId: string, category: string, title: string, body = '', targetRoute = '') {
   try {
     if (!userId) return;
-    await prisma.notification.create({ data: { userId, category, title, body, targetRoute } });
+    const row = await prisma.notification.create({ data: { userId, category, title, body, targetRoute } });
+    pushNotification(userId, row);
   } catch (err: any) {
     console.warn('[notify] err:', err?.message);
   }
+}
+
+/**
+ * Толкнуть уведомление тому, кому оно адресовано.
+ *
+ * Комната `user:<id>` уже есть — в неё сокет входит при подключении. Без этого
+ * толчка новое узнавалось только опросом раз в пятнадцать секунд, и на столько
+ * же опаздывало всплывающее окно Windows: оно поднимается из окна программы,
+ * а окно узнаёт из того же опроса. Отсюда и «сообщения приходят с огромной
+ * задержкой».
+ *
+ * Опрос при этом остаётся — страховкой на случай, когда связи не было в самый
+ * миг события.
+ */
+function pushNotification(userId: string, row: any) {
+  try {
+    if (!userId || !row) return;
+    io.to(`user:${userId}`).emit('notify:new', row);
+  } catch (_) { /* сокет мог ещё не подняться — опрос догонит */ }
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
 setBroadcaster((event, payload) => { io.emit(event, payload); });
@@ -2072,7 +2092,10 @@ async function notifyAll(category: string, title: string, body = '', targetRoute
       .filter(u => u.id !== exceptUserId)
       .map(u => ({ userId: u.id, category, title, body, targetRoute }));
     if (!rows.length) return;
-    for (const r of rows) await prisma.notification.create({ data: r });
+    for (const r of rows) {
+      const created = await prisma.notification.create({ data: r });
+      pushNotification(r.userId, created);
+    }
   } catch (err: any) {
     console.warn('[notifyAll] err:', err?.message);
   }

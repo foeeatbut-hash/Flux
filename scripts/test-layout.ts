@@ -73,20 +73,16 @@ const SKIP = new Set(['/logs', '/pdf']);
 }
 
 /**
- * Ширины окна. 1920 и 1440 — мониторы, 1280 и 1100 — ноутбуки, 960 и 820 —
- * окно, ужатое в половину экрана. В одной панели раздел обязан держаться на
- * всех шести; в четырёх — начиная с 960 (см. QUAD_MIN_WINDOW ниже).
+ * Ширины экрана. 1920 и 1440 — мониторы, 1280 и 1100 — ноутбуки, 960 и 820 —
+ * окно, ужатое в половину экрана. Раздел обязан держаться на всех шести.
+ *
+ * Меряется при этом ОКНО, а не экран: разделы отступают от своего окна, и
+ * ширина стола им ничего не говорит. Раньше здесь было два прохода — одна
+ * панель и четыре, — потому что панельная оболочка давала разделу то целый
+ * экран, то его четверть. Панелей больше нет: окно и есть панель, только
+ * двигается, и узкий случай даёт узкий экран.
  */
 const WIDTHS = [1920, 1440, 1280, 1100, 960, 820];
-
-/**
- * В четырёх панелях мерим окно от 960: это даёт панель 372 px — уже тесно,
- * но работать можно. Ниже начинается 302 px на раздел, то есть уже́ телефона,
- * и подпирать вёрстку под такое означало бы ухудшать её для всех остальных.
- * Порог объявлен здесь, а не спрятан в списке исключений: если решим его
- * двигать, это будет видно в истории одной строкой.
- */
-const QUAD_MIN_WINDOW = 960;
 
 /**
  * Мелочи, которые проба видит, а дефектом они не являются. Список короткий
@@ -133,15 +129,6 @@ const TOLERANCE = 4;
   const page = await browser.newPage({ viewport: { width: 1920, height: 1000 } });
   const jsErrors: string[] = [];
   page.on('pageerror', (e: any) => jsErrors.push(String(e.message).slice(0, 160)));
-
-  // Меряем панельную оболочку, а не оконную. Обход ходит по разделам сменой
-  // адреса и опирается на кнопки раскладки «Одно окно» / «Четыре панели» — они
-  // есть только в панелях. В оконной оболочке (она теперь стоит по умолчанию)
-  // раздел живёт в окне произвольного размера, и «ширина панели» перестаёт
-  // что-либо значить: проверка мерила бы стол и панель задач.
-  await page.addInitScript(() => {
-    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
-  });
 
   // Лицензия проверяется подписью, приватного ключа в репозитории нет —
   // подменяем только ответ проверки, код программы не трогаем
@@ -215,7 +202,7 @@ const TOLERANCE = 4;
   })`;
 
   const paneWidth = () => page.evaluate(String.raw`(() => {
-    const p = document.querySelector('[data-pane]');
+    const p = document.querySelector('[data-window-body]');
     return p ? Math.round(p.getBoundingClientRect().width) : 0;
   })()`) as Promise<number>;
 
@@ -236,7 +223,7 @@ const TOLERANCE = 4;
     await inputs[1].fill(LOGIN.password);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(8000);
-    ok('вход выполнен', await page.evaluate(() => /Главная|РАЗДЕЛЫ/.test(document.body.innerText)));
+    ok('вход выполнен', await page.evaluate(() => !!document.querySelector('[data-taskbar]')));
 
     // Без выбранного проекта пять разделов показывают заглушку, и таблицы —
     // ровно то, что надо смотреть при сжатии — вообще не рисуются
@@ -263,45 +250,40 @@ const TOLERANCE = 4;
       fs.mkdirSync(SHOTS, { recursive: true });
     }
 
-    for (const [modeName, quad] of [['одна панель', false], ['четыре панели', true]] as [string, boolean][]) {
-      console.log(`\n2. Обход: ${modeName}`);
-      const btn = quad ? 'Четыре панели' : 'Одно окно';
-      await page.getByRole('button', { name: btn }).first().click({ timeout: 4000 }).catch(() => {});
-      await page.waitForTimeout(2000);
+    console.log('\n2. Обход разделов: меряем ОКНО, а не стол');
+    for (const [name, path] of SECTIONS) {
+      // Через адрес: оболочка сама заводит окно, увидев новый адрес
+      await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
+      await page.waitForTimeout(3200);
 
-      for (const [name, path] of SECTIONS) {
-        // Через адрес: на Главной левого меню нет вовсе (в режиме одного окна
-        // оно скрыто), поэтому кликом по пункту туда не попасть
-        await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
-        await page.waitForTimeout(3200);
+      const bad: string[] = [];
+      for (const w of WIDTHS) {
+        await page.setViewportSize({ width: w, height: 950 });
+        await page.waitForTimeout(900);
+        // Корень измерения — тело окна: разделы отступают от него, а не от
+        // экрана, и мерить надо ровно то, что видит раздел
+        const p: any = await page.evaluate(`(${PROBE})('[data-window-body]')`);
+        const pw = await paneWidth();
 
-        const bad: string[] = [];
-        for (const w of WIDTHS.filter((x) => !quad || x >= QUAD_MIN_WINDOW)) {
-          await page.setViewportSize({ width: w, height: 950 });
-          await page.waitForTimeout(900);
-          const p: any = await page.evaluate(`(${PROBE})(${quad ? "'[data-pane]'" : 'null'})`);
-          const pw = await paneWidth();
+        const over = real(p.overflow);
+        const cut = real(p.clipped);
+        const tiny = real(p.tiny);
+        const zero = real(p.zero);
 
-          const over = real(p.overflow);
-          const cut = real(p.clipped);
-          const tiny = real(p.tiny);
-          const zero = real(p.zero);
+        if (over.length) bad.push(`окно ${pw}: шире места ${over.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
+        if (cut.length) bad.push(`окно ${pw}: обрезано без многоточия ${cut.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
+        if (tiny.length) bad.push(`окно ${pw}: мелкая цель ${tiny.map((x: any) => `«${x.text || x.cls.slice(0, 24)}» ${x.w}×${x.h}`).slice(0, 2).join(', ')}`);
+        if (zero.length) bad.push(`окно ${pw}: схлопнулось «${zero[0].text}»`);
 
-          if (over.length) bad.push(`панель ${pw}: шире места ${over.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
-          if (cut.length) bad.push(`панель ${pw}: обрезано без многоточия ${cut.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
-          if (tiny.length) bad.push(`панель ${pw}: мелкая цель ${tiny.map((x: any) => `«${x.text || x.cls.slice(0, 24)}» ${x.w}×${x.h}`).slice(0, 2).join(', ')}`);
-          if (zero.length) bad.push(`панель ${pw}: схлопнулось «${zero[0].text}»`);
-
-          if (SHOTS) {
-            await page.screenshot({ path: `${SHOTS}/${quad ? 'quad' : 'one'}-${path.replace(/\W/g, '') || 'home'}-${w}.png` });
-          }
+        if (SHOTS) {
+          await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}-${w}.png` });
         }
-        ok(`${name} держит раскладку на всех ширинах`, bad.length === 0, bad.slice(0, 3));
       }
-
-      await page.setViewportSize({ width: 1920, height: 1000 });
-      await page.waitForTimeout(600);
+      ok(`${name} держит раскладку на всех ширинах`, bad.length === 0, bad.slice(0, 3));
     }
+
+    await page.setViewportSize({ width: 1920, height: 1000 });
+    await page.waitForTimeout(600);
 
     console.log('\n3. Тишина в консоли за весь обход');
     ok('ни исключений, ни ошибок отрисовки', jsErrors.length === 0, Array.from(new Set(jsErrors)).slice(0, 5));

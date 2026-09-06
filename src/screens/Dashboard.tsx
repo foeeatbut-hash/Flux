@@ -17,7 +17,8 @@ import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
 import { useInsightStore } from '../store/insightStore';
 import { fetchCheck, fetchSearch, type SearchHit } from '../lib/insight';
-import { useWorkspaceStore, sectionUses, recentSections } from '../store/workspaceStore';
+import { rememberSectionUse, sectionUses, recentSections } from '../store/workspaceStore';
+import { useWindowStore } from '../store/windowStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { SECTIONS } from '../workspace/sections';
@@ -60,7 +61,8 @@ const KIND_LABEL: Record<Hit['kind'], string> = {
 export default function Dashboard() {
   const { user, activeProject, setActiveProject } = useStore();
   const { addToast } = useToastStore();
-  const open = useWorkspaceStore((s) => s.openInActivePane);
+  // Разделы открываются окнами: панелей больше нет
+  const open = (path: string) => { rememberSectionUse(path); useWindowStore.getState().open(path); };
   const setFocusTarget = useShareStore((s) => s.setFocusTarget);
 
   // Открыть найденный тег не «где-то в реестре», а прямо на нём: раздел
@@ -118,10 +120,10 @@ export default function Dashboard() {
     return () => { alive = false; };
   }, [activeProject?.id]);
 
-  // Состав открытых разделов: меняется при любой навигации. Главный экран
+  // Состав открытых окон: меняется при любом открытии раздела. Главный экран
   // остаётся смонтированным, поэтому списки пересобираем по нему — иначе
   // они показывали бы то, что было при первом входе.
-  const panes = useWorkspaceStore((s) => s.panes);
+  const openWindows = useWindowStore((s) => s.windows);
 
   // ── Разделы: порядок по частоте использования ──────────────────────────────
   const sections = useMemo(() => {
@@ -130,14 +132,14 @@ export default function Dashboard() {
       .filter((s) => s.path !== '/' && s.path !== '/logs')
       .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
     return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
-  }, [user?.role, loading, panes]);
+  }, [user?.role, loading, openWindows]);
 
   const recent = useMemo(() => {
     return recentSections()
       .map((path) => SECTIONS.find((s) => s.path === path))
       .filter((s): s is (typeof SECTIONS)[number] => !!s && s.path !== '/')
       .slice(0, 4);
-  }, [loading, panes]);
+  }, [loading, openWindows]);
 
   // ── Поиск по всему сразу ───────────────────────────────────────────────────
   const [query, setQuery] = useState('');

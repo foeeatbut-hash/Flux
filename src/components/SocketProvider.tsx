@@ -5,6 +5,8 @@ import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { isNewer } from '../lib/updates';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
+import { useNotificationStore } from '../store/notificationStore';
+import { useChatStore } from '../store/chatStore';
 import { useNavigate } from 'react-router-dom';
 
 // ── Реальное соединение socket.io — всегда ──
@@ -194,6 +196,19 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       addToast(`Опубликовано обновление Flux v${data.version} — откройте Настройки, чтобы установить.`, 'info');
     };
 
+    /**
+     * Уведомление, толкнутое сервером.
+     *
+     * Раньше новое узнавалось только опросом раз в пятнадцать секунд, и на
+     * столько же опаздывало окошко Windows: его поднимает окно программы, а
+     * окно узнавало из того же опроса. Теперь путь один и тот же — `ingest`
+     * делает ровно то, что делал опрос, — поэтому всплывашка, звук, счётчик и
+     * окошко Windows работают без единой правки.
+     */
+    const handleNotify = (row: any) => {
+      if (row) useNotificationStore.getState().ingest([row]);
+    };
+
     // Кто в сети: список целиком при подключении, дальше по одному событию
     const handlePresenceList = (d: { online?: string[]; lastSeen?: Record<string, number> }) =>
       usePresenceStore.getState().setList(d?.online || [], d?.lastSeen || {});
@@ -210,6 +225,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
     activeSocket.on('app:update-published', handleUpdatePublished);
     activeSocket.on('entity:changed', handleEntityChanged);
+    activeSocket.on('notify:new', handleNotify);
+    // Переписка слушается ОБЩИМ сокетом и всегда, а не только при открытом
+    // Мессенджере: своего соединения у чата больше нет
+    useChatStore.getState().bindSocket(activeSocket, userId);
 
     return () => {
       activeSocket.off('presence:list', handlePresenceList);
@@ -220,6 +239,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
       activeSocket.off('app:update-published', handleUpdatePublished);
       activeSocket.off('entity:changed', handleEntityChanged);
+      activeSocket.off('notify:new', handleNotify);
+      useChatStore.getState().unbindSocket(activeSocket);
       activeSocket.disconnect();
     };
   }, [addToast, navigate, userId, token]);

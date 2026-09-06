@@ -148,8 +148,6 @@ export default function ChatManagement() {
     openFile,
     startPolling,
     stopPolling,
-    setupSocket,
-    disconnectSocket,
     pendingGroupName,
     pendingDraft,
     clearPending,
@@ -306,16 +304,11 @@ export default function ChatManagement() {
     return () => clearTimeout(delayDebounce);
   }, [activeTagQuery, activeProject?.id]);
 
-  // Sync messaging
+  // Переписку слушает общий сокет оболочки (SocketProvider) и слушает всегда.
+  // Здесь остаётся только страховочный опрос открытого разговора
   useEffect(() => {
-    if (user?.id) {
-      setupSocket(user.id);
-      startPolling(user.id);
-    }
-    return () => {
-      stopPolling();
-      disconnectSocket();
-    };
+    if (user?.id) startPolling(user.id);
+    return () => stopPolling();
   }, [user?.id, activeReceiverId, activeGroupId]);
 
   /**

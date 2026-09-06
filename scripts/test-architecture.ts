@@ -121,7 +121,22 @@ const HAND_TOKEN = /Authorization['"`\s:]+[^\n]*localStorage\.getItem/;
 const handToken = SRC.filter((f) => f !== 'src/config/env.ts' && HAND_TOKEN.test(read(f)));
 ok('токен сессии никто не подставляет руками', handToken.length === 0, handToken);
 
-console.log('6. Размер файлов не растёт (храповик)');
+console.log('6. Оболочка одна: панелей и левого меню нет');
+// Оболочек было три — окна, панели рабочего стола и старое меню слева. Две
+// убраны: разделы открываются окнами, и другого способа нет. Проверка стоит
+// затем, чтобы ветка «а вдруг панели» не завелась заново — она заводится
+// незаметно, одним `if`, и тянет за собой второй способ показать то же самое
+{
+  const GONE = ['flux_taskbar', 'ShellMode', 'openInActivePane', 'visiblePanes', 'WorkspaceRailControls'];
+  for (const word of GONE) {
+    const hit = SRC.filter((f) => read(f).includes(word));
+    ok(`в src/ не осталось «${word}»`, hit.length === 0, hit);
+  }
+  const files = ['src/components/Workspace.tsx', 'src/components/RightRail.tsx'];
+  for (const f of files) ok(`${f} удалён`, !SRC.includes(f));
+}
+
+console.log('7. Размер файлов не растёт (храповик)');
 // Крупные файлы достались из истории проекта. Правило простое: новый файл не
 // должен рождаться большим, а старый — расти. Уменьшать записанные числа после
 // выноса кода в отдельные модули не только можно, но и нужно.
@@ -140,7 +155,8 @@ const LEGACY: Record<string, number> = {
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
   'src/screens/ConstructorScreen.tsx': 1905,
-  'src/screens/SettingsScreen.tsx': 1530,
+  // Выбор оболочки ушёл вместе с панелями и левым меню — планка ниже
+  'src/screens/SettingsScreen.tsx': 1494,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
   // Приветствие уехало туда же (assistant/greeting), но файл всё равно чуть
   // выше планки: поднимать её не за что, живём в допуске
@@ -268,9 +284,10 @@ ok(`truncate не стоит на flex-контейнере (найдено: ${t
 // Исключения перечисляем поимённо и с причиной: раздел, до которого нельзя
 // дотянуться, — это раздел, которого для человека нет.
 const REACHABLE_ELSEWHERE: Record<string, string> = {
-  '/settings': 'кнопка внизу левого меню',
+  '/': 'кнопка «показать стол» у края панели задач и значки на столе',
+  '/settings': 'кнопка «шестерёнка» в подвале Пуска',
   '/logs': 'карточки на Главной',
-  '/handbook': 'кнопка «Справка» на правом рельсе и F1',
+  '/handbook': 'кнопка «Справка» в трее панели задач и F1',
   // Чертёж открывается двойным нажатием по файлу PDF в Проводнике. В меню его
   // нет намеренно: без файла показывать нечего, а пустой раздел «Чертёж» —
   // это обещание, которое некому исполнить
@@ -281,14 +298,25 @@ const REACHABLE_ELSEWHERE: Record<string, string> = {
   '/assistant': 'кнопка помощника в трее, строка Ctrl+K, «Открыть окном» в панели',
 };
 {
+  // Единственное меню разделов — Пуск. Он раскладывает их по объявленной
+  // области: «Проект», «Общее» и семья Flux Office. Раздел со смешанной
+  // областью в группы не попадает — значит вход к нему обязан быть назван
+  // здесь поимённо
   const sectionsSrc = read('src/workspace/sections.tsx');
-  const layoutSrc = read('src/components/Layout.tsx');
-  const paths = [...sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'/g)].map((m) => m[1]);
-  const unreachable = paths.filter((p) => {
-    if (REACHABLE_ELSEWHERE[p]) return false;
-    return !new RegExp(`path: '${p.replace('/', '\\/')}'`).test(layoutSrc);
-  });
-  ok(`каждый раздел открывается из меню (недоступных: ${unreachable.length})`, unreachable.length === 0, unreachable);
+  const startSrc = read('src/lib/startMenu.ts');
+  const office = new Set(
+    [...(startSrc.match(/OFFICE_PATHS[^\]]*\]/) || [''])[0].matchAll(/'([^']+)'/g)].map((m) => m[1]),
+  );
+  const scoped = [...sectionsSrc.matchAll(/path: '([^']+)'[^\n]*?scope: '([a-z]+)'/g)]
+    .map((m) => ({ path: m[1], scope: m[2] }));
+  const unreachable = scoped
+    .filter((e) => !REACHABLE_ELSEWHERE[e.path])
+    .filter((e) => !office.has(e.path) && e.scope !== 'project' && e.scope !== 'global')
+    .map((e) => e.path);
+  ok(`каждый раздел открывается из Пуска (недоступных: ${unreachable.length})`, unreachable.length === 0, unreachable);
+  ok('оговорки не протухли: каждая указывает на существующий раздел',
+    Object.keys(REACHABLE_ELSEWHERE).every((p) => scoped.some((e) => e.path === p)),
+    Object.keys(REACHABLE_ELSEWHERE).filter((p) => !scoped.some((e) => e.path === p)));
 }
 
 // ── Чьи данные в разделе: проектные или общие ──
@@ -300,8 +328,6 @@ const REACHABLE_ELSEWHERE: Record<string, string> = {
 console.log('\n8. Область данных раздела');
 {
   const sectionsSrc = read('src/workspace/sections.tsx');
-  const layoutSrc = read('src/components/Layout.tsx');
-
   const entries = [...sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'[^\n]*?scope: '([a-z]+)'/g)]
     .map((m) => ({ path: m[1], title: m[2], scope: m[3] }));
   const paths = [...sectionsSrc.matchAll(/\{ path: '([^']+)'/g)].map((m) => m[1]);
@@ -314,26 +340,16 @@ console.log('\n8. Область данных раздела');
   const strange = entries.filter((e) => !allowed.includes(e.scope));
   ok('областей всего три: проектная, общая, смешанная', strange.length === 0, strange);
 
-  // Группы левого меню: от подписи группы до следующей подписи или до конца.
-  const groupPaths = (label: string): string[] => {
-    const start = layoutSrc.indexOf(`label: '${label}'`);
-    if (start < 0) return [];
-    const rest = layoutSrc.slice(start + label.length);
-    const end = rest.search(/\{ label: '|\n  \];/);
-    return [...(end > 0 ? rest.slice(0, end) : rest).matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
-  };
+  // Пуск раскладывает разделы по ОБЪЯВЛЕННОЙ области, а не по своему списку:
+  // пока список был отдельным (в левом меню), он мог молча разойтись с
+  // реестром — раздел переезжал в другую группу, а подпись над ним начинала
+  // врать. Теперь расходиться нечему, и проверять надо ровно это
+  const startSrc = read('src/lib/startMenu.ts');
+  ok('группа «Проект» берётся из области раздела', startSrc.includes("s.scope === 'project'"));
+  ok('группа «Общее» — тоже', startSrc.includes("s.scope === 'global'"));
+  ok('в Layout больше нет своего списка разделов', !read('src/components/Layout.tsx').includes('navGroups'));
 
-  for (const [label, want] of [['Проект', 'project'], ['Общее', 'global']] as const) {
-    const inMenu = groupPaths(label);
-    ok(`группа меню «${label}» непуста`, inMenu.length > 0, inMenu);
-    const wrong = inMenu.filter((p) => {
-      const e = entries.find((x) => x.path === p);
-      return !e || e.scope !== want;
-    });
-    ok(`в группе «${label}» только разделы с областью «${want}»`, wrong.length === 0, wrong);
-  }
-
-  // Разделы, до которых из меню не дотянуться, области тоже обязаны объявить —
+  // Разделы, до которых из Пуска не дотянуться, области тоже обязаны объявить —
   // на них смотрит руководство и помощник.
   const orphan = entries.filter((e) => e.scope === 'mixed').map((e) => e.path);
   ok('смешанных разделов немного (Главная и Настройки)', orphan.length <= 2, orphan);

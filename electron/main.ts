@@ -6,19 +6,31 @@ import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog } from './logs';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
-import { sameServer, badPackage, downloadError } from './updates';
+import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
+import { applyUpdate } from './applyUpdate';
+
+/**
+ * Запуск с доводом подмены — это не запуск программы, а её установка.
+ *
+ * Разбирается ПЕРВЫМ делом и мимо замка одиночного запуска: старая версия в
+ * этот миг ещё работает, и замок закрыл бы помощника прежде, чем тот успел бы
+ * что-нибудь сделать. Окна помощник тоже не создаёт — ему нечего показывать.
+ */
+const APPLY = parseApplyArgs(process.argv);
 
 const additionalData = { myKey: 'pdm-system' };
-const gotTheLock = app.requestSingleInstanceLock(additionalData);
-if (!gotTheLock) {
-  app.quit();
-} else {
-  app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
+if (!APPLY) {
+  const gotTheLock = app.requestSingleInstanceLock(additionalData);
+  if (!gotTheLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  }
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -89,6 +101,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Помощник подмены: ни меню, ни сервера, ни окна — только заменить файл и уйти
+  if (APPLY) { void applyUpdate(APPLY); return; }
+
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
 
@@ -888,19 +903,20 @@ app.whenReady().then(() => {
   /**
    * Установка скачанного с перезапуском.
    *
-   * Портативный exe не может переписать сам себя, пока работает, поэтому
-   * подмену делает отдельный сценарий: ждёт выхода программы, кладёт новый exe
-   * на место старого (то же имя, тот же ярлык) и запускает его.
+   * Портативный exe не может переписать сам себя, пока работает. Раньше подмену
+   * делал временный cmd-файл, и человек видел окно командной строки, которое не
+   * закрывалось само: `detached` и `windowsHide` на Windows несовместимы — при
+   * `DETACHED_PROCESS` консоль появляется, о чём ни проси. А если `move` не
+   * удавался (файл ещё занят уходящей программой), повтора не было вовсе:
+   * человек оставался на старой версии, считая, что обновился.
    *
-   * Пути в сценарий передаются ПЕРЕМЕННЫМИ ОКРУЖЕНИЯ, а не текстом. Текст
-   * cmd-файла читается в кодировке консоли, и путь вида
-   * C:\Users\Иванов\Рабочий стол\Flux.exe превратился бы в мусор — подмена
-   * прошла бы мимо файла, и человек остался бы со старой версией, считая, что
-   * обновился. Переменные окружения передаются мимо кодировки файла.
+   * Теперь подмену делает САМА новая версия: скачанный exe запускается с
+   * доводом `--flux-apply-update`, ждёт ухода этой программы, кладёт себя на её
+   * место и запускает. Это графическая программа — консоли у неё не бывает
+   * никогда, а повторы и внятный отказ живут в electron/applyUpdate.ts.
    */
   ipcMain.handle('updater:quitAndInstall', () => {
     const fs = require('fs');
-    const path = require('path');
     const { spawn } = require('child_process');
 
     if (!latestCachedUpdate) {
@@ -916,34 +932,21 @@ app.whenReady().then(() => {
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
-        const scriptPath = path.join(app.getPath('temp'), `flux-update-${Date.now()}.cmd`);
-        const script = [
-          '@echo off',
-          ':wait',
-          // Ждём выхода этой программы: пока процесс жив, файл занят
-          `tasklist /FI "PID eq ${process.pid}" 2>nul | find "${process.pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)`,
-          'move /y "%FLUX_NEW%" "%FLUX_EXE%" >nul',
-          'if errorlevel 1 (start "" "%FLUX_EXE%" & del "%~f0" & exit /b)',
-          'start "" "%FLUX_EXE%"',
-          'del "%~f0"',
-        ].join('\r\n');
-        fs.writeFileSync(scriptPath, script, 'ascii');
         appendLog('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
-        const child = spawn('cmd.exe', ['/c', scriptPath], {
+        const child = spawn(installerPath, applyArgs(portableExe, process.pid), {
           detached: true, stdio: 'ignore', windowsHide: true,
-          env: { ...process.env, FLUX_NEW: installerPath, FLUX_EXE: portableExe },
         });
         child.unref();
       } else {
         appendLog('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
-        const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', shell: true });
+        const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
       }
 
       // Окно убираем сразу, не дожидаясь выхода: человек нажал одну кнопку и
       // должен увидеть, что дело пошло, а не гадать, услышали ли его
       try { mainWindow?.hide(); } catch (_) { /* окна может уже не быть */ }
-      // Выходим следом: сценарий ждёт именно этого, чтобы освободить файл
+      // Выходим следом: помощник ждёт именно этого, чтобы освободить файл
       setTimeout(() => app.exit(0), 400);
       return { success: true };
     } catch (err: any) {

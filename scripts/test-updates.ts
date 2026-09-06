@@ -13,7 +13,10 @@
 // главный процесс качает файл и объясняет отказ. Проверяются вместе — сбой
 // обновления одинаково плох с любой стороны границы
 import { isNewer, fileUrlOf, blocker, phaseLabel, versionFromFileName, versionProblem } from '../src/lib/updates';
-import { sameServer, installerName, badPackage, downloadError, MIN_EXE_BYTES } from '../electron/updates';
+import {
+  sameServer, installerName, badPackage, downloadError, MIN_EXE_BYTES,
+  applyArgs, parseApplyArgs, retryCopy, APPLY_FLAG, WAIT_FLAG, COPY_TRIES,
+} from '../electron/updates';
 // Со стороны сервера — выбор релиза: предлагать можно только то, что реально
 // можно скачать
 import { pickRelease, chunkSizeFor, CHUNK_MAX, CHUNK_MIN } from '../server/updates';
@@ -184,6 +187,38 @@ console.log('Ход дела одной строкой');
   check('этап проверки назван', phaseLabel('verifying').includes('Проверяю'));
   check('этап установки объясняет закрытие', phaseLabel('installing').includes('Закрываюсь'));
   check('в покое строки нет', phaseLabel('idle') === '');
+}
+
+console.log('Подмена программы: доводы, ожидание и повторы');
+{
+  // Доводы собирает одна функция, а разбирает другая; разойдись они — человек
+  // получил бы вместо обновления вторую копию программы, запущенную впустую
+  const args = applyArgs('C:\\Users\\Иванов\\Рабочий стол\\Flux.exe', 4242);
+  const plan = parseApplyArgs(['C:/tmp/Flux-1.0.0.exe', ...args]);
+  check('разбор понимает собранное', !!plan);
+  check('путь дошёл целиком', plan?.target === 'C:\\Users\\Иванов\\Рабочий стол\\Flux.exe', plan?.target);
+  check('чей уход ждать — дошло', plan?.waitPid === 4242, plan?.waitPid);
+
+  // Путь с пробелами — обычное дело: «Рабочий стол» есть у каждого. Склейка
+  // через знак равенства разошлась бы с разбором на первом же пробеле
+  check('путь передаётся отдельным доводом, а не через =',
+    args[0] === APPLY_FLAG && args[1].includes(' ') && !args[0].includes('='), args.slice(0, 2));
+  check('довод ожидания на своём месте', args[2] === WAIT_FLAG);
+
+  check('обычный запуск подменой не считается', parseApplyArgs(['Flux.exe', '--minimized']) === null);
+  check('пустой список не роняет разбор', parseApplyArgs([]) === null);
+  check('довод без пути ничего не подменяет',
+    parseApplyArgs([APPLY_FLAG, WAIT_FLAG, '12']) === null);
+  check('без pid подмена всё равно возможна',
+    parseApplyArgs([APPLY_FLAG, 'C:/Flux.exe'])?.waitPid === 0);
+
+  // Занятый файл лечится временем, «нет такого пути» — нет. Двенадцать попыток
+  // сказать одно и то же — только тянуть время у человека
+  check('занятый файл — пробуем ещё', retryCopy('EBUSY', 1));
+  check('отказ в доступе — тоже (программа ещё уходит)', retryCopy('EPERM', 3));
+  check('нет такого пути — не пробуем', !retryCopy('ENOENT', 1));
+  check('без кода ошибки не пробуем', !retryCopy(undefined, 1));
+  check('после потолка попыток не пробуем', !retryCopy('EBUSY', COPY_TRIES));
 }
 
 if (failed) {

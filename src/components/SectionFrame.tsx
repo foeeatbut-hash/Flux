@@ -15,6 +15,7 @@ import {
 } from 'react-router-dom';
 import type { Location, To } from 'react-router-dom';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWindowStore } from '../store/windowStore';
 import { sectionForPath } from '../workspace/sections';
 import { useStore } from '../store/store';
 import SectionErrorBoundary from './SectionErrorBoundary';
@@ -58,7 +59,7 @@ export default function SectionFrame({
   const def = sectionForPath(path);
   const user = useStore((s) => s.user);
   const setFrozenHref = useWorkspaceStore((s) => s.setFrozenHref);
-  const closeInPane = useWorkspaceStore((s) => s.closeInPane);
+  const dropFrozen = useWorkspaceStore((s) => s.dropFrozen);
   const initialHref = useWorkspaceStore.getState().frozenHrefs[`${paneId}::${path}`];
   const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(href || initialHref || path));
 
@@ -156,9 +157,16 @@ export default function SectionFrame({
       <PaneContext.Provider value={paneId}>
       <UNSAFE_NavigationContext.Provider value={navContext}>
         <UNSAFE_LocationContext.Provider value={locContext}>
-          {/* Граница внутри панели: сбой одного раздела не должен уносить
-              соседние — они смонтированы рядом и держат несохранённые правки */}
-          <SectionErrorBoundary title={def.title} onClose={() => closeInPane(paneId, path)}>
+          {/* Граница внутри окна: сбой одного раздела не должен уносить
+              соседние — они смонтированы рядом и держат несохранённые правки.
+              «Закрыть» закрывает ОКНО: раньше здесь звали закрытие вкладки
+              панели с ключом вида `win:<id>`, которого среди панелей не было
+              никогда, и кнопка тихо не делала ничего */}
+          <SectionErrorBoundary title={def.title} onClose={() => {
+            dropFrozen(paneId, path);
+            const id = paneId.startsWith('win:') ? paneId.slice(4) : '';
+            if (id) useWindowStore.getState().close(id);
+          }}>
             <Suspense fallback={<div className="w-full h-full flex items-center justify-center py-24"><div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" /></div>}>
               <Comp />
             </Suspense>

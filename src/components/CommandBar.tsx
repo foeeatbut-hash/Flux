@@ -163,11 +163,7 @@ export default function CommandBar() {
       case 'navigate': close(); navigate(r.route); return;
       case 'newWindow':
         close();
-        // В оконной оболочке — второе окно программы; в панельной окон нет, и
-        // честнее просто открыть раздел, чем делать вид, что открылось второе
-        if (useWindowStore.getState().windows.length || localStorage.getItem('flux_taskbar') === 'windows') {
-          useWindowStore.getState().openAnother(r.route);
-        } else navigate(r.route);
+        useWindowStore.getState().openAnother(r.route);
         return;
       case 'handbook': close(); navigate(`/handbook?article=${encodeURIComponent(r.articleId)}`); return;
       case 'ask': close(); setAssistantOpen(true); askAssistant(r.query); return;
