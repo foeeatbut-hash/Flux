@@ -211,14 +211,22 @@ function MonthView({ anchor, list, onDay, onEvent }: {
           const today = sameDay(day, Date.now());
           const other = !inMonth(day, month);
           return (
-            <button key={day} type="button" onClick={() => onDay(day + 10 * HOUR)}
+            /* Клетка дня — не кнопка. Кнопкой она была, а внутри неё стояли
+               кнопки событий: разметка недопустимая, и React ругался на каждой
+               отрисовке месяца. Ругань по устройству программы попадает в
+               Журнал, и он засорялся при каждом открытии Календаря. Теперь
+               кнопка одна — число дня, за неё же берётся клавиатура, — а
+               нажатие по пустому месту клетки открывает день как раньше */
+            <div key={day} role="gridcell" onClick={() => onDay(day + 10 * HOUR)}
               className={`min-h-[92px] p-1 border-b border-r border-slate-100 dark:border-slate-850 text-left
                           align-top cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60
                           ${other ? 'bg-slate-50/60 dark:bg-slate-900/30' : ''}`}>
-              <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-2xs font-semibold mb-1
+              <button type="button" onClick={(e) => { e.stopPropagation(); onDay(day + 10 * HOUR); }}
+                title={`Открыть ${new Date(day).toLocaleDateString('ru-RU')}`}
+                className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-2xs font-semibold mb-1 cursor-pointer
                                 ${today ? 'bg-emerald-600 text-white' : other ? 'text-slate-300 dark:text-slate-500' : 'text-slate-500 dark:text-slate-400'}`}>
                 {new Date(day).getDate()}
-              </span>
+              </button>
               <div className="space-y-0.5">
                 {items.slice(0, 3).map((o) => (
                   <Chip key={`${o.event.id}-${o.startsAt}`} o={o} onClick={() => onEvent(o)} />
@@ -227,7 +235,7 @@ function MonthView({ anchor, list, onDay, onEvent }: {
                   <span className="block px-1 text-2xs text-slate-400">ещё {items.length - 3}</span>
                 )}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -284,12 +292,16 @@ function DayView({ anchor, list, onEvent, onAt }: {
         const at = day + h * HOUR;
         const inHour = items.filter((o) => o.startsAt >= at && o.startsAt < at + HOUR);
         return (
-          <button key={h} type="button" onClick={() => onAt(at)}
+          /* Строка часа — по той же причине не кнопка: внутри стоят кнопки
+             событий. Кнопка здесь одна — сам час */
+          <div key={h} onClick={() => onAt(at)}
             className="w-full flex items-start gap-3 px-2 py-1 text-left cursor-pointer rounded-lg
                        hover:bg-slate-50 dark:hover:bg-slate-900/60">
-            <span className="shrink-0 w-10 pt-0.5 text-2xs font-mono text-slate-400 tabular-nums">
+            <button type="button" onClick={(e) => { e.stopPropagation(); onAt(at); }}
+              title={`Создать событие на ${String(h).padStart(2, '0')}:00`}
+              className="shrink-0 w-10 pt-0.5 text-2xs font-mono text-slate-400 tabular-nums text-left cursor-pointer">
               {String(h).padStart(2, '0')}:00
-            </span>
+            </button>
             <span className="flex-1 min-w-0 space-y-1 border-t border-slate-100 dark:border-slate-850 pt-1">
               {inHour.map((o) => (
                 <span key={`${o.event.id}-${o.startsAt}`} className="block">
@@ -297,7 +309,7 @@ function DayView({ anchor, list, onEvent, onAt }: {
                 </span>
               ))}
             </span>
-          </button>
+          </div>
         );
       })}
     </div>

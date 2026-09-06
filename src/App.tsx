@@ -20,6 +20,7 @@ import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
 import { Z } from './lib/layers';
+import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from './lib/metrics';
 import { useWindowStore } from './store/windowStore';
 import { SECTIONS } from './workspace/sections';
 
@@ -77,7 +78,7 @@ function ElectronTitleBar() {
   React.useEffect(() => {
     if (!isElectron) return;
     const onMove = (e: MouseEvent) => {
-      if (e.clientY <= 8) {
+      if (e.clientY <= FRAME_LURE) {
         clearTimeout(hideTimer.current);
         setNear(true);
         return;
@@ -103,7 +104,7 @@ function ElectronTitleBar() {
   // её нет вовсе — он и так 306×150 без рамок
   if (!isElectron || location.pathname === '/sticker' || location.pathname === '/capture') return null;
 
-  const WIDTH = 168;
+  const WIDTH = FRAME_W;
   const left = Math.round(
     x === null ? Math.max(8, (window.innerWidth - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, window.innerWidth - WIDTH - 8)),
   );
@@ -133,7 +134,8 @@ function ElectronTitleBar() {
     try { localStorage.setItem('flux_frame_pin', next ? '1' : '0'); } catch (_) { /* приватный режим */ }
   };
 
-  const btn = 'w-9 h-7 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer';
+  const btn = 'flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer';
+  const btnBox = { width: FRAME_BTN, height: FRAME_H - 8 } as React.CSSProperties;
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
   return (
@@ -143,8 +145,8 @@ function ElectronTitleBar() {
       <div
         aria-hidden
         onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
-        style={{ zIndex: Z.frame, left, width: WIDTH }}
-        className="fixed top-0 h-2"
+        style={{ zIndex: Z.frame, left, width: WIDTH, height: FRAME_LURE }}
+        className="fixed top-0"
       />
 
       <div
@@ -153,14 +155,15 @@ function ElectronTitleBar() {
         style={{
           zIndex: Z.frame,
           left,
-          top: visible ? 6 : -40,
+          top: visible ? 6 : -(FRAME_H + 8),
           width: WIDTH,
+          height: FRAME_H,
           transition: 'top 160ms ease',
           WebkitAppRegion: 'drag',
         } as React.CSSProperties}
         onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
         onDoubleClick={() => wc?.maximize?.()}
-        className="fixed h-8 flex items-center gap-0.5 pl-1 pr-1 rounded-xl select-none
+        className="fixed flex items-center gap-0.5 pl-1 pr-1 rounded-xl select-none
                    bg-slate-900/95 border border-slate-700 shadow-2xl backdrop-blur-sm"
       >
         <button
@@ -169,8 +172,8 @@ function ElectronTitleBar() {
           onClick={flipPin}
           title={pinned ? 'Открепить — панелька будет прятаться' : 'Приколоть панельку; потяните, чтобы сдвинуть'}
           aria-label="Приколоть или сдвинуть панельку"
-          style={noDrag}
-          className={`w-7 h-7 flex items-center justify-center cursor-grab active:cursor-grabbing rounded-lg
+          style={{ ...noDrag, width: FRAME_GRIP, height: FRAME_GRIP }}
+          className={`flex items-center justify-center cursor-grab active:cursor-grabbing rounded-lg
                       ${pinned ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4">
@@ -178,14 +181,18 @@ function ElectronTitleBar() {
           </svg>
         </button>
 
-        <span className="text-2xs font-bold text-slate-400 px-1 tracking-wide">Flux</span>
+        {/* Подпись и растяжка — это и есть область перетаскивания окна: всё
+            остальное в панельке помечено `no-drag`. Сколько её останется,
+            считает FRAME_DRAG в общей мере, и проверка следит за этим числом:
+            иначе новая кнопка тихо съела бы область снова */}
+        <span style={{ width: FRAME_LABEL }} className="text-2xs font-bold text-slate-400 text-center tracking-wide">Flux</span>
         <span className="flex-1" />
 
         <div className="flex items-center" style={noDrag}>
-          <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title="Свернуть" style={noDrag}>
+          <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title="Свернуть" style={{ ...noDrag, ...btnBox }}>
             <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
           </button>
-          <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
+          <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title={maximized ? 'Восстановить' : 'Развернуть'} style={{ ...noDrag, ...btnBox }}>
             {maximized ? (
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
                 <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
@@ -195,7 +202,7 @@ function ElectronTitleBar() {
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
             )}
           </button>
-          <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-lg`} title="Закрыть Flux" style={noDrag}>
+          <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-lg`} title="Закрыть Flux" style={{ ...noDrag, ...btnBox }}>
             <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
           </button>
         </div>

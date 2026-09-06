@@ -14,6 +14,8 @@ import {
   timeLabel, dateLabel, monthLabel, rangeLabel, untilLabel, isDue,
   deadlineEvent, isReadOnly, WEEKDAYS, DAY, MINUTE, type CalEvent,
 } from '../src/lib/calendar';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -149,6 +151,19 @@ console.log('Сроки ВДР — проекция, а не запись');
   check('срок нельзя двигать из календаря', isReadOnly(ev));
   check('обычное событие двигать можно', !isReadOnly(base()));
   check('у срока нет напоминания по умолчанию', ev.remindMin === 0);
+}
+
+console.log('В сетке нет кнопки внутри кнопки');
+{
+  // Клетка дня и строка часа были кнопками, а внутри них стояли кнопки
+  // событий. Нажатие работало, но разметка недопустима, и React ругался на
+  // каждой отрисовке месяца; ругань по устройству программы попадает в Журнал,
+  // и он засорялся при каждом открытии Календаря
+  const src = readFileSync(join(__dirname, '../src/screens/CalendarScreen.tsx'), 'utf8');
+  check('клетка дня — не кнопка', !src.includes('<button key={day}'));
+  check('строка часа — не кнопка', !src.includes('<button key={h}'));
+  check('клетка дня осталась клеткой сетки', src.includes('role="gridcell"'));
+  check('событие по-прежнему кнопка', src.includes('function Chip(') && src.includes('stopPropagation'));
 }
 
 if (failed) {

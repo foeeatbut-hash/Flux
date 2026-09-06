@@ -12,6 +12,8 @@ import {
   fold, unfold, tidy, hiddenIds, rename, groupById, groupIdOf, isGroupId,
   withoutItems, folderItems, DEFAULT_NAME, type DeskGroup,
 } from '../src/lib/deskGroups';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -117,6 +119,24 @@ console.log('Папка показывает то, что в ней лежит')
   const filtered = pool.filter((i) => !hiddenIds([g]).has(i.id));
   check('по отфильтрованному списку папка ничего не найдёт — так и было сломано',
     folderItems(g, filtered).length === 0);
+}
+
+console.log('Закрепление вынимает значок из папки');
+{
+  // Значок, убранный в папку, из списка закреплённых не исчезает — прячет его
+  // отдельный состав папок. Пока закрепление смотрело только на список, оно
+  // выходило сразу («уже закреплено»), папка продолжала прятать значок, и на
+  // столе не появлялось ничего: кнопка выглядела сломанной
+  const store = readFileSync(join(__dirname, '../src/store/desktopStore.ts'), 'utf8');
+  const pin = store.slice(store.indexOf('pinApp: (path) =>'), store.indexOf('moveApp: (from, to) =>'));
+  check('закрепление чистит состав папок', pin.includes('withoutItems(get().groups, [id])'));
+  check('открепление тоже', pin.split('withoutItems(get().groups, [id])').length === 3);
+  // Та же проверка, но уже на самой функции: спрятанный значок обязан вернуться
+  const groups: DeskGroup[] = tidy([
+    { id: 'g1', name: 'Программы', items: ['app:/registry', 'app:/equipment', 'app:/explorer'] },
+  ]);
+  check('значок числился спрятанным', hiddenIds(groups).has('app:/registry'));
+  check('после выемки не прячется', !hiddenIds(withoutItems(groups, ['app:/registry'])).has('app:/registry'));
 }
 
 if (failed) {

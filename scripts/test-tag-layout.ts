@@ -327,6 +327,22 @@ console.log('Реестр пользуется общими правилами, 
     !/#6366f1|#4f46e5|#c084fc/i.test(reg), (reg.match(/#6366f1|#4f46e5|#c084fc/gi) || []).slice(0, 4));
 }
 
+console.log('Колесо переживает уход на другую вкладку');
+{
+  // Холст живёт внутри `AnimatePresence mode="wait"`: при возврате на вкладку
+  // он появляется в DOM не сразу, а после выхода уходящего вида. Эффект,
+  // подписанный на вкладку, застаёт ссылку пустой и больше не повторяется —
+  // колесо остаётся без узла. Поэтому подписка идёт на САМ УЗЕЛ, который
+  // приходит функцией-ссылкой
+  const src = readFileSync(new URL('../src/screens/Registry.tsx', import.meta.url), 'utf8');
+  check('узел холста приходит функцией-ссылкой', src.includes('ref={attachBoard}'));
+  check('узел холста живёт состоянием', src.includes('const [boardEl, setBoardEl]'));
+  const wheel = src.slice(src.indexOf("board.addEventListener('wheel'"));
+  const deps = wheel.slice(0, wheel.indexOf('}, ') + 40);
+  check('слушатель колеса подписан на узел, а не на вкладку', deps.includes('}, [boardEl]);'), deps.slice(-60));
+  check('наблюдатель размера — тоже', /observer\.disconnect\(\);\s*\}, \[boardEl\]\);/.test(src));
+}
+
 if (failed) {
   console.error(`\nПровалено проверок: ${failed}`);
   process.exit(1);
