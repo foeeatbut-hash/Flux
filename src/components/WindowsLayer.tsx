@@ -160,8 +160,9 @@ function WindowFrame({
         </button>
       </div>
 
-      {/* Панель объявляет себя мерой ширины: разделы спрашивают её, а не окно */}
-      <div className="@container relative flex-1 min-h-0">
+      {/* Окно объявляет себя мерой ширины: разделы спрашивают его, а не экран.
+          Метка нужна проверке раскладки — она мерит окно, а не стол */}
+      <div data-window-body className="@container relative flex-1 min-h-0">
         <SectionFrame
           paneId={`win:${win.id}`}
           path={win.path}

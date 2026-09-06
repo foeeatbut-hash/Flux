@@ -72,13 +72,6 @@ const api = async (method: string, url: string, body?: any) => {
   const errors: string[] = [];
   page.on('pageerror', (e: any) => errors.push('исключение: ' + String(e.message).slice(0, 110)));
 
-  // Проверка написана для панельной оболочки: она ходит по разделам сменой
-  // адреса и работает с их содержимым напрямую. По умолчанию оболочка стала
-  // оконной — раздел живёт в окне, а после входа виден пустой стол, и обход
-  // спотыкался на первом же шаге, хотя вход проходил.
-  await page.addInitScript(() => {
-    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
-  });
 
   page.on('console', (m: any) => { if (m.type() === 'error') errors.push('консоль: ' + m.text().slice(0, 110)); });
   page.on('response', (r: any) => { if (r.status() >= 400 && /\/api\//.test(r.url())) errors.push(`ответ ${r.status()} ${new URL(r.url()).pathname}`); });
@@ -139,6 +132,40 @@ const api = async (method: string, url: string, body?: any) => {
     return hit;
   };
 
+  /**
+   * Открыть раздел и убедиться, что он ВИДЕН.
+   *
+   * Кнопка на панели задач работает как в системе: у поднятого окна она
+   * сворачивает его. Значит повторное открытие уже открытого раздела может
+   * не показать его, а спрятать, — и проба спотыкалась бы на этом, хотя
+   * программа вела бы себя правильно. Поэтому смотрим на признак раздела и
+   * при нужде нажимаем ещё раз.
+   */
+  const showSection = async (name: string, marker: RegExp) => {
+    for (let i = 0; i < 3; i++) {
+      if (i > 0 || !(await page.evaluate((m: string) => new RegExp(m).test(document.body.innerText), marker.source))) {
+        if (!(await clickByName(name))) return false;
+        await page.waitForTimeout(2500);
+      }
+      if (await page.evaluate((m: string) => new RegExp(m).test(document.body.innerText), marker.source)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Текст ОДНОГО окна, а не всей страницы.
+   *
+   * Окон на столе несколько, и они видны одновременно: код тега, оставшийся в
+   * соседнем окне «Теги», раньше засчитывался как «позиция всё ещё в
+   * закупках». Спрашивать надо у того окна, про которое речь, — узнаём его по
+   * приметному слову внутри.
+   */
+  const windowText = (marker: string) => page.evaluate((m: string) => {
+    const bodies = [...document.querySelectorAll('[data-window-body]')] as HTMLElement[];
+    const found = bodies.find((el) => (el.innerText || '').includes(m));
+    return found ? found.innerText : '';
+  }, marker);
+
   /** Первое видимое поле по селектору: скрытые разделы остаются в разметке */
   const firstVisible = async (selector: string) => {
     const loc = page.locator(selector);
@@ -159,16 +186,21 @@ const api = async (method: string, url: string, body?: any) => {
     await inputs[1].fill(LOGIN.password);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(9000);
-    ok('вход выполнен, открылся рабочий стол', await page.evaluate(() => /РАЗДЕЛЫ/.test(document.body.innerText)));
+    // Оболочка одна: после входа человек видит рабочий стол со значками и
+    // панель задач внизу — по ней и узнаём, что вход состоялся
+    ok('вход выполнен, открылся рабочий стол',
+      await page.evaluate(() => !!document.querySelector('[data-taskbar]')));
 
-    await page.locator('button', { hasText: /Технологический\s+Проект\s+Альфа/i }).last().click({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(2500);
-    ok('проект выбран', !(await page.evaluate(() => /Проект не выбран/.test(document.body.innerText))));
-
-    console.log('2. Теги: создание позиции');
+    // Проект выбирают там, где о нём и спрашивают: раздел, которому он нужен,
+    // сам предлагает список. Это же и есть человеческий путь
     ok('раздел «Теги» открылся', await clickByName('Теги'));
     await page.waitForTimeout(4000);
+    await page.locator('button', { hasText: /Технологический\s+проект\s+Альфа/i }).last()
+      .click({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    ok('проект выбран', !(await page.evaluate(() => /Сначала выберите проект/.test(document.body.innerText))));
 
+    console.log('2. Теги: создание позиции');
     const codeInput = page.locator('[data-tour="tag-code-input"]');
     ok('поле кода тега на месте', (await codeInput.count()) > 0);
     await codeInput.fill(CODE);
@@ -196,7 +228,7 @@ const api = async (method: string, url: string, body?: any) => {
     console.log('3. Менеджмент: позиция попала в закупки');
     ok('раздел «Менеджмент» открылся', await clickByName('Менеджмент'));
     await page.waitForTimeout(4500);
-    ok('позиция видна в списке закупок', await page.evaluate((c: string) => document.body.innerText.includes(c), CODE));
+    ok('позиция видна в списке закупок', (await windowText('Обновить')).includes(CODE));
     const tally = await page.evaluate(() => {
       const el = [...document.querySelectorAll('.tally-item')].find((x) => /Все позиции/.test(x.textContent || ''));
       return Number((el?.querySelector('.tally-num')?.textContent || '0').trim());
@@ -237,12 +269,11 @@ const api = async (method: string, url: string, body?: any) => {
     await api('DELETE', `/api/tags/${created[0]}`);
     created.length = 0;
     await page.waitForTimeout(600);
-    ok('раздел «Менеджмент» открылся заново', await clickByName('Менеджмент'));
-    await page.waitForTimeout(1200);
-    const refresh = await clickByName('Обновить', 4000);
+    ok('раздел «Менеджмент» открылся заново', await showSection('Менеджмент', /Обновить/));
+    const refresh = await clickVisible(page.getByRole('button', { name: 'Обновить', exact: true }), 4000);
     await page.waitForTimeout(2000);
     ok('кнопка «Обновить» на месте', refresh);
-    ok('позиции больше нет в закупках', !(await page.evaluate((c: string) => document.body.innerText.includes(c), CODE)));
+    ok('позиции больше нет в закупках', !(await windowText('Обновить')).includes(CODE));
 
     console.log('7. Блокнот: заметка создаётся и её текст доходит до базы');
     ok('раздел «Блокнот» открылся', await clickByName('Блокнот'));

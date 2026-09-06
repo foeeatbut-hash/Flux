@@ -32,6 +32,8 @@ interface NotifState {
   setPanelOpen: (v: boolean) => void;
   togglePanel: () => void;
   fetch: (userId: string) => Promise<void>;
+  /** Уведомление, пришедшее сокетом: тот же путь, что и у опроса */
+  ingest: (list: AppNotification[]) => void;
   markAllRead: (userId: string) => Promise<void>;
   markConversationRead: (userId: string, key: string) => Promise<void>;
   startPolling: (userId: string) => void;
@@ -39,6 +41,8 @@ interface NotifState {
 }
 
 let pollTimer: any = null;
+/** Как редко страховать толчок опросом */
+export const POLL_MS = 60000;
 
 const recompute = (list: AppNotification[]) => {
   const unread = list.filter(n => !n.isRead).length;
@@ -81,6 +85,35 @@ export const useNotificationStore = create<NotifState>((set, get) => ({
       set({ loading: false });
     }
   },
+  /**
+   * Принять уведомление, пришедшее толчком с сервера.
+   *
+   * Делает ровно то же, что `fetch` делает с полученным списком: отмечает
+   * новое, пересчитывает счётчики, зовёт `freshSink`. Иначе всплывашка,
+   * звук и окно Windows пришлось бы поднимать во втором месте, и два места
+   * рано или поздно разошлись бы.
+   *
+   * Пока не было ни одного опроса (`seenIds === null`), толчок только
+   * запоминается: показывать всплывашку до того, как человек увидел список,
+   * — тот же случай, из-за которого первый опрос ничего не показывает.
+   */
+  ingest: (list) => {
+    const incoming = (list || []).filter(Boolean);
+    if (!incoming.length) return;
+    const known = new Set(get().personal.map((n) => n.id));
+    const added = incoming.filter((n) => !known.has(n.id));
+    if (!added.length) return;
+    if (seenIds === null) seenIds = new Set(added.map((n) => n.id));
+    else {
+      const fresh = freshOnes(seenIds, added);
+      for (const n of added) seenIds.add(n.id);
+      if (fresh.length && freshSink) freshSink(fresh);
+    }
+    // Новое сверху: список приходит от сервера в том же порядке
+    const next = [...added, ...get().personal];
+    set({ personal: next, ...recompute(next) });
+  },
+
   markAllRead: async (userId) => {
     if (!userId) return;
     try {
@@ -101,10 +134,20 @@ export const useNotificationStore = create<NotifState>((set, get) => ({
       set({ personal: list, ...recompute(list) });
     } catch {}
   },
+  /**
+   * Опрос — страховка, а не способ доставки.
+   *
+   * Основной путь теперь толчок сокетом (`notify:new` → `ingest`). Опрос
+   * оставлен на случай, когда связи не было в самый миг события, и потому
+   * стал редким; пока окно скрыто, страховать нечего — никто не смотрит.
+   */
   startPolling: (userId) => {
     if (pollTimer) clearInterval(pollTimer);
     get().fetch(userId);
-    pollTimer = setInterval(() => get().fetch(userId), 15000);
+    pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      get().fetch(userId);
+    }, POLL_MS);
   },
   stopPolling: () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } },
 }));

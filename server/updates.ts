@@ -277,6 +277,16 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
         } catch (e: any) {
           lastErr = e;
           console.error(`[Обновление] Кусок ${Math.round(piece / 1024)} КБ не прошёл: ${e?.message || e}`);
+          // Таблица могла испортиться уже ПОСЛЕ проверки — например, её правили
+          // руками при работающем сервере. Пока «проверено» помнилось до
+          // перезапуска, починка в таком случае не запускалась никогда, и
+          // каждая следующая загрузка падала одинаково. Забываем и проверяем
+          // заново — это дешевле перезапуска сервера
+          if (/no such column|Unknown column|does not exist|no such table/i.test(String(e?.message || ''))) {
+            updateChunksReady = false;
+            await ensureUpdateChunks().catch(() => {});
+            continue;
+          }
           if (piece <= CHUNK_MIN) break;
           piece = Math.max(CHUNK_MIN, Math.floor(piece / 2));
           // База после разрыва соединения приходит в себя не мгновенно

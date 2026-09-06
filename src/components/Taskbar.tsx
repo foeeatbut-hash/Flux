@@ -1,7 +1,7 @@
 /**
  * Нижняя панель задач: Пуск, закреплённые программы, открытые разделы и трей.
  *
- * Заменяет левое меню в роли «куда пойти»: разделы одного уровня стоят в один
+ * Единственное «куда пойти» в программе: разделы одного уровня стоят в один
  * ряд, а не столбиком, и по одному нажатию открываются в активной панели.
  *
  * Здесь только разметка и подписки на хранилища. Что на панели стоит, в каком
@@ -16,9 +16,8 @@ import {
   Bell, BellOff, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
-import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
+import { openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
-import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
 import { useShellNotifyStore } from '../store/shellNotifyStore';
 import { isQuiet, untilLabel } from '../lib/notifCenter';
@@ -36,7 +35,6 @@ import DeskSwitcher from './DeskSwitcher';
 import ProjectSwitcher from './ProjectSwitcher';
 import ClockPanel from './calendar/ClockPanel';
 import { useUpdateStore, updateReady } from '../store/updateStore';
-import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -50,16 +48,7 @@ function useNow(): Date {
 
 export default function Taskbar() {
   const user = useStore((s) => s.user);
-  const shell = useStore((s) => s.shell);
   const activeProject = useStore((s) => s.activeProject);
-  const navigate = useNavigate();
-  const panes = useWorkspaceStore((s) => s.panes);
-  const layout = useWorkspaceStore((s) => s.layout);
-  const activePath = useWorkspaceStore((s) => {
-    const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
-  });
-  const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
   const windows = useWindowStore((s) => s.windows);
   const desk = useWindowStore((s) => s.desk);
   const toggleWindow = useWindowStore((s) => s.toggle);
@@ -126,30 +115,23 @@ export default function Taskbar() {
 
   // Раздел, открытый с панели или из меню, попадает в «недавние». Здесь, а не в
   // хранилище рабочего стола: список нужен только Пуску и переживает закрытие
-  const windowed = shell === 'windows';
   const openSection = React.useCallback((path: string) => {
     rememberSectionUse(path);
-    if (windowed) toggleWindow(path); else openInActivePane(path);
-  }, [windowed, toggleWindow, openInActivePane]);
+    toggleWindow(path);
+  }, [toggleWindow]);
 
   /**
-   * Что считать «открытым». В окнах — открытые окна, включая свёрнутые: у
-   * свёрнутого есть кнопка, за ней его и возвращают. В панелях — стеки видимых
-   * панелей; скрытая панель своих разделов не выносит, кнопка вела бы в пустоту.
+   * Что считать «открытым»: открытые окна, включая свёрнутые. У свёрнутого
+   * есть кнопка, за ней его и возвращают.
    */
-  const open = React.useMemo(() => {
+  const open = React.useMemo(
     // Только окна текущего стола: панель задач показывает то, что видно на
     // столе, — иначе кнопка вела бы к окну, которого сейчас нет
-    if (windowed) return openPaths(windows, desk);
-    const seen: string[] = [];
-    for (const p of visiblePanes({ panes, layout })) {
-      for (const path of p.stack) if (!seen.includes(path)) seen.push(path);
-    }
-    return seen;
-  }, [windowed, windows, panes, layout, desk]);
+    () => openPaths(windows, desk),
+    [windows, desk],
+  );
 
-  // Активная кнопка — раздел верхнего окна, а не активной панели
-  const highlighted = windowed ? activeWindowPath(windows, desk) : activePath;
+  const highlighted = activeWindowPath(windows, desk);
 
   const mail = React.useMemo(
     () => Object.values(unreadByAccount).reduce((a, b) => a + (b || 0), 0),
@@ -184,8 +166,8 @@ export default function Taskbar() {
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
   const countOfWindows = React.useCallback(
-    (path: string) => (windowed ? windowsOf(windows, path, desk).length : 0),
-    [windowed, windows, desk],
+    (path: string) => windowsOf(windows, path, desk).length,
+    [windows, desk],
   );
   /** Нажали по кнопке со стопкой: список окон открывается сразу, без задержки */
   const armPeekNow = (path: string, el: HTMLElement) => {
@@ -200,7 +182,7 @@ export default function Taskbar() {
     barPins.includes(menu.path)
       ? { label: 'Открепить от панели', separated: true, onClick: () => unpinBar(menu.path) }
       : { label: 'Закрепить на панели', separated: true, onClick: () => pinBar(menu.path) },
-    ...(windowed && countOfWindows(menu.path) > 0 ? [{
+    ...(countOfWindows(menu.path) > 0 ? [{
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {
         const st = useWindowStore.getState();
@@ -223,9 +205,8 @@ export default function Taskbar() {
     const path = highlighted || '/';
     if (path === '/handbook') return;
     const href = `/handbook?for=${encodeURIComponent(path)}`;
-    useWorkspaceStore.getState().setFrozenHref(useWorkspaceStore.getState().activePaneId, '/handbook', href);
     rememberSectionUse('/handbook');
-    navigate(href);
+    useWindowStore.getState().open(href);
   };
 
   /**
@@ -256,9 +237,8 @@ export default function Taskbar() {
   const openUpdates = () => {
     useUpdateStore.getState().markSeen();
     const href = '/settings?section=updates';
-    useWorkspaceStore.getState().setFrozenHref(useWorkspaceStore.getState().activePaneId, '/settings', href);
     rememberSectionUse('/settings');
-    navigate(href);
+    useWindowStore.getState().open(href);
   };
 
   const trayBtn = (active: boolean) =>
@@ -338,25 +318,24 @@ export default function Taskbar() {
               type="button"
               onClick={(e) => {
                 // Окон несколько — выбирают из списка, а не наугад поднимают
-                if (windowed && countOfWindows(b.path) > 1) {
+                if (countOfWindows(b.path) > 1) {
                   armPeekNow(b.path, e.currentTarget as HTMLElement);
                   return;
                 }
                 openSection(b.path);
               }}
-              onMouseEnter={(e) => { if (windowed) armPeek(b.path, e.currentTarget as HTMLElement); }}
+              onMouseEnter={(e) => armPeek(b.path, e.currentTarget as HTMLElement)}
               onMouseLeave={disarmPeek}
               onAuxClick={(e) => {
                 // Средним — ещё одно окно той же программы, привычка из браузера
-                if (e.button !== 1 || !windowed) return;
+                if (e.button !== 1) return;
                 e.preventDefault();
                 openSectionWindow(b.path);
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
-              /* Та же метка, что у пункта левого меню: демонстрации помощника
-                 подсвечивают раздел по ней, а левого меню в этой оболочке нет
-                 вовсе — и первый шаг любой демонстрации указывал в пустоту */
+              /* Метка раздела: демонстрации помощника подсвечивают его по
+                 ней, и она же стоит на плитке Пуска */
               data-tour={`nav-${b.path}`}
               aria-current={b.active ? 'true' : undefined}
               style={{ height: BAR_BTN }}
@@ -371,7 +350,7 @@ export default function Taskbar() {
             >
               {Icon && <Icon size={BAR_ICON} className="shrink-0" />}
               {view.labels && <span>{b.title}</span>}
-              {windowed && countOfWindows(b.path) > 1 && (
+              {countOfWindows(b.path) > 1 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
                   className="shrink-0 px-1 rounded bg-slate-100 dark:bg-slate-850
@@ -426,13 +405,13 @@ export default function Taskbar() {
               четырнадцать точек надо целиться, и мимо попадают чаще, чем в него */}
           <button
             type="button"
-            onClick={() => (windowed ? tileAll() : openSection('/'))}
+            onClick={tileAll}
             style={{ height: BAR_BTN - 6 }}
             className="px-2 rounded-lg cursor-pointer font-semibold
                        border border-amber-300 dark:border-amber-800
                        hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
           >
-            {windowed ? 'разложить' : 'на Главную'}
+            разложить
           </button>
         </span>
       )}
@@ -469,16 +448,8 @@ export default function Taskbar() {
           <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
         </button>
 
-        {/* Раскладка панелей — только там, где панели и есть: в оконной
-            оболочке раскладку задают сами окна */}
-        {shell === 'panes' && fit.layout && (
-          <div className="flex items-center">
-            <WorkspaceRailControls horizontal />
-          </div>
-        )}
-
-        {/* Столы — только там, где есть окна: в панелях делить нечего */}
-        {windowed && <DeskSwitcher />}
+        {/* Столы: рабочих столов может быть несколько, как в системе */}
+        <DeskSwitcher />
 
         <button
           type="button"
@@ -546,9 +517,9 @@ export default function Taskbar() {
             попадает не глядя. Девять точек, которые ничего не стоят */}
         <button
           type="button"
-          onClick={() => (windowed ? minimizeAll() : openSection('/'))}
-          title={windowed ? 'Показать стол — свернуть все окна' : 'Показать Главную'}
-          aria-label={windowed ? 'Свернуть все окна' : 'Показать Главную'}
+          onClick={minimizeAll}
+          title="Показать стол — свернуть все окна"
+          aria-label="Свернуть все окна"
           /* Во всю высоту панели и вплотную к краю окна: в угол экрана мышь
              упирается и попадает не глядя — тем полоска и берёт, а не
              размером. Отступы сверху и снизу этот угол отрезали */
@@ -561,7 +532,7 @@ export default function Taskbar() {
 
       {clockOpen && <ClockPanel onClose={() => setClockOpen(false)} />}
 
-      {peek && windowed && (
+      {peek && (
         <TaskbarPeek path={peek.path} left={peek.left + 12} onClose={() => setPeek(null)} />
       )}
       {moreMenu && (

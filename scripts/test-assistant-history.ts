@@ -48,10 +48,7 @@ const ok = (n: string, c: boolean, d?: any) =>
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ licensed: true, machineId: 'TEST', expiresAt: Date.now() + 9e8, daysLeft: 30, reason: '' }),
   }));
-  await page.addInitScript(() => {
-    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
-  });
-
+  
   const QUESTION = `покажи дубли ${Date.now().toString(36).slice(-4)}`;
   let savedId = '';
   try {

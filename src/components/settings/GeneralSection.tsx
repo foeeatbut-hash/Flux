@@ -12,7 +12,7 @@ import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
 import OnlineVisibility from './OnlineVisibility';
 
-export default function GeneralSection({ theme, toggleTheme, density, setDensity, shell, setShell, addToast }: any) {
+export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div className="space-y-4">
@@ -67,34 +67,6 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
                 title={opt.label}
                 className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
                   density === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Как открываются разделы</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Окнами на столе, панелями рабочего стола или по-старому — списком в меню слева.
-            Открытое никуда не денется: смена вида переставляет то же самое.
-          </p>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(126px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-            {([
-              { key: 'windows', label: 'Окнами' },
-              { key: 'panes', label: 'Панелями' },
-              { key: 'menu', label: 'Меню слева' },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setShell(opt.key)}
-                aria-pressed={shell === opt.key}
-                title={opt.label}
-                className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
-                  shell === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 {opt.label}

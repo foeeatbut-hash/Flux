@@ -38,7 +38,7 @@ const ok = (n: string, c: boolean, d?: any) =>
     await inputs[1].fill(LOGIN.password);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(8000);
-    ok('вход выполнен', await page.evaluate(() => /Главная|РАЗДЕЛЫ/.test(document.body.innerText)));
+    ok('вход выполнен', await page.evaluate(() => !!document.querySelector('[data-taskbar]')));
 
     console.log('1. Заводим приточную установку с испорченными связями');
     const made = await page.evaluate(async () => {

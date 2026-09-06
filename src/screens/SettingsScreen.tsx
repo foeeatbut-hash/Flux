@@ -81,7 +81,7 @@ const SETTING_GROUPS: Array<{ scope: SettingScope; label: string; hint: string }
 ];
 
 export default function SettingsScreen() {
-  const { user, theme, toggleTheme, density, setDensity, shell, setShell } = useStore();
+  const { user, theme, toggleTheme, density, setDensity } = useStore();
   const { addToast } = useToastStore();
   const addLog = useLogStore((s) => s.addLog);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -148,6 +148,9 @@ export default function SettingsScreen() {
                 key={s.id}
                 onClick={() => pick(s.id)}
                 aria-current={active ? 'page' : undefined}
+                /* Метка для демонстраций помощника: они показывают пальцем на
+                   раздел настроек, и метка обязана быть на нём самом */
+                data-tour={`settings-${s.id}`}
                 title={`${s.label} — ${s.desc}`}
                 className={`relative w-full flex items-start justify-center @[700px]:justify-start gap-3 px-1.5 @[700px]:px-3 py-2.5 rounded-xl text-left transition-ui cursor-pointer ${
                   active
@@ -173,7 +176,7 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
-        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} shell={shell} setShell={setShell} addToast={addToast} />}
+        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}

@@ -76,10 +76,7 @@ const api = async (method: string, url: string, body?: any) => {
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ licensed: true, machineId: 'TEST', expiresAt: Date.now() + 9e8, daysLeft: 30, reason: '' }),
     }));
-    await page.addInitScript(() => {
-      try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
-    });
-    await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
+        await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(3500);
     const sym = page.locator('input').first();
     if (await sym.isVisible().catch(() => false)) {
