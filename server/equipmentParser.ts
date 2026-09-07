@@ -5,9 +5,9 @@ import { canonicalUnit } from './normalize.js';
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam { key: string; value: string; unit: string; }
 export interface SpecGroup { title: string; params: SpecParam[]; }
-export interface ParsedBlock { name: string; title: string; equipType: string; groups: SpecGroup[]; }
+export interface ParsedBlock { name: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[]; }
 export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBlock[]; }
-export interface ParsedUnit { name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[]; }
+export interface ParsedUnit { name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[]; tags?: string[]; }
 export interface EquipParseResult { units: ParsedUnit[]; }
 
 // Тип детали по её названию (для группировки и профилей видимости)

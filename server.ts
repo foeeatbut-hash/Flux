@@ -7,6 +7,7 @@ import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser
 import * as XLSX from 'xlsx';
 import { importEquipmentToDB } from './server/equipmentImport.js';
 import { planEquipmentImport, applyEdits, filterBySelection } from './server/equipmentPlan.js';
+import type { TagLink } from './server/equipmentTags.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
@@ -3664,8 +3665,21 @@ app.post('/api/equipment/import-plan', async (req: Request, res: Response) => {
   }
 });
 
+// Решения инженера по тегам приходят из предпросмотра: форма проверяется,
+// а личность тега (существующий он или новый) сверяется уже в базе.
+function cleanTagLinks(raw: any): TagLink[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.slice(0, 2000).map((l: any) => ({
+    blockKey: String(l?.blockKey ?? '').slice(0, 300),
+    identifier: String(l?.identifier ?? '').trim().slice(0, 40),
+    action: (l?.action === 'create' || l?.action === 'skip') ? l.action : 'link',
+    existingTagId: l?.existingTagId ? String(l.existingTagId).slice(0, 64) : undefined,
+  })).filter((l: any) => l.blockKey && l.identifier) as TagLink[];
+  return out.length ? out : undefined;
+}
+
 app.post('/api/equipment/import-to-category', async (req: Request, res: Response) => {
-  const { fileId, category, projectId: reqProjectId, edits, selection } = req.body;
+  const { fileId, category, projectId: reqProjectId, edits, selection, tagLinks } = req.body;
   if (!fileId || !category) {
     return res.status(400).json({ error: 'Не указан файл или категория' });
   }
@@ -3686,7 +3700,7 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
     const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
     const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-    const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode);
+    const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks));
 
     res.json({
       success: true,
@@ -3695,6 +3709,9 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
       updatedBlocks: summary.updatedBlocks,
       systems: summary.systems,
       batchId: summary.batchId,
+      tagsLinked: summary.tagsLinked,
+      tagsCreated: summary.tagsCreated,
+      tagConflicts: summary.tagConflicts,
       conflictMode,
     });
   } catch (error: any) {
@@ -3707,7 +3724,7 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
 // Импорт из мастера распознавания документов (PDF/Excel/XML/Word):
 // клиент присылает уже проверенный пользователем результат в формате EquipParseResult
 app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
-  const { units, category, fileName, projectId: reqProjectId } = req.body;
+  const { units, category, fileName, projectId: reqProjectId, tagLinks } = req.body;
   if (!Array.isArray(units) || units.length === 0) {
     return res.status(400).json({ error: 'Пустой результат распознавания' });
   }
@@ -3735,10 +3752,17 @@ app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
       })).filter((p: any) => p.key && p.value),
     })).filter((g: any) => g.params.length);
 
+    // Теги позиции: список кодов, каждый — короткая строка без пробелов
+    const cleanTags = (tags: any): string[] | undefined => {
+      if (!Array.isArray(tags)) return undefined;
+      const out = tags.slice(0, 50).map((t: any) => clean(t, 40)).filter(Boolean);
+      return out.length ? out : undefined;
+    };
     const result = {
       units: units.slice(0, 100).map((u: any) => ({
         name: clean(u?.name, 120) || 'Импорт',
         title: clean(u?.title, 200) || 'Импортированное оборудование',
+        tags: cleanTags(u?.tags),
         groups: cleanGroups(u?.groups),
         monoblocks: (Array.isArray(u?.monoblocks) ? u.monoblocks : []).slice(0, 50).map((mb: any) => ({
           name: clean(mb?.name, 120) || 'M1',
@@ -3747,6 +3771,7 @@ app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
             name: clean(b?.name, 120) || 'Позиция',
             title: clean(b?.title, 200) || '',
             equipType: clean(b?.equipType, 60) || 'component',
+            tags: cleanTags(b?.tags),
             groups: cleanGroups(b?.groups),
           })),
         })),
@@ -3756,7 +3781,7 @@ app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
     const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
     const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-    const summary = await importEquipmentToDB(prisma, projectId, category, clean(fileName, 200) || 'Распознанный документ', result, conflictMode);
+    const summary = await importEquipmentToDB(prisma, projectId, category, clean(fileName, 200) || 'Распознанный документ', result, conflictMode, cleanTagLinks(tagLinks));
 
     res.json({ success: true, ...summary, conflictMode });
   } catch (error: any) {

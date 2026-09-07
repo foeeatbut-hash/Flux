@@ -5,6 +5,7 @@ import {
   Plus, RefreshCw, Minus, Pencil,
 } from 'lucide-react';
 import { rememberImport } from '../lib/lastImport';
+import TagLinksPanel, { type TagLink } from './import/TagLinksPanel';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -23,8 +24,8 @@ interface PlanBlock {
 }
 interface PlanSystem { name: string; title: string; action: 'create' | 'match'; matchedName?: string }
 interface ImportPlan {
-  systems: PlanSystem[]; blocks: PlanBlock[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number };
+  systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
+  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
 type Edits = Record<string, Record<string, string>>; // blockKey → "группа‖ключ" → значение
@@ -57,6 +58,9 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
   const [excluded, setExcluded] = useState<Set<string>>(new Set()); // снятые галочки блоков
   const [edits, setEdits] = useState<Edits>({});
   const [totalConflicts, setTotalConflicts] = useState(0);
+  // Второй шаг предпросмотра: что сделать с технологическими позициями бланка
+  const [tagLinks, setTagLinks] = useState<TagLink[]>([]);
+  const [showTags, setShowTags] = useState(false);
 
   const fileId = fileIds[idx];
 
@@ -72,12 +76,21 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
       else {
         setPlan(d.plan); setFileName(d.fileName);
         setActiveBlock(d.plan.blocks[0]?.key || null);
+        setTagLinks(d.plan.tagLinks || []);
       }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { setExcluded(new Set()); setEdits({}); loadPlan({}); /* новый файл */ }, [fileId]);
+  useEffect(() => { setExcluded(new Set()); setEdits({}); setShowTags(false); loadPlan({}); /* новый файл */ }, [fileId]);
+
+  const titleOfBlock = (key: string) => {
+    const b = plan?.blocks.find(x => x.key === key);
+    if (!b) return key;
+    return b.itemCode === '__unit__' ? 'параметры установки' : (b.title || b.itemCode);
+  };
+  const setTagAction = (i: number, action: TagLink['action']) =>
+    setTagLinks(list => list.map((l, j) => (j === i ? { ...l, action } : l)));
 
   // Дерево: система → её блоки (моноблок как подпись строки)
   const grouped = useMemo(() => {
@@ -113,6 +126,8 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
         body: JSON.stringify({
           fileId, category, projectId, edits,
           selection: selectedBlocks.map(b => b.key),
+          // Теги только выбранных позиций: снятая галочка не должна завести тег
+          tagLinks: tagLinks.filter(l => selectedBlocks.some(b => b.key === l.blockKey)),
         }),
       });
       const d = await r.json();
@@ -166,9 +181,20 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
               {t!.conflicts > 0 && <Chip color="amber" label={`${t!.conflicts} расхождений значений`} />}
               {t!.overrides > 0 && <Chip color="rose" label={`затронет ручных правок: ${t!.overrides}`} />}
               {t!.warnings > 0 && <Chip color="rose" label={`⚠ проверьте: ${t!.warnings}`} />}
+              <span className="flex-1" />
+              {tagLinks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowTags(v => !v)}
+                  title="Технологические позиции бланка: привязать к существующим тегам или завести новые"
+                  className="text-xs font-bold px-2 py-1 rounded-lg border border-emerald-300 text-emerald-700 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer"
+                >
+                  {showTags ? '← к параметрам' : `Теги бланка: ${tagLinks.length} (создать ${tagLinks.filter(l => l.action === 'create').length})`}
+                </button>
+              )}
             </div>
 
-            <div className="flex-1 min-h-0 flex">
+            <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
               {/* Дерево */}
               <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
                 {[...grouped.entries()].map(([sys, blocks]) => {
@@ -258,6 +284,13 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                 ) : <div className="text-sm text-slate-400 text-center py-12">Выберите блок в дереве слева</div>}
               </div>
             </div>
+
+            {/* Второй шаг: технологические позиции бланка */}
+            {showTags && (
+              <div className="flex-1 min-h-0 flex">
+                <TagLinksPanel links={tagLinks} titleOf={titleOfBlock} onChange={setTagAction} />
+              </div>
+            )}
 
             {/* Действия */}
             <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 shrink-0">

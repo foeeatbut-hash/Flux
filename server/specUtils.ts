@@ -93,3 +93,13 @@ export function detectTypeMismatch(
 export function overrideKey(group: string, key: string): string {
   return `${group}||${key}`;
 }
+
+/**
+ * Составной ключ блока: система‖моноблок‖код. Уникален в пределах файла и
+ * служит адресом позиции всюду — в плане импорта, в правках предпросмотра,
+ * в выборе области и в привязке тегов. Живёт здесь, чтобы им могли
+ * пользоваться и план, и запись, не завися друг от друга.
+ */
+export function blockKey(systemName: string, mbName: string, code: string): string {
+  return `${systemName}\u2016${mbName}\u2016${code}`;
+}
