@@ -227,7 +227,10 @@ export default function Equipment() {
       { id: 'all', label: 'Всё оборудование проекта', count: exchangeItems.length },
     ];
     if (unit) list.unshift({ id: `unit:${unit.id}`, label: `Установка «${unit.name}»`, count: exchangeItems.filter(it => it.systemName === unit.name).length });
-    return list;
+    // Первым предлагаем то, где строки есть: окно открывается на выбранном
+    // сверху, и «не попала ни одна строка» вместо таблицы — плохое начало
+    const nonEmpty = list.filter(x => x.count > 0);
+    return nonEmpty.length ? [...nonEmpty, ...list.filter(x => x.count === 0)] : list;
   }, [exchangeItems, catSystems, systems, selectedUnitId, categories, activeCat]);
 
   const exchangeRows = (scopeId: string): ExchangeComponent[] => {
