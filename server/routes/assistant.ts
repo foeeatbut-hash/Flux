@@ -34,23 +34,32 @@ export function registerAssistantRoutes(app: Express): void {
         projectId ? getPrisma().fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
       ]);
 
-      // Плоские характеристики компонента из JSON specs (для ответов «какой расход у …»)
-      const flattenSpecs = (raw: string | null): { key: string; value: string; unit: string; group: string }[] => {
-        if (!raw) return [];
+      // Плоские характеристики компонента из JSON specs (для ответов «какой расход у …»).
+      // Держим до 120 штук на позицию, но честно возвращаем, сколько их всего:
+      // молча обрезанный список выглядел бы как «у этой позиции больше ничего
+      // нет», а на настоящем бланке клапана параметров под сорок, у установки —
+      // за сотню, и обрыв заметили бы не сразу.
+      const SPEC_LIMIT = 120;
+      const flattenSpecs = (raw: string | null): {
+        list: { key: string; value: string; unit: string; group: string }[]; total: number;
+      } => {
+        if (!raw) return { list: [], total: 0 };
         try {
           const parsed = JSON.parse(raw);
           const groups = Array.isArray(parsed?.groups) ? parsed.groups : [];
           const out: { key: string; value: string; unit: string; group: string }[] = [];
+          let total = 0;
           for (const g of groups) {
             for (const p of (g?.params || [])) {
-              if (p?.key && p?.value !== undefined) {
+              if (!p?.key || p?.value === undefined) continue;
+              total++;
+              if (out.length < SPEC_LIMIT) {
                 out.push({ key: String(p.key), value: String(p.value ?? ''), unit: String(p.unit ?? ''), group: String(g.title || '') });
               }
-              if (out.length >= 120) return out;
             }
           }
-          return out;
-        } catch { return []; }
+          return { list: out, total };
+        } catch { return { list: [], total: 0 }; }
       };
 
       // Плоский список компонентов оборудования с привязанными тегами
@@ -68,7 +77,7 @@ export function registerAssistantRoutes(app: Express): void {
               status: comp.status,
               hasConflict: comp.hasConflict,
               tags: (comp.tags || []).map((t: any) => t.identifier),
-              specs: flattenSpecs(comp.specs),
+              ...(() => { const f = flattenSpecs(comp.specs); return { specs: f.list, specsTotal: f.total }; })(),
             });
           }
         }

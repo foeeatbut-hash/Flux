@@ -16,7 +16,9 @@ export interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
   tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; stageSince?: string | null; stageIsFinal?: boolean; supplier?: string; qty?: string }[];
-  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[] }[];
+  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[];
+    /** Сколько характеристик у позиции всего: список приходит обрезанным */
+    specsTotal?: number }[];
   stages: { id: string; label: string }[];
   duplicates: { code: string; count: number; ids: string[] }[];
   notes: { id: string; title: string; updatedAt: string }[];
