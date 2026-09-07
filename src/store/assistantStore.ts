@@ -14,7 +14,8 @@ import {
   type OpenThing, type WorkContext,
 } from '../assistant/context';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
-import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
+import { FIELDS, FieldDef } from '../import/dictionary';
+import { askedField, specForField, findComponentByCode, tagWithoutEquipment } from '../assistant/specAnswers';
 import { asksWhereWritten } from '../assistant/handbookAnswers';
 import { fileCard } from '../assistant/fileCard';
 import { asksToFindMail } from '../assistant/mailQueries';
@@ -556,37 +557,8 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['проект'], route: '/projects', name: 'Проекты' },
 ];
 
-// --- Характеристики позиций (для ответов «какой расход у …») ---
-type CompSpec = { key: string; value: string; unit: string; group: string };
-type CompData = AssistantData['components'][number];
-
-// Поле, о котором спрашивает пользователь (по синонимам словаря в тексте запроса)
-function askedField(lower: string): FieldDef | null {
-  let best: FieldDef | null = null, bestLen = 0;
-  for (const f of FIELDS) {
-    for (const syn of f.synonyms) {
-      if (syn.length >= 4 && lower.includes(syn) && syn.length > bestLen) { best = f; bestLen = syn.length; }
-    }
-  }
-  return best;
-}
-// Характеристика компонента, соответствующая полю (по подписи, затем по единице).
-// При дублях (в бланках бывает «0 м³/ч» рядом с реальным) предпочитаем ненулевое.
-function specForField(specs: CompSpec[], field: FieldDef): CompSpec | null {
-  const byLabel = specs.filter(s => { const m = matchLabel(s.key); return !!m && m.field.id === field.id; });
-  const byUnit = specs.filter(s => s.unit && fieldByUniqueUnit(s.unit) === field.id);
-  const cand = byLabel.length ? byLabel : byUnit;
-  return cand.find(s => s.value && !/^0([.,]0+)?$/.test(s.value.trim())) || cand[0] || null;
-}
-// Компонент по коду тега / itemCode / имени
-function findComponentByCode(comps: CompData[], code: string): CompData | null {
-  const lc = code.toLowerCase();
-  return comps.find(c =>
-    (c.tags || []).some(t => (t || '').toLowerCase() === lc)
-    || (c.itemCode || '').toLowerCase() === lc
-    || (c.name || '').toLowerCase().includes(lc)) || null;
-}
-
+// Ответы про характеристики позиции («какой расход у 3700-…») собраны
+// в src/assistant/specAnswers.ts — там же словарь величин и справочник обозначений
 // ═══════════ Живая речь ═══════════
 // Помощник работает без интернета и без языковой модели: он разбирает
 // запрос правилами. Чтобы это не выглядело общением с автоматом, здесь
@@ -879,7 +851,7 @@ export async function resolveQuery(
   // E0. Характеристики позиции из «Оборудования»: «какой расход у 3700-…»,
   // «характеристики 3700-…», «собери расход и мощность у …» (в т.ч. по нескольким тегам)
   if (p.codes.length > 0) {
-    const field = askedField(lower);
+    const field = askedField(lower, text);
     const wantsSpecs = !!field || /(характеристик|данные|парам|собери|выпиши|сведени)/.test(lower);
     if (wantsSpecs) {
       const data = await getData();
@@ -896,7 +868,12 @@ export async function resolveQuery(
           return msg(`У «${p.codes[0]}» характеристику «${field.label}» не нашёл — показать все характеристики?`,
             { actions: [{ label: 'Все характеристики', kind: 'ask', query: `характеристики ${p.codes[0]}` }] });
         }
-        // нет привязанного компонента → провалимся в карточку тега (E)
+        // Характеристики живут у изделия, а не у тега. Спросили про величину,
+        // а изделия за тегом нет — так и говорим: раньше здесь молча
+        // показывалась карточка тега с этапом закупки, и человек считал, что
+        // расход у позиции действительно такой.
+        const noComp = tagWithoutEquipment(data, p.codes[0]);
+        if (noComp) return { message: noComp };
       }
 
       // Одна позиция без конкретного поля → все её характеристики
@@ -908,9 +885,17 @@ export async function resolveQuery(
             columns: ['Характеристика', 'Значение', 'Ед.'],
             rows: comp.specs.map(s => [s.key, s.value, s.unit]),
           };
-          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table,
+          // Список приходит обрезанным — говорим об этом прямо, иначе обрыв
+          // читается как «больше у позиции ничего нет»
+          const total = comp.specsTotal ?? comp.specs.length;
+          const shown = total > comp.specs.length
+            ? `${comp.specs.length} из ${total}`
+            : `${comp.specs.length}`;
+          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: показано ${shown} параметр(ов).`, table,
             actions: [{ label: 'Показать в оборудовании', kind: 'focus-equipment', componentId: comp.id }, ...EXPORT_ACTIONS] }, result: null };
         }
+        const noComp = tagWithoutEquipment(data, p.codes[0]);
+        if (noComp) return { message: noComp };
       }
 
       // Несколько позиций → сводная таблица (по указанному полю или ключевым)

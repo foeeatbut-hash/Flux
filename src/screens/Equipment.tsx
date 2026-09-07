@@ -13,6 +13,8 @@ import {
   ArrowRight, LayoutGrid, List, Search
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
+import ExchangeDialog from '../components/ExchangeDialog';
+import { buildEquipmentExchange, equipmentColumns, type ExchangeComponent } from '../lib/equipmentExchange';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
@@ -123,6 +125,7 @@ export default function Equipment() {
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
+  const [showExchange, setShowExchange] = useState(false);
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -196,6 +199,48 @@ export default function Equipment() {
 
   // ── Производные данные ──
   const catSystems = useMemo(() => systems.filter(s => s.category === activeCat), [systems, activeCat]);
+
+  // Плоский список изделий для выгрузки: строка таблицы — одна единица
+  // оборудования со своими тегами и характеристиками
+  const exchangeItems = useMemo<ExchangeComponent[]>(() => {
+    const parseOv = (raw?: string) => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } };
+    const flat = (list: SystemUnit[]) => list.flatMap(sys =>
+      sys.monoblocks.flatMap(mb => mb.components
+        // Служебный блок параметров установки в перечень изделий не входит
+        .filter(c => c.itemCode !== '__unit__')
+        .map(c => ({
+          id: c.id, itemCode: c.itemCode, name: c.name, equipType: c.equipType,
+          groups: normalizeSpecs(c.specs).groups,
+          overrides: parseOv(c.overrides),
+          tags: c.tags || [],
+          systemName: sys.name,
+          monoblockName: mb.name === '__unit__' ? '' : mb.name,
+        }))));
+    return flat(systems);
+  }, [systems]);
+
+  const exchangeScopes = useMemo(() => {
+    const inCat = exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
+    const unit = selectedUnitId ? systems.find(s => s.id === selectedUnitId) : null;
+    const list = [
+      { id: 'category', label: `Категория «${categories.find(c => c.id === activeCat)?.label || activeCat}»`, count: inCat.length },
+      { id: 'all', label: 'Всё оборудование проекта', count: exchangeItems.length },
+    ];
+    if (unit) list.unshift({ id: `unit:${unit.id}`, label: `Установка «${unit.name}»`, count: exchangeItems.filter(it => it.systemName === unit.name).length });
+    // Первым предлагаем то, где строки есть: окно открывается на выбранном
+    // сверху, и «не попала ни одна строка» вместо таблицы — плохое начало
+    const nonEmpty = list.filter(x => x.count > 0);
+    return nonEmpty.length ? [...nonEmpty, ...list.filter(x => x.count === 0)] : list;
+  }, [exchangeItems, catSystems, systems, selectedUnitId, categories, activeCat]);
+
+  const exchangeRows = (scopeId: string): ExchangeComponent[] => {
+    if (scopeId === 'all') return exchangeItems;
+    if (scopeId.startsWith('unit:')) {
+      const unit = systems.find(s => s.id === scopeId.slice(5));
+      return unit ? exchangeItems.filter(it => it.systemName === unit.name) : [];
+    }
+    return exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
+  };
   const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
   const allBlocks = useMemo(() => {
@@ -433,11 +478,29 @@ export default function Equipment() {
             <ScanLine className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden @[820px]:inline">Импорт из документов</span>
           </button>
+          <button type="button"
+            onClick={() => setShowExchange(true)}
+            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
+            title="Выгрузить оборудование в Excel: тег, установка, характеристики"
+          >
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
+          </button>
           <div className="hidden @[820px]:block text-2xs text-slate-400 text-center">
             PDF · Excel · Word · XML, или расчёт через «Проводник»
           </div>
         </div>
       </div>
+
+      {showExchange && (
+        <ExchangeDialog
+          section="Оборудование"
+          scopes={exchangeScopes}
+          columns={equipmentColumns(exchangeItems)}
+          build={(scopeId, cols) => buildEquipmentExchange(exchangeRows(scopeId), cols)}
+          onClose={() => setShowExchange(false)}
+        />
+      )}
 
       {showDocImport && (
         <DocImportWizard

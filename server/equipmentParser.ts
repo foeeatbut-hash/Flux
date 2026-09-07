@@ -1,13 +1,13 @@
 import * as XLSX from 'xlsx';
 import { XMLParser } from 'fast-xml-parser';
-import { canonicalUnit } from './normalize.js';
+import { canonicalUnit, isKnownUnit } from './normalize.js';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam { key: string; value: string; unit: string; }
 export interface SpecGroup { title: string; params: SpecParam[]; }
-export interface ParsedBlock { name: string; title: string; equipType: string; groups: SpecGroup[]; }
+export interface ParsedBlock { name: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[]; }
 export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBlock[]; }
-export interface ParsedUnit { name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[]; }
+export interface ParsedUnit { name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[]; tags?: string[]; }
 export interface EquipParseResult { units: ParsedUnit[]; }
 
 // Тип детали по её названию (для группировки и профилей видимости)
@@ -39,18 +39,10 @@ const HEADER_KEY_STEMS = ['параметр', 'наименован', 'пока�
 const HEADER_VALUE_STEMS = ['значен', 'величин', 'value'];
 const HEADER_UNIT_STEMS = ['ед', 'unit', 'единиц'];
 
-// Канонический набор единиц измерения для классификации колонок (§3.1 дизайна)
-const UNIT_WORDS = new Set([
-  'мм', 'см', 'м', 'м2', 'м²', 'м3', 'м³', 'м3/ч', 'м³/ч', 'м3/час', 'м/с', 'л/с', 'л/ч',
-  'па', 'кпа', 'мпа', 'бар', 'мм.вод.ст', 'мм.вод.ст.', 'ммвс',
-  'вт', 'квт', 'мвт', 'квт*ч', 'а', 'в', 'гц', 'об/мин', 'об/м',
-  '°c', 'c', '°с', 'с*', 'к', '%', 'кг', 'г', 'т', 'кг/ч', 'кг/м3', 'кг/м³',
-  'дб', 'дб(а)', 'дба', 'шт', 'шт.', 'мин', 'ч', 'сек',
-  'mm', 'm', 'm2', 'm3', 'm3/h', 'pa', 'kpa', 'kw', 'w', 'hz', 'v', 'a', 'rpm', 'kg', 'db', 'pcs',
-]);
-
-const normUnit = (s: string) => s.toLowerCase().replace(/[\s ]/g, '').replace(/\.$/, '');
-const isUnitWord = (s: string) => s !== '' && UNIT_WORDS.has(normUnit(s));
+// Единицы измерения — из общего словаря (server/normalize.ts): свой список
+// здесь расходился с ним, и одно и то же написание в разных местах программы
+// то считалось единицей, то нет.
+const isUnitWord = (s: string) => isKnownUnit(s);
 
 // Число в русской записи: «1 250,5», «0,50» (для классификации колонок)
 function looksNumeric(v: any, w: string): boolean {

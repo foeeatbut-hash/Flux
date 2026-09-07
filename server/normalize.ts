@@ -29,6 +29,8 @@ const UNIT_CANON: { canon: string; forms: string[] }[] = [
   { canon: 'м²',   forms: ['м2', 'м²', 'm2', 'кв.м'] },
   { canon: 'м/с',  forms: ['м/с', 'm/s', 'м/сек'] },
   { canon: 'л/с',  forms: ['л/с', 'l/s', 'л/сек'] },
+  { canon: 'л/ч',  forms: ['л/ч', 'l/h', 'л/час'] },
+  { canon: 'л',    forms: ['л', 'l', 'литр'] },
   { canon: 'мм',   forms: ['мм', 'mm'] },
   { canon: 'см',   forms: ['см', 'cm'] },
   { canon: 'м',    forms: ['м', 'm', 'метр'] },
@@ -69,6 +71,19 @@ for (const { canon, forms } of UNIT_CANON) {
     const key = f.toLowerCase().replace(/[\s ]/g, '');
     if (!UNIT_INDEX.has(key)) UNIT_INDEX.set(key, canon);
   }
+}
+
+/**
+ * Знает ли словарь такую единицу. Нужна разбору таблиц: колонка «Ед. изм.»
+ * узнаётся по содержимому, а не по подписи. Раньше у разбора Excel был свой
+ * список единиц, и он расходился с этим — одна и та же «л/ч» в одном месте
+ * считалась единицей, в другом нет.
+ */
+export function isKnownUnit(u: string): boolean {
+  const raw = String(u ?? '').trim();
+  if (!raw) return false;
+  const key = raw.toLowerCase().replace(/[\s ]/g, '').replace(/\.$/, '');
+  return UNIT_INDEX.has(key) || UNIT_INDEX.has(key + '.');
 }
 
 export function canonicalUnit(u: string): string {

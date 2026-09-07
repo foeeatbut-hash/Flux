@@ -8,7 +8,8 @@ import { useToastStore } from '../store/toastStore';
 import { extractByName, extractClipboard } from '../import/extractors';
 import { draftToUnits, applyMatrixColumn } from '../import/recognize';
 import { recognizeAsync, extractRecognizeAsync } from '../import/importClient';
-import { loadLearnedDict, getLearnedDict, observe } from '../import/learn';
+import { loadLearnedDict, getLearnedDict, loadSymbolRules, observe } from '../import/learn';
+import EquipmentImportPreview from './EquipmentImportPreview';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 
@@ -78,7 +79,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [category, setCategory] = useState(categories[0]?.id || 'FAN');
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isCommitting, setIsCommitting] = useState(false);
+  // Открытый предпросмотр: что именно ввозим и из какой работы
+  const [preview, setPreview] = useState<{ jobId: string; units: any[]; fileName: string } | null>(null);
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -243,7 +245,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   }, []);
 
   // Загружаем общий выученный словарь синонимов (авто-обучение)
-  useEffect(() => { loadLearnedDict().catch(() => {}); }, []);
+  useEffect(() => { loadLearnedDict().catch(() => {}); loadSymbolRules().catch(() => {}); }, []);
 
   // ── Правки черновика ────────────────────────────────────────────────────────
 
@@ -298,28 +300,28 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
   // ── Импорт ──────────────────────────────────────────────────────────────────
 
-  const commitJob = async (job: FileJob) => {
+  // Второй шаг — предпросмотр: тот же, что у ввоза расчёта из Проводника.
+  // Раньше эта кнопка писала в базу сразу: без плана, без диффа со старыми
+  // значениями, без выбора области и без разбора тегов. Теперь оба источника
+  // сходятся в одном окне, поэтому и результат у них одинаковый.
+  const commitJob = (job: FileJob) => {
     if (!job.draft || job.draft.items.length === 0) return;
-    setIsCommitting(true);
-    try {
-      const units = draftToUnits(job.draft.items, job.fileName.replace(/\.[^.]+$/, ''));
-      const res = await fetch('/api/equipment/import-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, category, fileName: job.fileName, units }),
-      });
-      const d = await res.json();
-      if (!res.ok || !d.success) throw new Error(d.error || 'Сервер отклонил импорт');
-      // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR)
-      observe(job.draft.observations);
-      updateJob(job.id, { status: 'imported' });
-      addToast(`«${job.fileName}»: импортировано позиций: ${job.draft.items.length}${d.conflictsCount ? `, конфликтов ревизий: ${d.conflictsCount}` : ''}`, 'success');
-      onImported();
-    } catch (err: any) {
-      addToast(`Импорт не удался: ${err?.message || 'ошибка сервера'}`, 'error');
-    } finally {
-      setIsCommitting(false);
-    }
+    setPreview({
+      jobId: job.id,
+      units: draftToUnits(job.draft.items, job.fileName.replace(/\.[^.]+$/, '')),
+      fileName: job.fileName,
+    });
+  };
+
+  const previewDone = () => {
+    const job = jobs.find(j => j.id === preview?.jobId);
+    setPreview(null);
+    if (!job) return;
+    // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR)
+    observe(job.draft?.observations);
+    updateJob(job.id, { status: 'imported' });
+    addToast(`«${job.fileName}»: импортировано позиций: ${job.draft?.items.length || 0}`, 'success');
+    onImported();
   };
 
   const activeJob = jobs.find(j => j.id === activeJobId) || jobs[0] || null;
@@ -613,11 +615,10 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                     <button type="button"
                       onClick={() => commitJob(activeJob)}
-                      disabled={isCommitting}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
                     >
-                      {isCommitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                      Импортировать {activeJob.draft!.items.length} позиц. в «{categories.find(c => c.id === category)?.label || category}»
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Проверить и импортировать {activeJob.draft!.items.length} позиц. в «{categories.find(c => c.id === category)?.label || category}»
                     </button>
                   </div>
                 )}
@@ -631,6 +632,18 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           </div>
         </div>
       </div>
+
+      {/* Второй шаг: тот же предпросмотр, что у ввоза расчёта из Проводника */}
+      {preview && (
+        <EquipmentImportPreview
+          draft={{ units: preview.units, fileName: preview.fileName }}
+          category={category}
+          categoryLabel={categories.find(c => c.id === category)?.label || category}
+          projectId={projectId}
+          onClose={() => setPreview(null)}
+          onDone={previewDone}
+        />
+      )}
     </div>,
     document.body
   );

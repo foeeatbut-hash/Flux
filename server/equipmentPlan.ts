@@ -1,5 +1,7 @@
 import { EquipParseResult, SpecGroup, SpecParam } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
+import { overrideKey, blockKey } from './specUtils.js';
+import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
 import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
@@ -7,11 +9,8 @@ import { parseRuNumber } from './normalize.js';
 // установок с диффом и предупреждениями до записи. Тот же обход, что и
 // importEquipmentToDB, но только чтение.
 
-// Составной ключ блока: система‖моноблок‖код — уникален в пределах файла,
-// служит и для выбора области, и для адресации правок предпросмотра.
-export function blockKey(systemName: string, mbName: string, code: string): string {
-  return `${systemName}‖${mbName}‖${code}`;
-}
+// Составной ключ блока живёт в specUtils — им пользуется и запись импорта
+export { blockKey } from './specUtils.js';
 
 export interface PlanParam {
   group: string; key: string; value: string; unit: string;
@@ -42,7 +41,13 @@ export interface PlanSystem {
 export interface ImportPlan {
   systems: PlanSystem[];
   blocks: PlanBlock[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number };
+  /**
+   * Технологические позиции бланка: что с каждой сделать — привязать к
+   * существующему тегу, завести новый или пропустить. Решает инженер в
+   * предпросмотре; молча теги не создаются и не перевешиваются.
+   */
+  tagLinks: TagLink[];
+  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number };
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -139,11 +144,14 @@ export async function planEquipmentImport(
   const plan: ImportPlan = {
     systems: [],
     blocks: [],
-    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0 },
+    tagLinks: [],
+    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0 },
   };
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
+  // Позиции с тегами — их разбирает planTagLinks после обхода дерева
+  const tagged: { key: string; tags?: string[] }[] = [];
 
   for (const unitData of result.units) {
     plan.totals.systems++;
@@ -163,10 +171,10 @@ export async function planEquipmentImport(
     });
 
     // Плоский список блоков установки (как в importEquipmentToDB)
-    const flatBlocks: { code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[] }[] = [
-      { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups },
+    const flatBlocks: { code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[] }[] = [
+      { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups, tags: unitData.tags },
       ...unitData.monoblocks.flatMap(mb =>
-        mb.blocks.map(b => ({ code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups }))),
+        mb.blocks.map(b => ({ code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups, tags: b.tags }))),
     ];
 
     for (const blk of flatBlocks) {
@@ -200,7 +208,7 @@ export async function planEquipmentImport(
           if (status === 'changed') {
             changedCount++;
             // Ручная правка инженера на этот параметр будет перекрыта
-            if (overrides[`${g.title}|${p.key}`] !== undefined) overrideImpact++;
+            if (overrides[overrideKey(g.title, p.key)] !== undefined) overrideImpact++;
           }
           const warning = validateParam(blk.equipType, p.key, p.value);
           if (warning) plan.totals.warnings++;
@@ -218,6 +226,7 @@ export async function planEquipmentImport(
       plan.totals.conflicts += changedCount;
       plan.totals.overrides += overrideImpact;
 
+      tagged.push({ key: blockKey(unitData.name, blk.mbName, blk.code), tags: blk.tags });
       plan.blocks.push({
         key: blockKey(unitData.name, blk.mbName, blk.code),
         systemName: unitData.name,
@@ -228,6 +237,22 @@ export async function planEquipmentImport(
         action, params, changedCount, newCount, overrideImpact,
       });
     }
+  }
+
+  // Теги бланка: что с каждым делать. Занятость («один тег — одно изделие»)
+  // видна сразу, чтобы предпросмотр не обещал того, чего не сделает.
+  if (tagged.some(t => (t.tags || []).length)) {
+    const rows = await prisma.tag.findMany({
+      where: { projectId },
+      select: { id: true, identifier: true, componentElements: { select: { id: true } } },
+    });
+    const existingTags: ExistingTag[] = rows.map((r: any) => ({
+      id: r.id, identifier: r.identifier,
+      componentIds: (r.componentElements || []).map((c: any) => c.id),
+    }));
+    plan.tagLinks = planTagLinks(tagged, existingTags);
+    plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
+    plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
   }
 
   return plan;

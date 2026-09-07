@@ -9,8 +9,9 @@ import {
   FIELDS, FieldDef, matchLabel, detectEquip, findSystem, normalizeCode, looksLikeCode,
   splitValueUnit, unitFromLabel, validateValue, GARBAGE_MARKERS, PAGE_MARKER_RE,
   ADMIN_LABEL_RE, ADMIN_TAG_RE, ADMIN_VENDOR_RE, textQuality, sanitizeText,
-  dedupeRepeatedPhrase, parseFormulaLine, normalizeLabel, fieldByUniqueUnit,
+  dedupeRepeatedPhrase, parseFormulaLine, normalizeLabel, fieldByUniqueUnit, splitTagList,
 } from './dictionary';
+import { resolveSymbol, looksLikeSymbol } from './symbols';
 import { crossCheckFan, isImplausible } from './valueGrammar';
 
 let idSeq = 0;
@@ -26,19 +27,48 @@ export function isKksTag(s: string): boolean {
 // Оставлять ли нераспознанный параметр в «Прочее». Пользователю не нужен поток
 // строительных примечаний («сторона: справа», «выбор: оптимальный») — берём только
 // то, что похоже на реальную характеристику: число с единицей, код или короткий индекс.
-function isUsefulRawParam(value: string, unit: string): boolean {
+function isUsefulRawParam(value: string, unit: string, source?: RawPair['source']): boolean {
   const v = (value || '').trim();
-  if (!v || v.length > 40) return false;
-  if (unit) return true;                                  // число + единица (dpсеть=700 Па)
-  if (/^[~≈]?-?\d[\d\s.,]*\s*[^\s]{0,6}$/.test(v) && /\d/.test(v)) return true; // число (возможно с коротким хвостом)
-  if (looksLikeCode(v)) return true;                      // код с разделителем
-  if (/^[A-Za-zА-Яа-я]{0,4}\d{1,4}[A-Za-zА-Яа-я]{0,4}$/.test(v)) return true;     // короткий индекс G4, IP54, У2
+  if (!v) return false;
+  if (unit) return v.length <= 60;                        // число + единица (dpсеть=700 Па)
+  if (v.length <= 40) {
+    if (/^[~≈]?-?\d[\d\s.,]*\s*[^\s]{0,6}$/.test(v) && /\d/.test(v)) return true; // число (возможно с коротким хвостом)
+    if (looksLikeCode(v)) return true;                    // код с разделителем
+    if (/^[A-Za-zА-Яа-я]{0,4}\d{1,4}[A-Za-zА-Яа-я]{0,4}$/.test(v)) return true;   // короткий индекс G4, IP54, У2
+  }
+  // Короткое словесное значение из таблицы свойств («назначение — нормально
+  // закрытый», «огнестойкость — EI 90», «взрывозащита — Взрывозащищённый»):
+  // это данные бланка, а не примечание. Примечания приходят абзацами, не
+  // строками таблицы, поэтому источник здесь и решает. Раньше отбрасывалось
+  // всё словесное подряд — из листа на клапаны пропадала половина свойств.
+  if (source === 'table' && v.length <= 80 && v.split(/\s+/).length <= 8 && !/[.!?]\s/.test(v)) return true;
   return false;
 }
 
 // ── Классификация абзаца ─────────────────────────────────────────────────────
 
 type ParaClass = 'prose' | 'kvline' | 'heading' | 'garbage' | 'empty';
+
+// Нумерованный заголовок раздела бланка: «1.», «2.4.», «5.1.» и название.
+// Это разметка документа, а не словарное слово: раньше заголовком считалась
+// только строка, в которой словарь узнал тип оборудования, поэтому «2.3. Камера
+// промежуточная» разделом не становилась — и её данные приклеивались к
+// предыдущему блоку. В листе на установку так терялась половина секций.
+const SECTION_NO_RE = /^(\d{1,2}(?:\.\d{1,2}){0,2})\.?\s+(?=\S)/;
+
+/** «1.2. Фильтр карманный» → «1.2»; не заголовок → null */
+export function sectionNumber(text: string): string | null {
+  const t = (text || '').trim();
+  if (!t || t.length > 120 || /\n/.test(t)) return null;
+  const m = t.match(SECTION_NO_RE);
+  if (!m) return null;
+  // Примечание («1. Клапаны изготовить с…») — это предложение: точка в конце
+  if (/[.!?]$/.test(t)) return null;
+  // Ссылка на документ или перечисление («1. см. PDH2…-0001») заголовком не считаем
+  const rest = t.slice(m[0].length);
+  if (!rest || rest.length < 3) return null;
+  return m[1];
+}
 
 export function classifyParagraph(text: string): ParaClass {
   const t = (text || '').trim();
@@ -51,6 +81,8 @@ export function classifyParagraph(text: string): ParaClass {
     const key = t.split(/[:—]/)[0];
     if (matchLabel(key)) return 'kvline';
   }
+  // Нумерованный раздел бланка — заголовок независимо от словаря
+  if (sectionNumber(t)) return 'heading';
   // Короткая строка с типом оборудования и без глагольной прозы — заголовок секции.
   // Примечания («* — …», «…с учётом 10% запаса») заголовками не считаем.
   if (t.length <= 70 && detectEquip(t) && !/[.!?]$/.test(t)
@@ -125,14 +157,19 @@ export function classifyTable(rows: string[][]): TableShape {
   if (col0Ratio >= 0.35) return 'attribute';
   if (headerMatches >= 2 && dataRows >= 1) return 'entity';
 
-  // Структурная атрибутная: 2–3 колонки, где почти каждая строка — «короткая подпись | значение».
-  // Ловит бланки, где ключи не из словаря (Mвен | 212кг, dpсеть | 700 Па).
-  if (colCount <= 3 && nonEmptyRows.length >= 2) {
+  // Структурная атрибутная: почти каждая строка — «подпись | значение».
+  // Ловит бланки, где ключи не из словаря (Mвен | 212кг, dpсеть | 700 Па,
+  // «огнестойкость по ГОСТ | EI 90»). Колонок считаем только непустые: в
+  // выгрузке из Excel объединённые ячейки дают пустые столбцы, и таблица
+  // свойств на пять колонок раньше уходила в «оформительские» — вместе со
+  // всеми общими характеристиками вида оборудования.
+  if (nonEmptyRows.length >= 2) {
     let pairRows = 0;
     for (const r of nonEmptyRows) {
-      const k = (r[0] || '').trim();
-      const v = (r.slice(1).find(c => (c || '').trim()) || '').trim();
-      if (k && v && k.length <= 32 && !k.includes('\n')) pairRows++;
+      const cells = r.map(c => (c || '').trim()).filter(Boolean);
+      const k = cells[0] || '';
+      const v = cells[1] || '';
+      if (k && v && k.length <= 48 && cells.length <= 4 && !k.includes('\n')) pairRows++;
     }
     if (pairRows / nonEmptyRows.length >= 0.6) return 'attribute';
   }
@@ -148,6 +185,8 @@ interface RawPair {
   source: DraftField['source'];
   /** Поле уже известно (формульные записи: Lв=140 м³/ч → airflow по единице) */
   fieldId?: string;
+  /** Подпись уже человеческая (справочник обозначений) — не заменять на общую */
+  named?: boolean;
 }
 
 /** Строка «ключ: значение» → пара; formула → набор пар; иначе null */
@@ -158,7 +197,7 @@ function pairsFromLine(line: string, source: DraftField['source']): RawPair[] | 
   const formulaPart = t.replace(/^[^:=]{1,20}:\s*(?=.*=)/, ''); // отрезаем префикс «Эл. двиг:»
   const fp = parseFormulaLine(formulaPart);
   if (fp.length) {
-    return fp.map(f => ({ label: f.label, value: f.value, unit: f.unit, fieldId: f.fieldId, source }));
+    return fp.map(f => ({ label: f.label, value: f.value, unit: f.unit, fieldId: f.fieldId, named: f.named, source }));
   }
   if (!KV_LINE_RE.test(t)) return null;
   const sep = t.search(/[:=]/);
@@ -169,36 +208,57 @@ function pairsFromLine(line: string, source: DraftField['source']): RawPair[] | 
   return [{ label: key, value, unit: unitFromLabel(key) || su.unit, source }];
 }
 
-/** kv-сетка: каждая ячейка — независимые строки «ключ: значение» и формулы */
-function pairsFromKvGrid(rows: string[][]): RawPair[] {
+/**
+ * kv-сетка: каждая ячейка — независимые строки «ключ: значение» и формулы.
+ * Строки, парой не ставшие, отдаём в прозу (аргумент prose): в бланке-заказе
+ * вентилятора там лежит само обозначение изделия
+ * («Вентилятор ВИР800-140(1)-Т80-В-…»), и раньше оно пропадало без следа.
+ */
+function pairsFromKvGrid(rows: string[][], prose?: string[]): RawPair[] {
   const out: RawPair[] = [];
   for (const r of rows) {
     for (const c of r) {
       for (const line of (c || '').split('\n')) {
         const pairs = pairsFromLine(line, 'table');
-        if (pairs) out.push(...pairs);
+        if (pairs) { out.push(...pairs); continue; }
+        const t = line.trim();
+        if (prose && t.length >= 6 && t.length <= 200) prose.push(t);
       }
     }
   }
   return out;
 }
 
-/** Административная шапка: берём только тег позиции и производителя, остальное — реквизиты */
+/**
+ * Административная шапка: берём только тег позиции и производителя, остальное —
+ * реквизиты документа. Подпись ищем в ЛЮБОЙ ячейке строки, а не только в
+ * первой: в двуязычных шапках «TAG N. / № Технологической позиции» стоит
+ * посередине строки, и тег бланка не находился вовсе.
+ */
 function pairsFromAdminTable(rows: string[][]): RawPair[] {
   const out: RawPair[] = [];
   for (const r of rows) {
-    const label = (r[0] || '').split('\n')[0].trim();
-    if (!label) continue;
-    let value = '';
-    for (let i = 1; i < r.length; i++) {
-      if ((r[i] || '').trim()) { value = r[i].trim().split('\n')[0]; break; }
-    }
-    if (!value) continue;
-    if (ADMIN_TAG_RE.test(label) && looksLikeCode(value)) {
-      out.push({ label: 'Название', value, unit: '', source: 'table', fieldId: 'name' });
-      out.push({ label: 'Система', value, unit: '', source: 'table', fieldId: 'system' });
-    } else if (ADMIN_VENDOR_RE.test(label) && value.length <= 80) {
-      out.push({ label: 'Производитель', value, unit: '', source: 'table', fieldId: 'manufacturer' });
+    for (let i = 0; i < r.length; i++) {
+      const label = (r[i] || '').replace(/\n/g, ' ').trim();
+      if (!label) continue;
+      const isTag = ADMIN_TAG_RE.test(label);
+      const isVendor = !isTag && ADMIN_VENDOR_RE.test(label);
+      if (!isTag && !isVendor) continue;
+      let value = '';
+      for (let j = i + 1; j < r.length; j++) {
+        const v = (r[j] || '').trim();
+        if (v) { value = v; break; }
+      }
+      if (!value) continue;
+      if (isTag) {
+        // Тегов в ячейке бывает несколько («3700-C01-BL-001A, …-001B, …»):
+        // один лист выпускается на пять одинаковых изделий. Раньше весь
+        // список целиком становился названием и системой одной позиции.
+        const codes = splitTagList(value);
+        for (const c of codes) out.push({ label: 'Тег', value: c, unit: '', source: 'table', fieldId: 'tag' });
+      } else if (value.length <= 80) {
+        out.push({ label: 'Производитель', value: value.split('\n')[0], unit: '', source: 'table', fieldId: 'manufacturer' });
+      }
     }
   }
   return out;
@@ -219,9 +279,15 @@ function pairsFromAttributeTable(rows: string[][]): RawPair[] {
     if (!value) continue;
     // Ячейка сразу за значением может быть единицей («5000 | м3/ч»)
     let unit = unitFromLabel(label) || splitValueUnit(value).unit;
-    if (!unit && valueIdx >= 0 && valueIdx + 1 < r.length) {
-      const next = (r[valueIdx + 1] || '').trim();
-      if (next && next.length <= 12 && !/\d/.test(next)) unit = splitValueUnit('0 ' + next).unit || next;
+    // Единица нередко стоит своей колонкой правее значения, причём между ними
+    // бывают пустые ячейки объединённых столбцов: «рабочее давление | | до 1500 | | Па»
+    if (!unit && valueIdx >= 0) {
+      for (let i = valueIdx + 1; i < r.length; i++) {
+        const next = (r[i] || '').trim();
+        if (!next) continue;
+        if (next.length <= 12 && !/\d/.test(next)) unit = splitValueUnit('0 ' + next).unit || next;
+        break;
+      }
     }
     out.push({ label, value, unit, source: 'table' });
   }
@@ -246,8 +312,8 @@ function itemsFromEntityTable(rows: string[][], obs?: LearnObservation[]): Draft
       pairs.push({ label: cols[i].raw, value: v, unit: unitFromLabel(cols[i].raw) || splitValueUnit(v).unit, source: 'table' });
     }
     if (pairs.length === 0) continue;
-    const item = buildItem(pairs, '', false, obs);
-    if (item.name || item.brand || item.title !== 'Позиция') items.push(item);
+    const item = buildItem(pairs, '', false, obs, true);
+    if (item.name || item.brand || item.title !== 'Позиция' || (item.tags || []).length) items.push(item);
   }
   return items;
 }
@@ -305,6 +371,12 @@ function minePairsFromProse(text: string): RawPair[] {
 
 // ── Сборка позиции из пар ────────────────────────────────────────────────────
 
+/** «1250», «65,8», «1 250.5» — значение целиком число (без хвостов и дат) */
+function isPlainValue(v: string): boolean {
+  const t = String(v ?? '').replace(/[\s ]/g, '').replace(',', '.');
+  return t !== '' && /^-?\d+(\.\d+)?$/.test(t);
+}
+
 function confidenceFor(f: FieldDef | null, verdict: 'ok' | 'suspicious' | 'reject', source: RawPair['source'], isOcr: boolean): Confidence {
   if (verdict === 'suspicious') return 'low';
   if (isOcr) return 'mid'; // OCR никогда не даёт high сам по себе
@@ -354,16 +426,17 @@ function resolveFieldFusion(
   return labelField;
 }
 
-function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs?: LearnObservation[]): DraftItem {
+function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs?: LearnObservation[], fromRow = false): DraftItem {
   const item: DraftItem = {
     id: nextId(),
     title: contextTitle || 'Позиция',
     name: '',
     equipType: '',
     fields: [],
+    ...(fromRow ? { fromRow: true } : {}),
   };
   const pairs = expandPairs(rawPairs);
-  for (const p of pairs) {
+  for (let p of pairs) {
     // Чистка значения: мусорные символы, двуязычные дубли («X X» → «X»)
     let value = dedupeRepeatedPhrase(sanitizeText(p.value));
     let unit = p.unit;
@@ -376,6 +449,21 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
     let f: FieldDef | null = p.fieldId
       ? (FIELDS.find(ff => ff.id === p.fieldId) || null)
       : resolveFieldFusion(p, value, m);
+    // Подпись не слово, а условное обозначение («L», «Ny», «Ширина В») —
+    // спрашиваем справочник обозначений: величину решает символ вместе с
+    // единицей. Работает и для отдельной ячейки, и для шапки колонки.
+    let named = p.named;
+    if (!f && !p.fieldId && looksLikeSymbol(p.label)) {
+      const symUnit = p.unit || splitValueUnit(value).unit;
+      // Одной буквы мало: без единицы принимаем символ, только если значение —
+      // чистое число. Иначе таблица ревизий («B | 28.07.2025») превращается
+      // в «Ширину», а английский дубль подписи («name | 225M8») — в обороты.
+      if (symUnit || isPlainValue(value)) {
+        const sm = resolveSymbol(p.label, symUnit);
+        const sf = sm ? FIELDS.find(ff => ff.id === sm.field) : null;
+        if (sm && sf) { f = sf; p = { ...p, label: sm.label }; named = true; }
+      }
+    }
 
     // Административные подписи («Заказчик», «Телефон/Факс», «№ документа»…) —
     // реквизиты бланка, не характеристики. Неточное совпадение со словарём
@@ -399,6 +487,20 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
       }
     }
 
+    // Технологические позиции разбираем до проверки значения: в ячейке лежит
+    // список из четырёх тегов длиной под семьдесят знаков, и проверка «код не
+    // длиннее шестидесяти» отбрасывала его целиком — вместе со всеми тегами.
+    if (f && f.target === 'tag') {
+      for (const code of splitTagList(value)) {
+        // «001Е» кириллицей и «001E» латиницей — один и тот же тег
+        const norm = normalizeCode(code).value;
+        if (!norm || norm.length < 3 || norm.length > 40) continue;
+        item.tags = item.tags || [];
+        if (!item.tags.includes(norm)) item.tags.push(norm);
+      }
+      continue;
+    }
+
     if (f) {
       // Значение может содержать единицу («5000 м3/ч», «600 °C») — расщепляем всегда,
       // чтобы в поле осталось чистое число, а единица ушла в unit
@@ -409,7 +511,7 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
       const verdict = validateValue(f, value, unit);
       if (verdict === 'reject') {
         // Значение не подходит под якорь: сохраняем, только если само похоже на параметр
-        if (isUsefulRawParam(value, p.unit)) {
+        if (isUsefulRawParam(value, p.unit, p.source)) {
           item.fields.push({ label: p.label, value, unit: p.unit, group: 'Прочее', confidence: 'low', source: p.source });
         }
         continue;
@@ -423,25 +525,32 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
           if (isKksTag(value)) break; // позиционный тег — не марка
           // Отсеиваем не-марки: одиночное слово без цифры/разделителя («базовое», «стандарт»)
           if (!/\d/.test(value) && !/[-./]/.test(value) && !/[A-ZА-Я]{2,}/.test(value)) break;
-          const norm = normalizeCode(value);
-          item.brand = norm.value;
+          // Первая марка выигрывает: в разделе бланка сначала стоит само
+          // изделие («индекс: ВОСК72Б-063…»), а ниже его навеска
+          // («назв: АДЭМ (F) 112М4» — двигатель). Последняя запись делала
+          // маркой вентилятора его двигатель.
+          if (!item.brand) item.brand = normalizeCode(value).value;
           break;
         }
         case 'system':
-          item.system = normalizeCode(value).value;
+          if (!item.system) item.system = normalizeCode(value).value;
           break;
         case 'qty':
-          item.qty = value;
+          if (!item.qty) item.qty = value;
           break;
         case 'spec': {
           // Сохраняем ИСХОДНУЮ подпись документа (dpсеть.вс, dpсеть.нг…), чтобы
           // разные параметры одного поля не схлопывались в общее «Давление».
-          const rawLabel = (!p.fieldId && p.label && p.label.length <= 40) ? p.label : f.label;
+          // Подпись из справочника обозначений («Полное давление») уже
+          // человеческая; сырую подпись документа («dpсеть.вс») тоже бережём,
+          // чтобы разные параметры одной величины не схлопнулись в одну строку
+          const rawLabel = named ? p.label
+            : (!p.fieldId && p.label && p.label.length <= 40) ? p.label : f.label;
           item.fields.push({ fieldId: f.id, label: rawLabel, value, unit: unit || (f.units ? '' : ''), group: f.group, confidence: conf, source: p.source });
           break;
         }
       }
-      if (f.target !== 'spec') {
+      if (f.target !== 'spec' && f.target !== 'tag') {
         // Свойства позиции показываем в предпросмотре (кроме отклонённого KKS в brand)
         if (f.target === 'brand' && !item.brand) { /* KKS-тег отклонён — не выводим */ }
         else item.fields.push({ fieldId: f.id, label: f.label, value: f.target === 'brand' ? (item.brand || value) : value, unit: '', group: 'Общие', confidence: conf, source: p.source });
@@ -452,11 +561,16 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
       let rawVal = value, rawUnit = p.unit;
       const su = splitValueUnit(value);
       if (su.unit) { rawVal = su.value; rawUnit = su.unit; }
-      if (p.label.length <= 60 && isUsefulRawParam(rawVal, rawUnit)) {
+      if (p.label.length <= 60 && isUsefulRawParam(rawVal, rawUnit, p.source)) {
         item.fields.push({ label: p.label, value: rawVal, unit: rawUnit, group: 'Прочее', confidence: 'low', source: p.source });
       }
     }
   }
+
+  // Один тег — он же обозначение установки: в листе технических данных
+  // «код системы: 3700-A01-HU-001A» — и адрес изделия в проекте, и имя
+  // установки. Список тегов системой не бывает — там изделий несколько.
+  if (!item.system && !fromRow && item.tags && item.tags.length === 1) item.system = item.tags[0];
 
   // Тип оборудования и система из названия/марки
   const searchText = `${item.title} ${item.brand || ''}`;
@@ -468,6 +582,27 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
   }
   if (!item.name) item.name = item.brand || '';
   return item;
+}
+
+/**
+ * Общие свойства куска бланка — каждой его позиции. Своё у позиции сильнее:
+ * дописываем только те подписи, которых у неё нет. Без этого сто клапанов
+ * из перечня приезжали с пятью размерами и без единого общего свойства —
+ * ни огнестойкости, ни материала, ни рабочего давления.
+ */
+function applyCommonPairs(items: DraftItem[], pairs: RawPair[], isOcr: boolean): void {
+  const common = buildItem(pairs, '', isOcr);
+  for (const it of items) {
+    if (!it.system && common.system) it.system = common.system;
+    if (!it.brand && common.brand) it.brand = common.brand;
+    const have = new Set(it.fields.map(fl => fl.label.toLowerCase().trim()));
+    for (const fl of common.fields) {
+      const key = fl.label.toLowerCase().trim();
+      if (have.has(key)) continue;
+      have.add(key);
+      it.fields.push({ ...fl, confidence: fl.confidence === 'high' ? 'mid' : fl.confidence });
+    }
+  }
 }
 
 /** Дополняет пустые свойства позиции найденным в прозе (пониженная уверенность) */
@@ -490,7 +625,10 @@ function enrichFromProse(item: DraftItem, proseTexts: string[]) {
       } else item.title = eq.label;
     }
   }
-  if (!item.brand) {
+  // Разделу многосекционного бланка марку из общей прозы не выдаём: проза
+  // принадлежит всему документу, и одна и та же марка досталась бы всем
+  // разделам — а потом схлопывание по марке оставило бы от бланка один блок.
+  if (!item.brand && !item.section && !item.fromRow) {
     // Код с цифрой и разделителем в прозе — кандидат в марку.
     // Из «7421-S01-AN-001 … AeroBlast-K-340-13LW03Н» берём самый «богатый» код
     // (больше сегментов, длиннее), а не короткий обрывок KKS-тега «AN-001».
@@ -604,20 +742,41 @@ export function recognize(doc: ExtractedDoc): DraftResult {
   const underscoreHeavy = doc.blocks.filter(b => b.kind === 'para' && /_{3,}/.test((b as any).text)).length >= 3;
 
   if (entityTables.length > 0 && entityTables.some(t => t.rows.length >= 3)) {
-    // Ведомость: строки = позиции
+    // Ведомость: строки = позиции. Соседние таблицы свойств — общие данные
+    // именно этих строк: в листе на клапаны каждый вид идёт своим куском
+    // «шапка → перечень позиций → общие характеристики», и характеристики
+    // одного вида нельзя приписывать другому. Границей куска служит шапка.
     docType = 'list';
-    for (const t of entityTables) items.push(...itemsFromEntityTable(t.rows, observations));
-    // Таблицы рядом с ведомостью — общие свойства (система и т.п.) для всех позиций
-    const common: RawPair[] = [
-      ...pairsFromAttributeTable(attributeTables.flatMap(t => t.rows)),
-      ...kvGridTables.flatMap(t => pairsFromKvGrid(t.rows)),
-      ...adminTables.flatMap(t => pairsFromAdminTable(t.rows)),
-    ];
-    const sysPair = common.find(p => p.fieldId === 'system' || matchLabel(p.label)?.field.id === 'system');
-    if (sysPair) items.forEach(it => { if (!it.system) it.system = normalizeCode(sysPair.value).value; });
+    let segItems: DraftItem[] = [];
+    let segPairs: RawPair[] = [];
+    const flushSegment = () => {
+      if (segItems.length && segPairs.length) applyCommonPairs(segItems, segPairs, isOcr);
+      segItems = [];
+      segPairs = [];
+    };
+    for (const od of orderedData) {
+      if (od.kind === 'pairs' && od.pairs) { segPairs.push(...od.pairs); continue; }
+      if (od.kind !== 'table' || od.tableIdx === undefined) continue;
+      const t = tables[od.tableIdx];
+      if (t.shape === 'admin') {
+        // Новая шапка — новый вид оборудования: предыдущий кусок закрываем
+        flushSegment();
+        segPairs.push(...pairsFromAdminTable(t.rows));
+      } else if (t.shape === 'entity') {
+        const built = itemsFromEntityTable(t.rows, observations);
+        segItems.push(...built);
+        items.push(...built);
+      } else if (t.shape === 'attribute') {
+        segPairs.push(...pairsFromAttributeTable(t.rows));
+      } else if (t.shape === 'kvgrid') {
+        segPairs.push(...pairsFromKvGrid(t.rows, proseTexts));
+      } else if (t.shape === 'matrix') {
+        segPairs.push(...pairsFromMatrixTable(t.rows).pairs);
+      }
+    }
+    flushSegment();
   } else if (headings.length >= 2) {
     // Многосекционный бланк: секции между заголовками
-    docType = 'multi';
     const sectionOf = (bi: number) => {
       let cur = -1;
       for (let h = 0; h < headings.length; h++) if (headings[h].blockIndex <= bi) cur = h;
@@ -632,7 +791,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
       else if (od.kind === 'table' && od.tableIdx !== undefined) {
         const t = tables[od.tableIdx];
         if (t.shape === 'attribute') bucket.push(...pairsFromAttributeTable(t.rows));
-        else if (t.shape === 'kvgrid') bucket.push(...pairsFromKvGrid(t.rows));
+        else if (t.shape === 'kvgrid') bucket.push(...pairsFromKvGrid(t.rows, proseTexts));
         else if (t.shape === 'admin') bucket.push(...pairsFromAdminTable(t.rows));
         else if (t.shape === 'matrix') {
           const mx = pairsFromMatrixTable(t.rows);
@@ -640,21 +799,39 @@ export function recognize(doc: ExtractedDoc): DraftResult {
         }
       }
     }
-    headings.forEach((h, i) => {
-      const item = buildItem(sectionPairs[i], h.text, isOcr, observations);
-      // Данные из преамбулы (система, общие поля) — первому/всем без своих значений
-      if (preamblePairs.length) {
-        const pre = buildItem(preamblePairs, '', isOcr);
-        if (!item.system && pre.system) item.system = pre.system;
+    // Заголовок без данных — подпись к картинке, а не раздел. Если разделов с
+    // данными меньше двух, бланк не многосекционный: разбираем как карточку,
+    // иначе всё, что стоит до первого заголовка, потерялось бы.
+    const filled = sectionPairs.filter(sp => sp.length > 0).length;
+    if (filled >= 2) {
+      docType = 'multi';
+      // Данные до первого заголовка — это сам предмет бланка (шапка заказа,
+      // общие характеристики изделия), а не мусор: раньше их отбрасывали
+      // целиком, оставляя от бланка-заказа вентилятора две пустые подписи.
+      if (preamblePairs.length >= 3) {
+        items.push(buildItem(preamblePairs, '', isOcr, observations));
       }
-      items.push(item);
-    });
-  } else {
+      headings.forEach((h, i) => {
+        // Первый заголовок — предмет бланка (сама установка), он остаётся даже
+        // без своих данных; пустые заголовки дальше — подписи к приложениям
+        if (!sectionPairs[i].length && i > 0) return;
+        const item = buildItem(sectionPairs[i], h.text, isOcr, observations);
+        // Номер раздела — это устройство бланка: «1.» моноблок, «1.2.» блок в нём
+        const no = sectionNumber(h.text);
+        if (no) item.section = no;
+        items.push(item);
+      });
+      // Система из шапки — всем разделам, у которых своей нет
+      const sys = items.find(it => it.system)?.system;
+      if (sys) for (const it of items) if (!it.system) it.system = sys;
+    }
+  }
+  if (items.length === 0) {
     // Карточка одного изделия (или опросный лист)
     docType = underscoreHeavy ? 'questionnaire' : 'card';
     const pairs: RawPair[] = [...kvPairs];
     for (const t of attributeTables) pairs.push(...pairsFromAttributeTable(t.rows));
-    for (const t of kvGridTables) pairs.push(...pairsFromKvGrid(t.rows));
+    for (const t of kvGridTables) pairs.push(...pairsFromKvGrid(t.rows, proseTexts));
     for (const t of adminTables) pairs.push(...pairsFromAdminTable(t.rows));
 
     // Матрица: марка из уже найденных пар помогает выбрать колонку
@@ -702,11 +879,30 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     if (!it.title || it.title === 'Позиция') {
       it.title = it.brand ? `Оборудование ${it.brand}` : 'Нераспознанная позиция';
     }
-    if (!it.name) it.name = it.brand || it.title.slice(0, 30);
+    // Код позиции: тег, затем марка, затем номер раздела. Номер раздела
+    // устойчивее обрезанного названия — по нему повторный ввоз того же бланка
+    // находит тот же блок, а не заводит второй.
+    if (!it.name) it.name = (it.tags && it.tags[0]) || it.brand || it.section || it.title.slice(0, 30);
   }
 
-  let filtered = items.filter(it =>
-    it.fields.length > 0 || it.brand || (it.matrixHeaders && it.matrixHeaders.length > 0) || it.title !== 'Нераспознанная позиция');
+  // Позиция без единого параметра — это подпись к картинке или строка
+  // оформления («3.3. Вентилятор ВСК. Аэродинамическая характеристика»,
+  // «VezaFan v.254.1.54.56»), а не единица оборудования. Единственную позицию
+  // документа оставляем в любом случае — иначе пользователь не поймёт, что
+  // именно не распозналось.
+  const PROP_FIELDS = new Set(['name', 'brand', 'system', 'qty']);
+  const hasData = (it: DraftItem) => it.fromRow          // строка ведомости — позиция по построению
+    || (it.tags || []).length > 0
+    || (it.matrixHeaders || []).length > 0
+    || it.fields.some(fl => !fl.fieldId || !PROP_FIELDS.has(fl.fieldId));
+  // В многосекционном бланке первая позиция — сама установка: она даёт имя
+  // всему дереву, даже если своих характеристик у неё нет
+  let filtered = items.filter((it, i) => hasData(it) || (docType === 'multi' && i === 0));
+  // Ничего не осталось, а позиция была одна и с осмысленным названием —
+  // показываем её: пользователю нужно видеть, что именно не разобралось
+  if (!filtered.length && items.length === 1 && items[0].title !== 'Нераспознанная позиция') {
+    filtered = items;
+  }
 
   // Двуязычные бланки дают ту же позицию дважды (RU + EN), а «характеристика/схема» —
   // пустой хвост секции. Схлопываем по марке, оставляя самую полную (предпочитая русскую).
@@ -723,8 +919,11 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     for (const it of filtered) {
       // Английский перевод русской позиции — отбрасываем (дубль другого языка)
       if (hasRussian && isEnglish(it)) continue;
+      // Строки ведомости и разделы бланка — это разные изделия, даже если
+      // марка у них одна: пятнадцать клапанов КПУ-1Н-О-Н с разными тегами
+      // схлопывались в один, и бланк на сто позиций давал одну.
       const key = (it.brand || '').trim().toLowerCase();
-      if (!key) { kept.push(it); continue; }
+      if (!key || it.fromRow || it.section) { kept.push(it); continue; }
       const prev = byBrand.get(key);
       if (!prev) { byBrand.set(key, it); kept.push(it); continue; }
       const score = (x: DraftItem) => x.fields.length * 100 + cyr(x.fields.map(f => f.label).join(''));
@@ -826,28 +1025,59 @@ export function draftToUnits(items: DraftItem[], docTitle: string): CommitUnit[]
     addOnce('Марка', it.brand);
     addOnce('Система', it.system);
     addOnce('Количество', it.qty);
+    if ((it.tags || []).length) addOnce('Тег', (it.tags || []).join(', '));
     return Object.values(map).filter(g => g.params.length);
   };
 
-  // Составное изделие: первая позиция — установка, остальные — её секции
-  const ahuIdx = items.findIndex(i => i.equipType === 'ahu');
-  if (items.length > 1 && ahuIdx >= 0) {
-    const head = items[ahuIdx];
-    const rest = items.filter((_, i) => i !== ahuIdx);
+  const blockOf = (it: DraftItem) => ({
+    name: it.name || it.title,
+    title: it.title,
+    equipType: it.equipType || 'component',
+    groups: groupsOf(it),
+    ...((it.tags || []).length ? { tags: it.tags } : {}),
+  });
+
+  // ── Устройство бланка задано его нумерацией ──────────────────────────────
+  // «1.» — моноблок установки, «1.2.» — блок внутри него. Это ровно те три
+  // уровня, что есть в разделе «Оборудование» (установка → моноблок → блок),
+  // поэтому строим дерево по номерам, а не сваливаем всё в один «M1».
+  const sectioned = items.filter(it => it.section);
+  const head = items.find(it => !it.section && (it.equipType === 'ahu' || it === items[0]));
+  if (sectioned.length >= 2 && head && sectioned.length + 1 <= items.length) {
+    const order: string[] = [];
+    const byMb = new Map<string, DraftItem[]>();
+    for (const it of items) {
+      if (it === head) continue;
+      const mb = (it.section || '').split('.')[0] || '1';
+      if (!byMb.has(mb)) { byMb.set(mb, []); order.push(mb); }
+      byMb.get(mb)!.push(it);
+    }
     return [{
-      name: head.system || head.brand || head.name || docTitle,
+      name: head.system || head.tags?.[0] || head.brand || head.name || docTitle,
       title: head.title,
       groups: groupsOf(head),
-      monoblocks: [{
-        name: 'M1',
-        title: 'Секции установки',
-        blocks: rest.map(it => ({
-          name: it.name || it.title,
-          title: it.title,
-          equipType: it.equipType || 'component',
-          groups: groupsOf(it),
-        })),
-      }],
+      ...((head.tags || []).length ? { tags: head.tags } : {}),
+      monoblocks: order.map(mb => ({
+        name: `M${mb}`,
+        // Название моноблока — из его собственного раздела («1. моноблок»),
+        // если он в бланке есть; иначе просто номер
+        title: byMb.get(mb)!.find(x => x.section === mb)?.title || `Моноблок ${mb}`,
+        blocks: byMb.get(mb)!.map(blockOf),
+      })),
+    }];
+  }
+
+  // Составное изделие без нумерации: первая позиция — установка, остальные — секции
+  const ahuIdx = items.findIndex(i => i.equipType === 'ahu');
+  if (items.length > 1 && ahuIdx >= 0) {
+    const top = items[ahuIdx];
+    const rest = items.filter((_, i) => i !== ahuIdx);
+    return [{
+      name: top.system || top.brand || top.name || docTitle,
+      title: top.title,
+      groups: groupsOf(top),
+      ...((top.tags || []).length ? { tags: top.tags } : {}),
+      monoblocks: [{ name: 'M1', title: 'Секции установки', blocks: rest.map(blockOf) }],
     }];
   }
 
@@ -856,15 +1086,6 @@ export function draftToUnits(items: DraftItem[], docTitle: string): CommitUnit[]
     name: items[0]?.system || docTitle,
     title: docTitle,
     groups: [],
-    monoblocks: [{
-      name: 'M1',
-      title: docTitle,
-      blocks: items.map(it => ({
-        name: it.name || it.title,
-        title: it.title,
-        equipType: it.equipType || 'component',
-        groups: groupsOf(it),
-      })),
-    }],
+    monoblocks: [{ name: 'M1', title: docTitle, blocks: items.map(blockOf) }],
   }];
 }

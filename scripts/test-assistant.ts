@@ -14,7 +14,17 @@ const DATA: any = {
     { id: 't4', identifier: '3700-V03-KL-011', brand: 'КЛОП-1', department: 'ОВиК', fluid: 'Воздух', mainName: 'Клапан огнезадерживающий', actuality: 'warning', stageId: 'added', stageLabel: 'Добавлен', supplier: '' },
   ],
   components: [
-    { id: 'c1', name: 'Двигатель вентилятора', itemCode: 'BLM-1', systemName: '3700-C01-AHU-001', category: 'AHU', monoblockName: 'M1', status: 'ok', hasConflict: false, tags: ['3700-C01-AHU-001'] },
+    // У изделия ЕСТЬ характеристики: без них вся ветка ответов про величины
+    // («какой расход у …») оставалась непроверенной, а сломать её было легко
+    { id: 'c1', name: 'Двигатель вентилятора', itemCode: 'BLM-1', systemName: '3700-C01-AHU-001', category: 'AHU', monoblockName: 'M1', status: 'ok', hasConflict: false,
+      tags: ['3700-C01-AHU-001'],
+      specsTotal: 4,
+      specs: [
+        { key: 'Расход воздуха', value: '20000', unit: 'м³/ч', group: 'Аэродинамика' },
+        { key: 'Мощность', value: '5.5', unit: 'кВт', group: 'Электрика' },
+        { key: 'Частота вращения (nдв)', value: '1435', unit: 'об/мин', group: 'Электрика' },
+        { key: 'Масса', value: '633', unit: 'кг', group: 'Конструкция' },
+      ] },
   ],
   stages: [{ id: 'added', label: 'Добавлен' }, { id: 'ordered', label: 'Заказан' }, { id: 'approved', label: 'Утверждён' }, { id: 'purchased', label: 'Куплен' }],
   duplicates: [{ code: '3700-K02-HV-209', count: 2, ids: ['t1', 't2'] }],
@@ -34,6 +44,37 @@ const hasAction = (m: any, kind: string) => (m.actions || []).some((a: any) => a
     check('код: кнопка «на холсте»', hasAction(message, 'focus-tag'));
     check('код: кнопка «найти дубли»', hasAction(message, 'find-duplicates'), JSON.stringify(message.actions));
     check('код: сохранён контекст', result?.kind === 'tags');
+  }
+
+  // Характеристики позиции: ветка, ради которой словарь и живёт в помощнике
+  {
+    const { message } = await R('какой расход воздуха у 3700-C01-AHU-001');
+    check('характеристики: расход найден', message.text.includes('20000'), message.text);
+    check('характеристики: единица названа', message.text.includes('м³/ч'), message.text);
+    check('характеристики: кнопка «показать в оборудовании»', hasAction(message, 'focus-equipment'));
+  }
+  {
+    // Опечатка не должна ломать вопрос: инженер печатает быстро
+    const { message } = await R('какая мощнось у 3700-C01-AHU-001');
+    check('характеристики: опечатка «мощнось» понята', message.text.includes('5.5'), message.text);
+  }
+  {
+    // В бланках половина величин подписана обозначением, а не словом
+    const { message } = await R('какой N у 3700-C01-AHU-001');
+    check('характеристики: обозначение «N» понято как мощность', message.text.includes('5.5'), message.text);
+  }
+  {
+    const { message } = await R('характеристики 3700-C01-AHU-001');
+    check('характеристики: таблица целиком', !!message.table && (message.table.rows || []).length === 4, JSON.stringify(message.table?.rows?.length));
+    check('характеристики: сказано, сколько показано', /показано 4 параметр/.test(message.text), message.text);
+  }
+  {
+    // Тег есть, изделия за ним нет: раньше молча показывалась карточка тега
+    // с этапом закупки, и человек считал, что ответили про расход
+    const { message } = await R('какой расход у 3700-V03-KL-011');
+    check('характеристики: честный ответ про отсутствие оборудования',
+      /нет привязанного оборудования/.test(message.text), message.text);
+    check('характеристики: и подсказано, где связать', hasAction(message, 'open-section'), JSON.stringify(message.actions));
   }
 
   // Дубли

@@ -1,4 +1,4 @@
-import { parseRuNumber, canonicalUnit, isPlainNumber, normalizeKey, wordStem } from '../server/normalize.js';
+import { parseRuNumber, canonicalUnit, isKnownUnit, isPlainNumber, normalizeKey, wordStem } from '../server/normalize.js';
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) => c ? console.log('  ✓', n) : (f++, console.error('  ✗', n, d !== undefined ? JSON.stringify(d) : ''));
 
@@ -26,6 +26,16 @@ ok('«об/мин» → «об/мин»', canonicalUnit('об/мин') === 'об
 ok('«дб(а)» → «дБ(А)»', canonicalUnit('дб(а)') === 'дБ(А)');
 ok('незнакомая «попугаи» → как есть', canonicalUnit('попугаи') === 'попугаи');
 ok('пустая → пустая', canonicalUnit('') === '');
+
+console.log('3.1 isKnownUnit — по нему разбор Excel узнаёт колонку «Ед. изм.»');
+// Свой список единиц в разборе Excel расходился с этим словарём: «л/ч» там
+// была единицей, здесь — нет, и колонка то узнавалась, то нет
+ok('«л/ч» — единица', isKnownUnit('л/ч'));
+ok('«м3/ч» — единица', isKnownUnit('м3/ч'));
+ok('«М³/Ч.» — единица (регистр и точка не мешают)', isKnownUnit('М³/Ч.'), canonicalUnit('М³/Ч.'));
+ok('«rpm» — единица', isKnownUnit('rpm'));
+ok('«Расход» — не единица', isKnownUnit('Расход') === false);
+ok('пустая — не единица', isKnownUnit('') === false);
 
 console.log('4. wordStem / normalizeKey (похожесть ключей)');
 ok('«воздуха»→«воздух»', wordStem('воздуха') === 'воздух', wordStem('воздуха'));

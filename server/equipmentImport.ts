@@ -1,4 +1,6 @@
 import { EquipParseResult, SpecGroup } from './equipmentParser.js';
+import { blockKey } from './specUtils.js';
+import { applyTagLinks, type TagLink } from './equipmentTags.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
 export function flattenGroups(groups: SpecGroup[]): Record<string, { value: string; unit: string }> {
@@ -33,6 +35,8 @@ export interface ImportSummary {
   conflictsCount: number; newBlocks: number; updatedBlocks: number; systems: number;
   /** Партия импорта — по ней ввоз отменяется целиком (см. importUndo) */
   batchId: string;
+  /** Теги: сколько привязано, сколько заведено, что не удалось и почему */
+  tagsLinked: number; tagsCreated: number; tagConflicts: string[];
 }
 
 /**
@@ -48,11 +52,18 @@ export async function importEquipmentToDB(
   fileName: string,
   result: EquipParseResult,
   conflictMode: 'immediate' | 'wait',
+  tagLinks?: TagLink[],
 ): Promise<ImportSummary> {
   // Партия: всё, что записал один ввоз расчёта. Без неё «отменить импорт»
   // пришлось бы собирать по времени, а два импорта подряд слились бы в один.
   const batchId = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const summary: ImportSummary = { conflictsCount: 0, newBlocks: 0, updatedBlocks: 0, systems: 0, batchId };
+  const summary: ImportSummary = {
+    conflictsCount: 0, newBlocks: 0, updatedBlocks: 0, systems: 0, batchId,
+    tagsLinked: 0, tagsCreated: 0, tagConflicts: [],
+  };
+  // Адрес позиции → её элемент в базе: по нему решения инженера о тегах
+  // ложатся на те самые блоки, которые он видел в предпросмотре
+  const componentIdByKey = new Map<string, string>();
 
   for (const unitData of result.units) {
     summary.systems++;
@@ -85,10 +96,15 @@ export async function importEquipmentToDB(
     if (!unitMb) unitMb = await prisma.monoblock.create({ data: { systemId: system.id, name: '__unit__' } });
 
     for (const blk of unitBlocks as any[]) {
+      // Служебный блок параметров установки заводим, только если параметры есть.
+      // План импорта считает так же — иначе предпросмотр обещал бы четыре блока,
+      // а в базе появлялось пять, и лишний висел бы пустым.
+      if (blk.name === '__unit__' && !(blk.groups || []).length) continue;
       const monoblock = blk.__mb ? mbMap[blk.__mb.name] : unitMb;
       const newGroups = blk.groups || [];
       const serialized = JSON.stringify({ groups: newGroups });
 
+      const keyOfBlock = blockKey(unitData.name, blk.__mb ? blk.__mb.name : '', blk.name);
       let component = await prisma.componentElement.findFirst({
         where: { monoblockId: monoblock.id, itemCode: blk.name },
         include: { tags: true },
@@ -115,10 +131,12 @@ export async function importEquipmentToDB(
             changeType: 'CREATE', batchId,
           },
         });
+        componentIdByKey.set(keyOfBlock, created.id);
         summary.newBlocks++;
         continue;
       }
 
+      componentIdByKey.set(keyOfBlock, component.id);
       const oldParsed = component.specs ? JSON.parse(component.specs) : { groups: [] };
       const oldGroups = oldParsed.groups || [];
       const conflicts = diffSpecs(oldGroups, newGroups);
@@ -174,6 +192,15 @@ export async function importEquipmentToDB(
         });
       }
     }
+  }
+
+  // Теги — последним шагом: элементы уже есть, и решения инженера ложатся
+  // ровно на те позиции, которые он видел в предпросмотре
+  if (tagLinks && tagLinks.length) {
+    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey);
+    summary.tagsLinked = applied.linked;
+    summary.tagsCreated = applied.created;
+    summary.tagConflicts = applied.conflicts;
   }
 
   return summary;

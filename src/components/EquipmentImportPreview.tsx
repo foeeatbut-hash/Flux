@@ -5,6 +5,7 @@ import {
   Plus, RefreshCw, Minus, Pencil,
 } from 'lucide-react';
 import { rememberImport } from '../lib/lastImport';
+import TagLinksPanel, { type TagLink } from './import/TagLinksPanel';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -23,14 +24,21 @@ interface PlanBlock {
 }
 interface PlanSystem { name: string; title: string; action: 'create' | 'match'; matchedName?: string }
 interface ImportPlan {
-  systems: PlanSystem[]; blocks: PlanBlock[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number };
+  systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
+  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
 type Edits = Record<string, Record<string, string>>; // blockKey → "группа‖ключ" → значение
 
 interface Props {
-  fileIds: string[];
+  /** Ввоз файлов расчёта из Проводника (очередь) */
+  fileIds?: string[];
+  /**
+   * Ввоз уже распознанного документа из мастера (PDF/Word/скан/буфер).
+   * Оба источника проходят один путь: план → предпросмотр → запись, поэтому
+   * дифф, правки, выбор области, теги и отмена у них одинаковые.
+   */
+  draft?: { units: any[]; fileName: string };
   category: string;
   categoryLabel: string;
   projectId: string;
@@ -43,7 +51,7 @@ const actionBadge = (a: PlanBlock['action']) =>
   : a === 'update' ? { icon: RefreshCw, cls: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30', text: 'изменится' }
   : { icon: Minus, cls: 'text-slate-400 bg-slate-100 dark:bg-slate-800', text: 'без изменений' };
 
-export default function EquipmentImportPreview({ fileIds, category, categoryLabel, projectId, onClose, onDone }: Props) {
+export default function EquipmentImportPreview({ fileIds = [], draft, category, categoryLabel, projectId, onClose, onDone }: Props) {
   useEscapeClose(true, onClose);
 
   const [idx, setIdx] = useState(0);
@@ -57,27 +65,45 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
   const [excluded, setExcluded] = useState<Set<string>>(new Set()); // снятые галочки блоков
   const [edits, setEdits] = useState<Edits>({});
   const [totalConflicts, setTotalConflicts] = useState(0);
+  // Второй шаг предпросмотра: что сделать с технологическими позициями бланка
+  const [tagLinks, setTagLinks] = useState<TagLink[]>([]);
+  const [showTags, setShowTags] = useState(false);
 
   const fileId = fileIds[idx];
+  const queueLength = draft ? 1 : fileIds.length;
 
   const loadPlan = async (currentEdits: Edits) => {
     setLoading(true); setError('');
     try {
-      const r = await fetch('/api/equipment/import-plan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, category, projectId, edits: currentEdits }),
-      });
+      const r = draft
+        ? await fetch('/api/equipment/import-draft-plan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ units: draft.units, category, projectId, edits: currentEdits }),
+          })
+        : await fetch('/api/equipment/import-plan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId, category, projectId, edits: currentEdits }),
+          });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Не удалось построить план'); setPlan(null); }
       else {
-        setPlan(d.plan); setFileName(d.fileName);
+        setPlan(d.plan); setFileName(draft ? draft.fileName : d.fileName);
         setActiveBlock(d.plan.blocks[0]?.key || null);
+        setTagLinks(d.plan.tagLinks || []);
       }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { setExcluded(new Set()); setEdits({}); loadPlan({}); /* новый файл */ }, [fileId]);
+  useEffect(() => { setExcluded(new Set()); setEdits({}); setShowTags(false); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
+
+  const titleOfBlock = (key: string) => {
+    const b = plan?.blocks.find(x => x.key === key);
+    if (!b) return key;
+    return b.itemCode === '__unit__' ? 'параметры установки' : (b.title || b.itemCode);
+  };
+  const setTagAction = (i: number, action: TagLink['action']) =>
+    setTagLinks(list => list.map((l, j) => (j === i ? { ...l, action } : l)));
 
   // Дерево: система → её блоки (моноблок как подпись строки)
   const grouped = useMemo(() => {
@@ -108,23 +134,31 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
     if (!plan || selectedCount === 0) return;
     setApplying(true);
     try {
-      const r = await fetch('/api/equipment/import-to-category', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId, category, projectId, edits,
-          selection: selectedBlocks.map(b => b.key),
-        }),
-      });
+      // Теги только выбранных позиций: снятая галочка не должна завести тег
+      const chosenTags = tagLinks.filter(l => selectedBlocks.some(b => b.key === l.blockKey));
+      const selection = selectedBlocks.map(b => b.key);
+      const r = draft
+        ? await fetch('/api/equipment/import-draft', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              units: draft.units, fileName: draft.fileName,
+              category, projectId, edits, selection, tagLinks: chosenTags,
+            }),
+          })
+        : await fetch('/api/equipment/import-to-category', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags }),
+          });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
       const conflicts = totalConflicts + (d.conflictsCount || 0);
       setTotalConflicts(conflicts);
       // Партию запоминаем сразу: если импорт идёт очередью, отменить нужно
       // будет последний файл — на нём обычно и замечают, что залили не туда
-      if (d.batchId) rememberImport(projectId, d.batchId, fileIds.length);
+      if (d.batchId) rememberImport(projectId, d.batchId, queueLength);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
-      else { onDone({ files: fileIds.length, conflicts }); }
+      else { onDone({ files: queueLength, conflicts }); }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setApplying(false); }
   };
@@ -166,9 +200,20 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
               {t!.conflicts > 0 && <Chip color="amber" label={`${t!.conflicts} расхождений значений`} />}
               {t!.overrides > 0 && <Chip color="rose" label={`затронет ручных правок: ${t!.overrides}`} />}
               {t!.warnings > 0 && <Chip color="rose" label={`⚠ проверьте: ${t!.warnings}`} />}
+              <span className="flex-1" />
+              {tagLinks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowTags(v => !v)}
+                  title="Технологические позиции бланка: привязать к существующим тегам или завести новые"
+                  className="text-xs font-bold px-2 py-1 rounded-lg border border-emerald-300 text-emerald-700 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer"
+                >
+                  {showTags ? '← к параметрам' : `Теги бланка: ${tagLinks.length} (создать ${tagLinks.filter(l => l.action === 'create').length})`}
+                </button>
+              )}
             </div>
 
-            <div className="flex-1 min-h-0 flex">
+            <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
               {/* Дерево */}
               <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
                 {[...grouped.entries()].map(([sys, blocks]) => {
@@ -258,6 +303,13 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                 ) : <div className="text-sm text-slate-400 text-center py-12">Выберите блок в дереве слева</div>}
               </div>
             </div>
+
+            {/* Второй шаг: технологические позиции бланка */}
+            {showTags && (
+              <div className="flex-1 min-h-0 flex">
+                <TagLinksPanel links={tagLinks} titleOf={titleOfBlock} onChange={setTagAction} />
+              </div>
+            )}
 
             {/* Действия */}
             <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 shrink-0">

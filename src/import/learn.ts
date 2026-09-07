@@ -5,6 +5,7 @@
 
 import type { LearnObservation } from './types';
 import type { LearnedEntry } from './dictionary';
+import { setSymbolRules, type SymbolRule } from './symbols';
 
 export type LearnedDict = Record<string, LearnedEntry>;
 
@@ -64,4 +65,29 @@ async function flush(): Promise<void> {
   } catch {
     /* не удалось — наблюдения не критичны, попадут при следующем импорте */
   }
+}
+
+
+// ── Справочник условных обозначений ──────────────────────────────────────────
+// Правки отдела поверх стартового набора (src/import/symbols.ts): «L, м³/ч» —
+// расход, «L, мм» — длина, «N» — мощность, «n» — обороты. Общий на команду,
+// правится в Справочнике, применяется при каждом разборе бланка.
+let symbols: SymbolRule[] = [];
+
+export function getSymbolRules(): SymbolRule[] {
+  return symbols;
+}
+
+export async function loadSymbolRules(): Promise<SymbolRule[]> {
+  try {
+    const r = await fetch('/api/import/symbols');
+    if (r.ok) {
+      const d = await r.json();
+      if (d && Array.isArray(d.symbols)) symbols = d.symbols;
+    }
+  } catch {
+    /* офлайн/недоступно — работаем со стартовым набором */
+  }
+  setSymbolRules(symbols);
+  return symbols;
 }

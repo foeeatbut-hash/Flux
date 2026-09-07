@@ -1,6 +1,8 @@
 // Словарь распознавания: синонимы полей, типы оборудования, единицы измерения,
 // валидация значений. Расширяется без изменения логики recognize.ts.
 
+import { resolveSymbol } from './symbols';
+
 export type ValueKind = 'number' | 'code' | 'text' | 'dims' | 'enum';
 
 export interface FieldDef {
@@ -8,7 +10,7 @@ export interface FieldDef {
   /** Каноническая подпись для карточки оборудования */
   label: string;
   /** Куда идёт значение: свойство позиции или характеристика */
-  target: 'name' | 'brand' | 'system' | 'qty' | 'spec';
+  target: 'name' | 'brand' | 'system' | 'qty' | 'spec' | 'tag';
   group: string;
   synonyms: string[];
   kind: ValueKind;
@@ -28,6 +30,14 @@ export const FIELDS: FieldDef[] = [
   { id: 'system', label: 'Система', target: 'system', group: 'Общие',
     synonyms: ['система', 'номер системы', 'обслуживаемая система', '系统'],
     kind: 'code' },
+  // Технологическая позиция (тег) — не название и не марка: это адрес изделия
+  // в проекте. В бланке их бывает несколько в одной ячейке через запятую или
+  // с новой строки: один лист на пять одинаковых вентиляторов.
+  { id: 'tag', label: 'Тег', target: 'tag', group: 'Общие',
+    synonyms: ['тег', 'тэг', 'теговый номер', 'tag номер', 'номер тега', 'tag n', 'tag no', 'tag number',
+      'технологическая позиция', 'позиционное обозначение', 'номер позиции', 'поз',
+      'код системы', 'обозначение системы'],
+    kind: 'code' },
   { id: 'qty', label: 'Количество', target: 'qty', group: 'Общие',
     synonyms: ['количество', 'кол во', 'кол-во', 'шт', 'число', 'колво'],
     kind: 'number', units: ['шт', 'компл'], range: [0.001, 1000000] },
@@ -45,6 +55,9 @@ export const FIELDS: FieldDef[] = [
   { id: 'waterflow', label: 'Расход теплоносителя', target: 'spec', group: 'Гидравлика',
     synonyms: ['расход воды', 'расход теплоносителя', 'расход жидкости'],
     kind: 'number', units: ['л/с', 'м3/ч', 'кг/с', 'л/ч'], range: [0.001, 100000] },
+  { id: 'massflow', label: 'Массовый расход', target: 'spec', group: 'Гидравлика',
+    synonyms: ['массовый расход', 'расход по массе', 'производительность по массе'],
+    kind: 'number', units: ['кг/ч', 'кг/с', 'т/ч'], range: [0.001, 1000000] },
 
   // ── Электрика ──
   { id: 'power', label: 'Мощность', target: 'spec', group: 'Электрика',
@@ -69,6 +82,11 @@ export const FIELDS: FieldDef[] = [
     kind: 'number', units: ['°c', 'с', 'c', 'град'], range: [-100, 1200] },
 
   // ── Конструкция ──
+  // «Длина» держит и высоту с шириной: в бланках это один вид величины
+  // (линейный размер), а какой именно — говорит подпись, она и сохраняется.
+  { id: 'length', label: 'Длина', target: 'spec', group: 'Конструкция',
+    synonyms: ['длина', 'высота', 'ширина', 'глубина', 'длина корпуса', 'высота корпуса', 'ширина корпуса', 'длина блока'],
+    kind: 'number', units: ['мм', 'см', 'м'], range: [0.1, 100000] },
   { id: 'dims', label: 'Габариты', target: 'spec', group: 'Конструкция',
     synonyms: ['габариты', 'размеры', 'габаритные размеры', 'размер', 'шхвхг', 'вхшхг', 'дхшхв', 'lxbxh'],
     kind: 'dims', units: ['мм', 'см', 'м'] },
@@ -217,22 +235,11 @@ const UNIT_TO_FIELD: { re: RegExp; fieldId: string }[] = [
   { re: /^(шт|компл)$/i, fieldId: 'qty' },
 ];
 
-// Человеческие подписи для типовых символов формул
-const FORMULA_LABELS: { re: RegExp; label: string }[] = [
-  { re: /^l\s*в?$/i, label: 'Расход воздуха' },
-  { re: /^p\s*полн/i, label: 'Полное давление' },
-  { re: /^p\s*сеть/i, label: 'Давление сети' },
-  { re: /^dp/i, label: 'Потери давления' },
-  { re: /^p[vу]?$/i, label: 'Давление' },
-  { re: /^n[yу]?$/i, label: 'Мощность' },
-  { re: /^n$/i, label: 'Частота вращения' },
-  { re: /^u/i, label: 'Напряжение' },
-  { re: /^i/i, label: 'Ток' },
-  { re: /^[mм]\s*(сум)?$/i, label: 'Масса' },
-  { re: /^v$/i, label: 'Скорость' },
-];
-
-export interface FormulaParam { label: string; value: string; unit: string; fieldId?: string; }
+export interface FormulaParam {
+  label: string; value: string; unit: string; fieldId?: string;
+  /** подпись уже человеческая (из справочника обозначений) — не заменять */
+  named?: boolean;
+}
 
 /**
  * Разбирает формульную строку бланка: «Lв=140 куб.м./ч; Pполн=250 Па, n=2130об/мин».
@@ -241,9 +248,13 @@ export interface FormulaParam { label: string; value: string; unit: string; fiel
 export function parseFormulaLine(line: string): FormulaParam[] {
   const out: FormulaParam[] = [];
   // Делим по ; и по запятой, если после неё идёт новый «символ=» (а не десятичная часть)
-  const chunks = line.split(/;|,(?=\s*[A-Za-zА-Яа-яёΔ][\wв]{0,12}\s*=)/);
+  const chunks = line.split(/;|,(?=\s*[A-Za-zА-Яа-яёΔ∆Ø][A-Za-zА-Яа-яё0-9_*.№]{0,12}\s*=)/);
   for (const chunk of chunks) {
-    const m = chunk.match(/^\s*([A-Za-zА-Яа-яё][\wв.\s]{0,14}?)\s*=\s*[~≈]?\s*(-?[\d\s.,]+)\s*(.*?)\s*$/);
+    // Символ: буква (в т.ч. Δ, Ø) плюс индекс — кириллический тоже («Pполн»,
+    // «dpсеть», «Nтэн»). \w кириллицу не берёт, поэтому класс выписан явно:
+    // из-за этого целые строки бланка раньше не разбирались вовсе.
+    // Значение может быть составным: «23150/14240» (приток/вытяжка), «4*35.1».
+    const m = chunk.match(/^\s*([A-Za-zА-Яа-яёΔ∆Ø][A-Za-zА-Яа-яё0-9_*.№\s]{0,14}?)\s*=\s*[~≈]?\s*(-?[\d\s.,]+(?:\s*[/*x×]\s*-?[\d\s.,]+)*)\s*(.*?)\s*$/);
     if (!m) {
       // Отдельный токен степени защиты: IP54
       const ip = chunk.match(/^\s*(IP\s?\d{2})\s*$/i);
@@ -256,12 +267,13 @@ export function parseFormulaLine(line: string): FormulaParam[] {
     if (!/\d/.test(value)) continue;
     if (unitRaw.length > 14 || unitRaw.split(/\s+/).length > 3) continue; // не формула, а текст
     const unitKey = unitRaw.toLowerCase().replace(/[\s.]/g, '');
-    const fieldId = UNIT_TO_FIELD.find(u => u.re.test(unitKey))?.fieldId;
-    // «L=80 мм» — длина, а не расход: человеческую подпись даём только при
-    // совпадении поля по единице, иначе остаётся символ (уйдёт в «Прочее»)
-    const label = fieldId ? (FORMULA_LABELS.find(f => f.re.test(sym))?.label || sym) : sym;
     const unit = UNIT_ALIASES[unitKey] || unitRaw;
-    out.push({ label, value, unit, fieldId });
+    // Величину решает тройка «символ + регистр + единица»: «L=80 мм» — длина,
+    // «L=5000 м³/ч» — расход, «N» — мощность, «n» — обороты. Справочник
+    // обозначений редактируется отделом (см. symbols.ts).
+    const sm = resolveSymbol(sym, unit);
+    const fieldId = sm?.field || UNIT_TO_FIELD.find(u => u.re.test(unitKey))?.fieldId;
+    out.push({ label: sm?.label || sym, value, unit, fieldId, ...(sm ? { named: true } : {}) });
   }
   // Строка считается формульной, только если распознано ≥1 параметра с единицей/полем
   return out.some(p => p.fieldId || p.unit) ? out : [];
@@ -347,6 +359,12 @@ const UNIT_ALIASES: Record<string, string> = {
   'мм вод ст': 'мм вод ст', 'мм в.ст': 'мм вод ст', 'ммвс': 'мм вод ст',
   'кгс/м2': 'кгс/м²', 'кгс/м²': 'кгс/м²', 'ккал/ч': 'ккал/ч',
   'м3/с': 'м³/с', 'м/с': 'м/с', 'м/c': 'м/с',
+  // Канонические написания тоже должны быть ключами: без этого «Расход, м³/ч»
+  // единицу из подписи не отдавал, а «254м2» не делился на число и единицу
+  'м³/ч': 'м³/ч', 'м³/с': 'м³/с', 'м3': 'м³', 'м³': 'м³', 'м2': 'м²', 'м²': 'м²',
+  'кг/ч': 'кг/ч', 'кг/с': 'кг/с', 'т/ч': 'т/ч', 'кг/м3': 'кг/м³', 'кг/м³': 'кг/м³',
+  'кдж/кг': 'кДж/кг', 'г/кг': 'г/кг', 'кв': 'кВ', 'гц': 'Гц', 'ква': 'кВА',
+  'мвт': 'МВт', 'бар': 'бар', 'сек': 'с', 'л': 'л', 'мм.рт.ст': 'мм рт.ст.',
 };
 
 /** Отделяет единицу измерения от значения: «5000 м3/ч» → { num: '5000', unit: 'м³/ч' } */
@@ -521,6 +539,23 @@ export function findSystem(text: string): string | null {
 
 /** Код марки/тега: латиница-цифры с разделителями, минимум одна цифра */
 export const CODE_RE = /([A-Za-zА-Яа-я0-9]{1,}(?:[\-./\\][A-Za-zА-Яа-я0-9,]{1,}){1,})/g;
+
+/**
+ * Список технологических позиций из одной ячейки бланка:
+ * «3700-C01-BL-001A, 3700-C01-BL-001B; …» и через перевод строки.
+ * Один лист выпускается на несколько одинаковых изделий, у каждого свой тег —
+ * поэтому ячейка почти никогда не содержит ровно один код.
+ */
+export function splitTagList(raw: string): string[] {
+  // Разделителем бывает и перевод строки, и пробел: до этого места текст уже
+  // прошёл чистку, где перевод строки стал пробелом, — если делить только по
+  // запятой, «3700-D01-DS-002 3700-D01-DS-003» останется одним «тегом» длиной
+  // в сорок семь знаков и пропадёт целиком. В настоящем теге пробелов нет.
+  return String(raw ?? '')
+    .split(/[,;\n\s]+/)
+    .map(t => t.trim().replace(/[.,;]+$/, ''))
+    .filter(t => t.length >= 3 && t.length <= 40 && /\d/.test(t) && /[-./]/.test(t));
+}
 
 export function looksLikeCode(s: string): boolean {
   const t = (s || '').trim();

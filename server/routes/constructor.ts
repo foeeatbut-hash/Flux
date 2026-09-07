@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, upsertSetting } from '../context.js';
 import { normalizeKey, parseRuNumber } from '../normalize.js';
+import { overrideKey } from '../specUtils.js';
 import { registerImportFileRoute } from './constructorImport.js';
 
 const ALIAS_SETTING_KEY = 'constructor_param_aliases';
@@ -68,10 +69,10 @@ function parseJsonSafe(raw: any): any {
   try { return JSON.parse(raw); } catch (_) { return null; }
 }
 
-// Значение параметра элемента: specs с наложенными ручными overrides ("группа|ключ")
+// Значение параметра элемента: specs с наложенными ручными правками инженера
 function elementParamValue(el: any, group: string, key: string): string {
   const overrides = parseJsonSafe(el.overrides) || {};
-  const ovKey = `${group}|${key}`;
+  const ovKey = overrideKey(group, key);
   if (ovKey in overrides) return String(overrides[ovKey] ?? '');
   const specs = normalizeSpecs(el.specs);
   for (const g of specs.groups) {

@@ -6,17 +6,19 @@
 import { extractXlsx, extractXml } from './extractors';
 import { recognize } from './recognize';
 import { setLearned, LearnedEntry } from './dictionary';
+import { setSymbolRules, type SymbolRule } from './symbols';
 import type { ExtractedDoc } from './types';
 
 type Learned = Record<string, LearnedEntry>;
 type Req =
-  | { type: 'recognize'; id: number; doc: ExtractedDoc; learned?: Learned }
-  | { type: 'extractRecognize'; id: number; ext: string; buffer: ArrayBuffer; learned?: Learned };
+  | { type: 'recognize'; id: number; doc: ExtractedDoc; learned?: Learned; symbols?: SymbolRule[] }
+  | { type: 'extractRecognize'; id: number; ext: string; buffer: ArrayBuffer; learned?: Learned; symbols?: SymbolRule[] };
 
 self.onmessage = (e: MessageEvent<Req>) => {
   const msg = e.data;
   try {
     setLearned(msg.learned);
+    setSymbolRules(msg.symbols);
     let doc: ExtractedDoc;
     if (msg.type === 'recognize') {
       doc = msg.doc;
