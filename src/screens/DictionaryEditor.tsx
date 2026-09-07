@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import SymbolsEditor from '../components/SymbolsEditor';
 import { useStore } from "../store/store";
 import { motion } from "motion/react";
 import CustomSelect from "../components/CustomSelect";
@@ -1165,6 +1166,21 @@ export default function DictionaryEditor() {
                     сист
                   </span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDictId('symbols-config')}
+                  title="Условные обозначения бланков: «L, м³/ч» — расход, «N» — мощность, «n» — обороты"
+                  className={`px-4 py-3 text-left text-xs font-semibold tracking-wide transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'symbols-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Sliders className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span>Обозначения</span>
+                  </span>
+                  <span className="text-xs uppercase font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
+                    сист
+                  </span>
+                </button>
               </div>
             )}
           </div>
@@ -1203,7 +1219,9 @@ export default function DictionaryEditor() {
         </div>
 
         <div className="flex-1 min-w-0 w-full">
-          {activeDictId === 'tag-creation-config' ? (
+          {activeDictId === 'symbols-config' ? (
+            <SymbolsEditor />
+          ) : activeDictId === 'tag-creation-config' ? (
             (() => {
               const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
               const items = configDict?.items || [];
