@@ -31,7 +31,14 @@ interface ImportPlan {
 type Edits = Record<string, Record<string, string>>; // blockKey → "группа‖ключ" → значение
 
 interface Props {
-  fileIds: string[];
+  /** Ввоз файлов расчёта из Проводника (очередь) */
+  fileIds?: string[];
+  /**
+   * Ввоз уже распознанного документа из мастера (PDF/Word/скан/буфер).
+   * Оба источника проходят один путь: план → предпросмотр → запись, поэтому
+   * дифф, правки, выбор области, теги и отмена у них одинаковые.
+   */
+  draft?: { units: any[]; fileName: string };
   category: string;
   categoryLabel: string;
   projectId: string;
@@ -44,7 +51,7 @@ const actionBadge = (a: PlanBlock['action']) =>
   : a === 'update' ? { icon: RefreshCw, cls: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30', text: 'изменится' }
   : { icon: Minus, cls: 'text-slate-400 bg-slate-100 dark:bg-slate-800', text: 'без изменений' };
 
-export default function EquipmentImportPreview({ fileIds, category, categoryLabel, projectId, onClose, onDone }: Props) {
+export default function EquipmentImportPreview({ fileIds = [], draft, category, categoryLabel, projectId, onClose, onDone }: Props) {
   useEscapeClose(true, onClose);
 
   const [idx, setIdx] = useState(0);
@@ -63,18 +70,24 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
   const [showTags, setShowTags] = useState(false);
 
   const fileId = fileIds[idx];
+  const queueLength = draft ? 1 : fileIds.length;
 
   const loadPlan = async (currentEdits: Edits) => {
     setLoading(true); setError('');
     try {
-      const r = await fetch('/api/equipment/import-plan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, category, projectId, edits: currentEdits }),
-      });
+      const r = draft
+        ? await fetch('/api/equipment/import-draft-plan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ units: draft.units, category, projectId, edits: currentEdits }),
+          })
+        : await fetch('/api/equipment/import-plan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId, category, projectId, edits: currentEdits }),
+          });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Не удалось построить план'); setPlan(null); }
       else {
-        setPlan(d.plan); setFileName(d.fileName);
+        setPlan(d.plan); setFileName(draft ? draft.fileName : d.fileName);
         setActiveBlock(d.plan.blocks[0]?.key || null);
         setTagLinks(d.plan.tagLinks || []);
       }
@@ -82,7 +95,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
     finally { setLoading(false); }
   };
 
-  useEffect(() => { setExcluded(new Set()); setEdits({}); setShowTags(false); loadPlan({}); /* новый файл */ }, [fileId]);
+  useEffect(() => { setExcluded(new Set()); setEdits({}); setShowTags(false); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
 
   const titleOfBlock = (key: string) => {
     const b = plan?.blocks.find(x => x.key === key);
@@ -121,25 +134,31 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
     if (!plan || selectedCount === 0) return;
     setApplying(true);
     try {
-      const r = await fetch('/api/equipment/import-to-category', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId, category, projectId, edits,
-          selection: selectedBlocks.map(b => b.key),
-          // Теги только выбранных позиций: снятая галочка не должна завести тег
-          tagLinks: tagLinks.filter(l => selectedBlocks.some(b => b.key === l.blockKey)),
-        }),
-      });
+      // Теги только выбранных позиций: снятая галочка не должна завести тег
+      const chosenTags = tagLinks.filter(l => selectedBlocks.some(b => b.key === l.blockKey));
+      const selection = selectedBlocks.map(b => b.key);
+      const r = draft
+        ? await fetch('/api/equipment/import-draft', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              units: draft.units, fileName: draft.fileName,
+              category, projectId, edits, selection, tagLinks: chosenTags,
+            }),
+          })
+        : await fetch('/api/equipment/import-to-category', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags }),
+          });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
       const conflicts = totalConflicts + (d.conflictsCount || 0);
       setTotalConflicts(conflicts);
       // Партию запоминаем сразу: если импорт идёт очередью, отменить нужно
       // будет последний файл — на нём обычно и замечают, что залили не туда
-      if (d.batchId) rememberImport(projectId, d.batchId, fileIds.length);
+      if (d.batchId) rememberImport(projectId, d.batchId, queueLength);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
-      else { onDone({ files: fileIds.length, conflicts }); }
+      else { onDone({ files: queueLength, conflicts }); }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setApplying(false); }
   };

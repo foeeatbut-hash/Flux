@@ -96,6 +96,10 @@ export async function importEquipmentToDB(
     if (!unitMb) unitMb = await prisma.monoblock.create({ data: { systemId: system.id, name: '__unit__' } });
 
     for (const blk of unitBlocks as any[]) {
+      // Служебный блок параметров установки заводим, только если параметры есть.
+      // План импорта считает так же — иначе предпросмотр обещал бы четыре блока,
+      // а в базе появлялось пять, и лишний висел бы пустым.
+      if (blk.name === '__unit__' && !(blk.groups || []).length) continue;
       const monoblock = blk.__mb ? mbMap[blk.__mb.name] : unitMb;
       const newGroups = blk.groups || [];
       const serialized = JSON.stringify({ groups: newGroups });
