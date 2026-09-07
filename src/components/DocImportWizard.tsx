@@ -8,7 +8,8 @@ import { useToastStore } from '../store/toastStore';
 import { extractByName, extractClipboard } from '../import/extractors';
 import { draftToUnits, applyMatrixColumn } from '../import/recognize';
 import { recognizeAsync, extractRecognizeAsync } from '../import/importClient';
-import { loadLearnedDict, getLearnedDict, observe } from '../import/learn';
+import { loadLearnedDict, getLearnedDict, loadSymbolRules, observe } from '../import/learn';
+import { rememberImport } from '../lib/lastImport';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 
@@ -243,7 +244,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   }, []);
 
   // Загружаем общий выученный словарь синонимов (авто-обучение)
-  useEffect(() => { loadLearnedDict().catch(() => {}); }, []);
+  useEffect(() => { loadLearnedDict().catch(() => {}); loadSymbolRules().catch(() => {}); }, []);
 
   // ── Правки черновика ────────────────────────────────────────────────────────
 
@@ -310,6 +311,10 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       });
       const d = await res.json();
       if (!res.ok || !d.success) throw new Error(d.error || 'Сервер отклонил импорт');
+      // Партию запоминаем сразу: без этого «Отменить последний импорт» в
+      // разделе «Оборудование» ввоз из документов не видел вовсе, хотя сервер
+      // номер партии возвращал и отмена на сервере работала
+      if (d.batchId) rememberImport(projectId, d.batchId, 1);
       // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR)
       observe(job.draft.observations);
       updateJob(job.id, { status: 'imported' });

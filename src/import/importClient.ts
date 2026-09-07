@@ -4,6 +4,7 @@
 
 import type { ExtractedDoc, DraftResult } from './types';
 import type { LearnedEntry } from './dictionary';
+import { getSymbolRules } from './learn';
 
 type Learned = Record<string, LearnedEntry>;
 
@@ -42,7 +43,10 @@ function getWorker(): Worker | null {
   }
 }
 
+// Справочник обозначений отдела едет вместе с задачей: воркер — отдельный
+// поток со своим модульным состоянием, там его иначе не будет.
 function post(msg: Record<string, unknown>): Promise<DraftResult> {
+  msg = { ...msg, symbols: getSymbolRules() };
   const w = getWorker();
   if (!w) return Promise.reject(new Error('no worker'));
   const id = ++seq;

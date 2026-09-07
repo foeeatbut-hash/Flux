@@ -1,5 +1,6 @@
 import { EquipParseResult, SpecGroup, SpecParam } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
+import { overrideKey } from './specUtils.js';
 import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
@@ -200,7 +201,7 @@ export async function planEquipmentImport(
           if (status === 'changed') {
             changedCount++;
             // Ручная правка инженера на этот параметр будет перекрыта
-            if (overrides[`${g.title}|${p.key}`] !== undefined) overrideImpact++;
+            if (overrides[overrideKey(g.title, p.key)] !== undefined) overrideImpact++;
           }
           const warning = validateParam(blk.equipType, p.key, p.value);
           if (warning) plan.totals.warnings++;

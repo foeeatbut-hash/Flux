@@ -64,6 +64,20 @@ export interface DraftItem {
   qty?: string;
   /** Тип оборудования: fan | valve | ahu | curtain | heater | filter | ... */
   equipType: string;
+  /**
+   * Технологические позиции (теги) этой единицы оборудования. В бланке их
+   * бывает несколько: один лист на пять одинаковых вентиляторов, у каждого
+   * свой тег. Дальше их разбирает план импорта — привязать или создать.
+   */
+  tags?: string[];
+  /**
+   * Номер раздела бланка: «1», «1.2», «3.1». В листе технических данных
+   * установки нумерация — это её устройство: «1.» — моноблок, «1.2.» — блок
+   * внутри него. По ней и строится дерево, а не по одному общему «M1».
+   */
+  section?: string;
+  /** Позиция пришла строкой ведомости: своя личность, чужой маркой не дополняется */
+  fromRow?: boolean;
   fields: DraftField[];
   /** Для матричных таблиц: варианты колонок-типоразмеров, если выбор не однозначен */
   matrixHeaders?: string[];
@@ -100,6 +114,6 @@ export interface DraftResult {
 
 export interface CommitSpecParam { key: string; value: string; unit: string; }
 export interface CommitSpecGroup { title: string; params: CommitSpecParam[]; }
-export interface CommitBlock { name: string; title: string; equipType: string; groups: CommitSpecGroup[]; }
+export interface CommitBlock { name: string; title: string; equipType: string; groups: CommitSpecGroup[]; tags?: string[]; }
 export interface CommitMonoblock { name: string; title: string; blocks: CommitBlock[]; }
-export interface CommitUnit { name: string; title: string; groups: CommitSpecGroup[]; monoblocks: CommitMonoblock[]; }
+export interface CommitUnit { name: string; title: string; groups: CommitSpecGroup[]; monoblocks: CommitMonoblock[]; tags?: string[]; }

@@ -13,6 +13,7 @@ import {
 import {
   projectCheck, missingKeyParams, hasParam, diffSpecs, flatten, changeList, plural,
 } from '../server/insightRules.js';
+import { overrideKey } from '../server/specUtils.js';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -66,8 +67,14 @@ ok('считает повторы', countMentions('AHU-2, потом AHU-2 и е
 console.log('2. Разбор данных');
 const specs = JSON.stringify({ groups: [{ title: 'Аэродинамика', params: [{ key: 'Расход', value: '5000', unit: 'м3/ч' }] }] });
 ok('характеристики читаются', paramsOf(specs, null)[0].value === '5000');
+// Ключ правки — «группа||ключ», ровно как его пишет карточка оборудования.
+// Проверка раньше сама использовала одинарную черту и потому не замечала, что
+// чтение с записью разошлись: защита «не затирать ручную правку» не работала.
 ok('ручная правка сильнее импорта',
-  paramsOf(specs, JSON.stringify({ 'Аэродинамика|Расход': '6200' }))[0].value === '6200');
+  paramsOf(specs, JSON.stringify({ [overrideKey('Аэродинамика', 'Расход')]: '6200' }))[0].value === '6200',
+  paramsOf(specs, JSON.stringify({ [overrideKey('Аэродинамика', 'Расход')]: '6200' }))[0]);
+ok('одинарная черта правкой не считается (иначе ключи снова разойдутся)',
+  paramsOf(specs, JSON.stringify({ 'Аэродинамика|Расход': '6200' }))[0].value === '5000');
 ok('мусор вместо JSON не роняет разбор', paramsOf('{кривой', null).length === 0);
 ok('актуальность берёт худшее',
   actualityOf({ descriptions: [{ status: 'actual' }, { status: 'critical' }] }) === 'critical');
