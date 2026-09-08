@@ -1918,7 +1918,9 @@ async function enforce(req: Request, res: Response, feature: string): Promise<bo
 }
 
 app.get('/api/projects', async (req: Request, res: Response) => {
-  const projects = await prisma.project.findMany();
+  // Служебный проект «Общий диск» — не проект, а место хранения: в
+  // переключателе он ни к чему, и переключиться «в диск» человек не должен
+  const projects = await prisma.project.findMany({ where: { system: false } });
   // Человек видит только те проекты, в которые его позвали. Проект, куда ещё
   // никого не звали, виден всем: включать ограничение задним числом на базе,
   // которая о составе не знает, — значит отобрать у отдела всё разом
@@ -2078,7 +2080,7 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 });
 
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
-registerExplorerRoutes(app);
+registerExplorerRoutes(app, { can: userCan });
 registerDesktopRoutes(app);
 registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
@@ -3180,7 +3182,8 @@ app.get('/api/chat/autocomplete-tags', async (req: Request, res: Response) => {
 // Helper to auto-sync Chat Group for every Project
 async function ensureProjectChatGroups() {
   try {
-    const projects = await prisma.project.findMany();
+    // У общего диска чата быть не должно: это хранилище, а не проект
+    const projects = await prisma.project.findMany({ where: { system: false } });
     const users = await prisma.user.findMany();
     // Системный канал «Ошибки» — в нём по умолчанию состоят все пользователи
     const errName = 'Ошибки';

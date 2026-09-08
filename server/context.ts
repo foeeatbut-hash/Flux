@@ -28,7 +28,9 @@ export async function resolveProjectId(raw: string | undefined | null): Promise<
   const prisma = getPrisma();
   const v = String(raw ?? '');
   if (v && v !== 'null' && v !== 'undefined' && v !== 'default') return v;
-  let first = await prisma.project.findFirst();
+  // Служебный проект (общий диск) проектом «по умолчанию» быть не может:
+  // иначе данные, у которых проект не назвали, легли бы в хранилище
+  let first = await prisma.project.findFirst({ where: { system: false } });
   if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
   return first.id;
 }

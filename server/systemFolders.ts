@@ -116,3 +116,62 @@ export async function ensureOfficeOnDesk(): Promise<void> {
 
 // База сменилась — признак выполненного у новой свой, проверяем заново
 onDatabaseSwapped(() => { checked = false; });
+
+/**
+ * Общий диск — один на всю программу, поверх проектов.
+ *
+ * Устроен служебным ПРОЕКТОМ, а не новым видом папки. Причина простая: у папки
+ * проект обязателен и связан внешним ключом, а сделать его необязательным —
+ * это правка «NOT NULL → NULL», которую автомиграция общей базы не умеет
+ * (она умеет добавлять колонки и расширять их, но не ослаблять). Служебный
+ * проект не требует ничего, кроме одной новой булевой колонки, и все
+ * существующие пути — дерево Проводника, перенос, корзина, права — работают
+ * без единой правки.
+ *
+ * В списке проектов он не показывается: это не проект, а место хранения.
+ */
+export const DISK_PROJECT = 'Общий диск';
+
+let diskId = '';
+
+export async function ensureDiskProject(): Promise<string> {
+  if (diskId) return diskId;
+  const prisma = getPrisma();
+  const found = await prisma.project.findFirst({ where: { system: true } });
+  if (found) { diskId = found.id; return diskId; }
+  const made = await prisma.project.create({
+    data: { name: DISK_PROJECT, system: true, description: 'Общее хранилище программы: видно всем, от проекта не зависит' },
+  });
+  diskId = made.id;
+  return diskId;
+}
+
+/** Идентификатор диска, если он уже заведён. Пусто — ещё не спрашивали */
+export const knownDiskId = (): string => diskId;
+
+onDatabaseSwapped(() => { diskId = ''; });
+
+/** Имя корневой папки диска. Оно же ключ поиска — менять нельзя */
+export const DISK_ROOT_FOLDER = DISK_PROJECT;
+
+/**
+ * Корень общего диска — настоящая папка, а не выдумка окна.
+ *
+ * Так решается вопрос, где лежат файлы, положенные «прямо на диск». У файла
+ * своего проекта в базе нет — он наследует его от папки; файл без папки не
+ * принадлежит никакому проекту, а значит и никакому диску. Настоящая корневая
+ * папка снимает этот угол целиком: на диске всё лежит внутри неё, и весь
+ * существующий код — перенос, корзина, права, дерево — работает без правок.
+ *
+ * Она системная: переименовать, перенести и удалить её нельзя.
+ */
+export async function ensureDiskRoot(): Promise<any> {
+  const prisma = getPrisma();
+  const projectId = await ensureDiskProject();
+  const where = {
+    projectId, name: DISK_ROOT_FOLDER, system: true,
+    scope: 'SHARED', ownerId: null, parentId: null,
+  };
+  const found = await prisma.folder.findFirst({ where });
+  return found || prisma.folder.create({ data: where });
+}

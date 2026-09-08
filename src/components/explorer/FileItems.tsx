@@ -8,11 +8,14 @@
  */
 import React from 'react';
 import { format } from 'date-fns';
-import { Folder, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Boxes } from 'lucide-react';
-import { SEC_SHARED } from '../../lib/explorerSections';
+import { Folder, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Boxes, HardDrive } from 'lucide-react';
+import { SEC_SHARED, SEC_DISK } from '../../lib/explorerSections';
 
 export const getFileIcon = (item: any, classNameStr: string) => {
   if (item.isSection) {
+    // Диск — не папка: он не в проекте и его нельзя переименовать. Значок
+    // должен это показывать, иначе три одинаковые папки в дереве неразличимы
+    if (item.id === SEC_DISK) return <HardDrive className={`${classNameStr} text-slate-500 dark:text-slate-400`} />;
     return item.id === SEC_SHARED
       ? <Folder className={`${classNameStr} text-emerald-600 fill-emerald-200`} />
       : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;

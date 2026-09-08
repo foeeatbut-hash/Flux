@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
+import { ensureDiskProject, ensureDiskRoot } from '../systemFolders.js';
 
 // Проводник: папки, файлы и корзина проекта.
 //
@@ -41,7 +42,64 @@ export async function applyScopeRecursive(folderId: string, scope: string, owner
   }
 }
 
-export function registerExplorerRoutes(app: Express): void {
+export interface ExplorerDeps {
+  /** Есть ли у сотрудника право. Считается там же, где для всех остальных */
+  can: (user: any, feature: string) => boolean;
+}
+
+export function registerExplorerRoutes(app: Express, deps: ExplorerDeps): void {
+
+/**
+ * Запись на общий диск — по праву «Общий диск».
+ *
+ * Диск виден всем и лежит поверх проектов; если бы писать в него мог кто
+ * угодно, он зарос бы за месяц, как всякая общая папка в сети. Проверка стоит
+ * НА СЕРВЕРЕ, а не в окне: запрет, который живёт только в разметке, — не
+ * запрет, его обходит одна строка в консоли браузера.
+ *
+ * Возвращает true, если запрос надо прекратить (ответ уже отправлен).
+ */
+async function deniedOnDisk(req: Request, res: Response, projectId: string | null | undefined): Promise<boolean> {
+  if (!projectId) return false;
+  const disk = await ensureDiskProject();
+  if (projectId !== disk) return false;
+  if (deps.can((req as any).authUser, 'disk.write')) return false;
+  res.status(403).json({
+    error: 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».',
+  });
+  return true;
+}
+
+/**
+ * Ограничение корзины файлов проектом.
+ *
+ * Своего проекта у файла нет — он наследует его от папки, поэтому фильтр идёт
+ * через связь. Файл в корне раздела не принадлежит никакому проекту и остаётся
+ * общим: его видно в любой корзине, иначе он не виден нигде.
+ *
+ * Без этого фильтра корзина брала ВСЕ удалённые файлы, а очистка корзины
+ * одного проекта стирала удалённое во всех — при том, что рядом стоящий запрос
+ * папок проектом ограничен. Расхождение тихое: заметно только тому, кто
+ * хватился чужого файла.
+ */
+function trashFileWhere(projectWhere: any): any {
+  const projectId = projectWhere?.projectId;
+  if (!projectId) return {};
+  return { OR: [{ folder: { projectId } }, { folderId: null }] };
+}
+
+/** В каком проекте лежит папка или файл — по нему и решается право диска */
+async function projectOfFolder(folderId: string | null | undefined): Promise<string | null> {
+  if (!folderId) return null;
+  const row = await getPrisma().folder.findUnique({ where: { id: folderId }, select: { projectId: true } });
+  return row?.projectId || null;
+}
+
+async function projectOfFile(fileId: string): Promise<string | null> {
+  const row = await getPrisma().fileNode.findUnique({ where: { id: fileId }, select: { folderId: true } });
+  return projectOfFolder(row?.folderId);
+}
+
 // Folders & Files (Explorer)
 // «Главный Администратор» — единственный: самый первый созданный пользователь с ролью ADMIN.
 // Пользователи, которым админ выдал права/роль позже, главными не считаются.
@@ -66,6 +124,11 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
     const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default')
       ? {}
       : { projectId };
+
+    // Диск заводим ДО запроса дерева: иначе при самом первом открытии его
+    // корень в ответ не попадёт, и диск покажется пустым
+    const diskProjectId = await ensureDiskProject();
+    const diskRoot = await ensureDiskRoot();
 
     const mainAdminId = await getMainAdminId();
     const isMainAdmin = !!actorId && actorId === mainAdminId;
@@ -93,7 +156,13 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
       const users = await prisma.user.findMany({ select: { id: true, name: true, symbol: true } });
       owners = users;
     }
-    res.json({ folders, rootFiles, isMainAdmin, mainAdminId, owners });
+    // Окно должно знать и проект диска (по нему оно относит содержимое к
+    // третьему корню), и его корневую папку (в неё ложится всё, что человек
+    // кладёт «прямо на диск»)
+    res.json({
+      folders, rootFiles, isMainAdmin, mainAdminId, owners,
+      diskProjectId, diskFolderId: diskRoot.id,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -104,7 +173,7 @@ app.post('/api/folders', async (req: Request, res: Response) => {
   try {
     let { name, projectId, parentId, scope, ownerId } = req.body;
     if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-      let firstProject = await prisma.project.findFirst();
+      let firstProject = await prisma.project.findFirst({ where: { system: false } });
       if (!firstProject) {
         firstProject = await prisma.project.create({
           data: { name: 'Общий Проект' }
@@ -112,6 +181,7 @@ app.post('/api/folders', async (req: Request, res: Response) => {
       }
       projectId = firstProject.id;
     }
+    if (await deniedOnDisk(req, res, projectId)) return;
     // Вложенные папки наследуют раздел (общий/личный) родителя
     if (parentId) {
       const parent = await prisma.folder.findUnique({ where: { id: parentId } });
@@ -146,6 +216,7 @@ app.patch('/api/folders/:id', async (req: Request, res: Response) => {
   if ((target as any)?.system && ('name' in req.body || 'parentId' in req.body)) {
     return res.status(403).json({ error: 'Это системная папка — её нельзя переименовать или переместить.' });
   }
+  if (await deniedOnDisk(req, res, (target as any)?.projectId)) return;
   const folder = await prisma.folder.update({
     where: { id: req.params.id },
     data: req.body,
@@ -160,6 +231,7 @@ app.delete('/api/folders/:id', async (req: Request, res: Response) => {
   if ((target as any)?.system) {
     return res.status(403).json({ error: 'Это системная папка — её нельзя удалить.' });
   }
+  if (await deniedOnDisk(req, res, (target as any)?.projectId)) return;
   // Мягкое удаление: папка со всем содержимым уходит в корзину и
   // восстанавливается целиком. Файлы внутри не трогаем — они скрыты
   // вместе с папкой и вернутся вместе с ней.
@@ -181,7 +253,7 @@ app.get('/api/projects/:projectId/trash', async (req: Request, res: Response) =>
     const [folders, files] = await Promise.all([
       prisma.folder.findMany({ where: { ...projectWhere, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } }),
       prisma.fileNode.findMany({
-        where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } },
+        where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' }, ...trashFileWhere(projectWhere) },
         orderBy: { deletedAt: 'desc' },
         include: { mainTags: true, additionalTags: true },
       }),
@@ -238,7 +310,9 @@ app.delete('/api/projects/:projectId/trash', async (req: Request, res: Response)
   try {
     const { projectId } = req.params;
     const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') ? {} : { projectId };
-    const files = await prisma.fileNode.deleteMany({ where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } } });
+    const files = await prisma.fileNode.deleteMany({
+      where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' }, ...trashFileWhere(projectWhere) },
+    });
     const folders = await prisma.folder.deleteMany({ where: { ...projectWhere, deletedAt: { not: null } } });
     res.json({ success: true, files: files.count, folders: folders.count });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -281,6 +355,7 @@ app.post('/api/files', async (req: Request, res: Response) => {
     data.scope = data.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED';
     data.ownerId = data.scope === 'PERSONAL' ? ((req as any).authUser?.id || null) : null;
   }
+  if (await deniedOnDisk(req, res, await projectOfFolder(data.folderId))) return;
   const file = await prisma.fileNode.create({
     data,
     include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
@@ -294,6 +369,15 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
   // При перемещении внутрь папки раздел наследуется от неё.
   const { ids, targetFolderId, isCut, targetScope, targetOwnerId } = req.body;
   try {
+    // Куда кладём — раз; откуда уносим при перемещении — два: унести чужое с
+    // общего диска без права так же нельзя, как и положить туда своё
+    if (await deniedOnDisk(req, res, await projectOfFolder(targetFolderId))) return;
+    if (isCut) {
+      for (const id of (Array.isArray(ids) ? ids : [])) {
+        const from = await projectOfFile(String(id)) || await projectOfFolder(String(id));
+        if (await deniedOnDisk(req, res, from)) return;
+      }
+    }
     let scope: string | null = null;
     let ownerId: string | null = null;
     if (targetFolderId) {
@@ -351,6 +435,7 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
 
 app.patch('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
+  if (await deniedOnDisk(req, res, await projectOfFile(req.params.id))) return;
   const { mainTagIds, additionalTagIds, ...updateData } = req.body;
   const file = await prisma.fileNode.update({
     where: { id: req.params.id },
@@ -369,6 +454,7 @@ app.delete('/api/files/:id', async (req: Request, res: Response) => {
   // Зеркало документа Конструктора — не самостоятельный файл: удаление
   // выполняется в самом Конструкторе (там корзина с восстановлением)
   const target = await prisma.fileNode.findUnique({ where: { id: req.params.id } });
+  if (await deniedOnDisk(req, res, await projectOfFolder((target as any)?.folderId))) return;
   if ((target as any)?.type === 'CONSTRUCTOR') {
     return res.status(403).json({ error: 'Это документ Flux Office — удалите его в «Таблице» или «Документе» (там есть корзина).' });
   }

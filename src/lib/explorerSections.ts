@@ -13,6 +13,20 @@
 export const SEC_SHARED = 'sec:shared';
 
 /**
+ * Общий диск — один на всю программу, поверх проектов.
+ *
+ * «Общий» принадлежит проекту: сменил проект — сменилось содержимое. Диск от
+ * проекта не зависит и ведёт себя как сетевая папка в Windows: нормативы,
+ * шаблоны бланков, обмен с подрядчиками лежат в нём всегда, о каком бы проекте
+ * ни шла речь.
+ *
+ * В базе он устроен служебным проектом (server/systemFolders.ts). Окно узнаёт
+ * его идентификатор из ответа дерева (`diskProjectId`) — по нему и отличает
+ * этот корень от обычных папок.
+ */
+export const SEC_DISK = 'sec:disk';
+
+/**
  * Корзина Проводника. Удалённое хранится до явной очистки: в системе
  * документов случайно удалённый чертёж не должен пропадать безвозвратно.
  */
@@ -36,6 +50,8 @@ export const personalSecId = (uid: string) => `sec:personal:${uid}`;
 export const isSectionId = (id: string | null | undefined): boolean => !!id && id.startsWith('sec:');
 
 export const parseSection = (id: string): { scope: 'SHARED' | 'PERSONAL'; ownerId: string | null } =>
-  id === SEC_SHARED
+  // Диск — тот же общий раздел, только у служебного проекта: личного содержимого
+  // на нём не бывает, иначе «общий диск» перестал бы быть общим
+  (id === SEC_SHARED || id === SEC_DISK)
     ? { scope: 'SHARED', ownerId: null }
     : { scope: 'PERSONAL', ownerId: id.slice('sec:personal:'.length) || null };

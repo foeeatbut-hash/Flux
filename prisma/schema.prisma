@@ -46,6 +46,8 @@ model Project {
   description String   @default("") // Примечание
   info        String   @default("")
   status      String   @default("ACTIVE")
+  /// Служебный проект: общий диск. В списке проектов не показывается
+  system      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   folders          Folder[]
