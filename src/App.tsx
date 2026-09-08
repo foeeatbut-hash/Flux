@@ -21,6 +21,8 @@ import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
 import { Z } from './lib/layers';
 import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from './lib/metrics';
+import { useLogStore } from './store/logStore';
+import { Terminal } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
 import { SECTIONS } from './workspace/sections';
 
@@ -52,6 +54,13 @@ function ElectronTitleBar() {
   const location = useLocation();
   const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
   const wc = isElectron ? (window as any).electron?.windowControls : null;
+  // Журнал переехал сюда из круглой нашлёпки у правого края: она висела поверх
+  // содержимого, закрывала его углом и жила отдельно от всего остального
+  // управления программой
+  const logCount = useLogStore((s) => s.logs.length);
+  const logAlarm = useLogStore((s) => s.hasUnreadError);
+  const logOpen = useLogStore((s) => s.widgetOpen);
+  const setLogOpen = useLogStore((s) => s.setWidgetOpen);
   const [maximized, setMaximized] = React.useState(false);
   const [near, setNear] = React.useState(false);
   const [pinned, setPinned] = React.useState(() => {
@@ -92,6 +101,15 @@ function ElectronTitleBar() {
     return () => { window.removeEventListener('mousemove', onMove); clearTimeout(hideTimer.current); };
   }, [isElectron]);
 
+  // Новая ошибка сама вызывает панельку: иначе счётчик ошибок горит там, куда
+  // человек не смотрит, — у верхней кромки, где панельки в этот момент нет
+  React.useEffect(() => {
+    if (!logAlarm) return;
+    clearTimeout(hideTimer.current);
+    setNear(true);
+    hideTimer.current = setTimeout(() => setNear(false), 4000);
+  }, [logAlarm]);
+
   // Окно стало у́же — панельку надо пересчитать, иначе приколотая уедет за край
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
@@ -102,9 +120,11 @@ function ElectronTitleBar() {
 
   // Отдельные окна рисуют себя сами: у стикера своя шапка, у пульта захвата
   // её нет вовсе — он и так 306×150 без рамок
-  if (!isElectron || location.pathname === '/sticker' || location.pathname === '/capture') return null;
+  if (location.pathname === '/sticker' || location.pathname === '/capture') return null;
 
-  const WIDTH = FRAME_W;
+  // В браузере кнопок окна нет — окном распоряжается браузер. Панелька при
+  // этом остаётся: журнал нужен и там, а другого места у него больше нет
+  const WIDTH = isElectron ? FRAME_W : FRAME_W - FRAME_BTN * 3;
   const left = Math.round(
     x === null ? Math.max(8, (window.innerWidth - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, window.innerWidth - WIDTH - 8)),
   );
@@ -189,22 +209,46 @@ function ElectronTitleBar() {
         <span className="flex-1" />
 
         <div className="flex items-center" style={noDrag}>
-          <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title="Свернуть" style={{ ...noDrag, ...btnBox }}>
-            <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
-          </button>
-          <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title={maximized ? 'Восстановить' : 'Развернуть'} style={{ ...noDrag, ...btnBox }}>
-            {maximized ? (
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
-                <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
-                <rect x="1.2" y="3.4" width="6.4" height="6.4" rx="1" fill="#0f172a" />
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
+          <button
+            type="button"
+            onClick={() => setLogOpen(!logOpen)}
+            title="Журнал: что программа делала и на чём споткнулась"
+            aria-label="Журнал программы"
+            aria-pressed={logOpen}
+            style={{ ...noDrag, ...btnBox }}
+            className={`${btn} relative rounded-lg ${logOpen ? 'bg-slate-700 text-white' : 'hover:bg-slate-800'}`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            {/* Счётчик показывается только когда есть о чём: ошибка — розовым,
+                иначе журнал молчит и не мозолит глаза */}
+            {logAlarm && (
+              <span className="absolute top-0.5 right-1 min-w-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold leading-[14px]">
+                {logCount > 99 ? '99+' : logCount}
+              </span>
             )}
           </button>
-          <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-lg`} title="Закрыть Flux" style={{ ...noDrag, ...btnBox }}>
-            <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
-          </button>
+          {/* Кнопки окна — только в самой программе: в браузере окном
+              распоряжается браузер, и три мёртвые кнопки там были бы обманом */}
+          {isElectron && (
+            <>
+              <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title="Свернуть" style={{ ...noDrag, ...btnBox }}>
+                <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
+              </button>
+              <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title={maximized ? 'Восстановить' : 'Развернуть'} style={{ ...noDrag, ...btnBox }}>
+                {maximized ? (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
+                    <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
+                    <rect x="1.2" y="3.4" width="6.4" height="6.4" rx="1" fill="#0f172a" />
+                  </svg>
+                ) : (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
+                )}
+              </button>
+              <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-lg`} title="Закрыть Flux" style={{ ...noDrag, ...btnBox }}>
+                <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>

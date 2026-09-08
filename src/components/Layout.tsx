@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
 import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe, CalendarDays } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
@@ -19,7 +17,6 @@ import { useReminderStore, onReminder } from '../store/reminderStore';
 import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
 import { shouldNotifySystem, notifyText, badgeCount } from '../lib/systemNotify';
 import { OPEN_URL_EVENT } from '../lib/openLink';
-import { SIGN_EVENT } from '../lib/signEvent';
 import { useBrowserStore } from '../store/browserStore';
 import { useCalendarStore } from '../store/calendarStore';
 import { occurrences, isDue, untilLabel, MINUTE, HOUR } from '../lib/calendar';
@@ -316,15 +313,6 @@ export default function Layout() {
     if (!api?.badge) return;
     api.badge(badgeCount(notifUnread)).catch(() => {});
   }, [notifUnread]);
-  // Окно своей подписи: открывается из профиля
-  const [signOpen, setSignOpen] = useState(false);
-  // Свою подпись открывают из Пуска: редактор живёт здесь, в оболочке, а Пуск
-  // про него ничего знать не должен — как и про остальное содержимое рамы
-  React.useEffect(() => {
-    const onSign = () => setSignOpen(true);
-    window.addEventListener(SIGN_EVENT, onSign);
-    return () => window.removeEventListener(SIGN_EVENT, onSign);
-  }, []);
   const addLog = useLogStore((state) => state.addLog);
 
   // Глобальный перехват событий для детального логирования действий пользователя.
@@ -542,23 +530,6 @@ export default function Layout() {
         </div>
         <Taskbar />
       </main>
-
-      {/* Своя подпись. Жила в подвале левого меню — единственном месте, откуда
-          её мог открыть не администратор. Меню больше нет, и зовут её из
-          Пуска: там же, где остальное про учётную запись */}
-      {signOpen && user && createPortal(
-        <React.Suspense fallback={null}>
-          <SignatureEditor
-            userId={user.id}
-            userName={user.name || user.symbol}
-            nameParts={{ lastName: (user as any).lastName, firstName: (user as any).firstName, middleName: (user as any).middleName, name: user.name }}
-            canEdit
-            onSaved={() => {}}
-            onClose={() => setSignOpen(false)}
-          />
-        </React.Suspense>,
-        document.body,
-      )}
 
       {/* Раздвижные панели справа сдвигают содержимое */}
       <RightDock />
