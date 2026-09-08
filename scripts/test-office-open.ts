@@ -60,7 +60,7 @@ const api = async (method: string, url: string, body?: any) => {
   console.log('2. Двойное нажатие по офисному файлу ведёт в редактор');
   ok('книга Excel — офисный файл', isOffice({ id: 'x', name: 'Смета.xlsx' }));
   const apps = appsFor({ id: 'x', name: 'Смета.xlsx' });
-  ok('первым идёт Конструктор, а не предпросмотр', apps[0].name === 'Конструктор', apps.map((a) => a.name));
+  ok('первым идёт Flux Office, а не предпросмотр', apps[0].name === 'Flux Office', apps.map((a) => a.name));
   ok('предпросмотр остаётся вторым', apps.length > 1 && apps[1].id === 'explorer', apps.map((a) => a.id));
 
   const docxName = `Проверка-${Date.now()}.docx`;

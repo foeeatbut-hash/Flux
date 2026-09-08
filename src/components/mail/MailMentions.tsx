@@ -3,6 +3,7 @@ import { Tag as TagIcon, FileText, Table2, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { MailMentions as Found } from '../../services/mailService';
 import { openInProject } from '../../lib/projectScope';
+import { officePathForKind } from '../../lib/fileTypes';
 import { useStore } from '../../store/store';
 
 /**
@@ -123,11 +124,11 @@ export default function MailMentions({ found, loading }: Props) {
             icon={Table2}
             label={d.name}
             project={foreignName(d.projectId, d.projectName)}
-            title={`Книга Конструктора «${d.name}»${d.projectName ? ` — проект «${d.projectName}»` : ''}.`}
+            title={`Документ Flux Office «${d.name}»${d.projectName ? ` — проект «${d.projectName}»` : ''}.`}
             onClick={() => openInProject({
               what: `Книга «${d.name}»`,
               projectId: d.projectId,
-              open: () => navigate(`/constructor?doc=${encodeURIComponent(d.id)}`),
+              open: () => navigate(`${officePathForKind(d.kind)}?doc=${encodeURIComponent(d.id)}`),
             })}
           />
         ))}

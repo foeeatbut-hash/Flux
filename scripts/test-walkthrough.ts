@@ -98,7 +98,7 @@ const NAME = `Проба сквозного пути ${stamp}`;
     const foreign = await api('GET', '/api/equipment');
     ok('общей выдачи оборудования всех проектов больше нет', foreign.status === 404, foreign.status);
 
-    console.log('6. Документ Конструктора');
+    console.log('6. Документ Flux Office');
     const doc = await api('POST', '/api/constructor/docs', { projectId, name: `Ведомость ${stamp}`, kind: 'DOC' });
     ok('документ создан', doc.status === 200 && !!doc.json?.doc?.id, doc.json?.error || doc.status);
     docId = String(doc.json?.doc?.id || '');

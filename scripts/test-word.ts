@@ -164,13 +164,13 @@ const api = async (method: string, url: string, body?: any) => {
     await page.goto(`${BASE}/?constructorDoc=${docId}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(7000);
 
-    // Открываем через раздел «Конструктор»: адресной строки у программы нет
-    await clickByName(/Конструктор/i, 8000);
+    // Открываем через программу «Таблица»: адресной строки у неё нет
+    await clickByName(/Таблица/i, 8000);
     await page.waitForTimeout(3500);
     // Открываем по точному имени: подстрока может совпасть с чужим документом
     const openDoc = () => page.getByText(DOC_NAME, { exact: true }).first()
       .dblclick({ timeout: 8000 }).then(() => true).catch(() => false);
-    ok('документ открыт из списка Конструктора', await openDoc());
+    ok('документ открыт из списка Flux Office', await openDoc());
     await page.waitForTimeout(9000);   // движок Univer грузится лениво
 
     console.log('2. Общая лента редакторов');

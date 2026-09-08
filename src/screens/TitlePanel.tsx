@@ -183,7 +183,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {templates.length === 0 && (
-            <p className="text-xs text-slate-400 mt-1">Создаются в Конструкторе → «Шаблон титула»</p>
+            <p className="text-xs text-slate-400 mt-1">Создаются в «Таблице» → «Шаблон титула»</p>
           )}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">

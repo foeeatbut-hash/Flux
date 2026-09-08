@@ -105,7 +105,7 @@ export default function ReportProblem({ onClose }: { onClose: () => void }) {
           <label className="block">
             <span className="block text-2xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Что случилось</span>
             <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={3}
-              placeholder="Закрылся Конструктор при вставке столбца"
+              placeholder="Закрылась Таблица при вставке столбца"
               className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg
                          px-3 py-2 text-sm text-slate-800 dark:text-slate-150 outline-none focus:border-emerald-400 resize-none" />
           </label>

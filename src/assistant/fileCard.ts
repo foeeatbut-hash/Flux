@@ -39,14 +39,14 @@ export function kindOf(f: FileRecord): 'doc' | 'pdf' | 'file' {
 /** Адрес, которым файл открывается: тот же, что у двойного нажатия */
 export function openRoute(f: FileRecord): string {
   const kind = kindOf(f);
-  if (kind === 'doc') return `/constructor?doc=${encodeURIComponent(f.refId || f.id)}`;
+  if (kind === 'doc') return `${String((f as any).filePath || '').startsWith('/doc/') ? '/doc' : '/sheet'}?doc=${encodeURIComponent(f.refId || f.id)}`;
   if (kind === 'pdf') return `/pdf?file=${encodeURIComponent(f.id)}`;
   return `/explorer?file=${encodeURIComponent(f.id)}${f.folderId ? `&folder=${encodeURIComponent(f.folderId)}` : ''}`;
 }
 
 export function fileCard(f: FileRecord): FileCard {
   const kind = kindOf(f);
-  const what = kind === 'doc' ? 'документ Конструктора' : kind === 'pdf' ? 'чертёж' : 'файл';
+  const what = kind === 'doc' ? 'документ Flux Office' : kind === 'pdf' ? 'чертёж' : 'файл';
   const rev = f.revision ? `, ревизия ${f.revision}` : '';
   const where = f.folderName ? `\nЛежит в папке «${f.folderName}».` : '';
   const name = f.name || 'файл';
@@ -59,7 +59,7 @@ export function fileCard(f: FileRecord): FileCard {
       {
         actions: [
           {
-            label: kind === 'doc' ? 'Открыть в Конструкторе' : kind === 'pdf' ? 'Открыть в Просмотре' : 'Показать в Проводнике',
+            label: kind === 'doc' ? 'Открыть в Flux Office' : kind === 'pdf' ? 'Открыть в Просмотре' : 'Показать в Проводнике',
             kind: 'navigate', route: openRoute(f),
           },
           {

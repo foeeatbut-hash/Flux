@@ -370,7 +370,7 @@ app.delete('/api/files/:id', async (req: Request, res: Response) => {
   // выполняется в самом Конструкторе (там корзина с восстановлением)
   const target = await prisma.fileNode.findUnique({ where: { id: req.params.id } });
   if ((target as any)?.type === 'CONSTRUCTOR') {
-    return res.status(403).json({ error: 'Это документ Конструктора — удалите его в разделе «Конструктор» (там есть корзина).' });
+    return res.status(403).json({ error: 'Это документ Flux Office — удалите его в «Таблице» или «Документе» (там есть корзина).' });
   }
   // Мягкое удаление: файл уходит в корзину проводника и восстановим.
   // Безвозвратно чистит только «Очистить корзину».

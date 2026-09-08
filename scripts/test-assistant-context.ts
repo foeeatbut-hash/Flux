@@ -30,7 +30,7 @@ const win = (path: string, section: string, title: string, z: number, minimized 
 console.log('Передний план');
 {
   const open = [
-    win('/constructor', 'Конструктор', 'Смета.xlsx', 3),
+    win('/sheet', 'Таблица', 'Смета.xlsx', 3),
     win('/pdf', 'Просмотр', 'Паспорт АХУ.pdf', 5),
     win('/registry', 'Теги', '', 1),
   ];
@@ -48,7 +48,7 @@ console.log('Передний план');
 console.log('Открытые документы');
 {
   const open = [
-    win('/constructor', 'Конструктор', 'Смета.xlsx', 3),
+    win('/sheet', 'Таблица', 'Смета.xlsx', 3),
     win('/registry', 'Теги', '', 7),
     win('/pdf', 'Просмотр', 'Паспорт.pdf', 5),
   ];
@@ -82,11 +82,11 @@ console.log('Когда спрашивают прямо про обстанов�
 console.log('Обстановка словами');
 {
   const ctx: WorkContext = {
-    route: '/constructor',
-    section: 'Конструктор',
+    route: '/sheet',
+    section: 'Таблица',
     projectName: 'Альфа',
     open: [
-      win('/constructor', 'Конструктор', 'Смета.xlsx', 3),
+      win('/sheet', 'Таблица', 'Смета.xlsx', 3),
       win('/registry', 'Теги', '', 1),
     ],
     recent: ['открыл «Смета.xlsx»', 'создал тег AHU-1'],
@@ -98,7 +98,7 @@ console.log('Обстановка словами');
   check('прочие окна названы разделом', said.includes('Теги'), said);
   // Передний план уже назван первой строкой — во «ещё открыто» ему не место
   check('передний план не повторяется',
-    said.split('Ещё открыто')[1] === undefined || !said.split('Ещё открыто')[1].includes('Конструктор'), said);
+    said.split('Ещё открыто')[1] === undefined || !said.split('Ещё открыто')[1].includes('Таблица'), said);
   check('последние дела перечислены', said.includes('создал тег AHU-1'), said);
 
   // Пустое место не выдумываем: «Проект: —» читается как поломка, а не «пусто»

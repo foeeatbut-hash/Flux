@@ -603,7 +603,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     const front = (title || '') + (revSheet || '');
     return buildDocHtml(snap, {
       title: doc?.name || 'Документ',
-      subtitle: `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор`,
+      subtitle: `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Office`,
       titlePageHtml: front || undefined,
     }, forWord);
   };
@@ -746,7 +746,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   useEffect(() => {
     if (!doc?.name) return;
     rememberDoc({
-      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'text',
+      href: `/doc?doc=${docId}`, title: doc.name, kind: 'text',
       at: Date.now(), projectId: activeProject?.id,
     });
   }, [docId, doc?.name, activeProject?.id]);

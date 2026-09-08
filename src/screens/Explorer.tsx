@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
-import { isPdf, isConstructorDoc, FILE_APPS } from '../lib/fileTypes';
+import { isPdf, isConstructorDoc, FILE_APPS, officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
 import { ROOT_NAME } from '../lib/explorerTabs';
@@ -642,7 +642,7 @@ export default function Explorer() {
      fetchData();
   };
 
-  // «Создать → Таблицу/Документ»: новый документ Конструктора нужного типа
+  // «Создать → Таблицу/Документ»: новый документ Flux Office нужного типа
   // и сразу в его редактор. Зеркало в Проводнике появится после именования.
   const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
     try {
@@ -653,15 +653,15 @@ export default function Explorer() {
       });
       const data = await res.json();
       if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
-      navigate(`/constructor?doc=${data.doc.id}`);
+      navigate(`${officePathForKind(kind)}?doc=${data.doc.id}`);
     } catch (e: any) {
       addToast(`Не удалось создать документ: ${e.message}`, 'error');
     }
   };
   const createConstructorSheet = () => createConstructorDoc('DOC');
 
-  // «Редактировать копию в Конструкторе»: xlsx/csv → таблица, txt/md/docx → текст.
-  // Исходный файл не меняется — редактируется копия-документ студии.
+  // «Редактировать копию»: xlsx/csv → Таблица, txt/md/docx → Документ.
+  // Исходный файл не меняется — правится копия-документ Flux Office.
   const editCopyInConstructor = async (fileId: string) => {
     try {
       const res = await fetch('/api/constructor/docs/import-file', {
@@ -672,14 +672,17 @@ export default function Explorer() {
       const data = await res.json();
       if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось открыть файл');
       addToast('Создана редактируемая копия — исходный файл не изменён', 'success');
-      navigate(`/constructor?doc=${data.doc.id}`);
+      navigate(`${officePathForKind(data.doc.kind)}?doc=${data.doc.id}`);
     } catch (e: any) {
       addToast(String(e.message || e), 'error');
     }
   };
 
-  // Файл можно открыть в Конструкторе? (по расширению)
-  const canEditInConstructor = (name: string) => /\.(xlsx|xlsm|xls|csv|txt|md|log|json|docx)$/i.test(name || '');
+  // Файл можно открыть в Flux Office? Спрашиваем общую таблицу расширений, а
+  // не свой список: их было семь, и они разошлись — .xls принимал один и
+  // отвергал другой, отчего «не все файлы открывались»
+  const canEditInConstructor = (name: string) =>
+    isOffice({ id: '', name }) || /\.(txt|md|log|json)$/i.test(name || '');
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
   // при переносе в корень раздела передаём его область видимости
@@ -2046,7 +2049,7 @@ export default function Explorer() {
                         {propertiesModal.item.type === 'PDF' ? 'PDF Reader' :
                          propertiesModal.item.type === 'TXT' ? 'Блокнот' :
                          propertiesModal.item.type === 'DOCX' ? 'Microsoft Word' :
-                         propertiesModal.item.type === 'CONSTRUCTOR' ? 'Конструктор Flux' :
+                         propertiesModal.item.type === 'CONSTRUCTOR' ? 'Документ Flux Office' :
                          propertiesModal.item.type === 'IMAGE' ? 'Фотографии' : 'Неизвестно'}
                       </span>
                     </div>

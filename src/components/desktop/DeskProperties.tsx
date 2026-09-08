@@ -19,7 +19,7 @@ const KIND_NAME: Record<string, string> = {
   app: 'Раздел программы',
   bin: 'Корзина Проводника',
   folder: 'Папка',
-  doc: 'Таблица Конструктора',
+  doc: 'Таблица Flux Office',
   text: 'Текстовый документ',
   note: 'Заметка',
   file: 'Файл',

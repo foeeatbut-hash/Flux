@@ -131,7 +131,7 @@ export async function openOfficeFile(fileId: string, fileName: string, projectId
   const kind = officeKind(fileName);
   if (!kind) {
     const advice = oldFormatAdvice(fileName);
-    throw new Error(advice || `Формат этого файла в Конструкторе не открывается`);
+    throw new Error(advice || `Формат этого файла в Flux Office не открывается`);
   }
   const data = await bytesOf(fileId);
   const baseName = fileName.replace(/\.[^.]+$/, '');

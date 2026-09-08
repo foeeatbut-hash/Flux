@@ -36,7 +36,7 @@ import {
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
 import { hiddenIds, groupIdOf, groupById, folderItems } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
-import { appsFor, openHref } from '../lib/fileTypes';
+import { appsFor, openHref, officePathForKind } from '../lib/fileTypes';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
 import { dropLabel } from '../lib/dropFiles';
 import { saveFileNode } from '../lib/saveToWindows';
@@ -276,7 +276,9 @@ export default function Desktop() {
     try {
       if (what === 'folder') { await createFolder(projectId, scope); return; }
       const id = await createDoc(projectId, what, scope);
-      if (id) go(`/constructor?doc=${encodeURIComponent(id)}`);
+      // Вид документа известен здесь и нигде больше: заводили-то мы его
+      // сами. Дальше по адресу видно, какая программа открылась
+      if (id) go(`${officePathForKind(what)}?doc=${encodeURIComponent(id)}`);
     } catch (e: any) { addToast(e?.message || 'Не удалось создать', 'error'); }
   };
 

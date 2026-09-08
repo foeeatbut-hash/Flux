@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
 import LabelBar from '../components/constructor/LabelBar';
@@ -35,6 +35,9 @@ import { docFingerprint } from '../translate/docPlan';
 import { saveBookToWindows, saveBookToExplorer, bookFromSnapshot } from '../lib/bookExport';
 import { waitForSheet } from '../lib/engineReady';
 import { useOpenFromFile } from '../components/constructor/useOpenFromFile';
+import { officeKindForPath } from '../lib/fileTypes';
+import { fmtDate, type DocMeta } from '../lib/officeDocs';
+import DocLibrary from '../components/office/DocLibrary';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openPrompt } = useModalStore.getState();
@@ -47,11 +50,6 @@ const { openConfirm, openPrompt } = useModalStore.getState();
 // экспорт XLSX (скачать / в Проводник). Живые блоки и совместное
 // редактирование — следующие фазы (части II и IV дизайна).
 
-interface DocMeta {
-  id: string; name: string; kind: string; scope: string; ownerId?: string | null;
-  named: boolean; createdById?: string | null; updatedById?: string | null;
-  deletedAt?: string | null; createdAt: string; updatedAt: string;
-}
 
 const RECENT_KEY = (userId: string) => `constructor_recent_${userId}`;
 
@@ -63,10 +61,6 @@ function pushRecent(userId: string, docId: string) {
   } catch (_) {}
 }
 
-function fmtDate(s: string) {
-  try { return new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
-  catch (_) { return s; }
-}
 
 // ═══════════════════════ Мастер «Собрать данные» ═══════════════════════
 
@@ -963,7 +957,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         @page { margin: 10mm; }
       </style></head><body>
       <h1>${esc(doc?.name || 'Документ')}</h1>
-      <div class="sub">${esc(activeProject?.name || '')} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор</div>
+      <div class="sub">${esc(activeProject?.name || '')} · ${new Date().toLocaleDateString('ru-RU')} · Flux Office</div>
       <table>${rowsHtml}</table></body></html>`;
   };
 
@@ -1045,7 +1039,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   useEffect(() => {
     if (!doc?.name) return;
     rememberDoc({
-      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'sheet',
+      href: `/sheet?doc=${docId}`, title: doc.name, kind: 'sheet',
       at: Date.now(), projectId: activeProject?.id,
     });
   }, [docId, doc?.name, activeProject?.id]);
@@ -1647,9 +1641,20 @@ export default function ConstructorScreen() {
   });
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в
-  // отдельном разделе «Блокнот», в Конструкторе их нет.
-  const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
+  /**
+   * Какая это программа семьи: «Таблица» или «Документ».
+   *
+   * Экран у них один — и книга, и текст лежат в одной таблице базы, и
+   * открывает их один редактор по виду документа. Различаются они тем, ЧТО
+   * показывают в библиотеке и что заводит кнопка «Создать». Путь берём из
+   * адреса, а не из реестра разделов: реестр подгружает этот экран, и импорт
+   * обратно замкнул бы круг.
+   */
+  const myKind = officeKindForPath(useLocation().pathname);
+  // Вкладки: все / таблицы (Эксель) / документы (Ворд). Заметки — в отдельной
+  // программе «Блокнот», здесь их нет. Открыта та, ради которой программу и
+  // запустили; переключиться на чужую можно — это умолчание, а не запрет
+  const [tab, setTab] = useState<'all' | 'sheet' | 'text'>(myKind === 'TEXT' ? 'text' : 'sheet');
   const [docQuery, setDocQuery] = useState('');
   const [docSort, setDocSort] = useState<'updated' | 'name'>('updated');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
@@ -1759,172 +1764,26 @@ export default function ConstructorScreen() {
     return <EditorGate docId={activeDocId} knownKind={docs.find(d => d.id === activeDocId)?.kind} autoRefresh={ar} onClose={() => { setActiveDocId(null); loadDocs(); }} />;
   }
 
-  const Card = ({ d, inTrash }: { d: DocMeta; inTrash?: boolean }) => (
-    <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-ui cursor-pointer"
-      onClick={() => !inTrash && setActiveDocId(d.id)}>
-      <div className="flex items-start justify-between gap-2">
-        {/* Тип видно по иконке: таблица — изумруд, документ — синий, титул — рамка */}
-        {d.kind === 'TEXT'
-          ? <FileText className="w-5 h-5 text-sky-600 dark:text-sky-500 shrink-0 mt-0.5" />
-          : d.kind === 'TITLE'
-            ? <FileText className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
-            : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-          {!inTrash && (
-            <>
-              <button type="button" title="Дублировать" onClick={() => duplicateDoc(d.id)} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><Copy className="w-3.5 h-3.5" /></button>
-              <button type="button" title="В корзину" onClick={() => patchDoc(d.id, { deleted: true }, 'Перемещён в корзину')} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
-            </>
-          )}
-          {inTrash && (
-            <>
-              <button type="button" title="Восстановить" onClick={() => patchDoc(d.id, { deleted: false }, 'Восстановлен')} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /></button>
-              <button type="button" title="Удалить навсегда" onClick={() => deleteForever(d.id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
-            </>
-          )}
-        </div>
-      </div>
-      <div className="mt-2.5 font-semibold text-sm text-slate-800 dark:text-white min-w-0 flex items-center gap-1.5">
-        {d.scope === 'PERSONAL' && <Lock className="w-3 h-3 text-slate-400 shrink-0" />}
-        <span className="flex-1 min-w-0 truncate">{d.name}</span>
-      </div>
-      <div className="mt-1 text-xs text-slate-400 flex items-center gap-2">
-        <span>{fmtDate(d.updatedAt)}</span>
-        {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
-        {d.kind === 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ТИТУЛ</span>}
-        {!d.named && d.kind !== 'TEMPLATE' && d.kind !== 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
-      </div>
-      {d.kind === 'TEMPLATE' && !inTrash && (
-        <button type="button"
-          onClick={e => { e.stopPropagation(); createFromTemplate(d); }}
-          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
-          <Plus className="w-3 h-3" /> Создать документ
-        </button>
-      )}
-    </div>
-  );
-
-  const Section = ({ title, icon: Icon, items, inTrash }: any) => (
-    <div>
-      <h2 className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-3 flex items-center gap-2">
-        <Icon className="w-4 h-4 text-slate-400" /> {title} <span className="text-slate-400 font-normal">({items.length})</span>
-      </h2>
-      {items.length > 0 ? (
-        <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4 gap-3">
-          {items.map((d: DocMeta) => <Card key={d.id} d={d} inTrash={inTrash} />)}
-        </div>
-      ) : (
-        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-xl px-4 py-7 text-center">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {inTrash
-              ? 'В корзине пусто.'
-              : 'Здесь появятся ваши таблицы и документы.'}
-          </p>
-          {!inTrash && (
-            <div className="flex items-center justify-center gap-2 mt-3">
-              <button type="button" onClick={() => createDoc('DOC')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
-                <Table2 className="w-3.5 h-3.5" /> Создать таблицу
-              </button>
-              <button type="button" onClick={() => createDoc('TEXT')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 transition-ui cursor-pointer">
-                <FileText className="w-3.5 h-3.5" /> Создать документ
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-3 @[700px]:p-6 rounded-lg border border-slate-200 dark:border-slate-800 min-w-0">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl @[700px]:text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5 min-w-0">
-              <Table2 className="w-6 h-6 shrink-0 text-emerald-600" /> <span className="truncate">Конструктор</span>
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 text-pretty">Таблицы и текстовые документы из данных проекта — в одном месте</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <button type="button" data-tour="doc-create-btn" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, метки">
-              <Table2 className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Таблица</span>
-            </button>
-            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
-              <FileText className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Документ</span>
-            </button>
-            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold  cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
-              <FileText className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Шаблон титула</span>
-            </button>
-          </div>
-        </div>
-        {/* Вкладки типов, поиск и порядок */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {([
-            { id: 'all' as const, label: 'Все' },
-            { id: 'sheet' as const, label: 'Таблицы' },
-            { id: 'text' as const, label: 'Документы' },
-          ]).map(t => (
-            <button type="button" key={t.id} onClick={() => setTab(t.id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === t.id
-                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
-                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
-              {t.label}
-            </button>
-          ))}
-          <div className="flex-1 min-w-[8rem]" />
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={docQuery}
-                onChange={(e) => setDocQuery(e.target.value)}
-                placeholder="Найти документ по названию"
-                aria-label="Поиск по документам"
-                className="pl-8 pr-3 py-1.5 w-full @[560px]:w-56 min-w-0 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs outline-none focus:border-emerald-600 dark:focus:border-emerald-400"
-              />
-            </div>
-            <select
-              value={docSort}
-              onChange={(e) => setDocSort(e.target.value as 'updated' | 'name')}
-              aria-label="Порядок документов"
-              title="Порядок в списке"
-              className="px-2 py-1.5 max-w-36 min-w-0 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs cursor-pointer"
-            >
-              <option value="updated">Сначала недавние</option>
-              <option value="name">По названию</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>
-      ) : (
-        <>
-          {recents.length > 0 && (
-            <Section title="Продолжить" icon={RotateCcw} items={recents} />
-          )}
-          <Section title="Мои файлы" icon={Lock} items={myDocs} />
-          <Section title="Общие файлы" icon={Users2} items={sharedDocs.filter(d => d.createdById !== me)} />
-          {templates.length > 0 && <Section title="Шаблоны" icon={Copy} items={templates} />}
-          {titleTemplates.length > 0 && <Section title="Шаблоны титула" icon={FileText} items={titleTemplates} />}
-
-          {trash.length > 0 && (
-            <div>
-              <button type="button" onClick={() => setTrashOpen(v => !v)} className="text-sm font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-2 cursor-pointer">
-                <Trash2 className="w-4 h-4" /> Корзина ({trash.length}) {trashOpen ? '▾' : '▸'}
-              </button>
-              {trashOpen && (
-                <div className="mt-3 grid grid-cols-1 @[560px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4 gap-3 opacity-70">
-                  {trash.map(d => <Card key={d.id} d={d} inTrash />)}
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </div>
+    <DocLibrary
+      loading={loading}
+      myKind={myKind}
+      tab={tab} onTab={setTab}
+      query={docQuery} onQuery={setDocQuery}
+      sort={docSort} onSort={setDocSort}
+      recents={recents}
+      myDocs={myDocs}
+      sharedDocs={sharedDocs.filter(d => d.createdById !== me)}
+      templates={templates}
+      titleTemplates={titleTemplates}
+      trash={trash}
+      trashOpen={trashOpen} onTrashOpen={setTrashOpen}
+      onOpen={setActiveDocId}
+      onCreate={createDoc}
+      onDuplicate={duplicateDoc}
+      onPatch={patchDoc}
+      onFromTemplate={createFromTemplate}
+      onDeleteForever={deleteForever}
+    />
   );
 }

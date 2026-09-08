@@ -57,7 +57,7 @@ export function initialsOf(fullName: string): string {
 export const PLACEHOLDERS: PlaceholderDef[] = [
   // ── Документ ──
   { key: 'документ.название', group: 'Документ', label: 'Название документа',
-    hint: 'Как документ назван в Конструкторе',
+    hint: 'Как документ назван в Flux Office',
     resolve: (c) => c.documentName || '' },
   { key: 'документ.номер', group: 'Документ', label: 'Номер документа',
     hint: 'Обозначение документа, если задано',

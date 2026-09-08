@@ -123,7 +123,7 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
               ))}
               <Sep />
               {p.canEditInConstructor && (
-                <Item icon={<Grid3X3 />} label="Редактировать копию в Конструкторе"
+                <Item icon={<Grid3X3 />} label="Редактировать копию в Flux Office"
                   onClick={() => { p.editCopy(id); p.onClose(); }} />
               )}
               <Item icon={<Boxes />} label="В оборудование…" onClick={() => { p.toEquipment(id); p.onClose(); }} />

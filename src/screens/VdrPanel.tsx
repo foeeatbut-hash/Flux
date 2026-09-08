@@ -7,6 +7,7 @@ import {
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
+import { officePathForKind } from '../lib/fileTypes';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
 
@@ -177,7 +178,8 @@ export default function VdrPanel() {
   const createDoc = async (it: Item) => {
     const r = await fetch(`/api/vdr/items/${it.id}/create-doc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (!r.ok) { addToast('Не удалось создать документ', 'error'); return; }
-    navigate(`/constructor?doc=${(await r.json()).doc.id}`);
+    const made = (await r.json()).doc;
+    navigate(`${officePathForKind(made.kind)}?doc=${made.id}`);
   };
 
   const importXlsx = async (file: File) => {
@@ -394,7 +396,7 @@ export default function VdrPanel() {
                       <td className="flux-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
                           {it.docId ? (
-                            <button type="button" title="Открыть документ" onClick={() => navigate(`/constructor?doc=${it.docId}`)}
+                            <button type="button" title="Открыть документ" onClick={() => navigate(`/sheet?doc=${it.docId}`)}
                               className="p-1.5 rounded-lg text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer"><FileText className="w-3.5 h-3.5" /></button>
                           ) : (
                             <button type="button" title="Сформировать документ" onClick={() => createDoc(it)}
@@ -430,7 +432,7 @@ export default function VdrPanel() {
           projectTags={projectTags}
           onClose={() => setCardItem(null)}
           onChanged={refresh}
-          onOpenDoc={(id) => navigate(`/constructor?doc=${id}`)}
+          onOpenDoc={(id) => navigate(`/sheet?doc=${id}`)}
           onCreateDoc={() => createDoc(cardItem)}
         />
       )}

@@ -122,7 +122,7 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
           return res.status(400).json({ error: 'Разбор DOCX недоступен в этой сборке — сложная вёрстка будет в следующей фазе' });
         }
       } else {
-        return res.status(400).json({ error: `Формат .${ext} пока не открывается в Конструкторе` });
+        return res.status(400).json({ error: `Формат .${ext} пока не открывается в Flux Office` });
       }
 
       const doc = await prisma.constructorDoc.create({
