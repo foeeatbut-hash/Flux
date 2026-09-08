@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
 import { syncMirror } from './constructor.js';
 import { applyScopeRecursive } from './explorer.js';
+import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
 
 // Рабочий стол.
 //
@@ -22,20 +23,6 @@ import { applyScopeRecursive } from './explorer.js';
 // Prisma берётся лениво через getPrisma() — клиент пересоздаётся при смене базы
 // (см. server/context.ts).
 
-const DESK = 'Рабочий стол';
-
-/** Обе папки заводятся по требованию: пустой стол не должен ничего плодить */
-async function ensureDeskFolder(projectId: string, scope: 'PERSONAL' | 'SHARED', ownerId: string | null) {
-  const prisma = getPrisma();
-  const where = {
-    projectId, name: DESK, system: true, scope,
-    ownerId: scope === 'PERSONAL' ? ownerId : null,
-    parentId: null,
-  };
-  const found = await prisma.folder.findFirst({ where });
-  return found || prisma.folder.create({ data: where });
-}
-
 export function registerDesktopRoutes(app: Express): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 
@@ -47,6 +34,9 @@ export function registerDesktopRoutes(app: Express): void {
   app.get('/api/desktop', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
+      // Документы Flux Office лежат на столе — если они ещё в старой папке,
+      // перевозим их один раз, иначе стол показал бы пустое место
+      await ensureOfficeOnDesk();
       const projectId = await resolveProjectId(String(req.query.projectId || ''));
       const me = deskOwner(req);
       const shared = await ensureDeskFolder(projectId, 'SHARED', null);

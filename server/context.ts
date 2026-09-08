@@ -10,7 +10,16 @@ import type { Response } from 'express';
 
 let _prisma: any = null;
 
-export function setPrisma(p: any): void { _prisma = p; }
+export function setPrisma(p: any): void {
+  _prisma = p;
+  // База сменилась — разовые правки надо проверить заново: у новой базы свой
+  // признак выполненного, и считать его выполненным по памяти нельзя
+  for (const reset of onSwapped) { try { reset(); } catch (_) { /* сброс — не условие работы */ } }
+}
+
+/** Кто хочет знать о смене базы: сюда записываются сбросы кэшей */
+const onSwapped: Array<() => void> = [];
+export function onDatabaseSwapped(reset: () => void): void { onSwapped.push(reset); }
 export function getPrisma(): any { return _prisma; }
 
 // Разрешение projectId: заглушки («null»/«undefined»/«default»/пусто) →

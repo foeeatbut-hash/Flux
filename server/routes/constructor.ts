@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, upsertSetting } from '../context.js';
 import { normalizeKey, parseRuNumber } from '../normalize.js';
@@ -268,20 +269,13 @@ async function ensureTableExists(): Promise<void> {
 
 // ── Зеркало документа в Проводнике (часть III §5 дизайна) ──
 // Именованный документ живёт в Проводнике как файл type="CONSTRUCTOR"
-// (refId → ConstructorDoc.id) внутри системной папки «Конструктор» своего
-// раздела (общий/личный). Черновики и корзина зеркала не имеют.
-async function ensureConstructorFolder(projectId: string, scope: string, ownerId: string | null) {
-  const prisma = getPrisma();
-  const where = {
-    projectId, name: 'Конструктор', system: true,
-    scope: scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED',
-    ownerId: scope === 'PERSONAL' ? ownerId : null,
-    parentId: null,
-  };
-  const found = await prisma.folder.findFirst({ where });
-  if (found) return found;
-  return prisma.folder.create({ data: where });
-}
+// (refId → ConstructorDoc.id) на РАБОЧЕМ СТОЛЕ своего раздела (общий/личный).
+// Черновики и корзина зеркала не имеют.
+//
+// Раньше для них заводилась отдельная системная папка «Конструктор». Человек
+// ждёт сохранённый файл там же, где ждал бы в Windows, — на своём столе: он
+// сохранил документ и хочет увидеть значок, а не искать по дереву Проводника.
+// Уже лежавшее перевозится один раз (server/systemFolders.ts).
 
 // Экспортируется ради рабочего стола (server/routes/desktop.ts): документ,
 // созданный на столе, обязан зеркалиться теми же правилами, что и созданный в
@@ -296,10 +290,17 @@ export async function syncMirror(doc: any): Promise<void> {
       if (existing) await prisma.fileNode.delete({ where: { id: existing.id } });
       return;
     }
-    const folder = await ensureConstructorFolder(doc.projectId, doc.scope, doc.ownerId || doc.createdById || null);
+    const folder = await ensureDeskFolder(
+      doc.projectId,
+      doc.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED',
+      doc.ownerId || doc.createdById || null,
+    );
     const data = {
       name: doc.name,
-      filePath: `/constructor/${doc.id}`,
+      // Адрес зеркала помнит, ЧЕМ документ открывается: книга — «Таблицей»,
+      // текст — «Документом». Без этого окно текста показывало бы значок
+      // таблицы, и человек искал бы на панели задач не ту кнопку
+      filePath: `${doc.kind === 'TEXT' || doc.kind === 'NOTE' ? '/doc' : '/sheet'}/${doc.id}`,
       type: 'CONSTRUCTOR',
       refId: doc.id,
       folderId: folder.id,
@@ -327,6 +328,8 @@ export function registerConstructorRoutes(app: Express): void {
   // Гарантия таблицы перед любым запросом раздела
   app.use('/api/constructor', async (_req, _res, next) => {
     await ensureTableExists();
+    // Разовый перевоз старой папки «Конструктор» на рабочий стол
+    await ensureOfficeOnDesk();
     next();
   });
 
