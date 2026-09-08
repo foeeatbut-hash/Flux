@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
@@ -9,6 +10,7 @@ import { type ConflictChoice } from '../lib/docConflict';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
+import BlocksPanel from '../components/office/BlocksPanel';
 import DataWizard from '../components/DataWizard';
 import type { CatalogData, WizardResult } from '../lib/constructorTypes';
 import EditorFrame from '../components/ribbon/EditorFrame';
@@ -140,7 +142,19 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const bindingsRef = useRef<{ schemaVersion: number; blocks: SmartBlock[] }>({ schemaVersion: 1, blocks: [] });
   const bindingsDirtyRef = useRef(false);
   const [blocksTick, setBlocksTick] = useState(0);          // форс-перерисовка панели блоков
-  const [blocksOpen, setBlocksOpen] = useState(false);
+  /**
+   * Какая панель пристыкована справа. Одна на все четыре, а не четыре флажка.
+   *
+   * Флажками они открывались одновременно и наслаивались друг на друга поверх
+   * листа. Пристыкованные, они делили бы окно на три полосы, и листу
+   * оставалась бы треть. Одно состояние делает это невозможным по устройству,
+   * а не по договорённости.
+   */
+  const [dock, setDock] = useState<'labels' | 'title' | 'versions' | 'blocks' | null>(null);
+  const closeDock = () => setDock(null);
+  const toggleDock = (p: 'labels' | 'title' | 'versions' | 'blocks') =>
+    setDock((cur) => (cur === p ? null : p));
+  const blocksOpen = dock === 'blocks';
   // Чтение оформления выделения зовётся из слушателя команд движка, который
   // создаётся раньше самой функции. Держим её в ссылке: слушатель живёт всё
   // время жизни книги, а функция пересоздаётся на каждой отрисовке
@@ -149,14 +163,14 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // иначе «Фильтр» превращается в кнопку с непредсказуемым действием
   const [filterOn, setFilterOn] = useState(false);
   // История версий: автоснимки перед обновлением данных + ручные + откат
-  const [versionsOpen, setVersionsOpen] = useState(false);
+  const versionsOpen = dock === 'versions';
   // Английская версия: снимок на момент открытия сверки и отставшая пара
   const [englishSnap, setEnglishSnap] = useState<any>(null);
   const [stale, setStale] = useState<{ id: string; targetDocId: string } | null>(null);
   // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
-  const [titleOpen, setTitleOpen] = useState(false);
+  const titleOpen = dock === 'title';
   const [exportOpen, setExportOpen] = useState(false);
-  const [phOpen, setPhOpen] = useState(false);
+  const phOpen = dock === 'labels';
   const [phCount, setPhCount] = useState(0);
   const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
@@ -274,7 +288,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     setSaveState('saved');
     addToast(`Заполнено меток: ${replaced}`, 'success');
     setPhCount(0);
-    setPhOpen(false);
+    closeDock();
     setLoading(true);
     setReloadTick(t => t + 1); // редактор перечитывает документ уже с данными
   };
@@ -848,7 +862,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     const r = await fetch(`/api/constructor/docs/${docId}/restore/${v.id}`, { method: 'POST' });
     if (!r.ok) { addToast('Не удалось восстановить версию', 'error'); return; }
     addToast(`Восстановлена версия ${v.version}`, 'success');
-    setVersionsOpen(false);
+    closeDock();
     setLoading(true);
     setReloadTick(t => t + 1); // движок пересоздаётся с восстановленным снапшотом
   };
@@ -1047,7 +1061,8 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // ── Лента: состояние, значения органов и разбор команд ──
   const tabs = useMemo(() => sheetRibbon(), []);
   const [tab, setTab] = useState('Главная');
-  const [folded, setFolded] = useState(false);
+  // Свёрнутая лента помнится между документами и программами семьи
+  const [folded, setFolded] = useRibbonFold();
   const [fileOpen, setFileOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [zoom, setZoom] = useState(100);
@@ -1250,12 +1265,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       case 'sh.clear': return exec('sheet.command.clear-selection-content');
       case 'sh.newSheet': return exec('sheet.command.insert-sheet');
       case 'sh.wizard': return setWizardOpen(true);
-      case 'sh.title': return setTitleOpen(v => !v);
-      case 'sh.blocks': return setBlocksOpen(v => !v);
+      case 'sh.title': return toggleDock('title');
+      case 'sh.blocks': return toggleDock('blocks');
       case 'sh.refreshAll': return refreshAll();
-      case 'sh.placeholders': return setPhOpen(v => !v);
+      case 'sh.placeholders': return toggleDock('labels');
       case 'sh.template': return saveAsTemplate();
-      case 'sh.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
+      case 'sh.versions': { toggleDock('versions'); if (!versionsOpen) loadVersions(); return; }
       case 'sh.english': return openEnglish();
       case 'sh.zoom': {
         const next = Math.min(400, Math.max(30, zoom + (value === '+' ? 10 : -10)));
@@ -1305,7 +1320,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
-    versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
+    versions: () => { setFileOpen(false); setDock('versions'); loadVersions(); },
     copy: async () => {
       setFileOpen(false);
       await saveNow();
@@ -1316,7 +1331,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       addToast(r.ok ? 'Копия создана' : 'Не удалось создать копию', r.ok ? 'success' : 'error');
     },
     template: () => { setFileOpen(false); saveAsTemplate(); },
-    revision: () => { setFileOpen(false); setTitleOpen(true); },
+    revision: () => { setFileOpen(false); setDock('title'); },
     noRevision: 'Ревизии выпускаются у документов, привязанных к строке ВДР',
     print: () => { setFileOpen(false); handlePrint(); },
     pdf: () => { setFileOpen(false); handlePdf(); },
@@ -1350,8 +1365,8 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           link: room.note,
           saveState: saveConflict ? 'conflict' : saveState,
           menu: [
-            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
-            { label: 'Метки данных', hint: 'Что откуда собрано и когда обновлялось', run: () => setBlocksOpen(true) },
+            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setDock('versions'); loadVersions(); } },
+            { label: 'Метки данных', hint: 'Что откуда собрано и когда обновлялось', run: () => setDock('blocks') },
           ],
         }}
         tabs={tabs} active={tab} onActive={setTab}
@@ -1360,15 +1375,15 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         folded={folded} onFold={setFolded}
         file={fileSections} fileInfo={fileInfo} fileOpen={fileOpen} onFileOpen={setFileOpen}
       >
-      {/* Полоса меток и полотно — колонкой: метки над листом, как в Экселе
-          строка формул */}
-      <div className="absolute inset-0 flex flex-col">
-      {/* Лента меток: кнопка = метка, рядом видно, что подставится сейчас */}
-      {phOpen && (
-        <LabelBar preview={phPreview} unfilled={phCount}
-          onInsert={insertPlaceholder} onFill={fillPlaceholders} />
-      )}
-
+      {/*
+        Полотно и панели — в одну строку, а не друг поверх друга.
+        Панели «Метки», «Версии», «Титул» и лента меток висели НАД листом и
+        закрывали ровно те строки, ради которых их открывали: человек нажимал
+        «обновить», сдвигал панель, открывал снова. Пристыкованная панель
+        ужимает лист, а не прячет его; закрытая не занимает ничего.
+      */}
+      <div className="absolute inset-0 flex">
+      <div className="flex-1 min-w-0 flex flex-col">
       {/* Полотно движка */}
       <div className="flex-1 min-h-0 relative bg-white">
         <div ref={containerRef} className="absolute inset-0" />
@@ -1388,6 +1403,44 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       </div>
       </div>
 
+      {/* Пристыкованная колонка. Открыта всегда одна панель: две рядом
+          оставляют листу треть окна, а отвечают они на разные вопросы */}
+      {phOpen && (
+        <LabelBar preview={phPreview} unfilled={phCount}
+          onInsert={insertPlaceholder} onFill={fillPlaceholders} onClose={closeDock} />
+      )}
+      {titleOpen && (
+        <TitlePanel
+          docId={docId}
+          projectId={activeProject?.id || 'default'}
+          settings={titleSettings}
+          onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
+          onClose={closeDock}
+        />
+      )}
+      {versionsOpen && (
+        <DocVersionsPanel
+          versions={versions}
+          fmtDate={fmtDate}
+          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
+          onRestore={restoreVersion}
+          onClose={closeDock}
+        />
+      )}
+      {blocksOpen && (
+        <BlocksPanel
+          blocks={bindingsRef.current.blocks as any}
+          stale={staleMap}
+          refreshing={refreshingIds}
+          tick={blocksTick}
+          onRefreshAll={refreshAll}
+          onRefresh={refreshBlock}
+          onUnlink={unlinkBlock}
+          onClose={closeDock}
+        />
+      )}
+      </div>
+
       {wizardOpen && (
         <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
       )}
@@ -1396,17 +1449,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           info={saveConflict}
           meName={user?.name || ''}
           onChoose={resolveSaveConflict}
-        />
-      )}
-
-      {/* Панель «Титул»: шаблон + реквизиты этого документа */}
-      {titleOpen && (
-        <TitlePanel
-          docId={docId}
-          projectId={activeProject?.id || 'default'}
-          settings={titleSettings}
-          onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
-          onClose={() => setTitleOpen(false)}
         />
       )}
 
@@ -1448,56 +1490,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           onOpen={(href) => { window.location.hash = `#${href}`; }}
           onClose={() => setRecentOpen(false)}
         />
-      )}
-
-      {versionsOpen && (
-        <DocVersionsPanel
-          versions={versions}
-          fmtDate={fmtDate}
-          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-          onRestore={restoreVersion}
-          onClose={() => setVersionsOpen(false)}
-        />
-      )}
-
-      {/* Панель меток: обновление, отвязка, индикатор устаревания */}
-      {blocksOpen && (
-        <div className="absolute right-4 top-14 z-40 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden" data-tick={blocksTick}>
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-white">Метки данных</span>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={refreshAll} disabled={refreshingIds.length > 0}
-                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
-                <RefreshCw className={`w-3 h-3 ${refreshingIds.length ? 'animate-spin' : ''}`} /> Обновить все
-              </button>
-              <button type="button" onClick={() => setBlocksOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
-            {bindingsRef.current.blocks.map(b => (
-              <div key={b.id} className="px-4 py-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-slate-800 dark:text-white min-w-0 flex items-center gap-1.5">
-                    <span className="flex-1 min-w-0 truncate">{b.name}</span>
-                    {staleMap[b.id] && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Данные проекта изменились" />}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {countOf(b.rows.length, 'строка')} · обновлено {fmtDate(b.state.lastRefreshAt)}
-                    {Object.keys(b.overrides).length > 0 && ` · правок: ${Object.keys(b.overrides).length}`}
-                  </div>
-                </div>
-                <button type="button" onClick={() => refreshBlock(b.id)} disabled={refreshingIds.includes(b.id)} title="Обновить данные блока"
-                  className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 disabled:opacity-50 cursor-pointer">
-                  <RefreshCw className={`w-4 h-4 ${refreshingIds.includes(b.id) ? 'animate-spin' : ''}`} />
-                </button>
-                <button type="button" onClick={() => unlinkBlock(b.id)} title="Отвязать: оставить как обычные ячейки"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">
-                  <Unlink className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
 
       {/* Конфликты: ручная правка против изменившегося значения в проекте */}

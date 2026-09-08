@@ -34,6 +34,16 @@ export interface RibbonBarProps {
   /** Свёрнута ли лента; управляется снаружи, чтобы состояние переживало вкладки */
   folded: boolean;
   onFold: (v: boolean) => void;
+  /**
+   * Сведения о документе по краям полосы вкладок.
+   *
+   * Раньше под них была отведена своя полоса в 34 точки, и она повторяла
+   * заголовок окна. Полоса вкладок при этом наполовину пустовала: вкладок у
+   * редактора четыре-пять. Теперь обе живут в одной строке, и лист получает
+   * эти 34 точки обратно.
+   */
+  docLeft?: React.ReactNode;
+  docRight?: React.ReactNode;
 }
 
 /** Группа: органы в один ряд плюс подпись снизу */
@@ -104,6 +114,7 @@ function Collapsed({ group, ...rest }: {
 
 export default function RibbonBar({
   tabs, active, onActive, state, disabled, attention, onCommand, onFile, folded, onFold,
+  docLeft, docRight,
 }: RibbonBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -150,8 +161,10 @@ export default function RibbonBar({
   return (
     <div className="shrink-0 bg-white dark:bg-slate-900">
       {/* Полоса вкладок */}
-      <div className="flex items-end gap-0.5 px-2 border-b border-slate-200 dark:border-slate-800"
+      <div className="flex items-center gap-1 px-2 border-b border-slate-200 dark:border-slate-800"
         style={{ height: TABS_H }}>
+        {docLeft}
+        {docLeft && <span className="shrink-0 w-px h-4 bg-slate-200 dark:bg-slate-800" />}
         {onFile && (
           <button type="button" onClick={onFile}
             className="h-[26px] px-3 rounded-t-md text-2xs font-bold text-white bg-emerald-600
@@ -159,7 +172,7 @@ export default function RibbonBar({
             Файл
           </button>
         )}
-        <div ref={tabsRef} className="flex items-end gap-0.5 flex-1 min-w-0 overflow-hidden">
+        <div ref={tabsRef} className="flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden">
           {shown.map((n) => {
             const t = tabs.find((x) => x.name === n);
             const isOn = n === active;
@@ -201,6 +214,9 @@ export default function RibbonBar({
               </>
             )}
           </div>
+        )}
+        {docRight && (
+          <div className="flex items-center gap-1.5 shrink-0 pl-1">{docRight}</div>
         )}
         <button type="button" onClick={() => onFold(!folded)}
           title={folded ? 'Развернуть ленту (Ctrl+F1)' : 'Свернуть ленту (Ctrl+F1)'}

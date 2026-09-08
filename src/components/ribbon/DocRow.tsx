@@ -1,14 +1,15 @@
 /**
- * Строка документа — верхний ряд всех четырёх редакторов.
+ * Сведения о документе — в полосе вкладок, а не отдельной строкой.
  *
- * Порядок слева направо неизменен: он отвечает на вопросы в том порядке, в
- * каком их задают — куда я вернусь → что это → в каком оно состоянии → кто ещё
- * тут → цело ли оно. Одинаковый порядок и есть то, ради чего рама общая:
- * человек, перешедший из таблицы в чертёж, ничего не ищет заново.
+ * Раньше это была своя полоса в 34 точки над лентой. Она повторяла заголовок
+ * окна, который и так показывает имя документа, — то есть отбирала у листа
+ * строку ради повтора. Теперь те же кнопки живут по краям полосы вкладок:
+ * слева «куда я вернусь → что это», справа «в каком оно состоянии → кто ещё
+ * тут → цело ли оно». Порядок вопросов прежний, и он одинаков во всех четырёх
+ * редакторах — ради этого рама и общая.
  */
 import React, { useState } from 'react';
 import { ArrowLeft, MoreHorizontal, WifiOff } from 'lucide-react';
-import { DOC_ROW_H } from '../../lib/ribbon';
 import { initial, peersLabel, extraPeers, MAX_AVATARS, type Peer } from '../../lib/collab';
 
 export interface DocRowMenuItem {
@@ -54,30 +55,38 @@ const STAGE_TONE: Record<string, string> = {
   issued: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400',
 };
 
-export default function DocRow(p: DocRowProps) {
+/** Левый край полосы вкладок: возврат, значок и имя документа */
+export function DocIdentity(p: DocRowProps) {
+  return (
+    <>
+      <button type="button" onClick={p.onClose} title="Вернуться туда, откуда открыли"
+        className="shrink-0 h-[26px] w-7 flex items-center justify-center rounded-md text-slate-500
+                   hover:bg-slate-100 dark:hover:bg-slate-850 hover:text-slate-800
+                   dark:hover:text-slate-150 cursor-pointer">
+        <ArrowLeft className="w-3.5 h-3.5" />
+      </button>
+      <span className="shrink-0 flex items-center">{p.icon}</span>
+      <input
+        value={p.name}
+        onChange={(e) => p.onRename(e.target.value)}
+        title="Имя документа — то же, что на значке стола"
+        className="shrink text-2xs font-bold text-slate-800 dark:text-slate-150 bg-transparent w-28 @[900px]:w-44
+                   border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700
+                   focus:border-emerald-500 focus:outline-none px-1 py-0.5"
+      />
+    </>
+  );
+}
+
+/** Правый край полосы вкладок: стадия, ревизия, коллеги, состояние сохранения */
+export function DocStatus(p: DocRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const saved = p.saveState === 'saving' ? 'сохраняю…'
     : p.saveState === 'conflict' ? 'не сохранено — разберите правку'
       : p.saveState === 'saved' ? 'сохранено' : '';
 
   return (
-    <div className="flex items-center gap-2 px-3 shrink-0 bg-white dark:bg-slate-900
-                    border-b border-slate-200 dark:border-slate-800"
-      style={{ height: DOC_ROW_H }}>
-      <button type="button" onClick={p.onClose} title="Вернуться туда, откуда открыли"
-        className="flex items-center gap-1 text-2xs font-semibold text-slate-500 hover:text-slate-800
-                   dark:hover:text-slate-150 cursor-pointer shrink-0">
-        <ArrowLeft className="w-3.5 h-3.5" /> Закрыть
-      </button>
-      <span className="shrink-0">{p.icon}</span>
-      <input
-        value={p.name}
-        onChange={(e) => p.onRename(e.target.value)}
-        title="Имя документа — то же, что на значке стола"
-        className="text-2xs font-bold text-slate-800 dark:text-slate-150 bg-transparent min-w-32 max-w-72
-                   border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700
-                   focus:border-emerald-500 focus:outline-none px-1 py-0.5"
-      />
+    <>
       {p.stage && (
         <button type="button" onClick={p.onStage} disabled={!p.onStage}
           title="Стадия документа"
@@ -111,9 +120,6 @@ export default function DocRow(p: DocRowProps) {
           ◆ {p.tag || 'Привязать'}
         </button>
       )}
-
-      <div className="flex-1 min-w-2" />
-
       {!!p.peers?.length && (
         <div className="flex items-center shrink-0" title={peersLabel(p.peers)}>
           <div className="flex -space-x-1.5">
@@ -142,8 +148,11 @@ export default function DocRow(p: DocRowProps) {
           <WifiOff className="w-3 h-3" /> {p.link}
         </span>
       )}
+      {/* Состояние сохранения прячется в узком окне: место нужнее вкладкам, а
+          «сохранено» — это подтверждение, а не предупреждение. Тревожное
+          «не сохранено» остаётся видно всегда */}
       <span className={`shrink-0 text-[10px] ${p.saveState === 'conflict'
-        ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-400 dark:text-slate-455'}`}>
+        ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'hidden @[760px]:inline text-slate-400 dark:text-slate-455'}`}>
         {saved}
       </span>
       {!!p.menu?.length && (
@@ -171,6 +180,6 @@ export default function DocRow(p: DocRowProps) {
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

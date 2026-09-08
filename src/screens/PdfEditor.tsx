@@ -12,6 +12,7 @@
  * Страницу рисует pdf.js в канву, пометки лежат слоем поверх (components/pdf).
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { useSearchParams } from 'react-router-dom';
 import { FileText, Loader2, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import EditorFrame from '../components/ribbon/EditorFrame';
@@ -88,7 +89,8 @@ export default function PdfEditor() {
   const [draft, setDraft] = useState<any>(null);
   const [fileOpen, setFileOpen] = useState(false);
   const [tab, setTab] = useState('Главная');
-  const [folded, setFolded] = useState(false);
+  // Свёрнутая лента помнится между документами и программами семьи
+  const [folded, setFolded] = useRibbonFold();
   /**
    * Подписи людей по их идентификатору.
    *

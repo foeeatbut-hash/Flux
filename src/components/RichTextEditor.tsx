@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useRibbonFold } from './ribbon/useRibbonFold';
 import { openLink } from '../lib/openLink';
 import { createPortal } from 'react-dom';
 import { Check, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2, Tag as TagIcon, Database } from 'lucide-react';
@@ -528,7 +529,8 @@ export default function RichTextEditor({
     [projectTags?.length, projectId],
   );
   const [tab, setTab] = useState('Главная');
-  const [folded, setFolded] = useState(false);
+  // Свёрнутая лента помнится между документами и программами семьи
+  const [folded, setFolded] = useRibbonFold();
   const [zoom, setZoom] = useState(100);
   const [full, setFull] = useState(false);
   const [block, setBlock] = useState('p');

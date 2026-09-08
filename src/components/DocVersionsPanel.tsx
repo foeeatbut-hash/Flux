@@ -30,8 +30,8 @@ export default function DocVersionsPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute right-4 top-14 z-40 w-96 rounded-xl overflow-hidden shadow-2xl
-                    bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+    <div className="shrink-0 w-72 @[900px]:w-80 h-full flex flex-col overflow-hidden
+                    bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
         <span className="text-sm font-bold text-slate-800 dark:text-white">История версий</span>
         <div className="flex items-center gap-2">
@@ -45,7 +45,7 @@ export default function DocVersionsPanel({
           </button>
         </div>
       </div>
-      <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
+      <div className="flex-1 min-h-0 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
         {versions.map((v) => (
           <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
             <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>

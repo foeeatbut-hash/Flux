@@ -11,6 +11,7 @@
  * документ.
  */
 import React from 'react';
+import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { Languages } from 'lucide-react';
 import RibbonBar from '../components/ribbon/RibbonBar';
 import SegmentRows, { type Row } from '../components/translate/SegmentRows';
@@ -47,7 +48,8 @@ export default function TranslateScreen() {
   const [side, setSide] = React.useState(true);
   const [showOrigin, setShowOrigin] = React.useState(true);
   const [tab, setTab] = React.useState('Главная');
-  const [folded, setFolded] = React.useState(false);
+  // Свёрнутая лента помнится между документами и программами семьи
+  const [folded, setFolded] = useRibbonFold();
   const [adding, setAdding] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
