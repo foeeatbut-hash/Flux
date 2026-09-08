@@ -18,6 +18,7 @@
  * человеку говорится прямо, один раз, в момент открытия.
  */
 import * as XLSX from 'xlsx';
+import { fileBytes } from './fileBytes';
 
 export type OfficeKind = 'sheet' | 'text';
 
@@ -44,20 +45,13 @@ export function oldFormatAdvice(name: string): string {
 export const WORD_NOTE = 'Документ Word открыт текстом: заголовки, списки и таблицы на месте, '
   + 'сложное оформление (колонки, врезки, поля) не переносится.';
 
-/** Байты файла из Проводника: содержимое лежит строкой data-URL */
+/** Байты файла из Проводника — общим путём (src/lib/fileBytes.ts) */
 async function bytesOf(fileId: string): Promise<ArrayBuffer> {
-  const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`);
-  if (!res.ok) throw new Error(`Файл не прочитан: сервер ответил ${res.status}`);
-  const d = await res.json();
-  const raw = String(d?.file?.content || '');
-  if (!raw) {
+  const data = await fileBytes(fileId);
+  if (!data.byteLength) {
     throw new Error('У файла нет содержимого. Скорее всего, он был загружен старой версией программы — перенесите его заново.');
   }
-  const b64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
+  return data;
 }
 
 /** Книга Excel → снимок книги Конструктора (значения ячеек) */

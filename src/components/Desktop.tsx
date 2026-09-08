@@ -38,7 +38,7 @@ import { hiddenIds, groupIdOf, groupById, folderItems } from '../lib/deskGroups'
 import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref, officePathForKind } from '../lib/fileTypes';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
-import { dropLabel } from '../lib/dropFiles';
+import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
@@ -409,6 +409,15 @@ export default function Desktop() {
    * место значка и то, что человек видит, пока файл едет.
    */
   const takeFiles = async (files: File[], cell: { col: number; row: number } | null) => {
+    // Предела на размер нет, но полгигабайта лягут в общую базу и в резервную
+    // копию: спрашиваем один раз, а не отказываем
+    const heavy = heavyOnes(files);
+    if (heavy.length && !await openConfirm(
+      'Файл очень большой',
+      `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
+      + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
+      { confirmLabel: 'Загрузить' },
+    )) return;
     const before = new Set(useDesktopStore.getState().items.map((i) => i.id));
     const taken = useDesktopStore.getState().items.map((i) => i.name);
     setTaking({ done: 0, total: files.length });
@@ -568,7 +577,9 @@ export default function Desktop() {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg text-2xs font-semibold
                         bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300
                         border border-emerald-200 dark:border-emerald-900 shadow-sm">
-          {taking ? `Переношу на стол… ${taking.done} из ${taking.total}` : carry}
+          {/* Мегабайты, а не «файл 1 из 3»: книга на четыреста мегабайт —
+              один файл, и счётчик файлов о ней молчит */}
+          {taking ? `Переношу на стол… ${MB(taking.done)} из ${MB(taking.total)}` : carry}
         </div>
       )}
 

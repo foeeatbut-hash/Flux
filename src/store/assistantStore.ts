@@ -437,7 +437,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   askAbout: async (fileId) => {
     set({ loading: true });
     try {
-      const r = await fetch(`/api/files/${fileId}`);
+      // Карточке нужны имя, тип и теги, а не содержимое: файл может весить
+      // сотни мегабайт, и тащить его в разговор незачем
+      const r = await fetch(`/api/files/${fileId}?meta=1`);
       if (!r.ok) throw new Error('файл не найден');
       const body = await r.json();
       const card = fileCard(body.file || body);

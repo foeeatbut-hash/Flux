@@ -24,6 +24,7 @@ import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
 import { uploadDropped } from '../lib/dropUpload';
+import { heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode } from '../lib/saveToWindows';
 import {
   SEC_SHARED, SEC_DISK, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
@@ -626,6 +627,16 @@ export default function Explorer() {
     const realFolderId = asFolderId(targetFolderId);
     const inSectionRoot = realFolderId === null && isSectionId(targetFolderId);
     const sec = inSectionRoot ? parseSection(targetFolderId) : null;
+
+    // Предела на размер нет, но полгигабайта лягут в общую базу и в резервную
+    // копию: спрашиваем один раз, а не отказываем
+    const heavy = heavyOnes(Array.from(files));
+    if (heavy.length && !await openConfirm(
+      'Файл очень большой',
+      `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
+      + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
+      { confirmLabel: 'Загрузить' },
+    )) return;
 
     // Имена, уже занятые в целевой папке: по ним считается «Смета (2).xlsx»
     const existingNames = (realFolderId === null
@@ -2038,7 +2049,11 @@ export default function Explorer() {
              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
                <Upload className="w-4 h-4 text-emerald-500 animate-bounce" /> Загрузка файлов
              </h3>
-             <span className="text-xs font-medium text-slate-500">{uploadProgress.current} из {uploadProgress.total}</span>
+             {/* Мегабайты, а не «файл 1 из 3»: перенос книги на четыреста
+                 мегабайт — один файл, и счётчик файлов о нём молчит */}
+             <span className="text-xs font-medium text-slate-500 tabular-nums">
+               {formatSize(uploadProgress.current)} из {formatSize(uploadProgress.total)}
+             </span>
            </div>
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">

@@ -141,13 +141,25 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
         : { scope: { not: 'PERSONAL' } };
 
     // Удалённое лежит в корзине и в обычных списках не показывается
+    // Содержимое в дерево не кладём. Раньше оно ехало вместе со списком — на
+    // сотне чертежей это десятки мегабайт в каждом обновлении Проводника; а с
+    // тех пор как содержимое лежит кусками, поля `content` у новых файлов и
+    // вовсе нет. Предпросмотр берёт байты сам, по одному файлу
+    const filesOmit = { omit: { content: true } };
     const folders = await prisma.folder.findMany({
       where: { ...projectWhere, ...scopeWhere, deletedAt: null },
-      include: { files: { where: { deletedAt: null }, include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
+      include: {
+        files: {
+          where: { deletedAt: null },
+          ...filesOmit,
+          include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true },
+        },
+      },
     });
     const rootFiles = await prisma.fileNode.findMany({
       where: { folderId: null, type: { not: 'CHAT_FILE' }, deletedAt: null, ...scopeWhere },
-      include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
+      ...filesOmit,
+      include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true },
     });
 
     // Главному Администратору отдаём список владельцев для подписей личных разделов
@@ -263,18 +275,23 @@ app.get('/api/projects/:projectId/trash', async (req: Request, res: Response) =>
 });
 
 /**
- * Один файл целиком, вместе с содержимым.
+ * Один файл: запись и — по старой памяти — содержимое строкой.
  *
- * Список файлов содержимое не отдаёт — на сотне чертежей это десятки мегабайт
- * в каждом ответе. Редактору ПДФ нужен именно файл, поэтому для него отдельный
- * маршрут, а не «добавим content в список».
+ * Список файлов содержимое не отдаёт: на сотне чертежей это десятки мегабайт в
+ * каждом ответе. Здесь оно есть, но новые файлы его не имеют вовсе — их
+ * содержимое лежит кусками, и берут его потоком `/api/files/:id/raw`.
+ *
+ * `?meta=1` — только запись, без содержимого. Тому, кому нужны имя и путь
+ * происхождения, незачем тащить через JSON весь файл.
  */
 app.get('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
+    const metaOnly = String(req.query.meta || '') === '1';
     const file = await prisma.fileNode.findUnique({
       where: { id: req.params.id },
       include: { mainTags: true, createdBy: { select: { id: true, name: true } } },
+      ...(metaOnly ? { omit: { content: true } } : {}),
     });
     if (!file || file.deletedAt) return res.status(404).json({ error: 'Файл не найден' });
     res.json({ file });

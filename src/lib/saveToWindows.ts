@@ -11,6 +11,7 @@
  * сохранения нет — там это обычное скачивание.
  */
 import { buildDocx, partsFromText } from './docxWrite';
+import { fileBytes } from './fileBytes';
 
 export interface SaveResult {
   ok: boolean;
@@ -69,24 +70,32 @@ export function folderOf(fullPath: string): string {
   return at > 0 ? p.slice(0, at) : '';
 }
 
-/** Файл Проводника как есть: содержимое лежит строкой data-URL */
+/**
+ * Файл Проводника как есть.
+ *
+ * Байты берутся общим путём (src/lib/fileBytes.ts): у файла, положенного
+ * новой версией, содержимое лежит кусками, у старого — строкой, и знать об
+ * этом различии должно одно место, а не каждый читатель. Запись файла нужна
+ * отдельно — ради имени и того, откуда файл когда-то принесли.
+ */
 export async function saveFileNode(fileId: string): Promise<SaveResult> {
-  const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`);
+  const res = await fetch(`/api/files/${encodeURIComponent(fileId)}?meta=1`);
   if (!res.ok) return { ok: false, path: '', canceled: false, error: `Сервер ответил ${res.status}` };
   const d = await res.json();
   const file = d?.file;
-  const raw = String(file?.content || '');
-  if (!raw) {
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await fileBytes(fileId));
+  } catch (e: any) {
+    return { ok: false, path: '', canceled: false, error: String(e?.message || e) };
+  }
+  if (!bytes.length) {
     return {
       ok: false, path: '', canceled: false,
       error: 'У файла нет содержимого — выгружать нечего. Скорее всего, он был загружен старой версией программы.',
     };
   }
-  const b64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return saveBytes(String(file.name || 'Файл'), bytes, folderOf(String(file.origin || '')));
+  return saveBytes(String(file?.name || 'Файл'), bytes, folderOf(String(file?.origin || '')));
 }
 
 /** Текстовый документ Flux → настоящий .docx на диске */

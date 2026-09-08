@@ -48,14 +48,14 @@ const api = async (method: string, url: string, body?: any) => {
   token = (await api('POST', '/api/login', LOGIN)).json?.token || '';
   if (!token) { console.error('Не удалось войти.'); process.exit(2); }
 
-  console.log('1. Сервер говорит, какой файл примет его база');
+  console.log('1. Сервер говорит, каким куском слать содержимое');
   const limits = await api('GET', '/api/limits');
-  ok('предел назван числом', Number(limits.json?.maxFileBytes) > 0, limits.json);
-  const max = Number(limits.json?.maxFileBytes);
-  // Правила приёма считают тем же пределом, что назвал сервер
-  const plan = planDrop([{ name: 'Смета.xlsx', size: 1024 }, { name: 'Огромный.xlsx', size: max + 1 }], [], max);
-  ok('файл в пределах принимается', plan.accepted.length === 1, plan.accepted);
-  ok('файл сверх предела отклоняется с причиной', plan.refused.length === 1, plan.refused);
+  // Предела на ФАЙЛ больше нет: содержимое едет кусками, и от базы зависит
+  // размер куска, а не размер файла
+  ok('размер куска назван числом', Number(limits.json?.chunkBytes) > 0, limits.json);
+  ok('и порог вопроса тоже', Number(limits.json?.warnBytes) > 0, limits.json);
+  const plan = planDrop([{ name: 'Смета.xlsx', size: 1024 }, { name: 'Огромный.xlsx', size: 300 * 1024 * 1024 }]);
+  ok('большой файл больше не отклоняется', plan.accepted.length === 2 && plan.refused.length === 0, plan.refused);
 
   console.log('2. Двойное нажатие по офисному файлу ведёт в редактор');
   ok('книга Excel — офисный файл', isOffice({ id: 'x', name: 'Смета.xlsx' }));

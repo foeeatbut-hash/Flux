@@ -16,6 +16,7 @@
  * кто публиковал; все прочие берут файл из базы.
  */
 import type { Express, Request, Response } from 'express';
+import { CHUNK_MAX, CHUNK_MIN, chunkSizeFor } from './limits.js';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -44,28 +45,8 @@ export function pickRelease<T extends { version: string }>(
   return { release: null, broken };
 }
 
-/** Больше куска в базу не кладём: проверками этого хватало всегда */
-export const CHUNK_MAX = 2 * 1024 * 1024;
-/** Меньше уже бессмысленно: 130 МБ такими кусками — это тысячи запросов */
-export const CHUNK_MIN = 64 * 1024;
-
-/**
- * Размер куска под предел размера пакета у базы.
- *
- * Отдельной функцией, потому что именно на этом обновления встали в последний
- * раз. Два мегабайта проходили во всех проверках, а у живого сервера отдела
- * предел оказался меньше — и MariaDB на слишком большой пакет не отвечает
- * ошибкой, а разрывает соединение: программа видит «Cannot execute new
- * commands: connection closed» и угадать причину не может никогда.
- *
- * В пакет кроме самих данных едет ещё и запрос, а двоичное содержимое в
- * протоколе занимает больше, чем весит. Половина предела с запасом — размер,
- * который проходит наверняка. `limit` равный нулю значит «спросить не удалось».
- */
-export function chunkSizeFor(limit: number): number {
-  if (!limit) return CHUNK_MAX;
-  return Math.max(CHUNK_MIN, Math.min(CHUNK_MAX, Math.floor(limit / 2) - 64 * 1024));
-}
+// Размер куска переехал в server/limits.ts: им пользуются и обновления, и
+// файлы Проводника, а два одинаковых расчёта однажды разошлись бы
 
 export interface UpdateDeps {
   /** Клиент базы берётся лениво: он пересоздаётся при переключении базы */
@@ -458,3 +439,6 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   });
 
 }
+
+// Прежние имена остаются: проверки обновлений спрашивают их отсюда
+export { CHUNK_MAX, CHUNK_MIN, chunkSizeFor };

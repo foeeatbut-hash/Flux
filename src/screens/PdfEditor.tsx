@@ -12,6 +12,7 @@
  * Страницу рисует pdf.js в канву, пометки лежат слоем поверх (components/pdf).
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { fileBytes } from '../lib/fileBytes';
 import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { useSearchParams } from 'react-router-dom';
 import { FileText, Loader2, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
@@ -132,12 +133,15 @@ export default function PdfEditor() {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`/api/files/${fileId}`);
+        // Запись отдельно, байты отдельно: содержимое чертежа теперь лежит
+        // кусками, и тащить его через конверт JSON незачем
+        const r = await fetch(`/api/files/${fileId}?meta=1`);
         if (!r.ok) throw new Error('файл не найден');
-        const f = (await r.json()).file || (await r.json());
+        const f = (await r.json()).file;
         if (!alive) return;
         setFile(f);
-        const bytes = f?.content ? dataUrlToBytes(f.content) : null;
+        const raw = await fileBytes(String(fileId));
+        const bytes = raw.byteLength ? new Uint8Array(raw) : null;
         if (!bytes) { addToast('У файла нет содержимого', 'error'); setLoading(false); return; }
         const pdf = await openPdf(bytes);
         if (!alive) return;

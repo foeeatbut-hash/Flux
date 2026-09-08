@@ -9,7 +9,7 @@
  * принимали файлы по-своему, одно и то же движение мышью давало разный
  * результат — и разошлись они настолько, что стол не принимал файлы вовсе.
  */
-import { planDrop, typeOf, dropResult, MAX_FILE_BYTES } from './dropFiles';
+import { planDrop, typeOf, dropResult } from './dropFiles';
 
 export interface UploadTarget {
   /** Папка Проводника; null — корень раздела */
@@ -30,18 +30,23 @@ export interface UploadOutcome {
   said: string;
 }
 
-/** Предел размера файла спрашивается у сервера: он зависит от базы */
-let limitCache = 0;
-export async function fileLimit(): Promise<number> {
-  if (limitCache) return limitCache;
+/**
+ * Каким куском слать содержимое — спрашивается у сервера: он знает предел
+ * пакета своей базы. Если спросить не удалось, берём осторожный кусок: лучше
+ * больше запросов, чем оборванное соединение без объяснения.
+ */
+const SAFE_CHUNK = 512 * 1024;
+let chunkCache = 0;
+export async function chunkBytes(): Promise<number> {
+  if (chunkCache) return chunkCache;
   try {
     const res = await fetch('/api/limits');
     const d = await res.json();
-    limitCache = Number(d?.maxFileBytes) || MAX_FILE_BYTES;
+    chunkCache = Number(d?.chunkBytes) || SAFE_CHUNK;
   } catch (_) {
-    limitCache = MAX_FILE_BYTES;
+    chunkCache = SAFE_CHUNK;
   }
-  return limitCache;
+  return chunkCache;
 }
 
 /**
@@ -58,18 +63,69 @@ export function originOf(file: File): string {
   }
 }
 
-const readAsDataUrl = (file: File): Promise<string | undefined> =>
+/** Кусок файла в base64. Читаем срез, а не файл целиком: он может не влезть */
+const sliceBase64 = (file: File, from: number, to: number): Promise<string | null> =>
   new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = (e) => resolve(String(e.target?.result || '') || undefined);
-    reader.onerror = () => resolve(undefined);
-    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const raw = String(e.target?.result || '');
+      resolve(raw ? raw.slice(raw.indexOf(',') + 1) : null);
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file.slice(from, to));
   });
 
 /**
+ * Отправить содержимое кусками. Возвращает пустую строку, если всё дошло, или
+ * причину — её человек и увидит.
+ *
+ * Ход считается по БАЙТАМ, а не по файлам: перенос книги на четыреста
+ * мегабайт — это минуты, и полоса, которая дёргается раз на файл, о них не
+ * говорит ничего.
+ */
+async function sendContent(
+  fileId: string,
+  file: File,
+  piece: number,
+  onBytes?: (done: number) => void,
+): Promise<string> {
+  let idx = 0;
+  for (let from = 0; from < file.size; from += piece) {
+    const to = Math.min(file.size, from + piece);
+    const data = await sliceBase64(file, from, to);
+    if (data === null) return 'не удалось прочитать файл';
+    const res = await fetch(`/api/files/${encodeURIComponent(fileId)}/chunk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idx, data }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      return String(d?.error || `сервер ответил ${res.status}`);
+    }
+    idx++;
+    onBytes?.(to);
+  }
+  const done = await fetch(`/api/files/${encodeURIComponent(fileId)}/done`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  if (!done.ok) {
+    const d = await done.json().catch(() => ({}));
+    return String(d?.error || `сервер ответил ${done.status}`);
+  }
+  return '';
+}
+
+/**
  * Отправить принесённые файлы. `taken` — имена, уже занятые в папке.
- * `onProgress` зовётся после каждого файла: перенос большой книги — дело не
- * мгновенное, и человек должен видеть, что оно идёт.
+ *
+ * Сначала заводится ЗАПИСЬ файла — пустая, — и только потом в неё едет
+ * содержимое кусками. Порядок именно такой: куску нужен адрес, куда лечь, а
+ * записи с содержимым внутри больше не бывает.
+ *
+ * `onProgress` зовётся по ходу, а не после каждого файла: доля считается по
+ * байтам всего переноса. Полоса, которая дёргается раз на файл, о переносе
+ * книги на четыреста мегабайт не говорит ничего.
  */
 export async function uploadDropped(
   files: File[],
@@ -77,15 +133,17 @@ export async function uploadDropped(
   taken: Iterable<string> = [],
   onProgress?: (done: number, total: number) => void,
 ): Promise<UploadOutcome> {
-  const max = await fileLimit();
-  const plan = planDrop(files, taken, max);
+  const plan = planDrop(files, taken);
+  const piece = await chunkBytes();
   const failed: string[] = [];
   let ok = 0;
 
-  for (let i = 0; i < plan.accepted.length; i++) {
-    const { file, name } = plan.accepted[i];
-    const content = await readAsDataUrl(file);
-    if (!content) { failed.push(name); onProgress?.(i + 1, plan.accepted.length); continue; }
+  const totalBytes = plan.accepted.reduce((n, a) => n + (a.file.size || 0), 0) || 1;
+  let sentBytes = 0;
+  const tell = () => onProgress?.(Math.min(totalBytes, sentBytes), totalBytes);
+
+  for (const { file, name } of plan.accepted) {
+    const before = sentBytes;
     try {
       const scopeLabel = target.scope === 'PERSONAL' ? 'personal' : 'shared';
       const res = await fetch('/api/files', {
@@ -99,18 +157,29 @@ export async function uploadDropped(
           size: file.size,
           type: typeOf(name),
           department: 'Unassigned',
-          content,
           origin: originOf(file),
           createdById: target.userId,
           updatedById: target.userId,
         }),
       });
-      if (res.ok) ok++;
-      else failed.push(name);
+      const made = await res.json().catch(() => ({}));
+      if (!res.ok || !made?.file?.id) { failed.push(name); sentBytes = before + (file.size || 0); tell(); continue; }
+
+      const why = await sendContent(made.file.id, file, piece, (doneOfFile) => {
+        sentBytes = before + doneOfFile;
+        tell();
+      });
+      if (why) {
+        // Запись без содержимого — файл, который «загрузился», но не
+        // открывается. Убираем её сразу: пустой значок хуже честного отказа
+        await fetch(`/api/files/${encodeURIComponent(made.file.id)}`, { method: 'DELETE' }).catch(() => {});
+        failed.push(name);
+      } else ok++;
     } catch (_) {
       failed.push(name);
     }
-    onProgress?.(i + 1, plan.accepted.length);
+    sentBytes = before + (file.size || 0);
+    tell();
   }
 
   return { ok, refused: plan.refused, failed, said: dropResult(ok, plan.refused, failed) };

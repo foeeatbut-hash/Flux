@@ -33,7 +33,7 @@ export function useOpenFromFile({ fileId, projectId, openDoc, giveUp, say }: Ope
     doneRef.current = fileId;
     (async () => {
       try {
-        const meta = await fetch(`/api/files/${encodeURIComponent(fileId)}`).then((r) => r.json());
+        const meta = await fetch(`/api/files/${encodeURIComponent(fileId)}?meta=1`).then((r) => r.json());
         const file = meta?.file;
         if (!file) throw new Error('Файл не найден');
         // Файл, уже ставший документом, открывается им же — а не второй копией:

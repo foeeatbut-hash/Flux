@@ -18,6 +18,7 @@
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
+import { fileBytes } from './fileChunks.js';
 
 export interface ImportFileDeps {
   /** Зеркало документа в Проводнике: документ должен быть виден и там */
@@ -48,7 +49,7 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
       const me = authUserOf(req);
       const prisma = getPrisma();
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.body?.fileId || '') } });
-      if (!file || !file.content) return res.status(404).json({ error: 'Файл не найден или пуст' });
+      if (!file) return res.status(404).json({ error: 'Файл не найден' });
       const projectId = await resolveProjectId(String(req.body?.projectId || ''));
 
       const readyBook = typeof req.body?.workbook === 'string' ? req.body.workbook : '';
@@ -79,9 +80,10 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
         return res.json({ doc });
       }
 
-      let b64 = String(file.content);
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-      const buf = Buffer.from(b64, 'base64');
+      // Байты общим путём: содержимое лежит кусками, а у файлов прежних
+      // версий — строкой. Знать об этом различии должно одно место
+      const buf = await fileBytes(file);
+      if (!buf.length) return res.status(404).json({ error: 'У файла нет содержимого' });
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       const baseName = file.name.replace(/\.[^.]+$/, '');
 

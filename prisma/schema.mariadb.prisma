@@ -273,6 +273,7 @@ model FileNode {
   deletedById String?
 
   pdfMarkups  PdfMarkup[]
+  chunks         FileChunk[]
 }
 
 model Equipment {
@@ -943,4 +944,20 @@ model PdfMarkup {
   deletedAt   DateTime?
 
   @@index([fileId, revision])
+}
+
+/// Содержимое файла кусками. Строка `FileNode.content` держала весь файл
+/// целиком, и предел выходил не из политики, а из размера пакета базы:
+/// у MariaDB это 5 МБ при скромной настройке. Кусками едет и файл обновления
+/// (AppUpdateChunk) — здесь та же схема, только для файлов Проводника.
+model FileChunk {
+  id     String @id @default(uuid())
+  fileId String
+  file   FileNode @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  /// Номер куска по порядку; собирается обратно по нему
+  idx    Int
+  data   Bytes  @db.LongBlob
+
+  @@unique([fileId, idx])
+  @@index([fileId])
 }
