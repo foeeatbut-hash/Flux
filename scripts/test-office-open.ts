@@ -18,6 +18,8 @@
 import { buildDocx, partsFromText } from '../src/lib/docxWrite';
 import { planDrop } from '../src/lib/dropFiles';
 import { appsFor, isOffice } from '../src/lib/fileTypes';
+import { officeKind, oldFormatAdvice, sheetSnapshot } from '../src/lib/officeOpen';
+import * as XLSX from 'xlsx';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
@@ -48,20 +50,42 @@ const api = async (method: string, url: string, body?: any) => {
   token = (await api('POST', '/api/login', LOGIN)).json?.token || '';
   if (!token) { console.error('Не удалось войти.'); process.exit(2); }
 
-  console.log('1. Сервер говорит, какой файл примет его база');
+  console.log('1. Сервер говорит, каким куском слать содержимое');
   const limits = await api('GET', '/api/limits');
-  ok('предел назван числом', Number(limits.json?.maxFileBytes) > 0, limits.json);
-  const max = Number(limits.json?.maxFileBytes);
-  // Правила приёма считают тем же пределом, что назвал сервер
-  const plan = planDrop([{ name: 'Смета.xlsx', size: 1024 }, { name: 'Огромный.xlsx', size: max + 1 }], [], max);
-  ok('файл в пределах принимается', plan.accepted.length === 1, plan.accepted);
-  ok('файл сверх предела отклоняется с причиной', plan.refused.length === 1, plan.refused);
+  // Предела на ФАЙЛ больше нет: содержимое едет кусками, и от базы зависит
+  // размер куска, а не размер файла
+  ok('размер куска назван числом', Number(limits.json?.chunkBytes) > 0, limits.json);
+  ok('и порог вопроса тоже', Number(limits.json?.warnBytes) > 0, limits.json);
+  const plan = planDrop([{ name: 'Смета.xlsx', size: 1024 }, { name: 'Огромный.xlsx', size: 300 * 1024 * 1024 }]);
+  ok('большой файл больше не отклоняется', plan.accepted.length === 2 && plan.refused.length === 0, plan.refused);
 
   console.log('2. Двойное нажатие по офисному файлу ведёт в редактор');
   ok('книга Excel — офисный файл', isOffice({ id: 'x', name: 'Смета.xlsx' }));
   const apps = appsFor({ id: 'x', name: 'Смета.xlsx' });
-  ok('первым идёт Конструктор, а не предпросмотр', apps[0].name === 'Конструктор', apps.map((a) => a.name));
+  ok('первым идёт Flux Office, а не предпросмотр', apps[0].name === 'Flux Office', apps.map((a) => a.name));
   ok('предпросмотр остаётся вторым', apps.length > 1 && apps[1].id === 'explorer', apps.map((a) => a.id));
+
+  // Старые форматы: `.xls` читается, `.doc` — нет, и об этом говорят вслух
+  ok('старая книга Excel открывается', officeKind('Смета.xls') === 'sheet', officeKind('Смета.xls'));
+  ok('старый Word не притворяется читаемым', officeKind('Записка.doc') === null, officeKind('Записка.doc'));
+  ok('и вместо молчания даёт совет', /пересохран/i.test(oldFormatAdvice('Записка.doc')), oldFormatAdvice('Записка.doc'));
+
+  console.log('2.1. Пустой разбор называет причину, а не «недоступно в этой сборке»');
+  {
+    // Книга без единой заполненной ячейки: раньше открывалась пустым листом
+    // без единого слова, и человек читал это как поломку программы
+    const empty = XLSX.write({ SheetNames: ['Лист1'], Sheets: { 'Лист1': {} } }, { type: 'array', bookType: 'xlsx' });
+    const out = sheetSnapshot(empty as ArrayBuffer, 'Пустая');
+    ok('пустая книга объясняет пустоту', /картинк/i.test(out.why), out.why);
+    ok('но лист всё равно открывается', out.workbook.includes('sheetOrder'), out.workbook.slice(0, 60));
+
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Расход', 1200]]), 'Лист1');
+    const withData = XLSX.write(book, { type: 'array', bookType: 'xlsx' });
+    const good = sheetSnapshot(withData as ArrayBuffer, 'С данными');
+    ok('у книги с данными причины нет', good.why === '', good.why);
+    ok('и значения на месте', good.workbook.includes('1200'), good.workbook.slice(0, 200));
+  }
 
   const docxName = `Проверка-${Date.now()}.docx`;
   let fileId = '';

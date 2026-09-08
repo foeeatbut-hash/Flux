@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { Loader2, FileText, StickyNote } from 'lucide-react';
@@ -13,6 +14,7 @@ import DocRuler from '../components/DocRuler';
 import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
 import PageSetupDialog from '../components/PageSetupDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
+import RevisionDialog from '../components/office/RevisionDialog';
 import DataFieldsPanel from '../components/DataFieldsPanel';
 import RecentDocsPanel from '../components/office/RecentDocsPanel';
 import { rememberDoc } from '../store/recentStore';
@@ -29,7 +31,7 @@ import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import { dataService } from '../services/dataService';
-import { buildDocx, partsFromHtml } from '../lib/docxWrite';
+import { wordBytes, wordToExplorer } from '../lib/docOutput';
 import { saveBytes } from '../lib/saveToWindows';
 import { useDocLabels } from '../components/doc/useDocLabels';
 
@@ -89,11 +91,20 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'idle'>('idle');
   const [nameDialog, setNameDialog] = useState(false);
-  const [versionsOpen, setVersionsOpen] = useState(false);
+  /**
+   * Какая панель пристыкована справа. Одна на три, а не три флажка: три
+   * пристыкованные колонки оставили бы листу треть окна, а наложенные — как
+   * было — закрывали ровно тот кусок, ради которого их открывали.
+   */
+  const [dock, setDock] = useState<'title' | 'fields' | 'versions' | null>(null);
+  const closeDock = () => setDock(null);
+  const toggleDock = (p: 'title' | 'fields' | 'versions') =>
+    setDock((cur) => (cur === p ? null : p));
+  const versionsOpen = dock === 'versions';
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
-  const [dataOpen, setDataOpen] = useState(false); // панель меток данных
+  const dataOpen = dock === 'fields'; // панель меток данных
   const docLabels = useDocLabels({
     projectId: activeProject?.id || 'default',
     plainText: () => snapshotToPlainText(JSON.parse(takeSnapshot() || '{}')),
@@ -102,7 +113,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     say: (message, kind) => addToast(message, kind),
   });
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
-  const [titleOpen, setTitleOpen] = useState(false);
+  const titleOpen = dock === 'title';
   const [settings, setSettings] = useState<TitleSettings>({});
   // ── Линейка и стиль абзаца под курсором ──
   // Состояние обновляется по командам движка (курсор, правка, масштаб): линейка
@@ -381,15 +392,29 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         // Импорт из файла Проводника: содержимое вставляется при первом
         // открытии (сервер положил plain-текст в bindings.importText)
         if (isNew) {
-          try {
-            const b = loaded.bindings ? JSON.parse(loaded.bindings) : null;
-            const importText = String(b?.importText || '');
-            if (importText) {
+          let parsed: any = null;
+          try { parsed = loaded.bindings ? JSON.parse(loaded.bindings) : null; } catch (_) {}
+          const importText = String(parsed?.importText || '');
+          if (importText) {
+            let landed = false;
+            try {
               await fdoc?.appendText?.(importText);
-              // Текст вставлен — задание импорта снимаем, метки оставляем
+              // Спрашиваем сам документ, а не ответ движка: `appendText` в
+              // разных сборках возвращает то себя, то ничего, и по нему успех
+              // от неудачи не отличить
+              landed = snapshotToPlainText(fdoc?.getSnapshot?.())
+                .includes(importText.trim().slice(0, 40));
+            } catch (_) {}
+            if (landed) {
+              // Текст на месте — задание импорта снимаем, метки оставляем
               setTimeout(() => saveNow({ bindings: docLabels.bindings() }), 800);
+            } else {
+              // Вставка не удалась. Задание НЕ снимаем: раньше снимали сразу, и
+              // текст пропадал навсегда — документ открывался пустым при каждом
+              // следующем открытии, а причину было уже не найти
+              addToast('Текст из файла вставить не удалось. Он не потерян: закройте документ и откройте заново', 'error');
             }
-          } catch (_) {}
+          }
         }
 
         // Мои мутации → остальным участникам комнаты (useDocRoom)
@@ -416,7 +441,18 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       }
     })();
 
-    const timer = setInterval(() => { saveNow(); }, 2500);
+    /*
+      Автосохранение: раз в 2,5 с и ТОЛЬКО если правка моя.
+
+      Раньше признаком было «снимок изменился». Но снимок меняется и тогда,
+      когда приехала чужая правка, — и окно записывало на сервер документ,
+      которого само не правило. Если такой тик попадал между записью коллеги и
+      сообщением «коллега записал», окно писало со старым временем чтения и
+      получало отказ: человеку показывали разбор столкновения там, где он
+      вообще ничего не делал. Признак «правка моя» в программе был, спрашивать
+      его забыли.
+    */
+    const timer = setInterval(() => { if (myEditRef.current) saveNow(); }, 2500);
     return () => {
       disposed = true;
       clearInterval(timer);
@@ -585,7 +621,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     const r = await fetch(`/api/constructor/docs/${docId}/restore/${v.id}`, { method: 'POST' });
     if (!r.ok) { addToast('Не удалось восстановить версию', 'error'); return; }
     addToast(`Восстановлена версия ${v.version}`, 'success');
-    setVersionsOpen(false);
+    closeDock();
     setLoading(true);
     setReloadTick(t => t + 1);
   };
@@ -603,7 +639,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     const front = (title || '') + (revSheet || '');
     return buildDocHtml(snap, {
       title: doc?.name || 'Документ',
-      subtitle: `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор`,
+      subtitle: `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Office`,
       titlePageHtml: front || undefined,
     }, forWord);
   };
@@ -637,40 +673,24 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
    * Раньше отсюда уходил HTML с расширением `.doc`. Word открывал его с
    * предупреждением «формат не соответствует расширению», и человек, отправивший
    * документ заказчику, каждый раз объяснял получателю, что это нормально.
-   * Теперь собирается настоящий документ (src/lib/docxWrite.ts): абзацы,
-   * заголовки и таблицы на месте, формул внутри нет — на их месте значения на
-   * момент выгрузки.
+   * Сборка файла живёт в src/lib/docOutput.ts — там же её проверки.
    */
   const exportWord = async () => {
     try {
-      const html = await buildFullHtml(true);
       const name = doc?.name || 'Документ';
-      const { htmlToBlocks } = await import('../import/extractors');
-      const parts = partsFromHtml(html, (fragment) => {
-        const found = htmlToBlocks(fragment).find((b: any) => b.kind === 'table') as any;
-        return found?.rows || [];
-      });
-      const out = await saveBytes(safeFileName(name, 'docx'), buildDocx(parts));
+      const bytes = await wordBytes(await buildFullHtml(true), JSON.parse(takeSnapshot() || '{}'));
+      const out = await saveBytes(safeFileName(name, 'docx'), bytes);
       if (out.canceled) return;
       addToast(out.ok ? `Документ Word сохранён: ${out.path || name}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (_) { addToast('Не удалось выгрузить в Ворд', 'error'); }
   };
 
   // Тот же файл, но в общий Проводник — чтобы отдать коллеге, не пересылая почтой
-  const wordToExplorer = async () => {
+  const wordToExplorerFile = async () => {
     try {
-      const html = await buildFullHtml(true);
-      const fileName = safeFileName(doc?.name || 'Документ', 'doc');
-      const b64 = btoa(unescape(encodeURIComponent(html)));
-      const res = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Тип как у загруженных вордовских файлов Проводника — один значок
-          name: fileName, filePath: `/shared/${fileName}`, type: 'DOCX',
-          size: html.length, content: b64, createdById: user?.id || null,
-        }),
-      });
-      if (!res.ok) throw new Error('files failed');
+      const fileName = safeFileName(doc?.name || 'Документ', 'docx');
+      const bytes = await wordBytes(await buildFullHtml(true), JSON.parse(takeSnapshot() || '{}'));
+      await wordToExplorer(bytes, fileName, user?.id || null);
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };
@@ -746,7 +766,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   useEffect(() => {
     if (!doc?.name) return;
     rememberDoc({
-      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'text',
+      href: `/doc?doc=${docId}`, title: doc.name, kind: 'text',
       at: Date.now(), projectId: activeProject?.id,
     });
   }, [docId, doc?.name, activeProject?.id]);
@@ -754,7 +774,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // ── Лента: состояние вкладок, значения органов и разбор команд ──
   const tabs = React.useMemo(() => docRibbon(), []);
   const [tab, setTab] = useState('Главная');
-  const [folded, setFolded] = useState(false);
+  // Свёрнутая лента помнится между документами и программами семьи
+  const [folded, setFolded] = useRibbonFold();
   const [fileOpen, setFileOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [showRuler, setShowRuler] = useState(true);
@@ -880,15 +901,15 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       case 'doc.link': return exec('doc.operation.show-hyper-link-edit-popup');
       case 'doc.rule': return exec('doc.command.horizontal-line');
       case 'doc.headerFooter': return exec('doc.command.open-header-footer-panel');
-      case 'doc.title': return setTitleOpen(v => !v);
+      case 'doc.title': return toggleDock('title');
       case 'doc.page': return openPageDialog();
       case 'doc.ruler': return setShowRuler(v => !v);
-      case 'doc.fields': return setDataOpen(v => !v);
+      case 'doc.fields': return toggleDock('fields');
       case 'doc.refreshData': return docLabels.refresh();
       case 'doc.today': return insertField(new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }));
       case 'doc.author': return insertField(user?.name || user?.symbol || 'Автор');
       case 'doc.revision': return setRevDialog(true);
-      case 'doc.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
+      case 'doc.versions': { toggleDock('versions'); if (!versionsOpen) loadVersions(); return; }
       case 'doc.zoom': {
         const next = Math.min(400, Math.max(30, zoom + (value === '+' ? 10 : -10)));
         setZoom(next);
@@ -926,7 +947,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
-    versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
+    versions: () => { setFileOpen(false); setDock('versions'); loadVersions(); },
     copy: async () => {
       setFileOpen(false);
       await saveNow();
@@ -952,7 +973,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     office: () => { setFileOpen(false); exportWord(); },
     officeLabel: 'В Ворд (.doc)',
     officeHint: 'Откроется в Ворде: шрифты, поля и значения полей на месте',
-    toExplorer: () => { setFileOpen(false); wordToExplorer(); },
+    toExplorer: () => { setFileOpen(false); wordToExplorerFile(); },
     plain: () => { setFileOpen(false); exportTxt(); },
     plainLabel: 'Текст (.txt)',
     close: () => { setFileOpen(false); handleClose(); },
@@ -986,7 +1007,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           saveState: saveConflict ? 'conflict' : saveState,
           menu: [
             { label: 'Открыть в Проводнике', hint: 'Зеркало документа в общей папке', run: () => window.location.assign('#/explorer') },
-            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
+            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setDock('versions'); loadVersions(); } },
           ],
         }}
         tabs={tabs} active={tab} onActive={setTab}
@@ -996,8 +1017,12 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         statusLeft={<>{counts.words} слов · {counts.chars} знаков{settings.docMeta?.revision ? ` · ревизия ${settings.docMeta.revision}` : ''}</>}
         statusRight={<>{zoom} %</>}
       >
-      {/* Полотно движка: страницы документа */}
-      <div className="absolute inset-0 bg-slate-100 dark:bg-slate-950">
+      {/*
+        Полотно и панели — в одну строку, а не друг поверх друга: наложенная
+        панель закрывала ровно тот кусок листа, ради которого её открывали
+      */}
+      <div className="absolute inset-0 flex">
+      <div className="flex-1 min-w-0 relative bg-slate-100 dark:bg-slate-950">
         {/* Линейка над листом — между лентой и страницей, как в Ворде */}
         {!loading && ruler && showRuler && (
           <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: ruler.topPx }}>
@@ -1021,26 +1046,16 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         )}
       </div>
 
-      {/* «Разметка страницы»: формат листа, ориентация, поля */}
-      {pageDialog && pageSetup && (
-        <PageSetupDialog
-          value={pageSetup}
-          onApply={applyPageDialog}
-          onClose={() => setPageDialog(false)}
-        />
-      )}
-      {/* Панель «Титул»: выбор шаблона + реквизиты этого документа */}
+      {/* Пристыкованная колонка: открыта всегда одна панель */}
       {titleOpen && (
         <TitlePanel
           docId={docId}
           projectId={activeProject?.id || 'default'}
           settings={settings}
           onChange={(next, persist) => { setSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
-          onClose={() => setTitleOpen(false)}
+          onClose={closeDock}
         />
       )}
-
-      {/* Панель меток: поля проекта и тегов, дата/автор, список меток документа */}
       {dataOpen && (
         <DataFieldsPanel
           projectId={activeProject?.id || 'default'}
@@ -1049,10 +1064,28 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           labels={docLabels.labels}
           onInsert={insertField}
           onRefresh={docLabels.refresh}
-          onClose={() => setDataOpen(false)}
+          onClose={closeDock}
         />
       )}
+      {versionsOpen && (
+        <DocVersionsPanel
+          versions={versions}
+          fmtDate={fmtDate}
+          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
+          onRestore={restoreVersion}
+          onClose={closeDock}
+        />
+      )}
+      </div>
 
+      {/* «Разметка страницы»: формат листа, ориентация, поля */}
+      {pageDialog && pageSetup && (
+        <PageSetupDialog
+          value={pageSetup}
+          onApply={applyPageDialog}
+          onClose={() => setPageDialog(false)}
+        />
+      )}
       {/* Документ ушёл вперёд, пока его правили: разбор, а не тихая запись */}
       {saveConflict && (
         <SaveConflictDialog
@@ -1073,46 +1106,16 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         />
       )}
 
-      {versionsOpen && (
-        <DocVersionsPanel
-          versions={versions}
-          fmtDate={fmtDate}
-          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-          onRestore={restoreVersion}
-          onClose={() => setVersionsOpen(false)}
-        />
-      )}
-
       {/* Выпуск ревизии: место и описание изменения → ВДР + лист ревизий */}
       {revDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={() => setRevDialog(false)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-slate-800 dark:text-white">Выпустить ревизию (текущая: {settings.docMeta?.revision || '—'})</h3>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase">Место изменения</label>
-              <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="напр. Разд. 3, лист 2"
-                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase">Описание изменения</label>
-              <textarea value={revDesc} onChange={e => setRevDesc(e.target.value)} rows={2} placeholder="что изменено"
-                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <button type="button" onClick={() => setRevDialog(false)} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
-              {/^[A-Za-zА-Яа-я]$/.test(settings.docMeta?.revision || '') && (
-                <button type="button" onClick={() => issueRevision('certify')} disabled={revBusy}
-                  className="px-3.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer disabled:opacity-50">
-                  Утвердить (→0)
-                </button>
-              )}
-              <button type="button" onClick={() => issueRevision('next')} disabled={revBusy}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
-                Следующая ревизия
-              </button>
-            </div>
-          </div>
-        </div>
+        <RevisionDialog
+          current={settings.docMeta?.revision || ''}
+          place={revPlace} onPlace={setRevPlace}
+          desc={revDesc} onDesc={setRevDesc}
+          busy={revBusy}
+          onIssue={issueRevision}
+          onClose={() => setRevDialog(false)}
+        />
       )}
 
       {/* Именование при закрытии */}

@@ -9,7 +9,8 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays } from 'lucide-react';
+import { resolveSectionPath } from '../lib/sectionAliases';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -78,6 +79,17 @@ export interface SectionDef {
    * непрочитанного, — а объяснять человеку, почему их два, нечем.
    */
   multi?: boolean;
+  /**
+   * Какой вид документа раздел показывает по умолчанию — для семьи Flux Office.
+   *
+   * «Таблица» и «Документ» — разные программы с разными значками и разными
+   * кнопками на панели задач, но экран у них один: и книга, и текст лежат в
+   * одной таблице базы, и открывает их один и тот же редактор по виду
+   * документа. Поле говорит библиотеке, ЧТО показывать и что заводить кнопкой
+   * «Создать»; открыть чужой вид из этого окна по-прежнему можно — это
+   * умолчание, а не запрет.
+   */
+  docKind?: 'DOC' | 'TEXT';
   Component: React.LazyExoticComponent<React.ComponentType<any>>;
 }
 
@@ -89,7 +101,12 @@ export const SECTIONS: SectionDef[] = [
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
-  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, Component: ConstructorScreen },
+  // Flux Office — семья редакторов, устроенная как офисный пакет: у каждого
+  // вида документа своя программа со своим значком и своим именем в одно
+  // слово. Раньше и книга, и текст, и шаблон титула звались «Конструктором» —
+  // словом из инженерной жизни, которое не говорит, что программа делает.
+  { path: '/sheet', title: 'Таблица', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, docKind: 'DOC', Component: ConstructorScreen },
+  { path: '/doc', title: 'Документ', icon: FileType, scope: 'project', scroll: 'auto', pad: true, multi: true, docKind: 'TEXT', Component: ConstructorScreen },
   // «Просмотр» открывается из Проводника и живёт своим окном: у него своя лента и
   // свои пометки, и возвращаться из него надо туда, откуда пришли
   { path: '/pdf', title: 'Просмотр', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
@@ -122,14 +139,14 @@ const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));
 
 // Раздел по пути ('/registry' и т.п.); неизвестный путь → Главная
 export function sectionForPath(pathname: string): SectionDef {
-  return BY_PATH.get(pathname) || SECTIONS[0];
+  return BY_PATH.get(resolveSectionPath(pathname)) || SECTIONS[0];
 }
 
 export function isKnownSection(pathname: string): boolean {
-  return BY_PATH.has(pathname);
+  return BY_PATH.has(resolveSectionPath(pathname));
 }
 
 /** Область данных раздела; неизвестный путь считаем общим. */
 export function scopeForPath(pathname: string): SectionScope {
-  return BY_PATH.get(pathname)?.scope || 'global';
+  return BY_PATH.get(resolveSectionPath(pathname))?.scope || 'global';
 }

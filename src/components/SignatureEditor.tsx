@@ -35,6 +35,14 @@ interface Props {
   heightMm?: number;
   /** Можно ли править: свою — всегда, чужую — только управляющему сотрудниками */
   canEdit: boolean;
+  /**
+   * Внутри страницы, а не окном поверх всего.
+   *
+   * Своя подпись живёт в Настройках — это настройка человека, и открывать ради
+   * неё модальное окно незачем. Правка чужой подписи администратором осталась
+   * окном: она приходит из списка сотрудников, поверх него и возвращается.
+   */
+  inline?: boolean;
   onSaved: (signature: string | null, heightMm: number) => void;
   onClose: () => void;
 }
@@ -44,8 +52,8 @@ type Source = 'none' | 'image' | 'draw';
 /** Миллиметр в точках при 96 dpi — для предпросмотра «как в документе» */
 const MM = 3.7795;
 
-export default function SignatureEditor({ userId, userName, nameParts, value, heightMm = 8, canEdit, onSaved, onClose }: Props) {
-  useEscapeClose(true, onClose);
+export default function SignatureEditor({ userId, userName, nameParts, value, heightMm = 8, canEdit, inline = false, onSaved, onClose }: Props) {
+  useEscapeClose(!inline, onClose);
 
   // «Раупов Х.Х.» — так строка и попадёт в штамп
   const initials = formatName(nameParts || { name: userName }, 'initialsAfter') || userName;
@@ -277,10 +285,9 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
 
   const btn = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer disabled:opacity-40';
 
-  return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-6" onMouseDown={onClose}>
-      <div className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal"
-        onMouseDown={(e) => e.stopPropagation()}>
+  const inner = (
+    <>
+      {!inline && (
         <div className="stamp">
           <span className="stamp-title">Подпись</span>
           <span className="stamp-sub truncate">{userName}</span>
@@ -290,6 +297,7 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
             </button>
           </div>
         </div>
+      )}
 
         <div className="p-4 space-y-4">
           {!canEdit && (
@@ -408,13 +416,31 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
             </button>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={onClose} className={btn}>Отмена</button>
+            {/* «Отмена» закрывает окно. В Настройках закрывать нечего:
+                раздел никуда не уезжает, и кнопка бы врала */}
+            {!inline && <button type="button" onClick={onClose} className={btn}>Отмена</button>}
             <button type="button" onClick={save} disabled={!canEdit || busy || !result}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium cursor-pointer disabled:opacity-40">
               <Check className="w-3.5 h-3.5" /> Сохранить
             </button>
           </div>
         </div>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg">
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-6" onMouseDown={onClose}>
+      <div className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal"
+        onMouseDown={(e) => e.stopPropagation()}>
+        {inner}
       </div>
     </div>
   );

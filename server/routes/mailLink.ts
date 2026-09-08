@@ -263,12 +263,12 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
           })
         : [];
 
-      // ── Книги Конструктора ──
+      // ── Документы Flux Office ──
       // У них нет ни расширения, ни дефисов, поэтому ищем наоборот: берём
       // список имён и смотрим, встречается ли имя в письме целиком.
       const allDocs = await prisma.constructorDoc.findMany({
         where: { deletedAt: null, OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: me.id }] },
-        select: { id: true, name: true, projectId: true },
+        select: { id: true, name: true, kind: true, projectId: true },
         take: 800,
       }).catch(() => [] as any[]);
       const docs = namesInText(text, allDocs as any).slice(0, 30);
@@ -285,7 +285,9 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
         files: rawFiles.map((f: any) => ({
           id: f.id, name: f.name, folderId: f.folderId, ...withProject(f.folder?.projectId),
         })),
-        docs: (docs as any[]).map((d) => ({ id: d.id, name: d.name, ...withProject(d.projectId) })),
+        // Вид документа нужен письму затем, чтобы ссылка открыла ту программу,
+        // которой документ и правится: книгу — Таблицей, записку — Документом
+        docs: (docs as any[]).map((d) => ({ id: d.id, name: d.name, kind: d.kind, ...withProject(d.projectId) })),
       });
     } catch (err) { sendError(res, err); }
   });

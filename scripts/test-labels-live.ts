@@ -63,7 +63,7 @@ const ok = (n: string, c: boolean, d?: any) =>
     const docId = await page.evaluate(async (projectId: string) => {
       const r = await fetch('/api/constructor/docs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // TEXT — текстовый документ; DOC в Конструкторе означает таблицу
+        // TEXT — текстовый документ; DOC в Flux Office означает таблицу
         body: JSON.stringify({ name: 'Проба меток', kind: 'TEXT', projectId }),
       });
       const d = await r.json();
@@ -102,7 +102,7 @@ const ok = (n: string, c: boolean, d?: any) =>
       typeof saved.bindings === 'string' && saved.bindings.includes('lb-проба'), saved.bindings);
 
     console.log('3. Редактор открывает документ и знает про его метку');
-    await page.goto(`${BASE}/#/constructor?doc=${encodeURIComponent(docId)}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${BASE}/#/sheet?doc=${encodeURIComponent(docId)}`, { waitUntil: 'domcontentloaded' });
     // Переход, отличающийся только решёткой, страницу не перезагружает, а
     // выбранный проект программа читает при загрузке — поэтому перезагружаем
     await page.reload({ waitUntil: 'domcontentloaded' });

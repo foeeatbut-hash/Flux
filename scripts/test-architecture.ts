@@ -149,12 +149,14 @@ const LEGACY: Record<string, number> = {
   // Проверка и копирование SQLite вынесены отдельно, мастер-вход удалён.
   'server.ts': 4206,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
-  // кнопки — в components/explorer/ExplorerMenu.tsx: планка ниже
-  'src/screens/Explorer.tsx': 2368,
+  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
+  'src/screens/Explorer.tsx': 2362,
   'src/screens/DictionaryEditor.tsx': 2279,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  'src/screens/ConstructorScreen.tsx': 1905,
+  // Библиотека уехала в components/office/DocLibrary, тип и дата документа —
+  // в lib/officeDocs: планка ниже
+  'src/screens/ConstructorScreen.tsx': 1789,
   // Выбор оболочки ушёл вместе с панелями и левым меню — планка ниже
   'src/screens/SettingsScreen.tsx': 1494,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
@@ -216,7 +218,7 @@ ok(`оформление держится палитры (найдено чуж�
 //
 // Так и было: 80 мест писали `dark:text-slate-200`, разумно полагая, что между
 // светлыми 100 и 300 лежит тоже светлое. Замер показал 1.24 к 1 — надпись
-// «Документ» в Конструкторе была не видна вовсе, как и подпись «Новая папка»
+// «Документ» в Flux Office была не видна вовсе, как и подпись «Новая папка»
 // в Проводнике (ровно цвет фона, 1 к 1).
 //
 // Читаемые ступени для текста в тёмной теме: 100, 105, 150, 255, 300, 350,

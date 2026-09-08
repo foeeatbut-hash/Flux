@@ -12,7 +12,7 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock, PenLine } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
 import { rememberSectionUse } from '../store/workspaceStore';
@@ -27,7 +27,6 @@ import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import { hiddenIds } from '../lib/deskGroups';
-import { openSignature } from '../lib/signEvent';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
@@ -368,16 +367,6 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
                      hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
         >
           {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </button>
-        {/* Своя подпись. Единственный вход в редактор был в подвале левого
-            меню — а меню больше нет; учётная запись живёт здесь */}
-        <button
-          type="button" onClick={() => { onClose(); openSignature(); }} title="Моя подпись в документах"
-          style={{ width: TILE_BOX, height: TILE_BOX }}
-          className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
-                     hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
-        >
-          <PenLine className="w-4 h-4" />
         </button>
         <button
           type="button" onClick={() => go('/settings')} title="Параметры программы"

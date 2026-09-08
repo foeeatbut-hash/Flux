@@ -10,7 +10,16 @@ import type { Response } from 'express';
 
 let _prisma: any = null;
 
-export function setPrisma(p: any): void { _prisma = p; }
+export function setPrisma(p: any): void {
+  _prisma = p;
+  // База сменилась — разовые правки надо проверить заново: у новой базы свой
+  // признак выполненного, и считать его выполненным по памяти нельзя
+  for (const reset of onSwapped) { try { reset(); } catch (_) { /* сброс — не условие работы */ } }
+}
+
+/** Кто хочет знать о смене базы: сюда записываются сбросы кэшей */
+const onSwapped: Array<() => void> = [];
+export function onDatabaseSwapped(reset: () => void): void { onSwapped.push(reset); }
 export function getPrisma(): any { return _prisma; }
 
 // Разрешение projectId: заглушки («null»/«undefined»/«default»/пусто) →
@@ -19,7 +28,9 @@ export async function resolveProjectId(raw: string | undefined | null): Promise<
   const prisma = getPrisma();
   const v = String(raw ?? '');
   if (v && v !== 'null' && v !== 'undefined' && v !== 'default') return v;
-  let first = await prisma.project.findFirst();
+  // Служебный проект (общий диск) проектом «по умолчанию» быть не может:
+  // иначе данные, у которых проект не назвали, легли бы в хранилище
+  let first = await prisma.project.findFirst({ where: { system: false } });
   if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
   return first.id;
 }

@@ -22,7 +22,7 @@ const check = (name: string, cond: boolean, got?: unknown) => {
 const SECTIONS = [
   { path: '/mail', title: 'Почта' },
   { path: '/registry', title: 'Теги' },
-  { path: '/constructor', title: 'Конструктор', multi: true },
+  { path: '/sheet', title: 'Таблица', multi: true },
   { path: '/explorer', title: 'Проводник', multi: true },
 ];
 const ARTICLES = [{ id: 'windows', title: 'Окна, доли экрана и столы', hint: 'оболочка' }];
@@ -105,7 +105,7 @@ console.log('Что предлагает строка');
   const cmd = suggest('/открой почт', SRC, NOW);
   check('команда «открой» ведёт в раздел',
     cmd[0].run.kind === 'navigate' && (cmd[0].run as any).route === '/mail', cmd[0]);
-  const win = suggest('/окно конструктор', SRC, NOW);
+  const win = suggest('/окно таблица', SRC, NOW);
   check('команда «окно» просит ещё одно окно', win[0].run.kind === 'newWindow', win[0]);
   const single = suggest('/окно почта', SRC, NOW);
   check('у единичной программы честно сказано про одно окно',

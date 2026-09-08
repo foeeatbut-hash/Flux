@@ -36,10 +36,10 @@ import {
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
 import { hiddenIds, groupIdOf, groupById, folderItems } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
-import { appsFor, openHref } from '../lib/fileTypes';
+import { appsFor, openHref, officePathForKind } from '../lib/fileTypes';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
-import { dropLabel } from '../lib/dropFiles';
-import { saveFileNode } from '../lib/saveToWindows';
+import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
+import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
@@ -77,6 +77,7 @@ export default function Desktop() {
   const [carry, setCarry] = React.useState('');
   /** Сколько файлов уже легло: перенос книги на 20 МБ — дело не мгновенное */
   const [taking, setTaking] = React.useState<{ done: number; total: number } | null>(null);
+  const pickRef = React.useRef<HTMLInputElement>(null);
   /** Раскрытая папка: полотно поверх стола, а не окно */
   const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
@@ -156,6 +157,7 @@ export default function Desktop() {
     // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes), одна на
     // стол и на Проводник. Пока их было две, чертёж со стола попадал в
     // предпросмотр, а из Проводника — в редактор пометок
+    if (appsFor(item)[0]?.id === 'windows') { void openInWindowsSaid(item.id, item.name, addToast); return; }
     go(openHref(item));
   };
 
@@ -276,7 +278,9 @@ export default function Desktop() {
     try {
       if (what === 'folder') { await createFolder(projectId, scope); return; }
       const id = await createDoc(projectId, what, scope);
-      if (id) go(`/constructor?doc=${encodeURIComponent(id)}`);
+      // Вид документа известен здесь и нигде больше: заводили-то мы его
+      // сами. Дальше по адресу видно, какая программа открылась
+      if (id) go(`${officePathForKind(what)}?doc=${encodeURIComponent(id)}`);
     } catch (e: any) { addToast(e?.message || 'Не удалось создать', 'error'); }
   };
 
@@ -299,7 +303,11 @@ export default function Desktop() {
       ...(item.kind === 'file' ? appsFor(item).slice(1).map((app) => ({
         label: `Открыть в: ${app.name}`,
         icon: <FolderOpen className="w-3.5 h-3.5" />,
-        onClick: () => go(app.href(item)),
+        // Windows — не адрес внутри программы: файл выкладывается во временную
+        // папку и отдаётся системе
+        onClick: () => (app.id === 'windows'
+          ? void openInWindowsSaid(item.id, item.name, addToast)
+          : go(app.href(item))),
       })) : []),
       { label: 'Переименовать', icon: <Pencil className="w-3.5 h-3.5" />, onClick: () => setRenaming({ id: item.id, value: item.name }) },
       // Дорога обратно в Windows. Для файла она прямая: те же байты, та же
@@ -355,6 +363,14 @@ export default function Desktop() {
       ],
     },
     {
+      // У стола не было ни выбора файла, ни вставки из буфера — только перенос
+      // мышью. Мышью носят не все и не всегда: с ноутбука в поезде это просто
+      // невозможно
+      label: 'Добавить файл…',
+      icon: <ArrowDownToLine className="w-3.5 h-3.5" />,
+      onClick: () => pickRef.current?.click(),
+    },
+    {
       label: 'Вид',
       icon: <LayoutGrid className="w-3.5 h-3.5" />,
       items: [
@@ -407,6 +423,15 @@ export default function Desktop() {
    * место значка и то, что человек видит, пока файл едет.
    */
   const takeFiles = async (files: File[], cell: { col: number; row: number } | null) => {
+    // Предела на размер нет, но полгигабайта лягут в общую базу и в резервную
+    // копию: спрашиваем один раз, а не отказываем
+    const heavy = heavyOnes(files);
+    if (heavy.length && !await openConfirm(
+      'Файл очень большой',
+      `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
+      + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
+      { confirmLabel: 'Загрузить' },
+    )) return;
     const before = new Set(useDesktopStore.getState().items.map((i) => i.id));
     const taken = useDesktopStore.getState().items.map((i) => i.name);
     setTaking({ done: 0, total: files.length });
@@ -524,6 +549,19 @@ export default function Desktop() {
   });
 
   return (
+    <>
+    {/* Выбор файла: у стола его не было вовсе — только перенос мышью */}
+    <input
+      ref={pickRef}
+      type="file"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        const picked = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (picked.length) void takeFiles(picked, null);
+      }}
+    />
     <div
       ref={ref}
       onPointerDown={asList ? undefined : startBand}
@@ -566,7 +604,9 @@ export default function Desktop() {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg text-2xs font-semibold
                         bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300
                         border border-emerald-200 dark:border-emerald-900 shadow-sm">
-          {taking ? `Переношу на стол… ${taking.done} из ${taking.total}` : carry}
+          {/* Мегабайты, а не «файл 1 из 3»: книга на четыреста мегабайт —
+              один файл, и счётчик файлов о ней молчит */}
+          {taking ? `Переношу на стол… ${MB(taking.done)} из ${MB(taking.total)}` : carry}
         </div>
       )}
 
@@ -687,5 +727,6 @@ export default function Desktop() {
         />
       )}
     </div>
+    </>
   );
 }

@@ -61,7 +61,7 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
     && insert('param', [tagId.trim(), paramGroup.trim(), paramKey.trim()], `{Параметр ${tagId}: ${paramKey}}`);
 
   return (
-    <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
+    <div className="shrink-0 w-72 @[900px]:w-80 h-full flex flex-col overflow-hidden bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
         <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Database className="w-4 h-4 text-sky-600" /> Метки данных</span>
         <button type="button" title="Закрыть панель меток" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
@@ -74,7 +74,7 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
           </button>
         ))}
       </div>
-      <div className="p-4 space-y-2.5 max-h-96 overflow-auto">
+      <div className="flex-1 min-h-0 p-4 space-y-2.5 overflow-auto">
         {tab === 'project' && (
           <>
             <p className="text-xs text-slate-400">Проект: <b>{projectName || '—'}</b></p>

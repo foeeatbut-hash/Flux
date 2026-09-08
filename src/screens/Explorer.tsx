@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
-import { isPdf, isConstructorDoc, FILE_APPS } from '../lib/fileTypes';
+import { officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
 import { ROOT_NAME } from '../lib/explorerTabs';
@@ -24,15 +24,17 @@ import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
 import { uploadDropped } from '../lib/dropUpload';
-import { saveFileNode } from '../lib/saveToWindows';
+import { heavyOnes, MB } from '../lib/dropFiles';
+import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import {
-  SEC_SHARED, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
+  SEC_SHARED, SEC_DISK, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
 } from '../lib/explorerSections';
 import {
   getFileIcon, formatSize, FILE_STATUSES, STATUS_ORDER, statusOf, StatusChip,
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
+import FileProperties from '../components/explorer/FileProperties';
 
 
 // data:...;base64,<...> → текст в UTF-8 (atob даёт latin1, поэтому через TextDecoder)
@@ -72,6 +74,25 @@ export default function Explorer() {
   const currentFolderId = explorerHistory[explorerHistory.length - 1];
 
   const [folders, setFolders] = useState<any[]>([]);
+  /**
+   * Проект, который на самом деле есть общий диск.
+   *
+   * Диск устроен служебным проектом (server/systemFolders.ts): у папки проект
+   * обязателен, и завести «папку вне проектов» без правки схемы, которую
+   * автомиграция общей базы не умеет, нельзя. Окну достаточно знать его
+   * идентификатор — по нему оно отличает третий корень от папок проекта.
+   */
+  const [diskProjectId, setDiskProjectId] = useState('');
+  /**
+   * Настоящая корневая папка диска.
+   *
+   * «Общий диск» в дереве — раздел, но его содержимое лежит в обычной папке, и
+   * это не украшение: у файла своего проекта в базе нет, он наследует его от
+   * папки. Файл без папки не принадлежит никакому проекту — а значит, и
+   * никакому диску. Корневая папка снимает этот угол: на диске всё лежит
+   * внутри неё, и перенос, корзина, права и дерево работают как обычно.
+   */
+  const [diskRootId, setDiskRootId] = useState('');
   const [rootFiles, setRootFiles] = useState<any[]>([]);
   const [projectTags, setProjectTags] = useState<any[]>([]);
   // Главный Администратор видит личные разделы всех пользователей
@@ -242,6 +263,8 @@ export default function Explorer() {
       setFolders(fData.folders || []);
       setRootFiles(fData.rootFiles || []);
       setIsMainAdmin(!!fData.isMainAdmin);
+      setDiskProjectId(String(fData.diskProjectId || ''));
+      setDiskRootId(String(fData.diskFolderId || ''));
       setOwners(fData.owners || []);
       setProjectTags(tData.tags || []);
     } catch (err) {
@@ -365,14 +388,18 @@ export default function Explorer() {
     return sectionsRef.current.find((x: any) => x.id === id)?.name || ROOT_NAME;
   };
 
-  const navigateTo = (folderId: string | null) => {
+  const navigateTo = (folderIdRaw: string | null) => {
+    // Корень диска — папка, но человек его знает как раздел: показываем раздел,
+    // иначе в пути вылезала бы служебная папка с тем же именем
+    const folderId = folderIdRaw && folderIdRaw === diskRootId ? SEC_DISK : folderIdRaw;
     // Папка чужого проекта видна в списке, но открывается только вместе с
     // переключением: внутри неё лежат файлы, размеченные тегами того проекта,
     // и без переключения теги в предпросмотре оказались бы чужими.
     const target = folderId && !isSectionId(folderId) && !isSmartId(folderId) && folderId !== TRASH_ID
       ? folders.find((f: any) => f.id === folderId)
       : null;
-    if (target?.projectId && target.projectId !== activeProject?.id) {
+    // Диск от проекта не зависит — переключать ради него нечего
+    if (target?.projectId && target.projectId !== diskProjectId && target.projectId !== activeProject?.id) {
       openInProject({
         what: `Папка «${target.name}»`,
         projectId: target.projectId,
@@ -416,11 +443,6 @@ export default function Explorer() {
     setSearchParams(next, { replace: true });
   }, [searchParams]);
 
-  // Раздел (общий/личный), которому принадлежит папка или файл
-  const itemSection = useCallback((item: any): string => {
-    return item?.scope === 'PERSONAL' && item?.ownerId ? personalSecId(item.ownerId) : SEC_SHARED;
-  }, []);
-
   /* ── Чей это файл ────────────────────────────────────────────────────────
      Проводник общий, а папки — проектные. У файла своего проекта нет: он
      наследует проект папки, в которой лежит. Файл в корне раздела не привязан
@@ -431,9 +453,21 @@ export default function Explorer() {
   );
   const projectOf = useCallback((item: any): string | null => {
     if (!item || item.isSection) return null;
-    if (item.isFolder) return item.projectId || null;
+    // По наличию `projectId`, а не по флажку `isFolder`: флажок ставит список,
+    // а дерево отдаёт папки как есть — и папка в дереве считалась файлом без
+    // проекта. Из-за этого корень диска показывался внутри «Общего».
+    if (item.projectId) return String(item.projectId);
     return item.folderId ? (folderProject.get(item.folderId) ?? null) : null;
   }, [folderProject]);
+
+  // Раздел (диск/общий/личный), которому принадлежит папка или файл
+  const itemSection = useCallback((item: any): string => {
+    // Всё, что лежит в служебном проекте, — это общий диск, каким бы ни был
+    // проект на экране. Иначе содержимое диска пропадало бы при смене проекта —
+    // а он затем и заведён, чтобы от проекта не зависеть
+    if (diskProjectId && projectOf(item) === diskProjectId) return SEC_DISK;
+    return item?.scope === 'PERSONAL' && item?.ownerId ? personalSecId(item.ownerId) : SEC_SHARED;
+  }, [diskProjectId, projectOf]);
   const projectOfRef = useRef(projectOf);
   projectOfRef.current = projectOf;
   const nameOfProject = useProjectNames();
@@ -441,13 +475,18 @@ export default function Explorer() {
   /** Подпись «из проекта такого-то» — только для чужого; для своего пусто. */
   const foreignOf = useCallback((item: any): string => {
     const owner = projectOf(item);
-    if (!owner || owner === activeProject?.id) return '';
+    // Диск не «чужой проект», а место хранения: подпись про проект здесь врёт
+    if (!owner || owner === activeProject?.id || owner === diskProjectId) return '';
     return nameOfProject(owner);
-  }, [projectOf, activeProject?.id, nameOfProject]);
+  }, [projectOf, activeProject?.id, diskProjectId, nameOfProject]);
 
-  // Список корневых разделов: «Общий», «Личный» (+ личные всех пользователей у ГлавАдмина)
+  // Список корневых разделов: «Общий диск», «Общий», «Личный»
+  // (+ личные всех пользователей у ГлавАдмина)
   const sections = useMemo(() => {
     const list: Array<{ id: string; name: string; ownerId: string | null; isFolder: boolean; isSection: boolean }> = [
+      // Диск первым: он от проекта не зависит, и человек, ищущий норматив или
+      // шаблон бланка, не должен сначала вспоминать, в каком он проекте
+      { id: SEC_DISK, name: 'Общий диск', ownerId: null, isFolder: true, isSection: true },
       { id: SEC_SHARED, name: 'Общий', ownerId: null, isFolder: true, isSection: true },
       { id: personalSecId(user?.id || ''), name: 'Личный', ownerId: user?.id || null, isFolder: true, isSection: true },
     ];
@@ -464,7 +503,8 @@ export default function Explorer() {
   useEffect(() => { sectionsRef.current = sections; }, [sections]);
 
   const sectionName = useCallback((secId: string): string => {
-    return sections.find(s => s.id === secId)?.name || (secId === SEC_SHARED ? 'Общий' : 'Личный');
+    return sections.find(s => s.id === secId)?.name
+      || (secId === SEC_DISK ? 'Общий диск' : secId === SEC_SHARED ? 'Общий' : 'Личный');
   }, [sections]);
 
   // Раздел, в котором пользователь находится сейчас (null — на списке разделов)
@@ -477,6 +517,18 @@ export default function Explorer() {
 
   // Имя окна — имя открытой папки: два окна Проводника иначе неразличимы
   useWindowTitle(folders.find(f => f.id === currentFolderId)?.name || '');
+
+  /**
+   * Настоящая папка для места, куда кладут. Для диска это его корневая папка,
+   * для остальных разделов — сам раздел (у них корневые файлы без папки).
+   */
+  const asFolderId = useCallback((id: string | null): string | null => {
+    if (id === SEC_DISK) return diskRootId || null;
+    // Остальные разделы настоящей папкой не являются: их корневые файлы лежат
+    // без папки. Вернуть здесь «sec:shared» значило бы записать в parentId
+    // строку, которой в базе нет
+    return isSectionId(id || '') ? null : id;
+  }, [diskRootId]);
 
   const handleNavigateUp = () => {
     if (!currentFolderId) return;
@@ -497,15 +549,19 @@ export default function Explorer() {
     }
     const name = await openPrompt("Новая папка", "Имя папки:") || "Новая папка";
     if (!name.trim()) return;
-    const inSectionRoot = isSectionId(currentFolderId);
+    const realParentId = asFolderId(currentFolderId);
+    const inSectionRoot = realParentId === null && isSectionId(currentFolderId);
     const sec = inSectionRoot ? parseSection(currentFolderId) : null;
     const res = await fetch('/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
-        projectId: activeProject?.id || 'default',
-        parentId: inSectionRoot ? null : currentFolderId,
+        // Папка наследует проект родителя: на диске это служебный проект, и
+        // отдавать сюда проект с экрана нельзя — папка ушла бы из диска
+        projectId: (realParentId && folders.find((f: any) => f.id === realParentId)?.projectId)
+          || activeProject?.id || 'default',
+        parentId: realParentId,
         ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {})
       })
     });
@@ -567,9 +623,20 @@ export default function Explorer() {
       addToast('Откройте раздел «Общий» или «Личный», чтобы загрузить файлы.', 'error');
       return;
     }
-    const inSectionRoot = isSectionId(targetFolderId);
+    // У диска корень настоящий — файл ложится в него, а не «без папки»
+    const realFolderId = asFolderId(targetFolderId);
+    const inSectionRoot = realFolderId === null && isSectionId(targetFolderId);
     const sec = inSectionRoot ? parseSection(targetFolderId) : null;
-    const realFolderId = inSectionRoot ? null : targetFolderId;
+
+    // Предела на размер нет, но полгигабайта лягут в общую базу и в резервную
+    // копию: спрашиваем один раз, а не отказываем
+    const heavy = heavyOnes(Array.from(files));
+    if (heavy.length && !await openConfirm(
+      'Файл очень большой',
+      `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
+      + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
+      { confirmLabel: 'Загрузить' },
+    )) return;
 
     // Имена, уже занятые в целевой папке: по ним считается «Смета (2).xlsx»
     const existingNames = (realFolderId === null
@@ -642,7 +709,7 @@ export default function Explorer() {
      fetchData();
   };
 
-  // «Создать → Таблицу/Документ»: новый документ Конструктора нужного типа
+  // «Создать → Таблицу/Документ»: новый документ Flux Office нужного типа
   // и сразу в его редактор. Зеркало в Проводнике появится после именования.
   const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
     try {
@@ -653,15 +720,15 @@ export default function Explorer() {
       });
       const data = await res.json();
       if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
-      navigate(`/constructor?doc=${data.doc.id}`);
+      navigate(`${officePathForKind(kind)}?doc=${data.doc.id}`);
     } catch (e: any) {
       addToast(`Не удалось создать документ: ${e.message}`, 'error');
     }
   };
   const createConstructorSheet = () => createConstructorDoc('DOC');
 
-  // «Редактировать копию в Конструкторе»: xlsx/csv → таблица, txt/md/docx → текст.
-  // Исходный файл не меняется — редактируется копия-документ студии.
+  // «Редактировать копию»: xlsx/csv → Таблица, txt/md/docx → Документ.
+  // Исходный файл не меняется — правится копия-документ Flux Office.
   const editCopyInConstructor = async (fileId: string) => {
     try {
       const res = await fetch('/api/constructor/docs/import-file', {
@@ -672,19 +739,26 @@ export default function Explorer() {
       const data = await res.json();
       if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось открыть файл');
       addToast('Создана редактируемая копия — исходный файл не изменён', 'success');
-      navigate(`/constructor?doc=${data.doc.id}`);
+      navigate(`${officePathForKind(data.doc.kind)}?doc=${data.doc.id}`);
     } catch (e: any) {
       addToast(String(e.message || e), 'error');
     }
   };
 
-  // Файл можно открыть в Конструкторе? (по расширению)
-  const canEditInConstructor = (name: string) => /\.(xlsx|xlsm|xls|csv|txt|md|log|json|docx)$/i.test(name || '');
+  // Файл можно открыть в Flux Office? Спрашиваем общую таблицу расширений, а
+  // не свой список: их было семь, и они разошлись — .xls принимал один и
+  // отвергал другой, отчего «не все файлы открывались»
+  const canEditInConstructor = (name: string) =>
+    isOffice({ id: '', name }) || /\.(txt|md|log|json)$/i.test(name || '');
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
   // при переносе в корень раздела передаём его область видимости
   const buildCopyBody = (ids: string[], target: string | null, isCut: boolean) => {
     const realIds = ids.filter(id => !isSectionId(id));
+    // Диск — настоящая папка: кладём внутрь неё, а не «в корень раздела»
+    if (target === SEC_DISK && diskRootId) {
+      return { ids: realIds, targetFolderId: diskRootId, isCut };
+    }
     if (target && isSectionId(target)) {
       const sec = parseSection(target);
       return { ids: realIds, targetFolderId: null, isCut, targetScope: sec.scope, targetOwnerId: sec.ownerId || user?.id };
@@ -841,12 +915,18 @@ export default function Explorer() {
     addToast(out.ok ? `Сохранено: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
   };
 
-  const currentFolder = isSectionId(currentFolderId) ? undefined : folders.find(f => f.id === currentFolderId);
+  const diskRootFolder = folders.find((f: any) => f.id === diskRootId);
+  const currentFolder = isSectionId(currentFolderId)
+    ? (currentFolderId === SEC_DISK ? diskRootFolder : undefined)
+    : folders.find(f => f.id === currentFolderId);
   const files = currentFolderId === null
     ? []
-    : isSectionId(currentFolderId)
-      ? rootFiles.filter((f: any) => itemSection(f) === currentFolderId)
-      : (currentFolder?.files || []);
+    // У диска корень настоящий: его файлы лежат в папке, а не «без папки»
+    : currentFolderId === SEC_DISK
+      ? (diskRootFolder?.files || [])
+      : isSectionId(currentFolderId)
+        ? rootFiles.filter((f: any) => itemSection(f) === currentFolderId)
+        : (currentFolder?.files || []);
   filesRef.current = files; // для колбэков (двойной клик по зеркалу Конструктора)
 
   const allCurrentItems = useMemo(() => {
@@ -888,9 +968,11 @@ export default function Explorer() {
     }
 
     // Папки уровня: в корне раздела — папки без родителя из этого раздела
-    const childFolders = isSectionId(currentFolderId)
-      ? folders.filter(f => !f.parentId && itemSection(f) === currentFolderId)
-      : folders.filter(f => f.parentId === currentFolderId);
+    const childFolders = currentFolderId === SEC_DISK
+      ? folders.filter(f => f.parentId === diskRootId)
+      : isSectionId(currentFolderId)
+        ? folders.filter(f => !f.parentId && itemSection(f) === currentFolderId)
+        : folders.filter(f => f.parentId === currentFolderId);
 
     // Поиск ограничен текущим разделом (или всеми доступными, если раздел не открыт)
     const searchScope = (it: any) => !currentSectionId || itemSection(it) === currentSectionId;
@@ -1062,15 +1144,26 @@ export default function Explorer() {
       });
       return;
     }
-    // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes): та же,
-    // по которой открывает значок на столе. Остальному — предпросмотр: двойной
-    // клик ВСЕГДА что-то делает (B1)
-    if (f && isConstructorDoc(f) && f.refId) { navigate(FILE_APPS.docs.href(f)); return; }
-    if (f && isPdf(f)) { navigate(FILE_APPS.pdf.href({ ...f, id })); return; }
+    /*
+      Чем открыть — решает общая таблица сопоставлений (lib/fileTypes).
+      Здесь она наконец и решает: до этого места разбирались два случая руками —
+      документ и ПДФ, — а всё остальное падало в предпросмотр. Из-за этого
+      книга Excel, открытая со стола, попадала в «Таблицу», а та же книга из
+      Проводника — в картинку-заглушку сбоку. Одно движение мышью, два разных
+      ответа, и оба «правильные» по своему куску кода.
+    */
+    if (!f) return;
+    const app = appsFor({ ...f, id })[0];
+    if (app?.id === 'windows') { void openInWindowsSaid(id, String(f.name || ''), addToast); return; }
+    if (app && app.id !== 'explorer') { navigate(app.href({ ...f, id })); return; }
+
+    // Открывать нечем — но и молчать нельзя: у .doc и .rtf есть совет, что
+    // делать, и человек должен его прочитать, а не смотреть на пустой значок
+    const advice = legacyAdvice(String(f.name || ''));
+    if (advice) addToast(advice, 'info');
     setSelectedIds(new Set([id]));
     setLastSelectedId(id);
     setShowPreviewPane(true);
-    if (!f?.content) addToast('У файла нет сохранённого содержимого (загружен без предпросмотра).', 'info');
   }, [navigate, addToast]);
 
   // Ссылка на себя: после согласия переключить проект открытие повторяется
@@ -1423,12 +1516,16 @@ export default function Explorer() {
                         }
                      }
                   }}
-                  title={sec.id === SEC_SHARED ? 'Общий раздел: файлы видят все пользователи' : 'Личный раздел: файлы видит только владелец'}
+                  title={sec.id === SEC_DISK
+                    ? 'Общий диск: виден всем и не зависит от проекта. Класть и удалять — по праву «Запись на общий диск»'
+                    : sec.id === SEC_SHARED ? 'Общий раздел: файлы видят все пользователи' : 'Личный раздел: файлы видит только владелец'}
                 >
                   {getFileIcon({ isSection: true, id: sec.id }, 'w-4 h-4 mr-2 shrink-0')}
                   <span className="text-sm font-medium truncate">{sec.name}</span>
                 </div>
-                {folders.filter(f => !f.parentId && itemSection(f) === sec.id).map(folder => (
+                {folders.filter(f => (sec.id === SEC_DISK
+                  ? f.parentId === diskRootId
+                  : !f.parentId && itemSection(f) === sec.id)).map(folder => (
                   <TreeFolder key={folder.id} folder={folder} allFolders={folders} currentFolderId={currentFolderId} onSelect={navigateTo} onDropFiles={uploadFiles} onMoveItems={handleMoveItems} depth={2} />
                 ))}
               </div>
@@ -1923,7 +2020,16 @@ export default function Explorer() {
             if (appId === 'explorer') {
               setSelectedIds(new Set([contextMenu.targetId!]));
               setShowPreviewPane(true);
-            } else navigate(href);
+              return;
+            }
+            // Windows — тоже не адрес: файл надо выложить во временную папку и
+            // отдать её проводнику системы
+            if (appId === 'windows') {
+              const it = allCurrentItems.find((i) => i.id === contextMenu.targetId);
+              void openInWindowsSaid(String(contextMenu.targetId), String(it?.name || 'Файл'), addToast);
+              return;
+            }
+            navigate(href);
           }}
           openFolder={navigateTo}
           refresh={fetchData}
@@ -1963,7 +2069,11 @@ export default function Explorer() {
              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
                <Upload className="w-4 h-4 text-emerald-500 animate-bounce" /> Загрузка файлов
              </h3>
-             <span className="text-xs font-medium text-slate-500">{uploadProgress.current} из {uploadProgress.total}</span>
+             {/* Мегабайты, а не «файл 1 из 3»: перенос книги на четыреста
+                 мегабайт — один файл, и счётчик файлов о нём молчит */}
+             <span className="text-xs font-medium text-slate-500 tabular-nums">
+               {formatSize(uploadProgress.current)} из {formatSize(uploadProgress.total)}
+             </span>
            </div>
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
@@ -1978,120 +2088,14 @@ export default function Explorer() {
       )}
 
       {propertiesModal && (
-        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-50" onClick={() => setPropertiesModal(null)}>
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-lg shadow-xl border border-slate-200 w-[420px] max-w-full overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
-              {getFileIcon(propertiesModal.item, "w-6 h-6")}
-              <h2 className="text-base font-semibold text-slate-900">Свойства</h2>
-            </div>
-            
-            <form onSubmit={async (e: any) => {
-              e.preventDefault();
-              const newName = e.target.name.value;
-              const newRevision = e.target.revision ? e.target.revision.value : undefined;
-              const endpoint = propertiesModal.isFile ? `/api/files/${propertiesModal.item.id}` : `/api/folders/${propertiesModal.item.id}`;
-              
-              await fetch(endpoint, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  name: newName, 
-                  ...(propertiesModal.isFile && newRevision !== undefined ? { revision: newRevision } : {}),
-                  updatedById: user?.id
-                })
-              });
-              
-              setPropertiesModal(null);
-              fetchData();
-              addToast('Свойства обновлены', 'success');
-            }} className="flex-1 overflow-y-auto p-5 space-y-4">
-              
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Имя</label>
-                <input type="text" name="name" defaultValue={propertiesModal.item.name} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" required />
-              </div>
-
-              {propertiesModal.isFile && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Ревизия</label>
-                  <input type="text" name="revision" defaultValue={propertiesModal.item.revision || "1"} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" />
-                </div>
-              )}
-
-              <div className="h-px bg-slate-100 my-2" />
-
-              <div className="space-y-2 text-sm">
-                {!propertiesModal.isFile && (
-                  <div className="flex">
-                    <span className="w-32 text-slate-500">Тип:</span>
-                    <span className="text-slate-900">Папка с файлами</span>
-                  </div>
-                )}
-                
-                {propertiesModal.isFile && (
-                  <>
-                    <div className="flex">
-                      <span className="w-32 text-slate-500">Тип файла:</span>
-                      <span className="text-slate-900">{propertiesModal.item.type}</span>
-                    </div>
-                    <div className="flex">
-                      <span className="w-32 text-slate-500">Приложение:</span>
-                      <span className="text-slate-900">
-                        {propertiesModal.item.type === 'PDF' ? 'PDF Reader' :
-                         propertiesModal.item.type === 'TXT' ? 'Блокнот' :
-                         propertiesModal.item.type === 'DOCX' ? 'Microsoft Word' :
-                         propertiesModal.item.type === 'CONSTRUCTOR' ? 'Конструктор Flux' :
-                         propertiesModal.item.type === 'IMAGE' ? 'Фотографии' : 'Неизвестно'}
-                      </span>
-                    </div>
-                    <div className="flex">
-                      <span className="w-32 text-slate-500">Размер:</span>
-                      <span className="text-slate-900">{formatSize(propertiesModal.item.size)}</span>
-                    </div>
-                  </>
-                )}
-                
-                <div className="h-px bg-slate-50 my-2" />
-
-                <div className="flex">
-                  <span className="w-32 text-slate-500">Создан:</span>
-                  <span className="text-slate-900">{propertiesModal.item.createdAt ? format(new Date(propertiesModal.item.createdAt), 'dd.MM.yyyy HH:mm:ss') : 'Неизвестно'}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-32 text-slate-500">Изменен:</span>
-                  <span className="text-slate-900">{propertiesModal.item.updatedAt ? format(new Date(propertiesModal.item.updatedAt), 'dd.MM.yyyy HH:mm:ss') : 'Неизвестно'}</span>
-                </div>
-                
-                <div className="h-px bg-slate-50 my-2" />
-
-                <div className="flex">
-                  <span className="w-32 text-slate-500">Создатель:</span>
-                  <span className="text-slate-900">{propertiesModal.item.createdBy?.name || 'Неизвестно'}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-32 text-slate-500">Изменил:</span>
-                  <span className="text-slate-900">{propertiesModal.item.updatedBy?.name || 'Неизвестно'}</span>
-                </div>
-
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 mt-2 border-t border-slate-100 dark:border-slate-800">
-                <button type="button" onClick={() => setPropertiesModal(null)} className="px-4 py-2 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 text-sm cursor-pointer">
-                  Отмена
-                </button>
-                <button type="submit" className="px-4 py-2 text-white bg-emerald-600 rounded hover:bg-emerald-700 text-sm cursor-pointer">
-                  Применить
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
+        <FileProperties
+          item={propertiesModal.item}
+          isFile={propertiesModal.isFile}
+          icon={getFileIcon(propertiesModal.item, 'w-6 h-6')}
+          userId={user?.id || null}
+          onClose={() => setPropertiesModal(null)}
+          onSaved={() => { setPropertiesModal(null); fetchData(); addToast('Свойства обновлены', 'success'); }}
+        />
       )}
 
       {assignTagModal && (

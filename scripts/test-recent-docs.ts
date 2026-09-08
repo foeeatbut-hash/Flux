@@ -2,7 +2,7 @@
  * Недавние вещи, а не разделы.
  *
  * «Недавние разделы» отвечали на вопрос, которого никто не задаёт: человек и
- * так помнит, что работает в Конструкторе. Он не помнит другого — как
+ * так помнит, что работает в «Таблице». Он не помнит другого — как
  * называлась записка, которую правил в пятницу.
  *
  * Три места, где ошибка не видна глазом и портит список: одна вещь двоится в
@@ -30,12 +30,12 @@ const doc = (href: string, title: string, over: Partial<RecentDoc> = {}): Recent
 console.log('Список пополняется');
 {
   let list: RecentDoc[] = [];
-  list = addRecent(list, doc('/constructor?doc=1', 'Смета.xlsx'));
+  list = addRecent(list, doc('/sheet?doc=1', 'Смета.xlsx'));
   list = addRecent(list, doc('/pdf?file=2', 'Паспорт.pdf', { kind: 'pdf' }));
   check('свежее первым', list[0].title === 'Паспорт.pdf', list.map((d) => d.title));
 
   // Десять строк «Смета.xlsx» — бесполезный список
-  const again = addRecent(list, doc('/constructor?doc=1', 'Смета.xlsx'));
+  const again = addRecent(list, doc('/sheet?doc=1', 'Смета.xlsx'));
   check('повтор не двоится, а всплывает',
     again.length === 2 && again[0].title === 'Смета.xlsx', again.map((d) => d.title));
 

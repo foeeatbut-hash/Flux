@@ -63,7 +63,7 @@ const SPECIAL: { test: (m: string, p: string[]) => boolean; what: string; route:
   { test: (m, p) => m === 'DELETE' && p[0] === 'updates', what: 'Отозвал релиз', route: '/settings?section=updates' },
   { test: (m, p) => m === 'POST' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => m === 'PUT' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
-  { test: (m, p) => p[0] === 'constructor' && p[1] === 'docs' && p[2] === 'import-file', what: 'Открыл файл в Конструкторе', route: '/constructor' },
+  { test: (m, p) => p[0] === 'constructor' && p[1] === 'docs' && p[2] === 'import-file', what: 'Открыл файл в Flux Office', route: '/sheet' },
 ];
 
 /** Идентификатор из адреса, если он там есть: по нему запись и находят */

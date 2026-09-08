@@ -44,8 +44,12 @@ const api = async (method: string, url: string, body?: any) => {
     console.error(`Сервер на ${BASE} не отвечает (${e?.message || e})`); process.exit(2);
   }
 
-  token = (await api('POST', '/api/login', LOGIN)).json?.token || '';
+  const logged = (await api('POST', '/api/login', LOGIN)).json;
+  token = logged?.token || '';
   if (!token) { console.error('Не удалось войти'); process.exit(2); }
+  // Тот, кто вошёл: инициалы в подписи собираются из его ФИО, а зовут
+  // администратора в каждой базе по-своему
+  const meUser = logged?.user || {};
   const projectId = (await api('GET', '/api/projects')).json?.projects?.[0]?.id;
   if (!projectId) { console.error('В базе нет проекта'); process.exit(2); }
 
@@ -164,13 +168,19 @@ const api = async (method: string, url: string, body?: any) => {
     await page.goto(`${BASE}/?constructorDoc=${docId}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(7000);
 
-    // Открываем через раздел «Конструктор»: адресной строки у программы нет
-    await clickByName(/Конструктор/i, 8000);
+    // Открываем программу «Документ»: текстовый документ живёт именно в ней,
+    // «Таблица» показывает книги. Кнопки на панели задач у неё нет — она не
+    // закреплена по умолчанию, — поэтому идём адресом: оболочка сама заводит
+    // окно, увидев новый адрес
+    await page.evaluate(() => { window.location.hash = '#/doc'; });
     await page.waitForTimeout(3500);
-    // Открываем по точному имени: подстрока может совпасть с чужим документом
-    const openDoc = () => page.getByText(DOC_NAME, { exact: true }).first()
+    // Открываем по точному имени, но только внутри окна: с тех пор как
+    // документы Flux Office зеркалятся на рабочий стол, то же имя лежит ещё и
+    // значком на столе — первым в разметке идёт он, и сценарий открывал стол
+    const openDoc = () => page.locator('[data-window-body]')
+      .getByText(DOC_NAME, { exact: true }).first()
       .dblclick({ timeout: 8000 }).then(() => true).catch(() => false);
-    ok('документ открыт из списка Конструктора', await openDoc());
+    ok('документ открыт из списка Flux Office', await openDoc());
     await page.waitForTimeout(9000);   // движок Univer грузится лениво
 
     console.log('2. Общая лента редакторов');
@@ -364,13 +374,20 @@ const api = async (method: string, url: string, body?: any) => {
       ok('файл получен', !!name, name);
       const path = await download.path();
       const fs = await import('node:fs/promises');
-      const text = path ? await fs.readFile(path, 'utf8') : '';
-      ok('файл не пустой', text.length > 200, text.length);
-      ok('Ворд откроет его как документ', text.includes('WordSection1') && text.includes('urn:schemas-microsoft-com:office:word'));
-      ok('поля листа ушли в файл — 30 мм слева', /margin:20\.1mm 15\.2mm 20\.1mm 30mm/.test(text), (text.match(/margin:[^;}]*/) || [])[0]);
-      ok('альбомный лист в файле', /size:297mm 210mm/.test(text), (text.match(/size:[^;]*/) || [])[0]);
-      ok('кодировка указана — русский текст не поедет', /charset="?utf-8/i.test(text));
-      ok('в начале файла BOM — Ворд не покажет кракозябры', text.charCodeAt(0) === 0xFEFF, text.charCodeAt(0));
+      // Файл читается дважды: байтами — искать служебные пометки архива,
+      // строкой — искать русский текст. Выгрузка отдаёт настоящий .docx, а это
+      // zip; читать его одной строкой значит гадать на кодировке
+      const buf = path ? await fs.readFile(path) : Buffer.alloc(0);
+      const bin = buf.toString('latin1');
+      const text = buf.toString('utf8');
+      ok('файл не пустой', buf.length > 200, buf.length);
+      ok('Ворд откроет его как документ',
+        bin.startsWith('PK') && bin.includes('word/document.xml'), bin.slice(0, 40));
+      // 30 мм = 1701 двадцатая доля пункта: мера, в которой Word держит поля
+      ok('поля листа ушли в файл — 30 мм слева', /w:left="1701"/.test(bin), (bin.match(/w:pgMar[^/]*/) || [])[0]);
+      ok('альбомный лист в файле', /w:orient="landscape"/.test(bin), (bin.match(/w:pgSz[^/]*/) || [])[0]);
+      ok('правил оформления в тексте нет — они не текст',
+        !/WordSection1/.test(text), (text.match(/WordSection1[^<]{0,40}/) || [])[0]);
       // Титул присвоен, поэтому вместо служебного заголовка в файле его текст
       ok('кириллица внутри файла читается', /ПОЯСНИТЕЛЬНАЯ ЗАПИСКА/.test(text), text.slice(0, 200));
       ok('формул в файле нет, только значения', !/data-formula/.test(text) && !/tt-chip/.test(text));
@@ -396,17 +413,31 @@ const api = async (method: string, url: string, body?: any) => {
     if (d2) {
       const p2 = await d2.path();
       const fs = await import('node:fs/promises');
-      const t2 = p2 ? await fs.readFile(p2, 'utf8') : '';
+      const b2 = p2 ? await fs.readFile(p2) : Buffer.alloc(0);
+      const t2 = b2.toString('utf8');
+      const bin2 = b2.toString('latin1');
       ok('титул попал в файл', /ПОЯСНИТЕЛЬНАЯ ЗАПИСКА/.test(t2), t2.length);
       ok('сборка «шифр + ревизия» посчитана', /ПЗ-042 рев\. B/.test(t2), (t2.match(/Шифр:[^<]*/) || [])[0]);
       ok('дата словами, как настроено', /\d{1,2} [а-яё]+ \d{4} г\./.test(t2), (t2.match(/Дата:[\s\S]{0,60}/) || [])[0]);
-      // «Раупов Хусрав Хуршедович» → «Раупов Х.Х.», через неразрывный пробел
-      ok('инициалы собраны из ФИО', /Раупов(&nbsp;| | )Х\.Х\./.test(t2), (t2.match(/Разработал:[\s\S]{0,140}/) || [])[0]);
-      ok('подпись ушла картинкой внутри файла', /<img src="data:image\/png;base64,/.test(t2) && /height:10mm/.test(t2), (t2.match(/<img[^>]*/) || [])[0]);
+      // «Раупов Хусрав Хуршедович» → «Раупов Х.Х.». Фамилию берём у того, кто
+      // вошёл: в чужой базе администратора зовут иначе, а проверяется сборка
+      // инициалов, а не конкретный человек
+      // Сборку проверяем ТЕМ ЖЕ правилом, которым её делает программа
+      // (src/lib/docFormula.ts): свой второй расчёт однажды разошёлся бы с
+      // первым, и проверка стала бы врать про исправную выгрузку
+      const { formatName } = await import('../src/lib/docFormula');
+      const short = formatName(meUser, 'initialsAfter');
+      ok('инициалы собраны из ФИО',
+        !!short && t2.includes(short),
+        [short, (t2.match(/Разработал:[\s\S]{0,60}/) || [])[0]]);
+      // В .docx картинка — не тег, а отдельный файл внутри архива со ссылкой
+      ok('подпись ушла картинкой внутри файла',
+        bin2.includes('word/media/img1.png') && /rIdImg1/.test(bin2),
+        (bin2.match(/word\/media\/[^\s"]{0,20}/) || [])[0]);
       ok('названий формул в файле нет — только значения',
         !/data-formula-id/.test(t2) && !/tt-chip/.test(t2) && !/>Дата</.test(t2), (t2.match(/tt-chip[^"]*/) || [])[0]);
       ok('зачёркнутых плашек нет — каталог формул подхватился', !/line-through/.test(t2));
-      ok('титул отделён разрывом страницы', /page-break-after:always/.test(t2));
+      ok('титул отделён разрывом страницы', /w:br w:type="page"/.test(bin2));
     }
 
     console.log('8. Ошибок в консоли нет');

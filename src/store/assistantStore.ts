@@ -437,7 +437,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   askAbout: async (fileId) => {
     set({ loading: true });
     try {
-      const r = await fetch(`/api/files/${fileId}`);
+      // Карточке нужны имя, тип и теги, а не содержимое: файл может весить
+      // сотни мегабайт, и тащить его в разговор незачем
+      const r = await fetch(`/api/files/${fileId}?meta=1`);
       if (!r.ok) throw new Error('файл не найден');
       const body = await r.json();
       const card = fileCard(body.file || body);
@@ -551,7 +553,10 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['оборудован'], route: '/equipment', name: 'Оборудование' },
   { stems: ['проводник', 'файл'], route: '/explorer', name: 'Проводник' },
   { stems: ['блокнот', 'заметк'], route: '/notes', name: 'Блокнот' },
-  { stems: ['конструктор', 'таблиц', 'документ', 'ворд', 'эксел'], route: '/constructor', name: 'Конструктор' },
+  // «конструктор» остаётся в стемах намеренно: программа переименована, а
+  // привычка — нет, и «открой конструктор» обязано работать
+  { stems: ['таблиц', 'конструктор', 'эксел', 'книг', 'ведомост'], route: '/sheet', name: 'Таблица' },
+  { stems: ['документ', 'ворд', 'записк', 'текстов'], route: '/doc', name: 'Документ' },
   { stems: ['справочник', 'словар'], route: '/directory', name: 'Справочник' },
   { stems: ['чат', 'переписк'], route: '/chat', name: 'Рабочий чат' },
   { stems: ['проект'], route: '/projects', name: 'Проекты' },

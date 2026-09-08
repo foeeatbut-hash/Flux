@@ -22,6 +22,7 @@ import { dataService } from '../services/dataService';
 import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKind, type SortBy } from '../lib/desktop';
 import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
 import { moveInList } from '../lib/startMenu';
+import { resolveSectionPath } from '../lib/sectionAliases';
 import {
   loadGroups, saveGroups, fold, unfold, withoutItems, rename as renameGroupIn,
   hiddenIds, groupIdOf, type DeskGroup,
@@ -34,7 +35,7 @@ const SORT_KEY = 'flux_desk_sort';
 const SCALE_KEY = 'flux_desk_scale';
 
 /** Разделы, которые лежат на столе у нового сотрудника */
-const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/constructor'];
+const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/sheet'];
 
 /**
  * Что закреплено на панели задач у нового сотрудника. Дальше это его дело:
@@ -42,7 +43,7 @@ const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/constructor'];
  * в реестре разделов (`pinned` в sections.tsx), он был одинаков у всех, и
  * открепить лишнее было нельзя вовсе.
  */
-const DEFAULT_BAR = ['/registry', '/equipment', '/explorer', '/constructor', '/mail'];
+const DEFAULT_BAR = ['/registry', '/equipment', '/explorer', '/sheet', '/mail'];
 
 const read = <T,>(key: string, fallback: T): T => {
   try {
@@ -122,8 +123,10 @@ const newName = (kind: string): string => {
 
 export const useDesktopStore = create<DesktopState>((set, get) => ({
   items: [],
-  apps: read<string[]>(APPS_KEY, DEFAULT_APPS),
-  bar: read<string[]>(BAR_KEY, DEFAULT_BAR),
+  // Закреплённое сотрудник расставлял руками — переименование программы не
+  // должно стирать его набор: старый путь переводим, а не выбрасываем
+  apps: read<string[]>(APPS_KEY, DEFAULT_APPS).map(resolveSectionPath),
+  bar: read<string[]>(BAR_KEY, DEFAULT_BAR).map(resolveSectionPath),
   groups: loadGroups(),
   cells: read<Record<string, Cell>>(CELLS_KEY, {}),
   sortBy: read<SortBy>(SORT_KEY, 'name'),

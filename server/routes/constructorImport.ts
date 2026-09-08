@@ -18,6 +18,7 @@
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
+import { fileBytes } from './fileChunks.js';
 
 export interface ImportFileDeps {
   /** Зеркало документа в Проводнике: документ должен быть виден и там */
@@ -32,7 +33,7 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
   // ── «Редактировать копию»: документ студии из файла Проводника ──
   // Исходный файл не изменяется — регистр выданной документации неприкосновенен.
   // xlsx/xlsm/csv → таблица (DOC), txt/md → текст (TEXT, содержимое вставит
-  // редактор при первом открытии), docx → текст без сложной вёрстки (mammoth).
+  // редактор при первом открытии). Word разбирается только в окне.
   /**
    * Разобранное окном приходит готовым.
    *
@@ -42,13 +43,18 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
    * этой сборке» всегда, а у разработчика работала. Серверный разбор остаётся
    * запасным путём (им пользуется «Редактировать копию» для txt и csv), но
    * если окно прислало готовое — верим ему и не разбираем второй раз.
+   *
+   * Ветки docx здесь больше нет совсем. Она звала библиотеку из зависимостей
+   * для разработки и у сотрудника не работала ни разу: ответ был всегда
+   * «разбор недоступен в этой сборке». Word разбирается в окне, и только там —
+   * зато с колонтитулами, надписями и внятной причиной, если текста нет.
    */
   app.post('/api/constructor/docs/import-file', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
       const prisma = getPrisma();
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.body?.fileId || '') } });
-      if (!file || !file.content) return res.status(404).json({ error: 'Файл не найден или пуст' });
+      if (!file) return res.status(404).json({ error: 'Файл не найден' });
       const projectId = await resolveProjectId(String(req.body?.projectId || ''));
 
       const readyBook = typeof req.body?.workbook === 'string' ? req.body.workbook : '';
@@ -79,9 +85,10 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
         return res.json({ doc });
       }
 
-      let b64 = String(file.content);
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-      const buf = Buffer.from(b64, 'base64');
+      // Байты общим путём: содержимое лежит кусками, а у файлов прежних
+      // версий — строкой. Знать об этом различии должно одно место
+      const buf = await fileBytes(file);
+      if (!buf.length) return res.status(404).json({ error: 'У файла нет содержимого' });
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       const baseName = file.name.replace(/\.[^.]+$/, '');
 
@@ -113,16 +120,8 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
       } else if (['txt', 'md', 'log', 'json'].includes(ext)) {
         // Текст: содержимое вставит редактор при первом открытии (appendText)
         bindings = JSON.stringify({ importText: buf.toString('utf-8') });
-      } else if (ext === 'docx') {
-        try {
-          const mammoth = require('mammoth');
-          const r = await mammoth.extractRawText({ buffer: buf });
-          bindings = JSON.stringify({ importText: String(r?.value || '') });
-        } catch (e: any) {
-          return res.status(400).json({ error: 'Разбор DOCX недоступен в этой сборке — сложная вёрстка будет в следующей фазе' });
-        }
       } else {
-        return res.status(400).json({ error: `Формат .${ext} пока не открывается в Конструкторе` });
+        return res.status(400).json({ error: `Формат .${ext} пока не открывается в Flux Office` });
       }
 
       const doc = await prisma.constructorDoc.create({

@@ -9,6 +9,7 @@
  * оболочку заводят ради того, чтобы вернуться к тем же окнам на тех же местах.
  */
 import { create } from 'zustand';
+import { resolveSectionPath, resolveSectionHref } from '../lib/sectionAliases';
 import {
   initialRect, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
   refit, tile, type Area, type Edge, type SnapZone, type WinState,
@@ -89,10 +90,12 @@ function restored(): WinState[] {
     // Разбираем осторожно: в хранилище могло остаться что угодно от прошлых версий
     return parsed.filter((w: any) => w && typeof w.id === 'string' && typeof w.path === 'string')
       .map((w: any): WinState => ({
-        id: w.id, path: w.path, desk: Number(w.desk) || 0,
+        // Путь переименованной программы переводим на новый: иначе окно,
+        // открытое до обновления, показало бы Главную вместо документа
+        id: w.id, path: resolveSectionPath(w.path), desk: Number(w.desk) || 0,
         // Окна прошлых версий записаны без адреса: считаем адресом сам раздел.
         // Человек увидит привычные окна, просто без открытого документа
-        href: typeof w.href === 'string' && w.href ? w.href : w.path,
+        href: resolveSectionHref(typeof w.href === 'string' && w.href ? w.href : w.path),
         x: Number(w.x) || 0, y: Number(w.y) || 0,
         w: Number(w.w) || 720, h: Number(w.h) || 480,
         z: Number(w.z) || 1,

@@ -1,14 +1,18 @@
 /**
- * Обвязка редактора целиком: строка документа, вкладки, лента, полотно и
- * строка состояния.
+ * Обвязка редактора целиком: полоса вкладок со сведениями о документе, лента,
+ * полотно и строка состояния.
  *
  * Все четыре редактора собираются этим компонентом, поэтому высоты заданы один
  * раз (lib/ribbon) и не могут разойтись. Полотно — children: что внутри, рама
  * не знает и знать не должна.
+ *
+ * Отдельной строки документа больше нет: она повторяла заголовок окна, который
+ * и так показывает имя документа, и отбирала у листа 34 точки. Её кнопки
+ * переехали по краям полосы вкладок — та наполовину пустовала.
  */
 import React from 'react';
 import RibbonBar, { type RibbonBarProps } from './RibbonBar';
-import DocRow, { type DocRowProps } from './DocRow';
+import { DocIdentity, DocStatus, type DocRowProps } from './DocRow';
 import FileMenu from './FileMenu';
 import { STATUS_H, type FileMenuSection } from '../../lib/ribbon';
 
@@ -30,8 +34,10 @@ export default function EditorFrame({
 }: EditorFrameProps) {
   return (
     <div className="h-full flex flex-col relative bg-white dark:bg-slate-950">
-      <DocRow {...doc} />
-      <RibbonBar {...ribbon} onFile={file?.length ? () => onFileOpen(true) : undefined} />
+      <RibbonBar {...ribbon}
+        docLeft={<DocIdentity {...doc} />}
+        docRight={<DocStatus {...doc} />}
+        onFile={file?.length ? () => onFileOpen(true) : undefined} />
       <div className="flex-1 min-h-0 relative">{children}</div>
       {(statusLeft || statusRight) && (
         <div className="flex items-center gap-3 px-3 shrink-0 border-t border-slate-200 dark:border-slate-800

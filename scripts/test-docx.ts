@@ -12,7 +12,7 @@
  *
  * Запуск: npx tsx scripts/test-docx.ts
  */
-import { buildDocx, partsFromText, xmlEscape } from '../src/lib/docxWrite';
+import { buildDocx, partsFromHtml, partsFromText, xmlEscape } from '../src/lib/docxWrite';
 import { zip, crc32 } from '../src/lib/zipWrite';
 
 let failed = 0;
@@ -95,6 +95,44 @@ console.log('Текст документа превращается в куск�
     const html = String((await mammoth.convertToHtml({ buffer: Buffer.from(bytes) }))?.value || '');
     check('заголовок остался заголовком', /<h1[^>]*>Раздел 1<\/h1>/.test(html), html.slice(0, 160));
     check('таблица осталась таблицей', html.includes('<table'), html.slice(0, 200));
+  }
+
+  console.log('Страница документа: стили не текст, лист не всегда A4');
+  {
+    // Ровно то, что отдаёт сборка документа для Word: голова со стилями,
+    // титул с меткой разрыва, подпись картинкой, потом текст
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const html = '<!doctype html><html><head><meta charset="utf-8">'
+      + '<style>@page WordSection1 { size:297mm 210mm; margin:20.1mm 15.2mm 20.1mm 30mm; }</style></head>'
+      + '<body><div style="page-break-after:always"><p>ПОЯСНИТЕЛЬНАЯ ЗАПИСКА</p>'
+      + `<p>Разработал: <img src="data:image/png;base64,${png}" style="height:10mm"></p></div>`
+      + '<div data-page-break="1"></div><p>Первая строка записки</p></body></html>';
+    const parts = partsFromHtml(html, () => []);
+
+    // Разрез по тегам оставлял СОДЕРЖИМОЕ <style>: страница CSS уезжала
+    // получателю как первый абзац документа
+    const texts = parts.filter((p: any) => p.kind === 'para' || p.kind === 'head').map((p: any) => p.text);
+    check('правил CSS в тексте документа нет', !texts.some((t: string) => /WordSection1|margin:/.test(t)), texts.slice(0, 3));
+    check('текст титула на месте', texts.some((t: string) => /ПОЯСНИТЕЛЬНАЯ ЗАПИСКА/.test(t)), texts.slice(0, 3));
+    check('подпись стала рисунком, а не пропала', parts.some((p: any) => p.kind === 'image'), parts.map((p: any) => p.kind));
+    check('титул отделён разрывом страницы', parts.some((p: any) => p.kind === 'break'), parts.map((p: any) => p.kind));
+
+    const bytes = buildDocx(parts, {
+      widthMm: 297, heightMm: 210, topMm: 20.1, rightMm: 15.2, bottomMm: 20.1, leftMm: 30,
+    });
+    const zipText = Buffer.from(bytes).toString('latin1');
+    check('лист альбомный, как в документе', /w:orient="landscape"/.test(zipText));
+    // 30 мм = 1701 двадцатая доля пункта. Раньше здесь всегда стояло 1134
+    check('поле слева 30 мм доехало до файла', /w:left="1701"/.test(zipText), (zipText.match(/w:pgMar[^/]*/) || [])[0]);
+    check('разрыв страницы записан по-вордовски', /w:br w:type="page"/.test(zipText));
+    check('рисунок лежит в архиве', zipText.includes('word/media/img1.png'));
+    check('и объявлен типом', /Extension="png"/.test(zipText));
+    check('и привязан к документу', /rIdImg1/.test(zipText) && /media\/img1\.png/.test(zipText));
+
+    const mammoth: any = await import('mammoth');
+    const back = String((await mammoth.extractRawText({ buffer: Buffer.from(bytes) }))?.value || '');
+    check('Word-разбор открыл документ с рисунком', /Первая строка записки/.test(back), back.slice(0, 120));
+    check('и правил CSS в нём нет', !/WordSection1/.test(back), back.slice(0, 120));
   }
 
   if (failed) {

@@ -419,7 +419,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         })),
       },
       {
-        id: 'docs', title: 'Документы Конструктора', hint: 'Обозначение встречается в тексте или в формуле',
+        id: 'docs', title: 'Документы Flux Office', hint: 'Обозначение встречается в тексте или в формуле',
         links: snap.docs.map(d => ({ d, n: countMentions(d.text, code) })).filter(x => x.n > 0).map(({ d, n }) => ({
           kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
           route: `/constructor?doc=${encodeURIComponent(d.id)}`, badge: `${n}×`,
@@ -482,7 +482,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         }),
       },
       {
-        id: 'docs', title: 'Документы Конструктора', hint: 'Код элемента встречается в тексте или в формуле',
+        id: 'docs', title: 'Документы Flux Office', hint: 'Код элемента встречается в тексте или в формуле',
         links: snap.docs.map(d => ({ d, n: countMentions(d.text, code) })).filter(x => x.n > 0).map(({ d, n }) => ({
           kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
           route: `/constructor?doc=${encodeURIComponent(d.id)}`, badge: `${n}×`,
@@ -558,7 +558,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
     const out = nonEmpty(groups);
     return {
       found: true, kind, id: doc.id, title: doc.name,
-      subtitle: doc.kind === 'TEXT' ? 'документ Конструктора' : 'таблица Конструктора',
+      subtitle: doc.kind === 'TEXT' ? 'документ Flux Office' : 'таблица Flux Office',
       total: out.reduce((s, g) => s + g.links.length, 0), groups: out,
     };
   }
@@ -578,7 +578,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         }),
       },
       {
-        id: 'docs', title: 'Документ Конструктора', hint: 'Файл — зеркало этого документа',
+        id: 'docs', title: 'Документ Flux Office', hint: 'Файл — зеркало этого документа',
         links: file.refId ? snap.docs.filter(d => d.id === file.refId).map(d => ({
           kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
           route: `/constructor?doc=${encodeURIComponent(d.id)}`,

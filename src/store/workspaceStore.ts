@@ -12,6 +12,7 @@
  * окна выглядит как `win:<id>`.
  */
 import { create } from 'zustand';
+import { resolveSectionPath } from '../lib/sectionAliases';
 
 interface WorkspaceState {
   /** Полный адрес (path+search) каждой открытой рамы: возврат открывает её там же */
@@ -45,7 +46,16 @@ export function sectionUses(): Record<string, number> {
 }
 
 export function recentSections(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (_) { return []; }
+  // Переименованная программа не должна выпадать из недавних: путь переводим
+  try {
+    const list: string[] = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const out: string[] = [];
+    for (const p of list) {
+      const path = resolveSectionPath(p);
+      if (!out.includes(path)) out.push(path);
+    }
+    return out;
+  } catch (_) { return []; }
 }
 
 // ── Память адресов per-пользователь ──

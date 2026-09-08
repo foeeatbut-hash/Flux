@@ -569,6 +569,44 @@ app.whenReady().then(() => {
     }
   });
 
+  /**
+   * Открыть файл тем, чем его открывает Windows.
+   *
+   * Для чертежей САПР, архивов, моделей — всего, для чего своей программы у
+   * нас нет и не будет. Раньше такой файл упирался в значок с подписью «Файл»:
+   * человек видел его в Проводнике и ничего не мог с ним сделать.
+   *
+   * Файл кладётся во ВРЕМЕННУЮ папку программы и открывается оттуда. Своим
+   * файлом он при этом не становится: правки в нём в Flux не вернутся, и об
+   * этом сказано прямо — иначе человек правил бы копию, считая, что правит
+   * оригинал.
+   *
+   * `shell.openPath` зовётся только на путь внутри этой папки: имя приходит из
+   * записи файла, а имя может быть каким угодно — включая «..\..\что-нибудь».
+   */
+  ipcMain.handle('files:open-external', async (_event, p: { name: string; base64: string }) => {
+    const { shell, app: electronApp } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
+    try {
+      const dir = path.join(electronApp.getPath('temp'), 'flux-open');
+      fs.mkdirSync(dir, { recursive: true });
+      const safe = String(p?.name || 'файл').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || 'файл';
+      const full = path.join(dir, safe);
+      // Путь обязан лежать внутри временной папки: имя пришло из базы, а туда
+      // его когда-то записал человек
+      if (!path.resolve(full).startsWith(path.resolve(dir) + path.sep)) {
+        return { success: false, error: 'Недопустимое имя файла' };
+      }
+      fs.writeFileSync(full, Buffer.from(String(p?.base64 || ''), 'base64'));
+      const why = await shell.openPath(full);
+      if (why) return { success: false, error: String(why) };
+      return { success: true, filePath: full };
+    } catch (err: any) {
+      return { success: false, error: String(err?.message || err) };
+    }
+  });
+
   ipcMain.handle('log:save-dialog', async (event, text: string) => {
     const { dialog } = require('electron');
     const fs = require('fs');

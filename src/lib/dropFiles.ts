@@ -16,16 +16,32 @@
  * Без React и без DOM: у этих правил есть правильный ответ, и его проверяет
  * скрипт (scripts/test-drop-files.ts).
  */
+import { dbTypeOf } from './fileTypes';
 
 /**
- * Сколько весит самый большой файл, который стоит класть в общую базу.
+ * Предела на размер файла больше нет.
  *
- * Настоящий предел приходит от сервера (`/api/limits`): он зависит от базы —
- * у MariaDB есть предел размера пакета, и строка больше него не запишется, а
- * соединение оборвётся. Здесь — только разумный потолок на случай, если
- * спросить не удалось.
+ * Содержимое едет в базу кусками (server/routes/fileChunks.ts), и «сколько
+ * влезает в пакет» стало свойством куска, а не файла. Имя оставлено, чтобы не
+ * править десяток мест ради переименования: значение теперь означает
+ * «отказывать по размеру не надо».
  */
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_FILE_BYTES = Number.POSITIVE_INFINITY;
+
+/**
+ * Выше этого спрашиваем подтверждение, а не отказываем (server/limits.ts).
+ *
+ * Предела на размер больше нет: содержимое едет в базу кусками, и «сколько
+ * влезает в пакет» перестало быть свойством файла. Но полгигабайта лежат в
+ * общей базе, едут по сети отдела и попадают в резервную копию — человек имеет
+ * право их положить, а программа обязана об этом сказать один раз.
+ */
+export const WARN_FILE_BYTES = 500 * 1024 * 1024;
+
+/** Файлы, о которых стоит спросить: слишком тяжёлые, чтобы класть молча */
+export function heavyOnes<T extends DroppedFile>(files: T[], warn = WARN_FILE_BYTES): T[] {
+  return files.filter((f) => (f.size || 0) > warn);
+}
 
 /** Что человек принёс: имя и размер — больше для решения ничего не нужно */
 export interface DroppedFile {
@@ -42,7 +58,7 @@ export interface DropPlan<T extends DroppedFile> {
   refused: { name: string; why: string }[];
 }
 
-const MB = (n: number): string => `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} МБ`;
+export const MB = (n: number): string => `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} МБ`;
 
 /**
  * Имя, которого ещё нет в этой папке: «Смета.xlsx» → «Смета (2).xlsx».
@@ -62,15 +78,15 @@ export function uniqueName(name: string, taken: Set<string>): string {
   return `${base} (${Date.now()})${ext}`;
 }
 
-/** Тип файла для базы — по расширению, а не по тому, что сказал браузер */
+/**
+ * Тип файла для базы — по расширению, а не по тому, что сказал браузер.
+ *
+ * Считает общая таблица расширений (lib/fileTypes): свой список здесь был
+ * седьмым по счёту, и они успели разойтись. Значения типов историчны —
+ * в базе лежат записи с ними, и менять их нельзя.
+ */
 export function typeOf(name: string): string {
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf') return 'PDF';
-  if (['doc', 'docx'].includes(ext)) return 'DOCX';
-  if (['xls', 'xlsx', 'xlsm'].includes(ext)) return 'XLSX';
-  if (['txt', 'md', 'csv', 'log'].includes(ext)) return 'TXT';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'IMAGE';
-  return ext ? ext.toUpperCase() : 'FILE';
+  return dbTypeOf(name);
 }
 
 /**

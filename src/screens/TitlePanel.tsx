@@ -167,12 +167,12 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
   }, [projectId]);
 
   return (
-    <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
+    <div className="shrink-0 w-72 @[900px]:w-80 h-full flex flex-col overflow-hidden bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
         <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Stamp className="w-4 h-4 text-emerald-600" /> Титульный лист</span>
         <button type="button" title="Закрыть титульный лист" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
       </div>
-      <div className="p-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-auto p-4 space-y-3">
         <div>
           <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Шаблон титула</label>
           <select
@@ -183,7 +183,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {templates.length === 0 && (
-            <p className="text-xs text-slate-400 mt-1">Создаются в Конструкторе → «Шаблон титула»</p>
+            <p className="text-xs text-slate-400 mt-1">Создаются в «Таблице» → «Шаблон титула»</p>
           )}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">

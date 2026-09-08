@@ -5,6 +5,7 @@ import SectionShell from '../components/settings/SectionShell';
 import LogsSection from '../components/settings/LogsSection';
 import BrowserSection from '../components/settings/BrowserSection';
 import GeneralSection from '../components/settings/GeneralSection';
+import SignatureSection from '../components/settings/SignatureSection';
 import ToggleRow from '../components/settings/ToggleRow';
 import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
@@ -18,7 +19,7 @@ import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
   Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
-  ShieldCheck, Lock, Pencil, Sigma, Languages, Globe } from 'lucide-react';
+  ShieldCheck, Lock, Pencil, PenLine, Sigma, Languages, Globe } from 'lucide-react';
 import RoleIcon from '../components/RoleIcon';
 import FormulaManager from '../components/FormulaManager';
 import {
@@ -43,7 +44,7 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -53,6 +54,9 @@ type SettingScope = 'global' | 'project';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope; topOnly?: boolean }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
+  // Подпись — настройка человека, и место ей здесь. До этого она пряталась
+  // значком в подвале Пуска: найти её мог только тот, кто знал, что она там
+  { id: 'signature', label: 'Моя подпись', icon: PenLine, desc: 'Чем подписаны документы', scope: 'global' },
   // Роли и доступ — дело одного главного администратора. Остальные не видят
   // этот лист вовсе: серая кнопка рассказывает о существовании двери, в
   // которую всё равно не войти, а отказ приходил уже от сервера — то есть
@@ -177,6 +181,7 @@ export default function SettingsScreen() {
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
+        {section === 'signature' && <SignatureSection />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}

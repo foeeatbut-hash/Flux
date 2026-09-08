@@ -18,6 +18,8 @@ import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
+import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
+import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
@@ -1850,7 +1852,27 @@ registerUpdateRoutes(app, {
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
-registerLimitRoutes(app, () => prisma);
+const limits = registerLimitRoutes(app, () => prisma);
+// Содержимое файла едет кусками: предела на размер больше нет. Право записи на
+// общий диск считается тем же способом, что и для остальных действий с файлами
+registerFileChunkRoutes(app, {
+  chunkBytes: limits.chunkBytes,
+  mayWrite: async (req, fileId) => {
+    const user = (req as any).authUser;
+    if (user?.role === 'ADMIN') return '';
+    const file = await prisma.fileNode.findUnique({
+      where: { id: fileId }, select: { folderId: true },
+    });
+    if (!file?.folderId) return '';
+    const folder = await prisma.folder.findUnique({
+      where: { id: file.folderId }, select: { projectId: true },
+    });
+    const disk = await ensureDiskProject();
+    if (folder?.projectId !== disk) return '';
+    return userCan(user, 'disk.write') ? ''
+      : 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».';
+  },
+});
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»
@@ -1918,7 +1940,9 @@ async function enforce(req: Request, res: Response, feature: string): Promise<bo
 }
 
 app.get('/api/projects', async (req: Request, res: Response) => {
-  const projects = await prisma.project.findMany();
+  // Служебный проект «Общий диск» — не проект, а место хранения: в
+  // переключателе он ни к чему, и переключиться «в диск» человек не должен
+  const projects = await prisma.project.findMany({ where: { system: false } });
   // Человек видит только те проекты, в которые его позвали. Проект, куда ещё
   // никого не звали, виден всем: включать ограничение задним числом на базе,
   // которая о составе не знает, — значит отобрать у отдела всё разом
@@ -2078,7 +2102,7 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 });
 
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
-registerExplorerRoutes(app);
+registerExplorerRoutes(app, { can: userCan });
 registerDesktopRoutes(app);
 registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
@@ -2251,9 +2275,10 @@ app.post('/api/excel/sheets', async (req: Request, res: Response) => {
   try {
     const { fileId } = req.body;
     const file = await prisma.fileNode.findUnique({ where: { id: String(fileId) } });
-    if (!file || !file.content) return res.status(404).json({ error: 'Файл не найден или пуст' });
-    let b64 = file.content; if (b64.includes(',')) b64 = b64.split(',')[1];
-    const buf = Buffer.from(b64, 'base64');
+    if (!file) return res.status(404).json({ error: 'Файл не найден' });
+    // Байты общим путём: содержимое лежит кусками, а у старых файлов — строкой
+    const buf = await fileBytes(file);
+    if (!buf.length) return res.status(404).json({ error: 'У файла нет содержимого' });
     const wb = XLSX.read(buf, { type: 'buffer' });
     const sheets = wb.SheetNames.map(name => {
       const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
@@ -3180,7 +3205,8 @@ app.get('/api/chat/autocomplete-tags', async (req: Request, res: Response) => {
 // Helper to auto-sync Chat Group for every Project
 async function ensureProjectChatGroups() {
   try {
-    const projects = await prisma.project.findMany();
+    // У общего диска чата быть не должно: это хранилище, а не проект
+    const projects = await prisma.project.findMany({ where: { system: false } });
     const users = await prisma.user.findMany();
     // Системный канал «Ошибки» — в нём по умолчанию состоят все пользователи
     const errName = 'Ошибки';
@@ -3618,11 +3644,8 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
   const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
   if (!fileNode) throw { status: 404, error: 'Файл не найден' };
-  if (!fileNode.content) throw { status: 400, error: 'Содержимое файла пустое' };
-
-  let base64 = fileNode.content;
-  if (base64.includes(',')) base64 = base64.split(',')[1];
-  const buffer = Buffer.from(base64, 'base64');
+  const buffer = await fileBytes(fileNode);
+  if (!buffer.length) throw { status: 400, error: 'Содержимое файла пустое' };
   const extension = fileNode.name.split('.').pop()?.toLowerCase();
 
   if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {

@@ -28,7 +28,7 @@ export interface StartGroup {
  * файл». В группах «Проект» и «Общее» они терялись между разделами про данные,
  * хотя это не разделы, а программы для работы с файлами.
  */
-export const OFFICE_PATHS = ['/constructor', '/notes', '/pdf'];
+export const OFFICE_PATHS = ['/sheet', '/doc', '/notes', '/pdf'];
 export const OFFICE_TITLE = 'Flux Office';
 
 /** Шесть строк — столько влезает в меню, не заставляя прокручивать */

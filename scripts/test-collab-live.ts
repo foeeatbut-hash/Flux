@@ -85,7 +85,7 @@ const api = async (method: string, url: string, body?: any) => {
       await page.keyboard.press('Enter');
       await page.waitForTimeout(4000);
     }
-    await page.goto(`${BASE}/#/constructor?doc=${docId}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${BASE}/#/sheet?doc=${docId}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(9000);
     if (errs.length) console.log(`  [${label}] в консоли:`, errs.slice(0, 3));
     return { ctx, page, errs };

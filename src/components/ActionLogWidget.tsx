@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLogStore, LogItem } from '../store/logStore';
-import { useAssistantStore } from '../store/assistantStore';
+import { FRAME_H } from '../lib/metrics';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { useChatStore } from '../store/chatStore';
-import { useNotificationStore } from '../store/notificationStore';
 import { 
   Terminal, 
   Copy, 
@@ -31,9 +30,7 @@ function roleLabel(role?: string): string {
 }
 
 export default function ActionLogWidget() {
-  const { logs, hasUnreadError, widgetOpen, setWidgetOpen, clearLogs } = useLogStore();
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
-  const notifOpen = useNotificationStore((s) => s.panelOpen);
+  const { logs, widgetOpen, setWidgetOpen, clearLogs } = useLogStore();
   const { addToast } = useToastStore();
   const currentUser = useStore((s) => s.user);
 
@@ -206,25 +203,22 @@ export default function ActionLogWidget() {
   return (
     <div
       id="dx-logs-widget"
-      className="fixed z-[9999] flex flex-col items-end pointer-events-none transition-ui duration-300"
-      /* Отступы считаются от переменных, а не от вписанных чисел: рельс меняет
-         ширину вместе с левым меню, а нижняя панель поднимает журнал над собой —
-         иначе он наезжал бы и на то и на другое. */
-      style={{
-        bottom: 'calc(var(--flux-taskbar-h, 0px) + 1rem)',
-        right: `calc(var(--flux-rail-w) + 16px${(assistantOpen || notifOpen) ? ' + 380px' : ''})`,
-      }}
+      className="fixed z-[9999] flex flex-col items-center pointer-events-none transition-ui duration-300"
+      /* Журнал висит под панелькой окна — там же, откуда его теперь открывают.
+         Круглая нашлёпка у правого края уехала: она закрывала собой угол
+         содержимого и жила отдельно от остального управления программой. */
+      style={{ top: FRAME_H + 12, left: 0, right: 0 }}
     >
       
       {/* Mini Window Popover */}
       <AnimatePresence>
         {widgetOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: 15 }}
+            initial={{ opacity: 0, scale: 0.96, y: -12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: 15 }}
+            exit={{ opacity: 0, scale: 0.96, y: -12 }}
             transition={{ type: 'spring', damping: 20, stiffness: 250 }}
-            className="w-[420px] h-[520px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto mb-3"
+            className="w-[420px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100vh-8rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
           >
             {/* Header */}
             <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -345,34 +339,6 @@ export default function ActionLogWidget() {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Button (FAB) */}
-      <motion.button
-        onClick={() => setWidgetOpen(!widgetOpen)}
-        className={`pointer-events-auto w-12 h-12 rounded-full flex items-center justify-center shadow-lg border outline-none transition duration-300 relative cursor-pointer ${
-          widgetOpen 
-            ? 'bg-slate-800 text-white hover:bg-slate-900 border-slate-700' 
-            : hasUnreadError
-              ? 'bg-rose-500 text-white hover:bg-rose-600 border-rose-400 animate-pulse'
-              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 border-slate-200 dark:border-slate-800 opacity-40 hover:opacity-100'
-        }`}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.95 }}
-        title="Диагностические логи"
-      >
-        <Terminal className="w-5 h-5" />
-        
-        {/* Unread Indicator Badge */}
-        {!widgetOpen && logs.length > 0 && (
-          <span className={`absolute -top-1 -right-1 text-xs font-bold px-1.5 py-0.5 rounded-full border border-white text-white ${
-            // Подложка счётчика должна быть темнее белой цифры в обеих темах.
-            // slate-500 в тёмной теме — цвет приглушённого текста (70.5%), и
-            // белым по нему выходило 2.6 к 1: число не читалось.
-            hasUnreadError ? 'bg-rose-500 animate-bounce' : 'bg-slate-600'
-          }`}>
-            {logs.length > 99 ? '99+' : logs.length}
-          </span>
-        )}
-      </motion.button>
     </div>
   );
 }

@@ -12,7 +12,9 @@
  *
  * Запуск: npx tsx scripts/test-drop-files.ts
  */
-import { planDrop, uniqueName, typeOf, dropLabel, dropResult, MAX_FILE_BYTES } from '../src/lib/dropFiles';
+import {
+  planDrop, uniqueName, typeOf, dropLabel, dropResult, heavyOnes, WARN_FILE_BYTES,
+} from '../src/lib/dropFiles';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -49,7 +51,11 @@ console.log('Тип по расширению');
   check('чертёж', typeOf('Схема.pdf') === 'PDF');
   check('картинка', typeOf('Фото.JPG') === 'IMAGE');
   check('неизвестное расширение не выдумывается', typeOf('данные.dwg') === 'DWG');
-  check('файл без расширения', typeOf('README') === 'README'.toUpperCase());
+  // Раньше здесь возвращалось «README»: расширением считался хвост после
+  // последней точки, а без точки — всё имя целиком. В свойствах файла это
+  // выглядело как тип «README», и у каждого безымянного файла тип был свой
+  check('файл без расширения — просто файл', typeOf('README') === 'FILE', typeOf('README'));
+  check('точка в начале имени расширением не считается', typeOf('.gitignore') === 'FILE', typeOf('.gitignore'));
 }
 
 console.log('Что принимаем');
@@ -67,10 +73,16 @@ console.log('Что принимаем');
 
 console.log('Что отклоняем — и говорим об этом');
 {
+  // Предела на размер больше нет: содержимое едет в базу кусками, и «сколько
+  // влезает в пакет» стало свойством куска. Двести мегабайт — обычный файл
   const big = planDrop([f('Огромный.xlsx', 200 * 1024 * 1024)]);
-  check('слишком большой не принят', big.accepted.length === 0);
-  check('и назван размер и предел',
-    big.refused[0].why.includes('МБ') && big.refused[0].why.includes('предел'), big.refused[0]);
+  check('большой файл принимается', big.accepted.length === 1 && big.refused.length === 0, big.refused);
+
+  // Но молчать про полгигабайта нельзя: он ляжет в общую базу и в резервную
+  // копию. Программа спрашивает один раз, а не запрещает
+  const heavy = heavyOnes([f('Малый.xlsx'), f('Тяжёлый.zip', WARN_FILE_BYTES + 1)]);
+  check('про очень тяжёлый спрашиваем', heavy.length === 1 && heavy[0].name === 'Тяжёлый.zip', heavy);
+  check('а про обычный — нет', heavyOnes([f('Смета.xlsx', 40 * 1024 * 1024)]).length === 0);
 
   // Папка приезжает из Windows как файл нулевого размера — самый частый
   // случай «перенос не работает»
@@ -81,7 +93,7 @@ console.log('Что отклоняем — и говорим об этом');
   const noname = planDrop([{ name: '   ', size: 10 }]);
   check('файл без имени не принят', noname.accepted.length === 0 && noname.refused.length === 1);
 
-  const mixed = planDrop([f('Хороший.docx'), f('Плохой.xlsx', MAX_FILE_BYTES + 1)]);
+  const mixed = planDrop([f('Хороший.docx'), { name: 'Папка', size: 0 }]);
   check('годное принимается, даже если рядом негодное', mixed.accepted.length === 1);
   check('и негодное не теряется молча', mixed.refused.length === 1);
 }

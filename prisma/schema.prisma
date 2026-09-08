@@ -46,6 +46,8 @@ model Project {
   description String   @default("") // Примечание
   info        String   @default("")
   status      String   @default("ACTIVE")
+  /// Служебный проект: общий диск. В списке проектов не показывается
+  system      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   folders          Folder[]
@@ -279,6 +281,7 @@ model FileNode {
   folder   Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
 
   markups        PdfMarkup[]
+  chunks         FileChunk[]
   mainTags       Tag[]       @relation("FileMainTags")
   additionalTags Tag[]       @relation("FileAdditionalTags")
   deletedAt      DateTime? // корзина: файл скрыт, но восстановим
@@ -957,4 +960,20 @@ model ActionLog {
 
   @@index([createdAt])
   @@index([userId])
+}
+
+/// Содержимое файла кусками. Строка `FileNode.content` держала весь файл
+/// целиком, и предел выходил не из политики, а из размера пакета базы:
+/// у MariaDB это 5 МБ при скромной настройке. Кусками едет и файл обновления
+/// (AppUpdateChunk) — здесь та же схема, только для файлов Проводника.
+model FileChunk {
+  id     String @id @default(uuid())
+  fileId String
+  file   FileNode @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  /// Номер куска по порядку; собирается обратно по нему
+  idx    Int
+  data   Bytes
+
+  @@unique([fileId, idx])
+  @@index([fileId])
 }

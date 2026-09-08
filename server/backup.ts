@@ -12,6 +12,7 @@
 // Расписание: раз в сутки (проверка каждый час + при старте). Ротация: keep N.
 
 import fs from 'fs';
+import { fileBytes } from './routes/fileChunks.js';
 import path from 'path';
 import crypto from 'crypto';
 import type { Express, Request, Response } from 'express';
@@ -136,13 +137,15 @@ export function initBackups(deps: BackupDeps) {
     const usedNames = new Set<string>();
     for (const f of files) {
       try {
-        if (!f.content) { skipped++; continue; } // зеркала Конструктора и пустышки
+        // Байты берём общим путём: у файла, положенного новой версией, они
+        // лежат кусками, у старого — строкой. Зеркала документов Flux Office и
+        // пустышки не имеют ни того, ни другого — их и пропускаем
+        const bytes = await fileBytes(f);
+        if (!bytes.length) { skipped++; continue; }
         const folder = f.folderId ? folderById.get(f.folderId) : null;
         const projName = folder ? (projectName.get(folder.projectId) || 'Проект') : 'Без проекта';
         const dir = path.join(destRoot, 'Проводник', projName, ...(folder ? folderPath(f.folderId) : [f.scope === 'PERSONAL' ? 'Личные' : 'Общие']));
         fs.mkdirSync(dir, { recursive: true });
-        let b64 = String(f.content);
-        if (b64.includes(',')) b64 = b64.split(',')[1];
         let name = sanitizeName(f.name, 'файл');
         // дубликаты имён в одной папке — нумеруем
         let full = path.join(dir, name);
@@ -152,7 +155,7 @@ export function initBackups(deps: BackupDeps) {
           full = path.join(dir, `${path.basename(name, ext)} (${++n})${ext}`);
         }
         usedNames.add(full);
-        fs.writeFileSync(full, Buffer.from(b64, 'base64'));
+        fs.writeFileSync(full, bytes);
         written++;
       } catch (error: any) {
         throw new Error(`Не удалось сохранить файл Проводника «${f.name}»: ${error.message}`);

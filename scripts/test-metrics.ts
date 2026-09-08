@@ -16,7 +16,7 @@ import { readFileSync } from 'fs';
 import {
   BAR_H, BAR_BTN, BAR_ICON, BAR_EDGE, DESK, DESK_SCALES, DESK_DEFAULT, deskMetric, ROW_H,
   START_W, START_COLS, START_PAD, TILE_BOX, TILE_ICON, TILE_CELL,
-  FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE, FRAME_DRAG,
+  FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_BTNS, FRAME_LABEL, FRAME_LURE, FRAME_DRAG,
 } from '../src/lib/metrics';
 import { Z } from '../src/lib/layers';
 import { CELL_W, CELL_H, gridSize, layout, arrange, cellToXY, xyToCell } from '../src/lib/desktop';
@@ -122,7 +122,11 @@ console.log('Панельку окна есть за что взять');
   check('на перетаскивание остаётся заметная область', FRAME_DRAG >= 80, FRAME_DRAG);
   check('область перетаскивания шире кнопки окна', FRAME_DRAG > FRAME_BTN, [FRAME_DRAG, FRAME_BTN]);
   check('панелька шире всего, что в ней стоит',
-    FRAME_W > FRAME_GRIP + FRAME_LABEL + FRAME_BTN * 3, FRAME_W);
+    FRAME_W > FRAME_GRIP + FRAME_LABEL + FRAME_BTN * FRAME_BTNS, FRAME_W);
+  // Кнопка журнала переехала сюда из круглой нашлёпки поверх содержимого.
+  // Счёт кнопок держится числом, а не памятью: припишут пятую — проверка
+  // потребует расширить панельку, а не молча съест перетаскивание
+  check('кнопок в панельке четыре: журнал и три оконных', FRAME_BTNS === 4, FRAME_BTNS);
   check('приманка у кромки не тоньше пальца', FRAME_LURE >= 16, FRAME_LURE);
   check('приманка ниже самой панельки', FRAME_LURE < FRAME_H, [FRAME_LURE, FRAME_H]);
   check('кнопка окна помещается в панельку с воздухом', FRAME_H - 8 >= 24, FRAME_H);

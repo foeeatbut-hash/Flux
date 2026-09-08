@@ -25,7 +25,7 @@ export const THING_RU: Record<string, string> = {
   ChatGroup: 'группа чата',
   ChatMessage: 'сообщение чата',
   ComponentElement: 'элемент оборудования',
-  ConstructorDoc: 'книга Конструктора',
+  ConstructorDoc: 'таблица или текстовый документ',
   ConstructorDocVersion: 'версия книги',
   Dictionary: 'справочник значений',
   DictionaryItem: 'значение справочника',
