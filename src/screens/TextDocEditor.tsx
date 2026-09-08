@@ -31,7 +31,7 @@ import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import { dataService } from '../services/dataService';
-import { buildDocx, partsFromHtml } from '../lib/docxWrite';
+import { wordBytes, wordToExplorer } from '../lib/docOutput';
 import { saveBytes } from '../lib/saveToWindows';
 import { useDocLabels } from '../components/doc/useDocLabels';
 
@@ -392,15 +392,29 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         // Импорт из файла Проводника: содержимое вставляется при первом
         // открытии (сервер положил plain-текст в bindings.importText)
         if (isNew) {
-          try {
-            const b = loaded.bindings ? JSON.parse(loaded.bindings) : null;
-            const importText = String(b?.importText || '');
-            if (importText) {
+          let parsed: any = null;
+          try { parsed = loaded.bindings ? JSON.parse(loaded.bindings) : null; } catch (_) {}
+          const importText = String(parsed?.importText || '');
+          if (importText) {
+            let landed = false;
+            try {
               await fdoc?.appendText?.(importText);
-              // Текст вставлен — задание импорта снимаем, метки оставляем
+              // Спрашиваем сам документ, а не ответ движка: `appendText` в
+              // разных сборках возвращает то себя, то ничего, и по нему успех
+              // от неудачи не отличить
+              landed = snapshotToPlainText(fdoc?.getSnapshot?.())
+                .includes(importText.trim().slice(0, 40));
+            } catch (_) {}
+            if (landed) {
+              // Текст на месте — задание импорта снимаем, метки оставляем
               setTimeout(() => saveNow({ bindings: docLabels.bindings() }), 800);
+            } else {
+              // Вставка не удалась. Задание НЕ снимаем: раньше снимали сразу, и
+              // текст пропадал навсегда — документ открывался пустым при каждом
+              // следующем открытии, а причину было уже не найти
+              addToast('Текст из файла вставить не удалось. Он не потерян: закройте документ и откройте заново', 'error');
             }
-          } catch (_) {}
+          }
         }
 
         // Мои мутации → остальным участникам комнаты (useDocRoom)
@@ -648,40 +662,24 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
    * Раньше отсюда уходил HTML с расширением `.doc`. Word открывал его с
    * предупреждением «формат не соответствует расширению», и человек, отправивший
    * документ заказчику, каждый раз объяснял получателю, что это нормально.
-   * Теперь собирается настоящий документ (src/lib/docxWrite.ts): абзацы,
-   * заголовки и таблицы на месте, формул внутри нет — на их месте значения на
-   * момент выгрузки.
+   * Сборка файла живёт в src/lib/docOutput.ts — там же её проверки.
    */
   const exportWord = async () => {
     try {
-      const html = await buildFullHtml(true);
       const name = doc?.name || 'Документ';
-      const { htmlToBlocks } = await import('../import/extractors');
-      const parts = partsFromHtml(html, (fragment) => {
-        const found = htmlToBlocks(fragment).find((b: any) => b.kind === 'table') as any;
-        return found?.rows || [];
-      });
-      const out = await saveBytes(safeFileName(name, 'docx'), buildDocx(parts));
+      const bytes = await wordBytes(await buildFullHtml(true), JSON.parse(takeSnapshot() || '{}'));
+      const out = await saveBytes(safeFileName(name, 'docx'), bytes);
       if (out.canceled) return;
       addToast(out.ok ? `Документ Word сохранён: ${out.path || name}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (_) { addToast('Не удалось выгрузить в Ворд', 'error'); }
   };
 
   // Тот же файл, но в общий Проводник — чтобы отдать коллеге, не пересылая почтой
-  const wordToExplorer = async () => {
+  const wordToExplorerFile = async () => {
     try {
-      const html = await buildFullHtml(true);
-      const fileName = safeFileName(doc?.name || 'Документ', 'doc');
-      const b64 = btoa(unescape(encodeURIComponent(html)));
-      const res = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Тип как у загруженных вордовских файлов Проводника — один значок
-          name: fileName, filePath: `/shared/${fileName}`, type: 'DOCX',
-          size: html.length, content: b64, createdById: user?.id || null,
-        }),
-      });
-      if (!res.ok) throw new Error('files failed');
+      const fileName = safeFileName(doc?.name || 'Документ', 'docx');
+      const bytes = await wordBytes(await buildFullHtml(true), JSON.parse(takeSnapshot() || '{}'));
+      await wordToExplorer(bytes, fileName, user?.id || null);
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };
@@ -964,7 +962,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     office: () => { setFileOpen(false); exportWord(); },
     officeLabel: 'В Ворд (.doc)',
     officeHint: 'Откроется в Ворде: шрифты, поля и значения полей на месте',
-    toExplorer: () => { setFileOpen(false); wordToExplorer(); },
+    toExplorer: () => { setFileOpen(false); wordToExplorerFile(); },
     plain: () => { setFileOpen(false); exportTxt(); },
     plainLabel: 'Текст (.txt)',
     close: () => { setFileOpen(false); handleClose(); },

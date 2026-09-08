@@ -65,7 +65,17 @@ function stripTags(s: string): string {
 }
 
 /** HTML (упрощённый, как выдаёт mammoth) → блоки. Вложенные таблицы уплощаются. */
-export function htmlToBlocks(html: string): DocBlock[] {
+/**
+ * Разбор HTML в блоки.
+ *
+ * `dropRepeats` — правило двуязычных бланков: значение, повторённое в соседней
+ * ячейке, считается переводом и опустошается. Оно придумано для разбора
+ * бланков оборудования и там нужно; на ОБЫЧНОЙ таблице с повторами (три
+ * одинаковых «да» подряд) оно стирает данные. Поэтому у открытия документа
+ * Word оно выключено — там таблица должна доехать как есть.
+ */
+export function htmlToBlocks(html: string, opts: { dropRepeats?: boolean } = {}): DocBlock[] {
+  const dropRepeats = opts.dropRepeats !== false;
   const blocks: DocBlock[] = [];
   // Вырезаем таблицы верхнего уровня по балансу тегов
   let rest = html;
@@ -89,7 +99,7 @@ export function htmlToBlocks(html: string): DocBlock[] {
     // Текст до таблицы — абзацы
     pushParas(rest.slice(0, start), blocks);
     const tableHtml = rest.slice(start, end);
-    const rows = parseHtmlTable(tableHtml);
+    const rows = parseHtmlTable(tableHtml, dropRepeats);
     if (rows.length) blocks.push({ kind: 'table', rows });
     rest = rest.slice(end);
   }
@@ -117,7 +127,7 @@ function cellText(html: string): string {
     .join('\n');
 }
 
-function parseHtmlTable(tableHtml: string): string[][] {
+function parseHtmlTable(tableHtml: string, dropRepeats: boolean): string[][] {
   // Вложенные таблицы уплощаются: их ячейки становятся текстом родительской ячейки
   const rows: string[][] = [];
   const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
@@ -130,7 +140,7 @@ function parseHtmlTable(tableHtml: string): string[][] {
       const colspan = parseInt(tdm[1] || '1', 10) || 1;
       const text = cellText(tdm[2]);
       // Двуязычные бланки дублируют значение в соседних ячейках — схлопываем
-      if (text && cells.length && cells[cells.length - 1] === text) {
+      if (dropRepeats && text && cells.length && cells[cells.length - 1] === text) {
         cells.push('');
       } else {
         cells.push(text);

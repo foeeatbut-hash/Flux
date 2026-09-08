@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('electron', {
   /** Сохранить файл на диск Windows обычным окном сохранения */
   saveFileAs: (p: { name: string; base64: string; dir?: string }) =>
     ipcRenderer.invoke('files:save-as', p),
+  /** Открыть файл программой Windows — для того, чему своей программы нет */
+  openFileExternally: (p: { name: string; base64: string }) =>
+    ipcRenderer.invoke('files:open-external', p),
   ipcRenderer: {
     send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
     on: (channel: string, func: (...args: any[]) => void) => {

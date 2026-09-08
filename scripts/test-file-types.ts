@@ -90,6 +90,21 @@ console.log('Адреса');
     openHref({ id: 'a b', folderId: 'п/п' }));
 }
 
+console.log('Двойное нажатие всегда что-то делает');
+{
+  // Ровно то, на что жаловался владелец: «не все файлы открываются». Своей
+  // программы для чертежа САПР нет и не будет — но тупика быть не должно
+  for (const name of ['Узел.dwg', 'Модель.step', 'Архив.zip', 'Проект.rvt']) {
+    const apps = appsFor({ id: 'x', name, folderId: 'd' });
+    check(`${name}: есть чем открыть`, apps.length > 0 && apps.some((a) => a.id === 'windows'),
+      apps.map((a) => a.id));
+  }
+  // А у того, что открывается своей программой, чужой в списке быть не должно
+  check('книга открывается своей программой, а не Windows',
+    appsFor({ id: 'x', name: 'Смета.xlsx' })[0].id === 'office');
+  check('чертёж ПДФ — «Просмотром»', appsFor({ id: 'x', name: 'АР.pdf' })[0].id === 'pdf');
+}
+
 console.log('Список программ опрятен');
 {
   for (const [key, app] of Object.entries(FILE_APPS)) {

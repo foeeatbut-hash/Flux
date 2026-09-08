@@ -10,6 +10,7 @@ import React from 'react';
 import { format } from 'date-fns';
 import { Folder, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Boxes, HardDrive } from 'lucide-react';
 import { SEC_SHARED, SEC_DISK } from '../../lib/explorerSections';
+import { faceOf } from '../../lib/fileTypes';
 
 export const getFileIcon = (item: any, classNameStr: string) => {
   if (item.isSection) {
@@ -23,11 +24,17 @@ export const getFileIcon = (item: any, classNameStr: string) => {
   if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
   if (item.isFolder) return <Folder className={`${classNameStr} text-amber-500 fill-amber-200`} />;
   if (item.type === 'CONSTRUCTOR') return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
-  if (item.type === 'IMAGE' || item.name?.match(/\.(jpe?g|png|gif|webp)$/i)) return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
-  if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-rose-500`} />;
-  if (item.type === 'DOCX' || item.name?.match(/\.(doc|docx)$/i)) return <FileText className={`${classNameStr} text-emerald-600`} />;
-  if (item.type === 'TXT' || item.name?.match(/\.(txt|md|csv)$/i)) return <FileText className={`${classNameStr} text-slate-500`} />;
-  return <FileIcon className={`${classNameStr} text-slate-400`} />;
+  // Вид файла считает общая таблица расширений: свой список здесь был пятым по
+  // счёту, и они расходились — .xls показывался безымянным значком, хотя
+  // открывается «Таблицей»
+  switch (faceOf(item.name || '')) {
+    case 'image': return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
+    case 'pdf': return <FileText className={`${classNameStr} text-rose-500`} />;
+    case 'sheet': return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
+    case 'text': return <FileText className={`${classNameStr} text-sky-600`} />;
+    case 'plain': return <FileText className={`${classNameStr} text-slate-500`} />;
+    default: return <FileIcon className={`${classNameStr} text-slate-400`} />;
+  }
 };
 
 export const formatSize = (bytes: number) => {

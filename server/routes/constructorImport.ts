@@ -33,7 +33,7 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
   // ── «Редактировать копию»: документ студии из файла Проводника ──
   // Исходный файл не изменяется — регистр выданной документации неприкосновенен.
   // xlsx/xlsm/csv → таблица (DOC), txt/md → текст (TEXT, содержимое вставит
-  // редактор при первом открытии), docx → текст без сложной вёрстки (mammoth).
+  // редактор при первом открытии). Word разбирается только в окне.
   /**
    * Разобранное окном приходит готовым.
    *
@@ -43,6 +43,11 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
    * этой сборке» всегда, а у разработчика работала. Серверный разбор остаётся
    * запасным путём (им пользуется «Редактировать копию» для txt и csv), но
    * если окно прислало готовое — верим ему и не разбираем второй раз.
+   *
+   * Ветки docx здесь больше нет совсем. Она звала библиотеку из зависимостей
+   * для разработки и у сотрудника не работала ни разу: ответ был всегда
+   * «разбор недоступен в этой сборке». Word разбирается в окне, и только там —
+   * зато с колонтитулами, надписями и внятной причиной, если текста нет.
    */
   app.post('/api/constructor/docs/import-file', async (req: Request, res: Response) => {
     try {
@@ -115,14 +120,6 @@ export function registerImportFileRoute(app: Express, deps: ImportFileDeps): voi
       } else if (['txt', 'md', 'log', 'json'].includes(ext)) {
         // Текст: содержимое вставит редактор при первом открытии (appendText)
         bindings = JSON.stringify({ importText: buf.toString('utf-8') });
-      } else if (ext === 'docx') {
-        try {
-          const mammoth = require('mammoth');
-          const r = await mammoth.extractRawText({ buffer: buf });
-          bindings = JSON.stringify({ importText: String(r?.value || '') });
-        } catch (e: any) {
-          return res.status(400).json({ error: 'Разбор DOCX недоступен в этой сборке — сложная вёрстка будет в следующей фазе' });
-        }
       } else {
         return res.status(400).json({ error: `Формат .${ext} пока не открывается в Flux Office` });
       }

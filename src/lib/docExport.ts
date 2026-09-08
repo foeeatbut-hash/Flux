@@ -238,8 +238,12 @@ export function buildDocHtml(snap: any, meta: DocMeta, forWord = false): string 
   <xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
   <style>@page WordSection1 { ${page}; } div.WordSection1 { page:WordSection1; }</style>` : '';
 
+  // Метка разрыва нужна только файлу для Word: в печати разрыв делает CSS
+  // `page-break-after`, а в docx никакого CSS нет, и титул с первой строкой
+  // записки оказывались на одном листе
+  const wordBreak = forWord ? '<div data-page-break="1"></div>' : '';
   const titleBlock = meta.titlePageHtml
-    ? `<div style="page-break-after:always">${meta.titlePageHtml}</div>`
+    ? `<div style="page-break-after:always">${meta.titlePageHtml}</div>${wordBreak}`
     : `<h1 style="font-size:16pt;margin:0 0 2pt">${esc(meta.title)}</h1>` +
       (meta.subtitle ? `<div style="font-size:9pt;color:#64748b;margin-bottom:10pt">${esc(meta.subtitle)}</div>` : '');
 

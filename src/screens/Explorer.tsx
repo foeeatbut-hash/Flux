@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
-import { isPdf, isConstructorDoc, FILE_APPS, officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
+import { officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
 import { ROOT_NAME } from '../lib/explorerTabs';
@@ -25,7 +25,7 @@ import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
 import { uploadDropped } from '../lib/dropUpload';
 import { heavyOnes, MB } from '../lib/dropFiles';
-import { saveFileNode } from '../lib/saveToWindows';
+import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import {
   SEC_SHARED, SEC_DISK, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
@@ -1144,15 +1144,26 @@ export default function Explorer() {
       });
       return;
     }
-    // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes): та же,
-    // по которой открывает значок на столе. Остальному — предпросмотр: двойной
-    // клик ВСЕГДА что-то делает (B1)
-    if (f && isConstructorDoc(f) && f.refId) { navigate(FILE_APPS.docs.href(f)); return; }
-    if (f && isPdf(f)) { navigate(FILE_APPS.pdf.href({ ...f, id })); return; }
+    /*
+      Чем открыть — решает общая таблица сопоставлений (lib/fileTypes).
+      Здесь она наконец и решает: до этого места разбирались два случая руками —
+      документ и ПДФ, — а всё остальное падало в предпросмотр. Из-за этого
+      книга Excel, открытая со стола, попадала в «Таблицу», а та же книга из
+      Проводника — в картинку-заглушку сбоку. Одно движение мышью, два разных
+      ответа, и оба «правильные» по своему куску кода.
+    */
+    if (!f) return;
+    const app = appsFor({ ...f, id })[0];
+    if (app?.id === 'windows') { void openInWindowsSaid(id, String(f.name || ''), addToast); return; }
+    if (app && app.id !== 'explorer') { navigate(app.href({ ...f, id })); return; }
+
+    // Открывать нечем — но и молчать нельзя: у .doc и .rtf есть совет, что
+    // делать, и человек должен его прочитать, а не смотреть на пустой значок
+    const advice = legacyAdvice(String(f.name || ''));
+    if (advice) addToast(advice, 'info');
     setSelectedIds(new Set([id]));
     setLastSelectedId(id);
     setShowPreviewPane(true);
-    if (!f?.content) addToast('У файла нет сохранённого содержимого (загружен без предпросмотра).', 'info');
   }, [navigate, addToast]);
 
   // Ссылка на себя: после согласия переключить проект открытие повторяется
@@ -2009,7 +2020,16 @@ export default function Explorer() {
             if (appId === 'explorer') {
               setSelectedIds(new Set([contextMenu.targetId!]));
               setShowPreviewPane(true);
-            } else navigate(href);
+              return;
+            }
+            // Windows — тоже не адрес: файл надо выложить во временную папку и
+            // отдать её проводнику системы
+            if (appId === 'windows') {
+              const it = allCurrentItems.find((i) => i.id === contextMenu.targetId);
+              void openInWindowsSaid(String(contextMenu.targetId), String(it?.name || 'Файл'), addToast);
+              return;
+            }
+            navigate(href);
           }}
           openFolder={navigateTo}
           refresh={fetchData}

@@ -39,7 +39,7 @@ import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref, officePathForKind } from '../lib/fileTypes';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
 import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
-import { saveFileNode } from '../lib/saveToWindows';
+import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
@@ -77,6 +77,7 @@ export default function Desktop() {
   const [carry, setCarry] = React.useState('');
   /** Сколько файлов уже легло: перенос книги на 20 МБ — дело не мгновенное */
   const [taking, setTaking] = React.useState<{ done: number; total: number } | null>(null);
+  const pickRef = React.useRef<HTMLInputElement>(null);
   /** Раскрытая папка: полотно поверх стола, а не окно */
   const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
@@ -156,6 +157,7 @@ export default function Desktop() {
     // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes), одна на
     // стол и на Проводник. Пока их было две, чертёж со стола попадал в
     // предпросмотр, а из Проводника — в редактор пометок
+    if (appsFor(item)[0]?.id === 'windows') { void openInWindowsSaid(item.id, item.name, addToast); return; }
     go(openHref(item));
   };
 
@@ -301,7 +303,11 @@ export default function Desktop() {
       ...(item.kind === 'file' ? appsFor(item).slice(1).map((app) => ({
         label: `Открыть в: ${app.name}`,
         icon: <FolderOpen className="w-3.5 h-3.5" />,
-        onClick: () => go(app.href(item)),
+        // Windows — не адрес внутри программы: файл выкладывается во временную
+        // папку и отдаётся системе
+        onClick: () => (app.id === 'windows'
+          ? void openInWindowsSaid(item.id, item.name, addToast)
+          : go(app.href(item))),
       })) : []),
       { label: 'Переименовать', icon: <Pencil className="w-3.5 h-3.5" />, onClick: () => setRenaming({ id: item.id, value: item.name }) },
       // Дорога обратно в Windows. Для файла она прямая: те же байты, та же
@@ -355,6 +361,14 @@ export default function Desktop() {
         { label: 'Заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
         { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('DOC', 'SHARED') },
       ],
+    },
+    {
+      // У стола не было ни выбора файла, ни вставки из буфера — только перенос
+      // мышью. Мышью носят не все и не всегда: с ноутбука в поезде это просто
+      // невозможно
+      label: 'Добавить файл…',
+      icon: <ArrowDownToLine className="w-3.5 h-3.5" />,
+      onClick: () => pickRef.current?.click(),
     },
     {
       label: 'Вид',
@@ -535,6 +549,19 @@ export default function Desktop() {
   });
 
   return (
+    <>
+    {/* Выбор файла: у стола его не было вовсе — только перенос мышью */}
+    <input
+      ref={pickRef}
+      type="file"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        const picked = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (picked.length) void takeFiles(picked, null);
+      }}
+    />
     <div
       ref={ref}
       onPointerDown={asList ? undefined : startBand}
@@ -700,5 +727,6 @@ export default function Desktop() {
         />
       )}
     </div>
+    </>
   );
 }

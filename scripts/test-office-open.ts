@@ -18,6 +18,8 @@
 import { buildDocx, partsFromText } from '../src/lib/docxWrite';
 import { planDrop } from '../src/lib/dropFiles';
 import { appsFor, isOffice } from '../src/lib/fileTypes';
+import { officeKind, oldFormatAdvice, sheetSnapshot } from '../src/lib/officeOpen';
+import * as XLSX from 'xlsx';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
@@ -62,6 +64,28 @@ const api = async (method: string, url: string, body?: any) => {
   const apps = appsFor({ id: 'x', name: 'Смета.xlsx' });
   ok('первым идёт Flux Office, а не предпросмотр', apps[0].name === 'Flux Office', apps.map((a) => a.name));
   ok('предпросмотр остаётся вторым', apps.length > 1 && apps[1].id === 'explorer', apps.map((a) => a.id));
+
+  // Старые форматы: `.xls` читается, `.doc` — нет, и об этом говорят вслух
+  ok('старая книга Excel открывается', officeKind('Смета.xls') === 'sheet', officeKind('Смета.xls'));
+  ok('старый Word не притворяется читаемым', officeKind('Записка.doc') === null, officeKind('Записка.doc'));
+  ok('и вместо молчания даёт совет', /пересохран/i.test(oldFormatAdvice('Записка.doc')), oldFormatAdvice('Записка.doc'));
+
+  console.log('2.1. Пустой разбор называет причину, а не «недоступно в этой сборке»');
+  {
+    // Книга без единой заполненной ячейки: раньше открывалась пустым листом
+    // без единого слова, и человек читал это как поломку программы
+    const empty = XLSX.write({ SheetNames: ['Лист1'], Sheets: { 'Лист1': {} } }, { type: 'array', bookType: 'xlsx' });
+    const out = sheetSnapshot(empty as ArrayBuffer, 'Пустая');
+    ok('пустая книга объясняет пустоту', /картинк/i.test(out.why), out.why);
+    ok('но лист всё равно открывается', out.workbook.includes('sheetOrder'), out.workbook.slice(0, 60));
+
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Расход', 1200]]), 'Лист1');
+    const withData = XLSX.write(book, { type: 'array', bookType: 'xlsx' });
+    const good = sheetSnapshot(withData as ArrayBuffer, 'С данными');
+    ok('у книги с данными причины нет', good.why === '', good.why);
+    ok('и значения на месте', good.workbook.includes('1200'), good.workbook.slice(0, 200));
+  }
 
   const docxName = `Проверка-${Date.now()}.docx`;
   let fileId = '';

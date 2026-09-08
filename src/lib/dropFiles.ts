@@ -16,6 +16,7 @@
  * Без React и без DOM: у этих правил есть правильный ответ, и его проверяет
  * скрипт (scripts/test-drop-files.ts).
  */
+import { dbTypeOf } from './fileTypes';
 
 /**
  * Предела на размер файла больше нет.
@@ -77,15 +78,15 @@ export function uniqueName(name: string, taken: Set<string>): string {
   return `${base} (${Date.now()})${ext}`;
 }
 
-/** Тип файла для базы — по расширению, а не по тому, что сказал браузер */
+/**
+ * Тип файла для базы — по расширению, а не по тому, что сказал браузер.
+ *
+ * Считает общая таблица расширений (lib/fileTypes): свой список здесь был
+ * седьмым по счёту, и они успели разойтись. Значения типов историчны —
+ * в базе лежат записи с ними, и менять их нельзя.
+ */
 export function typeOf(name: string): string {
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf') return 'PDF';
-  if (['doc', 'docx'].includes(ext)) return 'DOCX';
-  if (['xls', 'xlsx', 'xlsm'].includes(ext)) return 'XLSX';
-  if (['txt', 'md', 'csv', 'log'].includes(ext)) return 'TXT';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'IMAGE';
-  return ext ? ext.toUpperCase() : 'FILE';
+  return dbTypeOf(name);
 }
 
 /**

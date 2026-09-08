@@ -103,3 +103,55 @@ export async function saveTextDocAsWord(name: string, text: string, dir = ''): P
   const clean = name.replace(/\.[^.]+$/, '');
   return saveBytes(`${clean}.docx`, buildDocx(partsFromText(text)), dir);
 }
+
+/**
+ * Открыть файл тем, чем его открывает Windows.
+ *
+ * Для чертежей САПР, архивов и моделей — всего, для чего своей программы у нас
+ * нет. Раньше такой файл упирался в значок с подписью «Файл»: человек видел
+ * его и не мог сделать ничего.
+ *
+ * Файл при этом остаётся в Flux, а Windows открывает его КОПИЮ во временной
+ * папке: править её бессмысленно, и человеку об этом говорится сразу. Обещать
+ * обратную запись мы не можем — Windows не сообщает, когда программа закрылась
+ * и что она записала.
+ */
+export async function openInWindows(fileId: string, name: string): Promise<SaveResult> {
+  const e = (window as any).electron;
+  if (!e?.openFileExternally) {
+    return { ok: false, path: '', canceled: false, error: 'Открыть программой Windows можно только в самой программе, а не в браузере' };
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await fileBytes(fileId));
+  } catch (err: any) {
+    return { ok: false, path: '', canceled: false, error: String(err?.message || err) };
+  }
+  if (!bytes.length) {
+    return { ok: false, path: '', canceled: false, error: 'У файла нет содержимого — открывать нечего' };
+  }
+  const out = await e.openFileExternally({ name, base64: toBase64(bytes) });
+  return out?.success
+    ? { ok: true, path: String(out.filePath || ''), canceled: false, error: '' }
+    : { ok: false, path: '', canceled: false, error: String(out?.error || 'Windows не смогла открыть этот файл') };
+}
+
+/**
+ * То же, но сразу словами для человека: что сказать до и что после.
+ *
+ * Отдельно, потому что зовут это двое — стол и Проводник, — и говорить они
+ * обязаны одинаково. Разные слова об одном и том же действии человек читает
+ * как разные действия.
+ */
+export async function openInWindowsSaid(
+  fileId: string,
+  name: string,
+  say: (text: string, kind: 'info' | 'error') => void,
+): Promise<void> {
+  say(`Открываю «${name}» программой Windows…`, 'info');
+  const out = await openInWindows(fileId, name);
+  say(
+    out.ok ? 'Открыта копия во временной папке — правки в ней в Flux не вернутся' : (out.error || 'Не удалось открыть'),
+    out.ok ? 'info' : 'error',
+  );
+}
