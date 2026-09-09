@@ -14,6 +14,7 @@
 
 import { checkServerUrl, useSaved, maskSecrets } from '../lib/serverUrl';
 import { failureText } from '../lib/failureText';
+import { diagnosticFetch } from '../lib/diagnostics';
 
 const SERVER_URL_KEY = 'flux_server_url';
 
@@ -107,7 +108,10 @@ export const ENV_CONFIG = {
 if (typeof window !== 'undefined') {
   const needsRewrite = window.location.protocol === 'file:' || !!getConfiguredServerUrl();
   const baseUrl = SERVER_BASE_URL || 'http://localhost:3000';
-  const originalFetch = window.fetch.bind(window);
+  // Диагностика встаёт ВНУТРЬ этой обёртки, а не поверх неё: так она видит уже
+  // переписанный адрес и уже подставленный токен — то есть то, что
+  // действительно ушло на сервер, а не то, что просил вызывающий код
+  const originalFetch = diagnosticFetch(window.fetch.bind(window));
 
   /**
    * Запись в журнал. Пароли замазываются ВСЕГДА и на входе, а не там, где о них

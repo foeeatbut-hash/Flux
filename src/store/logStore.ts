@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { diagnostic } from '../lib/diagnostics';
 
 export interface LogItem {
   id: string;
@@ -38,6 +39,17 @@ export const useLogStore = create<LogState>((set, get) => ({
   widgetOpen: false,
 
   addLog: (type, context, message, stack) => {
+    // В подробную запись уходит место и кадры стека, но НЕ текст сообщения:
+    // в нём бывает имя документа, строка поиска и ответ сервера целиком
+    if (type !== 'INFO') {
+      const frames = String(stack || '').split('\n').slice(1, 4).map((l) => l.trim());
+      diagnostic(type === 'ERROR' ? 'log.error' : 'log.warn', {
+        context,
+        ...(frames[0] ? { frame1: frames[0] } : {}),
+        ...(type === 'ERROR' && frames[1] ? { frame2: frames[1] } : {}),
+        ...(type === 'ERROR' && frames[2] ? { frame3: frames[2] } : {}),
+      });
+    }
     const id = Math.random().toString(36).substring(2, 9) + '-' + Date.now();
     const timestamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
 

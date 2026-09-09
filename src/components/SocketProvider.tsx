@@ -8,6 +8,7 @@ import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
 import { useChatStore } from '../store/chatStore';
 import { useNavigate } from 'react-router-dom';
+import { diagnostic } from '../lib/diagnostics';
 
 // ── Реальное соединение socket.io — всегда ──
 // Раньше в «локальном режиме» подключалась мок-заглушка с локальным эхом,
@@ -86,6 +87,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       reconnectionDelay: 800,
       reconnectionDelayMax: 4000,
     });
+
+    // Имена событий и разрывы. Тела сообщений не берутся: в них переписка.
+    // Время между двумя событиями не выдаём за сетевую задержку — часы двух
+    // машин расходятся, и такая «задержка» бывает отрицательной
+    try {
+      activeSocket.onAny((name: string) => diagnostic('socket.receive', { name }));
+      activeSocket.onAnyOutgoing((name: string) => diagnostic('socket.send', { name }));
+      activeSocket.on('connect', () => diagnostic('socket.connect', {}));
+      activeSocket.on('disconnect', (reason: string) => diagnostic('socket.disconnect', { reason }));
+      activeSocket.on('connect_error', (error: any) => diagnostic('socket.error', { error: error?.name, outcome: 'error' }));
+      activeSocket.io.on('reconnect_attempt', (attempt: number) => diagnostic('socket.retry', { attempt }));
+    } catch (_) { /* без наблюдения связь работает как прежде */ }
 
     /**
      * Состояние сокета пишется в журнал.
