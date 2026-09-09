@@ -15,6 +15,7 @@ import { ensureFeedbackTables } from '../feedback/tables.js';
 import { actorOf, fail, ok, settings } from '../feedback/policy.js';
 import { registerUploadRoutes, type UploadDeps } from '../feedback/uploads.js';
 import { registerReportRoutes } from '../feedback/reports.js';
+import { registerActionRoutes } from '../feedback/actions.js';
 import {
   ERRORS, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
   TYPE_NAMES, STATUS_NAMES, IMPACT_NAMES, FREQUENCY_NAMES, PRIORITY_NAMES,
@@ -63,5 +64,6 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
 
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
   registerReportRoutes(app, deps);
+  registerActionRoutes(app, deps);
   registerUploadRoutes(app, deps);
 }
