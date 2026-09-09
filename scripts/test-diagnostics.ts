@@ -126,6 +126,16 @@ console.log('\n4. Словарь событий: записать можно т�
   ok('длину текста нельзя записать как размер',
     cleanFields('office.snapshot', { bytes: 1200 } as any)!.bytes === undefined);
 
+  // Тот же дефект с другой стороны: вид поля повторно прогонял готовый шаблон
+  // через словарь, и `/api/users/:id/signature` схлопывался в `:id/:id` —
+  // подпись становилась неотличима от прав
+  ok('шаблон маршрута не проходит через словарь',
+    cleanFields('http.end', { route: '/api/users/:id/signature' })!.route === '/api/users/:id/signature',
+    cleanFields('http.end', { route: '/api/users/:id/signature' }));
+  ok('а адрес от человека — проходит',
+    cleanFields('fetch.headers', { route: `/api/users/${BAIT}/signature` })!.route === '/api/users/:id/:id',
+    cleanFields('fetch.headers', { route: `/api/users/${BAIT}/signature` }));
+
   ok('общие поля разрешены каждому событию',
     cleanFields('office.snapshot', { trace: newTraceId(), outcome: 'ok' } as any)!.outcome === 'ok');
   ok('чужое значение перечисления отброшено',
@@ -136,7 +146,7 @@ console.log('\n4. Словарь событий: записать можно т�
 
 console.log('\n5. Словарь описан целиком');
 {
-  const KINDS: FieldKind[] = ['id', 'name', 'route', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome'];
+  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome'];
   const strange: string[] = [];
   for (const name of EVENT_NAMES) {
     const spec = specOf(name);
@@ -153,6 +163,14 @@ console.log('\n5. Словарь описан целиком');
 
   const commonClash = EVENT_NAMES.filter((n) => Object.keys(EVENTS[n]).some((k) => k in COMMON));
   ok('поля события не перекрывают общие', commonClash.length === 0, commonClash);
+
+  // Вид «шаблон» доверяет тому, что ему передали: он чистит только знаки. Это
+  // допустимо ровно потому, что значение берётся у самого Express, то есть из
+  // нашего исходного кода. Список таких событий держим коротким и под
+  // присмотром — расширять его без разбора нельзя
+  const trusting = EVENT_NAMES.filter((n) => Object.values(EVENTS[n]).includes('pattern' as never));
+  ok('шаблону доверяют только серверные события запроса',
+    trusting.join(',') === 'http.start,http.end', trusting);
 
   ok('имя события короткое и без пробелов',
     EVENT_NAMES.every((n) => /^[a-z][a-z0-9.-]{2,39}$/.test(n)),
@@ -189,6 +207,12 @@ console.log('\n8. Повторы сворачиваются, поломки — 
 {
   const filter = new RepeatFilter(5000);
   const poll = { route: '/api/notifications', status: '200', durationMs: 10 };
+  // Сворачивается только фоновый опрос. На живом прогоне свёртка «по маршруту»
+  // схлопывала обычную работу человека: от шестидесяти запросов в файле
+  // оставалось пять, а записи об операциях базы теряли свою цепочку
+  const work = { route: '/api/projects/:id/tags', status: '200', durationMs: 10 };
+  ok('обычная работа не сворачивается', filter.accept('http.end', work, 0) === true);
+  ok('и повтор обычной работы тоже пишется', filter.accept('http.end', work, 10) === true);
   ok('первый запрос в окне пишется целиком', filter.accept('http.end', poll, 1000) === true);
   ok('второй уходит в свёртку', filter.accept('http.end', poll, 1100) === false);
   ok('третий тоже', filter.accept('http.end', { ...poll, durationMs: 30 }, 1200) === false);

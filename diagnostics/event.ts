@@ -199,6 +199,9 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
     case 'name': return safeName(value) || null;
     case 'code': return safeCode(value) || null;
     case 'route': return routeName(String(value ?? ''));
+    // Шаблон приходит из нашего кода, а не от человека: словарь к нему не
+    // применяется — он бы съел статические части пути
+    case 'pattern': return String(value ?? '').replace(/[^A-Za-z0-9/:_.-]/g, '').slice(0, 120) || null;
     // Через ту же нормализацию, что и разбор стека: иначе кадр, поданный
     // полем напрямую, сохранял бы путь установки и номер строки
     case 'frame': return normalizeFrame(redact(String(value ?? ''))) || null;

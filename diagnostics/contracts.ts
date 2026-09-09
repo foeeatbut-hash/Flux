@@ -34,7 +34,12 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
  *   Пользовательских данных в нём нет по построению;
  * - `name` — короткое имя из нашего словаря: метод HTTP, имя события сокета,
  *   канал IPC. Проверяется по набору символов, чужое имя отбрасывается;
- * - `route` — путь, приведённый к шаблону («/api/projects/:id»);
+ * - `route` — адрес, пришедший от человека: приводится к шаблону по словарю
+ *   известных частей, всё незнакомое становится `:id`;
+ * - `pattern` — шаблон маршрута, взятый у самого Express, то есть из нашего
+ *   исходного кода. Чистится только по набору знаков: прогонять его через
+ *   словарь нельзя, иначе `/api/users/:id/signature` снова схлопнется в
+ *   `/api/users/:id/:id` и подпись станет неотличима от прав;
  * - `frame` — кадр стека без пути, номера строки и случайных идентификаторов;
  * - `code` — код ошибки или состояния: короткий, обезличивается;
  * - `ms` — миллисекунды по монотонным часам;
@@ -44,7 +49,7 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
  * - `phase`, `outcome` — служебные перечисления участка работы.
  */
 export type FieldKind =
-  | 'id' | 'name' | 'route' | 'frame' | 'code'
+  | 'id' | 'name' | 'route' | 'pattern' | 'frame' | 'code'
   | 'ms' | 'bytes' | 'chars' | 'count'
   | 'flag' | 'phase' | 'outcome';
 
@@ -53,6 +58,7 @@ export interface KindType {
   id: string;
   name: string;
   route: string;
+  pattern: string;
   frame: string;
   code: string;
   ms: number;
@@ -97,8 +103,8 @@ export const EVENTS = {
   'fetch.error': { method: 'name', route: 'route', error: 'name' },
 
   // ── Запрос на сервере ─────────────────────────────────────────────────────
-  'http.start': { method: 'name', route: 'route', requestBytes: 'bytes' },
-  'http.end': { method: 'name', route: 'route', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes' },
+  'http.start': { method: 'name', route: 'pattern', requestBytes: 'bytes' },
+  'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes' },
 
   // ── База ──────────────────────────────────────────────────────────────────
   'db.op': { model: 'name', operation: 'name', rows: 'count', ok: 'flag', error: 'name', code: 'code' },

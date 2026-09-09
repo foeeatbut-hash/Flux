@@ -110,7 +110,21 @@ export class RateLimit {
 interface Repeat { name: string; route: string; status: string; repeats: number; totalMs: number; maxMs: number; since: number }
 
 /**
- * Сворачивание повторов успешных однотипных запросов.
+ * Маршруты фонового опроса — единственные, чьи повторы сворачиваются.
+ *
+ * Список тот же, что уже перечислен в обёртке fetch (`src/config/env.ts`):
+ * это опрос уведомлений и переписки, идущий у каждого окна сам по себе.
+ *
+ * Сворачивать всё подряд нельзя, и это выяснилось на живом прогоне: свёртка по
+ * «маршрут + состояние» схлопывала обычную работу человека, и от шестидесяти
+ * запросов в файле оставалось пять. Хуже того, у свёрнутых запросов пропадала
+ * метка, а записи об операциях базы с этой меткой оставались — цепочка
+ * рвалась ровно там, где её и надо читать.
+ */
+const POLL = /\/api\/(notifications|health|presence|chat\/(messages|group-messages|groups))/;
+
+/**
+ * Сворачивание повторов фонового опроса.
  *
  * Ключ — событие, маршрут и состояние. Поломки не сворачиваются никогда: у
  * каждой своя причина, и «пять раз что-то не вышло» разбору не помогает.
@@ -124,7 +138,7 @@ export class RepeatFilter {
   accept(event: string, data: Data, now: number): boolean {
     if (isFailure(event, data)) return true;
     const route = typeof data.route === 'string' ? data.route : '';
-    if (!route) return true;
+    if (!route || !POLL.test(route)) return true;
     const key = `${event}|${route}|${data.status ?? ''}`;
     const seen = this.open.get(key);
     const ms = Number(data.durationMs);

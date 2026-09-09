@@ -1,4 +1,5 @@
 import 'express-async-errors';
+import { traceRequest, traceDatabase, traceSockets } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { PrismaClient } from '@prisma/client-sqlite';
@@ -641,7 +642,13 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
   }
 }
 
+// Клиент базы отдаётся под наблюдением: операции связываются с запросом,
+// который их вызвал. Обёртка не меняет ни результата, ни ошибки
 function createPrismaClient(dbType: string, dbUrl: string) {
+  return traceDatabase(buildPrismaClient(dbType, dbUrl));
+}
+
+function buildPrismaClient(dbType: string, dbUrl: string) {
   // Движок базы запоминается здесь, а не угадывается на месте: маршруты,
   // создающие недостающие таблицы, пишут SQL под конкретный движок
   // (server/ddl.ts), и «почти правильный» SQL там бесполезен
@@ -986,6 +993,7 @@ const getAuthUser = async (userId: string) => {
 };
 
 const app = express();
+app.use(traceRequest);
 const PORT = 3000;
 
 const httpServer = createServer(app);
@@ -996,6 +1004,7 @@ const io = new SocketIOServer(httpServer, {
   }
 });
 
+traceSockets(io);
 // Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
 // иначе любой в сети слушал бы трансляцию сообщений чата
 io.use((socket, next) => {
@@ -1113,7 +1122,12 @@ io.on('connection', (socket) => {
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  // X-Flux-Trace и X-Flux-Interaction связывают запрос окна с работой сервера,
+  // X-Chunk-SHA256 несёт контрольную сумму куска файла. Без разрешения браузер
+  // не пропустит их предварительным запросом, и сломается это только там, где
+  // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
