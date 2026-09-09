@@ -22,6 +22,10 @@ const DETAILED_ONLY = new Set<string>([
   'fetch.start', 'http.start',
   'socket.receive', 'socket.send', 'socket.ack',
   'ui.click', 'ui.event', 'resource.end',
+  // Снимок документа берётся автосохранением каждые 2,5 секунды — в обычном
+  // режиме это тысяча с лишним строк в час на один открытый документ, и все
+  // одинаковые. Что документ сохранялся, видно по office.save
+  'office.snapshot',
 ]);
 
 /** Событие, которое всегда считается поломкой, даже без поля outcome. */

@@ -3,7 +3,7 @@ import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
 import { setupBrowser, disposeBrowserFor } from './browser';
-import { setupLogs, appendLog, logsDir } from './logs';
+import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
@@ -977,13 +977,14 @@ app.whenReady().then(() => {
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
-        appendLog('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
+        // Синхронно: следом программа выходит, сбросить очередь будет негде
+        appendLogNow('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
         const child = spawn(installerPath, applyArgs(portableExe, process.pid), {
           detached: true, stdio: 'ignore', windowsHide: true,
         });
         child.unref();
       } else {
-        appendLog('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
+        appendLogNow('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
         const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
       }

@@ -17,7 +17,7 @@
 import { app, dialog } from 'electron';
 import fs from 'fs';
 import { spawn } from 'child_process';
-import { appendLog } from './logs';
+import { appendLog, appendLogNow } from './logs';
 import {
   WAIT_EXIT_MS, COPY_PAUSE_MS, retryCopy, type ApplyPlan,
 } from './updates';
@@ -64,7 +64,9 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
   for (;;) {
     try {
       fs.copyFileSync(self, plan.target);
-      appendLog('INFO', 'Обновление', 'Файл программы заменён, запускаю новую версию');
+      // Синхронно: сразу за этой строкой процесс уходит, и очереди сброситься
+      // будет уже негде — а именно эта запись и объясняет, чем кончилось
+      appendLogNow('INFO', 'Обновление', 'Файл программы заменён, запускаю новую версию');
       launch(plan.target);
       app.exit(0);
       return;
@@ -74,7 +76,7 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
       // Остаться без программы человек не должен: говорим, что случилось, и
       // возвращаем ту версию, которая у него была
       const why = `${err?.code || ''} ${err?.message || err}`.trim();
-      appendLog('ERROR', 'Обновление', `Не удалось заменить файл программы: ${why}`);
+      appendLogNow('ERROR', 'Обновление', `Не удалось заменить файл программы: ${why}`);
       try {
         dialog.showErrorBox(
           'Обновление не установилось',
