@@ -1872,7 +1872,7 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 const limits = registerLimitRoutes(app, () => prisma);
-registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes });
+registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
 registerFileChunkRoutes(app, {

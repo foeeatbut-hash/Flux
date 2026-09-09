@@ -111,5 +111,25 @@ export async function settings(): Promise<Settings> {
 
 export function resetSettings(): void { cached = null; }
 
+/**
+ * Кому уходит новое обращение.
+ *
+ * Список считается по тому же праву, что и доступ к очереди: отдельного списка
+ * получателей нет намеренно — он разошёлся бы с правами, и человек, у которого
+ * право забрали, продолжал бы получать чужие обращения.
+ */
+export async function triageRecipients(can: (user: any, feature: string) => boolean): Promise<string[]> {
+  try {
+    const prisma = getPrisma();
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, role: true, permissions: true, isActive: true, validUntil: true },
+    });
+    return users.filter((u: any) => can(u, 'feedback.triage')).map((u: any) => String(u.id));
+  } catch (_) {
+    return [];
+  }
+}
+
 /** Читаемое имя автора на момент отправки: сотрудника могут переименовать. */
 export const snapshotName = (actor: Actor): string => actor.name;

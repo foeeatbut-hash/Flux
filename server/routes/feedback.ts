@@ -14,6 +14,7 @@ import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from '../feedback/tables.js';
 import { actorOf, fail, ok, settings } from '../feedback/policy.js';
 import { registerUploadRoutes, type UploadDeps } from '../feedback/uploads.js';
+import { registerReportRoutes } from '../feedback/reports.js';
 import {
   ERRORS, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
   TYPE_NAMES, STATUS_NAMES, IMPACT_NAMES, FREQUENCY_NAMES, PRIORITY_NAMES,
@@ -22,6 +23,8 @@ import {
 export interface FeedbackDeps extends UploadDeps {
   /** Право по функции: то же, что у остальных разделов. */
   can: (user: any, feature: string) => boolean;
+  /** Версия программы: пишется в карточку, чтобы знать, где это ломалось. */
+  appVersion: () => string;
 }
 
 export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
@@ -58,5 +61,7 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
     });
   });
 
+  // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
+  registerReportRoutes(app, deps);
   registerUploadRoutes(app, deps);
 }
