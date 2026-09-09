@@ -124,6 +124,22 @@ const sharedGlobals = SHARED
   .filter((p) => NODE_GLOBAL.test(read(p)));
 ok('чистая часть общего кода не пользуется Node-глобалями', sharedGlobals.length === 0, sharedGlobals);
 
+// Диагностика подменяет регистрацию обработчиков моста, поэтому всё, что
+// зарегистрируется позже, попадает под замер само — а всё, что раньше, не
+// попадает никогда. Порядок в оболочке проверить иначе нечем: Electron в
+// наборах проверок не поднимается
+{
+  const mainSrc = read('electron/main.ts');
+  const diag = mainSrc.indexOf('setupDiagnostics(');
+  const others = ['setupBrowser(', 'setupLogs(', 'setupCapture(', 'createWindow();'].map((n) => mainSrc.indexOf(n));
+  ok('диагностика подключается раньше остальных модулей оболочки',
+    diag > 0 && others.every((i) => i < 0 || i > diag), { diag, others });
+  const preloadSrc = read('electron/preload.ts');
+  ok('замер моста ставится до выдачи моста окну',
+    preloadSrc.indexOf('ipcRenderer as any).invoke') < preloadSrc.indexOf('exposeInMainWorld'),
+    [preloadSrc.indexOf('ipcRenderer as any).invoke'), preloadSrc.indexOf('exposeInMainWorld')]);
+}
+
 console.log('5. Программа остаётся офлайн: никаких внешних ИИ-сервисов');
 // Требование заказчика: программа работает на сервере компании, «ИИ» в ней
 // программный — алгоритмы и локальная база знаний, а не вызовы чужого API.

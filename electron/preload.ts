@@ -1,6 +1,48 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
+// ── Сколько окно ждало ответа от главного процесса ──────────────────────────
+//
+// Замер внутри обработчика — не то, что чувствует человек: между нажатием и
+// началом работы лежит ещё очередь. Здесь берётся вторая половина: полное
+// время от вызова до ответа. Разница с временем обработчика и есть очередь.
+//
+// Подмена стоит на самом `ipcRenderer`, а не на каждом методе моста: иначе
+// достаточно завести новый метод и забыть его обернуть. Аргументы не
+// сериализуются никогда — в них ездят содержимое документа и снимки.
+const rawInvoke = ipcRenderer.invoke.bind(ipcRenderer);
+const rawSend = ipcRenderer.send.bind(ipcRenderer);
+const spans: Array<{ channel: string; waitMs: number; ok: boolean; error?: string }> = [];
+let waiting: ReturnType<typeof setTimeout> | null = null;
+
+function noteIpc(channel: string, start: number, ok: boolean, error?: string): void {
+  try {
+    if (channel.startsWith('diagnostics:')) return; // запись о записи не нужна
+    if (spans.length < 200) spans.push({ channel, waitMs: performance.now() - start, ok, ...(error ? { error } : {}) });
+    if (waiting) return;
+    waiting = setTimeout(() => {
+      waiting = null;
+      const batch = spans.splice(0, 200);
+      if (batch.length) { try { rawSend('diagnostics:ipc', batch); } catch (_) { /* мост закрыт */ } }
+    }, 1000);
+  } catch (_) { /* замер не имеет права сломать вызов */ }
+}
+
+(ipcRenderer as any).invoke = (channel: string, ...args: any[]) => {
+  const start = performance.now();
+  return rawInvoke(channel, ...args).then(
+    (result: any) => { noteIpc(channel, start, true); return result; },
+    (error: any) => { noteIpc(channel, start, false, error?.name); throw error; },
+  );
+};
+
 contextBridge.exposeInMainWorld('electron', {
+  /** Подробная запись работы программы: состояние, папка, режим */
+  diagnostics: {
+    append: (batch: unknown[]) => ipcRenderer.invoke('diagnostics:append', batch),
+    folder: () => ipcRenderer.invoke('diagnostics:folder'),
+    status: () => ipcRenderer.invoke('diagnostics:status'),
+    detailed: (seconds: number) => ipcRenderer.invoke('diagnostics:detailed', seconds),
+  },
   /**
    * Полный путь файла, принесённого из Windows.
    *

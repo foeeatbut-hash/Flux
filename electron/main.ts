@@ -3,7 +3,8 @@ import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
 import { setupBrowser, disposeBrowserFor } from './browser';
-import { setupLogs, appendLog } from './logs';
+import { setupLogs, appendLog, logsDir } from './logs';
+import { setupDiagnostics } from './diagnostics';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
@@ -106,6 +107,12 @@ app.whenReady().then(() => {
 
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
+
+  // Подробная запись поднимается раньше остальных модулей: она подменяет
+  // регистрацию обработчиков моста, и всё, что зарегистрируется позже,
+  // попадает под замер само. Поставить её после setupBrowser значило бы
+  // не измерять браузер вовсе
+  setupDiagnostics(logsDir());
 
   // Браузер внутри программы: вкладки страницами того же движка
   setupBrowser();

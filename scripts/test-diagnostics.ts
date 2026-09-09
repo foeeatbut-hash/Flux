@@ -18,7 +18,7 @@ import {
   cleanFields, newTraceId, redact, routeName, safeError, safeFrames, safeName,
 } from '../diagnostics/event';
 import { COMMON, EVENTS, EVENT_NAMES, specOf, type FieldKind } from '../diagnostics/contracts';
-import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode } from '../diagnostics/policy';
+import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, validBatch } from '../diagnostics/policy';
 import { FileWriter } from '../diagnostics/node/writer';
 
 let f = 0;
@@ -246,6 +246,24 @@ console.log('\n9. Очередь и предел частоты');
   ok('в пределах — пропускает', rate.allow(0) && rate.allow(1));
   ok('сверх предела — нет', rate.allow(2) === false);
   ok('в следующую секунду снова пропускает', rate.allow(1100) === true);
+}
+
+console.log('\n9а. Пачка от окна разбирается недоверчиво');
+{
+  ok('пачка длиннее объявленного отвергается целиком',
+    validBatch(Array.from({ length: 300 }, () => ({ event: 'ui.stall', data: {} })), 200).length === 0);
+  ok('не массив отвергается', validBatch({ event: 'ui.stall' }, 200).length === 0);
+  const mixed = validBatch([
+    { event: 'ui.stall', data: { durationMs: 1 } },
+    { event: 'ui.stall' },                       // без данных
+    { event: 42, data: {} },                     // имя не строка
+    { event: 'ui.stall', data: [1, 2] },         // данные массивом
+    { event: 'x'.repeat(80), data: {} },         // имя неправдоподобной длины
+    null,
+    'строка вместо записи',
+  ], 200);
+  ok('из смешанной пачки берётся только правильное', mixed.length === 1, mixed);
+  ok('и берётся именно то, что надо', mixed[0]?.event === 'ui.stall' && mixed[0]?.data.durationMs === 1, mixed);
 }
 
 async function files() {

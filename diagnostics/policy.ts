@@ -92,6 +92,27 @@ export class BoundedQueue {
   countDropped(n: number): void { this.lost += n; }
 }
 
+/**
+ * Разбор пачки, присланной окном через мост.
+ *
+ * Окно — не доверенный источник: в него может прилететь что угодно, включая
+ * пачку на миллион записей. Поэтому здесь не «почистим, что сможем», а
+ * «возьмём только то, что имеет правильную форму», и не больше объявленного
+ * числа. Имена событий тут не проверяются: их отсеет словарь при записи.
+ */
+export function validBatch(batch: unknown, max: number): Array<{ event: string; data: Record<string, unknown> }> {
+  if (!Array.isArray(batch) || batch.length > max) return [];
+  const out: Array<{ event: string; data: Record<string, unknown> }> = [];
+  for (const item of batch) {
+    if (!item || typeof item !== 'object') continue;
+    const { event, data } = item as { event?: unknown; data?: unknown };
+    if (typeof event !== 'string' || !event || event.length > 40) continue;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+    out.push({ event, data: data as Record<string, unknown> });
+  }
+  return out;
+}
+
 /** Сколько событий в секунду пропускать. Шторм не должен съесть диск. */
 export class RateLimit {
   private windowStart = 0;
