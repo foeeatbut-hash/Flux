@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityPr
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
+import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
@@ -153,6 +154,10 @@ app.whenReady().then(() => {
 
   // Захват с экрана: трей, горячая клавиша, пульт (см. electron/capture.ts)
   setupCapture(() => mainWindow);
+
+  // Снимок своего окна для обращения — отдельно от захвата данных: у того своя
+  // корзина и распознавание, и «приложить снимок» не должно их запускать
+  setupFeedbackCapture();
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
