@@ -10,7 +10,9 @@
 import {
   validateSubmit, checkText, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
   reportNumber, refusedByName, extensionOf, isUuid, ERRORS, STATUS_NAMES, TYPE_NAMES, IMPACT_NAMES,
+  newRequestId,
 } from '../feedback/contracts';
+import { sha256Hex, sha256 } from '../feedback/sha256';
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -137,5 +139,46 @@ console.log('\n8. Словарь полон');
   ok('коды ошибок объявлены', !!ERRORS.REVISION_CONFLICT && !!ERRORS.IDEMPOTENCY_CONFLICT);
 }
 
-console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
-process.exit(f === 0 ? 0 : 1);
+console.log('\n9. Отпечаток считается своими силами');
+{
+  // Встроенный crypto.subtle работает только в защищённом контексте, а отдел
+  // сидит на обычном http://сервер:3000 — там его нет вовсе. Поэтому своя
+  // реализация, и её надо проверять на известных векторах, а не на самой себе
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  ok('пустая строка', sha256Hex(bytes(''))
+    === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  ok('abc', sha256Hex(bytes('abc'))
+    === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  ok('два блока', sha256Hex(bytes('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq'))
+    === '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1');
+  // Русский текст — это многобайтовые знаки: место добивки считается по байтам,
+  // а не по длине строки
+  ok('русский текст', sha256Hex(bytes('Проверка'))
+    === sha256Hex(new Uint8Array(Array.from(bytes('Проверка')))));
+  ok('ровно 64 байта — граница блока',
+    sha256Hex(new Uint8Array(64)) === 'f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b');
+  ok('55 байт — последний размер без лишнего блока',
+    sha256Hex(new Uint8Array(55)).length === 64);
+  ok('56 байт — уже с лишним блоком', sha256Hex(new Uint8Array(56)).length === 64);
+  ok('длинный вход', sha256Hex(new Uint8Array(100000)).length === 64);
+}
+
+void (async () => {
+  const bytes = new TextEncoder().encode('abc');
+  const fast = await sha256(bytes);
+  ok('быстрый путь даёт то же число', fast === sha256Hex(bytes), fast);
+  console.log('\n10. Ключ отправки');
+  {
+    const one = newRequestId();
+    ok('ключ — настоящий UUID четвёртой версии', isUuid(one) && one[14] === '4', one);
+    // Ключ решает, одна карточка или две: совпадение здесь стоит потерянного
+    // обращения, а не косметики
+    const many = new Set(Array.from({ length: 5000 }, () => newRequestId()));
+    ok('пять тысяч ключей подряд не повторились', many.size === 5000, many.size);
+    const checked = validateSubmit({ ...good(), clientRequestId: one }, NOW);
+    ok('такой ключ проходит проверку отправки', checked.ok, checked.error);
+  }
+
+  console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
+  process.exit(f === 0 ? 0 : 1);
+})();

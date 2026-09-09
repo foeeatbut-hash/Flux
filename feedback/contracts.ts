@@ -294,6 +294,25 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
   };
 }
 
+/**
+ * Новый ключ запроса.
+ *
+ * Не `crypto.randomUUID`: его, как и `crypto.subtle`, в браузере нет по
+ * обычному http — а отдел работает именно так. `getRandomValues` есть всегда;
+ * если нет и его, берётся `Math.random` — для ключа идемпотентности этого
+ * достаточно, он не секрет, а метка «это та же самая отправка».
+ */
+export function newRequestId(): string {
+  const bytes = new Uint8Array(16);
+  const source: any = (globalThis as any).crypto;
+  if (source && typeof source.getRandomValues === 'function') source.getRandomValues(bytes);
+  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Номер обращения так, как его называет человек. */
 export const reportNumber = (n: number): string => `ОБР-${String(n).padStart(6, '0')}`;
 

@@ -278,13 +278,35 @@ function observe(): void {
   }
 }
 
-/** Выгрузка хвоста файлом. Доступна и в браузере — хвост есть всегда. */
-export function exportRendererDiagnostics(): void {
+/**
+ * Хвост событий этого окна одним файлом.
+ *
+ * Один источник и для выгрузки в Настройках, и для приложения к обращению:
+ * иначе человек соглашается приложить одно, а уезжает другое. Ограничение по
+ * размеру — сверху вниз: последние события важнее первых, поэтому обрезается
+ * начало, а сколько строк не поместилось, написано в заголовке.
+ */
+export function rendererBundle(maxBytes = 0): Blob {
+  const lines = tail.map((e) => `${JSON.stringify(e)}\n`);
+  let cut = 0;
+  if (maxBytes > 0) {
+    let size = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      size += lines[i].length;
+      if (size > maxBytes) { cut = i + 1; break; }
+    }
+  }
+  const kept = lines.slice(cut);
   const head = JSON.stringify({
     note: 'Последние события этого окна. Записи сервера и оболочки лежат в своих файлах.',
-    session, dropped, tail: tail.length,
+    session, dropped, tail: kept.length, ...(cut ? { omitted: cut } : {}),
   });
-  const blob = new Blob([`${head}\n`, ...tail.map((e) => `${JSON.stringify(e)}\n`)], { type: 'application/x-ndjson' });
+  return new Blob([`${head}\n`, ...kept], { type: 'application/x-ndjson' });
+}
+
+/** Выгрузка хвоста файлом. Доступна и в браузере — хвост есть всегда. */
+export function exportRendererDiagnostics(): void {
+  const blob = rendererBundle();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
