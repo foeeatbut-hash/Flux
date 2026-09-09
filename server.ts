@@ -19,6 +19,7 @@ import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
+import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
@@ -1166,6 +1167,10 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^(PUT|PATCH)$/, path: /^\/api\/(components|equipment|monoblocks|systems)\//,
     perm: 'equipment.manage', title: 'Правка характеристик оборудования' },
   { method: /^POST$/, path: /^\/api\/(files|folders)/, perm: 'files.upload', title: 'Загрузка файлов' },
+  // Писать обращения и прикладывать к ним файлы — одно право: вложение без
+  // обращения никому не нужно, а обращение без вложения бывает часто
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/feedback\/(reports|uploads|drafts)/,
+    perm: 'feedback.create', title: 'Писать обращения' },
   { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|stage_templates)/,
     perm: 'procurement.setup', title: 'Настройка этапов закупки' },
@@ -1867,6 +1872,7 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 const limits = registerLimitRoutes(app, () => prisma);
+registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
 registerFileChunkRoutes(app, {

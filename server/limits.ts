@@ -53,7 +53,34 @@ export function chunkSizeFor(limit: number): number {
   return Math.max(CHUNK_MIN, Math.min(CHUNK_MAX, Math.floor(limit / 2) - 64 * 1024));
 }
 
-export function registerLimitRoutes(app: Express, getPrisma: () => any): { chunkBytes: () => Promise<number> } {
+/** Целевой размер куска вложения к обращению. */
+export const FEEDBACK_CHUNK = 256 * 1024;
+/** Ниже этого работать нельзя: значит база настроена так, что файл не проедет. */
+export const FEEDBACK_CHUNK_MIN = 8 * 1024;
+
+/**
+ * Размер куска для вложений к обращениям.
+ *
+ * Формула другая, чем у файлов Проводника, и стоит рядом намеренно — иначе две
+ * похожие разойдутся, и никто не вспомнит почему. Разница ровно в одном:
+ * вложение едет двоичным телом запроса, а не строкой base64, поэтому делить на
+ * четыре трети здесь не надо. Запас берётся больше (четверть предела вместо
+ * половины), потому что куски мельче и лишний запас почти ничего не стоит.
+ *
+ * Если после запаса получилось меньше восьми килобайт — это не повод молча
+ * взять минимум: база настроена так, что вложения через неё не проедут, и
+ * человеку надо об этом сказать. Ноль здесь означает «настроить базу».
+ */
+export function feedbackChunkFor(limit: number): number {
+  if (!limit) return FEEDBACK_CHUNK;
+  const safe = Math.min(FEEDBACK_CHUNK, Math.floor(limit / 4) - 16 * 1024);
+  return safe >= FEEDBACK_CHUNK_MIN ? safe : 0;
+}
+
+export function registerLimitRoutes(app: Express, getPrisma: () => any): {
+  chunkBytes: () => Promise<number>;
+  feedbackChunkBytes: () => Promise<number>;
+} {
   // Ответ не меняется, пока работает программа: спрашивать базу на каждый
   // перенос незачем
   let cached = 0;
@@ -77,9 +104,24 @@ export function registerLimitRoutes(app: Express, getPrisma: () => any): { chunk
     return cached;
   };
 
+  let cachedFeedback = -1;
+
+  /** Тот же вопрос к базе, но для двоичных кусков вложений. */
+  const feedbackChunkBytes = async (): Promise<number> => {
+    if (cachedFeedback >= 0) return cachedFeedback;
+    if (getDialect() !== 'mysql') { cachedFeedback = FEEDBACK_CHUNK; return cachedFeedback; }
+    let packet = 0;
+    try {
+      const rows: any = await getPrisma().$queryRawUnsafe('SELECT @@max_allowed_packet AS n');
+      packet = Number(rows?.[0]?.n || 0);
+    } catch (_) { packet = 0; }
+    cachedFeedback = feedbackChunkFor(packet);
+    return cachedFeedback;
+  };
+
   app.get('/api/limits', async (_req: Request, res: Response) => {
     res.json({ chunkBytes: await chunkBytes(), warnBytes: WARN_FILE_BYTES });
   });
 
-  return { chunkBytes };
+  return { chunkBytes, feedbackChunkBytes };
 }
