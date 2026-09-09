@@ -48,6 +48,10 @@ function importsOf(rel: string): string[] {
 
 const SRC = walk('src');
 const ELECTRON = walk('electron');
+// Общий код в корне: договоры, которые читают и окно, и сервер, и оболочка.
+// Он лежит вне src/, server/ и electron/ — и потому раньше не попадал ни под
+// планку размера, ни под проверку на внешние сервисы
+const SHARED = [...walk('diagnostics'), ...walk('feedback')];
 
 console.log('1. Разделы рабочего стола независимы друг от друга');
 // Раздел — экран, зарегистрированный в SECTIONS. Файлы screens/, которых там
@@ -91,6 +95,26 @@ ok('ни один файл src/ не импортирует серверный �
 const electronToSrc = ELECTRON.filter((p) => importsOf(p).some((i) => i.includes('../src/')));
 ok('главный процесс Electron не импортирует src/', electronToSrc.length === 0, electronToSrc);
 
+// ── Общий код остаётся общим ────────────────────────────────────────────────
+//
+// Смысл корневых папок в том, что один договор читают три разных места. Стоит
+// такому файлу потянуть react или express — и он перестаёт быть общим, а
+// сломается это не здесь, а в чужой сборке.
+//
+// Отдельно про node: `diagnostics/node/` собирают сервер и оболочка, а окно —
+// нет. Если чистый файл потянет fs, Vite либо не соберёт окно, либо соберёт
+// заглушку, которая молча ничего не пишет.
+const HOST_ONLY = /^(react|react-dom|express|electron|zustand)$|(^|\/)(\.\.\/src\/|\.\.\/server\/|\.\.\/electron\/)/;
+const NODE_ONLY = /^(node:)?(fs|path|os|crypto|worker_threads|child_process|perf_hooks|async_hooks)(\/|$)/;
+const sharedHosted = SHARED.filter((p) => importsOf(p).some((i) => HOST_ONLY.test(i)));
+ok('общий код не тянет ни окно, ни сервер, ни оболочку', sharedHosted.length === 0, sharedHosted);
+const sharedNode = SHARED
+  .filter((p) => !p.includes('/node/'))
+  .filter((p) => importsOf(p).some((i) => NODE_ONLY.test(i)));
+ok('чистая часть общего кода не тянет node:', sharedNode.length === 0, sharedNode);
+const srcToNode = SRC.filter((p) => importsOf(p).some((i) => /diagnostics\/node\//.test(i)));
+ok('окно не импортирует серверную часть диагностики', srcToNode.length === 0, srcToNode);
+
 console.log('5. Программа остаётся офлайн: никаких внешних ИИ-сервисов');
 // Требование заказчика: программа работает на сервере компании, «ИИ» в ней
 // программный — алгоритмы и локальная база знаний, а не вызовы чужого API.
@@ -106,7 +130,7 @@ const AI_HOSTS = [
   'huggingface.co/api',
 ];
 const offenders: string[] = [];
-for (const file of [...SRC, ...ELECTRON, 'server.ts', ...walk('server')]) {
+for (const file of [...SRC, ...ELECTRON, ...SHARED, 'server.ts', ...walk('server')]) {
   const src = read(file);
   for (const host of AI_HOSTS) if (src.includes(host)) offenders.push(`${file} → ${host}`);
 }
@@ -165,7 +189,7 @@ const LEGACY: Record<string, number> = {
   'src/store/assistantStore.ts': 1246,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
-const all = [...SRC, ...ELECTRON, ...walk('server'), ...walk('scripts'), 'server.ts'];
+const all = [...SRC, ...ELECTRON, ...SHARED, ...walk('server'), ...walk('scripts'), 'server.ts'];
 for (const file of all) {
   const lines = read(file).replace(/\n$/, '').split('\n').length;
   const cap = LEGACY[file];
