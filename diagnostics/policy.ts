@@ -18,7 +18,7 @@
 import type { EventName } from './contracts';
 
 /** Событие, которое в обычном режиме не пишется. */
-const DETAILED_ONLY = new Set<string>([
+export const SKIPPED_IN_NORMAL = new Set<string>([
   'fetch.start', 'http.start',
   'socket.receive', 'socket.send', 'socket.ack',
   'ui.click', 'ui.event', 'resource.end',
@@ -51,7 +51,7 @@ export function passesMode(event: string, data: Data, detailed: boolean): boolea
   if (detailed) return true;
   if (isFailure(event, data)) return true;
   if (data.phase === 'start') return false;
-  return !DETAILED_ONLY.has(event);
+  return !SKIPPED_IN_NORMAL.has(event);
 }
 
 /**

@@ -27,7 +27,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { cleanFields } from '../event';
 import { SCHEMA_VERSION, type EventName, type SafeFields } from '../contracts';
-import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, type Data } from '../policy';
+import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, SKIPPED_IN_NORMAL, type Data } from '../policy';
 
 /** Состояние записи. Показывается человеку в Настройках: потери должны быть видны. */
 export interface SinkStatus {
@@ -110,6 +110,17 @@ export class FileWriter implements DiagnosticsSink {
     this.detailedUntil = seconds > 0 ? Date.now() + Math.min(seconds, 300) * 1000 : 0;
   }
 
+  /**
+   * Стоит ли вообще собирать поля для этого события.
+   *
+   * Нужно потому, что аргументы вызова вычисляются раньше, чем `record`
+   * успевает решить их выбросить: разбор адреса для `http.start` шёл на каждом
+   * запросе, а строка потом не писалась. Замер это и поймал.
+   */
+  wants(event: string): boolean {
+    return this.detailed || !SKIPPED_IN_NORMAL.has(event);
+  }
+
   private get detailed(): boolean {
     // Кончилось место — подробности прекращаются, обычная запись остаётся:
     // именно при кончающемся диске ошибки и начинаются
@@ -119,9 +130,13 @@ export class FileWriter implements DiagnosticsSink {
   record<E extends EventName>(event: E, fields?: SafeFields<E>): void {
     try {
       const now = Date.now();
+      // Режим проверяется ДО очистки: `http.start` в обычном режиме не
+      // пишется, и очищать его поля, чтобы тут же выбросить, — плата на
+      // каждом запросе. Полей, по которым решается режим, очистка не
+      // касается: это phase, outcome, ok и status
+      if (!passesMode(event, (fields || {}) as Record<string, any>, this.detailed)) return;
       const data = cleanFields(event, fields as Record<string, unknown>);
       if (!data) return; // событие не объявлено — записать нечего
-      if (!passesMode(event, data, this.detailed)) return;
       if (!this.repeats.accept(event, data, now)) return;
       const failure = isFailure(event, data);
       if (!failure && !this.rate.allow(now)) { this.main.countDropped(1); return; }

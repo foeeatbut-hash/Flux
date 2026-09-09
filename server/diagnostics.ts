@@ -39,6 +39,17 @@ let writer: FileWriter | null = null;
 let stopRuntime: (() => void) | null = null;
 
 /**
+ * Выключатель на случай, когда запись мешает.
+ *
+ * Нужен по двум причинам. Первая: администратору отдела должно быть чем
+ * выключить сбор, не дожидаясь новой версии, — иначе единственным выходом
+ * останется откат программы. Вторая: без выключателя нельзя честно измерить,
+ * сколько сбор стоит, — сравнивать будет не с чем.
+ */
+const OFF = process.env.FLUX_DIAGNOSTICS === 'off';
+export const diagnosticsEnabled = !OFF;
+
+/**
  * Создаётся при первом обращении, а не при загрузке модуля: иначе набор
  * проверок, всего лишь импортировавший этот файл, начал бы писать в рабочую
  * папку сотрудника.
@@ -58,7 +69,7 @@ export async function closeServerDiagnostics(): Promise<void> {
   writer = null;
 }
 
-interface Context { trace: string; interaction: string }
+interface Context { trace: string; interaction: string; startedAt: number }
 const context = new AsyncLocalStorage<Context>();
 
 /** Метка нынешнего запроса — для тех, кто пишет свои события внутри обработчика. */
@@ -89,6 +100,7 @@ function nameOf(req: Request): string {
 }
 
 export const traceRequest: RequestHandler = (req, res, next) => {
+  if (OFF) return next();
   if (!req.path.startsWith('/api/')) return next();
   let trace = '';
   let interaction = '';
@@ -102,9 +114,15 @@ export const traceRequest: RequestHandler = (req, res, next) => {
   const method = safeName(req.method);
   const requestBytes = Number(req.get('content-length')) || 0;
   try {
-    serverDiagnostics().record('http.start', {
-      trace, interaction, phase: 'start', method, route: routeName(req.originalUrl || ''), requestBytes,
-    });
+    // Спрашиваем заранее: разбор адреса стоит заметно, а в обычном режиме
+    // начало запроса всё равно не пишется. Замер накладных расходов поймал
+    // именно это — считали и выбрасывали на каждом запросе
+    const sink = serverDiagnostics();
+    if (sink.wants('http.start')) {
+      sink.record('http.start', {
+        trace, interaction, phase: 'start', method, route: routeName(req.originalUrl || ''), requestBytes,
+      });
+    }
   } catch (_) { /* сбор не имеет права уронить запрос */ }
 
   let ended = false;
@@ -127,7 +145,7 @@ export const traceRequest: RequestHandler = (req, res, next) => {
   res.once('finish', () => finish(false));
   res.once('close', () => finish(!res.writableFinished));
 
-  context.run({ trace, interaction }, next);
+  context.run({ trace, interaction, startedAt: start }, next);
 };
 
 /**
@@ -136,6 +154,7 @@ export const traceRequest: RequestHandler = (req, res, next) => {
  * операция не вложена в другую.
  */
 export function traceDatabase<T>(client: T): T {
+  if (OFF) return client;
   try {
     return (client as any).$extends({
       query: {
@@ -149,6 +168,7 @@ export function traceDatabase<T>(client: T): T {
                 trace: store?.trace, interaction: store?.interaction,
                 model: safeName(model || 'raw'), operation: safeName(operation),
                 durationMs: performance.now() - start,
+                startMs: store ? start - store.startedAt : undefined,
                 rows: Array.isArray(result) ? result.length : undefined,
                 ok: true, outcome: 'ok',
               });
@@ -161,6 +181,7 @@ export function traceDatabase<T>(client: T): T {
                 trace: store?.trace, interaction: store?.interaction,
                 model: safeName(model || 'raw'), operation: safeName(operation),
                 durationMs: performance.now() - start,
+                startMs: store ? start - store.startedAt : undefined,
                 ok: false, outcome: 'error', ...safeError(error),
               });
             } catch (_) { /* то же самое */ }
@@ -177,6 +198,7 @@ export function traceDatabase<T>(client: T): T {
 
 /** Имена событий сокета и разрывы. Тела сообщений не берутся никогда. */
 export function traceSockets(io: any): void {
+  if (OFF) return;
   try {
     io.on('connection', (socket: any) => {
       const connection = newTraceId();

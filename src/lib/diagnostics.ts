@@ -57,9 +57,10 @@ export function setDetailedMode(seconds: number): void {
 export function diagnostic<E extends EventName>(event: E, fields?: SafeFields<E>): void {
   try {
     const now = Date.now();
+    // Режим — до очистки: см. ту же причину в diagnostics/node/writer
+    if (!passesMode(event, (fields || {}) as any, detailed())) return;
     const data = cleanFields(event, fields as Record<string, unknown>);
     if (!data) return;
-    if (!passesMode(event, data, detailed())) return;
     if (!repeats.accept(event, data, now)) return;
     if (!isFailure(event, data) && !rate.allow(now)) { dropped++; return; }
     push({ v: SCHEMA_VERSION, time: new Date().toISOString(), session, seq: ++seq, source: 'renderer', event, data });

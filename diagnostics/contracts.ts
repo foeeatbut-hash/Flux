@@ -107,7 +107,10 @@ export const EVENTS = {
   'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes' },
 
   // ── База ──────────────────────────────────────────────────────────────────
-  'db.op': { model: 'name', operation: 'name', rows: 'count', ok: 'flag', error: 'name', code: 'code' },
+  // startMs — смещение от начала запроса. Без него две операции, шедшие
+  // одновременно, при разборе сложились бы как шедшие подряд, и «база заняла
+  // 900 мс из 500» выглядело бы как ошибка счёта, а не как параллельность
+  'db.op': { model: 'name', operation: 'name', rows: 'count', startMs: 'ms', ok: 'flag', error: 'name', code: 'code' },
 
   // ── Сокет ─────────────────────────────────────────────────────────────────
   'socket.connect': { connection: 'id' },

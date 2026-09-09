@@ -20,6 +20,7 @@ import {
 import { COMMON, EVENTS, EVENT_NAMES, specOf, type FieldKind } from '../diagnostics/contracts';
 import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, validBatch } from '../diagnostics/policy';
 import { FileWriter } from '../diagnostics/node/writer';
+import { summarize, parseJsonl } from '../diagnostics/summary';
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -264,6 +265,73 @@ console.log('\n9а. Пачка от окна разбирается недове
   ], 200);
   ok('из смешанной пачки берётся только правильное', mixed.length === 1, mixed);
   ok('и берётся именно то, что надо', mixed[0]?.event === 'ui.stall' && mixed[0]?.data.durationMs === 1, mixed);
+}
+
+console.log('\n9б. Сводка не врёт про параллельные операции и обрезанный хвост');
+{
+  const at = (n: number) => new Date(1700000000000 + n).toISOString();
+  const ev = (event: string, data: any, seq = 1, session = 's1', source = 'server') =>
+    ({ v: 1, time: at(seq), session, seq, source, event, data } as any);
+
+  // Две выборки шли ОДНОВРЕМЕННО внутри запроса на 100 мс. Сумма дала бы 160 —
+  // больше, чем длился сам запрос, и выглядело бы как ошибка счёта
+  const parallel = summarize([
+    ev('http.end', { trace: 't1', route: '/api/tags', durationMs: 100, status: '200' }),
+    ev('db.op', { trace: 't1', model: 'Tag', operation: 'findMany', startMs: 10, durationMs: 80 }),
+    ev('db.op', { trace: 't1', model: 'Tag', operation: 'count', startMs: 20, durationMs: 80 }),
+  ]);
+  ok('параллельные операции базы не складываются подряд', parallel.chains[0]?.dbMs === 90, parallel.chains[0]);
+  ok('видно, что операций было две', parallel.chains[0]?.dbOps === 2, parallel.chains[0]);
+  ok('и сколько всего длился запрос', parallel.chains[0]?.totalMs === 100, parallel.chains[0]);
+
+  // Последовательные — складываются
+  const serial = summarize([
+    ev('http.end', { trace: 't2', route: '/api/tags', durationMs: 100, status: '200' }),
+    ev('db.op', { trace: 't2', model: 'Tag', operation: 'findMany', startMs: 0, durationMs: 30 }),
+    ev('db.op', { trace: 't2', model: 'Tag', operation: 'count', startMs: 50, durationMs: 20 }),
+  ]);
+  ok('последовательные операции складываются', serial.chains[0]?.dbMs === 50, serial.chains[0]);
+
+  // Потери обязаны быть объявлены: по сводке принимают решения
+  const lossy = summarize([ev('writer.state', { source: 'server', dropped: 42, failures: 1 })]);
+  ok('потери видны в сводке', lossy.dropped === 42, lossy.dropped);
+  ok('и хвост объявлен неполным', lossy.truncated === true, lossy);
+  const clean = summarize([ev('http.end', { trace: 't3', route: '/api/x', durationMs: 5, status: '200' })]);
+  ok('без потерь хвост неполным не объявляется', clean.truncated === false, clean);
+
+  // Процентили: считаем на известном наборе
+  const many = Array.from({ length: 100 }, (_, i) =>
+    ev('http.end', { trace: `p${i}`, route: '/api/slow', durationMs: i + 1, status: '200' }, i));
+  const p = summarize(many).slowRoutes[0];
+  ok('медиана посчитана', p?.p50 === 50.5, p);
+  ok('девяносто пятый посчитан', p?.p95 === 95.05, p);
+  ok('худший случай посчитан', p?.max === 100, p);
+  ok('точность объявлена', p?.exact === true, p);
+
+  const started = summarize([
+    ev('http.start', { trace: 'u1', phase: 'start', route: '/api/x', method: 'GET' }),
+    ev('http.end', { trace: 'u2', phase: 'end', route: '/api/x', durationMs: 1, status: '200' }),
+  ]);
+  ok('незавершённая операция посчитана', started.unfinished === 1, started.unfinished);
+
+  const errs = summarize([
+    ev('db.op', { model: 'Tag', operation: 'create', ok: false, code: 'P2002', outcome: 'error' }),
+    ev('db.op', { model: 'Tag', operation: 'create', ok: false, code: 'P2002', outcome: 'error' }),
+  ]);
+  ok('ошибки сгруппированы по коду', errs.errors[0]?.code === 'P2002' && errs.errors[0]?.count === 2, errs.errors);
+
+  const parsed = parseJsonl('{"event":"a"}\nне json\n\n{"event":"b"}\n');
+  ok('битые строки не роняют разбор', parsed.events.length === 2 && parsed.broken === 1, parsed);
+
+  // Сколько сводка стоит на самом деле — числом, а не обещанием
+  const big = Array.from({ length: 20000 }, (_, i) =>
+    ev('http.end', { trace: `b${i}`, route: `/api/r${i % 40}`, durationMs: (i % 500) + 1, status: '200' }, i));
+  const from = Date.now();
+  const heavy = summarize(big);
+  const spent = Date.now() - from;
+  ok(`сводка по 20 000 событий считается за ${spent} мс`, spent < 1500, spent);
+  ok('на большой выборке точность объявлена честно',
+    heavy.slowRoutes.every((r) => typeof r.exact === 'boolean'), heavy.slowRoutes[0]);
 }
 
 async function files() {

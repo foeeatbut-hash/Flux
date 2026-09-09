@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import SectionShell from './SectionShell';
 import ReportProblem from './ReportProblem';
+import DiagnosticsCard from './DiagnosticsCard';
 import { logsFolder, openLogsFolder } from '../../lib/crashLog';
 import { ENV_CONFIG } from '../../config/env';
 import { useModalStore } from '../../store/modalStore';
@@ -59,6 +60,8 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
   return (
     <SectionShell title="Журналы и ошибки" desc="Куда пишутся журналы и как сообщить о сбое.">
       <div className="max-w-lg space-y-4">
+        <DiagnosticsCard />
+
         {/* Папка на рабочем столе: её человек может открыть и отдать целиком.
             Раньше файлы лежали в AppData под именами вида pdm-crash-log-… и
             найти их не мог никто */}

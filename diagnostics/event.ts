@@ -176,13 +176,24 @@ export function safeError(error: unknown): { error: string; code: string; frame1
  * password="abc"` после одного лишь отбрасывания знаков превратилось бы в
  * `Errorpasswordabc` — то есть пароль остался бы в файле буквами.
  */
+/** Строка, за которую не цепляется ни одно правило обезличивания. */
+const PLAIN = /^[A-Za-z0-9_-]{1,48}$/;
+
 export function safeName(value: unknown): string {
-  return redact(String(value ?? '')).replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 48);
+  const text = String(value ?? '');
+  // Имена вроде `GET`, `findMany`, `constructor:saved` встречаются на каждом
+  // запросе, и гонять их через семь правил и раскрытие percent-кодирования
+  // незачем: без двоеточия, косой черты, пробела, знака равенства и точки
+  // изменить в такой строке нечего. Это ускорение, а не послабление
+  if (PLAIN.test(text)) return text;
+  return redact(text).replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 48);
 }
 
 /** Код состояния или ошибки: цифры и заглавные, как P2002 или 409. */
 function safeCode(value: unknown): string {
-  return redact(String(value ?? '')).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24);
+  const text = String(value ?? '');
+  if (PLAIN.test(text)) return text.slice(0, 24);
+  return redact(text).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24);
 }
 
 function finiteNumber(value: unknown): number | null {
