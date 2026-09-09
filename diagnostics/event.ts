@@ -126,15 +126,22 @@ export function routeName(value: string): string {
  * отпечаток дубля по нему перестал бы совпадать через одну правку файла. Путь
  * убирается потому, что содержит имя сотрудника в личной папке.
  */
+export function normalizeFrame(line: unknown): string {
+  const at = String(line ?? '').trim().replace(/^at\s+/, '');
+  if (!at) return '';
+  const fn = at.split(' (')[0].trim();
+  // Из пути остаётся только имя файла: остальное — личная папка сотрудника и
+  // место установки, они у каждого свои и разбору не помогают
+  const where = (at.match(/\(?([^()\s/\\]+\.[a-z]+):\d+:\d+\)?/) || [])[1] || '';
+  return `${fn.replace(UUID, '')} ${where}`.trim().replace(/\s+/g, ' ').slice(0, 80);
+}
+
 export function safeFrames(stack: unknown, limit = 3): string[] {
   if (typeof stack !== 'string') return [];
   const out: string[] = [];
   for (const line of stack.split('\n').slice(1)) {
-    const at = line.trim();
-    if (!at.startsWith('at ')) continue;
-    const fn = at.slice(3).split(' (')[0].trim();
-    const where = (at.match(/\(?([^()\s/\\]+\.[a-z]+):\d+:\d+\)?/) || [])[1] || '';
-    const name = `${fn.replace(UUID, '')} ${where}`.trim().replace(/\s+/g, ' ').slice(0, 80);
+    if (!line.trim().startsWith('at ')) continue;
+    const name = normalizeFrame(line);
     if (name) out.push(name);
     if (out.length >= limit) break;
   }
@@ -192,7 +199,9 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
     case 'name': return safeName(value) || null;
     case 'code': return safeCode(value) || null;
     case 'route': return routeName(String(value ?? ''));
-    case 'frame': return redact(String(value ?? '')).replace(/\s+/g, ' ').slice(0, 80) || null;
+    // Через ту же нормализацию, что и разбор стека: иначе кадр, поданный
+    // полем напрямую, сохранял бы путь установки и номер строки
+    case 'frame': return normalizeFrame(redact(String(value ?? ''))) || null;
     case 'ms': {
       const n = finiteNumber(value);
       // Округляем до сотых: наносекунды в отчёте только мешают читать

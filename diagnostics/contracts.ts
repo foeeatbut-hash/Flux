@@ -98,7 +98,7 @@ export const EVENTS = {
 
   // ── Запрос на сервере ─────────────────────────────────────────────────────
   'http.start': { method: 'name', route: 'route', requestBytes: 'bytes' },
-  'http.end': { method: 'name', route: 'route', status: 'code', aborted: 'flag', responseBytes: 'bytes' },
+  'http.end': { method: 'name', route: 'route', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes' },
 
   // ── База ──────────────────────────────────────────────────────────────────
   'db.op': { model: 'name', operation: 'name', rows: 'count', ok: 'flag', error: 'name', code: 'code' },
@@ -161,6 +161,12 @@ export const EVENTS = {
   'office.export': { section: 'name', documentRef: 'id', format: 'name', resultBytes: 'bytes' },
   'office.import': { section: 'name', documentRef: 'id', format: 'name', sourceBytes: 'bytes' },
   'office.dispose': { section: 'name', documentRef: 'id' },
+
+  // ── Свёрнутый повтор ──────────────────────────────────────────────────────
+  // Опрос уведомлений идёт раз в минуту у каждого окна и в разборе не нужен
+  // построчно. Одна строка на пятисекундное окно говорит то же самое: сколько
+  // раз, сколько всего заняло и какой был худший случай.
+  'agg.repeat': { name: 'name', route: 'route', status: 'code', repeats: 'count', totalMs: 'ms', maxMs: 'ms' },
 
   // ── Сама запись ───────────────────────────────────────────────────────────
   // Счётчики потерь обязаны быть видны: «событий не было» и «события потеряны»

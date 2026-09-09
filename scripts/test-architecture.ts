@@ -115,6 +115,15 @@ ok('чистая часть общего кода не тянет node:', shared
 const srcToNode = SRC.filter((p) => importsOf(p).some((i) => /diagnostics\/node\//.test(i)));
 ok('окно не импортирует серверную часть диагностики', srcToNode.length === 0, srcToNode);
 
+// Импорта мало: Buffer, process и require — глобали, их видно без единой
+// строки import. Очередь событий уже была написана с Buffer.byteLength и в
+// окне упала бы не при сборке, а при первом же событии
+const NODE_GLOBAL = /\bBuffer\.|\bprocess\.(env|cwd|pid|platform|version)|\b__dirname\b|\brequire\s*\(/;
+const sharedGlobals = SHARED
+  .filter((p) => !p.includes('/node/'))
+  .filter((p) => NODE_GLOBAL.test(read(p)));
+ok('чистая часть общего кода не пользуется Node-глобалями', sharedGlobals.length === 0, sharedGlobals);
+
 console.log('5. Программа остаётся офлайн: никаких внешних ИИ-сервисов');
 // Требование заказчика: программа работает на сервере компании, «ИИ» в ней
 // программный — алгоритмы и локальная база знаний, а не вызовы чужого API.

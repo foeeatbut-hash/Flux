@@ -11,10 +11,15 @@
  * записи — проверка провалена, и неважно, каким путём она туда попала.
  */
 
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   cleanFields, newTraceId, redact, routeName, safeError, safeFrames, safeName,
 } from '../diagnostics/event';
 import { COMMON, EVENTS, EVENT_NAMES, specOf, type FieldKind } from '../diagnostics/contracts';
+import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode } from '../diagnostics/policy';
+import { FileWriter } from '../diagnostics/node/writer';
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -91,6 +96,17 @@ console.log('\n3. Ошибка отдаёт код, а не рассказ');
   ok('в кадре стека нет пути', !frames.join('|').includes(BAIT), frames);
   ok('в кадре стека нет номера строки', !/\d+:\d+/.test(frames.join('|')), frames);
   ok('имя функции в кадре сохраняется', frames[0]?.includes('saveNow'), frames);
+
+  // Кадр можно подать и полем напрямую — тогда чистит cleanFields, и чистить
+  // он обязан так же. Раньше вид frame только обезличивал строку, а путь
+  // установки и номер строки в ней оставались
+  const direct = cleanFields('renderer.error', {
+    error: 'TypeError',
+    frame1: `    at saveNow (/home/${BAIT}/flux/src/screens/Doc.tsx:412:19)`,
+  })!;
+  ok('кадр, поданный полем, чистится так же', !JSON.stringify(direct).includes(BAIT), direct);
+  ok('в поданном кадре нет номера строки', !/\d+:\d+/.test(String(direct.frame1)), direct);
+  ok('в поданном кадре осталось имя функции', String(direct.frame1).includes('saveNow'), direct);
 }
 
 console.log('\n4. Словарь событий: записать можно только объявленное');
@@ -151,5 +167,165 @@ console.log('\n6. Идентификаторы');
   ok('чужой идентификатор чистится', safeName('../../etc/passwd') === '....etcpasswd', safeName('../../etc/passwd'));
 }
 
-console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
-process.exit(f === 0 ? 0 : 1);
+console.log('\n7. Что пишется в обычном режиме, а что только в подробном');
+{
+  ok('начало участка в обычном режиме не пишется',
+    passesMode('http.start', { phase: 'start' }, false) === false);
+  ok('в подробном — пишется',
+    passesMode('http.start', { phase: 'start' }, true) === true);
+  ok('завершение запроса пишется всегда',
+    passesMode('http.end', { status: '200' }, false) === true);
+  ok('событие сокета — только в подробном',
+    passesMode('socket.receive', {}, false) === false);
+  // Иначе получилось бы, что в обычном режиме теряется ровно то, ради чего
+  // запись и ведётся
+  ok('поломка пишется и в обычном режиме',
+    passesMode('socket.receive', { outcome: 'error' }, false) === true);
+  ok('ответ 500 считается поломкой', isFailure('http.end', { status: '500' }) === true);
+  ok('отменённый запрос поломкой не считается', isFailure('http.end', { outcome: 'cancelled' }) === false);
+}
+
+console.log('\n8. Повторы сворачиваются, поломки — нет');
+{
+  const filter = new RepeatFilter(5000);
+  const poll = { route: '/api/notifications', status: '200', durationMs: 10 };
+  ok('первый запрос в окне пишется целиком', filter.accept('http.end', poll, 1000) === true);
+  ok('второй уходит в свёртку', filter.accept('http.end', poll, 1100) === false);
+  ok('третий тоже', filter.accept('http.end', { ...poll, durationMs: 30 }, 1200) === false);
+  ok('окно ещё не закрылось — свёртки нет', filter.drain(2000).length === 0);
+  const [agg] = filter.drain(9000);
+  ok('свёртка выдана после окна', !!agg, agg);
+  ok('свёртка знает число повторов', agg?.data.repeats === 2, agg?.data);
+  ok('свёртка знает худший случай', agg?.data.maxMs === 30, agg?.data);
+  ok('имя свёрнутого события сохранено', agg?.data.name === 'http.end', agg?.data);
+
+  const errors = new RepeatFilter(5000);
+  const bad = { route: '/api/tags', status: '500' };
+  ok('первая поломка пишется', errors.accept('http.end', bad, 0) === true);
+  ok('вторая поломка тоже пишется', errors.accept('http.end', bad, 10) === true);
+}
+
+console.log('\n9. Очередь и предел частоты');
+{
+  const q = new BoundedQueue(3, 1000);
+  for (const n of ['a', 'b', 'c', 'd']) q.push(n + '\n', 2);
+  ok('очередь держит объявленное число записей', q.length === 3, q.length);
+  ok('вытесненное посчитано потерянным', q.dropped === 1, q.dropped);
+  ok('вытесняется самое старое', q.take().batch === 'b\nc\nd\n');
+
+  const byBytes = new BoundedQueue(100, 10);
+  byBytes.push('x', 6);
+  byBytes.push('y', 6);
+  ok('потолок по объёму тоже работает', byBytes.length === 1 && byBytes.dropped === 1);
+
+  const rate = new RateLimit(2);
+  ok('в пределах — пропускает', rate.allow(0) && rate.allow(1));
+  ok('сверх предела — нет', rate.allow(2) === false);
+  ok('в следующую секунду снова пропускает', rate.allow(1100) === true);
+}
+
+async function files() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-diag-'));
+  try {
+    console.log('\n10. Файлы: ротация по строке, а не по пачке');
+    {
+      // Порог 400 байт при строке около 150: если проверять перед пачкой, а не
+      // перед строкой, один сброс переваливает порог целиком и файл выходит
+      // вдвое больше объявленного
+      const dir = path.join(root, 'rotate');
+      const w = new FileWriter(dir, 'test', 400, 10 * 1024 * 1024, 10000);
+      for (let n = 0; n < 24; n++) w.record('ui.stall', { durationMs: n });
+      await w.close();
+      const names = (await fs.readdir(dir)).sort();
+      ok(`пачка разложена по нескольким файлам (${names.length})`, names.length > 2, names);
+      const sizes = await Promise.all(names.map(async (n) => (await fs.stat(path.join(dir, n))).size));
+      // Одна строка сверх порога допустима: она пишется целиком, не разрезаясь
+      const worst = Math.max(...sizes);
+      ok(`ни один файл не вырос вдвое против порога (худший ${worst})`, worst <= 400 + 200, sizes);
+      const lines = (await Promise.all(names.map((n) => fs.readFile(path.join(dir, n), 'utf8')))).join('');
+      ok('ни одна запись не потеряна при ротации',
+        lines.trim().split('\n').length === 24, lines.trim().split('\n').length);
+      ok('каждая строка — целый JSON',
+        lines.trim().split('\n').every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));
+    }
+
+    console.log('\n11. Уборка: срок, объём и чужие файлы');
+    {
+      const dir = path.join(root, 'sweep');
+      await fs.mkdir(dir, { recursive: true });
+      // Чужой файл в папке: удалять его мы права не имеем
+      const stranger = path.join(dir, 'важное.txt');
+      await fs.writeFile(stranger, 'не трогать');
+      const w = new FileWriter(dir, 'test', 300, 900, 10000);
+      for (let n = 0; n < 40; n++) w.record('ui.stall', { durationMs: n });
+      await w.close();
+      const names = await fs.readdir(dir);
+      const mine = names.filter((n) => n.endsWith('.jsonl'));
+      const total = (await Promise.all(mine.map(async (n) => (await fs.stat(path.join(dir, n))).size)))
+        .reduce((a, b) => a + b, 0);
+      ok(`общий объём держится в пределах (${total} байт при 900)`, total <= 900 + 300, total);
+      ok('чужой файл не удалён', names.includes('важное.txt'), names);
+    }
+
+    console.log('\n12. Отказ диска не роняет программу');
+    {
+      // Вместо папки — файл: mkdir и запись обязаны провалиться
+      const blocked = path.join(root, 'не-папка');
+      await fs.writeFile(blocked, 'x');
+      const w = new FileWriter(blocked, 'test');
+      w.record('ui.stall', { durationMs: 1 });
+      await w.close();
+      const st = w.status();
+      ok('отказ записи посчитан', st.failures >= 1, st);
+      ok('несохранённое посчитано потерянным', st.dropped >= 1, st);
+      ok('очередь после отказа пуста, память не течёт', st.queued === 0, st);
+    }
+
+    console.log('\n13. Поломке всегда есть место');
+    {
+      const dir = path.join(root, 'reserve');
+      const w = new FileWriter(dir, 'test', 10 * 1024 * 1024, 10 * 1024 * 1024, 100000);
+      // Шторм должен быть настоящим: очередь обычных событий держит 20 000, и
+      // пока её не переполнить, вытеснять нечего — проверка проходила бы, ничего
+      // не проверяя. Цикл синхронный, сброс по таймеру в него не вклинится
+      for (let n = 0; n < 25000; n++) w.record('ui.stall', { durationMs: n });
+      w.record('renderer.error', { error: 'TypeError' });
+      for (let n = 0; n < 25000; n++) w.record('ui.stall', { durationMs: n });
+      await w.close();
+      const text = (await Promise.all(
+        (await fs.readdir(dir)).map((n) => fs.readFile(path.join(dir, n), 'utf8')),
+      )).join('');
+      ok('ошибка доехала до файла', text.includes('renderer.error'));
+      const first = text.trim().split('\n').findIndex((l) => l.includes('renderer.error'));
+      ok('ошибка записана раньше успешных событий своей пачки', first === 0, first);
+      const st = w.status();
+      ok('вытесненные успешные события объявлены потерянными', st.dropped > 0, st.dropped);
+      ok('потеряны именно успешные, а не поломка',
+        text.split('renderer.error').length - 1 === 1, text.split('renderer.error').length - 1);
+    }
+
+    console.log('\n14. Незнакомое событие не попадает в файл');
+    {
+      const dir = path.join(root, 'unknown');
+      const w = new FileWriter(dir, 'test');
+      (w as any).record('office.секретное', { text: BAIT });
+      w.record('ui.stall', { durationMs: 1 });
+      await w.close();
+      const text = (await Promise.all(
+        (await fs.readdir(dir)).map((n) => fs.readFile(path.join(dir, n), 'utf8')),
+      )).join('');
+      ok('незнакомого события в файле нет', !text.includes('секретное'), text.slice(0, 200));
+      ok('приманки в файле нет', !text.includes(BAIT));
+      ok('знакомое событие записалось', text.includes('ui.stall'));
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+void files()
+  .catch((error) => { f++; console.error('  ✗ проверка файлов упала', error); })
+  .finally(() => {
+    console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
+    process.exit(f === 0 ? 0 : 1);
+  });
