@@ -16,6 +16,8 @@ import { actorOf, fail, ok, settings } from '../feedback/policy.js';
 import { registerUploadRoutes, type UploadDeps } from '../feedback/uploads.js';
 import { registerReportRoutes } from '../feedback/reports.js';
 import { registerActionRoutes } from '../feedback/actions.js';
+import { startOutbox } from '../feedback/outbox.js';
+import { unreadFor } from '../feedback/unread.js';
 import {
   ERRORS, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
   TYPE_NAMES, STATUS_NAMES, IMPACT_NAMES, FREQUENCY_NAMES, PRIORITY_NAMES,
@@ -61,6 +63,20 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
       },
     });
   });
+
+  /** Сколько мест ждут этого человека. */
+  app.get('/api/feedback/unread', async (req: Request, res: Response) => {
+    const actor = actorOf(req);
+    if (!actor) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти в программу');
+    const failure = await ensureFeedbackTables(getPrisma());
+    if (failure) return fail(res, ERRORS.UNAVAILABLE, failure);
+    ok(res, await unreadFor(actor.id, deps.can((req as any).authUser, 'feedback.triage')));
+  });
+
+  // Разбор очереди уведомлений: запись в базе — способ доставки, сокет только
+  // ускоряет. Проход берёт записи в аренду, поэтому несколько встроенных
+  // серверов на одной базе не разошлют одно и то же дважды
+  startOutbox();
 
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
   registerReportRoutes(app, deps);

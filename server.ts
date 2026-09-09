@@ -14,7 +14,7 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
-import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
+import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
@@ -995,7 +995,11 @@ const getAuthUser = async (userId: string) => {
 
 const app = express();
 app.use(traceRequest);
-const PORT = 3000;
+// Порт из окружения, но по умолчанию тот же: программа и её оболочка ждут
+// именно 3000. Настройка нужна затем, чтобы поднять второй сервер на той же
+// базе — так проверяется работа отдела, где у каждого свой встроенный сервер,
+// а база одна на всех
+const PORT = Number(process.env.PORT) || 3000;
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
@@ -2070,6 +2074,9 @@ function pushNotification(userId: string, row: any) {
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
 setBroadcaster((event, payload) => { io.emit(event, payload); });
+// Событие одному человеку: очередь обращений сама пишет в базу, а сюда отдаёт
+// только «посмотри, там изменилось» — чтобы не ждать следующего опроса
+setUserPush((userId, event, payload) => { try { io.to(`user:${userId}`).emit(event, payload); } catch (_) {} });
 
 /**
  * Оповестить всех сотрудников, кроме инициатора: события уровня компании —
