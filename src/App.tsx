@@ -16,13 +16,13 @@ const CapturePult = lazy(() => import('./screens/CapturePult'));
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
 import LicenseGate from './screens/LicenseGate';
-import ActionLogWidget from './components/ActionLogWidget';
+import ProblemPanel from './components/feedback/ProblemPanel';
+import { useProblemPanel, openProblemPanel, closeProblemPanel } from './feedback/problemPanel';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
 import { Z } from './lib/layers';
 import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from './lib/metrics';
-import { useLogStore } from './store/logStore';
-import { Terminal } from 'lucide-react';
+import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
 import { SECTIONS } from './workspace/sections';
 
@@ -57,10 +57,8 @@ function ElectronTitleBar() {
   // Журнал переехал сюда из круглой нашлёпки у правого края: она висела поверх
   // содержимого, закрывала его углом и жила отдельно от всего остального
   // управления программой
-  const logCount = useLogStore((s) => s.logs.length);
-  const logAlarm = useLogStore((s) => s.hasUnreadError);
-  const logOpen = useLogStore((s) => s.widgetOpen);
-  const setLogOpen = useLogStore((s) => s.setWidgetOpen);
+  const problemOpen = useProblemPanel((s) => s.open);
+  const reportBtn = React.useRef<HTMLButtonElement>(null);
   const [maximized, setMaximized] = React.useState(false);
   const [near, setNear] = React.useState(false);
   const [pinned, setPinned] = React.useState(() => {
@@ -101,15 +99,10 @@ function ElectronTitleBar() {
     return () => { window.removeEventListener('mousemove', onMove); clearTimeout(hideTimer.current); };
   }, [isElectron]);
 
-  // Новая ошибка сама вызывает панельку: иначе счётчик ошибок горит там, куда
-  // человек не смотрит, — у верхней кромки, где панельки в этот момент нет
-  React.useEffect(() => {
-    if (!logAlarm) return;
-    clearTimeout(hideTimer.current);
-    setNear(true);
-    hideTimer.current = setTimeout(() => setNear(false), 4000);
-  }, [logAlarm]);
-
+  // Панелька больше не выпрыгивает на каждую внутреннюю ошибку. Раньше она
+  // так показывала счётчик — а счётчик показывал человеку то, чего он не
+  // просил и с чем ничего не может сделать. О сбое сообщают, когда сбой
+  // мешает работать, и решает это человек, а не счётчик
   // Окно стало у́же — панельку надо пересчитать, иначе приколотая уедет за край
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
@@ -209,23 +202,29 @@ function ElectronTitleBar() {
         <span className="flex-1" />
 
         <div className="flex items-center" style={noDrag}>
+          {/* Единственная дверь к сообщению о сбое. Раньше эта же кнопка
+              открывала журнал с фильтрами и складывала его текст в чат-канал
+              «Ошибки» — обращение жило там обычной репликой, без номера и без
+              ответа. Панель выдвигается отсюда, поэтому кнопка отдаёт свой
+              прямоугольник: панель встаёт под ней, а не посреди экрана */}
           <button
             type="button"
-            onClick={() => setLogOpen(!logOpen)}
-            title="Журнал: что программа делала и на чём споткнулась"
-            aria-label="Журнал программы"
-            aria-pressed={logOpen}
+            ref={reportBtn}
+            onClick={() => {
+              if (problemOpen) { closeProblemPanel(); return; }
+              const rect = reportBtn.current?.getBoundingClientRect();
+              openProblemPanel(
+                { sectionKey: window.location.hash.replace(/^#/, '') },
+                rect ? { top: Math.round(rect.bottom + 6), right: Math.round(window.innerWidth - rect.right) } : undefined,
+              );
+            }}
+            title="Сообщить о проблеме"
+            aria-label="Сообщить о проблеме"
+            aria-expanded={problemOpen}
             style={{ ...noDrag, ...btnBox }}
-            className={`${btn} relative rounded-lg ${logOpen ? 'bg-slate-700 text-white' : 'hover:bg-slate-800'}`}
+            className={`${btn} relative rounded-lg ${problemOpen ? 'bg-slate-700 text-white' : 'hover:bg-slate-800'}`}
           >
-            <Terminal className="w-3.5 h-3.5" />
-            {/* Счётчик показывается только когда есть о чём: ошибка — розовым,
-                иначе журнал молчит и не мозолит глаза */}
-            {logAlarm && (
-              <span className="absolute top-0.5 right-1 min-w-[14px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold leading-[14px]">
-                {logCount > 99 ? '99+' : logCount}
-              </span>
-            )}
+            <Bug className="w-3.5 h-3.5" />
           </button>
           {/* Кнопки окна — только в самой программе: в браузере окном
               распоряжается браузер, и три мёртвые кнопки там были бы обманом */}
@@ -371,7 +370,7 @@ export default function App() {
             </ServerGate>
           </div>
         </div>
-        <ActionLogWidget />
+        <ProblemPanel />
         <AssistantSpotlight />
       </SocketProvider>
     </Router>
