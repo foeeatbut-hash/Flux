@@ -292,6 +292,32 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     ok(res, { id: ctx.report.id, publicRevision, internalRevision });
   });
 
+  /**
+   * Кому можно поручить разбор.
+   *
+   * Список нужен форме действия «Взять в работу»: без исполнителя сервер
+   * переход отклоняет, а придумать список в окне нельзя — право «Разбор
+   * обращений» лежит в правах сотрудника, и окно их не видит. Отдаётся только
+   * разбирающим: обычному сотруднику знать, кто чем занимается, незачем.
+   */
+  app.get('/api/feedback/assignees', async (req: Request, res: Response) => {
+    const actor = actorOf(req);
+    if (!actor) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти в программу');
+    if (!deps.can((req as any).authUser, 'feedback.triage')) {
+      return fail(res, ERRORS.FORBIDDEN, 'Список доступен тем, кто разбирает обращения');
+    }
+    const ids = await triageRecipients(deps.can);
+    if (!ids.length) return ok(res, []);
+    const users = await getPrisma().user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, symbol: true },
+    });
+    // Себя ставим первым: чаще всего разбирающий берёт на себя
+    const list = users.map((u: any) => ({ id: u.id, name: u.name || u.symbol || u.id }));
+    list.sort((a: any, b: any) => (a.id === actor.id ? -1 : b.id === actor.id ? 1 : 0));
+    ok(res, list);
+  });
+
   /** Какие кнопки показывать: список берётся из тех же правил, что и проверка. */
   app.get('/api/feedback/reports/:id/actions', async (req: Request, res: Response) => {
     const ctx = await card(req, res);

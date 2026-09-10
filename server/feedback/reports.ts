@@ -226,6 +226,25 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
         fingerprint: b.fingerprint || '',
       }));
     }
-    ok(res, { ...visible(found, actor, triage), attachments, diagnostics });
+    /**
+     * Докуда человек может отметить прочитанным.
+     *
+     * Границы отдаёт сервер, а не выдумывает окно: публичная — по изменениям,
+     * которые автору видны; внутренняя — только разбирающему. Отмечать
+     * невидимое прочитанным нечестно, и раньше окно вообще ничего не отмечало:
+     * слало `seenRevision: 0`, которого сервер не знает, и красный кружок у
+     * автора не гас после прочтения ни разу.
+     */
+    const publicChange = await prisma.feedbackChange.findFirst({
+      where: { reportId: id, visibility: 'PUBLIC' },
+      orderBy: { revision: 'desc' }, select: { revision: true },
+    });
+    const publicRevision = Number(publicChange?.revision || 0);
+    const internalRevision = triage ? Number(found.revision || 0) : 0;
+
+    ok(res, {
+      ...visible(found, actor, triage),
+      attachments, diagnostics, publicRevision, internalRevision,
+    });
   });
 }

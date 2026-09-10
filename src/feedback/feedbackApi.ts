@@ -84,6 +84,9 @@ export const setPriority = (id: string, body: Record<string, unknown>) =>
 export const markRead = (id: string, body: Record<string, unknown>) =>
   call<any>('POST', `/reports/${id}/read`, body);
 
+/** Кому можно поручить разбор. Только разбирающим — сервер и так откажет. */
+export const listAssignees = () => call<Array<{ id: string; name: string }>>('GET', '/assignees');
+
 /**
  * Забрать вложение.
  *
