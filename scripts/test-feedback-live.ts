@@ -68,7 +68,7 @@ async function main() {
 
     await page.evaluate(() => { window.location.hash = '#/feedback'; });
     await page.waitForTimeout(3500);
-    const text = await page.evaluate(() => document.body.innerText);
+    const text = await page.evaluate(() => document.body.textContent || '');
     ok('раздел открылся', /Новое обращение/.test(text), text.slice(0, 200));
     ok('очередь разбора видна администратору', /Очередь разбора/.test(text));
 
@@ -78,7 +78,7 @@ async function main() {
     // рапортует о поломке там, где просто не дождался
     const formShown = await page.waitForSelector('input[placeholder*="Закрылась"]', { timeout: 20000 })
       .then(() => true).catch(() => false);
-    ok('форма открылась', formShown, await page.evaluate(() => document.body.innerText.slice(0, 300)));
+    ok('форма открылась', formShown, await page.evaluate(() => (document.body.textContent || '').slice(0, 300)));
 
     await page.fill('input[placeholder*="Закрылась"]', title);
     await page.fill('textarea', 'Живая проверка: описание длиннее десяти знаков, как требует договор.');
@@ -87,7 +87,7 @@ async function main() {
     ok('предпросмотр показывает то, что уйдёт', await (async () => {
       await page.click('text=Посмотреть, что уйдёт');
       await page.waitForTimeout(600);
-      const shown = await page.evaluate(() => document.body.innerText);
+      const shown = await page.evaluate(() => document.body.textContent || '');
       await page.click('text=Править');
       await page.waitForTimeout(400);
       return shown.includes(title);
@@ -102,13 +102,16 @@ async function main() {
      * «Отправлено» ставится только после ответа сервера, его и ждём.
      */
     const told = await page.waitForFunction(
-      () => /Отправлено/.test(document.body.innerText), null, { timeout: 45000 },
+      // textContent, а не innerText: окно, ушедшее на второй план, оболочка
+      // скрывает через display:none, и innerText такой текст не отдаёт — проверка
+      // объявляла поломкой то, что просто оказалось за другим окном
+      () => /Отправлено/.test(document.body.textContent || ''), null, { timeout: 60000 },
     ).then(() => true).catch(() => false);
     // При провале важно не «чего нет на странице», а что показывает сама форма:
     // осталась ли она открыта и на каком шаге застряла
     const state = await page.evaluate(() => {
-      const box = document.querySelector('[aria-label="Сообщить об ошибке"]') as HTMLElement | null;
-      return { есть: !!box, текст: box ? box.innerText.slice(0, 200) : '' };
+      const box = document.querySelector('[aria-label="Обращение"]');
+      return { есть: !!box, текст: box ? (box.textContent || '').slice(0, 200) : '' };
     });
     ok('форма сообщила об отправке', told, state);
 
@@ -214,7 +217,7 @@ async function main() {
     ok('кнопка «Сообщить об ошибке» на месте', opened);
     await page.waitForTimeout(1500);
 
-    const shown = await page.evaluate(() => document.body.innerText);
+    const shown = await page.evaluate(() => document.body.textContent || '');
     ok('форма — одна строка, без галочек про журналы',
       /Что случилось/.test(shown) && !/Технические записи этого окна/.test(shown),
       shown.slice(0, 200));
@@ -230,9 +233,15 @@ async function main() {
     // небыстрой машине это дольше, чем кажется. Сорока пяти секунд не хватило —
     // карточка к тому времени уже была заведена, а надпись ещё не появилась
     const done = await page.waitForFunction(
-      () => /Отправлено|Обращение появилось/.test(document.body.innerText), null, { timeout: 120000 },
+      () => /Отправлено|Обращение появилось/.test(document.body.textContent || ''), null, { timeout: 120000 },
     ).then(() => true).catch(() => false);
-    ok('короткая форма отправилась', done, await page.evaluate(() => document.body.innerText.slice(0, 200)));
+    // При провале смотрим на саму форму: осталась ли открыта и на каком шаге
+    // застряла. «Чего нет на странице» об этом не говорит ничего
+    const shortState = await page.evaluate(() => {
+      const box = document.querySelector('[aria-label="Сообщить об ошибке"]');
+      return { есть: !!box, текст: box ? (box.textContent || '').replace(/\s+/g, ' ').slice(0, 200) : '' };
+    });
+    ok('короткая форма отправилась', done, shortState);
 
     const token2 = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
     const head2 = { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' };
