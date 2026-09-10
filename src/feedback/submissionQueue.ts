@@ -114,7 +114,22 @@ export class SubmissionQueue {
     return () => { this.listeners.delete(listener); };
   }
 
-  snapshot(): QueueItem[] { return this.order.map((k) => this.items.get(k)!).filter(Boolean); }
+  /**
+   * Снимок очереди — копии, а не сами записи.
+   *
+   * Записи правятся на месте, и отдавать их наружу нельзя: окно кладёт запись в
+   * своё состояние, а на следующем изменении получает ТОТ ЖЕ объект. React
+   * сравнивает по ссылке, видит «ничего не изменилось» и не перерисовывает —
+   * форма застывала на первом увиденном шаге навсегда. Со стороны это выглядело
+   * как зависшая отправка: обращение уже заведено, записи приложены, а человек
+   * смотрит на «Отправляем вложения» и не знает, что всё давно готово.
+   */
+  snapshot(): QueueItem[] {
+    return this.order
+      .map((key) => this.items.get(key))
+      .filter(Boolean)
+      .map((item) => ({ ...(item as QueueItem) }));
+  }
 
   private tell(): void {
     const now = this.snapshot();
@@ -126,8 +141,20 @@ export class SubmissionQueue {
     if (!item) return;
     Object.assign(item, patch);
     this.tell();
-    // Состояние переживает перезапуск только записанным: держать его в памяти
-    // окна — то же самое, что не держать вовсе
+
+    /**
+     * В хранилище пишется только смена состояния, а не каждый пройденный байт.
+     *
+     * Ход отправки меняется на каждом куске, а записать черновик — значит
+     * переписать его целиком, вместе с приложенными мегабайтами: браузерное
+     * хранилище кладёт значение целиком, кусками его не правят. На снимке в
+     * несколько мегабайт это превращало отправку в минуты, и человек видел
+     * застывшее «Отправляем вложения» там, где всё работало.
+     *
+     * Терять при этом нечего: байты черновика не меняются, пока он едет, а
+     * состояние переживает перезапуск только записанным — его и пишем.
+     */
+    if (patch.state === undefined && patch.note === undefined) return;
     const draft = await readDraft(key);
     if (draft) await saveDraft({ ...draft, state: item.state, note: item.note });
   }
@@ -216,7 +243,8 @@ export class SubmissionQueue {
         if (controller.signal.aborted) return;
         const before = sent;
         const id = await sendFile(file.blob, file.name, file.kind, pack.body.clientRequestId, pack.draftId,
-          (done) => { void this.put(key, { done: before + done }); }, controller.signal);
+          (done) => { void this.put(key, { done: before + done }); },
+          controller.signal);
         sent += file.blob?.size || 0;
         uploadIds.push(id);
       }

@@ -156,17 +156,28 @@ async function main() {
   q4.clear();
 
   console.log('\n7. Отмена');
-  plan = () => json({ code: 'NOT_FOUND', message: '' }, 404);
+  // Состояние подтверждения наступает по-настоящему: сервер принял запрос и
+  // молчит. Подделывать его правкой снимка нельзя — снимок отдаёт копии, и
+  // проверка, которая правит копию, проверяла бы саму себя, а не очередь.
+  plan = (method, url) => {
+    if (method === 'POST' && /\/feedback\/reports$/.test(url)) return new Promise(() => {});
+    return json({ code: 'NOT_FOUND', message: url }, 404);
+  };
   const q5 = new SubmissionQueue();
   await q5.enqueue(pack() as any);
-  const stuck = await settle(q5, 'dep|u1|d1', ['NEEDS_REVIEW', 'FAILED_RETRYABLE', 'SENT']);
-  const item = q5.snapshot()[0];
-  (item as any).state = 'COMMITTING';
+  const hanging = await settle(q5, 'dep|u1|d1', ['COMMITTING', 'NEEDS_REVIEW', 'SENT']);
+  ok('дошло до подтверждения', hanging?.state === 'COMMITTING', hanging?.state);
   ok('на подтверждении отменить нельзя', q5.cancel('dep|u1|d1') === false);
-  (item as any).state = 'QUEUED';
-  ok('до подтверждения — можно', q5.cancel('dep|u1|d1') === true, stuck);
-  ok('состояние стало «отменено»', q5.snapshot()[0].state === 'CANCELLED');
+  ok('и оно осталось на подтверждении', q5.snapshot()[0].state === 'COMMITTING');
   q5.clear();
+
+  plan = () => json({ code: 'NOT_FOUND', message: '' }, 404);
+  const q6 = new SubmissionQueue();
+  await q6.enqueue(pack() as any);
+  const stuck = await settle(q6, 'dep|u1|d1', ['NEEDS_REVIEW', 'FAILED_RETRYABLE', 'SENT']);
+  ok('до подтверждения — можно', q6.cancel('dep|u1|d1') === true, stuck);
+  ok('состояние стало «отменено»', q6.snapshot()[0].state === 'CANCELLED');
+  q6.clear();
 
   console.log('\n8. Пакет собирается обратно только целым');
   ok('без ключа запроса пакет не собирается',
