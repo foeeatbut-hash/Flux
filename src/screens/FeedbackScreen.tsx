@@ -24,6 +24,7 @@ import {
 import FeedbackList, { type Row } from '../components/feedback/FeedbackList';
 import FeedbackCard, { type Action, type Card } from '../components/feedback/FeedbackCard';
 import FeedbackDiscussion, { type Comment, type Event } from '../components/feedback/FeedbackDiscussion';
+import FeedbackDiagnostics from '../components/feedback/FeedbackDiagnostics';
 import FeedbackComposer from '../components/feedback/FeedbackComposer';
 import FeedbackSummary from '../components/feedback/FeedbackSummary';
 import { reportNumber, type Status } from '../../feedback/contracts';
@@ -234,6 +235,12 @@ export default function FeedbackScreen() {
                 openAttachment(id, name, inline).catch((error: any) =>
                   setFailure(error?.message || 'Вложение не открылось'));
               }} />
+            {/* Сводка по запискам — тем, у кого есть право: сервер и так её не
+                отдаёт остальным, но и рисовать пустое место незачем */}
+            {!!(card as any).diagnostics?.length && (
+              <FeedbackDiagnostics bundles={(card as any).diagnostics} />
+            )}
+
             {triage && twins.length > 0 && (
               <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-1.5">
                 <div className="text-xs font-bold text-amber-800 dark:text-amber-300">Похоже на уже заведённое</div>

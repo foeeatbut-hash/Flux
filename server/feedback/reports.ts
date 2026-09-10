@@ -12,6 +12,7 @@ import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, settings, triageRecipients, type Actor } from './policy.js';
 import { createReport, reserveRate, refundRate, rateResetAt } from './service.js';
+import { describeBundles } from './bundle.js';
 import { ERRORS, LIMITS, STATUSES, validateSubmit, isUuid, type Status } from '../../feedback/contracts.js';
 
 export interface ReportDeps {
@@ -53,6 +54,14 @@ function visible(report: any, actor: Actor, triage: boolean) {
     projectId: mine || triage ? report.projectId : null,
     capabilities: { mine, triage },
   };
+}
+
+/** Разбор записанного JSON: испорченная строка не должна ронять карточку. */
+function safeParse(json: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(json || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
 }
 
 function safeList(json: string): string[] {
@@ -103,6 +112,9 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
       const recipients = await triageRecipients(deps.can);
       const made = await createReport(actor, submit, deps.appVersion(), recipients);
       if (made.repeat) await refundRate(prisma, actor.id, 'report');
+      // Пакет диагностики разбирается ПОСЛЕ создания и без ожидания: обращение
+      // важнее сводки, а разбор нескольких мегабайт держал бы ответ
+      if (!made.repeat) void describeBundles(made.report.id);
       res.status(made.repeat ? 200 : 201);
       return ok(res, visible(made.report, actor, base.triage), { repeat: made.repeat });
     } catch (error: any) {
@@ -184,6 +196,25 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
       where: { reportId: id },
       select: { id: true, kind: true, displayName: true, mime: true, byteLength: true, createdAt: true, expiredAt: true },
     });
-    ok(res, { ...visible(found, actor, triage), attachments });
+    /**
+     * Сводка по приложенным записям — отдельным правом.
+     *
+     * Автор её не видит намеренно: он приложил записи, чтобы помочь разобрать
+     * поломку, а не чтобы читать разбор чужой работы программы. Право названо
+     * `feedback.diagnostics` и по умолчанию не выдано.
+     */
+    let diagnostics: any[] = [];
+    if (deps.can((req as any).authUser, 'feedback.diagnostics')) {
+      const bundles = await prisma.feedbackDiagnosticBundle.findMany({
+        where: { reportId: id },
+        select: { id: true, attachmentId: true, manifestJson: true, summaryJson: true, fingerprint: true },
+      });
+      diagnostics = bundles.map((b: any) => ({
+        id: b.id, attachmentId: b.attachmentId,
+        manifest: safeParse(b.manifestJson), summary: safeParse(b.summaryJson),
+        fingerprint: b.fingerprint || '',
+      }));
+    }
+    ok(res, { ...visible(found, actor, triage), attachments, diagnostics });
   });
 }

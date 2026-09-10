@@ -104,8 +104,13 @@ async function main() {
     const told = await page.waitForFunction(
       () => /Отправлено/.test(document.body.innerText), null, { timeout: 45000 },
     ).then(() => true).catch(() => false);
-    const after = await page.evaluate(() => document.body.innerText);
-    ok('форма сообщила об отправке', told, after.slice(0, 300));
+    // При провале важно не «чего нет на странице», а что показывает сама форма:
+    // осталась ли она открыта и на каком шаге застряла
+    const state = await page.evaluate(() => {
+      const box = document.querySelector('[aria-label="Сообщить об ошибке"]') as HTMLElement | null;
+      return { есть: !!box, текст: box ? box.innerText.slice(0, 200) : '' };
+    });
+    ok('форма сообщила об отправке', told, state);
 
     console.log('\n3. Обращение доехало до базы');
     const token = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
@@ -241,6 +246,17 @@ async function main() {
     ok('и их можно прочитать', bundle
       ? (await fetch(`${BASE}/api/feedback/attachments/${bundle.id}`, { headers: head2 })).status === 200
       : false);
+
+    // Сводка считается после создания карточки и без ожидания ответа, поэтому
+    // спрашиваем не сразу
+    await page.waitForTimeout(3000);
+    const withSummary = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, { headers: head2 })
+      .then((r) => r.json());
+    const described = (withSummary?.data?.diagnostics || [])[0];
+    ok('записи разобраны в сводку', !!described?.summary, withSummary?.data?.diagnostics);
+    ok('в сводке посчитаны события', (described?.summary?.events ?? 0) > 0, described?.summary?.events);
+    ok('сказано, сколько строк не разобралось',
+      described?.manifest?.broken !== undefined, described?.manifest);
   }
 
   console.log('\n5. Тишина в консоли');
