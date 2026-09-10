@@ -258,6 +258,78 @@ async function main() {
   const kill = await api('DELETE', `/api/feedback/uploads/${uploadId}`, mateToken);
   ok('чужую загрузку не отменить', kill.status === 404, kill.status);
 
+  console.log('\n6.1. Уборка берёт брошенное и не трогает приложенное');
+  {
+    // База здесь подставная, и это намеренно: проверяется не то, умеет ли
+    // Prisma удалять, а что именно уборка выбирает и чего не трогает. Ходить
+    // настоящим клиентом в ту же базу, с которой работает поднятый сервер,
+    // значит проверять две вещи разом и не понять, какая сломалась
+    const { sweepUploads } = await import('../server/feedback/cleanup');
+    const { setPrisma } = await import('../server/context');
+
+    const now = new Date();
+    const past = new Date(now.getTime() - 60_000);
+    const future = new Date(now.getTime() + 60_000);
+    const uploads = [
+      { id: 'brosh', status: 'OPEN', expiresAt: past },
+      { id: 'gotov', status: 'READY', expiresAt: past },
+      { id: 'prilozh', status: 'ATTACHED', expiresAt: past },
+      { id: 'svezh', status: 'OPEN', expiresAt: future },
+    ];
+    const attachments = [
+      { id: 'a-staroe', uploadId: 'u-staroe', expiresAt: past, expiredAt: null },
+      { id: 'a-vechnoe', uploadId: 'u-vechnoe', expiresAt: null, expiredAt: null },
+      { id: 'a-uzhe', uploadId: 'u-uzhe', expiresAt: past, expiredAt: past },
+    ];
+    const deleted: string[] = [];
+    const touched: Array<[string, any]> = [];
+
+    const matches = (row: any, where: any): boolean => {
+      for (const [field, cond] of Object.entries(where || {})) {
+        const value = (row as any)[field];
+        if (cond && typeof cond === 'object') {
+          const c: any = cond;
+          if (c.in && !c.in.includes(value)) return false;
+          if (c.lt !== undefined && !(value && new Date(value) < new Date(c.lt))) return false;
+          if (c.not === null && value === null) return false;
+        } else if (value !== cond) return false;
+      }
+      return true;
+    };
+
+    setPrisma({
+      feedbackUpload: {
+        findMany: async ({ where, take }: any) => uploads.filter((u) => matches(u, where)).slice(0, take),
+        update: async ({ where, data }: any) => { touched.push([`upload:${where.id}`, data]); return {}; },
+      },
+      feedbackAttachment: {
+        findMany: async ({ where, take }: any) => attachments.filter((a) => matches(a, where)).slice(0, take),
+        update: async ({ where, data }: any) => { touched.push([`attachment:${where.id}`, data]); return {}; },
+      },
+      feedbackUploadChunk: {
+        deleteMany: async ({ where }: any) => { deleted.push(where.uploadId); return { count: 1 }; },
+      },
+    });
+
+    const swept = await sweepUploads(now);
+    ok('брошенные разобраны', swept.dropped === 2, swept);
+    ok('куски брошенных удалены', deleted.includes('brosh') && deleted.includes('gotov'), deleted);
+    ok('приложенное к обращению не тронуто', !deleted.includes('prilozh'), deleted);
+    ok('живая загрузка не тронута', !deleted.includes('svezh'), deleted);
+    ok('загрузка помечена, а не удалена',
+      touched.some(([k, d]) => k === 'upload:brosh' && d.status === 'EXPIRED'), touched);
+
+    ok('просроченное вложение разобрано', swept.expired === 1, swept);
+    ok('его куски удалены', deleted.includes('u-staroe'), deleted);
+    ok('бессрочное вложение не тронуто', !deleted.includes('u-vechnoe'), deleted);
+    ok('уже помеченное второй раз не разбирается', !deleted.includes('u-uzhe'), deleted);
+    ok('у вложения ставится время, а сама запись остаётся',
+      touched.some(([k, d]) => k === 'attachment:a-staroe' && !!d.expiredAt), touched);
+
+    // Возвращаем настоящего клиента: дальше проверки снова ходят по HTTP
+    setPrisma(null);
+  }
+
   console.log('\n7. Свою — отменить можно');
   const mineKill = await api('DELETE', `/api/feedback/uploads/${twoId}`, admin);
   ok('своя загрузка отменяется', mineKill.status === 200, mineKill.json);

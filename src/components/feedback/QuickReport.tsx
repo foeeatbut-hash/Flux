@@ -17,11 +17,12 @@
  * предложения» — там, где заводят идеи и разбирают чужое.
  */
 import React, { useEffect, useState } from 'react';
-import { Bug, Check, X } from 'lucide-react';
+import { Bug, Check, FileDown, X } from 'lucide-react';
 import { Z } from '../../lib/layers';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { LIMITS } from '../../../feedback/contracts';
 import { useComposer, saveNote } from '../../feedback/useComposer';
+import { draftToFile } from '../../feedback/draftDb';
 import { submissionQueue, type QueueItem } from '../../feedback/submissionQueue';
 import { newRequestId } from '../../../feedback/contracts';
 
@@ -72,6 +73,25 @@ export default function QuickReport({ userId, appVersion, sectionKey, onClose }:
   useEffect(() => submissionQueue.subscribe((items) => {
     setQueued(items.find((i) => i.key.endsWith(`|${draftId}`)) || null);
   }), [draftId]);
+
+  /**
+   * Забрать написанное файлом.
+   *
+   * Нужно ровно в одном случае: браузер отказал в хранилище, и черновик негде
+   * держать. Обещать «сохранено» в этот момент нельзя, а человек уже написал
+   * текст — пусть заберёт его себе.
+   */
+  const saveToFile = () => {
+    const draft = composer.draft;
+    if (!draft) return;
+    const blob = draftToFile({ ...draft, fields: { ...draft.fields, описание: text.trim() } });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `обращение-${new Date().toLocaleDateString('ru-RU')}.json`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 20000);
+  };
 
   const send = async () => {
     const why = whyNotSend(text);
@@ -155,6 +175,16 @@ export default function QuickReport({ userId, appVersion, sectionKey, onClose }:
           <span className="min-w-0 flex-1 text-2xs text-slate-500 dark:text-slate-400 truncate">
             {queued ? queued.note : saveNote(composer.save)}
           </span>
+          {/* Браузер отказал в хранилище — написанное нельзя терять молча:
+              предлагаем забрать его файлом, раз уж сохранить негде */}
+          {!sent && ['quota', 'unavailable', 'tooMany'].includes(composer.save) && (
+            <button type="button" onClick={saveToFile}
+              className="px-3 py-2 rounded-lg flex items-center gap-1.5 text-xs font-semibold cursor-pointer
+                         bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800
+                         text-slate-700 dark:text-slate-300">
+              <FileDown className="w-3.5 h-3.5" /> Сохранить текст файлом
+            </button>
+          )}
           {sent ? (
             <button type="button" onClick={onClose}
               className="px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700">

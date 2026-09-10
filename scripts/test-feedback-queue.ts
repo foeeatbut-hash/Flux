@@ -183,6 +183,29 @@ async function main() {
   const held = ((process as any).getActiveResourcesInfo?.() || []).filter((r: string) => r === 'Timeout');
   ok('распущенная очередь не держит процесс', held.length === 0, held);
 
+  console.log('\n9. Перезапуск программы очередь не теряет');
+  {
+    // Черновик, застигнутый перезапуском: пакет собран, ключ выдан, состояние
+    // «в очереди». После входа он должен поехать сам, а не ждать, пока человек
+    // вспомнит и нажмёт ещё раз
+    const drafts: any[] = [
+      { id: 'dep|u1|d1', deploymentId: 'dep', userId: 'u1', draftId: 'd1', updatedAt: 1,
+        state: 'QUEUED', clientRequestId: body.clientRequestId, fields: { ...body }, attachments: [] },
+      { id: 'dep|u1|d2', deploymentId: 'dep', userId: 'u1', draftId: 'd2', updatedAt: 2,
+        state: 'SENT', clientRequestId: body.clientRequestId, fields: { ...body }, attachments: [] },
+      { id: 'dep|u1|d3', deploymentId: 'dep', userId: 'u1', draftId: 'd3', updatedAt: 3,
+        state: 'EDITING', fields: { ...body }, attachments: [] },
+    ];
+    const restored = drafts
+      .filter((d) => ['QUEUED', 'UPLOADING', 'COMMITTING', 'FAILED_RETRYABLE'].includes(d.state))
+      .map(packageFromDraft)
+      .filter(Boolean);
+    ok('к отправке возвращается только незаконченное', restored.length === 1, restored.length);
+    ok('и это тот самый черновик', restored[0]?.draftId === 'd1', restored[0]?.draftId);
+    ok('отправленное второй раз не едет', !restored.some((p: any) => p.draftId === 'd2'));
+    ok('недописанное не едет тоже', !restored.some((p: any) => p.draftId === 'd3'));
+  }
+
   console.log(`\nПройдено: ${passed}, провалено: ${failed}`);
   if (failed) { console.log('ЕСТЬ ПРОВАЛЫ'); process.exit(1); }
   console.log('ВСЕ ТЕСТЫ ПРОЙДЕНЫ');

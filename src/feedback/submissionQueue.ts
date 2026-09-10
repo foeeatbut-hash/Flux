@@ -23,7 +23,7 @@
  *    заведён ключ.
  */
 
-import { listDrafts, readDraft, saveDraft, type Draft } from './draftDb';
+import { dropDraft, listDrafts, readDraft, saveDraft, type Draft } from './draftDb';
 import { ApiError, findByRequest, sendFile, submitReport } from './feedbackApi';
 import type { SubmitFeedbackV1 } from '../../feedback/contracts';
 
@@ -225,6 +225,10 @@ export class SubmissionQueue {
       await this.put(key, { state: 'COMMITTING', done: item.total, note: 'Подтверждаем отправку' });
       const report = await this.commit(pack, uploadIds);
       await this.put(key, { state: 'SENT', attempts: 0, reportId: report?.id, note: 'Отправлено' });
+      // Подтверждённое обращение живёт на сервере, и держать его копию в
+      // браузере больше незачем: снимки в черновике занимают мегабайты, а
+      // двадцать таких черновиков упрутся в предел и не дадут написать новое
+      await dropDraft(key);
     } catch (error: any) {
       if (controller.signal.aborted) return;
       await this.afterFailure(key, error);
