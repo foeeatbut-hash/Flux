@@ -117,6 +117,38 @@ async function main() {
     !(comments.json?.data || []).some((c: any) => c.visibility === 'INTERNAL'),
     (comments.json?.data || []).map((c: any) => c.visibility));
 
+  console.log('\n3.1. Счётчик непрочитанного молчит о внутреннем');
+  // Самый тихий путь утечки: заметки автор не видит, но красный кружок на
+  // разделе растёт. Человек открывает карточку, не находит ничего нового — и
+  // перестаёт верить счётчику вообще
+  await api('POST', `/api/feedback/reports/${id}/read`, author, { publicRevision: revision });
+  const quiet = await api('GET', '/api/feedback/unread', author);
+  const beforeNote = quiet.json?.data?.mine ?? -1;
+  const note2 = await api('POST', `/api/feedback/reports/${id}/comments`, admin, {
+    clientRequestId: randomUUID(), expectedRevision: revision,
+    text: `${SECRET} второй раз`, visibility: 'INTERNAL',
+  });
+  revision = note2.json?.data?.revision || revision + 1;
+  const afterNote = await api('GET', '/api/feedback/unread', author);
+  ok('после внутренней заметки счётчик автора не вырос',
+    (afterNote.json?.data?.mine ?? -1) === beforeNote, [beforeNote, afterNote.json?.data]);
+
+  console.log('\n3.2. Выгрузка автору отдаёт только его половину');
+  const exported = await api('GET', `/api/feedback/reports/${id}/export`, author);
+  ok('выгрузка отдалась', exported.status === 200, exported.json?.error);
+  ok('внутренней заметки в выгрузке нет',
+    !String(exported.json?.data?.markdown || '').includes(SECRET),
+    String(exported.json?.data?.markdown || '').slice(0, 200));
+  const exportedByAdmin = await api('GET', `/api/feedback/reports/${id}/export`, admin);
+  ok('обработчику она в выгрузке видна',
+    String(exportedByAdmin.json?.data?.markdown || '').includes(SECRET));
+
+  console.log('\n3.3. Сводка и дубли — не для автора');
+  ok('сводка закрыта', (await api('GET', '/api/feedback/summary', author)).status === 403);
+  ok('кандидаты в дубли закрыты',
+    (await api('GET', `/api/feedback/reports/${id}/duplicates`, author)).status === 403);
+  ok('обработчику сводка отдаётся', (await api('GET', '/api/feedback/summary', admin)).status === 200);
+
   console.log('\n4. Обработчик видит всё, что писал');
   const asAdmin = await api('GET', `/api/feedback/reports/${id}/comments`, admin);
   ok('заметка на месте', String(asAdmin.text).includes(SECRET));

@@ -28,6 +28,7 @@ import NotifyToasts from './shell/NotifyToasts';
 import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
+import { useFeedbackStore } from '../store/feedbackStore';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
 import { BAR_H } from '../lib/metrics';
@@ -233,6 +234,21 @@ export default function Layout() {
     const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
     window.addEventListener('focus', onFocus);
     return () => { useNotificationStore.getState().stopPolling(); window.removeEventListener('focus', onFocus); };
+  }, [user?.id]);
+
+  /**
+   * Счётчик обращений — здесь же и по той же причине.
+   *
+   * Число живёт в общей базе: у каждого сотрудника свой встроенный сервер, и
+   * «сколько ждёт ответа» — вопрос к базе, а не к своему процессу. При выходе
+   * очередь отправки распускается: начатое одним сотрудником не должно уехать
+   * под именем следующего за тем же компьютером.
+   */
+  React.useEffect(() => {
+    const feedback = useFeedbackStore.getState();
+    if (user?.id) feedback.startPolling();
+    else feedback.reset();
+    return () => { useFeedbackStore.getState().stopPolling(); };
   }, [user?.id]);
 
   /**

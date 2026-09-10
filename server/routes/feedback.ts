@@ -16,6 +16,7 @@ import { actorOf, fail, ok, settings } from '../feedback/policy.js';
 import { registerUploadRoutes, type UploadDeps } from '../feedback/uploads.js';
 import { registerReportRoutes } from '../feedback/reports.js';
 import { registerActionRoutes } from '../feedback/actions.js';
+import { registerInsightRoutes } from '../feedback/insight.js';
 import { startOutbox } from '../feedback/outbox.js';
 import { unreadFor } from '../feedback/unread.js';
 import {
@@ -81,5 +82,8 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
   registerReportRoutes(app, deps);
   registerActionRoutes(app, deps);
+  // Сводка, дубли и выгрузка идут после карточек: их пути начинаются с тех же
+  // «/reports/:id», и порядок регистрации решает, кто ответит первым
+  registerInsightRoutes(app, deps);
   registerUploadRoutes(app, deps);
 }

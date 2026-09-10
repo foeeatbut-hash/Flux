@@ -6,6 +6,7 @@ import { isNewer } from '../lib/updates';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
+import { useFeedbackStore } from '../store/feedbackStore';
 import { useChatStore } from '../store/chatStore';
 import { useNavigate } from 'react-router-dom';
 import { diagnostic } from '../lib/diagnostics';
@@ -238,7 +239,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
     activeSocket.on('app:update-published', handleUpdatePublished);
     activeSocket.on('entity:changed', handleEntityChanged);
+    /**
+     * Обращение изменилось.
+     *
+     * Событие несёт только «что-то поменялось»: карточку из него не строим —
+     * присланному верить нельзя, да и права на видимость проверяет сервер.
+     * Открытые списки перечитают себя сами, а счётчик пересчитается из базы.
+     */
+    const handleFeedback = () => useFeedbackStore.getState().touched();
+
     activeSocket.on('notify:new', handleNotify);
+    activeSocket.on('feedback:changed', handleFeedback);
+    activeSocket.on('feedback:unread', handleFeedback);
     // Переписка слушается ОБЩИМ сокетом и всегда, а не только при открытом
     // Мессенджере: своего соединения у чата больше нет
     useChatStore.getState().bindSocket(activeSocket, userId);
@@ -253,6 +265,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('app:update-published', handleUpdatePublished);
       activeSocket.off('entity:changed', handleEntityChanged);
       activeSocket.off('notify:new', handleNotify);
+      activeSocket.off('feedback:changed', handleFeedback);
+      activeSocket.off('feedback:unread', handleFeedback);
       useChatStore.getState().unbindSocket(activeSocket);
       activeSocket.disconnect();
     };

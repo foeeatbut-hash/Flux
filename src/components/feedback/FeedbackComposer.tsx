@@ -10,7 +10,7 @@
  * Состояние формы, черновик и сборка пакета живут в `useComposer`; здесь только
  * разметка и переключение «правка ↔ предпросмотр».
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Paperclip, Trash2, Check, Send, Eye, Pencil, Camera } from 'lucide-react';
 import { Z } from '../../lib/layers';
 import { useEscapeClose } from '../../lib/useDismiss';
@@ -98,13 +98,29 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
 
   useEscapeClose(true, () => { if (!sending) onClose(); });
 
-  // За отправкой следим через очередь: она переживает закрытие окна, и «идёт
-  // отправка» здесь — отражение её состояния, а не отдельный счётчик
+  /**
+   * За отправкой следим через очередь: она переживает закрытие окна, и «идёт
+   * отправка» здесь — отражение её состояния, а не отдельный счётчик.
+   *
+   * Две предосторожности, обе оплачены живой пробой. Обработчик «отправлено»
+   * держим в ссылке: вызывающий передаёт его новой стрелкой на каждую
+   * отрисовку, и подписка, зависящая от него, пересоздавалась бы бесконечно —
+   * раздел уходил в перерисовку без конца и падал в свою заглушку. И сообщаем
+   * об отправке ОДИН раз на карточку: очередь окликает подписчиков на каждое
+   * изменение, а «обращение отправлено» — событие, а не состояние.
+   */
+  const told = useRef('');
+  const sentHandler = useRef(onSent);
+  sentHandler.current = onSent;
+
   useEffect(() => submissionQueue.subscribe((items) => {
     const mine = items.find((i) => i.key.endsWith(`|${draftId}`));
     setQueued(mine || null);
-    if (mine?.state === 'SENT' && mine.reportId) onSent?.(mine.reportId);
-  }), [draftId, onSent]);
+    if (mine?.state === 'SENT' && mine.reportId && told.current !== mine.reportId) {
+      told.current = mine.reportId;
+      sentHandler.current?.(mine.reportId);
+    }
+  }), [draftId]);
 
   const set = (patch: Partial<Fields>) => setFields((prev) => ({ ...prev, ...patch }));
   const bug = fields.type === 'BUG' || fields.type === 'PERFORMANCE';

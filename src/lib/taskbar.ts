@@ -7,7 +7,7 @@
  */
 
 /** Откуда кнопка берёт счётчик. Счётчик значит «надо разобрать», а не «сколько открыто». */
-export type BadgeKind = 'mail' | 'chat';
+export type BadgeKind = 'mail' | 'chat' | 'feedback';
 
 export interface TaskbarSource {
   path: string;
@@ -21,6 +21,8 @@ export interface TaskbarSource {
 export interface Counts {
   mail: number;
   chat: number;
+  /** Обращения, ждущие этого человека: свои с ответом и очередь разбора. */
+  feedback: number;
 }
 
 export interface TaskbarButton {
@@ -131,6 +133,7 @@ export function trayFit(barWidth: number): TrayFit {
 export function badgeCount(kind: BadgeKind | undefined, counts: Counts): number {
   if (kind === 'mail') return Math.max(0, counts.mail | 0);
   if (kind === 'chat') return Math.max(0, counts.chat | 0);
+  if (kind === 'feedback') return Math.max(0, counts.feedback | 0);
   return 0;
 }
 

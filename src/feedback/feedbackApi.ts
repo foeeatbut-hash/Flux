@@ -69,6 +69,10 @@ export const findByRequest = (clientRequestId: string) => call<any>('GET', `/rep
 
 export const submitReport = (body: SubmitFeedbackV1) => call<any>('POST', '/reports', body);
 
+export const getSummary = (days = 30) => call<any>('GET', `/summary?days=${days}`);
+export const getDuplicates = (id: string) => call<any[]>('GET', `/reports/${id}/duplicates`);
+export const exportReport = (id: string) => call<{ markdown: string }>('GET', `/reports/${id}/export`);
+
 export const addComment = (id: string, body: Record<string, unknown>) =>
   call<any>('POST', `/reports/${id}/comments`, body);
 export const transition = (id: string, body: Record<string, unknown>) =>

@@ -14,6 +14,7 @@ import { actorOf, fail, ok, triageRecipients, type Actor } from './policy.js';
 import { applyMutation, markFirstResponse, MutationError } from './mutations.js';
 import { reserveRate, refundRate, rateResetAt } from './service.js';
 import { checkTransition, allowedFrom, CLOSED } from '../../feedback/transitions.js';
+import { checkDuplicateChain, MAX_DUPLICATE_CHAIN } from '../../feedback/fingerprint.js';
 import {
   ERRORS, LIMITS, PRIORITIES, checkText, isUuid, type Priority, type Status,
 } from '../../feedback/contracts.js';
@@ -99,7 +100,33 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
       patch.resolvedVersion = String(body.resolvedVersion || '') || null;
       patch.resolution = String(body.noReleaseReason || reason || '').slice(0, LIMITS.reason);
     }
-    if (to === 'DUPLICATE') patch.duplicateOfId = String(body.targetReportId || '');
+    if (to === 'DUPLICATE') {
+      /**
+       * Дубль указывает на настоящую карточку и не заворачивается в кольцо.
+       *
+       * Кольцо здесь не теоретическое: A пометили дублем B, потом B — дублем A,
+       * и любой обход карточек виснет. Проверка идёт до записи и одной цепочкой,
+       * потому что после записи распутывать это некому.
+       */
+      const targetId = String(body.targetReportId || '');
+      const exists = targetId && await ctx.prisma.feedbackReport.findUnique({
+        where: { id: targetId }, select: { id: true },
+      });
+      if (!exists) return fail(res, ERRORS.NOT_FOUND, 'Карточка, на которую указывают, не найдена');
+      const chain = new Map<string, string | null>();
+      let at: string | null = targetId;
+      for (let step = 0; step <= MAX_DUPLICATE_CHAIN && at; step++) {
+        const row: any = await ctx.prisma.feedbackReport.findUnique({
+          where: { id: at }, select: { id: true, duplicateOfId: true },
+        });
+        if (!row) break;
+        chain.set(row.id, row.duplicateOfId || null);
+        at = row.duplicateOfId || null;
+      }
+      const verdict = checkDuplicateChain(ctx.report.id, targetId, (of) => chain.get(of) ?? null);
+      if (!verdict.ok) return fail(res, ERRORS.VALIDATION, verdict.error || 'Так пометить дублем нельзя');
+      patch.duplicateOfId = targetId;
+    }
     if (CLOSED.includes(to)) patch.closedAt = new Date();
     else patch.closedAt = null;
 

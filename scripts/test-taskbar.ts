@@ -30,7 +30,7 @@ const S: TaskbarSource[] = [
   { path: '/notes', title: 'Блокнот' },
   { path: '/users', title: 'Сотрудники', adminOnly: true },
 ];
-const NONE = { mail: 0, chat: 0 };
+const NONE = { mail: 0, chat: 0, feedback: 0 };
 
 console.log('Состав панели');
 {
@@ -123,11 +123,12 @@ console.log('Переполнение');
 
 console.log('Счётчики');
 {
-  check('почта берёт своё число', badgeCount('mail', { mail: 3, chat: 9 }) === 3);
-  check('чат берёт своё число', badgeCount('chat', { mail: 3, chat: 9 }) === 9);
-  check('без источника счётчика нет', badgeCount(undefined, { mail: 3, chat: 9 }) === 0);
-  check('отрицательное не показываем', badgeCount('mail', { mail: -2, chat: 0 }) === 0);
-  const v = buildTaskbar(S, { open: [], activePath: '/', counts: { mail: 4, chat: 0 } });
+  check('почта берёт своё число', badgeCount('mail', { mail: 3, chat: 9, feedback: 4 }) === 3);
+  check('чат берёт своё число', badgeCount('chat', { mail: 3, chat: 9, feedback: 4 }) === 9);
+  check('обращения берут своё число', badgeCount('feedback', { mail: 3, chat: 9, feedback: 4 }) === 4);
+  check('без источника счётчика нет', badgeCount(undefined, { mail: 3, chat: 9, feedback: 4 }) === 0);
+  check('отрицательное не показываем', badgeCount('mail', { mail: -2, chat: 0, feedback: 0 }) === 0);
+  const v = buildTaskbar(S, { open: [], activePath: '/', counts: { mail: 4, chat: 0, feedback: 0 } });
   check('счётчик доехал до кнопки', v.buttons.find((b) => b.path === '/mail')?.badge === 4);
   check('у Проводника счётчика нет', v.buttons.find((b) => b.path === '/explorer')?.badge === 0);
   check('трёхзначное сворачивается', badgeLabel(128) === '99+');
@@ -156,7 +157,10 @@ console.log('Реестр разделов');
   check('закреплённое не помечено adminOnly', pinned.every((s) => !s.adminOnly));
   check('у всех закреплённых есть значок', pinned.every((s) => !!s.icon));
   const badged = SECTIONS.filter((s) => s.badge);
-  check('счётчики только у Почты и Чата', badged.map((s) => s.path).sort().join(',') === '/chat,/mail', badged.map((s) => s.path));
+  // Красный кружок означает «надо разобрать». Он есть там, где человек кому-то
+  // должен ответить: письмо, сообщение, обращение, — и больше нигде
+  check('счётчики только там, где ждут ответа',
+    badged.map((s) => s.path).sort().join(',') === '/chat,/feedback,/mail', badged.map((s) => s.path));
   const v = buildTaskbar(SECTIONS as any, { open: [], activePath: '/', counts: NONE });
   check('настоящий реестр даёт панель с подписями', v.labels === true, v.buttons.length);
 }
