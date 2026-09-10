@@ -3,6 +3,7 @@ import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
+import { snapshotSpan, saveSpan, initSpan, disposeSpan } from '../lib/officeSpans';
 import LabelBar from '../components/constructor/LabelBar';
 import RecentDocsPanel from '../components/office/RecentDocsPanel';
 import { rememberDoc } from '../store/recentStore';
@@ -188,13 +189,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
 
   // Снапшот текущей книги (JSON-строка) — для автосейва и экспорта
-  const takeSnapshot = (): string => {
+  const takeSnapshot = (): string => snapshotSpan('sheet', docId, () => {
     try {
       const wb = univerRef.current?.univerAPI?.getActiveWorkbook?.();
       const data = wb?.save?.();
       return data ? JSON.stringify(data) : '';
     } catch (_) { return ''; }
-  };
+  });
 
   // ═══════════════ Подстановки в шаблонах ═══════════════
   // Шаблон — документ с метками вида {{документ.название}}. Здесь метки
@@ -294,15 +295,19 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
 
   const saveNow = async (extra?: Record<string, any>, force = false) => {
-    if (saveConflictRef.current && !force) return;
+    // Пропуск записывается наравне с записью: «сохранений не было» и
+    // «сохранять было нечего» при разборе жалобы отвечают на разные вопросы
+    const skip = (reason: string) => saveSpan('sheet', docId, { reason, outcome: 'skipped' });
+    if (saveConflictRef.current && !force) { skip('conflict-hold'); return; }
     // Связи с комнатой нет, а в документе кто-то есть: пока чужие правки до
     // меня не доходят, писать свою книгу целиком — значит класть её поверх них
-    if (roomRef.current?.hold.current && !force) return;
+    if (roomRef.current?.hold.current && !force) { skip('room-hold'); return; }
     const snapshot = takeSnapshot();
     const bindingsChanged = bindingsDirtyRef.current;
-    if (!snapshot && !extra && !bindingsChanged) return;
-    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged && !force) return;
+    if (!snapshot && !extra && !bindingsChanged) { skip('empty'); return; }
+    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged && !force) { skip('unchanged'); return; }
     setSaveState('saving');
+    const startedAt = performance.now();
     try {
       const res = await fetch(`/api/constructor/docs/${docId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -330,6 +335,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         // а не при следующем открытии: два разных документа заказчику уходят
         // именно в тот день, когда «поправил и отправил»
         if (snapshot) checkStale(snapshot);
+        saveSpan('sheet', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
         return;
       }
       const d = await res.json().catch(() => ({}));
@@ -338,11 +344,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         saveConflictRef.current = true;
         setSaveConflict({ who: d.who || '', at: d.at || null });
         setSaveState('idle');
+        saveSpan('sheet', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
         return;
       }
       if (d.error) addToast(d.error, 'error');
       setSaveState('idle');
-    } catch (_) { setSaveState('idle'); }
+      saveSpan('sheet', docId, { reason: 'refused', status: String(res.status), startedAt, outcome: 'error' });
+    } catch (_) {
+      setSaveState('idle');
+      saveSpan('sheet', docId, { reason: 'network', startedAt, outcome: 'error' });
+    }
   };
 
   /**
@@ -470,6 +481,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         // Офис-набор: ядро + фильтр, сортировка, условное форматирование,
         // поиск-замена (как в настольном Экселе).
         const pick = (m: any) => m.default ?? m;
+        const modulesFrom = performance.now();
         const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, filterP, sortP, cfP, frP, ruRU, fRu, sRu, cfRu, frRu] = await Promise.all([
           import('@univerjs/presets'),
           import('@univerjs/presets/preset-sheets-core'),
@@ -492,6 +504,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         ]);
         if (disposed || !containerRef.current) return;
 
+        const bookFrom = performance.now();
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.RU_RU,
           locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(fRu), pick(sRu), pick(cfRu), pick(frRu)) },
@@ -514,6 +527,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           ],
         });
         univerRef.current = { univer, univerAPI };
+        // Загрузка модулей и сборка книги меряются порознь: первое зависит от
+        // диска и кэша браузера, второе — от размера самой книги
+        initSpan('sheet', docId, bookFrom - modulesFrom, performance.now() - bookFrom);
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
@@ -660,9 +676,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       clearInterval(presenceTimer);
       disposed = true;
       clearInterval(timer);
+      const dyingFrom = performance.now();
       try { (univerRef.current as any)?.cmdDisposer?.dispose?.(); } catch (_) {}
       try { univerRef.current?.univer?.dispose?.(); } catch (_) {}
       univerRef.current = null;
+      disposeSpan('sheet', docId, dyingFrom);
     };
   }, [docId, reloadTick]);
 

@@ -19,6 +19,7 @@ import { SECTIONS } from '../workspace/sections';
 import { openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
+import { useFeedbackStore } from '../store/feedbackStore';
 import { useShellNotifyStore } from '../store/shellNotifyStore';
 import { isQuiet, untilLabel } from '../lib/notifCenter';
 import { useAssistantStore } from '../store/assistantStore';
@@ -59,6 +60,7 @@ export default function Taskbar() {
   // уведомления сломались
   const quiet = useShellNotifyStore((s) => s.quiet);
   const chatUnread = useNotificationStore((s) => s.chatUnread);
+  const feedbackUnread = useFeedbackStore((s) => s.unread.total);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
   const notifOpen = useNotificationStore((s) => s.panelOpen);
   const setNotifOpen = useNotificationStore((s) => s.setPanelOpen);
@@ -156,11 +158,11 @@ export default function Taskbar() {
     () => buildTaskbar(sources, {
       open,
       activePath: highlighted,
-      counts: { mail, chat: chatUnread },
+      counts: { mail, chat: chatUnread, feedback: feedbackUnread },
       isAdmin: user?.role === 'ADMIN',
       width,
     }),
-    [sources, open, highlighted, mail, chatUnread, user?.role, width],
+    [sources, open, highlighted, mail, chatUnread, feedbackUnread, user?.role, width],
   );
 
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;

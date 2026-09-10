@@ -1,4 +1,5 @@
 import 'express-async-errors';
+import { traceRequest, traceDatabase, traceSockets } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { PrismaClient } from '@prisma/client-sqlite';
@@ -13,11 +14,12 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
-import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
+import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
+import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
@@ -641,7 +643,13 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
   }
 }
 
+// Клиент базы отдаётся под наблюдением: операции связываются с запросом,
+// который их вызвал. Обёртка не меняет ни результата, ни ошибки
 function createPrismaClient(dbType: string, dbUrl: string) {
+  return traceDatabase(buildPrismaClient(dbType, dbUrl));
+}
+
+function buildPrismaClient(dbType: string, dbUrl: string) {
   // Движок базы запоминается здесь, а не угадывается на месте: маршруты,
   // создающие недостающие таблицы, пишут SQL под конкретный движок
   // (server/ddl.ts), и «почти правильный» SQL там бесполезен
@@ -986,7 +994,12 @@ const getAuthUser = async (userId: string) => {
 };
 
 const app = express();
-const PORT = 3000;
+app.use(traceRequest);
+// Порт из окружения, но по умолчанию тот же: программа и её оболочка ждут
+// именно 3000. Настройка нужна затем, чтобы поднять второй сервер на той же
+// базе — так проверяется работа отдела, где у каждого свой встроенный сервер,
+// а база одна на всех
+const PORT = Number(process.env.PORT) || 3000;
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
@@ -996,6 +1009,7 @@ const io = new SocketIOServer(httpServer, {
   }
 });
 
+traceSockets(io);
 // Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
 // иначе любой в сети слушал бы трансляцию сообщений чата
 io.use((socket, next) => {
@@ -1113,7 +1127,12 @@ io.on('connection', (socket) => {
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  // X-Flux-Trace и X-Flux-Interaction связывают запрос окна с работой сервера,
+  // X-Chunk-SHA256 несёт контрольную сумму куска файла. Без разрешения браузер
+  // не пропустит их предварительным запросом, и сломается это только там, где
+  // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -1152,6 +1171,10 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^(PUT|PATCH)$/, path: /^\/api\/(components|equipment|monoblocks|systems)\//,
     perm: 'equipment.manage', title: 'Правка характеристик оборудования' },
   { method: /^POST$/, path: /^\/api\/(files|folders)/, perm: 'files.upload', title: 'Загрузка файлов' },
+  // Писать обращения и прикладывать к ним файлы — одно право: вложение без
+  // обращения никому не нужно, а обращение без вложения бывает часто
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/feedback\/(reports|uploads|drafts)/,
+    perm: 'feedback.create', title: 'Писать обращения' },
   { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|stage_templates)/,
     perm: 'procurement.setup', title: 'Настройка этапов закупки' },
@@ -1853,6 +1876,7 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 const limits = registerLimitRoutes(app, () => prisma);
+registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
 registerFileChunkRoutes(app, {
@@ -2050,6 +2074,9 @@ function pushNotification(userId: string, row: any) {
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
 setBroadcaster((event, payload) => { io.emit(event, payload); });
+// Событие одному человеку: очередь обращений сама пишет в базу, а сюда отдаёт
+// только «посмотри, там изменилось» — чтобы не ждать следующего опроса
+setUserPush((userId, event, payload) => { try { io.to(`user:${userId}`).emit(event, payload); } catch (_) {} });
 
 /**
  * Оповестить всех сотрудников, кроме инициатора: события уровня компании —

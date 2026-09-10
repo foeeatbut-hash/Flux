@@ -13,6 +13,53 @@ import { buildDocx, partsFromHtml } from './docxWrite';
 import { pageOf, ptToMm } from './docExport';
 
 /**
+ * Плоский текст документа из снимка — для выгрузки TXT и для поиска.
+ *
+ * `\r` — конец абзаца, `\n` — конец секции; служебные маркеры объектов
+ * отсекаем, иначе в текстовом файле оказываются управляющие знаки.
+ */
+export function snapshotToPlainText(snap: any): string {
+  const ds: string = snap?.body?.dataStream || '';
+  return ds.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/\r/g, '\n').replace(/\n+$/, '');
+}
+
+/**
+ * Отдать файл человеку.
+ *
+ * Ссылку обязательно кладём в страницу: у ссылки вне документа браузер
+ * игнорирует атрибут download и сохраняет файл как «download» — без имени и без
+ * расширения, Ворд такой файл не открывает.
+ */
+export function download(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
+}
+
+/** Текст документа файлом на диск. */
+export function saveText(text: string, fileName: string): void {
+  download(new Blob([text], { type: 'text/plain;charset=utf-8' }), fileName);
+}
+
+/** Текст документа в общий Проводник — чтобы отдать коллеге, не пересылая почтой. */
+export async function textToExplorer(text: string, fileName: string, userId: string | null): Promise<void> {
+  const b64 = btoa(unescape(encodeURIComponent(text)));
+  const res = await fetch('/api/files', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: fileName, filePath: `/shared/${fileName}`, type: 'TXT',
+      size: text.length, content: b64, createdById: userId,
+    }),
+  });
+  if (!res.ok) throw new Error('files failed');
+}
+
+/**
  * Готовый `.docx` из разметки документа.
  *
  * Лист берётся из самого документа: альбомный лист и поля по ГОСТ, которые

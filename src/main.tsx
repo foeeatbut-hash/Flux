@@ -1,4 +1,5 @@
 import './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
+import { startDiagnostics } from './lib/diagnostics';
 import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
@@ -7,6 +8,7 @@ import { useLogStore } from './store/logStore';
 import { isBenignUniverDisposeError, isResizeObserverNoise } from './lib/logNoise';
 
 // === GLOBAL INTERCEPTORS ===
+startDiagnostics();
 const originalError = console.error;
 const originalWarn = console.warn;
 let isLogging = false;

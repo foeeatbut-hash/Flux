@@ -58,6 +58,21 @@ export function broadcast(event: string, payload: any): void {
   try { if (_broadcast) _broadcast(event, payload); } catch (_) { /* сокет мог отвалиться */ }
 }
 
+/**
+ * Событие одному человеку, без записи в базу.
+ *
+ * Отличается от notifyUser тем, что ничего не создаёт: запись уже лежит в базе,
+ * и её надо только донести быстрее, чем сработает опрос. Нужно очереди
+ * уведомлений — она сама решает, что и когда записывать, и вторая запись рядом
+ * означала бы два уведомления об одном событии.
+ */
+type UserPush = (userId: string, event: string, payload: any) => void;
+let _push: UserPush | null = null;
+export function setUserPush(fn: UserPush): void { _push = fn; }
+export function pushToUser(userId: string, event: string, payload: any): void {
+  try { if (_push && userId) _push(userId, event, payload); } catch (_) { /* сокет догонит опросом */ }
+}
+
 // Настройка приложения: глобальная (userId=null) или персональная.
 // Используется и в server.ts, и в вынесенных роутах — живёт здесь, чтобы не
 // дублироваться.

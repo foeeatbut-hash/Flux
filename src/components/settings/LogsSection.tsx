@@ -7,12 +7,26 @@
 import React, { useEffect, useState } from 'react';
 import SectionShell from './SectionShell';
 import ReportProblem from './ReportProblem';
+import DiagnosticsCard from './DiagnosticsCard';
 import { logsFolder, openLogsFolder } from '../../lib/crashLog';
+import { can } from '../../lib/permissions';
+import { useStore } from '../../store/store';
 import { ENV_CONFIG } from '../../config/env';
 import { useModalStore } from '../../store/modalStore';
 
 export default function LogsSection({ addLog }: { addLog: (level: string, where: string, text: string) => void }) {
   const openAlert = useModalStore.getState().openAlert;
+  /**
+   * Журналы — не дело сотрудника.
+   *
+   * Решение владельца: человек, у которого сломалось, нажимает «Сообщить об
+   * ошибке» и пишет строку; записи уезжают с обращением сами. Папки, выгрузки и
+   * счётчики потерь ему не нужны — они нужны тому, кто разбирает, и ему же
+   * показываются. Раньше здесь было наоборот: файлы предлагалось найти и
+   * отправить самому, и до отправки доходили единицы.
+   */
+  const me = useStore((s) => s.user);
+  const forTriage = can(me as any, 'feedback.diagnostics') || can(me as any, 'feedback.triage');
   const [crashLogDir, setCrashLogDir] = useState('');
   const [deskFolder, setDeskFolder] = useState('');
   const [report, setReport] = useState(false);
@@ -57,8 +71,26 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
   };
 
   return (
-    <SectionShell title="Журналы и ошибки" desc="Куда пишутся журналы и как сообщить о сбое.">
+    <SectionShell title="Журналы и ошибки"
+      desc={forTriage ? 'Куда пишутся журналы и как сообщить о сбое.' : 'Как сообщить о сбое.'}>
       <div className="max-w-lg space-y-4">
+        {forTriage && <DiagnosticsCard />}
+
+        {!forTriage && (
+          <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-3 space-y-2">
+            <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Что-то сломалось</div>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Напишите, что случилось, — программа сама приложит свои технические записи
+              за последнее время. Искать и отправлять файлы не нужно.
+            </p>
+            <button type="button" onClick={() => setReport(true)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer">
+              Сообщить об ошибке
+            </button>
+          </div>
+        )}
+
+        {forTriage && (<>
         {/* Папка на рабочем столе: её человек может открыть и отдать целиком.
             Раньше файлы лежали в AppData под именами вида pdm-crash-log-… и
             найти их не мог никто */}
@@ -97,6 +129,7 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
             <button type="button" onClick={() => save('')} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">По умолчанию</button>
           </div>
         </div>
+        </>)}
       </div>
 
       {report && <ReportProblem onClose={() => setReport(false)} />}

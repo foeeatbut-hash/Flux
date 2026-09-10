@@ -54,13 +54,78 @@ const hidePasswords = (text: string): string => String(text || '')
   .replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^\s/@:]+):([^\s/@]+)@/g, '$1$2:***@')
   .replace(/\b(password|pwd|pass)\s*=\s*[^\s;&]+/gi, '$1=***');
 
+/**
+ * Очередь строк журнала.
+ *
+ * Раньше каждая строка писалась `appendFileSync` — то есть главный процесс
+ * оболочки останавливался на время обращения к диску. Одна строка стоит мало,
+ * но при шторме предупреждений их сотни в секунду, и на медленном или сетевом
+ * диске это чувствуется как «программа задумалась».
+ *
+ * Очередь ограничена по числу строк: диагностика не имеет права съесть память
+ * процесса, а потерянные строки честно считаются — «записей не было» и
+ * «записи потеряны» при разборе значат разное.
+ */
+const QUEUE_MAX = 2000;
+const FLUSH_MS = 300;
+let queue: string[] = [];
+let lost = 0;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let writing = false;
+
+function flushQueue(): void {
+  flushTimer = null;
+  if (writing || !queue.length) return;
+  writing = true;
+  const batch = queue.join('');
+  const count = queue.length;
+  queue = [];
+  fs.appendFile(fileFor(), batch, 'utf-8', (err) => {
+    writing = false;
+    if (err) lost += count;
+    if (queue.length) scheduleFlush();
+  });
+}
+
+function scheduleFlush(): void {
+  if (flushTimer) return;
+  flushTimer = setTimeout(flushQueue, FLUSH_MS);
+  if (typeof flushTimer.unref === 'function') flushTimer.unref();
+}
+
+function lineOf(level: string, where: string, text: string): string {
+  const d = new Date();
+  const stamp = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `[${stamp}] ${String(level || 'INFO').toUpperCase()} · ${where || '—'} · ${hidePasswords(String(text || '')).replace(/\s+/g, ' ')}\n`;
+}
+
+/** Обычная запись: в очередь, без остановки процесса. */
 export function appendLog(level: string, where: string, text: string): void {
   try {
-    const d = new Date();
-    const stamp = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    const line = `[${stamp}] ${String(level || 'INFO').toUpperCase()} · ${where || '—'} · ${hidePasswords(String(text || '')).replace(/\s+/g, ' ')}\n`;
-    fs.appendFileSync(fileFor(d), line, 'utf-8');
+    if (queue.length >= QUEUE_MAX) { lost++; return; }
+    queue.push(lineOf(level, where, text));
+    scheduleFlush();
   } catch (_) { /* не записалось — программа из-за журнала падать не должна */ }
+}
+
+/**
+ * Аварийная запись — синхронная, и намеренно.
+ *
+ * Её зовут перед самым падением или закрытием, когда очереди сброситься уже
+ * негде: асинхронная запись здесь означала бы, что последняя строка — та самая,
+ * ради которой журнал и ведут, — не доедет до файла никогда.
+ */
+export function appendLogNow(level: string, where: string, text: string): void {
+  try {
+    const pending = queue.join('');
+    queue = [];
+    fs.appendFileSync(fileFor(), pending + lineOf(level, where, text), 'utf-8');
+  } catch (_) { /* диск недоступен — сделать уже нечего */ }
+}
+
+/** Сколько строк не доехало до файла. Показывается вместе с диагностикой. */
+export function logQueueStatus(): { queued: number; lost: number } {
+  return { queued: queue.length, lost };
 }
 
 /** Уборка: файлы старше тридцати дней. Раз в запуск, молча */
@@ -92,6 +157,10 @@ export function setupLogs(): void {
     appendLog(String(p?.level || 'ERROR'), String(p?.where || ''), String(p?.text || ''));
     return true;
   });
+
+  // Очередь сбрасывается синхронно при закрытии: асинхронный сброс не успевает,
+  // и хвост журнала — обычно самое интересное — терялся бы каждый раз
+  app.on('before-quit', () => appendLogNow('INFO', 'Программа', 'Завершение работы'));
 
   ipcMain.handle('logs:today', () => readToday());
   ipcMain.handle('logs:folder', () => logsDir());

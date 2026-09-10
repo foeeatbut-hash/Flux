@@ -97,6 +97,10 @@ export function describeAction(method: string, path: string): ActionWords | null
 const SKIP = [
   'logs', 'presence', 'notifications', 'health', 'limits', 'license',
   'assistant', 'insight', 'translate', 'constructor/fn',
+  // Куски вложения: файл на сорок мегабайт — это полторы сотни запросов, и
+  // каждый оставил бы в журнале действий свою строку. Само обращение при этом
+  // в журнал попадает: оно одно на весь файл
+  'feedback/uploads',
 ];
 
 export function isNoise(path: string): boolean {

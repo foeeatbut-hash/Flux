@@ -45,6 +45,7 @@ const SECTIONS: [string, string][] = [
   ['Браузер', '/browser'],
   ['Мессенджер', '/chat'],
   ['Почта', '/mail'],
+  ['Замечания и предложения', '/feedback'],
   ['Руководство', '/handbook'],
   ['Сотрудники', '/users'],
   ['Настройки', '/settings'],

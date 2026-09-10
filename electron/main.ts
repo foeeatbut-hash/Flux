@@ -2,8 +2,10 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityPr
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
+import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
-import { setupLogs, appendLog } from './logs';
+import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
+import { setupDiagnostics } from './diagnostics';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
@@ -107,6 +109,12 @@ app.whenReady().then(() => {
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
 
+  // Подробная запись поднимается раньше остальных модулей: она подменяет
+  // регистрацию обработчиков моста, и всё, что зарегистрируется позже,
+  // попадает под замер само. Поставить её после setupBrowser значило бы
+  // не измерять браузер вовсе
+  setupDiagnostics(logsDir());
+
   // Браузер внутри программы: вкладки страницами того же движка
   setupBrowser();
 
@@ -146,6 +154,10 @@ app.whenReady().then(() => {
 
   // Захват с экрана: трей, горячая клавиша, пульт (см. electron/capture.ts)
   setupCapture(() => mainWindow);
+
+  // Снимок своего окна для обращения — отдельно от захвата данных: у того своя
+  // корзина и распознавание, и «приложить снимок» не должно их запускать
+  setupFeedbackCapture();
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
@@ -970,13 +982,14 @@ app.whenReady().then(() => {
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
-        appendLog('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
+        // Синхронно: следом программа выходит, сбросить очередь будет негде
+        appendLogNow('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
         const child = spawn(installerPath, applyArgs(portableExe, process.pid), {
           detached: true, stdio: 'ignore', windowsHide: true,
         });
         child.unref();
       } else {
-        appendLog('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
+        appendLogNow('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
         const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
       }

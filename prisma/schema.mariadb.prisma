@@ -961,3 +961,300 @@ model FileChunk {
   @@unique([fileId, idx])
   @@index([fileId])
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Обращения сотрудников: «Замечания и предложения»
+//
+// До этого раздела сообщение о поломке уходило репликой в общий чат-канал: без
+// номера, статуса, исполнителя и ответа автору. Здесь у обращения появляется
+// жизнь — от отправки до проверки исправления.
+//
+// Три решения, которые видно прямо в схеме.
+//
+// Личность нигде не связана внешним ключом: сотрудника могут удалить, а его
+// обращения и переписка по ним обязаны остаться. Поэтому автор — строка, а имя
+// на момент отправки хранится снимком.
+//
+// Удалений нет. Отклонение, отзыв и объединение дублей — это состояния, а не
+// стирание: разбор через полгода должен видеть, что было и почему.
+//
+// Вложения лежат кусками в общей базе, а не на диске. У каждого сотрудника свой
+// встроенный сервер, и файл, оставшийся на его машине, для остальных не
+// существует.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Само обращение.
+model FeedbackReport {
+  id                        String   @id @default(uuid())
+  /// Короткий номер для человека: «ОБР-000123». Выдаётся счётчиком в
+  /// транзакции, а не как MAX+1: два сервера иначе выдадут один и тот же
+  number                    Int      @unique
+  /// Автор — только строка: сотрудника могут удалить, обращение остаётся
+  authorId                  String
+  /// Имя на момент отправки: сотрудника переименуют, а карточку читать сегодня
+  authorDisplayNameSnapshot String @db.Text
+  /// Ключ отправки. Тот же ключ — та же карточка: обрыв связи не плодит вторую
+  clientRequestId           String
+  /// Отпечаток отправленного тела: тот же ключ с другим текстом — это ошибка
+  submitHash                String
+  /// IDEA | BUG | PERFORMANCE | QUESTION
+  type                      String   @default("BUG")
+  title                     String @db.Text
+  description               String @db.LongText
+  /// Шаги воспроизведения, JSON-массив строк
+  reproductionJson          String   @default("[]") @db.Text
+  expected                  String   @default("") @db.Text
+  actual                    String   @default("") @db.Text
+  benefit                   String   @default("") @db.Text
+  /// ONCE | SOMETIMES | ALWAYS | UNKNOWN
+  frequency                 String   @default("UNKNOWN")
+  /// LOW «есть обход» | NORMAL «мешает» | HIGH «не могу продолжить»
+  impact                    String   @default("NORMAL")
+  /// Раздел программы, где случилось
+  sectionKey                String   @default("")
+  projectId                 String?
+  /// Когда возникло — по словам автора, а не когда отправлено
+  incidentAt                DateTime
+  appVersion                String   @default("")
+  /// NEW | TRIAGE | NEEDS_INFO | PLANNED | IN_PROGRESS | VERIFY | DONE | REJECTED | DUPLICATE | WITHDRAWN
+  status                    String   @default("NEW")
+  /// Куда вернуться после ответа автора: вопрос не должен ронять работу в начало
+  resumeStatus              String?
+  /// P0 | P1 | P2 | P3. Влияние описывает автор, очередь назначает обработчик
+  priority                  String   @default("P2")
+  assigneeId                String?
+  resolution                String   @default("") @db.Text
+  resolvedVersion           String?
+  duplicateOfId             String?
+  /// Проверяется в той же транзакции, что изменение: два обработчика не должны
+  /// молча перезаписать статус друг друга
+  revision                  Int      @default(1)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @default(now()) @updatedAt
+  closedAt                  DateTime?
+  firstResponseAt           DateTime?
+  /// Последнее событие, видимое автору, и последнее внутреннее — врозь:
+  /// внутренняя заметка не должна помечать карточку новой для автора
+  lastPublicAt              DateTime @default(now())
+  lastInternalAt            DateTime?
+
+  @@unique([authorId, clientRequestId])
+  @@index([authorId, createdAt])
+  @@index([status, priority, createdAt])
+  @@index([assigneeId, status])
+  @@index([sectionKey, appVersion])
+  @@index([duplicateOfId])
+}
+
+/// Счётчик короткого номера. Одна строка на всю базу, инкремент атомарный.
+model FeedbackCounter {
+  key   String @id
+  value Int    @default(0)
+}
+
+/// Предел частоты: сколько обращений и комментариев человек завёл за час.
+/// Живёт в общей базе, а не в памяти: иначе три встроенных сервера обойдут
+/// предел втроём.
+model FeedbackRateWindow {
+  id          String   @id @default(uuid())
+  actorId     String
+  /// report | comment
+  kind        String
+  /// Начало часового окна
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@unique([actorId, kind, windowStart])
+  @@index([windowStart])
+}
+
+/// Ответ автору или внутренняя заметка обработчиков.
+model FeedbackComment {
+  id              String   @id @default(uuid())
+  reportId        String
+  authorId        String
+  clientRequestId String
+  /// PUBLIC | INTERNAL. Внутреннее не доходит до автора ни одним путём
+  visibility      String   @default("PUBLIC")
+  text            String @db.LongText
+  createdAt       DateTime @default(now())
+  /// Убранный администратором текст: сам текст не сохраняется нигде
+  redactedAt      DateTime?
+  redactionReason String? @db.Text
+
+  @@unique([authorId, clientRequestId])
+  @@index([reportId, createdAt])
+}
+
+/// Что происходило с карточкой. Событие на каждое изменение, по одному на
+/// ревизию: история не имеет пропусков.
+model FeedbackEvent {
+  id         String   @id @default(uuid())
+  reportId   String
+  actorId    String?
+  /// created | statusChanged | assigned | priorityChanged | commented |
+  /// duplicateLinked | duplicateUnlinked | attachmentExpired | confirmed |
+  /// reopened | redacted
+  kind       String
+  /// PUBLIC | INTERNAL
+  visibility String   @default("PUBLIC")
+  revision   Int
+  dataJson   String   @default("{}") @db.Text
+  createdAt  DateTime @default(now())
+
+  @@unique([reportId, revision])
+  @@index([reportId, createdAt])
+}
+
+/// Загрузка: файл, который ещё едет или уже приехал, но не привязан к карточке.
+model FeedbackUpload {
+  id                   String   @id @default(uuid())
+  ownerId              String
+  clientRequestId      String
+  draftId              String   @default("")
+  /// IMAGE | FILE | DIAGNOSTICS
+  kind                 String   @default("FILE")
+  originalName         String @db.Text
+  /// Проверенный сервером тип, а не заявленный окном
+  verifiedMime         String?
+  declaredBytes        Int      @default(0)
+  sha256               String
+  chunkSize            Int      @default(0)
+  chunkCount           Int      @default(0)
+  /// OPEN | VERIFYING | READY | REJECTED | ATTACHED | EXPIRED
+  status               String   @default("OPEN")
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+  revision             Int      @default(1)
+  reportId             String?
+  processingLeaseUntil DateTime?
+  processingLeaseOwner String?
+
+  chunks FeedbackUploadChunk[]
+
+  @@unique([ownerId, clientRequestId])
+  @@index([status, expiresAt])
+  @@index([reportId])
+}
+
+/// Кусок загрузки. Повтор того же куска с тем же отпечатком — успех: обрыв
+/// связи не должен требовать заново гнать весь файл.
+model FeedbackUploadChunk {
+  id         String   @id @default(uuid())
+  uploadId   String
+  upload     FeedbackUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  index      Int
+  sha256     String
+  bytes      Bytes  @db.LongBlob
+  byteLength Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@unique([uploadId, index])
+  @@index([uploadId])
+}
+
+/// Вложение, привязанное к карточке. Байты остаются в кусках загрузки —
+/// здесь только описание, чтобы прикреплённое отличалось от черновой загрузки.
+model FeedbackAttachment {
+  id            String   @id @default(uuid())
+  reportId      String
+  uploadId      String   @unique
+  /// IMAGE | FILE | DIAGNOSTICS
+  kind          String   @default("FILE")
+  displayName   String @db.Text
+  mime          String   @default("application/octet-stream")
+  byteLength    Int      @default(0)
+  sha256        String
+  width         Int?
+  height        Int?
+  /// Миниатюра — производная того же вложения, а не отдельный файл человека
+  thumbnailOfId String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime?
+  expiredAt     DateTime?
+
+  @@index([reportId])
+  @@index([thumbnailOfId])
+}
+
+/// Пакет диагностики, приложенный к обращению. Сырые события лежат вложением,
+/// здесь — опись и сводка, посчитанная сервером: присланной клиентом не верим.
+model FeedbackDiagnosticBundle {
+  id           String   @id @default(uuid())
+  reportId     String
+  attachmentId String   @unique
+  manifestJson String   @default("{}") @db.Text
+  summaryJson  String   @default("{}") @db.Text
+  /// Отпечаток технического дубля: предлагает совпадение, но не объединяет
+  fingerprint  String?
+  createdAt    DateTime @default(now())
+
+  @@index([reportId])
+}
+
+/// Докуда человек дочитал. Внутренние ревизии не двигают счётчик автора.
+model FeedbackReadState {
+  id                  String   @id @default(uuid())
+  reportId            String
+  userId              String
+  lastPublicRevision  Int      @default(0)
+  lastInternalRevision Int     @default(0)
+  updatedAt           DateTime @default(now()) @updatedAt
+
+  @@unique([reportId, userId])
+  @@index([userId])
+}
+
+/// Расписка о выполненном действии. Точный повтор возвращает прежний результат,
+/// даже если карточка уже ушла вперёд: иначе двойное нажатие ломает историю.
+model FeedbackMutationReceipt {
+  id              String   @id @default(uuid())
+  actorId         String
+  clientRequestId String
+  requestHash     String
+  reportId        String
+  resultRevision  Int      @default(0)
+  resultJson      String   @default("{}") @db.Text
+  createdAt       DateTime @default(now())
+
+  @@unique([actorId, clientRequestId])
+  @@index([createdAt])
+}
+
+/// Очередь уведомлений. Запись кладётся в той же транзакции, что и событие,
+/// которое она описывает, — иначе уведомление теряется между записью и
+/// отправкой. Сокет только ускоряет доставку, но не заменяет эту очередь.
+model FeedbackOutbox {
+  id             String   @id @default(uuid())
+  /// Ключ против повторов: тот же ключ второй записи не создаст
+  dedupeKey      String   @unique
+  reportId       String
+  recipientId    String
+  publicRevision Int      @default(0)
+  kind           String
+  payloadJson    String   @default("{}") @db.Text
+  /// PENDING | DONE | FAILED
+  state          String   @default("PENDING")
+  attempt        Int      @default(0)
+  availableAt    DateTime @default(now())
+  leaseUntil     DateTime?
+  leaseOwner     String?
+  createdAt      DateTime @default(now())
+
+  @@index([state, availableAt])
+  @@index([reportId])
+}
+
+/// Отметка об изменении карточки — для серверов, которые узнают о нём опросом,
+/// а не сокетом. Текстов здесь нет намеренно.
+model FeedbackChange {
+  id         String   @id @default(uuid())
+  reportId   String
+  revision   Int
+  visibility String   @default("PUBLIC")
+  createdAt  DateTime @default(now())
+
+  @@unique([reportId, revision])
+  @@index([createdAt])
+}

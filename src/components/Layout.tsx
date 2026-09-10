@@ -28,6 +28,9 @@ import NotifyToasts from './shell/NotifyToasts';
 import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
+import { useFeedbackStore } from '../store/feedbackStore';
+import { resumeQueue, submissionQueue } from '../feedback/submissionQueue';
+import { getMeta } from '../feedback/feedbackApi';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
 import { BAR_H } from '../lib/metrics';
@@ -233,6 +236,46 @@ export default function Layout() {
     const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
     window.addEventListener('focus', onFocus);
     return () => { useNotificationStore.getState().stopPolling(); window.removeEventListener('focus', onFocus); };
+  }, [user?.id]);
+
+  /**
+   * Счётчик обращений — здесь же и по той же причине.
+   *
+   * Число живёт в общей базе: у каждого сотрудника свой встроенный сервер, и
+   * «сколько ждёт ответа» — вопрос к базе, а не к своему процессу. При выходе
+   * очередь отправки распускается: начатое одним сотрудником не должно уехать
+   * под именем следующего за тем же компьютером.
+   */
+  React.useEffect(() => {
+    const feedback = useFeedbackStore.getState();
+    if (!user?.id) {
+      feedback.reset();
+      // Очередь распускается вместе с уходом человека: начатое одним
+      // сотрудником не должно уехать под именем следующего за тем же
+      // компьютером. Черновики при этом остаются — это его несданный текст, и
+      // стирать его при выходе значит терять работу тех, кто выходит по
+      // окончании смены
+      submissionQueue.clear();
+      return;
+    }
+    feedback.startPolling();
+
+    /**
+     * Продолжить отправку, начатую до перезапуска программы.
+     *
+     * Пакет лежит в черновике вместе с ключом запроса, поэтому продолжение
+     * безопасно: если карточка успела создаться, повтор вернёт её же. Контур
+     * спрашивается у сервера — под чужим `deploymentId` очередь не поедет.
+     */
+    let alive = true;
+    getMeta()
+      .then((meta) => { if (alive && meta?.deploymentId) void resumeQueue(meta.deploymentId, user.id); })
+      .catch(() => { /* сервер не ответил — очередь подождёт следующего входа */ });
+
+    return () => {
+      alive = false;
+      useFeedbackStore.getState().stopPolling();
+    };
   }, [user?.id]);
 
   /**

@@ -31,7 +31,8 @@ import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import { dataService } from '../services/dataService';
-import { wordBytes, wordToExplorer } from '../lib/docOutput';
+import { wordBytes, wordToExplorer, snapshotToPlainText, saveText, textToExplorer } from '../lib/docOutput';
+import { snapshotSpan, saveSpan, initSpan, disposeSpan, exportSpan } from '../lib/officeSpans';
 import { saveBytes } from '../lib/saveToWindows';
 import { useDocLabels } from '../components/doc/useDocLabels';
 
@@ -52,27 +53,10 @@ function fmtDate(s: string) {
 /**
  * Скачать файл под нужным именем.
  *
- * Ссылку обязательно кладём в страницу: у ссылки вне документа браузер
- * игнорирует атрибут download и сохраняет файл как «download» — без имени и
- * без расширения, Ворд такой файл не открывает.
+ * Выгрузка файлом, плоский текст снимка и запись в Проводник живут в
+ * lib/docOutput вместе со сборкой .docx: экран решает, ЧТО выгружать, а как
+ * именно — знание отдельное, и проверяется оно отдельно.
  */
-function download(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
-}
-
-// Плоский текст документа из снапшота (для экспорта TXT и поиска)
-function snapshotToPlainText(snap: any): string {
-  const ds: string = snap?.body?.dataStream || '';
-  // \r — конец абзаца, \n — конец секции; служебные маркеры объектов отсекаем
-  return ds.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/\r/g, '\n').replace(/\n+$/, '');
-}
 
 // Сборка печатного HTML и файла для Ворда живёт в ./docExport — там же её тесты
 // (scripts/test-doc-export.ts). Прежняя версия лежала здесь и незаметно теряла
@@ -167,25 +151,30 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [saveConflict, setSaveConflict] = useState<{ who: string; at: string | null } | null>(null);
   const saveConflictRef = useRef(false);
 
-  const takeSnapshot = (): string => {
+  const takeSnapshot = (): string => snapshotSpan('doc', docId, () => {
     try {
       const d = univerRef.current?.univerAPI?.getActiveDocument?.();
       const data = d?.getSnapshot?.();
       return data ? JSON.stringify(data) : '';
     } catch (_) { return ''; }
-  };
+  });
 
   const saveNow = async (extra?: Record<string, any>, force = false) => {
     // Пока столкновение не разобрано, окно молчит: иначе оно повторяло бы
     // отказ каждые две с половиной секунды
-    if (saveConflictRef.current && !force) return;
+    // Пропуск записывается наравне с записью: при разборе жалобы «не
+    // сохраняется» ответы «сохранений не было» и «сохранять было нечего» —
+    // это два разных ответа, и без первого разбор упирается в тупик
+    const skip = (reason: string) => saveSpan('doc', docId, { reason, outcome: 'skipped' });
+    if (saveConflictRef.current && !force) { skip('conflict-hold'); return; }
     // Связи с комнатой нет, а в документе кто-то есть: чужие правки до меня не
     // доходят, и запись своей страницы целиком легла бы поверх них
-    if (roomRef.current?.hold.current && !force) return;
+    if (roomRef.current?.hold.current && !force) { skip('room-hold'); return; }
     const snapshot = takeSnapshot();
-    if (!snapshot && !extra) return;
-    if (snapshot === lastSavedRef.current && !extra && !force) return;
+    if (!snapshot && !extra) { skip('empty'); return; }
+    if (snapshot === lastSavedRef.current && !extra && !force) { skip('unchanged'); return; }
     setSaveState('saving');
+    const startedAt = performance.now();
     try {
       const res = await fetch(`/api/constructor/docs/${docId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -205,6 +194,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         saveConflictRef.current = false;
         setSaveConflict(null);
         setSaveState('saved');
+        saveSpan('doc', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
         return;
       }
       const d = await res.json().catch(() => ({}));
@@ -213,11 +203,16 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         saveConflictRef.current = true;
         setSaveConflict({ who: d.who || '', at: d.at || null });
         setSaveState('idle');
+        saveSpan('doc', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
         return;
       }
       if (d.error) addToast(d.error, 'error');
       setSaveState('idle');
-    } catch (_) { setSaveState('idle'); }
+      saveSpan('doc', docId, { reason: 'refused', status: String(res.status), startedAt, outcome: 'error' });
+    } catch (_) {
+      setSaveState('idle');
+      saveSpan('doc', docId, { reason: 'network', startedAt, outcome: 'error' });
+    }
   };
 
   /** Три выхода из столкновения — те же, что у таблиц, и с тем же смыслом */
@@ -316,6 +311,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
         // Ядро документов + гиперссылки + картинки (drawing) — ближе к Ворду
         const pick = (m: any) => m.default ?? m;
+        const modulesFrom = performance.now();
         const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, docsPreset, linkP, drawP, ruRU, linkRu, drawRu] = await Promise.all([
           import('@univerjs/presets'),
           import('@univerjs/presets/preset-docs-core'),
@@ -331,6 +327,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           import('@univerjs/presets/lib/styles/preset-docs-drawing.css'),
         ]);
         if (disposed || !containerRef.current) return;
+        // Загрузка модулей и сборка документа меряются порознь: первое зависит
+        // от диска и кэша браузера, второе — от размера самого документа, и
+        // лечатся они разным
+        const modulesMs = performance.now() - modulesFrom;
+        const bookFrom = performance.now();
 
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.RU_RU,
@@ -352,6 +353,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           ],
         });
         univerRef.current = { univer, univerAPI };
+        initSpan('doc', docId, modulesMs, performance.now() - bookFrom);
         // Модуль пресета держим у себя: из него берём службу выделения и
         // масштаб полотна — ядро их наружу не отдаёт
         presetRef.current = docsPreset;
@@ -466,7 +468,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       fdocRef.current = null;
       presetRef.current = null;
       clearTimeout(rulerTimerRef.current);
-      setTimeout(() => { try { dying?.univer?.dispose?.(); } catch (_) {} }, 0);
+      const dyingFrom = performance.now();
+      setTimeout(() => {
+        try { dying?.univer?.dispose?.(); } catch (_) {}
+        disposeSpan('doc', docId, dyingFrom);
+      }, 0);
     };
   }, [docId, reloadTick]);
 
@@ -676,9 +682,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
    * Сборка файла живёт в src/lib/docOutput.ts — там же её проверки.
    */
   const exportWord = async () => {
+    const exportFrom = performance.now();
     try {
       const name = doc?.name || 'Документ';
       const bytes = await wordBytes(await buildFullHtml(true), JSON.parse(takeSnapshot() || '{}'));
+      exportSpan('doc', docId, 'docx', exportFrom, bytes.length);
       const out = await saveBytes(safeFileName(name, 'docx'), bytes);
       if (out.canceled) return;
       addToast(out.ok ? `Документ Word сохранён: ${out.path || name}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
@@ -696,26 +704,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   };
 
   const exportTxt = () => {
-    try {
-      const text = snapshotToPlainText(JSON.parse(takeSnapshot() || '{}'));
-      download(new Blob([text], { type: 'text/plain;charset=utf-8' }),
-        safeFileName(doc?.name || 'Документ', 'txt'));
-    } catch (_) { addToast('Ошибка экспорта', 'error'); }
+    try { saveText(snapshotToPlainText(JSON.parse(takeSnapshot() || '{}')), safeFileName(doc?.name || 'Документ', 'txt')); }
+    catch (_) { addToast('Ошибка экспорта', 'error'); }
   };
 
   const exportToExplorer = async () => {
+    const fileName = `${doc?.name || 'Документ'}.txt`;
     try {
-      const text = snapshotToPlainText(JSON.parse(takeSnapshot() || '{}'));
-      const b64 = btoa(unescape(encodeURIComponent(text)));
-      const fileName = `${doc?.name || 'Документ'}.txt`;
-      const res = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: fileName, filePath: `/shared/${fileName}`, type: 'TXT',
-          size: text.length, content: b64, createdById: user?.id || null,
-        }),
-      });
-      if (!res.ok) throw new Error('files failed');
+      await textToExplorer(snapshotToPlainText(JSON.parse(takeSnapshot() || '{}')), fileName, user?.id || null);
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };

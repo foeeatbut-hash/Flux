@@ -10,7 +10,7 @@
  */
 import React, { lazy } from 'react';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -27,6 +27,7 @@ const ProcurementManagement = lazy(() => import('../screens/ProcurementManagemen
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
+const FeedbackScreen = lazy(() => import('../screens/FeedbackScreen'));
 const PdfEditor = lazy(() => import('../screens/PdfEditor'));
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
@@ -51,7 +52,7 @@ export type SectionScope = 'project' | 'global' | 'mixed';
  * разобрать», поэтому его нет у разделов, где число — это просто «сколько
  * открыто»: разбирать там нечего.
  */
-export type SectionBadge = 'mail' | 'chat';
+export type SectionBadge = 'mail' | 'chat' | 'feedback';
 
 export interface SectionDef {
   path: string;
@@ -129,6 +130,9 @@ export const SECTIONS: SectionDef[] = [
   { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
+  // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
+  // после переключения проекта не должно пропадать из списка
+  { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, feature: 'log.view', Component: LogsManagement },
