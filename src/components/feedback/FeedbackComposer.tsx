@@ -21,7 +21,8 @@ import { LIMITS, TYPES, TYPE_NAMES, FREQUENCIES, FREQUENCY_NAMES, IMPACTS, IMPAC
 import type { ReportType } from '../../../feedback/contracts';
 import FeedbackPreview from './FeedbackPreview';
 import ScreenshotEditor from './ScreenshotEditor';
-import { canCaptureWindow, captureWindow, imageFromPaste } from '../../feedback/capture';
+import { canCaptureWindow, captureRegion, captureWindow, imageFromPaste } from '../../feedback/capture';
+import RegionPicker from './RegionPicker';
 
 interface Props {
   userId: string;
@@ -95,6 +96,8 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
   const [shot, setShot] = useState<Blob | null>(null);
   /** Окно прячется на время съёмки: иначе на снимке будет сама форма. */
   const [hidden, setHidden] = useState(false);
+  /** Идёт выбор области: форма убрана, поверх окна — рамка. */
+  const [picking, setPicking] = useState(false);
 
   useEscapeClose(true, () => { if (!sending) onClose(); });
 
@@ -155,6 +158,23 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
     } finally { setHidden(false); }
   };
 
+  /**
+   * Снимок выбранной части окна.
+   *
+   * Рамка выбора — часть того же окна, поэтому её убирают ДО съёмки: иначе
+   * затемнение и подпись с размером попадут на снимок вместе с поломкой.
+   */
+  const shootRegion = async (region: { x: number; y: number; width: number; height: number }) => {
+    setPicking(false);
+    setHidden(true);
+    try {
+      const taken = await captureRegion(region);
+      setShot(taken.blob);
+    } catch (error: any) {
+      setComplaint(error?.message || 'Снимок не получился');
+    } finally { setHidden(false); }
+  };
+
   /** Картинка из буфера: единственный способ снимка в обычном браузере. */
   const paste = (event: React.ClipboardEvent) => {
     const image = imageFromPaste(event.nativeEvent as ClipboardEvent);
@@ -173,8 +193,13 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
   const sent = queued?.state === 'SENT';
 
   return (
+    <>
+    {picking && (
+      <RegionPicker onCancel={() => setPicking(false)}
+        onPick={(region) => void shootRegion(region)} />
+    )}
     <div className="fixed inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
-      style={{ zIndex: Z.modal, ...(hidden ? { visibility: 'hidden' as const } : {}) }}
+      style={{ zIndex: Z.modal, ...(hidden || picking ? { visibility: 'hidden' as const } : {}) }}
       onPaste={paste} onMouseDown={() => { if (!busy) onClose(); }}>
       <div role="dialog" aria-label="Обращение" onMouseDown={(e) => e.stopPropagation()}
         className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border border-slate-200 dark:border-dark-border
@@ -318,17 +343,25 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
                       Приложить файл…
                     </button>
                     {canCaptureWindow() && (
+                      <button type="button" onClick={() => { setComplaint(''); setPicking(true); }}
+                        className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900
+                                   hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold
+                                   text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <Camera className="w-3.5 h-3.5" /> Снимок области
+                      </button>
+                    )}
+                    {canCaptureWindow() && (
                       <button type="button" onClick={shoot}
                         className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900
                                    hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold
                                    text-slate-700 dark:text-slate-300 cursor-pointer">
-                        <Camera className="w-3.5 h-3.5" /> Снимок окна
+                        <Camera className="w-3.5 h-3.5" /> Снимок окна целиком
                       </button>
                     )}
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {canCaptureWindow()
-                      ? 'Снимок можно разметить и закрыть на нём лишнее.'
+                      ? 'Снимок можно разметить и закрыть на нём лишнее. Область выбирается рамкой.'
                       : 'В браузере снимок окна недоступен: вставьте картинку из буфера (Ctrl+V) или выберите файл.'}
                   </p>
                 </div>
@@ -384,5 +417,6 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
         )}
       </div>
     </div>
+    </>
   );
 }

@@ -123,6 +123,29 @@ console.log('\n7. Мелочи, на которых спотыкаются');
     Math.abs(shrinkTo(8000, 8000, 16000000) - 0.5) < 1e-9);
 }
 
+console.log('\n8. Рамка выбора отдаёт то, что обвели');
+{
+  // Рамка живёт в окне и работает в тех же независимых точках, в которых потом
+  // считается разметка. Проверяется стык: что уходит в оболочку после того, как
+  // человек протащил мышь
+  const window = { width: 1280, height: 800 };
+  const dragged = clampRect(rectOf(900, 600, 300, 200), window.width, window.height);
+  ok('обратное направление даёт тот же прямоугольник',
+    dragged?.x === 300 && dragged?.y === 200 && dragged?.width === 600 && dragged?.height === 400, dragged);
+
+  const overflown = clampRect(rectOf(1000, 700, 1600, 1200), window.width, window.height);
+  ok('уехавшее за окно подрезается по окну',
+    overflown?.width === 280 && overflown?.height === 100, overflown);
+
+  ok('случайное нажатие областью не считается',
+    clampRect(rectOf(100, 100, 103, 104), window.width, window.height) === null);
+
+  // Оболочка получает ровно это и проверяет ещё раз — сама себе не доверяет
+  const forShell = fitRegion(dragged, window);
+  ok('оболочка принимает то, что отдала рамка',
+    forShell?.width === 600 && forShell?.height === 400, forShell);
+}
+
 console.log(`\nПройдено: ${passed}, провалено: ${failed}`);
 if (failed) { console.log('ЕСТЬ ПРОВАЛЫ'); process.exit(1); }
 console.log('ВСЕ ТЕСТЫ ПРОЙДЕНЫ');
