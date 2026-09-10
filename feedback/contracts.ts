@@ -84,8 +84,21 @@ export type Visibility = (typeof VISIBILITIES)[number];
 // ── Пределы ─────────────────────────────────────────────────────────────────
 
 export const LIMITS = {
+  /**
+   * Заголовок — служебная производная сообщения, а не поле человека.
+   *
+   * Нижняя граница осталась ради старых клиентов, которые заголовок ещё
+   * присылают: к выведенному она не применяется. Заставлять человека чинить
+   * заголовок отдельно нельзя — «Да. Программа зависла при открытии таблицы»
+   * отклонялось из-за первого предложения в два знака.
+   */
   title: { min: 5, max: 160 },
-  description: { min: 10, max: 20000 },
+  /**
+   * Сообщение. Два знака — потому что «Зависло» и «Не грузит» это законченные
+   * сообщения о сбое, и требовать «хотя бы одно предложение» значит требовать
+   * от человека сочинения в момент, когда у него всё сломалось.
+   */
+  description: { min: 2, max: 20000 },
   step: 1000,
   steps: 10,
   expected: 4000,
@@ -103,9 +116,38 @@ export const LIMITS = {
   /** Сколько обращений и комментариев можно завести за час. */
   reportsPerHour: 20,
   commentsPerHour: 100,
-  /** Происшествие можно отметить задним числом, но не глубже суток. */
-  incidentBackMs: 24 * 3600 * 1000,
+  /**
+   * Насколько давним может быть происшествие.
+   *
+   * Раньше здесь были сутки, и это молча съедало работу: человек написал
+   * обращение в пятницу вечером без связи, вернулся в понедельник — а очередь
+   * получала «incidentAt: глубже суток» и не могла отправить его никогда.
+   * Отказ был невосстановимым, потому что время происшествия не меняется.
+   * Теперь предел — год, а «когда отправили» лежит отдельным полем.
+   */
+  incidentBackMs: 365 * 24 * 3600 * 1000,
 } as const;
+
+/**
+ * Заголовок из сообщения.
+ *
+ * Один на окно и сервер: если каждый выведет по-своему, карточка будет
+ * называться не тем, что человек видел при отправке. Берётся первое
+ * предложение, а когда его нет — всё сообщение, свёрнутое по пробелам.
+ * Название раздела добавляется только к совсем короткому: «Зависло» само по
+ * себе в очереди из сорока карточек ничего не говорит.
+ */
+export function titleFrom(text: string, sectionName = ''): string {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const stop = clean.search(/[.!?](\s|$)/);
+  let first = stop > 0 ? clean.slice(0, stop + 1) : clean;
+  // Первое предложение бывает короче самого сообщения по-глупому: «Да. Всё
+  // сломалось при вставке столбца» — заголовком должно стать второе
+  if (first.length < 12 && clean.length > first.length) first = clean;
+  const named = first.length < 12 && sectionName ? `${first} — ${sectionName}` : first;
+  return named.length > LIMITS.title.max ? `${named.slice(0, LIMITS.title.max - 1)}…` : named;
+}
 
 /** Что принимаем вложением. Проверяется по содержимому, а не по расширению. */
 export const ALLOWED_FILE_MIME = [
@@ -160,6 +202,8 @@ export interface SubmitFeedbackV1 {
   sectionKey: string;
   projectId?: string;
   incidentAt: string;
+  /** Когда отправку приняли. С `incidentAt` совпадает только у мгновенных. */
+  submittedAt?: string;
   appVersion: string;
   reproduction?: string[];
   expected?: string;
@@ -221,10 +265,22 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
   if (!oneOf(FREQUENCIES, r.frequency)) return { ok: false, error: 'Неизвестная частота' };
   if (!oneOf(IMPACTS, r.impact)) return { ok: false, error: 'Неизвестное влияние' };
 
-  const title = checkText(r.title, 'Заголовок', LIMITS.title.min, LIMITS.title.max);
-  if (!title.ok) return { ok: false, error: title.error };
-  const description = checkText(r.description, 'Описание', LIMITS.description.min, LIMITS.description.max);
+  const description = checkText(r.description, 'Сообщение', LIMITS.description.min, LIMITS.description.max);
   if (!description.ok) return { ok: false, error: description.error };
+
+  /**
+   * Заголовок присланный или выведенный.
+   *
+   * Присланный проверяется по-старому — так шлют клиенты до этой версии.
+   * Выведенный не проверяется на минимум вовсе: его вывели мы, и отказать
+   * человеку за длину строки, которую он не писал, было бы издевательством.
+   */
+  const givenTitle = trimmed(r.title);
+  if (givenTitle) {
+    const checked = checkText(givenTitle, 'Заголовок', LIMITS.title.min, LIMITS.title.max);
+    if (!checked.ok) return { ok: false, error: checked.error };
+  }
+  const title = givenTitle || titleFrom(description.value);
 
   const expected = optionalText(r.expected, 'Ожидание', LIMITS.expected);
   if (!expected.ok) return { ok: false, error: expected.error };
@@ -246,10 +302,10 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
 
   const incident = Date.parse(String(r.incidentAt ?? ''));
   if (!Number.isFinite(incident)) return { ok: false, error: 'incidentAt: ожидалось время' };
-  // Задним числом — не глубже суток, и не из будущего: расхождение часов на
-  // минуту допустимо, на день — это уже не опечатка
+  // Из будущего — не берём: расхождение часов на минуту допустимо, на день это
+  // уже не опечатка. А вот давнее берём: отправка могла пролежать в очереди
   if (incident > now + 60000) return { ok: false, error: 'incidentAt: время из будущего' };
-  if (incident < now - LIMITS.incidentBackMs) return { ok: false, error: 'incidentAt: глубже суток' };
+  if (incident < now - LIMITS.incidentBackMs) return { ok: false, error: 'incidentAt: старше года' };
 
   const uploadIds: string[] = [];
   if (r.uploadIds !== undefined) {
@@ -272,11 +328,14 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
       clientRequestId: r.clientRequestId,
       deploymentId: String(r.deploymentId).slice(0, 64),
       type: r.type,
-      title: title.value,
+      title,
       description: description.value,
       sectionKey: trimmed(r.sectionKey).slice(0, 64),
       ...(isString(r.projectId) && r.projectId ? { projectId: r.projectId.slice(0, 64) } : {}),
       incidentAt: new Date(incident).toISOString(),
+      // Когда происшествие и когда отправка — разные вопросы, и после суток
+      // офлайна разница между ними и есть ответ на «почему пришло так поздно»
+      submittedAt: new Date(now).toISOString(),
       appVersion: trimmed(r.appVersion).slice(0, 32),
       reproduction: steps,
       expected: expected.value,
