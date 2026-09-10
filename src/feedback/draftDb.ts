@@ -60,6 +60,16 @@ const STORE = 'drafts';
 export const DRAFT_LIMIT = 20;
 export const DRAFT_BYTES = 100 * 1024 * 1024;
 
+/**
+ * Ключ черновика быстрой панели — один на человека и контур.
+ *
+ * Не случайный: панель открывают и закрывают по десять раз на дню, и новый
+ * идентификатор на каждое открытие означал бы, что начатое вчера уже не
+ * найти. Незаконченное обращение о сбое у человека одно; отправленное сразу
+ * переезжает под собственный ключ и это место освобождает.
+ */
+export const QUICK_DRAFT = 'quick';
+
 export const draftKey = (deploymentId: string, userId: string, draftId: string): string =>
   `${deploymentId}|${userId}|${draftId}`;
 

@@ -20,33 +20,22 @@ import React, { useEffect, useState } from 'react';
 import { Bug, Check, FileDown, X } from 'lucide-react';
 import { Z } from '../../lib/layers';
 import { useEscapeClose } from '../../lib/useDismiss';
-import { LIMITS } from '../../../feedback/contracts';
+import { LIMITS, titleFrom } from '../../../feedback/contracts';
 import { useComposer, saveNote } from '../../feedback/useComposer';
-import { draftToFile } from '../../feedback/draftDb';
+import { draftToFile, QUICK_DRAFT } from '../../feedback/draftDb';
 import { submissionQueue, type QueueItem } from '../../feedback/submissionQueue';
-import { newRequestId } from '../../../feedback/contracts';
 
 /**
- * Заголовок из написанного.
+ * Что мешает отправить. Пустая строка — ничего.
  *
- * У обращения должен быть заголовок — по нему его находят в очереди и в
- * списке. Спрашивать его отдельно значило бы вернуть вторую строку, поэтому он
- * берётся из первого предложения, а всё написанное целиком становится
- * описанием.
+ * Одна причина, и та очевидная. Раньше здесь было две, и вторая — «первое
+ * предложение слишком короткое» — отклоняла «Да. Программа зависла при
+ * открытии таблицы»: человек видел придирку к слову «Да» и не понимал, что от
+ * него хотят. Заголовок теперь выводится сам (`titleFrom` в общем договоре),
+ * и чинить его отдельно не нужно.
  */
-export function titleFrom(text: string): string {
-  const clean = String(text || '').trim().replace(/\s+/g, ' ');
-  const stop = clean.search(/[.!?]\s|[.!?]$/);
-  const first = stop > 0 ? clean.slice(0, stop + 1) : clean;
-  return first.length > LIMITS.title.max ? `${first.slice(0, LIMITS.title.max - 1)}…` : first;
-}
-
-/** Что мешает отправить. Пустая строка — ничего. */
 export function whyNotSend(text: string): string {
-  const clean = String(text || '').trim();
-  if (clean.length < LIMITS.description.min) return 'Напишите чуть подробнее — хотя бы одним предложением';
-  if (titleFrom(clean).length < LIMITS.title.min) return 'Первое предложение слишком короткое';
-  return '';
+  return String(text || '').trim() ? '' : 'Напишите, что случилось';
 }
 
 export default function QuickReport({ userId, appVersion, sectionKey, onClose }: {
@@ -55,10 +44,12 @@ export default function QuickReport({ userId, appVersion, sectionKey, onClose }:
   sectionKey?: string;
   onClose: () => void;
 }) {
-  const [draftId] = useState(() => newRequestId());
-  const composer = useComposer(draftId, userId, appVersion, sectionKey || '', 'BUG');
+  const composer = useComposer(QUICK_DRAFT, userId, appVersion, sectionKey || '', 'BUG');
   const { fields, setFields } = composer;
-  const [text, setText] = useState('');
+  // Текст живёт в черновике, а не рядом с ним: пока он был локальным, форма
+  // писала в хранилище пустоту, и закрытие панели теряло написанное целиком
+  const text = fields.description;
+  const setText = (next: string) => setFields((prev) => ({ ...prev, description: next }));
   const [queued, setQueued] = useState<QueueItem | null>(null);
   const [sending, setSending] = useState(false);
   const [complaint, setComplaint] = useState('');
@@ -70,9 +61,12 @@ export default function QuickReport({ userId, appVersion, sectionKey, onClose }:
     setFields((prev) => ({ ...prev, technicalEvents: true, appContext: true }));
   }, [setFields]);
 
-  useEffect(() => submissionQueue.subscribe((items) => {
-    setQueued(items.find((i) => i.key.endsWith(`|${draftId}`)) || null);
-  }), [draftId]);
+  useEffect(() => {
+    if (!composer.sentKey) return undefined;
+    return submissionQueue.subscribe((items) => {
+      setQueued(items.find((i) => i.key === composer.sentKey) || null);
+    });
+  }, [composer.sentKey]);
 
   /**
    * Забрать написанное файлом.
@@ -82,9 +76,14 @@ export default function QuickReport({ userId, appVersion, sectionKey, onClose }:
    * текст — пусть заберёт его себе.
    */
   const saveToFile = () => {
-    const draft = composer.draft;
-    if (!draft) return;
-    const blob = draftToFile({ ...draft, fields: { ...draft.fields, описание: text.trim() } });
+    // Работает и без ответа сервера: именно тогда она и нужна — метаданных
+    // нет, черновик не сохраняется, и текст надо отдать человеку в руки
+    const draft = composer.draft || {
+      id: 'без-сервера', deploymentId: '', userId, draftId: QUICK_DRAFT,
+      updatedAt: Date.now(), state: 'EDITING' as const,
+      fields: { ...composer.fields, description: text.trim() }, attachments: [],
+    };
+    const blob = draftToFile({ ...draft, fields: { ...draft.fields, description: text.trim() } });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;

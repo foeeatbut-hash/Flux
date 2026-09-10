@@ -15,7 +15,7 @@ import {
   LIMITS, newRequestId, refusedByName, validateSubmit,
   type Frequency, type Impact, type ReportType, type SubmitFeedbackV1,
 } from '../../feedback/contracts';
-import { draftKey, saveDraft, type Draft, type DraftAttachment } from './draftDb';
+import { draftKey, dropDraft, readDraft, saveDraft, type Draft, type DraftAttachment } from './draftDb';
 import { submissionQueue, type Package } from './submissionQueue';
 import { getMeta, type Meta } from './feedbackApi';
 import { rendererBundle } from '../lib/diagnostics';
@@ -42,6 +42,15 @@ export const emptyFields = (sectionKey = '', type: ReportType = 'BUG'): Fields =
   frequency: 'UNKNOWN', impact: 'NORMAL', incidentAt: new Date().toISOString(),
   sectionKey, projectId: '', technicalEvents: false, appContext: true,
 });
+
+/**
+ * Через сколько после последней буквы черновик уходит в хранилище.
+ *
+ * Меньше — лишние записи мегабайтных вложений, больше — окно, в котором
+ * закрытие формы теряет набранное. Полсекунды: человек за это время не
+ * успевает закрыть форму осознанно, а запись не идёт на каждую букву.
+ */
+const SAVE_DELAY_MS = 400;
 
 /** Что показываем под формой про сохранение на этом устройстве. */
 export type SaveState = 'idle' | 'saving' | 'saved' | 'quota' | 'unavailable' | 'tooMany';
@@ -123,6 +132,16 @@ export interface Composer {
   ready: boolean;
   draft: Draft | null;
   send: (overrides?: Partial<Fields>) => Promise<string>;
+  /** Дописать черновик немедленно — при закрытии формы. */
+  flush: () => Promise<void>;
+  /**
+   * Под каким ключом отправленное живёт в очереди.
+   *
+   * Пустой, пока не отправляли. Нужен форме, чтобы следить за ходом: у очереди
+   * свой ключ, не совпадающий с ключом формы, и подписка по ключу формы не
+   * нашла бы ничего — форма показывала бы «отправляем» вечно.
+   */
+  sentKey: string;
 }
 
 /**
@@ -140,7 +159,19 @@ export function useComposer(
   const [metaError, setMetaError] = useState('');
   const [save, setSave] = useState<SaveState>('idle');
   const [error, setError] = useState('');
+  const [sentKey, setSentKey] = useState('');
   const timer = useRef<any>(null);
+  /**
+   * Защёлка от второй отправки.
+   *
+   * Именно `ref`, а не состояние: между `setState` и следующей отрисовкой
+   * помещается ещё одно нажатие, и «Отправить» дважды подряд или два
+   * Ctrl+Enter заводили две карточки. Проверка обязана быть синхронной — до
+   * первого `await`.
+   */
+  const sending = useRef(false);
+  /** Восстановленный черновик кладём один раз: поверх набранного — не кладём. */
+  const restored = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -152,13 +183,39 @@ export function useComposer(
   const deploymentId = meta?.deploymentId || '';
   const key = deploymentId && userId ? draftKey(deploymentId, userId, draftId) : '';
 
+  /**
+   * Поднять начатое.
+   *
+   * Без этого черновик писался, но никем не читался: человек закрывал форму,
+   * открывал заново и видел пустое поле — а его текст лежал в хранилище.
+   * Поднимаем только то, что человек ещё писал (`EDITING`): отправленное и
+   * стоящее в очереди принадлежит очереди, и трогать его отсюда нельзя.
+   */
+  useEffect(() => {
+    if (!key || restored.current) return;
+    let alive = true;
+    void readDraft(key).then((found) => {
+      if (!alive || restored.current) return;
+      restored.current = true;
+      if (!found || found.state !== 'EDITING') return;
+      const saved = (found.fields || {}) as Partial<Fields>;
+      // Набранное сейчас важнее записанного: пока читали хранилище, человек
+      // мог начать печатать, и подменять написанное им нельзя
+      setFields((prev) => (prev.title || prev.description ? prev : { ...prev, ...saved }));
+      if (found.attachments?.length) setAttachments((prev) => (prev.length ? prev : found.attachments));
+      setSave('saved');
+    }).catch(() => { restored.current = true; });
+    return () => { alive = false; };
+  }, [key]);
+
   const draft = useMemo<Draft | null>(() => (key ? {
     id: key, deploymentId, userId, draftId, updatedAt: Date.now(),
     state: 'EDITING', fields: fields as unknown as Record<string, unknown>, attachments,
   } : null), [key, deploymentId, userId, draftId, fields, attachments]);
 
   // Черновик пишется с задержкой: запись на каждую букву кладёт по мегабайту
-  // вложений в хранилище пятьдесят раз в минуту
+  // вложений в хранилище пятьдесят раз в минуту. Задержка короткая — это
+  // единственное, что стоит между набранным текстом и его потерей
   useEffect(() => {
     if (!draft) return;
     if (!fields.title && !fields.description && !attachments.length) return;
@@ -168,8 +225,24 @@ export function useComposer(
       void saveDraft(draft).then((result) => {
         setSave(result.ok ? 'saved' : (result as any).reason);
       });
-    }, 800);
+    }, SAVE_DELAY_MS);
     return () => clearTimeout(timer.current);
+  }, [draft, fields.title, fields.description, attachments.length]);
+
+  /**
+   * Дописать немедленно.
+   *
+   * Зовётся при закрытии формы. На `beforeunload` полагаться нельзя: запись в
+   * IndexedDB асинхронная, и при закрытии окна браузер не обязан дать ей
+   * завершиться. Поэтому надёжность держится на записи ВО ВРЕМЯ набора, а это —
+   * последний штрих, чтобы не потерять полсекунды последних букв.
+   */
+  const flush = useCallback(async (): Promise<void> => {
+    if (!draft) return;
+    if (!fields.title && !fields.description && !attachments.length) return;
+    clearTimeout(timer.current);
+    const result = await saveDraft(draft);
+    setSave(result.ok ? 'saved' : (result as any).reason);
   }, [draft, fields.title, fields.description, attachments.length]);
 
   const total = attachments.reduce((sum, a) => sum + (a.blob?.size || 0), 0);
@@ -201,14 +274,21 @@ export function useComposer(
    * же карточку, а не заведёт вторую.
    */
   const send = useCallback(async (overrides?: Partial<Fields>): Promise<string> => {
+    // Синхронно и до первого await: иначе второе нажатие успевает проскочить
+    if (sending.current) return '';
     if (!draft || !deploymentId) return 'Сервер ещё не ответил — попробуйте ещё раз';
+    sending.current = true;
     const clientRequestId = newRequestId();
     // Правки, поданные прямо в вызов, важнее записанных: короткая форма
     // собирает заголовок из написанного в момент нажатия, и ждать следующей
     // отрисовки, чтобы отправить набранное, нельзя
     const going = overrides ? { ...fields, ...overrides } : fields;
     const ready = buildBody(going, deploymentId, appVersion, clientRequestId);
-    if (!ready.ok) { setError(ready.error || 'Проверьте поля'); return ready.error || 'Проверьте поля'; }
+    if (!ready.ok) {
+      sending.current = false;
+      setError(ready.error || 'Проверьте поля');
+      return ready.error || 'Проверьте поля';
+    }
 
     /**
      * Пакет диагностики берётся ЗДЕСЬ, а не при отметке галочки.
@@ -223,8 +303,18 @@ export function useComposer(
       files.push({ id: newRequestId(), name: 'диагностика.jsonl', kind: 'DIAGNOSTICS', blob: bundle });
     }
 
+    /**
+     * Отправляемое переезжает в собственный ключ.
+     *
+     * Черновик формы у быстрого пути один и тот же на человека (`quick`), и
+     * если оставить отправку под ним, то следующее написанное затрёт копию,
+     * которой очередь ещё пользуется для повтора после перезапуска. Очередь
+     * получает свой ключ, а место формы освобождается под новое обращение.
+     */
+    const ownId = newRequestId();
     const fixed: Draft = {
-      ...draft, clientRequestId, state: 'QUEUED', attachments: files,
+      ...draft, id: draftKey(deploymentId, userId, ownId), draftId: ownId,
+      clientRequestId, state: 'QUEUED', attachments: files,
       fields: going as unknown as Record<string, unknown>,
     };
     const written = await saveDraft(fixed);
@@ -233,17 +323,30 @@ export function useComposer(
     if (!written.ok) setSave((written as any).reason);
 
     const pack: Package = {
-      key: fixed.id, draftId, deploymentId, userId,
+      key: fixed.id, draftId: ownId, deploymentId, userId,
       body: ready.body!,
       files: files.map((a) => ({ id: a.id, name: a.name, kind: a.kind, blob: a.blob })),
     };
-    await submissionQueue.enqueue(pack);
+    try {
+      await submissionQueue.enqueue(pack);
+    } catch (failed: any) {
+      // Защёлку надо снять, иначе форма запрётся навсегда: человек будет жать
+      // «Отправить» и не получать вообще никакого ответа
+      sending.current = false;
+      const why = failed?.message || 'Не удалось поставить в очередь';
+      setError(why);
+      return why;
+    }
+    setSentKey(fixed.id);
+    // Место формы свободно: написанное уехало и живёт теперь под своим ключом
+    clearTimeout(timer.current);
+    await dropDraft(draft.id);
     setError('');
     return '';
   }, [draft, deploymentId, fields, appVersion, attachments, draftId, userId]);
 
   return {
     fields, setFields, attachments, addFile, addBlob, dropFile,
-    meta, metaError, save, error, ready: built.ok, draft, send,
+    meta, metaError, save, error, ready: built.ok, draft, send, flush, sentKey,
   };
 }
