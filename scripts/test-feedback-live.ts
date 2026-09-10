@@ -305,6 +305,40 @@ async function main() {
     ok('в сводке посчитаны события', (described?.summary?.events ?? 0) > 0, described?.summary?.events);
     ok('сказано, сколько строк не разобралось',
       described?.manifest?.broken !== undefined, described?.manifest);
+
+    /**
+     * Опись полноты — то, ради чего пакет и переделывался.
+     *
+     * Без неё разбирающий читает сводку без ошибок и делает вывод, что ошибок
+     * не было. Здесь проверяется, что про КАЖДЫЙ источник сказано, что с ним:
+     * окно приложено, оболочки в браузере нет по устройству программы (а не
+     * «прочитать не удалось»), сервер и база названы своими словами.
+     */
+    const sources = described?.manifest?.sources || [];
+    const byName = Object.fromEntries(sources.map((one: any) => [one.source, one]));
+    ok('в описи все четыре источника',
+      ['renderer', 'shell', 'server', 'database'].every((n) => byName[n]),
+      sources.map((o: any) => o.source));
+    ok('записи окна приложены и посчитаны',
+      byName.renderer?.state === 'available' && byName.renderer?.events > 0, byName.renderer);
+    ok('оболочки в браузере нет — и это сказано как отсутствие, а не как ошибка',
+      byName.shell?.state === 'unavailable' && /браузере/.test(byName.shell?.reason || ''), byName.shell);
+    ok('про сервер и базу сказано, что с ними',
+      !!byName.server?.state && !!byName.database?.state
+      && (byName.server.state !== 'available' ? !!byName.server.reason : true),
+      { server: byName.server, database: byName.database });
+    ok('состояние сборки названо словом',
+      ['READY', 'PARTIAL'].includes(described?.state), described?.state);
+    ok('интервал, за который собирали, записан',
+      !!described?.manifest?.requestedFrom && !!described?.manifest?.requestedTo,
+      described?.manifest?.requestedFrom);
+
+    // Автор приложил записи, чтобы помочь разобрать поломку, а не чтобы
+    // читать разбор работы программы: технической части ему не отдают
+    const asAuthor = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, {
+      headers: { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' },
+    }).then((r) => r.json());
+    ok('разбирающий видит техническую часть', (asAuthor?.data?.diagnostics || []).length > 0);
   }
 
   console.log('\n5. Тишина в консоли');

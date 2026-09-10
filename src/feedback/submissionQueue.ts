@@ -250,7 +250,20 @@ export class SubmissionQueue {
       for (const file of pack.files) {
         if (controller.signal.aborted) return;
         const before = sent;
-        const id = await sendFile(file.blob, file.name, file.kind, pack.body.clientRequestId, pack.draftId,
+        /**
+         * Ключ загрузки — у КАЖДОГО файла свой.
+         *
+         * Здесь стоял ключ всей отправки, а сервер считает загрузку по паре
+         * «владелец + ключ». Значит второй файл находил чужую готовую загрузку
+         * и молча возвращал её: к обращению приезжал только первый. Снимок
+         * вместе с записями диагностики человек терял, ничего не заметив, и
+         * узнать об этом было неоткуда — форма показывала успех.
+         *
+         * Идентификатор вложения выдаётся один раз и живёт в черновике,
+         * поэтому повтор после обрыва по-прежнему находит свою же загрузку и
+         * докачивает недостающее, а не начинает заново.
+         */
+        const id = await sendFile(file.blob, file.name, file.kind, file.id, pack.draftId,
           (done) => { void this.put(key, { done: before + done }); },
           controller.signal);
         sent += file.blob?.size || 0;

@@ -49,6 +49,11 @@ export const FEEDBACK_TABLES: TableSpec[] = [
       key('sectionKey'),
       opt('projectId'),
       at('incidentAt'),
+      // Когда отправку приняли — отдельно от того, когда сломалось: после
+      // суток офлайна разница между ними и есть ответ на «почему так поздно»
+      when('submittedAt'),
+      opt('snapshotId'),
+      opt('buildId'),
       key('appVersion'),
       key('status'),
       opt('resumeStatus'),
@@ -162,10 +167,18 @@ export const FEEDBACK_TABLES: TableSpec[] = [
     cols: [
       id(), key('reportId'), key('attachmentId'),
       text('manifestJson', '{}'), text('summaryJson', '{}'), opt('fingerprint'), at('createdAt'),
+      // Аренда фоновой сборки живёт в базе, а не в памяти процесса: у каждого
+      // сотрудника свой Express, и сборка обязана пережить перезапуск любого
+      { name: 'state', kind: 'text', notNull: true, def: 'PENDING', indexed: true },
+      opt('snapshotId'), int('schemaVer', 1), opt('buildId'), opt('sessionId'),
+      int('attempt'), at('availableAt'), when('leaseUntil'), opt('leaseOwner'),
     ],
     indexes: [
       { name: 'FeedbackDiagnosticBundle_attachment_key', cols: ['attachmentId'], unique: true },
       { name: 'FeedbackDiagnosticBundle_report_idx', cols: ['reportId'] },
+      // По нему захватывается работа: без индекса каждый проход сборщика
+      // читал бы таблицу целиком
+      { name: 'FeedbackDiagnosticBundle_work_idx', cols: ['state', 'availableAt'] },
     ],
   },
   {

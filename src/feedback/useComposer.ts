@@ -18,7 +18,8 @@ import {
 import { draftKey, dropDraft, readDraft, saveDraft, type Draft, type DraftAttachment } from './draftDb';
 import { submissionQueue, type Package } from './submissionQueue';
 import { getMeta, type Meta } from './feedbackApi';
-import { rendererBundle } from '../lib/diagnostics';
+import { rendererSource, releaseSnapshot } from '../lib/diagnostics';
+import { EVENTS_NAME, MANIFEST_NAME, collectBundle, startSnapshot } from './collectBundle';
 
 export interface Fields {
   type: ReportType;
@@ -172,12 +173,22 @@ export function useComposer(
   const sending = useRef(false);
   /** Восстановленный черновик кладём один раз: поверх набранного — не кладём. */
   const restored = useRef(false);
+  /**
+   * Снимок вокруг происшествия — с открытия формы, а не с нажатия «Отправить».
+   *
+   * Пока человек пишет, что сломалось, программа продолжает работать, и
+   * события про поломку вытеснялись бы его же набором текста. К моменту
+   * отправки в хвосте оставалась бы минута спокойного печатания.
+   */
+  const snapshot = useRef<ReturnType<typeof startSnapshot> | null>(null);
+  if (!snapshot.current) snapshot.current = startSnapshot(newRequestId());
 
   useEffect(() => {
     let alive = true;
     getMeta().then((m) => { if (alive) setMeta(m); })
       .catch((e: any) => { if (alive) setMetaError(e?.message || 'Сервер не отвечает'); });
-    return () => { alive = false; };
+    // Снимок держит память окна — форма ушла, держать его больше незачем
+    return () => { alive = false; if (snapshot.current) releaseSnapshot(snapshot.current.snapshotId); };
   }, []);
 
   const deploymentId = meta?.deploymentId || '';
@@ -299,8 +310,27 @@ export function useComposer(
      */
     const files = attachments.slice();
     if (going.technicalEvents) {
-      const bundle = rendererBundle(LIMITS.bundleBytes);
-      files.push({ id: newRequestId(), name: 'диагностика.jsonl', kind: 'DIAGNOSTICS', blob: bundle });
+      const shot = snapshot.current!;
+      // Сбор не имеет права отменить отправку: обращение важнее полноты
+      // пакета, а неполнота видна разбирающему по описи
+      try {
+        const bundle = await collectBundle({
+          snapshotId: shot.snapshotId, from: shot.from, to: shot.to,
+          session: shot.session, timeOrigin: shot.timeOrigin,
+          clientRequestId, deploymentId, appVersion,
+          sectionKey: going.sectionKey,
+        });
+        files.push({ id: newRequestId(), name: MANIFEST_NAME, kind: 'DIAGNOSTICS', blob: bundle.manifestBlob });
+        files.push({ id: newRequestId(), name: EVENTS_NAME, kind: 'DIAGNOSTICS', blob: bundle.eventsBlob });
+      } catch (_) {
+        // Даже так пакет не пропадает молча: без описи сервер разберёт
+        // события сам и отметит, что окно опись не приложило
+        const own = rendererSource(shot.snapshotId, LIMITS.bundleBytes);
+        files.push({
+          id: newRequestId(), name: EVENTS_NAME, kind: 'DIAGNOSTICS',
+          blob: new Blob([own.text], { type: 'application/x-ndjson' }),
+        });
+      }
     }
 
     /**

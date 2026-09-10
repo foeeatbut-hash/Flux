@@ -103,8 +103,12 @@ export const EVENTS = {
   'fetch.error': { method: 'name', route: 'route', error: 'name' },
 
   // ── Запрос на сервере ─────────────────────────────────────────────────────
-  'http.start': { method: 'name', route: 'pattern', requestBytes: 'bytes' },
-  'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes' },
+  // `actor` — идентификатор сотрудника ИЗ СЕССИИ, никогда из запроса. Он тут
+  // не для отчётности, а ради одной вещи: без него нельзя доказать, что метка
+  // связи принадлежит именно этому человеку, и сервер не может отдать ему свои
+  // записи об ЕГО запросах, не рискуя отдать заодно записи о чужих
+  'http.start': { method: 'name', route: 'pattern', requestBytes: 'bytes', actor: 'id' },
+  'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes', actor: 'id' },
 
   // ── База ──────────────────────────────────────────────────────────────────
   // startMs — смещение от начала запроса. Без него две операции, шедшие

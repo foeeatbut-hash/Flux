@@ -182,6 +182,10 @@ export async function createReport(
         sectionKey: submit.sectionKey,
         projectId: submit.projectId || null,
         incidentAt: new Date(submit.incidentAt),
+        // Когда приняли — отдельно от того, когда сломалось. У обращения,
+        // пролежавшего в очереди выходные, это единственный способ понять,
+        // почему оно пришло в понедельник про пятницу
+        submittedAt: submit.submittedAt ? new Date(submit.submittedAt) : new Date(),
         appVersion,
         status: 'NEW',
         priority: 'P2',

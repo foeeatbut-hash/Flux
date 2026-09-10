@@ -24,6 +24,8 @@ import { FileWriter } from '../diagnostics/node/writer';
 import { monitorRuntime } from '../diagnostics/node/runtime';
 import { safeError, safeName } from '../diagnostics/event';
 import { validBatch } from '../diagnostics/policy';
+import { readSource } from '../diagnostics/node/read';
+import { SOURCE_BYTES, WINDOW_TOTAL_MS } from '../feedback/bundleSpec';
 
 /** Не больше стольких записей в одной пачке от окна. */
 const BATCH_MAX = 200;
@@ -128,6 +130,40 @@ function registerBridge(sink: FileWriter, dir: string): void {
         outcome: item.ok === false ? 'error' : 'ok',
         ...(typeof item.error === 'string' ? { error: safeName(item.error) } : {}),
       });
+    }
+  });
+
+  /**
+   * Отдать свои записи за интервал.
+   *
+   * Нужно ради пакета к обращению: без этого «подробный пакет» состоял из
+   * одного хвоста окна, а работа оболочки — мост, окна, процессы, аварии —
+   * в него не попадала вовсе.
+   *
+   * Перед чтением сбрасываем очередь: последние секунды перед происшествием
+   * ещё не на диске, а они-то и нужны.
+   */
+  ipcMain.handle('diagnostics:read', async (event: any, request: unknown) => {
+    if (!trusted(event)) return null;
+    const ask = (request || {}) as Record<string, unknown>;
+    const from = Number(ask.from);
+    const to = Number(ask.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
+    // Интервал ограничиваем сами: окно не должно уметь попросить весь журнал
+    const span = Math.min(to - from, WINDOW_TOTAL_MS);
+    const maxBytes = Math.min(Number(ask.maxBytes) || SOURCE_BYTES, SOURCE_BYTES);
+    await sink.flush();
+    try {
+      // Сеанс — только свой: чужой пришлось бы принимать от окна на веру
+      return await readSource(dir, 'shell', { from: to - span, to, session: sink.session, maxBytes });
+    } catch (failed: any) {
+      return {
+        text: '',
+        report: {
+          source: 'shell', state: 'error', events: 0, bytes: 0,
+          reason: `Чтение записей оболочки не удалось: ${safeName(String(failed?.message || failed))}`,
+        },
+      };
     }
   });
 
