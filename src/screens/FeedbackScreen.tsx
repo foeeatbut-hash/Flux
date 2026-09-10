@@ -19,7 +19,7 @@ import { useFeedbackStore } from '../store/feedbackStore';
 import { dataService } from '../services/dataService';
 import {
   addComment, exportReport, getActions, getComments, getDuplicates, getEvents, getMeta,
-  getReport, listReports, markRead, setPriority, transition, type Meta,
+  getReport, listReports, markRead, openAttachment, setPriority, transition, type Meta,
 } from '../feedback/feedbackApi';
 import FeedbackList, { type Row } from '../components/feedback/FeedbackList';
 import FeedbackCard, { type Action, type Card } from '../components/feedback/FeedbackCard';
@@ -229,7 +229,11 @@ export default function FeedbackScreen() {
           <>
             <FeedbackCard card={card} actions={actions} names={names} triage={triage} busy={busy}
               onAct={(to, reason, key) => void act(to, reason, key)}
-              onPriority={(value, key) => void priority(value, key)} />
+              onPriority={(value, key) => void priority(value, key)}
+              onOpenFile={(id, name, inline) => {
+                openAttachment(id, name, inline).catch((error: any) =>
+                  setFailure(error?.message || 'Вложение не открылось'));
+              }} />
             {triage && twins.length > 0 && (
               <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-1.5">
                 <div className="text-xs font-bold text-amber-800 dark:text-amber-300">Похоже на уже заведённое</div>

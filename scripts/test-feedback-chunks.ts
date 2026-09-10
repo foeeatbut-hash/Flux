@@ -104,6 +104,83 @@ async function main() {
   ok('и признан картинкой по содержимому', done.json?.data?.verifiedMime === 'image/png', done.json?.data);
   ok('размер сошёлся', done.json?.data?.byteLength === file.length, done.json?.data);
 
+  console.log('\n2.1. Приложенное читается обратно');
+  // Без этого весь остальной путь бессмыслен: файл доехал до общей базы, но
+  // открыть его не может никто — карточка показывает имя, а смотреть нечего.
+  //
+  // Оба участника заводятся здесь свои: администратор за день проверок
+  // упирается в предел «двадцать обращений в час», и раздел падал бы не по
+  // делу. И ни у кого из них нет права разбора — иначе «чужое вложение
+  // недоступно» проверяло бы не то: разбирающему оно доступно по праву.
+  {
+    const pass = `p${stamp}B!`;
+    const plain: Record<string, any> = {};
+    for (const feat of FEATURES) plain[feat.id] = { enabled: feat.id !== 'feedback.triage', until: null };
+
+    const who = async (suffix: string) => {
+      const symbol = `fbc${stamp}${suffix}`;
+      await api('POST', '/api/users', admin, {
+        symbol, name: `Проба Вложений ${suffix}`, password: pass, role: 'USER',
+        permissions: JSON.stringify(plain),
+      });
+      return (await api('POST', '/api/login', '', { symbol, password: pass })).json?.token || '';
+    };
+    const author = await who('a');
+    const other = await who('b');
+    ok('автор и посторонний заведены', !!author && !!other);
+
+    const little = Buffer.alloc(4096);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(little, 0);
+    for (let i = 8; i < little.length; i++) little[i] = (i * 17 + 3) & 0xff;
+    const own = await api('POST', '/api/feedback/uploads', author, {
+      clientRequestId: randomUUID(), kind: 'IMAGE',
+      name: `своё ${stamp}.png`, size: little.length, sha256: sha(little),
+    });
+    const ownId = own.json?.data?.uploadId;
+    await putChunk(author, ownId, 0, little, sha(little));
+    const built = await api('POST', `/api/feedback/uploads/${ownId}/complete`, author, {});
+    ok('файл автора собран', built.status === 200, built.json?.error);
+
+    const report = await api('POST', '/api/feedback/reports', author, {
+      schemaVersion: 1, clientRequestId: randomUUID(),
+      deploymentId: meta.json?.data?.deploymentId,
+      type: 'BUG', title: '__проверка чтения вложения',
+      description: 'Обращение заведено, чтобы скачать вложение обратно.',
+      sectionKey: '/settings', incidentAt: new Date().toISOString(), appVersion: '0.0.0',
+      frequency: 'ONCE', impact: 'LOW', uploadIds: [ownId],
+      consent: { technicalEvents: true, appContext: true, reviewedAt: new Date().toISOString() },
+    });
+    ok('обращение с вложением заведено', report.status === 201, [report.status, report.json?.error]);
+    const card = await api('GET', `/api/feedback/reports/${report.json?.data?.id}`, author);
+    const attachment = (card.json?.data?.attachments || [])[0];
+    ok('вложение видно в карточке', !!attachment?.id, card.json?.data?.attachments);
+
+    const back = await fetch(`${BASE}/api/feedback/attachments/${attachment?.id}`, {
+      headers: { Authorization: `Bearer ${author}` },
+    });
+    ok('автору вложение отдаётся', back.status === 200, back.status);
+    const got = Buffer.from(await back.arrayBuffer());
+    ok('байт в байт то же, что отправляли', got.equals(little), [got.length, little.length]);
+    ok('тип файла назван честно', String(back.headers.get('Content-Type')).startsWith('image/png'),
+      back.headers.get('Content-Type'));
+    ok('браузеру запрещено угадывать тип',
+      back.headers.get('X-Content-Type-Options') === 'nosniff');
+    ok('имя файла доезжает', String(back.headers.get('Content-Disposition')).includes('filename*=UTF-8'),
+      back.headers.get('Content-Disposition'));
+
+    const stranger = await fetch(`${BASE}/api/feedback/attachments/${attachment?.id}`, {
+      headers: { Authorization: `Bearer ${other}` },
+    });
+    // Чужое вложение отвечает «не найдено», а не «нельзя»: иначе по ответам
+    // перебирается, что вообще существует
+    ok('постороннему вложение не отдаётся', stranger.status === 404, stranger.status);
+
+    const admins = await fetch(`${BASE}/api/feedback/attachments/${attachment?.id}`, {
+      headers: { Authorization: `Bearer ${admin}` },
+    });
+    ok('разбирающему — отдаётся', admins.status === 200, admins.status);
+  }
+
   console.log('\n3. Обрыв связи и повторы');
   const again = await putChunk(admin, uploadId, 0, pieces[0], sha(pieces[0]));
   ok('повтор после сборки уже не принимается', again.status !== 204, again.status);

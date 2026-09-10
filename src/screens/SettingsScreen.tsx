@@ -73,7 +73,9 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; s
   { id: 'browser', label: 'Браузер', icon: Globe, desc: 'Куда разрешено ходить', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
   { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных', scope: 'global' },
-  { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев', scope: 'global' },
+  // Раньше пункт звался «Crash-логи»: сотруднику это ни о чём не говорит, а
+  // теперь он сюда заходит не за файлами, а чтобы сообщить о сбое
+  { id: 'logs', label: 'Ошибки и сбои', icon: Terminal, desc: 'Сообщить о сбое', scope: 'global' },
   { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления', scope: 'global' },
   // Своё в каждом проекте
   { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },

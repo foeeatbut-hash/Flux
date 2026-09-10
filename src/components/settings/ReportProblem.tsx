@@ -16,16 +16,15 @@
  */
 import React from 'react';
 import { useStore } from '../../store/store';
-import FeedbackComposer from '../feedback/FeedbackComposer';
+import QuickReport from '../feedback/QuickReport';
 
 export default function ReportProblem({ onClose }: { onClose: () => void }) {
   const me = useStore((s) => s.user);
   return (
-    <FeedbackComposer
+    <QuickReport
       userId={me?.id || ''}
       appVersion={__APP_VERSION__}
       sectionKey={window.location.hash.replace(/^#/, '') || '/settings'}
-      initialType="BUG"
       onClose={onClose}
     />
   );

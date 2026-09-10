@@ -122,7 +122,7 @@ export interface Composer {
   /** Готово к отправке: поля прошли ту же проверку, что и на сервере. */
   ready: boolean;
   draft: Draft | null;
-  send: () => Promise<string>;
+  send: (overrides?: Partial<Fields>) => Promise<string>;
 }
 
 /**
@@ -200,10 +200,14 @@ export function useComposer(
    * записывается вместе с черновиком. Второе нажатие с тем же ключом вернёт ту
    * же карточку, а не заведёт вторую.
    */
-  const send = useCallback(async (): Promise<string> => {
+  const send = useCallback(async (overrides?: Partial<Fields>): Promise<string> => {
     if (!draft || !deploymentId) return 'Сервер ещё не ответил — попробуйте ещё раз';
     const clientRequestId = newRequestId();
-    const ready = buildBody(fields, deploymentId, appVersion, clientRequestId);
+    // Правки, поданные прямо в вызов, важнее записанных: короткая форма
+    // собирает заголовок из написанного в момент нажатия, и ждать следующей
+    // отрисовки, чтобы отправить набранное, нельзя
+    const going = overrides ? { ...fields, ...overrides } : fields;
+    const ready = buildBody(going, deploymentId, appVersion, clientRequestId);
     if (!ready.ok) { setError(ready.error || 'Проверьте поля'); return ready.error || 'Проверьте поля'; }
 
     /**
@@ -214,12 +218,15 @@ export function useComposer(
      * один раз и виден в предпросмотре: молча его никто не собирает.
      */
     const files = attachments.slice();
-    if (fields.technicalEvents) {
+    if (going.technicalEvents) {
       const bundle = rendererBundle(LIMITS.bundleBytes);
       files.push({ id: newRequestId(), name: 'диагностика.jsonl', kind: 'DIAGNOSTICS', blob: bundle });
     }
 
-    const fixed: Draft = { ...draft, clientRequestId, state: 'QUEUED', attachments: files };
+    const fixed: Draft = {
+      ...draft, clientRequestId, state: 'QUEUED', attachments: files,
+      fields: going as unknown as Record<string, unknown>,
+    };
     const written = await saveDraft(fixed);
     // Хранилища может не быть — отправку это не отменяет, но пережить
     // перезапуск такая отправка уже не сможет, и молчать об этом нельзя

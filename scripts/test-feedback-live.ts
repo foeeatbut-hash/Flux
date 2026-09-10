@@ -116,9 +116,13 @@ async function main() {
     ok('у карточки есть номер', !!row?.number, row?.number);
     ok('состояние — «Новое»', row?.status === 'NEW', row?.status);
 
-    const queue = await fetch(`${BASE}/api/feedback/reports?scope=queue`, { headers: head }).then((r) => r.json());
+    // Очередь отдаётся страницей и сначала старым — новая карточка на живой
+    // базе оказывается за краем страницы. Поэтому спрашиваем очередь новых и с
+    // запасом: проверяется, что карточка в ней есть, а не то, что она сверху
+    const queue = await fetch(`${BASE}/api/feedback/reports?scope=queue&status=NEW&limit=100`,
+      { headers: head }).then((r) => r.json());
     ok('карточка попала в очередь разбора',
-      (queue?.data || []).some((r: any) => r.id === row?.id));
+      (queue?.data || []).some((r: any) => r.id === row?.id), (queue?.data || []).length);
 
     console.log('\n4. Внутренняя заметка не доходит до автора');
     // Автор — тот же человек, поэтому заводим отдельного сотрудника-автора:
@@ -177,7 +181,69 @@ async function main() {
       ok('обработчику она видна', seenByTriage.includes(secret));
     }
 
-    console.log('\n5. Тишина в консоли');
+    console.log('\n4.1. Короткая форма: строка, и записи уезжают сами');
+  // Решение владельца: сотруднику журналы не показываются, он пишет строку.
+  // Проверяется не «есть ли поле», а доезжают ли записи до карточки: без них
+  // разбирающий получит слова без единого числа
+  {
+    // Форма могла остаться открытой от прошлого раздела — закрываем, иначе
+    // нажатия уходят в неё
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { window.location.hash = '#/settings'; });
+    await page.waitForTimeout(3000);
+    const inSettings = await page.evaluate(() => {
+      const entry = Array.from(document.querySelectorAll('button'))
+        .find((b) => /Ошибки и сбои/.test(b.textContent || ''));
+      if (entry) (entry as HTMLButtonElement).click();
+      return !!entry;
+    });
+    ok('в Настройках есть «Ошибки и сбои»', inSettings);
+    await page.waitForTimeout(1500);
+
+    const opened = await page.evaluate(() => {
+      const found = Array.from(document.querySelectorAll('button'))
+        .find((b) => /Сообщить об ошибке/.test(b.textContent || ''));
+      if (found) (found as HTMLButtonElement).click();
+      return !!found;
+    });
+    ok('кнопка «Сообщить об ошибке» на месте', opened);
+    await page.waitForTimeout(1500);
+
+    const shown = await page.evaluate(() => document.body.innerText);
+    ok('форма — одна строка, без галочек про журналы',
+      /Что случилось/.test(shown) && !/Технические записи этого окна/.test(shown),
+      shown.slice(0, 200));
+    ok('сказано, что записи приложатся сами', /сама приложит свои технические записи/.test(shown));
+
+    const short = `__короткая форма ${stamp}. Закрылась Таблица при вставке столбца.`;
+    // Ищем внутри самого окна формы: снаружи есть свои поля и своя кнопка
+    // «Отправить», и нажатие уходило в них, а не сюда
+    const box = '[aria-label="Сообщить об ошибке"]';
+    await page.fill(`${box} textarea`, short);
+    await page.click(`${box} button:has-text("Отправить")`);
+    // Ждём долго намеренно: перед подтверждением уезжает пакет записей, и на
+    // небыстрой машине это дольше, чем кажется. Сорока пяти секунд не хватило —
+    // карточка к тому времени уже была заведена, а надпись ещё не появилась
+    const done = await page.waitForFunction(
+      () => /Отправлено|Обращение появилось/.test(document.body.innerText), null, { timeout: 120000 },
+    ).then(() => true).catch(() => false);
+    ok('короткая форма отправилась', done, await page.evaluate(() => document.body.innerText.slice(0, 200)));
+
+    const token2 = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
+    const head2 = { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' };
+    const list = await fetch(`${BASE}/api/feedback/reports?scope=mine`, { headers: head2 }).then((r) => r.json());
+    const quick = (list?.data || []).find((r: any) => String(r.title).includes('короткая форма'));
+    ok('обращение из короткой формы завелось', !!quick, (list?.data || []).slice(0, 2));
+
+    const full = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, { headers: head2 }).then((r) => r.json());
+    const bundle = (full?.data?.attachments || []).find((a: any) => a.kind === 'DIAGNOSTICS');
+    ok('технические записи приложились сами', !!bundle, full?.data?.attachments);
+    ok('и их можно прочитать', bundle
+      ? (await fetch(`${BASE}/api/feedback/attachments/${bundle.id}`, { headers: head2 })).status === 200
+      : false);
+  }
+
+  console.log('\n5. Тишина в консоли');
     const real = noise.filter((n) => !/favicon|ResizeObserver/.test(n));
     ok('ошибок в консоли нет', real.length === 0, real.slice(0, 3));
   } finally {

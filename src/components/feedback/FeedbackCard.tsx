@@ -33,7 +33,7 @@ export interface Card {
   expected?: string;
   actual?: string;
   benefit?: string;
-  attachments?: Array<{ id: string; displayName: string; byteLength: number; kind: string }>;
+  attachments?: Array<{ id: string; displayName: string; byteLength: number; kind: string; mime?: string }>;
 }
 
 export interface Action {
@@ -66,7 +66,7 @@ function Line({ name, value }: { name: string; value?: string }) {
   );
 }
 
-export default function FeedbackCard({ card, actions, names, triage, busy, onAct, onPriority }: {
+export default function FeedbackCard({ card, actions, names, triage, busy, onAct, onPriority, onOpenFile }: {
   card: Card;
   actions: Action[];
   names: Record<string, string>;
@@ -74,6 +74,7 @@ export default function FeedbackCard({ card, actions, names, triage, busy, onAct
   busy: boolean;
   onAct: (to: Status, reason: string, clientRequestId: string) => void;
   onPriority: (priority: string, clientRequestId: string) => void;
+  onOpenFile: (id: string, name: string, inline: boolean) => void;
 }) {
   const [reason, setReason] = useState('');
   const steps = (() => {
@@ -113,15 +114,26 @@ export default function FeedbackCard({ card, actions, names, triage, busy, onAct
       {!!card.attachments?.length && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
           <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Вложения</div>
-          {card.attachments.map((one) => (
-            <div key={one.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-              <Paperclip className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-              <span className="min-w-0 flex-1 truncate">{one.displayName}</span>
-              <span className="shrink-0 text-slate-500 dark:text-slate-400">
-                {Math.max(1, Math.round(one.byteLength / 1024))} КБ
-              </span>
-            </div>
-          ))}
+          {card.attachments.map((one) => {
+            // Картинки и PDF открываются в окне, остальное сохраняется: открыть
+            // присланный файл в браузере — самый дешёвый способ выполнить чужую
+            // разметку, а вложение к обращению открывают не задумываясь
+            const inline = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(one.mime || '');
+            return (
+              <div key={one.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+                <Paperclip className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                <span className="min-w-0 flex-1 truncate">{one.displayName}</span>
+                <span className="shrink-0 text-slate-500 dark:text-slate-400">
+                  {Math.max(1, Math.round(one.byteLength / 1024))} КБ
+                </span>
+                <button type="button" onClick={() => void onOpenFile(one.id, one.displayName, inline)}
+                  className="shrink-0 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200
+                             dark:hover:bg-slate-800 text-2xs font-semibold cursor-pointer">
+                  {inline ? 'Открыть' : 'Сохранить'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

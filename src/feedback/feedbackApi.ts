@@ -84,6 +84,37 @@ export const setPriority = (id: string, body: Record<string, unknown>) =>
 export const markRead = (id: string, body: Record<string, unknown>) =>
   call<any>('POST', `/reports/${id}/read`, body);
 
+/**
+ * Забрать вложение.
+ *
+ * Не ссылкой, а запросом: заголовок сессии подставляет обёртка `fetch`, а
+ * простой переход по ссылке её минует и получит отказ. Возвращается Blob —
+ * дальше вызывающий решает, показать его или сохранить.
+ */
+export async function fetchAttachment(id: string): Promise<Blob> {
+  const res = await fetch(`${ENV_CONFIG.apiUrl}/feedback/attachments/${id}`);
+  if (!res.ok) {
+    throw new ApiError('UNKNOWN', res.status === 404 ? 'Вложение не найдено' : `Не удалось открыть (${res.status})`, res.status);
+  }
+  return res.blob();
+}
+
+/** Показать или сохранить вложение — по тому, что это за файл. */
+export async function openAttachment(id: string, name: string, inline: boolean): Promise<void> {
+  const blob = await fetchAttachment(id);
+  const url = URL.createObjectURL(blob);
+  if (inline) {
+    window.open(url, '_blank', 'noopener');
+  } else {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name || 'вложение';
+    anchor.click();
+  }
+  // Ссылку освобождаем не сразу: окно и сохранение читают её уже после вызова
+  setTimeout(() => URL.revokeObjectURL(url), 20000);
+}
+
 // ── Вложения ────────────────────────────────────────────────────────────────
 
 export interface UploadHandle {

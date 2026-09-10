@@ -70,7 +70,19 @@ export function mimeAllowed(kind: string, mime: string, name: string): string {
 export interface UploadDeps {
   /** Размер куска под эту базу; ноль означает «базу надо настроить». */
   feedbackChunkBytes: () => Promise<number>;
+  /** Право по функции: чужое вложение открывает только тот, кто разбирает. */
+  can: (user: any, feature: string) => boolean;
 }
+
+/**
+ * Что из вложения можно показать прямо в окне, а что только сохранить.
+ *
+ * Список нарочно короткий и разрешительный: всё, чего в нём нет, отдаётся
+ * вложением. Открыть в окне присланный файл — самый дешёвый способ выполнить
+ * чужую разметку, а вложение к обращению открывают не задумываясь: его же
+ * прислал коллега.
+ */
+const SHOW_INLINE = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
 
 export function registerUploadRoutes(app: Express, deps: UploadDeps): void {
   const raw = express.raw({ type: 'application/octet-stream', limit: '2mb' });
@@ -259,6 +271,77 @@ export function registerUploadRoutes(app: Express, deps: UploadDeps): void {
       data: { status: 'READY', verifiedMime: mime, revision: { increment: 1 } },
     });
     ok(res, { uploadId: done.id, status: done.status, verifiedMime: done.verifiedMime, byteLength: total });
+  });
+
+  // ── Прочитать приложенное ─────────────────────────────────────────────────
+  /**
+   * Содержимое вложения.
+   *
+   * Без этого маршрута весь остальной путь бессмыслен: файл доехал до общей
+   * базы, но открыть его не может никто — карточка показывает имя и размер, а
+   * смотреть нечего.
+   *
+   * Право проверяется по карточке, а не по загрузке: хозяин загрузки — автор,
+   * а читать вложение должен и тот, кто разбирает. Чужая карточка отвечает «не
+   * найдено», а не «нельзя», иначе по ответам перебирается, что существует.
+   *
+   * Куски читаются по одному и сразу уходят в ответ: собирать файл целиком в
+   * памяти — значит держать в сервере столько же, сколько весит вложение, и
+   * получить это умножено на число одновременно открытых карточек.
+   */
+  app.get('/api/feedback/attachments/:id', async (req: Request, res: Response) => {
+    const actor = actorOf(req);
+    if (!actor) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти в программу');
+    const prisma = getPrisma();
+    const failure = await ensureFeedbackTables(prisma);
+    if (failure) return fail(res, ERRORS.UNAVAILABLE, failure);
+
+    const id = String(req.params.id || '');
+    if (!isUuid(id)) return fail(res, ERRORS.NOT_FOUND, 'Вложение не найдено');
+    const attachment = await prisma.feedbackAttachment.findUnique({ where: { id } });
+    if (!attachment) return fail(res, ERRORS.NOT_FOUND, 'Вложение не найдено');
+
+    const report = await prisma.feedbackReport.findUnique({
+      where: { id: attachment.reportId }, select: { authorId: true },
+    });
+    const triage = deps.can((req as any).authUser, 'feedback.triage');
+    if (!report || (report.authorId !== actor.id && !triage)) {
+      return fail(res, ERRORS.NOT_FOUND, 'Вложение не найдено');
+    }
+    // Срок хранения вышел — файла больше нет, и это не ошибка, а состояние
+    if (attachment.expiredAt) return fail(res, ERRORS.NOT_FOUND, 'Срок хранения вложения истёк');
+
+    const parts = await prisma.feedbackUploadChunk.findMany({
+      where: { uploadId: attachment.uploadId },
+      orderBy: { index: 'asc' },
+      select: { id: true, index: true },
+    });
+    if (!parts.length) return fail(res, ERRORS.NOT_FOUND, 'Содержимое вложения не найдено');
+
+    const mime = String(attachment.mime || 'application/octet-stream');
+    const inline = SHOW_INLINE.includes(mime);
+    // Имя файла едет и в latin1, и в UTF-8: без второго кириллица приезжает
+    // кракозябрами, без первого старые клиенты не понимают вовсе
+    const safeName = String(attachment.displayName || 'вложение').replace(/["\\\r\n]/g, '_');
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Length', String(attachment.byteLength || 0));
+    res.setHeader('Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(safeName)}`);
+    // Ни один браузер не должен догадываться о виде файла сам: угадав в нём
+    // разметку, он её выполнит
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    for (const part of parts) {
+      const full = await prisma.feedbackUploadChunk.findUnique({
+        where: { id: part.id }, select: { bytes: true },
+      });
+      if (!full) break;
+      if (!res.write(Buffer.from(full.bytes))) {
+        // Клиент читает медленнее, чем мы шлём: ждём, а не копим в памяти
+        await new Promise((resolve) => res.once('drain', resolve));
+      }
+    }
+    res.end();
   });
 
   // ── Отменить свою загрузку ────────────────────────────────────────────────
