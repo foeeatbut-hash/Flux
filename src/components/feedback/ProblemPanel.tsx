@@ -210,8 +210,20 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
   const noStorage = composer.save === 'quota' || composer.save === 'unavailable';
   const number = queued?.reportNumber || '';
 
-  const top = anchor ? anchor.top : 40;
-  const right = anchor ? anchor.right : GUTTER;
+  /**
+   * Куда встать.
+   *
+   * Прямоугольник кнопки берётся как подсказка, а не как приказ: верхняя
+   * панель оболочки прячется, когда мышь от неё далеко, и у спрятанной кнопки
+   * координаты бывают какие угодно. Панель, уехавшая на середину экрана или за
+   * его край, — это панель, которую человек не найдёт. Поэтому подсказка
+   * зажимается в разумные пределы, а без неё панель встаёт в правый верхний
+   * угол, где кнопка и живёт.
+   */
+  const room = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const rightLimit = Math.max(GUTTER, room - WIDTH - GUTTER);
+  const top = Math.max(GUTTER, Math.min(anchor ? anchor.top : 40, 200));
+  const right = Math.max(GUTTER, Math.min(anchor ? anchor.right : GUTTER, rightLimit));
 
   return (
     <div

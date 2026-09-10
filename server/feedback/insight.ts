@@ -23,6 +23,7 @@ import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, type Actor } from './policy.js';
 import { ERRORS, STATUS_NAMES, TYPE_NAMES, PRIORITY_NAMES, reportNumber, isUuid, type Status } from '../../feedback/contracts.js';
 import { technicalFingerprint, titleCloseness, CLOSE_ENOUGH, checkDuplicateChain } from '../../feedback/fingerprint.js';
+import { buildArchive } from './archive.js';
 
 export interface InsightDeps {
   can: (user: any, feature: string) => boolean;
@@ -249,6 +250,79 @@ export function registerInsightRoutes(app: Express, deps: InsightDeps): void {
     });
     ok(res, { markdown: toMarkdown(one, comments, attachments, triage) });
   });
+
+  /**
+   * Пакет для разработчика — одним архивом.
+   *
+   * Markdown отдаёт переписку и перечень имён вложений; имена — это не данные,
+   * по ним сбой не воспроизвести. Здесь уезжает то, с чем можно работать:
+   * опись полноты, сырые записи источников, лента событий, сводка и заготовка
+   * воспроизведения.
+   *
+   * Право проверяется ЗДЕСЬ, а не скрытием кнопки: прямой запрос по адресу
+   * никакой кнопки не спрашивает, а в записях лежит работа программы, которую
+   * автору обращения видеть незачем.
+   */
+  app.get('/api/feedback/reports/:id/package', async (req: Request, res: Response) => {
+    const base = await ready(req, res, false);
+    if (!base) return;
+    const { prisma } = base;
+    if (!deps.can((req as any).authUser, 'feedback.diagnostics')) {
+      return fail(res, ERRORS.FORBIDDEN, 'Пакет диагностики доступен по праву «Технические вложения»');
+    }
+    const id = String(req.params.id || '');
+    if (!isUuid(id)) return fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено');
+    const one = await prisma.feedbackReport.findUnique({ where: { id } });
+    if (!one) return fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено');
+
+    const bundle = await prisma.feedbackDiagnosticBundle.findFirst({ where: { reportId: id } });
+    const attachments = await prisma.feedbackAttachment.findMany({
+      where: { reportId: id },
+      select: { displayName: true, kind: true, byteLength: true, uploadId: true },
+    });
+
+    // Сырые записи — только технические вложения: файлы человека в архив не
+    // кладём, их скачивают из карточки отдельно и осознанно
+    const sources: Record<string, string> = {};
+    for (const part of attachments) {
+      if (part.kind !== 'DIAGNOSTICS') continue;
+      if (!/\.jsonl$/i.test(part.displayName)) continue;
+      const chunks = await prisma.feedbackUploadChunk.findMany({
+        where: { uploadId: part.uploadId }, orderBy: { index: 'asc' }, select: { bytes: true },
+      });
+      if (!chunks.length) continue;
+      sources[part.displayName] = Buffer.concat(chunks.map((c: any) => Buffer.from(c.bytes))).toString('utf8');
+    }
+
+    const author = await prisma.user.findUnique({
+      where: { id: one.authorId }, select: { name: true, symbol: true },
+    }).catch(() => null);
+
+    const archive = buildArchive({
+      report: one,
+      manifest: safeJson(bundle?.manifestJson || '{}'),
+      summary: safeJson(bundle?.summaryJson || '{}'),
+      sources,
+      attachments: attachments.filter((a: any) => a.kind !== 'DIAGNOSTICS'),
+      authorName: one.authorDisplayNameSnapshot || author?.name || author?.symbol || '—',
+    });
+
+    const name = `обращение-${String(one.number).padStart(6, '0')}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="report-${String(one.number).padStart(6, '0')}.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('Content-Length', String(archive.length));
+    res.end(Buffer.from(archive));
+  });
+}
+
+/** Разбор JSON, который мог не записаться. Пустой объект — не поломка. */
+function safeJson(text: string): any {
+  try {
+    const parsed = JSON.parse(text || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
 }
 
 /** Отпечаток по тому, что записано в карточке. */

@@ -77,6 +77,31 @@ console.log('\n2. Имя маршрута не выдаёт данные про�
   ok('имя файла вне API не сохраняется',
     routeName(`/chat_files/${BAIT}.docx`) === '/[ресурс]',
     routeName(`/chat_files/${BAIT}.docx`));
+  /**
+   * Маршруты обращений различаются между собой.
+   *
+   * Нашлось на снимке карточки администратора: в сводке задержек стояли
+   * `/api/feedback/:id/:id/comments` и `/api/feedback/:id/:id` — «карточка»,
+   * «комментарии», «события» и «отметка прочитанного» слились в неразличимую
+   * кашу, потому что `reports` не было в словаре известных частей и оно
+   * схлопывалось в `:id`. Разбирающий видел, что что-то медленное, и не мог
+   * понять что именно.
+   */
+  ok('карточка обращения различима',
+    routeName('/api/feedback/reports/7c9e2b11-0000-4000-8000-000000000000')
+      === '/api/feedback/reports/:id',
+    routeName('/api/feedback/reports/7c9e2b11-0000-4000-8000-000000000000'));
+  ok('комментарии не путаются с событиями',
+    routeName('/api/feedback/reports/7c9e/comments') === '/api/feedback/reports/:id/comments'
+    && routeName('/api/feedback/reports/7c9e/events') === '/api/feedback/reports/:id/events');
+  ok('пакет и вложения различимы',
+    routeName('/api/feedback/reports/7c9e/package') === '/api/feedback/reports/:id/package'
+    && routeName('/api/feedback/attachments/7c9e') === '/api/feedback/attachments/:id');
+  // Правило осталось жёстким: всё, чего нет в словаре, по-прежнему прячется
+  ok('название проекта по-прежнему не проходит',
+    routeName(`/api/projects/${BAIT}`) === '/api/projects/:id',
+    routeName(`/api/projects/${BAIT}`));
+
   ok('корень остаётся корнем', routeName('/') === '/');
   ok('битый адрес не роняет разбор', typeof routeName('http://[') === 'string');
 }

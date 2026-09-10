@@ -20,6 +20,8 @@
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+/** SHOTS=1 — сохранять снимки для владельца. По умолчанию набор их не делает. */
+const SHOTS = process.env.SHOTS === '1' ? (process.env.SHOTS_DIR || '/tmp/flux-feedback') : '';
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -253,6 +255,10 @@ async function main() {
       (document.querySelector(`${sel} textarea`) as HTMLTextAreaElement)?.value || '', panel);
     ok('написанное вернулось на место', restored === kept, restored.slice(0, 120));
 
+    // Снимок панели сотрудника: владельцу нужно увидеть, что у человека одно
+    // поле и одна кнопка, а не читать об этом словами
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/панель-сотрудника.png` });
+
     /**
      * Двойное нажатие — двумя нажатиями в одном такте.
      *
@@ -339,6 +345,64 @@ async function main() {
       headers: { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' },
     }).then((r) => r.json());
     ok('разбирающий видит техническую часть', (asAuthor?.data?.diagnostics || []).length > 0);
+
+    /**
+     * Пакет для разработчика — настоящим архивом, а не списком имён.
+     *
+     * Экспорт отдавал Markdown с перечнем вложений. Имена — это не данные: по
+     * строке «диагностика.jsonl» сбой не воспроизвести. Здесь проверяется, что
+     * в архиве лежит то, с чем можно работать, и что первым делом в нём
+     * сказано, чего в пакете НЕТ.
+     */
+    const pack = await fetch(`${BASE}/api/feedback/reports/${quick?.id}/package`, {
+      headers: { Authorization: `Bearer ${token2}` },
+    });
+    ok('пакет отдаётся', pack.status === 200, pack.status);
+    const zipBytes = new Uint8Array(await pack.arrayBuffer());
+    ok('это настоящий zip', zipBytes[0] === 0x50 && zipBytes[1] === 0x4b, [...zipBytes.slice(0, 4)]);
+    // Имена файлов лежат в архиве открытым текстом даже при сжатии содержимого
+    const asText = Buffer.from(zipBytes).toString('latin1');
+    for (const part of ['README.md', 'manifest.json', 'summary.json', 'timeline.json', 'reproduction.md']) {
+      ok(`в архиве есть ${part}`, asText.includes(part));
+    }
+    ok('сырые записи источников приложены', /sources\//.test(asText));
+    // Сжатие не для красоты: JSONL ужимается на порядок, и без него пакет из
+    // мегабайтов записей ехал бы человеку по сети как есть
+    const rawSize = (described?.manifest?.sources || [])
+      .reduce((sum: number, one: any) => sum + (one.bytes || 0), 0);
+    ok('архив меньше сырых записей — значит сжат',
+      rawSize > 0 && zipBytes.length < rawSize, { архив: zipBytes.length, сырые: rawSize });
+
+    // Снимок карточки администратора: покрытие, задержки, ошибки и пакет
+    if (SHOTS) {
+      // Панель закрываем: иначе она перекрывает карточку на снимке
+      await page.evaluate(() => {
+        const close = document.querySelector('div[role="dialog"][aria-label="Сообщить о проблеме"] button[aria-label="Закрыть"]');
+        if (close) (close as HTMLElement).click();
+      });
+      await page.evaluate(() => { window.location.hash = '#/feedback'; });
+      await page.waitForTimeout(2500);
+      const opened = await page.click(`text=__панель ${stamp}`, { timeout: 15000 })
+        .then(() => true).catch(() => false);
+      ok('карточка для снимка открыта', opened);
+      await page.waitForTimeout(3000);
+      // Разворачиваем разделы: свёрнутые они на снимке ничего не показывают
+      await page.evaluate(() => {
+        for (const b of Array.from(document.querySelectorAll('button'))) {
+          if (/Задержки|Ошибки|Цепочки/.test(b.textContent || '')) (b as HTMLElement).click();
+        }
+      });
+      await page.waitForTimeout(800);
+      // Догоняем до технической части: свёрнутые разделы на снимке пусты, а
+      // владельцу нужно увидеть именно их
+      await page.evaluate(() => {
+        const head = Array.from(document.querySelectorAll('*'))
+          .find((n) => (n.textContent || '').trim() === 'Что видно в записях');
+        head?.scrollIntoView({ block: 'start' });
+      });
+      await page.waitForTimeout(600);
+      await page.screenshot({ path: `${SHOTS}/карточка-администратора.png` });
+    }
   }
 
   console.log('\n5. Тишина в консоли');

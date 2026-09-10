@@ -19,7 +19,8 @@ import { useFeedbackStore } from '../store/feedbackStore';
 import { dataService } from '../services/dataService';
 import {
   addComment, exportReport, getActions, getComments, getDuplicates, getEvents, getMeta,
-  getReport, listAssignees, listReports, markRead, openAttachment, setPriority, transition, type Meta,
+  downloadPackage, getReport, listAssignees, listReports, markRead, openAttachment,
+  setPriority, transition, type Meta,
 } from '../feedback/feedbackApi';
 import FeedbackList, { type Row } from '../components/feedback/FeedbackList';
 import FeedbackCard, { type Action, type Card } from '../components/feedback/FeedbackCard';
@@ -304,7 +305,11 @@ export default function FeedbackScreen() {
             {/* Сводка по запискам — тем, у кого есть право: сервер и так её не
                 отдаёт остальным, но и рисовать пустое место незачем */}
             {!!(card as any).diagnostics?.length && (
-              <FeedbackDiagnostics bundles={(card as any).diagnostics} />
+              <FeedbackDiagnostics bundles={(card as any).diagnostics}
+                onPackage={() => {
+                  downloadPackage(card.id, card.number).catch((error: any) =>
+                    setFailure(error?.message || 'Пакет не скачался'));
+                }} />
             )}
 
             {triage && twins.length > 0 && (
@@ -327,6 +332,16 @@ export default function FeedbackScreen() {
               canInternal={triage} busy={busy}
               onSend={(text, visibility, key) => void say(text, visibility, key)} />
 
+            {/*
+              Экспорт для разработчика — только тем, кто разбирает.
+
+              Раньше кнопка и технический текст показывались всем, кто открыл
+              карточку, то есть и автору. Он приложил записи, чтобы помочь
+              разобрать поломку, а не чтобы читать разбор работы программы;
+              сервер уже фильтрует содержимое, но рисовать человеку служебную
+              кнопку, которая ему не нужна, тоже незачем.
+            */}
+            {triage && (
             <div className="space-y-2">
               <button type="button" onClick={() => void takeExport()}
                 className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900
@@ -349,6 +364,7 @@ export default function FeedbackScreen() {
                 </div>
               )}
             </div>
+            )}
           </>
         )}
       </div>
