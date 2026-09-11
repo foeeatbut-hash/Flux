@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('electron', {
     append: (batch: unknown[]) => ipcRenderer.invoke('diagnostics:append', batch),
     folder: () => ipcRenderer.invoke('diagnostics:folder'),
     status: () => ipcRenderer.invoke('diagnostics:status'),
+    // Свои записи обратно — для пакета к обращению. Интервал и предел объёма
+    // оболочка ограничивает сама: окно не должно уметь попросить весь журнал
+    read: (request: { from: number; to: number; maxBytes?: number }) =>
+      ipcRenderer.invoke('diagnostics:read', request),
     detailed: (seconds: number) => ipcRenderer.invoke('diagnostics:detailed', seconds),
   },
   /**

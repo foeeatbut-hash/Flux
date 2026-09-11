@@ -25,7 +25,7 @@
 
 import { dropDraft, listDrafts, readDraft, saveDraft, type Draft } from './draftDb';
 import { ApiError, findByRequest, sendFile, submitReport } from './feedbackApi';
-import type { SubmitFeedbackV1 } from '../../feedback/contracts';
+import { reportNumber, type SubmitFeedbackV1 } from '../../feedback/contracts';
 
 /** Состояния пакета. До QUEUED всё это правки в форме, наружу они не идут. */
 export type SendState = Draft['state'];
@@ -71,8 +71,16 @@ export interface QueueItem {
   done: number;
   total: number;
   note: string;
-  /** Номер готовой карточки, когда отправка подтверждена. */
+  /** Идентификатор готовой карточки, когда отправка подтверждена. */
   reportId?: string;
+  /**
+   * Номер карточки, каким его называет человек: ОБР-000123.
+   *
+   * Хранится рядом с идентификатором, а не выводится из него: сказать
+   * «Отправлено» без номера — значит оставить человека без единственного
+   * способа потом найти своё обращение и спросить, что с ним стало.
+   */
+  reportNumber?: string;
 }
 
 type Listener = (items: QueueItem[]) => void;
@@ -242,7 +250,20 @@ export class SubmissionQueue {
       for (const file of pack.files) {
         if (controller.signal.aborted) return;
         const before = sent;
-        const id = await sendFile(file.blob, file.name, file.kind, pack.body.clientRequestId, pack.draftId,
+        /**
+         * Ключ загрузки — у КАЖДОГО файла свой.
+         *
+         * Здесь стоял ключ всей отправки, а сервер считает загрузку по паре
+         * «владелец + ключ». Значит второй файл находил чужую готовую загрузку
+         * и молча возвращал её: к обращению приезжал только первый. Снимок
+         * вместе с записями диагностики человек терял, ничего не заметив, и
+         * узнать об этом было неоткуда — форма показывала успех.
+         *
+         * Идентификатор вложения выдаётся один раз и живёт в черновике,
+         * поэтому повтор после обрыва по-прежнему находит свою же загрузку и
+         * докачивает недостающее, а не начинает заново.
+         */
+        const id = await sendFile(file.blob, file.name, file.kind, file.id, pack.draftId,
           (done) => { void this.put(key, { done: before + done }); },
           controller.signal);
         sent += file.blob?.size || 0;
@@ -252,7 +273,10 @@ export class SubmissionQueue {
 
       await this.put(key, { state: 'COMMITTING', done: item.total, note: 'Подтверждаем отправку' });
       const report = await this.commit(pack, uploadIds);
-      await this.put(key, { state: 'SENT', attempts: 0, reportId: report?.id, note: 'Отправлено' });
+      await this.put(key, {
+        state: 'SENT', attempts: 0, reportId: report?.id, note: 'Отправлено',
+        reportNumber: typeof report?.number === 'number' ? reportNumber(report.number) : undefined,
+      });
       // Подтверждённое обращение живёт на сервере, и держать его копию в
       // браузере больше незачем: снимки в черновике занимают мегабайты, а
       // двадцать таких черновиков упрутся в предел и не дадут написать новое

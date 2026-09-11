@@ -8,6 +8,7 @@
  */
 import React, { useState } from 'react';
 import { Paperclip, User as UserIcon } from 'lucide-react';
+import ActionForm, { emptyInput, type ActionInput, type Assignee } from './ActionForm';
 import {
   PRIORITIES, PRIORITY_NAMES, STATUS_NAMES, TYPE_NAMES, FREQUENCY_NAMES, IMPACT_NAMES,
   reportNumber, newRequestId, type Status,
@@ -66,17 +67,33 @@ function Line({ name, value }: { name: string; value?: string }) {
   );
 }
 
-export default function FeedbackCard({ card, actions, names, triage, busy, onAct, onPriority, onOpenFile }: {
+export default function FeedbackCard({
+  card, actions, names, triage, busy, assignees, candidates, failure, onAct, onPriority, onOpenFile,
+}: {
   card: Card;
   actions: Action[];
   names: Record<string, string>;
   triage: boolean;
   busy: boolean;
-  onAct: (to: Status, reason: string, clientRequestId: string) => void;
+  /** Кому можно поручить разбор — приходит с сервера. */
+  assignees: Assignee[];
+  /** Похожие карточки для связывания дубля. */
+  candidates: Array<{ id: string; number: number; title: string; status: string }>;
+  /** Что сказал сервер, если действие не прошло. */
+  failure: string;
+  onAct: (to: Status, input: ActionInput, clientRequestId: string) => void;
   onPriority: (priority: string, clientRequestId: string) => void;
   onOpenFile: (id: string, name: string, inline: boolean) => void;
 }) {
-  const [reason, setReason] = useState('');
+  /**
+   * Какое действие сейчас заполняют.
+   *
+   * Раньше здесь было одно поле причины на все переходы, и «Взять в работу»
+   * уходило на сервер без исполнителя, а «Отдать на проверку» — без версии.
+   * Сервер отвечал отказом, и человек не понимал, чем провинился.
+   */
+  const [picked, setPicked] = useState<Action | null>(null);
+  const [input, setInput] = useState<ActionInput>(emptyInput);
   const steps = (() => {
     try { const list = JSON.parse(card.reproduction || '[]'); return Array.isArray(list) ? list : []; }
     catch (_) { return []; }
@@ -162,21 +179,33 @@ export default function FeedbackCard({ card, actions, names, triage, busy, onAct
       {actions.length > 0 && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
           <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Что можно сделать</div>
-          <input value={reason} onChange={(e) => setReason(e.target.value)}
-            placeholder="Причина или пояснение — видит автор"
-            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg
-                       px-3 py-2 text-xs text-slate-800 dark:text-slate-150 outline-none focus:border-emerald-400" />
-          <div className="flex flex-wrap gap-1.5">
-            {actions.map((one) => (
-              <button key={`${one.action}-${one.to}`} type="button" disabled={busy || (one.needs.reason && !reason.trim())}
-                title={one.needs.reason ? 'Нужна причина: её увидит автор' : ''}
-                onClick={() => { onAct(one.to, reason.trim(), newRequestId()); setReason(''); }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-slate-100 dark:bg-slate-900
-                           hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-50">
-                {ACTION_NAMES[one.action] || one.action}
-              </button>
-            ))}
-          </div>
+          {picked ? (
+            <ActionForm
+              action={picked} assignees={assignees} candidates={candidates} busy={busy} failure={failure}
+              value={input} onChange={setInput}
+              onSubmit={() => onAct(picked.to, input, newRequestId())}
+              onCancel={() => { setPicked(null); setInput(emptyInput()); }}
+            />
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {actions.map((one) => (
+                <button key={`${one.action}-${one.to}`} type="button" disabled={busy}
+                  onClick={() => {
+                    // Действию без обязательных полей форма не нужна: лишний
+                    // шаг там, где нечего заполнять, — это просто лишний шаг
+                    const needsSomething = one.needs.reason || one.needs.assignee
+                      || one.needs.release || one.needs.target;
+                    if (needsSomething) { setInput(emptyInput()); setPicked(one); return; }
+                    onAct(one.to, emptyInput(), newRequestId());
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-slate-100 dark:bg-slate-900
+                             hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-50">
+                  {ACTION_NAMES[one.action] || one.action}
+                </button>
+              ))}
+            </div>
+          )}
+          {!picked && failure && <p className="text-xs text-rose-600 dark:text-rose-400">{failure}</p>}
         </div>
       )}
     </div>

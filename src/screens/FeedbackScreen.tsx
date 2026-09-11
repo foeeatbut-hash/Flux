@@ -12,17 +12,19 @@
  * сокета: у каждого сотрудника свой встроенный сервер, и толчок с чужого до
  * него не долетит.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Copy, FileDown, Inbox, ListChecks, Plus, RefreshCw } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useFeedbackStore } from '../store/feedbackStore';
 import { dataService } from '../services/dataService';
 import {
   addComment, exportReport, getActions, getComments, getDuplicates, getEvents, getMeta,
-  getReport, listReports, markRead, openAttachment, setPriority, transition, type Meta,
+  downloadPackage, getReport, listAssignees, listReports, markRead, openAttachment,
+  setPriority, transition, type Meta,
 } from '../feedback/feedbackApi';
 import FeedbackList, { type Row } from '../components/feedback/FeedbackList';
 import FeedbackCard, { type Action, type Card } from '../components/feedback/FeedbackCard';
+import { type ActionInput } from '../components/feedback/ActionForm';
 import FeedbackDiscussion, { type Comment, type Event } from '../components/feedback/FeedbackDiscussion';
 import FeedbackDiagnostics from '../components/feedback/FeedbackDiagnostics';
 import FeedbackComposer from '../components/feedback/FeedbackComposer';
@@ -64,6 +66,17 @@ export default function FeedbackScreen() {
     }).catch(() => { /* без имён обсуждение читается хуже, но работает */ });
   }, []);
 
+  /** Номер последнего запроса карточки: ответы более старых выбрасываем. */
+  const cardTicket = useRef(0);
+  const [assignees, setAssignees] = useState<Array<{ id: string; name: string }>>([]);
+
+  // Кому можно поручить разбор — с сервера: право «Разбор обращений» лежит в
+  // правах сотрудника, и придумать этот список в окне нельзя
+  useEffect(() => {
+    if (!triage) { setAssignees([]); return; }
+    listAssignees().then(setAssignees).catch(() => setAssignees([]));
+  }, [triage]);
+
   const loadList = useCallback(async () => {
     if (scope === 'summary') return;
     try {
@@ -75,12 +88,22 @@ export default function FeedbackScreen() {
     }
   }, [scope]);
 
+  /**
+   * Открыть карточку.
+   *
+   * Номер запроса обязателен: на медленной сети человек щёлкает A, не дожидается
+   * и щёлкает B — а ответ по A приходит позже и ложится поверх B. Человек
+   * смотрит на карточку B и читает данные A: чужое обсуждение, чужие кнопки,
+   * чужой экспорт. Устаревший ответ здесь просто выбрасывается.
+   */
   const loadCard = useCallback(async (id: string) => {
+    const ticket = ++cardTicket.current;
     if (!id) { setCard(null); setActions([]); setComments([]); setEvents([]); return; }
     try {
       const [one, list, log, can] = await Promise.all([
         getReport(id), getComments(id), getEvents(id), getActions(id),
       ]);
+      if (ticket !== cardTicket.current) return;
       setCard(one as Card);
       setComments((list || []) as Comment[]);
       setEvents((log || []) as Event[]);
@@ -89,8 +112,13 @@ export default function FeedbackScreen() {
       // Похожие ищем только тем, кто разбирает: автору чужие обращения не
       // показываются даже заголовком
       setTwins([]);
-      if (triage) getDuplicates(id).then(setTwins).catch(() => setTwins([]));
+      if (triage) {
+        getDuplicates(id)
+          .then((found) => { if (ticket === cardTicket.current) setTwins(found); })
+          .catch(() => { if (ticket === cardTicket.current) setTwins([]); });
+      }
     } catch (error: any) {
+      if (ticket !== cardTicket.current) return;
       setFailure(error?.message || 'Карточка не открылась');
     }
   }, [triage]);
@@ -108,25 +136,63 @@ export default function FeedbackScreen() {
     return () => clearInterval(timer);
   }, [loadList, loadCard, activeId]);
 
-  /** Открыли карточку — она перестаёт считаться непрочитанной. */
+  /**
+   * Открыли карточку — она перестаёт считаться непрочитанной.
+   *
+   * Отмечается то, что человеку ФАКТИЧЕСКИ показали, и делается это после
+   * загрузки. Раньше сюда уходил `seenRevision: 0`, которого сервер не знает
+   * вовсе: он читает `publicRevision` и `internalRevision`, брал из пустого
+   * тела нули и писал `Math.max(что было, 0)` — то есть не двигал отметку
+   * никогда. Красный кружок у автора не гас после прочтения ни разу; человек
+   * открывал карточку, не находил ничего нового и переставал верить счётчику.
+   */
   const open = async (id: string) => {
     setActiveId(id);
-    try {
-      await markRead(id, { seenRevision: 0 });
-      touched();
-    } catch (_) { /* отметка не удалась — счётчик поправится опросом */ }
   };
 
-  const act = async (to: Status, reason: string, clientRequestId: string) => {
+  /**
+   * Отметить прочитанным ровно то, что показано.
+   *
+   * Внутренние ревизии отмечает только разбирающий: автор их не видит, и
+   * помечать невидимое прочитанным нечестно — сервер это и так не примет.
+   */
+  useEffect(() => {
+    if (!card?.id) return;
+    const publicRevision = Number((card as any).publicRevision || card.revision || 0);
+    const internalRevision = triage ? Number((card as any).internalRevision || card.revision || 0) : 0;
+    markRead(card.id, { publicRevision, internalRevision })
+      .then(() => touched())
+      .catch(() => { /* отметка не удалась — счётчик поправится опросом */ });
+  }, [card?.id, card?.revision, triage]);
+
+  /**
+   * Применить действие обработчика.
+   *
+   * Отправляется всё, что требует переход, а не одна причина: без исполнителя,
+   * версии исправления или основной карточки сервер отказывал, и кнопка была
+   * тупиком. Пустые поля не отправляются вовсе — сервер сам решает, чего ему
+   * не хватило.
+   *
+   * При неудаче введённое НЕ стирается: расхождение ревизий значит, что рядом
+   * работал другой обработчик, и заставлять человека набирать всё заново из-за
+   * чужого нажатия — худший способ ответить.
+   */
+  const act = async (to: Status, input: ActionInput, clientRequestId: string) => {
     if (!card) return;
     setBusy(true);
     try {
-      await transition(card.id, { to, reason, clientRequestId, expectedRevision: card.revision });
+      await transition(card.id, {
+        to, clientRequestId, expectedRevision: card.revision,
+        ...(input.reason.trim() ? { reason: input.reason.trim() } : {}),
+        ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
+        ...(input.resolvedVersion.trim() ? { resolvedVersion: input.resolvedVersion.trim() } : {}),
+        ...(input.noReleaseReason.trim() ? { noReleaseReason: input.noReleaseReason.trim() } : {}),
+        ...(input.targetReportId ? { targetReportId: input.targetReportId } : {}),
+      });
+      setFailure('');
       await loadCard(card.id);
       touched();
     } catch (error: any) {
-      // Разошлись ревизии — значит рядом работал другой обработчик. Ничего не
-      // затираем: перечитываем карточку и показываем, что стало
       setFailure(error?.message || 'Изменить не удалось');
       await loadCard(card.id);
     } finally { setBusy(false); }
@@ -229,7 +295,8 @@ export default function FeedbackScreen() {
         {scope !== 'summary' && card && (
           <>
             <FeedbackCard card={card} actions={actions} names={names} triage={triage} busy={busy}
-              onAct={(to, reason, key) => void act(to, reason, key)}
+              assignees={assignees} candidates={twins} failure={failure}
+              onAct={(to, input, key) => void act(to, input, key)}
               onPriority={(value, key) => void priority(value, key)}
               onOpenFile={(id, name, inline) => {
                 openAttachment(id, name, inline).catch((error: any) =>
@@ -238,7 +305,11 @@ export default function FeedbackScreen() {
             {/* Сводка по запискам — тем, у кого есть право: сервер и так её не
                 отдаёт остальным, но и рисовать пустое место незачем */}
             {!!(card as any).diagnostics?.length && (
-              <FeedbackDiagnostics bundles={(card as any).diagnostics} />
+              <FeedbackDiagnostics bundles={(card as any).diagnostics}
+                onPackage={() => {
+                  downloadPackage(card.id, card.number).catch((error: any) =>
+                    setFailure(error?.message || 'Пакет не скачался'));
+                }} />
             )}
 
             {triage && twins.length > 0 && (
@@ -261,6 +332,16 @@ export default function FeedbackScreen() {
               canInternal={triage} busy={busy}
               onSend={(text, visibility, key) => void say(text, visibility, key)} />
 
+            {/*
+              Экспорт для разработчика — только тем, кто разбирает.
+
+              Раньше кнопка и технический текст показывались всем, кто открыл
+              карточку, то есть и автору. Он приложил записи, чтобы помочь
+              разобрать поломку, а не чтобы читать разбор работы программы;
+              сервер уже фильтрует содержимое, но рисовать человеку служебную
+              кнопку, которая ему не нужна, тоже незачем.
+            */}
+            {triage && (
             <div className="space-y-2">
               <button type="button" onClick={() => void takeExport()}
                 className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900
@@ -283,6 +364,7 @@ export default function FeedbackScreen() {
                 </div>
               )}
             </div>
+            )}
           </>
         )}
       </div>

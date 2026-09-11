@@ -85,6 +85,13 @@ const SUB_PARTS = new Set([
   'diagnostics', 'summary', 'export', 'import', 'upload', 'download', 'status',
   'trash', 'folders', 'files', 'tree', 'messages', 'groups', 'group-messages',
   'by-request', 'sync-schema', 'versions', 'docs', 'import-file', 'save', 'restore',
+  // Части путей раздела обращений. Без них имя схлопывалось до неразличимого:
+  // `/api/feedback/reports/<id>/comments` становилось `/api/feedback/:id/:id/comments`,
+  // и в сводке задержек «карточка», «комментарии», «события» и «отметка
+  // прочитанного» сливались в одну строку — разбирающий видел, что что-то
+  // медленное, и не мог понять что. Это наши собственные статические части
+  // пути, а не данные человека: отдавать их безопасно
+  'reports', 'uploads', 'assignees', 'duplicates', 'package', 'actions', 'thumb', 'drafts',
 ]);
 
 const WORD = /^[a-z][a-z0-9-]{0,29}$/;

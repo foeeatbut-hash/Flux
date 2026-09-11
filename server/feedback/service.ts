@@ -86,6 +86,11 @@ export async function nextNumber(tx: any): Promise<number> {
  * Считается по содержанию, а не по всему телу: порядок полей в JSON у разных
  * клиентов разный, и одинаковая по смыслу отправка давала бы разные отпечатки.
  * Нужен, чтобы отличить честный повтор от «тот же ключ, другой текст».
+ *
+ * Список полей — явный, и это не лень. Времени отправки (`submittedAt`) здесь
+ * нет намеренно: оно меняется на каждой попытке, и попади оно в отпечаток,
+ * очередь после обрыва связи получала бы «тот же ключ, другое тело» — 409 на
+ * собственный честный повтор.
  */
 export function submitHashOf(v: SubmitFeedbackV1): string {
   const canonical = JSON.stringify([
@@ -177,6 +182,10 @@ export async function createReport(
         sectionKey: submit.sectionKey,
         projectId: submit.projectId || null,
         incidentAt: new Date(submit.incidentAt),
+        // Когда приняли — отдельно от того, когда сломалось. У обращения,
+        // пролежавшего в очереди выходные, это единственный способ понять,
+        // почему оно пришло в понедельник про пятницу
+        submittedAt: submit.submittedAt ? new Date(submit.submittedAt) : new Date(),
         appVersion,
         status: 'NEW',
         priority: 'P2',

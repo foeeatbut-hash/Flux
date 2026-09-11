@@ -1,5 +1,6 @@
 import './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
 import { startDiagnostics } from './lib/diagnostics';
+import { registerEmergencySave } from './lib/emergencySave';
 import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
@@ -9,6 +10,10 @@ import { isBenignUniverDisposeError, isResizeObserverNoise } from './lib/logNois
 
 // === GLOBAL INTERCEPTORS ===
 startDiagnostics();
+// Аварийная запись журнала жила в жизненном цикле виджета журнала — того
+// самого, который убран из верхней панели. Здесь она не зависит от того, какой
+// интерфейс сейчас на экране и есть ли он вообще
+registerEmergencySave();
 const originalError = console.error;
 const originalWarn = console.warn;
 let isLogging = false;

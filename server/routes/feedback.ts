@@ -19,6 +19,7 @@ import { registerActionRoutes } from '../feedback/actions.js';
 import { registerInsightRoutes } from '../feedback/insight.js';
 import { startOutbox } from '../feedback/outbox.js';
 import { startCleanup } from '../feedback/cleanup.js';
+import { startBundles } from '../feedback/bundle.js';
 import { unreadFor } from '../feedback/unread.js';
 import {
   ERRORS, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
@@ -83,6 +84,8 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
   // Брошенные загрузки занимают место в общей базе у всех: раз в час их куски
   // убираются, а карточки и записи о вложениях остаются на месте
   startCleanup();
+  // Сборка пакетов: работа лежит в базе и переживает перезапуск сервера
+  startBundles();
 
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
   registerReportRoutes(app, deps);

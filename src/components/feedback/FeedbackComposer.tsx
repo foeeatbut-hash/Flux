@@ -116,14 +116,20 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
   const sentHandler = useRef(onSent);
   sentHandler.current = onSent;
 
-  useEffect(() => submissionQueue.subscribe((items) => {
-    const mine = items.find((i) => i.key.endsWith(`|${draftId}`));
-    setQueued(mine || null);
-    if (mine?.state === 'SENT' && mine.reportId && told.current !== mine.reportId) {
-      told.current = mine.reportId;
-      sentHandler.current?.(mine.reportId);
-    }
-  }), [draftId]);
+  useEffect(() => {
+    // Ключ берём у формы, а не собираем из `draftId`: отправленное переезжает
+    // под собственный ключ очереди, и подписка по ключу формы не находила бы
+    // ничего — окно показывало бы «отправляем» до конца дня
+    if (!composer.sentKey) return undefined;
+    return submissionQueue.subscribe((items) => {
+      const mine = items.find((i) => i.key === composer.sentKey);
+      setQueued(mine || null);
+      if (mine?.state === 'SENT' && mine.reportId && told.current !== mine.reportId) {
+        told.current = mine.reportId;
+        sentHandler.current?.(mine.reportId);
+      }
+    });
+  }, [composer.sentKey]);
 
   const set = (patch: Partial<Fields>) => setFields((prev) => ({ ...prev, ...patch }));
   const bug = fields.type === 'BUG' || fields.type === 'PERFORMANCE';

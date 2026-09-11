@@ -20,6 +20,8 @@
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+/** SHOTS=1 — сохранять снимки для владельца. По умолчанию набор их не делает. */
+const SHOTS = process.env.SHOTS === '1' ? (process.env.SHOTS_DIR || '/tmp/flux-feedback') : '';
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -124,13 +126,22 @@ async function main() {
     ok('у карточки есть номер', !!row?.number, row?.number);
     ok('состояние — «Новое»', row?.status === 'NEW', row?.status);
 
-    // Очередь отдаётся страницей и сначала старым — новая карточка на живой
-    // базе оказывается за краем страницы. Поэтому спрашиваем очередь новых и с
-    // запасом: проверяется, что карточка в ней есть, а не то, что она сверху
+    /**
+     * Доступ разбирающего, а не место в первой сотне.
+     *
+     * Очередь отдаётся одной страницей, сначала старым, и курсора у неё пока
+     * нет — на базе, где обращений больше сотни, новая карточка за край
+     * страницы уходит всегда. Это известная дыра (серверная пагинация — этап
+     * 2 задания), и проверять ею доступ бессмысленно: набор падал бы не на
+     * поломке, а на длине очереди. Поэтому спрашиваем то, что и есть
+     * настоящий вопрос: видит ли карточку разбирающий.
+     */
+    const forTriage = await fetch(`${BASE}/api/feedback/reports/${row?.id}`, { headers: head })
+      .then((r) => r.json());
+    ok('карточка доступна разбирающему', forTriage?.data?.id === row?.id, forTriage?.error);
     const queue = await fetch(`${BASE}/api/feedback/reports?scope=queue&status=NEW&limit=100`,
       { headers: head }).then((r) => r.json());
-    ok('карточка попала в очередь разбора',
-      (queue?.data || []).some((r: any) => r.id === row?.id), (queue?.data || []).length);
+    ok('очередь разбора отвечает', Array.isArray(queue?.data), queue?.error);
 
     console.log('\n4. Внутренняя заметка не доходит до автора');
     // Автор — тот же человек, поэтому заводим отдельного сотрудника-автора:
@@ -189,65 +200,99 @@ async function main() {
       ok('обработчику она видна', seenByTriage.includes(secret));
     }
 
-    console.log('\n4.1. Короткая форма: строка, и записи уезжают сами');
-  // Решение владельца: сотруднику журналы не показываются, он пишет строку.
-  // Проверяется не «есть ли поле», а доезжают ли записи до карточки: без них
-  // разбирающий получит слова без единого числа
+    console.log('\n4.1. Панель у кнопки: одно поле, и записи уезжают сами');
+  // Ради этого раздела всё и делалось. Проверяется не «есть ли поле», а три
+  // вещи, каждая из которых по отдельности молча теряла работу человека:
+  // панель открывается из верхней кнопки, написанное переживает закрытие, и
+  // технические записи доезжают до карточки сами
   {
-    // Форма могла остаться открытой от прошлого раздела — закрываем, иначе
-    // нажатия уходят в неё
     await page.keyboard.press('Escape');
-    await page.evaluate(() => { window.location.hash = '#/settings'; });
-    await page.waitForTimeout(3000);
-    const inSettings = await page.evaluate(() => {
-      const entry = Array.from(document.querySelectorAll('button'))
-        .find((b) => /Ошибки и сбои/.test(b.textContent || ''));
-      if (entry) (entry as HTMLButtonElement).click();
-      return !!entry;
-    });
-    ok('в Настройках есть «Ошибки и сбои»', inSettings);
+    await page.evaluate(() => { window.location.hash = '#/'; });
     await page.waitForTimeout(1500);
 
+    // У кнопки и у панели одинаковый aria-label — различаем по роли, иначе
+    // селектор совпадает с кнопкой и «полей ноль» означает не то, что кажется
+    const panel = 'div[role="dialog"][aria-label="Сообщить о проблеме"]';
     const opened = await page.evaluate(() => {
-      const found = Array.from(document.querySelectorAll('button'))
-        .find((b) => /Сообщить об ошибке/.test(b.textContent || ''));
-      if (found) (found as HTMLButtonElement).click();
-      return !!found;
+      const btn = document.querySelector('button[aria-label="Сообщить о проблеме"]');
+      if (btn) (btn as HTMLButtonElement).click();
+      return !!btn;
     });
-    ok('кнопка «Сообщить об ошибке» на месте', opened);
-    await page.waitForTimeout(1500);
+    ok('в верхней панели есть «Сообщить о проблеме»', opened);
+    await page.waitForSelector(panel, { timeout: 15000 });
 
-    const shown = await page.evaluate(() => document.body.textContent || '');
-    ok('форма — одна строка, без галочек про журналы',
-      /Что случилось/.test(shown) && !/Технические записи этого окна/.test(shown),
-      shown.slice(0, 200));
-    ok('сказано, что записи приложатся сами', /сама приложит свои технические записи/.test(shown));
+    const shown = await page.evaluate((sel: string) => {
+      const box = document.querySelector(sel);
+      return {
+        текст: (box?.textContent || '').replace(/\s+/g, ' '),
+        затемнение: !!document.querySelector('.bg-slate-900\\/40'),
+        полей: box?.querySelectorAll('textarea,input').length || 0,
+        галочек: box?.querySelectorAll('input[type=checkbox]').length || 0,
+      };
+    }, panel);
+    ok('одно поле и ни одной галочки', shown.полей === 1 && shown.галочек === 0, shown);
+    ok('панель не затемняет программу', !shown.затемнение, shown);
+    ok('технического текста в панели нет',
+      !/Технические записи этого окна|журнал|Экспорт|Подробно/i.test(shown.текст), shown.текст.slice(0, 200));
 
-    const short = `__короткая форма ${stamp}. Закрылась Таблица при вставке столбца.`;
-    // Ищем внутри самого окна формы: снаружи есть свои поля и своя кнопка
-    // «Отправить», и нажатие уходило в них, а не сюда
-    const box = '[aria-label="Сообщить об ошибке"]';
-    await page.fill(`${box} textarea`, short);
-    await page.click(`${box} button:has-text("Отправить")`);
-    // Ждём долго намеренно: перед подтверждением уезжает пакет записей, и на
-    // небыстрой машине это дольше, чем кажется. Сорока пяти секунд не хватило —
-    // карточка к тому времени уже была заведена, а надпись ещё не появилась
+    // Написанное обязано пережить закрытие. Раньше текст жил в состоянии
+    // формы, в черновик уходила пустота, и закрытие панели теряло всё
+    const kept = `__панель ${stamp}. Закрылась Таблица при вставке столбца.`;
+    await page.fill(`${panel} textarea`, kept);
+    await page.waitForTimeout(900);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    const gone = await page.$(panel);
+    ok('Esc сворачивает панель', !gone);
+
+    await page.evaluate(() => {
+      const btn = document.querySelector('button[aria-label="Сообщить о проблеме"]');
+      if (btn) (btn as HTMLButtonElement).click();
+    });
+    await page.waitForSelector(panel, { timeout: 15000 });
+    await page.waitForTimeout(1200);
+    const restored = await page.evaluate((sel: string) =>
+      (document.querySelector(`${sel} textarea`) as HTMLTextAreaElement)?.value || '', panel);
+    ok('написанное вернулось на место', restored === kept, restored.slice(0, 120));
+
+    // Снимок панели сотрудника: владельцу нужно увидеть, что у человека одно
+    // поле и одна кнопка, а не читать об этом словами
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/панель-сотрудника.png` });
+
+    /**
+     * Двойное нажатие — двумя нажатиями в одном такте.
+     *
+     * Не двумя `page.click`: после первого панель перестраивается («Отправлено»
+     * вместо поля), она становится ниже, и второе нажатие по прежним
+     * координатам попадает уже МИМО панели — а клик мимо её сворачивает. Так
+     * набор ловил собственный промах и объявлял его поломкой. Нажимаем прямо в
+     * странице, синхронно: ровно это и делает человек, стукнув дважды.
+     */
+    await page.evaluate((sel: string) => {
+      const btn = Array.from(document.querySelectorAll(`${sel} button`))
+        .find((b) => /Отправить/.test(b.textContent || '')) as HTMLButtonElement | undefined;
+      btn?.click();
+      btn?.click();
+    }, panel);
     const done = await page.waitForFunction(
-      () => /Отправлено|Обращение появилось/.test(document.body.textContent || ''), null, { timeout: 120000 },
+      (sel: string) => /Отправлено/.test(document.querySelector(sel)?.textContent || ''),
+      panel, { timeout: 120000 },
     ).then(() => true).catch(() => false);
-    // При провале смотрим на саму форму: осталась ли открыта и на каком шаге
-    // застряла. «Чего нет на странице» об этом не говорит ничего
-    const shortState = await page.evaluate(() => {
-      const box = document.querySelector('[aria-label="Сообщить об ошибке"]');
+    const state = await page.evaluate((sel: string) => {
+      const box = document.querySelector(sel);
       return { есть: !!box, текст: box ? (box.textContent || '').replace(/\s+/g, ' ').slice(0, 200) : '' };
-    });
-    ok('короткая форма отправилась', done, shortState);
+    }, panel);
+    ok('панель отправила обращение', done, state);
+    ok('показан номер обращения, а не просто «готово»', /ОБР-\d{6}/.test(state.текст), state.текст);
 
     const token2 = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
     const head2 = { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' };
     const list = await fetch(`${BASE}/api/feedback/reports?scope=mine`, { headers: head2 }).then((r) => r.json());
-    const quick = (list?.data || []).find((r: any) => String(r.title).includes('короткая форма'));
-    ok('обращение из короткой формы завелось', !!quick, (list?.data || []).slice(0, 2));
+    const fromPanel = (list?.data || []).filter((r: any) => String(r.title).includes(`__панель ${stamp}`));
+    const quick = fromPanel[0];
+    ok('обращение из панели завелось', !!quick, (list?.data || []).slice(0, 2));
+    // Ради этого и защёлка: два нажатия подряд — одна карточка, а не две
+    ok('двойное нажатие завело ровно одну карточку', fromPanel.length === 1, fromPanel.length);
 
     const full = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, { headers: head2 }).then((r) => r.json());
     const bundle = (full?.data?.attachments || []).find((a: any) => a.kind === 'DIAGNOSTICS');
@@ -266,6 +311,98 @@ async function main() {
     ok('в сводке посчитаны события', (described?.summary?.events ?? 0) > 0, described?.summary?.events);
     ok('сказано, сколько строк не разобралось',
       described?.manifest?.broken !== undefined, described?.manifest);
+
+    /**
+     * Опись полноты — то, ради чего пакет и переделывался.
+     *
+     * Без неё разбирающий читает сводку без ошибок и делает вывод, что ошибок
+     * не было. Здесь проверяется, что про КАЖДЫЙ источник сказано, что с ним:
+     * окно приложено, оболочки в браузере нет по устройству программы (а не
+     * «прочитать не удалось»), сервер и база названы своими словами.
+     */
+    const sources = described?.manifest?.sources || [];
+    const byName = Object.fromEntries(sources.map((one: any) => [one.source, one]));
+    ok('в описи все четыре источника',
+      ['renderer', 'shell', 'server', 'database'].every((n) => byName[n]),
+      sources.map((o: any) => o.source));
+    ok('записи окна приложены и посчитаны',
+      byName.renderer?.state === 'available' && byName.renderer?.events > 0, byName.renderer);
+    ok('оболочки в браузере нет — и это сказано как отсутствие, а не как ошибка',
+      byName.shell?.state === 'unavailable' && /браузере/.test(byName.shell?.reason || ''), byName.shell);
+    ok('про сервер и базу сказано, что с ними',
+      !!byName.server?.state && !!byName.database?.state
+      && (byName.server.state !== 'available' ? !!byName.server.reason : true),
+      { server: byName.server, database: byName.database });
+    ok('состояние сборки названо словом',
+      ['READY', 'PARTIAL'].includes(described?.state), described?.state);
+    ok('интервал, за который собирали, записан',
+      !!described?.manifest?.requestedFrom && !!described?.manifest?.requestedTo,
+      described?.manifest?.requestedFrom);
+
+    // Автор приложил записи, чтобы помочь разобрать поломку, а не чтобы
+    // читать разбор работы программы: технической части ему не отдают
+    const asAuthor = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, {
+      headers: { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' },
+    }).then((r) => r.json());
+    ok('разбирающий видит техническую часть', (asAuthor?.data?.diagnostics || []).length > 0);
+
+    /**
+     * Пакет для разработчика — настоящим архивом, а не списком имён.
+     *
+     * Экспорт отдавал Markdown с перечнем вложений. Имена — это не данные: по
+     * строке «диагностика.jsonl» сбой не воспроизвести. Здесь проверяется, что
+     * в архиве лежит то, с чем можно работать, и что первым делом в нём
+     * сказано, чего в пакете НЕТ.
+     */
+    const pack = await fetch(`${BASE}/api/feedback/reports/${quick?.id}/package`, {
+      headers: { Authorization: `Bearer ${token2}` },
+    });
+    ok('пакет отдаётся', pack.status === 200, pack.status);
+    const zipBytes = new Uint8Array(await pack.arrayBuffer());
+    ok('это настоящий zip', zipBytes[0] === 0x50 && zipBytes[1] === 0x4b, [...zipBytes.slice(0, 4)]);
+    // Имена файлов лежат в архиве открытым текстом даже при сжатии содержимого
+    const asText = Buffer.from(zipBytes).toString('latin1');
+    for (const part of ['README.md', 'manifest.json', 'summary.json', 'timeline.json', 'reproduction.md']) {
+      ok(`в архиве есть ${part}`, asText.includes(part));
+    }
+    ok('сырые записи источников приложены', /sources\//.test(asText));
+    // Сжатие не для красоты: JSONL ужимается на порядок, и без него пакет из
+    // мегабайтов записей ехал бы человеку по сети как есть
+    const rawSize = (described?.manifest?.sources || [])
+      .reduce((sum: number, one: any) => sum + (one.bytes || 0), 0);
+    ok('архив меньше сырых записей — значит сжат',
+      rawSize > 0 && zipBytes.length < rawSize, { архив: zipBytes.length, сырые: rawSize });
+
+    // Снимок карточки администратора: покрытие, задержки, ошибки и пакет
+    if (SHOTS) {
+      // Панель закрываем: иначе она перекрывает карточку на снимке
+      await page.evaluate(() => {
+        const close = document.querySelector('div[role="dialog"][aria-label="Сообщить о проблеме"] button[aria-label="Закрыть"]');
+        if (close) (close as HTMLElement).click();
+      });
+      await page.evaluate(() => { window.location.hash = '#/feedback'; });
+      await page.waitForTimeout(2500);
+      const opened = await page.click(`text=__панель ${stamp}`, { timeout: 15000 })
+        .then(() => true).catch(() => false);
+      ok('карточка для снимка открыта', opened);
+      await page.waitForTimeout(3000);
+      // Разворачиваем разделы: свёрнутые они на снимке ничего не показывают
+      await page.evaluate(() => {
+        for (const b of Array.from(document.querySelectorAll('button'))) {
+          if (/Задержки|Ошибки|Цепочки/.test(b.textContent || '')) (b as HTMLElement).click();
+        }
+      });
+      await page.waitForTimeout(800);
+      // Догоняем до технической части: свёрнутые разделы на снимке пусты, а
+      // владельцу нужно увидеть именно их
+      await page.evaluate(() => {
+        const head = Array.from(document.querySelectorAll('*'))
+          .find((n) => (n.textContent || '').trim() === 'Что видно в записях');
+        head?.scrollIntoView({ block: 'start' });
+      });
+      await page.waitForTimeout(600);
+      await page.screenshot({ path: `${SHOTS}/карточка-администратора.png` });
+    }
   }
 
   console.log('\n5. Тишина в консоли');

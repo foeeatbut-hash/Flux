@@ -55,10 +55,18 @@ async function main() {
   const stamp = Date.now().toString(36).slice(-6);
   const deploymentId = (await api('GET', '/api/feedback/meta', admin)).json?.data?.deploymentId || '';
 
-  // Автор — обычный сотрудник без права разбора: иначе проверка бессмысленна
+  /**
+   * Автор — обычный сотрудник, каким его заводит программа.
+   *
+   * Здесь ему выдавали ВСЁ, кроме разбора, — в том числе технические
+   * вложения. Это расходилось с настройками по умолчанию (`DEFAULT_DENIED`) и
+   * делало проверку мягче, чем жизнь: пакет диагностики такому «обычному
+   * сотруднику» отдавался, и никто бы этого не заметил.
+   */
   const pass = `p${stamp}A!`;
+  const denied = ['feedback.triage', 'feedback.diagnostics', 'feedback.manage'];
   const perms: Record<string, any> = {};
-  for (const feat of FEATURES) perms[feat.id] = { enabled: feat.id !== 'feedback.triage', until: null };
+  for (const feat of FEATURES) perms[feat.id] = { enabled: !denied.includes(feat.id), until: null };
   const mk = await api('POST', '/api/users', admin, {
     symbol: `fbp${stamp}`, name: 'Проба Приватности', password: pass, role: 'USER',
     permissions: JSON.stringify(perms),
@@ -218,6 +226,23 @@ async function main() {
     clientRequestId: randomUUID(), expectedRevision: started.json?.data?.revision, to: 'IN_PROGRESS',
   });
   ok('в работу без исполнителя нельзя', noAssignee.status === 409, noAssignee.json?.error?.message);
+
+  /**
+   * Пакет для разработчика — по отдельному праву, а не «кому открылась карточка».
+   *
+   * Автор приложил записи, чтобы помочь разобрать поломку, а не чтобы читать
+   * разбор работы программы. Кнопку ему больше не рисуют, но проверять надо не
+   * кнопку: прямой запрос по адресу никакой кнопки не спрашивает.
+   */
+  const mineForAuthor = (await api('GET', '/api/feedback/reports?scope=mine', author)).json?.data || [];
+  const ownId = mineForAuthor[0]?.id;
+  if (ownId) {
+    const denied = await api('GET', `/api/feedback/reports/${ownId}/package`, author);
+    ok('автору пакет диагностики не отдают даже по своей карточке',
+      denied.status === 403, [denied.status, denied.json?.error?.code]);
+    const allowed = await api('GET', `/api/feedback/reports/${ownId}/package`, admin);
+    ok('разбирающему — отдают', allowed.status === 200, allowed.status);
+  }
 
   if (authorId) await api('DELETE', `/api/users/${authorId}`, admin).catch(() => {});
   console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);

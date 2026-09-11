@@ -85,6 +85,33 @@ export const markRead = (id: string, body: Record<string, unknown>) =>
   call<any>('POST', `/reports/${id}/read`, body);
 
 /**
+ * Пакет для разработчика одним архивом.
+ *
+ * Запросом, а не переходом по ссылке: заголовок сессии подставляет обёртка
+ * `fetch`, а простой переход её минует и получит отказ.
+ */
+export async function downloadPackage(id: string, number: number): Promise<void> {
+  const answer = await fetch(`${ENV_CONFIG.apiUrl}/feedback/reports/${id}/package`);
+  if (!answer.ok) {
+    throw new ApiError('FORBIDDEN',
+      answer.status === 403
+        ? 'Пакет диагностики доступен по праву «Технические вложения»'
+        : `Пакет не собрался (${answer.status})`,
+      answer.status);
+  }
+  const blob = await answer.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `обращение-${String(number).padStart(6, '0')}.zip`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 20000);
+}
+
+/** Кому можно поручить разбор. Только разбирающим — сервер и так откажет. */
+export const listAssignees = () => call<Array<{ id: string; name: string }>>('GET', '/assignees');
+
+/**
  * Забрать вложение.
  *
  * Не ссылкой, а запросом: заголовок сессии подставляет обёртка `fetch`, а

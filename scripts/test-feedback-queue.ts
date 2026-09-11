@@ -107,7 +107,41 @@ async function main() {
   ok('файл поехал двумя кусками', calls.filter((c) => c.method === 'PUT').length === 2);
   ok('ход показан по подтверждённым байтам', done?.done === bytes.length, done?.done);
   ok('карточка создана один раз', calls.filter((c) => /\/feedback\/reports$/.test(c.url)).length === 1);
+  ok('номер человеку показан словом', done?.reportNumber === 'ОБР-000007', done?.reportNumber);
   q1.clear();
+
+  console.log('\n3.1. Двух вложений едут два, а не одно');
+  // Ключ загрузки был один на всю отправку, а сервер считает загрузку по паре
+  // «владелец + ключ»: второй файл находил ПЕРВУЮ готовую загрузку и молча
+  // возвращал её. К обращению приезжало одно вложение из двух, форма при этом
+  // показывала успех, и узнать о потере было неоткуда
+  calls.length = 0;
+  const keys: string[] = [];
+  plan = (method, url, body) => {
+    if (method === 'POST' && /\/uploads$/.test(url)) {
+      const asked = JSON.parse(String(body || '{}'));
+      keys.push(asked.clientRequestId);
+      return json({ uploadId: `up-${keys.length}`, chunkSize: 256 * 1024, chunkCount: 1, status: 'PENDING' });
+    }
+    if (method === 'GET' && /\/uploads\/up-\d$/.test(url)) return json({ status: 'PENDING', received: [] });
+    if (method === 'PUT') return json({ received: true });
+    if (method === 'POST' && /complete$/.test(url)) return json({ status: 'READY' });
+    if (method === 'POST' && /\/reports$/.test(url)) return json({ id: 'r2', number: 8 });
+    return json({ code: 'NOT_FOUND', message: url }, 404);
+  };
+  const small = new Uint8Array(1024).fill(3);
+  const q1b = new SubmissionQueue();
+  await q1b.enqueue(pack([
+    { id: 'a1', name: 'снимок.png', kind: 'IMAGE', blob: new Blob([small]) },
+    { id: 'a2', name: 'диагностика.jsonl', kind: 'DIAGNOSTICS', blob: new Blob([small]) },
+  ]) as any);
+  const two = await settle(q1b, 'dep|u1|d1', ['SENT', 'NEEDS_REVIEW', 'FAILED_RETRYABLE']);
+  ok('оба вложения отправлены', two?.state === 'SENT', two);
+  ok('загрузок заведено две', keys.length === 2, keys.length);
+  ok('у каждого файла свой ключ загрузки', keys.length === 2 && keys[0] !== keys[1], keys);
+  ok('ключ загрузки — это ключ вложения, а не отправки',
+    keys.includes('a1') && keys.includes('a2'), keys);
+  q1b.clear();
 
   console.log('\n4. Ответ на подтверждение потерялся');
   calls.length = 0;

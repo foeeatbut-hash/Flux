@@ -12,7 +12,7 @@ import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, settings, triageRecipients, type Actor } from './policy.js';
 import { createReport, reserveRate, refundRate, rateResetAt } from './service.js';
-import { describeBundles } from './bundle.js';
+import { scheduleBundle } from './bundle.js';
 import { ERRORS, LIMITS, STATUSES, validateSubmit, isUuid, type Status } from '../../feedback/contracts.js';
 
 export interface ReportDeps {
@@ -112,9 +112,12 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
       const recipients = await triageRecipients(deps.can);
       const made = await createReport(actor, submit, deps.appVersion(), recipients);
       if (made.repeat) await refundRate(prisma, actor.id, 'report');
-      // Пакет диагностики разбирается ПОСЛЕ создания и без ожидания: обращение
-      // важнее сводки, а разбор нескольких мегабайт держал бы ответ
-      if (!made.repeat) void describeBundles(made.report.id);
+      // Сборка пакета ставится в очередь, а не делается здесь: обращение
+      // важнее сводки, а чтение журналов держало бы ответ. Работа лежит в базе
+      // строкой с арендой и переживает перезапуск сервера — раньше это был
+      // вызов без ожидания, и перезапуск в неудачный момент означал, что пакет
+      // не соберётся уже никогда
+      if (!made.repeat) await scheduleBundle(made.report.id);
       res.status(made.repeat ? 200 : 201);
       return ok(res, visible(made.report, actor, base.triage), { repeat: made.repeat });
     } catch (error: any) {
@@ -207,14 +210,41 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     if (deps.can((req as any).authUser, 'feedback.diagnostics')) {
       const bundles = await prisma.feedbackDiagnosticBundle.findMany({
         where: { reportId: id },
-        select: { id: true, attachmentId: true, manifestJson: true, summaryJson: true, fingerprint: true },
+        select: {
+          id: true, attachmentId: true, manifestJson: true, summaryJson: true, fingerprint: true,
+          state: true, snapshotId: true, attempt: true, createdAt: true,
+        },
       });
       diagnostics = bundles.map((b: any) => ({
         id: b.id, attachmentId: b.attachmentId,
+        // Состояние сборки — отдельным полем, а не догадкой по пустой сводке:
+        // «собирается» и «собрать не удалось» разбирающий обязан различать
+        state: b.state || 'PENDING',
+        snapshotId: b.snapshotId || '',
+        attempt: b.attempt || 0,
         manifest: safeParse(b.manifestJson), summary: safeParse(b.summaryJson),
         fingerprint: b.fingerprint || '',
       }));
     }
-    ok(res, { ...visible(found, actor, triage), attachments, diagnostics });
+    /**
+     * Докуда человек может отметить прочитанным.
+     *
+     * Границы отдаёт сервер, а не выдумывает окно: публичная — по изменениям,
+     * которые автору видны; внутренняя — только разбирающему. Отмечать
+     * невидимое прочитанным нечестно, и раньше окно вообще ничего не отмечало:
+     * слало `seenRevision: 0`, которого сервер не знает, и красный кружок у
+     * автора не гас после прочтения ни разу.
+     */
+    const publicChange = await prisma.feedbackChange.findFirst({
+      where: { reportId: id, visibility: 'PUBLIC' },
+      orderBy: { revision: 'desc' }, select: { revision: true },
+    });
+    const publicRevision = Number(publicChange?.revision || 0);
+    const internalRevision = triage ? Number(found.revision || 0) : 0;
+
+    ok(res, {
+      ...visible(found, actor, triage),
+      attachments, diagnostics, publicRevision, internalRevision,
+    });
   });
 }

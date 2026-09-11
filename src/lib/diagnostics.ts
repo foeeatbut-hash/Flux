@@ -22,9 +22,23 @@
 import { cleanFields, newTraceId, routeName } from '../../diagnostics/event';
 import { SCHEMA_VERSION, type DiagnosticEvent, type EventName, type SafeFields } from '../../diagnostics/contracts';
 import { RateLimit, RepeatFilter, isFailure, passesMode } from '../../diagnostics/policy';
+import { SOURCE_BYTES, WINDOW_BEFORE_MS, WINDOW_TOTAL_MS, missingSource, type SourceReport } from '../../feedback/bundleSpec';
 
-/** Сколько событий держим в хвосте для выгрузки. */
-const TAIL = 500;
+/**
+ * Хвост окна ограничен временем И байтами, а не числом записей.
+ *
+ * Пятьсот записей — это могло быть и два часа тишины, и восемь секунд шторма.
+ * Во втором случае человек открывал панель, писал минуту про то, что зависло,
+ * — и к моменту отправки события про зависание были уже вытеснены его же
+ * набором текста. Разбирающий получал восемь секунд «как всё хорошо».
+ *
+ * Теперь держим окно времени и предел по байтам: что старше — уходит, а
+ * сколько ушло, попадает в опись пакета, а не пропадает молча.
+ */
+const TAIL_MS = WINDOW_TOTAL_MS;
+const TAIL_BYTES = SOURCE_BYTES;
+/** Верхний предел на всякий случай: шторм не должен съесть память окна. */
+const TAIL_ITEMS = 20000;
 /** Сколько ждёт отправки в оболочку. */
 const QUEUE = 500;
 /** Больше этого в секунду не пишем даже в подробном режиме. */
@@ -37,6 +51,18 @@ let sending = false;
 let detailedUntil = 0;
 
 const tail: DiagnosticEvent[] = [];
+/** Сколько байтов сейчас в хвосте — считаем на лету, а не обходом. */
+let tailBytes = 0;
+/** Сколько записей хвост потерял по своим пределам. */
+let evicted = 0;
+/**
+ * Замороженные снимки.
+ *
+ * Пока человек пишет сообщение, важные события не должны вытесняться его же
+ * набором текста. При открытии панели снимок фиксируется: события, попавшие в
+ * его интервал, из хвоста больше не выпадают, пока снимок не отдан.
+ */
+const frozen = new Map<string, { from: number; to: number; events: DiagnosticEvent[] }>();
 const queue: DiagnosticEvent[] = [];
 const rate = new RateLimit(PER_SECOND);
 const repeats = new RepeatFilter();
@@ -69,7 +95,17 @@ export function diagnostic<E extends EventName>(event: E, fields?: SafeFields<E>
 
 function push(entry: DiagnosticEvent): void {
   tail.push(entry);
-  if (tail.length > TAIL) tail.shift();
+  tailBytes += entry ? JSON.stringify(entry).length + 1 : 0;
+  // Замороженные снимки продолжают набирать: человек пишет сообщение, а
+  // программа в это время продолжает ломаться — и это как раз то, что нужно
+  for (const shot of frozen.values()) shot.events.push(entry);
+  const cutoff = Date.now() - TAIL_MS;
+  while (tail.length && (
+    tail.length > TAIL_ITEMS || tailBytes > TAIL_BYTES || Date.parse(tail[0].time) < cutoff
+  )) {
+    const gone = tail.shift();
+    if (gone) { tailBytes -= JSON.stringify(gone).length + 1; evicted++; }
+  }
   // Очередь наполняется только когда есть кому отдавать
   if (!bridge()) return;
   if (queue.length >= QUEUE) { dropped++; return; }
@@ -276,6 +312,110 @@ function observe(): void {
       diagnostic('observer.unavailable', { name: type });
     }
   }
+}
+
+
+/**
+ * Заморозить снимок вокруг происшествия.
+ *
+ * Зовётся при открытии панели «Сообщить о проблеме». С этой секунды события,
+ * попавшие в интервал, из хвоста не выпадают — сколько бы человек ни писал.
+ * Возвращает метку снимка: она же уедет в опись пакета, и повторная отправка
+ * пошлёт ТОТ ЖЕ снимок, а не собранный заново.
+ */
+export function freezeSnapshot(id: string, incidentAt?: number): {
+  snapshotId: string; from: number; to: number; session: string; timeOrigin: number;
+} {
+  const at = incidentAt || Date.now();
+  const from = at - WINDOW_BEFORE_MS;
+  const to = at + (WINDOW_TOTAL_MS - WINDOW_BEFORE_MS);
+  // Берём то, что уже в хвосте и попадает в интервал, и продолжаем набирать
+  const events = tail.filter((e) => Date.parse(e.time) >= from);
+  frozen.set(id, { from, to, events });
+  // Больше трёх снимков разом не держим: человек мог открыть панель, закрыть,
+  // открыть снова — старые копии памяти окна ни к чему
+  while (frozen.size > 3) {
+    const oldest = frozen.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    frozen.delete(oldest);
+  }
+  return { snapshotId: id, from, to, session, timeOrigin: Math.round(performance.timeOrigin || 0) };
+}
+
+/**
+ * Записи оболочки за тот же интервал.
+ *
+ * В браузере оболочки нет — и это обычное устройство программы, а не поломка
+ * отправки. Так и записывается: `unavailable` с причиной, а не ошибка и не
+ * молчание. Разница важна: «оболочки нет» разбирающий пролистывает, а
+ * «прочитать не удалось» — повод разбираться.
+ */
+export async function shellSource(from: number, to: number): Promise<{ text: string; report: SourceReport }> {
+  const api = bridge();
+  if (!api?.read) {
+    return { text: '', report: missingSource('shell', 'Программа открыта в браузере — записей оболочки нет') };
+  }
+  try {
+    const got = await api.read({ from, to, maxBytes: SOURCE_BYTES });
+    if (!got || typeof got.text !== 'string' || !got.report) {
+      return { text: '', report: missingSource('shell', 'Оболочка не отдала свои записи') };
+    }
+    return got as { text: string; report: SourceReport };
+  } catch (failed: any) {
+    return {
+      text: '',
+      report: {
+        source: 'shell', state: 'error', events: 0, bytes: 0,
+        reason: `Мост до оболочки не ответил: ${String(failed?.message || failed).slice(0, 120)}`,
+      },
+    };
+  }
+}
+
+/** Отпустить снимок: пакет собран, держать его память больше незачем. */
+export function releaseSnapshot(id: string): void {
+  frozen.delete(id);
+}
+
+/**
+ * Источник окна для пакета — вместе с отчётом о полноте.
+ *
+ * Отдаёт не только строки, но и то, чего в них нет: сколько записей потеряла
+ * запись, сколько не поместилось в предел, какой интервал они на самом деле
+ * покрывают. Без этого разбирающий принимает «не записано» за «не было».
+ */
+export function rendererSource(snapshotId?: string, maxBytes = SOURCE_BYTES): {
+  text: string; report: SourceReport;
+} {
+  const shot = snapshotId ? frozen.get(snapshotId) : undefined;
+  const events = shot ? shot.events : tail;
+
+  const lines = events.map((e) => `${JSON.stringify(e)}\n`);
+  let cut = 0;
+  let size = 0;
+  // Обрезаем начало: последние события ближе к происшествию, чем первые
+  for (let i = lines.length - 1; i >= 0; i--) {
+    size += lines[i].length;
+    if (size > maxBytes) { cut = i + 1; break; }
+  }
+  const kept = lines.slice(cut);
+  const bytes = kept.reduce((sum, l) => sum + l.length, 0);
+
+  const report: SourceReport = {
+    source: 'renderer',
+    state: cut > 0 || evicted > 0 ? 'truncated' : 'available',
+    events: kept.length,
+    bytes,
+    ...(dropped ? { dropped } : {}),
+    ...(cut || evicted ? { omitted: cut + evicted } : {}),
+    ...(events.length ? { from: events[Math.min(cut, events.length - 1)].time, to: events[events.length - 1].time } : {}),
+    ...(cut > 0
+      ? { reason: `Не поместилось ${cut} записей: предел источника ${Math.round(maxBytes / 1024 / 1024)} МиБ` }
+      : evicted > 0
+        ? { reason: `${evicted} записей вытеснено из буфера окна до отправки` }
+        : {}),
+  };
+  return { text: kept.join(''), report };
 }
 
 /**

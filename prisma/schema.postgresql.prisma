@@ -1026,6 +1026,13 @@ model FeedbackReport {
   projectId                 String?
   /// Когда возникло — по словам автора, а не когда отправлено
   incidentAt                DateTime
+  /// Когда отправку приняли. С происшествием совпадает только у мгновенных:
+  /// после суток офлайна разница между ними и отвечает на «почему так поздно»
+  submittedAt               DateTime?
+  /// Метка снимка диагностики: связывает карточку с её неизменяемым пакетом
+  snapshotId                String?
+  /// Сборка программы, на которой случилось: стек читается картами её buildId
+  buildId                   String?
   appVersion                String   @default("")
   /// NEW | TRIAGE | NEEDS_INFO | PLANNED | IN_PROGRESS | VERIFY | DONE | REJECTED | DUPLICATE | WITHDRAWN
   status                    String   @default("NEW")
@@ -1200,8 +1207,29 @@ model FeedbackDiagnosticBundle {
   /// Отпечаток технического дубля: предлагает совпадение, но не объединяет
   fingerprint  String?
   createdAt    DateTime @default(now())
+  /**
+   * Что со сборкой: PENDING | READY | PARTIAL | FAILED.
+   *
+   * Разница между «собирается» и «готов, но неполон» видна разбирающему: во
+   * втором случае в описи сказано, какого источника не хватает и почему.
+   */
+  state        String   @default("PENDING")
+  /// Метка неизменяемого снимка: повтор отправки шлёт тот же пакет
+  snapshotId   String?
+  /// Версия описи — чтобы старые пакеты читались новым разбором
+  schemaVer    Int      @default(1)
+  /// Сборка какой сборки программы: стек сопоставляется с картами этого buildId
+  buildId      String?
+  /// Сеанс окна, вокруг которого собран пакет
+  sessionId    String?
+  /// Аренда фоновой сборки: переживает перезапуск сервера
+  attempt      Int      @default(0)
+  availableAt  DateTime @default(now())
+  leaseUntil   DateTime?
+  leaseOwner   String?
 
   @@index([reportId])
+  @@index([state, availableAt])
 }
 
 /// Докуда человек дочитал. Внутренние ревизии не двигают счётчик автора.

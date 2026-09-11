@@ -99,6 +99,21 @@ function nameOf(req: Request): string {
   return routeName(req.originalUrl || req.url || '');
 }
 
+/**
+ * Кто сделал запрос — из сессии, никогда из запроса.
+ *
+ * Гейт авторизации ставит `authUser` до маршрутов, а трассировка стоит раньше
+ * гейта: на входе его ещё нет, к концу запроса — уже есть. Поэтому в `http.end`
+ * личность попадает, а в `http.start` чаще всего нет, и это нормально:
+ * принадлежность метки доказывает конец запроса.
+ */
+const actorOf = (req: Request): string => {
+  try {
+    const id = (req as any).authUser?.id;
+    return typeof id === 'string' ? id : '';
+  } catch (_) { return ''; }
+};
+
 export const traceRequest: RequestHandler = (req, res, next) => {
   if (OFF) return next();
   if (!req.path.startsWith('/api/')) return next();
@@ -121,6 +136,7 @@ export const traceRequest: RequestHandler = (req, res, next) => {
     if (sink.wants('http.start')) {
       sink.record('http.start', {
         trace, interaction, phase: 'start', method, route: routeName(req.originalUrl || ''), requestBytes,
+        ...(actorOf(req) ? { actor: actorOf(req) } : {}),
       });
     }
   } catch (_) { /* сбор не имеет права уронить запрос */ }
@@ -132,6 +148,7 @@ export const traceRequest: RequestHandler = (req, res, next) => {
     try {
       serverDiagnostics().record('http.end', {
         trace, interaction, phase: 'end', method, route: nameOf(req),
+        ...(actorOf(req) ? { actor: actorOf(req) } : {}),
         status: String(res.statusCode),
         durationMs: performance.now() - start,
         aborted,

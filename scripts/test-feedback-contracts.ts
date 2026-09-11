@@ -10,7 +10,7 @@
 import {
   validateSubmit, checkText, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
   reportNumber, refusedByName, extensionOf, isUuid, ERRORS, STATUS_NAMES, TYPE_NAMES, IMPACT_NAMES,
-  newRequestId,
+  newRequestId, titleFrom,
 } from '../feedback/contracts';
 import { sha256Hex, sha256 } from '../feedback/sha256';
 
@@ -44,6 +44,39 @@ console.log('1. Правильная отправка проходит');
   ok('заголовок обрезан от пробелов', r.value?.title === 'Таблица не сохраняется');
   ok('шаги по умолчанию — пустой список', Array.isArray(r.value?.reproduction) && r.value?.reproduction?.length === 0);
   ok('согласие на технические события сохранено', r.value?.consent.technicalEvents === true);
+}
+
+console.log('\n1.1. Короткое сообщение принимается, заголовок выводится сам');
+{
+  // Ради этого правилась нижняя граница. «Зависло» — законченное сообщение о
+  // сбое, и требовать «хотя бы одно предложение» значит требовать сочинения
+  // от человека, у которого только что всё встало
+  const short = validateSubmit({ ...good(), title: '', description: 'Зависло' }, NOW);
+  ok('«Зависло» проходит', short.ok, short.error);
+  ok('заголовок выведен из сообщения', short.value?.title === 'Зависло', short.value?.title);
+
+  // Первое предложение бывает короче самого сообщения по-глупому — раньше
+  // именно на этом форма отказывала
+  const yes = validateSubmit(
+    { ...good(), title: '', description: 'Да. Программа зависла при открытии таблицы.' }, NOW);
+  ok('«Да. Программа зависла…» не отклоняется за первое предложение', yes.ok, yes.error);
+  ok('заголовком стало осмысленное, а не «Да.»',
+    (yes.value?.title || '').startsWith('Да. Программа зависла'), yes.value?.title);
+
+  ok('пустое сообщение по-прежнему отвергнуто',
+    !validateSubmit({ ...good(), title: '', description: '   ' }, NOW).ok);
+
+  // Старый клиент шлёт заголовок сам — его проверяем как проверяли
+  ok('присланный слишком короткий заголовок отвергнут',
+    !validateSubmit({ ...good(), title: 'ой' }, NOW).ok);
+  ok('присланный нормальный заголовок сохранён',
+    validateSubmit(good(), NOW).value?.title === 'Таблица не сохраняется');
+
+  ok('название раздела добавляется только к совсем короткому',
+    titleFrom('Зависло', 'Таблица') === 'Зависло — Таблица'
+    && titleFrom('Программа зависла при вставке столбца', 'Таблица') === 'Программа зависла при вставке столбца');
+  ok('длинное сообщение обрезано по пределу заголовка',
+    titleFrom('я'.repeat(400)).length === LIMITS.title.max);
 }
 
 console.log('\n2. Лишние поля не проезжают');
@@ -89,9 +122,17 @@ console.log('\n4. Перечисления и ключи');
 console.log('\n5. Время происшествия');
 {
   ok('час назад — принято', validateSubmit({ ...good(), incidentAt: new Date(NOW - 3600e3).toISOString() }, NOW).ok);
-  // Задним числом глубже суток — это уже не «вспомнил», а ошибка или подлог
-  ok('вчерашнее позавчера отвергнуто',
-    !validateSubmit({ ...good(), incidentAt: new Date(NOW - 40 * 3600e3).toISOString() }, NOW).ok);
+  // Сорок часов — это обращение, написанное в пятницу вечером без связи и
+  // уехавшее в понедельник. Раньше здесь стояли сутки, и такая отправка
+  // отвергалась НАВСЕГДА: время происшествия не меняется, и очередь билась в
+  // один и тот же отказ, пока человек не сдавался
+  ok('выходные офлайн — отправка доезжает',
+    validateSubmit({ ...good(), incidentAt: new Date(NOW - 40 * 3600e3).toISOString() }, NOW).ok);
+  ok('когда отправили — записано отдельно от того, когда сломалось',
+    validateSubmit({ ...good(), incidentAt: new Date(NOW - 40 * 3600e3).toISOString() }, NOW)
+      .value?.submittedAt === new Date(NOW).toISOString());
+  ok('позапрошлогоднее всё же отвергнуто',
+    !validateSubmit({ ...good(), incidentAt: new Date(NOW - 400 * 24 * 3600e3).toISOString() }, NOW).ok);
   ok('время из будущего отвергнуто',
     !validateSubmit({ ...good(), incidentAt: new Date(NOW + 3600e3).toISOString() }, NOW).ok);
   // Часы двух машин расходятся на минуты — это не повод отказывать
