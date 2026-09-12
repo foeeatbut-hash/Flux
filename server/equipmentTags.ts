@@ -15,8 +15,15 @@ export interface TagLink {
   blockKey: string;
   /** Код так, как он написан в бланке */
   identifier: string;
-  /** Что предлагается сделать; инженер может поменять в предпросмотре */
-  action: 'link' | 'create' | 'skip';
+  /**
+   * Что предлагается сделать; инженер может поменять в предпросмотре.
+   *
+   * `ambiguous` — не отказ, а честное «выберите»: в проекте есть несколько
+   * записей, которые после приведения написаний неотличимы. Раньше в этом
+   * месте молча брался первый, и предложение выглядело как единственное
+   * точное совпадение.
+   */
+  action: 'link' | 'create' | 'skip' | 'ambiguous';
   /** Точное совпадение в проекте */
   existingTagId?: string;
   /** Тег занят другим изделием — «один тег — одно изделие» */
@@ -56,11 +63,14 @@ export function planTagLinks(
   blocks: { key: string; tags?: string[] }[],
   existing: ExistingTag[],
 ): TagLink[] {
-  const byNorm = new Map<string, ExistingTag>();
+  // Собираем ВСЕХ, кто сходится после приведения, а не первого. «AB-01» и
+  // «AB_01» дают один нормализованный вид, и выбирать между ними за инженера
+  // нельзя: это могут быть разные позиции с разными изделиями
+  const byNorm = new Map<string, ExistingTag[]>();
   const byBare = new Map<string, ExistingTag[]>();
   for (const t of existing) {
     const n = normalizeTag(t.identifier);
-    if (!byNorm.has(n)) byNorm.set(n, t);
+    (byNorm.get(n) ?? byNorm.set(n, []).get(n)!).push(t);
     const b = bare(t.identifier);
     (byBare.get(b) ?? byBare.set(b, []).get(b)!).push(t);
   }
@@ -75,15 +85,40 @@ export function planTagLinks(
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const hit = byNorm.get(normalizeTag(identifier));
-      if (hit) {
-        const takenBy = (hit.componentIds || []).length ? (hit.componentIds || [])[0] : undefined;
-        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: hit.id, takenBy });
+      const hits = byNorm.get(normalizeTag(identifier)) || [];
+
+      // Точное совпадение, буква в букву, — единственный случай, когда решать
+      // за инженера можно: это тот же самый тег
+      const exact = hits.filter(t => t.identifier === identifier);
+      if (exact.length === 1) {
+        const takenBy = (exact[0].componentIds || [])[0];
+        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: exact[0].id, takenBy });
         continue;
       }
+
+      if (hits.length === 1) {
+        const takenBy = (hits[0].componentIds || [])[0];
+        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: hits[0].id, takenBy });
+        continue;
+      }
+      if (hits.length > 1) {
+        out.push({
+          blockKey: blk.key, identifier, action: 'ambiguous',
+          candidates: hits.slice(0, 5).map(t => ({
+            id: t.id, identifier: t.identifier,
+            why: 'после приведения написаний совпадает с этим тегом',
+          })),
+        });
+        continue;
+      }
+
       // Похожие: те же знаки без разделителей — обычно опечатка в дефисах
       const near = (byBare.get(bare(identifier)) || []).slice(0, 5)
         .map(t => ({ id: t.id, identifier: t.identifier, why: 'то же обозначение, другие разделители' }));
+      if (near.length > 1) {
+        out.push({ blockKey: blk.key, identifier, action: 'ambiguous', candidates: near });
+        continue;
+      }
       out.push({
         blockKey: blk.key, identifier,
         action: near.length ? 'link' : 'create',
@@ -111,6 +146,13 @@ export async function applyTagLinks(
   for (const link of links) {
     const componentId = componentIdByKey.get(link.blockKey);
     if (!componentId || link.action === 'skip') { res.skipped++; continue; }
+    // Неоднозначное решение инженер не принял — писать нечего. Взять первого
+    // кандидата здесь значило бы обойти собственную защиту
+    if (link.action === 'ambiguous' && !link.existingTagId) {
+      res.skipped++;
+      res.conflicts.push(`«${link.identifier}» совпадает с несколькими тегами проекта — выберите нужный`);
+      continue;
+    }
 
     let tagId = link.existingTagId;
     if (link.action === 'create' || !tagId) {
