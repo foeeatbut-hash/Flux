@@ -61,7 +61,11 @@ console.log('2. Значения ячеек');
     equipmentCell(fan, paramColumnKey('Аэродинамика', 'Расход воздуха')) === '20000',
     equipmentCell(fan, paramColumnKey('Аэродинамика', 'Расход воздуха')));
   ok('тег изделия в строке', equipmentCell(fan, 'tag') === '1000-A01-BL-001A');
-  ok('несколько тегов перечисляются', equipmentCell(valve, 'tag') === '1000-D01-DS-002, 1000-D01-DS-003',
+  // Раньше здесь ждали «тег, тег» в одной ячейке. Это соответствовало старой
+  // модели «один бланк — одно изделие», но каждый позиционный тег адресует
+  // СВОЮ позицию проекта: перечисление через запятую означало бы, что два
+  // клапана с разными адресами — один клапан
+  ok('в ячейке тега один тег', equipmentCell(valve, 'tag') === '1000-D01-DS-002',
     equipmentCell(valve, 'tag'));
   ok('чужая характеристика — пустая ячейка, а не «undefined»',
     equipmentCell(valve, paramColumnKey('Аэродинамика', 'Расход воздуха')) === '');
@@ -77,7 +81,13 @@ console.log('3. Таблица целиком');
 {
   const cols = equipmentColumns([fan, valve]);
   const t = buildEquipmentExchange([fan, valve], cols);
-  ok('строк столько же, сколько изделий', t.rows.length === 2);
+  // Клапан с двумя тегами даёт две строки: вентилятор (1 тег) + клапан (2) = 3
+  ok('строка на каждый тег, а не на каждый бланк', t.rows.length === 3, t.rows.length);
+  ok('код позиции у обеих строк клапана общий',
+    (() => {
+      const at = cols.findIndex(c => c.key === 'instanceId');
+      return t.rows[1][at] === t.rows[2][at] && !!t.rows[1][at];
+    })(), t.rows.map(r => r[cols.findIndex(c => c.key === 'instanceId')]));
   ok('в каждой строке столько ячеек, сколько столбцов',
     t.rows.every(r => r.length === t.headers.length), [t.headers.length, t.rows.map(r => r.length)]);
   const csv = toCsv(t.headers, t.rows);
