@@ -7,8 +7,8 @@
 // ── Онтология единиц: приведение к базовой (СИ-подобной) для сравнения ────────
 
 export type Dimension =
-  | 'flow' | 'pressure' | 'power' | 'voltage' | 'current'
-  | 'rpm' | 'temp' | 'mass' | 'length' | 'speed' | 'noise';
+  | 'flow' | 'pressure' | 'power' | 'apparentPower' | 'voltage' | 'current'
+  | 'rpm' | 'temp' | 'duration' | 'mass' | 'length' | 'speed' | 'noise';
 
 // unit (в нижнем регистре, без точек) → { dim, factor к базовой }
 const UNIT_TABLE: Record<string, { dim: Dimension; f: number }> = {
@@ -33,8 +33,16 @@ const UNIT_TABLE: Record<string, { dim: Dimension; f: number }> = {
   'в': { dim: 'voltage', f: 1 }, 'v': { dim: 'voltage', f: 1 }, 'вольт': { dim: 'voltage', f: 1 },
   'а': { dim: 'current', f: 1 }, 'a': { dim: 'current', f: 1 },
   'об/мин': { dim: 'rpm', f: 1 }, 'об мин': { dim: 'rpm', f: 1 }, 'rpm': { dim: 'rpm', f: 1 },
-  // температура (база: °C)
-  '°c': { dim: 'temp', f: 1 }, 'c': { dim: 'temp', f: 1 }, 'с': { dim: 'temp', f: 1 }, 'град': { dim: 'temp', f: 1 },
+  // полная мощность (база: ВА). Отдельно от активной намеренно: кВт и кВА
+  // не взаимозаменяемы без коэффициента мощности, и складывать их нельзя
+  'ва': { dim: 'apparentPower', f: 1 }, 'va': { dim: 'apparentPower', f: 1 },
+  'ква': { dim: 'apparentPower', f: 1000 }, 'kva': { dim: 'apparentPower', f: 1000 },
+  // температура (база: °C). Голая «с» отсюда убрана — см. AMBIGUOUS ниже
+  '°c': { dim: 'temp', f: 1 }, '°с': { dim: 'temp', f: 1 }, 'град': { dim: 'temp', f: 1 },
+  // длительность (база: с)
+  'сек': { dim: 'duration', f: 1 }, 'сек.': { dim: 'duration', f: 1 }, 's': { dim: 'duration', f: 1 },
+  'мин': { dim: 'duration', f: 60 }, 'min': { dim: 'duration', f: 60 },
+  'ч': { dim: 'duration', f: 3600 }, 'час': { dim: 'duration', f: 3600 }, 'h': { dim: 'duration', f: 3600 },
   // масса (база: кг)
   'кг': { dim: 'mass', f: 1 }, 'г': { dim: 'mass', f: 0.001 }, 'т': { dim: 'mass', f: 1000 },
   // длина (база: м)
@@ -44,13 +52,77 @@ const UNIT_TABLE: Record<string, { dim: Dimension; f: number }> = {
   'дб': { dim: 'noise', f: 1 }, 'дб(а)': { dim: 'noise', f: 1 }, 'дба': { dim: 'noise', f: 1 },
 };
 
+/**
+ * Единицы, у которых нет одного смысла без контекста.
+ *
+ * «с» и «c» — это и градусы Цельсия, и секунды. В бланке ВЕРОСА написано
+ * «нагрев 300 с», и таблица, где «с» означала температуру, превращала
+ * длительность нагрева в 300 градусов — с высокой уверенностью, потому что
+ * само число читалось прекрасно. Ошибка тихая: 300 — правдоподобная
+ * температура для ТЭНа, и глазами её не поймать.
+ *
+ * Поэтому голая буква не решается таблицей. `unitInfo` для неё отвечает
+ * «не знаю», а разрешает её только тот, кто знает ожидаемую размерность поля.
+ */
+const AMBIGUOUS: Record<string, Partial<Record<Dimension, number>>> = {
+  'с': { temp: 1, duration: 1 },
+  'c': { temp: 1, duration: 1 },
+};
+
 function unitKey(u: string): string {
   return (u || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
 }
 
-/** Единица → { dim, factor } или null, если не распознана */
+/** Единица → { dim, factor } или null, если не распознана или неоднозначна */
 export function unitInfo(unit: string): { dim: Dimension; f: number } | null {
-  return UNIT_TABLE[unitKey(unit)] || null;
+  const key = unitKey(unit);
+  if (AMBIGUOUS[key]) return null;
+  return UNIT_TABLE[key] || null;
+}
+
+/** Размерности, которые может означать единица. Пусто — не распознана. */
+export function unitDimensions(unit: string): Dimension[] {
+  const key = unitKey(unit);
+  const many = AMBIGUOUS[key];
+  if (many) return Object.keys(many) as Dimension[];
+  const one = UNIT_TABLE[key];
+  return one ? [one.dim] : [];
+}
+
+/**
+ * Разрешить единицу, зная ожидаемую размерность поля.
+ *
+ * Это единственный законный способ прочитать «300 с»: поле «длительность
+ * нагрева» ждёт duration и получает секунды, поле «температура» — градусы.
+ * Если поле ждёт другую размерность, ответ `null` — и это отказ, а не повод
+ * подставить ближайшее.
+ */
+export function unitInfoFor(unit: string, expected?: Dimension): { dim: Dimension; f: number } | null {
+  const key = unitKey(unit);
+  const many = AMBIGUOUS[key];
+  if (many) {
+    if (expected && many[expected] !== undefined) return { dim: expected, f: many[expected]! };
+    return null;
+  }
+  const one = UNIT_TABLE[key];
+  if (!one) return null;
+  if (expected && one.dim !== expected) return null;
+  return one;
+}
+
+/**
+ * Перевести значение из одной единицы в другую.
+ *
+ * Разные размерности не переводятся — возвращается `null`, и это ошибка
+ * подготовки выгрузки, а не повод выписать число как есть. Именно так в
+ * столбце «Расход воздуха, м³/ч» оказывались рядом 3600 и 1: второе было
+ * в м³/с, и никто его не пересчитал.
+ */
+export function convert(value: number, from: string, to: string): number | null {
+  const a = unitInfo(from);
+  const b = unitInfo(to);
+  if (!a || !b || a.dim !== b.dim || !Number.isFinite(value)) return null;
+  return (value * a.f) / b.f;
 }
 
 /** Приводит число+единицу к базовой размерности; null, если единица не из онтологии */

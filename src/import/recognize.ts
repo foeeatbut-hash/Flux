@@ -1008,7 +1008,38 @@ export function applyMatrixColumn(item: DraftItem, header: string): DraftItem {
 
 import { CommitUnit, CommitSpecGroup } from './types';
 
+/**
+ * Границы изделий внутри одного бланка.
+ *
+ * Комплектный документ содержит несколько независимых установок подряд. Раньше
+ * родителем всех становилась первая найденная: `findIndex(ahu)` брал её, а
+ * всё остальное — включая вторую такую же установку — складывалось внутрь.
+ * Две одинаковые ВЕРОСА превращались в одну, вложенную сама в себя.
+ *
+ * Делим по порядку документа: каждая установка забирает то, что идёт за ней
+ * до следующей. Порядок — это доказательство, а не догадка: секции печатают
+ * под своим изделием. Что идёт до первой установки, остаётся отдельным
+ * корнем, а не приписывается ей задним числом.
+ */
+function splitByUnits(items: DraftItem[]): DraftItem[][] {
+  const heads: number[] = [];
+  items.forEach((it, i) => { if (it.equipType === 'ahu') heads.push(i); });
+  if (heads.length < 2) return [items];
+  const parts: DraftItem[][] = [];
+  if (heads[0] > 0) parts.push(items.slice(0, heads[0]));
+  heads.forEach((start, n) => {
+    parts.push(items.slice(start, n + 1 < heads.length ? heads[n + 1] : items.length));
+  });
+  return parts.filter(p => p.length);
+}
+
 export function draftToUnits(items: DraftItem[], docTitle: string): CommitUnit[] {
+  const parts = splitByUnits(items);
+  if (parts.length > 1) return parts.flatMap(part => oneUnit(part, docTitle));
+  return oneUnit(items, docTitle);
+}
+
+function oneUnit(items: DraftItem[], docTitle: string): CommitUnit[] {
   const groupsOf = (it: DraftItem): CommitSpecGroup[] => {
     const map: Record<string, CommitSpecGroup> = {};
     for (const f of it.fields) {
