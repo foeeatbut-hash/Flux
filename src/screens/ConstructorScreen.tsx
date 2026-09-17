@@ -12,7 +12,8 @@ import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
 import BlocksPanel from '../components/office/BlocksPanel';
-import DataWizard from '../components/DataWizard';
+import LayoutDocks from '../components/office/LayoutDocks';
+import { useTableLayout } from '../components/office/useTableLayout';
 import type { CatalogData, WizardResult } from '../lib/constructorTypes';
 import EditorFrame from '../components/ribbon/EditorFrame';
 import { useWindowTitle } from '../lib/paneTitle';
@@ -118,7 +119,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const saveConflictRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'idle'>('idle');
-  const [wizardOpen, setWizardOpen] = useState(false);
   const [nameDialog, setNameDialog] = useState<null | { suggestion: string }>(null);
   const suggestionRef = useRef<string>('');
 
@@ -729,7 +729,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // Вставка собранной таблицы от активной ячейки (или A1) — создаёт УМНЫЙ БЛОК:
   // область помнит свой запрос и умеет обновляться из данных проекта
   const handleInsert = async (r: WizardResult) => {
-    setWizardOpen(false);
     suggestionRef.current = r.suggestedName;
     try {
       const api = univerRef.current?.univerAPI;
@@ -764,6 +763,20 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       addToast('Не удалось вставить данные', 'error');
     }
   };
+
+  // Разметка шапки и сборка — в своём модуле: здесь было бы ещё полтораста
+  // строк, а экран и так у планки размера
+  const lay = useTableLayout({
+    projectId: activeProject?.id || 'default',
+    getSheet: () => univerRef.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.() || null,
+    getCursor: () => {
+      const sel = univerRef.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.getSelection?.()?.getActiveRange?.();
+      return sel ? { row: sel.getRow(), col: sel.getColumn() } : null;
+    },
+    say: (text, kind) => addToast(text, (kind || 'info') as any),
+    onChanged: (next) => { (bindingsRef.current as any).layout = next; bindingsDirtyRef.current = true; },
+    initial: (bindingsRef.current as any)?.layout || null,
+  });
 
   const sheetOfBlock = (b: SmartBlock) => {
     const wb = univerRef.current?.univerAPI?.getActiveWorkbook?.();
@@ -1292,7 +1305,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       case 'sh.delCol': return exec('sheet.command.remove-col');
       case 'sh.clear': return exec('sheet.command.clear-selection-content');
       case 'sh.newSheet': return exec('sheet.command.insert-sheet');
-      case 'sh.wizard': return setWizardOpen(true);
+      case 'sh.fields': return lay.setFieldsOpen(!lay.fieldsOpen);
+      case 'sh.grain': return lay.setGrain(String(value || 'tag'));
+      case 'sh.clearLayout': return lay.clearLayout();
+      case 'sh.collect': return void lay.collect();
+      case 'sh.diff': return lay.setDiffOpen(!lay.diffOpen);
       case 'sh.title': return toggleDock('title');
       case 'sh.blocks': return toggleDock('blocks');
       case 'sh.refreshAll': return refreshAll();
@@ -1467,11 +1484,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           onClose={closeDock}
         />
       )}
+      <LayoutDocks lay={lay} />
       </div>
 
-      {wizardOpen && (
-        <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
-      )}
       {saveConflict && (
         <SaveConflictDialog
           info={saveConflict}
