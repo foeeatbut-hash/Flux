@@ -12,7 +12,7 @@
 import {
   GRAINS, grainById, emptyLayout, bindColumn, unbindColumn, columnAt, headerText,
   diffLayout, layoutToTemplate, templateToLayout, readTemplateBody, whyNotSaveTemplate,
-  catalogFields, searchFields, bySection,
+  catalogFields, searchFields, bySection, asArray,
   type LayoutColumn,
 } from '../src/lib/tableLayout';
 import {
@@ -165,6 +165,18 @@ console.log('\n5. Шаблон шапки');
   ok('и пустое тоже', readTemplateBody(null).grain === 'tag');
   ok('битые столбцы отбрасываются',
     readTemplateBody('{"columns":[{"title":"без пути"},{"path":"ok","title":"Годный"}]}').columns.length === 1);
+
+  // Дефект из настоящего пакета диагностики: POST /api/table-templates трижды
+  // отвечал 400, и человек видел «шаблон не сохраняется». Разбор списка был
+  // написан для строки из базы, а применялся к уже разобранному телу запроса:
+  // String(массив) даёт «[object Object]», разбор падал, список становился
+  // пустым, и сервер отвечал «В шапке нет ни одного поля» на заполненную шапку
+  ok('разобранный массив из запроса не теряется',
+    asArray([{ path: 'identifier', title: 'Тег' }]).length === 1, asArray([{ path: 'a', title: 'b' }]));
+  ok('строка из базы по-прежнему читается',
+    asArray('[{"path":"identifier","title":"Тег"}]').length === 1);
+  ok('чужое содержимое даёт пустой список, а не падение', asArray('не json').length === 0);
+  ok('пустое тоже', asArray(null).length === 0 && asArray(undefined).length === 0);
 
   ok('без имени не сохраняем', !!whyNotSaveTemplate('', l));
   ok('пустую шапку не сохраняем', !!whyNotSaveTemplate('Ведомость', emptyLayout()));

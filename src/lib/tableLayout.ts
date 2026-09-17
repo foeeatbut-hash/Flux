@@ -366,6 +366,24 @@ export function templateToLayout(
   };
 }
 
+/**
+ * Список из двух разных мест.
+ *
+ * Из базы он приходит строкой, из запроса — уже разобранным массивом.
+ * Проверка на массив стоит ПЕРВОЙ, и это не перестраховка: без неё
+ * `String(массив)` даёт «[object Object]», разбор падает, и сохранение
+ * шаблона получает пустой список. Сервер отвечал «В шапке нет ни одного
+ * поля» на шапку, в которой поля были, — человек видел отказ и не мог понять,
+ * что не так, потому что на листе всё стояло.
+ */
+export function asArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(String(raw || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) { return []; }
+}
+
 /** Прочитать тело шаблона, не падая на чужом содержимом. */
 export function readTemplateBody(raw: string | null | undefined): TableTemplateBody {
   const empty: TableTemplateBody = { grain: 'tag', columns: [], filters: [] };
