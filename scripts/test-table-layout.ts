@@ -14,6 +14,10 @@ import {
   diffLayout, layoutToTemplate, templateToLayout, readTemplateBody, whyNotSaveTemplate,
   type LayoutColumn,
 } from '../src/lib/tableLayout';
+import {
+  paintHeader, clearHeaderCell, readColumnValues, writeColumnValues, clearColumnValues,
+  nextFreeColumn,
+} from '../src/lib/tableBlock';
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -164,6 +168,60 @@ console.log('\n5. Шаблон шапки');
   ok('без имени не сохраняем', !!whyNotSaveTemplate('', l));
   ok('пустую шапку не сохраняем', !!whyNotSaveTemplate('Ведомость', emptyLayout()));
   ok('названную и заполненную — сохраняем', whyNotSaveTemplate('Ведомость автоматики', l) === '');
+}
+
+console.log('\n6. Геометрия на листе: пропущенные столбцы принадлежат человеку');
+{
+  // Поддельный лист: помнит, что в какую клетку записали
+  const cells = new Map<string, string>();
+  const at = (r: number, c: number) => `${r}:${c}`;
+  const ws = {
+    getRange: (row: number, col: number, rows = 1, cols = 1) => ({
+      setValue: (v: unknown) => cells.set(at(row, col), String(v ?? '')),
+      setValues: (m: unknown[][]) => {
+        for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+          cells.set(at(row + i, col + j), String(m?.[i]?.[j] ?? ''));
+        }
+      },
+      getValues: () => Array.from({ length: rows }, (_, i) =>
+        Array.from({ length: cols }, (_, j) => cells.get(at(row + i, col + j)) ?? '')),
+      setFontWeight: () => {}, setBackgroundColor: () => {}, setHorizontalAlignment: () => {},
+    }),
+  };
+
+  // Человек написал своё в столбце C, а разметил A, B и F
+  cells.set(at(1, 2), 'моя заметка');
+  cells.set(at(2, 2), 'и ещё одна');
+
+  let l = emptyLayout('tag', 0);
+  l = bindColumn(l, 0, { path: 'identifier', title: 'Тег' });
+  l = bindColumn(l, 1, { path: 'brand', title: 'Марка' });
+  l = bindColumn(l, 5, { path: 'system.name', title: 'Система' });
+
+  paintHeader(ws, l, false);
+  ok('в шапке стоят названия полей',
+    cells.get(at(0, 0)) === 'Тег' && cells.get(at(0, 5)) === 'Система');
+  ok('пустой столбец шапки между ними не тронут', !cells.has(at(0, 2)));
+
+  writeColumnValues(ws, l, 1, [['AHU-1', 'ВЕРОСА', 'П1'], ['AHU-2', 'ВИР', 'П2']]);
+  ok('значения легли в размеченные столбцы',
+    cells.get(at(1, 0)) === 'AHU-1' && cells.get(at(2, 5)) === 'П2');
+  ok('написанное человеком в чужом столбце уцелело',
+    cells.get(at(1, 2)) === 'моя заметка' && cells.get(at(2, 2)) === 'и ещё одна');
+
+  const back = readColumnValues(ws, l, 1, 2);
+  ok('читается в том же порядке, что разметка',
+    back[0].join('|') === 'AHU-1|ВЕРОСА|П1' && back[1].join('|') === 'AHU-2|ВИР|П2', back);
+
+  clearColumnValues(ws, l, 1, 2);
+  ok('очистка убирает только свои столбцы',
+    cells.get(at(1, 0)) === '' && cells.get(at(1, 2)) === 'моя заметка');
+
+  clearHeaderCell(ws, 0, 5);
+  ok('снятое поле не оставляет призрака в шапке', cells.get(at(0, 5)) === '');
+
+  ok('следующее поле встаёт правее последнего', nextFreeColumn(l) === 6, nextFreeColumn(l));
+  ok('на пустой разметке — первый столбец', nextFreeColumn(emptyLayout()) === 0);
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
