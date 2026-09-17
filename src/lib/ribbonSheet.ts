@@ -149,8 +149,6 @@ export function sheetRibbon(): RibbonTab[] {
           name: 'из проекта',
           weight: 90,
           organs: [
-            { id: 'sh.wizard', kind: 'big', label: 'Собрать данные', icon: 'data', flux: true,
-              hint: 'Умный блок: строки из проекта по отбору, обновляются по кнопке' },
             { id: 'sh.title', kind: 'label', label: 'Титул', icon: 'stamp', flux: true,
               hint: 'Шаблон титульного листа для этой книги', toggle: true },
           ],
@@ -160,6 +158,36 @@ export function sheetRibbon(): RibbonTab[] {
     {
       name: 'Данные проекта',
       groups: [
+        {
+          // Разметка идёт до сборки: сначала человек говорит, ЧТО собрать и
+          // куда, и только потом жмёт «Собрать». Раньше это спрашивал мастер
+          // поверх таблицы — одним диалогом и один раз, без возможности
+          // вернуться к набору столбцов
+          name: 'разметка',
+          weight: 110,
+          organs: [
+            { id: 'sh.fields', kind: 'big', label: 'Поля проекта', icon: 'data', flux: true,
+              hint: 'Панель полей: выделите ячейку шапки и выберите, что в неё пойдёт', toggle: true },
+            { id: 'sh.grain', kind: 'select', label: 'Строка', icon: 'layers', flux: true, width: 150,
+              hint: 'Что считать строкой таблицы: тег или позиция оборудования',
+              options: [
+                { value: 'tag', label: 'Строка — тег' },
+                { value: 'element', label: 'Строка — позиция' },
+              ] },
+            { id: 'sh.clearLayout', kind: 'label', label: 'Снять разметку', icon: 'trash', flux: true,
+              hint: 'Убрать все поля из шапки. Собранные значения останутся' },
+          ],
+        },
+        {
+          name: 'сборка',
+          weight: 105,
+          organs: [
+            { id: 'sh.collect', kind: 'big', label: 'Собрать', icon: 'refresh', flux: true,
+              hint: 'Подставить значения проекта в размеченные столбцы' },
+            { id: 'sh.diff', kind: 'label', label: 'Расхождения', icon: 'info', flux: true,
+              hint: 'Что разошлось с проектом: было и станет, по каждому значению', toggle: true },
+          ],
+        },
         {
           // Одно понятие — метка. Раньше здесь стояли две группы, «умные блоки»
           // и «подстановки», с двумя кнопками обновления; человек нажимал одну

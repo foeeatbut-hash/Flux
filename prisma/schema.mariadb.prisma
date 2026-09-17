@@ -1286,3 +1286,27 @@ model FeedbackChange {
   @@unique([reportId, revision])
   @@index([createdAt])
 }
+
+/// Шаблон шапки таблицы: набор полей без данных и без номеров столбцов.
+///
+/// Проекта здесь нет намеренно. В этом весь смысл для автоматчика: «Ведомость
+/// автоматики» собирается один раз и открывается в любом проекте. Привяжи
+/// шаблон к проекту — и его пришлось бы переносить руками в каждый следующий.
+model TableTemplate {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(191)
+  /// SHARED | PERSONAL
+  scope       String   @default("SHARED") @db.VarChar(191)
+  /// Владелец личного шаблона; у общих пусто
+  ownerId     String?  @db.VarChar(191)
+  /// Вид строки: tag | element | …
+  grain       String   @default("tag") @db.VarChar(191)
+  /// JSON: [{path,title,unit}] — порядок полей, без номеров столбцов
+  columnsJson String   @default("[]") @db.LongText
+  filtersJson String   @default("[]") @db.LongText
+  createdById String?  @db.VarChar(191)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scope, ownerId])
+}
