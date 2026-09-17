@@ -9,7 +9,11 @@
 import React from 'react';
 import FieldsPanel from './FieldsPanel';
 import DiffPanel from './DiffPanel';
+import type { LayoutDiff } from '../../lib/tableLayout';
 import type { useTableLayout } from './useTableLayout';
+
+/** Сверки ещё не было либо всё сошлось — панель скажет это словами. */
+const EMPTY_DIFF: LayoutDiff = { cells: [], gone: [], added: [], safe: 0, asks: 0 };
 
 export default function LayoutDocks({ lay }: { lay: ReturnType<typeof useTableLayout> }) {
   return (
@@ -21,7 +25,7 @@ export default function LayoutDocks({ lay }: { lay: ReturnType<typeof useTableLa
         <FieldsPanel
           catalog={lay.catalog}
           layout={lay.layout}
-          activeCol={null}
+          cursor={lay.cursor}
           templates={lay.templates as any}
           onPick={lay.pickField}
           onDrop={lay.dropField}
@@ -32,9 +36,12 @@ export default function LayoutDocks({ lay }: { lay: ReturnType<typeof useTableLa
           onClose={() => lay.setFieldsOpen(false)}
         />
       )}
-      {lay.diffOpen && lay.diff && (
+      {/* Панель открывается и когда расхождений нет. Нажатая кнопка обязана
+          что-то сделать: молчание в ответ человек читает как поломку и жмёт
+          ещё раз — так было до живой проверки */}
+      {lay.diffOpen && (
         <DiffPanel
-          diff={lay.diff}
+          diff={lay.diff || EMPTY_DIFF}
           busy={lay.busy}
           onApplyFresh={() => void lay.applyFresh()}
           onKeepMine={lay.keepMine}
