@@ -10,8 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  emptyLayout, bindColumn, unbindColumn, diffLayout, layoutToTemplate, templateToLayout,
-  type CatalogField, type LayoutDiff, type ProjectCatalog, type TableLayout,
+  emptyLayout, bindColumn, unbindColumn, diffLayout, layoutToTemplate, templateToLayout, nextTarget,
+  type CatalogField, type Cell, type LastPlacement, type LayoutDiff, type ProjectCatalog, type TableLayout,
 } from '../../lib/tableLayout';
 import {
   paintHeader, clearHeaderCell, readColumnValues, writeColumnValues, clearColumnValues,
@@ -43,6 +43,11 @@ export function useTableLayout(opts: {
 }) {
   const { projectId, getSheet, getCursor, say, onChanged } = opts;
 
+  // Экран пересоздаёт эти замыкания каждым рендером. Держим их в ссылке, иначе
+  // опрос выделения ниже перезаводил бы таймер по десять раз в секунду
+  const cursorRef = useRef(getCursor);
+  cursorRef.current = getCursor;
+
   const [layout, setLayout] = useState<TableLayout>(() => opts.initial || emptyLayout());
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
@@ -50,7 +55,31 @@ export function useTableLayout(opts: {
   const [diffOpen, setDiffOpen] = useState(false);
   const [diff, setDiff] = useState<LayoutDiff | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cursor, setCursor] = useState<{ row: number; col: number } | null>(null);
   const collected = useRef<Collected>({ keys: [], written: [] });
+
+  /**
+   * Где сейчас курсор — в состоянии, а не по требованию.
+   *
+   * Весь ход разметки в том, что человек тычет в ячейку и видит, куда встанет
+   * поле. Пока выделение только тянули по требованию, панель не могла его
+   * назвать и вечно просила «выделите ячейку» — даже когда ячейка выделена.
+   *
+   * Своей подписки у движка нет; опрашиваем тем же шагом 350 мс, которым экран
+   * уже опрашивает выделение для совместной работы, и только пока панель
+   * открыта: закрытая панель не повод будить движок трижды в секунду.
+   */
+  useEffect(() => {
+    if (!fieldsOpen) { setCursor(null); return; }
+    const tick = () => {
+      const now = cursorRef.current();
+      // Новый объект каждым тиком перерисовывал бы панель трижды в секунду
+      setCursor((prev) => (prev?.row === now?.row && prev?.col === now?.col ? prev : now));
+    };
+    tick();
+    const id = setInterval(tick, 350);
+    return () => clearInterval(id);
+  }, [fieldsOpen]);
 
   /** Правка разметки: и в состояние, и в документ — иначе потеряется при закрытии */
   const change = useCallback((next: TableLayout) => {
@@ -77,12 +106,16 @@ export function useTableLayout(opts: {
   }, []);
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
 
+  /** Прошлая привязка: откуда считать «человек не двигался» и куда расти. */
+  const last = useRef<LastPlacement | null>(null);
+
   /** Куда встанет поле: в выделенную ячейку, а не «куда-нибудь». */
-  const targetCol = useCallback((): { row: number; col: number } => {
-    const cur = getCursor();
-    if (cur) return cur;
-    return { row: layout.headerRow, col: nextFreeColumn(layout) };
-  }, [getCursor, layout]);
+  const targetCol = useCallback((): Cell => nextTarget({
+    cursor: cursorRef.current(),
+    last: last.current,
+    headerRow: layout.headerRow,
+    fallbackCol: nextFreeColumn(layout),
+  }), [layout]);
 
   const pickField = useCallback((field: CatalogField) => {
     const at = targetCol();
@@ -91,6 +124,10 @@ export function useTableLayout(opts: {
     const base = layout.columns.length ? layout : { ...layout, headerRow: at.row };
     const next = bindColumn(base, at.col, field);
     change(next);
+    // Якорь — курсор человека, а не та клетка, куда легло поле: от нажатия
+    // кнопки в панели курсор на листе не двигается, поэтому он же и останется
+    // якорем всей цепочки, пока человек не ткнёт в лист сам
+    last.current = { anchor: cursorRef.current() || at, placed: at };
     const ws = getSheet();
     if (ws) paintHeader(ws, { ...next, columns: [{ ...field, col: at.col }] }, false);
   }, [targetCol, layout, change, getSheet]);
@@ -108,6 +145,7 @@ export function useTableLayout(opts: {
     const ws = getSheet();
     if (ws) for (const c of layout.columns) clearHeaderCell(ws, layout.headerRow, c.col);
     change({ ...emptyLayout(grain, layout.headerRow) });
+    last.current = null;
   }, [layout, getSheet, change]);
 
   const clearLayout = useCallback(() => {
@@ -115,6 +153,7 @@ export function useTableLayout(opts: {
     if (ws) for (const c of layout.columns) clearHeaderCell(ws, layout.headerRow, c.col);
     change(emptyLayout(layout.grain, layout.headerRow));
     collected.current = { keys: [], written: [] };
+    last.current = null;
     setDiff(null);
   }, [layout, getSheet, change]);
 
@@ -240,6 +279,14 @@ export function useTableLayout(opts: {
     change(next);
     if (ws) paintHeader(ws, next, false);
     collected.current = { keys: [], written: [] };
+    // Шаблон занял столбцы сам: следующее поле должно встать правее последнего,
+    // а не поверх того, на чём стоял курсор до применения
+    last.current = next.columns.length
+      ? (() => {
+          const right = { row: next.headerRow, col: Math.max(...next.columns.map((c) => c.col)) };
+          return { anchor: getCursor() || right, placed: right };
+        })()
+      : null;
     say(`Шаблон «${t.name}» разложен — нажмите «Собрать»`, 'success');
   }, [templates, getSheet, getCursor, layout, change, say]);
 
@@ -248,8 +295,18 @@ export function useTableLayout(opts: {
     loadTemplates();
   }, [loadTemplates]);
 
+  // Панель показывает не сырое выделение, а ту ячейку, куда поле встанет на
+  // самом деле: после привязки это уже соседняя клетка, и обещать человеку
+  // прежний адрес было бы прямым обманом
+  const target = fieldsOpen ? nextTarget({
+    cursor,
+    last: last.current,
+    headerRow: layout.headerRow,
+    fallbackCol: nextFreeColumn(layout),
+  }) : null;
+
   return {
-    layout, catalog, templates, diff, busy,
+    layout, catalog, templates, diff, busy, cursor: target,
     fieldsOpen, setFieldsOpen, diffOpen, setDiffOpen,
     pickField, dropField, setGrain, clearLayout, collect, applyFresh, keepMine,
     saveTemplate, applyTemplate, deleteTemplate,

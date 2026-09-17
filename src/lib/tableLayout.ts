@@ -196,6 +196,70 @@ export function headerText(field: FieldRef): string {
   return tail && norm(tail) === norm(unit) ? name : `${name}, ${unit}`;
 }
 
+/** Ячейка листа. */
+export interface Cell { row: number; col: number }
+
+/**
+ * Прошлая привязка: где стоял курсор человека и куда легло поле.
+ *
+ * Хранятся обе, и это не избыточность. Курсор на листе от нажатия кнопки в
+ * панели не двигается: он так и остаётся там, куда человек ткнул мышью.
+ * Поэтому «двигался ли человек» проверяется по `anchor`, а расти разметка
+ * должна от `placed` — иначе третье поле по счёту снова легло бы в первую
+ * ячейку.
+ */
+export interface LastPlacement { anchor: Cell; placed: Cell }
+
+const sameCell = (a: Cell | null, b: Cell | null) => !!a && !!b && a.row === b.row && a.col === b.col;
+
+/**
+ * Куда встанет следующее поле.
+ *
+ * Правило родилось из живой проверки. Человек выделяет ячейку, нажимает поле,
+ * нажимает второе — и второе ложится в ту же ячейку поверх первого. Разметка
+ * из трёх полей давала один столбец, и ничего об этом не говорило.
+ *
+ * Поэтому: пока человек не трогал лист, каждое следующее поле встаёт правее
+ * предыдущего. Тронул — слушаемся его, куда бы он ни ткнул, в том числе если
+ * он вернулся на занятый столбец и хочет заменить в нём поле.
+ *
+ * `fallbackCol` передаётся снаружи (это `nextFreeColumn` из tableBlock): здесь
+ * правила, там геометрия листа, и ссылаться друг на друга по кругу им нельзя.
+ */
+export function nextTarget(opts: {
+  cursor: Cell | null;
+  last: LastPlacement | null;
+  headerRow: number;
+  fallbackCol: number;
+}): Cell {
+  const { cursor, last, headerRow, fallbackCol } = opts;
+  if (last && sameCell(cursor, last.anchor)) {
+    return { row: last.placed.row, col: last.placed.col + 1 };
+  }
+  if (cursor) return cursor;
+  return { row: headerRow, col: fallbackCol };
+}
+
+/**
+ * Адрес ячейки так, как его пишут в таблицах: A1, B1, AA7.
+ *
+ * Панель полей должна называть ячейку, в которую встанет поле, — иначе весь
+ * ход «выделил ячейку → выбрал поле» остаётся на веру. Номер столбца тут не
+ * годится: человек видит на листе буквы, а не «столбец 27». Поэтому счёт
+ * двадцатишестеричный и с оговоркой — разряды идут без нуля (Z, потом AA), и
+ * наивное деление даёт «A@» вместо «Z».
+ */
+export function cellAddress(row: number, col: number): string {
+  if (!Number.isFinite(row) || !Number.isFinite(col) || row < 0 || col < 0) return '';
+  let n = Math.floor(col);
+  let letters = '';
+  do {
+    letters = String.fromCharCode(65 + (n % 26)) + letters;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `${letters}${Math.floor(row) + 1}`;
+}
+
 /**
  * Вид размеченной ячейки — «чип».
  *
@@ -206,10 +270,13 @@ export function headerText(field: FieldRef): string {
  */
 export const CHIP = {
   /** Подложка размеченного, но ещё не собранного столбца */
-  pending: '#ECFDF5',
+  pending: '#D1FAE5',
+  /** Буквы заготовки: зелёные — видно, что столбец ждёт сборки */
+  pendingInk: '#047857',
   /** Подложка шапки собранного столбца */
   collected: '#F1F5F9',
-  border: '#CBD5E1',
+  /** Буквы готовой шапки — обычные тёмные */
+  collectedInk: '#1E293B',
 } as const;
 
 // ── Расхождения с проектом ───────────────────────────────────────────────────

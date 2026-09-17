@@ -12,7 +12,7 @@
 import {
   GRAINS, grainById, emptyLayout, bindColumn, unbindColumn, columnAt, headerText,
   diffLayout, layoutToTemplate, templateToLayout, readTemplateBody, whyNotSaveTemplate,
-  catalogFields, searchFields, bySection, asArray,
+  catalogFields, searchFields, bySection, asArray, cellAddress, nextTarget,
   type LayoutColumn,
 } from '../src/lib/tableLayout';
 import {
@@ -274,6 +274,60 @@ console.log('\n6. Геометрия на листе: пропущенные с�
 
   ok('следующее поле встаёт правее последнего', nextFreeColumn(l) === 6, nextFreeColumn(l));
   ok('на пустой разметке — первый столбец', nextFreeColumn(emptyLayout()) === 0);
+}
+
+console.log('\n6.1. Куда встанет следующее поле');
+{
+  // Курсор человека сильнее всего: он показал, куда хочет
+  ok('выделенная ячейка — туда и встанет',
+    JSON.stringify(nextTarget({ cursor: { row: 2, col: 4 }, last: null, headerRow: 0, fallbackCol: 0 }))
+      === JSON.stringify({ row: 2, col: 4 }));
+
+  // Вот ради чего правило: три поля подряд ложились в одну ячейку, потому что
+  // от нажатия кнопки в панели курсор на листе не двигается. Якорь — та самая
+  // неподвижная ячейка человека, а расти разметка должна от последней занятой
+  const anchor = { row: 2, col: 4 };
+  const second = nextTarget({ cursor: anchor, last: { anchor, placed: anchor }, headerRow: 0, fallbackCol: 0 });
+  ok('второе поле встаёт правее', JSON.stringify(second) === JSON.stringify({ row: 2, col: 5 }), second);
+
+  const third = nextTarget({ cursor: anchor, last: { anchor, placed: second }, headerRow: 0, fallbackCol: 0 });
+  ok('и третье — ещё правее, а не обратно в первую',
+    JSON.stringify(third) === JSON.stringify({ row: 2, col: 6 }), third);
+
+  const fourth = nextTarget({ cursor: anchor, last: { anchor, placed: third }, headerRow: 0, fallbackCol: 0 });
+  ok('цепочка не обрывается', JSON.stringify(fourth) === JSON.stringify({ row: 2, col: 7 }), fourth);
+
+  // А если человек сам ткнул в другую клетку — слушаемся его, даже если она
+  // левее и занята: это осознанная замена поля в столбце
+  ok('человек ткнул в другую ячейку — слушаемся',
+    JSON.stringify(nextTarget({ cursor: { row: 2, col: 1 }, last: { anchor, placed: third }, headerRow: 0, fallbackCol: 9 }))
+      === JSON.stringify({ row: 2, col: 1 }));
+  ok('другая строка — тоже слушаемся',
+    JSON.stringify(nextTarget({ cursor: { row: 5, col: 4 }, last: { anchor, placed: third }, headerRow: 0, fallbackCol: 9 }))
+      === JSON.stringify({ row: 5, col: 4 }));
+
+  ok('выделения нет — встаём в свободный столбец шапки',
+    JSON.stringify(nextTarget({ cursor: null, last: null, headerRow: 3, fallbackCol: 7 }))
+      === JSON.stringify({ row: 3, col: 7 }));
+}
+
+console.log('\n7. Адрес ячейки — тот же, что человек видит на листе');
+{
+  ok('первая ячейка — A1', cellAddress(0, 0) === 'A1', cellAddress(0, 0));
+  ok('строки считаются с единицы', cellAddress(4, 1) === 'B5', cellAddress(4, 1));
+
+  // Разряды идут без нуля: после Z сразу AA. Наивное деление даёт «A@» —
+  // и панель называла бы человеку ячейку, которой на листе нет
+  ok('двадцать шестой столбец — Z', cellAddress(0, 25) === 'Z1', cellAddress(0, 25));
+  ok('двадцать седьмой — AA, а не A@', cellAddress(0, 26) === 'AA1', cellAddress(0, 26));
+  ok('пятьдесят второй — AZ', cellAddress(0, 51) === 'AZ1', cellAddress(0, 51));
+  ok('пятьдесят третий — BA', cellAddress(0, 52) === 'BA1', cellAddress(0, 52));
+  ok('семьсот второй — ZZ', cellAddress(0, 701) === 'ZZ1', cellAddress(0, 701));
+  ok('семьсот третий — AAA', cellAddress(0, 702) === 'AAA1', cellAddress(0, 702));
+
+  // Отрицательное и нечисловое приходит от движка на закрытом листе
+  ok('отрицательный столбец адреса не даёт', cellAddress(0, -1) === '');
+  ok('нечисловое адреса не даёт', cellAddress(NaN, 0) === '' && cellAddress(0, NaN) === '');
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

@@ -15,20 +15,20 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, X, Trash2, Save, FolderOpen } from 'lucide-react';
+import { Search, X, Trash2, Save, FolderOpen, Check, MousePointerClick } from 'lucide-react';
 import {
-  GRAINS, catalogFields, searchFields, bySection, headerText,
+  GRAINS, catalogFields, searchFields, bySection, headerText, cellAddress,
   type CatalogField, type ProjectCatalog, type TableLayout,
 } from '../../lib/tableLayout';
 
 export default function FieldsPanel({
-  catalog, layout, activeCol, onPick, onDrop, onGrain, onClose, templates,
+  catalog, layout, cursor, onPick, onDrop, onGrain, onClose, templates,
   onSaveTemplate, onApplyTemplate, onDeleteTemplate,
 }: {
   catalog: ProjectCatalog | null;
   layout: TableLayout;
-  /** Куда встанет выбранное поле. Пусто — человек ещё не выбрал ячейку */
-  activeCol: number | null;
+  /** Выделенная на листе ячейка — туда встанет поле. Пусто — ещё не выбрали */
+  cursor: { row: number; col: number } | null;
   onPick: (field: CatalogField) => void;
   onDrop: (col: number) => void;
   onGrain: (grain: string) => void;
@@ -51,46 +51,68 @@ export default function FieldsPanel({
   useEffect(() => { setQuery(''); }, [layout.grain]);
 
   const picked = new Set(layout.columns.map((c) => c.path));
+  const at = cursor ? cellAddress(cursor.row, cursor.col) : '';
 
   return (
-    <aside className="w-72 shrink-0 border-l border-slate-200 dark:border-dark-border bg-white
+    <aside className="w-80 shrink-0 border-l border-slate-200 dark:border-dark-border bg-white
                       dark:bg-dark-surface flex flex-col" aria-label="Поля проекта">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-dark-border">
+      <div className="flex items-center gap-2 px-3 h-11 border-b border-slate-200 dark:border-dark-border">
         <span className="text-sm font-bold text-slate-800 dark:text-slate-100">Поля проекта</span>
         <span className="flex-1" />
         <button type="button" onClick={onClose} aria-label="Закрыть"
-          className="w-6 h-6 rounded flex items-center justify-center cursor-pointer text-slate-400
-                     hover:bg-slate-100 dark:hover:bg-slate-850">
+          className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer text-slate-400
+                     hover:bg-slate-100 dark:hover:bg-slate-850 hover:text-slate-600">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
+      {/* Куда встанет поле. Это и есть весь ход разметки, поэтому строка стоит
+          первой и называет ячейку так, как человек видит её на листе */}
+      <div className={`px-3 py-2 flex items-center gap-2 border-b text-2xs ${
+        at
+          ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200'
+          : 'border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400'
+      }`}>
+        <MousePointerClick className="w-3.5 h-3.5 shrink-0" />
+        {at ? (
+          <span>Поле встанет в <span className="font-bold font-mono">{at}</span></span>
+        ) : (
+          <span>Выделите ячейку шапки на листе</span>
+        )}
+      </div>
+
       {/* Что считать строкой. От этого зависит весь список ниже, поэтому выбор
           стоит наверху, а не прячется в настройках */}
-      <div className="px-3 py-2 border-b border-slate-200 dark:border-dark-border flex gap-1">
-        {GRAINS.map((g) => (
-          <button key={g.id} type="button" onClick={() => onGrain(g.id)}
-            className={`px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer ${
-              layout.grain === g.id
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-            }`}>
-            {g.label}
-          </button>
-        ))}
+      <div className="px-3 py-2 border-b border-slate-200 dark:border-dark-border">
+        <div className="flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900">
+          {GRAINS.map((g) => (
+            <button key={g.id} type="button" onClick={() => onGrain(g.id)}
+              className={`flex-1 px-2 py-1 rounded-md text-2xs font-semibold cursor-pointer transition-colors ${
+                layout.grain === g.id
+                  ? 'bg-white dark:bg-slate-750 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}>
+              {g.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Что уже размечено: отсюда поле и снимается, без похода на лист */}
       {layout.columns.length > 0 && (
         <div className="px-3 py-2 border-b border-slate-200 dark:border-dark-border">
-          <div className="text-2xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+          <div className="text-2xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
             В шапке — {layout.columns.length}
           </div>
           <div className="flex flex-wrap gap-1">
             {layout.columns.map((c) => (
               <span key={c.col}
-                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-emerald-50
-                           dark:bg-emerald-950 text-2xs text-emerald-800 dark:text-emerald-200">
+                className="inline-flex items-center gap-1 pl-2 pr-0.5 py-0.5 rounded-md border
+                           border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950
+                           text-2xs text-emerald-800 dark:text-emerald-200">
+                <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                  {cellAddress(layout.headerRow, c.col)}
+                </span>
                 {headerText(c)}
                 <button type="button" onClick={() => onDrop(c.col)} aria-label={`Убрать ${c.title}`}
                   className="w-4 h-4 rounded flex items-center justify-center cursor-pointer
@@ -105,18 +127,13 @@ export default function FieldsPanel({
 
       <div className="px-3 py-2 border-b border-slate-200 dark:border-dark-border">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Найти поле"
-            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800
-                       rounded-lg pl-7 pr-2 py-1.5 text-xs text-slate-800 dark:text-slate-150 outline-none
-                       focus:border-emerald-400" />
+            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800
+                       rounded-lg pl-8 pr-2 py-1.5 text-xs text-slate-800 dark:text-slate-150 outline-none
+                       focus:bg-white dark:focus:bg-slate-950 focus:border-emerald-400" />
         </div>
-        <p className="mt-1.5 text-2xs text-slate-500 dark:text-slate-400">
-          {activeCol === null
-            ? 'Выделите ячейку шапки на листе, потом нажмите поле'
-            : 'Нажмите поле — оно встанет в выделенную ячейку'}
-        </p>
       </div>
 
       <div className="flex-1 overflow-auto scrollbar-thin">
@@ -127,26 +144,36 @@ export default function FieldsPanel({
         )}
         {found.map((group) => (
           <div key={group.section}>
-            <div className="px-3 py-1 text-2xs font-bold uppercase tracking-wide text-slate-400
-                            dark:text-slate-500 bg-slate-50 dark:bg-slate-900 sticky top-0">
+            <div className="px-3 py-1.5 text-2xs font-bold uppercase tracking-wide text-slate-400
+                            dark:text-slate-500 bg-slate-50 dark:bg-slate-900 border-y border-slate-100
+                            dark:border-slate-850 sticky top-0 z-10">
               {group.section}
             </div>
             {group.fields.map((f) => (
               <button key={f.path} type="button" onClick={() => onPick(f)}
                 title={f.sample ? `Например: ${f.sample}` : undefined}
-                className={`w-full text-left px-3 py-1.5 cursor-pointer flex items-baseline gap-2
-                            hover:bg-slate-50 dark:hover:bg-slate-850 ${
-                  picked.has(f.path) ? 'bg-emerald-50/60 dark:bg-emerald-950/40' : ''}`}>
-                <span className="text-xs text-slate-800 dark:text-slate-150 truncate">{f.title}</span>
-                {f.unit && <span className="text-2xs text-slate-400 shrink-0">{f.unit}</span>}
-                <span className="flex-1" />
+                className={`w-full text-left pr-3 py-1.5 cursor-pointer grid items-baseline gap-x-2
+                            grid-cols-[1fr_auto] border-l-2 hover:bg-slate-50 dark:hover:bg-slate-850 ${
+                  picked.has(f.path)
+                    ? 'pl-2.5 border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40'
+                    : 'pl-3 border-transparent'}`}>
+                <span className="flex items-baseline gap-1.5 min-w-0">
+                  {/* Уже размеченное поле должно быть видно сразу: иначе его
+                      выбирают второй раз и удивляются двум одинаковым столбцам */}
+                  {picked.has(f.path) && <Check className="w-3 h-3 shrink-0 text-emerald-600 self-center" />}
+                  <span className="text-xs text-slate-800 dark:text-slate-150 truncate">{f.title}</span>
+                  {f.unit && (
+                    <span className="shrink-0 px-1 rounded bg-slate-100 dark:bg-slate-900 text-2xs text-slate-500">
+                      {f.unit}
+                    </span>
+                  )}
+                </span>
                 {/* Заполненность важнее названия: поле, которого нет ни у кого,
                     в таблице даст пустой столбец, и лучше это знать заранее */}
-                {f.filled !== undefined && (
-                  <span className={`text-2xs shrink-0 ${f.filled ? 'text-slate-400' : 'text-amber-600'}`}>
-                    {f.filled ? `есть у ${f.filled}` : 'пусто'}
-                  </span>
-                )}
+                <span className={`text-2xs text-right tabular-nums ${
+                  f.filled === undefined ? '' : f.filled ? 'text-slate-400' : 'text-amber-600 font-semibold'}`}>
+                  {f.filled === undefined ? '' : f.filled ? `есть у ${f.filled}` : 'пусто'}
+                </span>
               </button>
             ))}
           </div>
