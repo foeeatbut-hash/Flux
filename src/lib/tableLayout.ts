@@ -42,6 +42,90 @@ export const GRAINS: Grain[] = [
 
 export const grainById = (id: string): Grain => GRAINS.find(g => g.id === id) || GRAINS[0];
 
+// ── Каталог полей проекта ────────────────────────────────────────────────────
+
+/** Поле в списке выбора: к самому полю добавлено то, что помогает выбрать. */
+export interface CatalogField extends FieldRef {
+  /** Раздел списка: «Тег», «Характеристики», «Свои поля», «Метаданные» */
+  section: string;
+  /** У скольких строк проекта это поле заполнено. Ноль — поле пустое */
+  filled?: number;
+  /** Образец значения из проекта: по нему узнают поле вернее, чем по названию */
+  sample?: string;
+}
+
+/** То, что отдаёт `GET /api/constructor/catalog`. */
+export interface ProjectCatalog {
+  counts?: { tags: number; elements: number };
+  tagFields?: { path: string; title: string }[];
+  elementFields?: { path: string; title: string }[];
+  params?: { group: string; key: string; unit: string; count: number; sample: string }[];
+  metaKeys?: { path: string; key: string; count: number }[];
+  aliases?: { path: string; title: string; unit: string; members: string[]; count: number }[];
+}
+
+/**
+ * Все поля проекта одним списком.
+ *
+ * «Собрать можно каждое значение» держится именно здесь: постоянные поля
+ * объявлены, а характеристики НЕ объявлены — они берутся из бланков проекта.
+ * Поэтому список в разных проектах разный, и это правильно: в одном есть
+ * «Расход воздуха», в другом «Расход теплоносителя», и придумывать общий
+ * словарь на все случаи означало бы либо потерять половину, либо показать
+ * сотню полей, которых в этом проекте нет.
+ *
+ * Свои поля (объединённые) идут первыми: их завёл человек, значит они ему
+ * нужнее наших.
+ */
+export function catalogFields(catalog: ProjectCatalog | null, grain: string): CatalogField[] {
+  if (!catalog) return [];
+  const g = grainById(grain);
+  const own: CatalogField[] = (catalog.aliases || []).map((a) => ({
+    path: a.path, title: a.title, unit: a.unit || '',
+    section: 'Свои поля', filled: a.count,
+  }));
+  const base: CatalogField[] = (catalog[g.fieldsKey] || []).map((f) => ({
+    path: f.path, title: f.title, section: g.one,
+  }));
+  const meta: CatalogField[] = grain === 'tag'
+    ? (catalog.metaKeys || []).map((m) => ({
+      path: m.path, title: m.key, section: 'Метаданные', filled: m.count,
+    }))
+    : [];
+  const params: CatalogField[] = (catalog.params || []).map((p) => ({
+    path: `param:${p.group}|${p.key}`, title: p.key, unit: p.unit || '',
+    section: p.group || 'Характеристики', filled: p.count, sample: p.sample,
+  }));
+  return [...own, ...base, ...meta, ...params];
+}
+
+/**
+ * Отбор по строке поиска.
+ *
+ * Ищем и по названию, и по разделу: человек помнит «где-то в аэродинамике», а
+ * не точное слово. Регистр и лишние пробелы не важны.
+ */
+export function searchFields(fields: CatalogField[], query: string): CatalogField[] {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return fields;
+  return fields.filter((f) =>
+    f.title.toLowerCase().includes(q)
+    || f.section.toLowerCase().includes(q)
+    || String(f.unit || '').toLowerCase().includes(q));
+}
+
+/** Разложить по разделам, сохраняя порядок появления разделов. */
+export function bySection(fields: CatalogField[]): { section: string; fields: CatalogField[] }[] {
+  const out: { section: string; fields: CatalogField[] }[] = [];
+  const at = new Map<string, CatalogField[]>();
+  for (const f of fields) {
+    let bucket = at.get(f.section);
+    if (!bucket) { bucket = []; at.set(f.section, bucket); out.push({ section: f.section, fields: bucket }); }
+    bucket.push(f);
+  }
+  return out;
+}
+
 // ── Разметка ─────────────────────────────────────────────────────────────────
 
 /** Поле проекта так, как его выбрали: путь для сервера и подпись для человека. */

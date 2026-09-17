@@ -29,6 +29,7 @@ import { computeMachineId, licenseStatus, activateLicense } from './electron/lic
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
+import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
@@ -2857,6 +2858,7 @@ registerMailComposeRoutes(app, { userDataPath });
 registerMailLinkRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
+registerTableTemplateRoutes(app);
 registerVdrRoutes(app);
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах

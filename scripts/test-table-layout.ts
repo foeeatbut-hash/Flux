@@ -12,6 +12,7 @@
 import {
   GRAINS, grainById, emptyLayout, bindColumn, unbindColumn, columnAt, headerText,
   diffLayout, layoutToTemplate, templateToLayout, readTemplateBody, whyNotSaveTemplate,
+  catalogFields, searchFields, bySection,
   type LayoutColumn,
 } from '../src/lib/tableLayout';
 import {
@@ -168,6 +169,45 @@ console.log('\n5. Шаблон шапки');
   ok('без имени не сохраняем', !!whyNotSaveTemplate('', l));
   ok('пустую шапку не сохраняем', !!whyNotSaveTemplate('Ведомость', emptyLayout()));
   ok('названную и заполненную — сохраняем', whyNotSaveTemplate('Ведомость автоматики', l) === '');
+}
+
+console.log('\n5.1. Каталог: собрать можно каждое значение проекта');
+{
+  const catalog = {
+    counts: { tags: 41, elements: 120 },
+    tagFields: [{ path: 'identifier', title: 'Тег' }, { path: 'brand', title: 'Марка' }],
+    elementFields: [{ path: 'itemCode', title: 'Код позиции' }],
+    // Характеристики НЕ объявлены в программе — они пришли из бланков проекта
+    params: [
+      { group: 'Аэродинамика', key: 'Расход воздуха', unit: 'м³/ч', count: 38, sample: '23150' },
+      { group: 'Электрика', key: 'Мощность', unit: 'кВт', count: 12, sample: '22' },
+    ],
+    metaKeys: [{ path: 'meta:зона', key: 'зона', count: 9 }],
+    aliases: [{ path: 'param:@Расход', title: 'Расход', unit: 'м³/ч', members: [], count: 40 }],
+  };
+
+  const forTag = catalogFields(catalog, 'tag');
+  ok('характеристики из бланков попали в список',
+    forTag.some(f => f.path === 'param:Аэродинамика|Расход воздуха'), forTag.map(f => f.path));
+  ok('и постоянные поля тоже', forTag.some(f => f.path === 'identifier'));
+  ok('своё поле идёт первым', forTag[0].section === 'Свои поля', forTag[0]);
+  ok('видно, у скольких заполнено',
+    forTag.find(f => f.path === 'param:Электрика|Мощность')?.filled === 12);
+  ok('и образец значения', forTag.find(f => f.path === 'param:Аэродинамика|Расход воздуха')?.sample === '23150');
+  ok('метаданные только у тегов', catalogFields(catalog, 'element').every(f => f.section !== 'Метаданные'));
+  ok('у позиции — свои постоянные поля',
+    catalogFields(catalog, 'element').some(f => f.path === 'itemCode'));
+
+  ok('поиск по названию', searchFields(forTag, 'мощн').length === 1);
+  ok('поиск по разделу находит всю группу',
+    searchFields(forTag, 'аэродинамика').some(f => f.path === 'param:Аэродинамика|Расход воздуха'));
+  ok('поиск по единице', searchFields(forTag, 'квт').length === 1);
+  ok('пустой запрос ничего не отсекает', searchFields(forTag, '  ').length === forTag.length);
+
+  const groups = bySection(forTag);
+  ok('разделы идут в порядке появления',
+    groups[0].section === 'Свои поля' && groups.some(g => g.section === 'Аэродинамика'), groups.map(g => g.section));
+  ok('пустой каталог не роняет', catalogFields(null, 'tag').length === 0);
 }
 
 console.log('\n6. Геометрия на листе: пропущенные столбцы принадлежат человеку');
