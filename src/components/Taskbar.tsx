@@ -188,7 +188,7 @@ export default function Taskbar() {
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {
         const st = useWindowStore.getState();
-        for (const w of windowsOf(st.windows, menu.path, st.desk)) st.close(w.id);
+        for (const w of windowsOf(st.windows, menu.path, st.desk)) void st.requestClose(w.id);
       },
     }] : []),
   ] : [];

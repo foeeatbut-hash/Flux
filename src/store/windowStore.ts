@@ -9,6 +9,7 @@
  * оболочку заводят ради того, чтобы вернуться к тем же окнам на тех же местах.
  */
 import { create } from 'zustand';
+import { mayClose } from '../lib/closeGuard';
 import { resolveSectionPath, resolveSectionHref } from '../lib/sectionAliases';
 import {
   initialRect, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
@@ -52,6 +53,8 @@ interface WindowState {
   setTitle: (id: string, title: string) => void;
   setPeeked: (id: string | null) => void;
   close: (id: string) => void;
+  /** Закрыть, спросив содержимое. false — раздел не дал (правка не сохранена) */
+  requestClose: (id: string) => Promise<boolean>;
   focus: (id: string) => void;
   /** Нажали кнопку раздела на панели: свернуть, если это верхнее окно */
   toggle: (path: string) => void;
@@ -178,6 +181,20 @@ export const useWindowStore = create<WindowState>((set, get) => {
       update((list) => list.filter((w) => w.id !== id));
       const { [id]: gone, ...rest } = get().titles;
       if (gone !== undefined) set({ titles: rest });
+    },
+
+    /**
+     * Закрыть, спросив содержимое.
+     *
+     * Крестик рамы, пункт панели задач и команда закрытия обязаны вести себя
+     * одинаково — раньше они шли разными путями, и только один из трёх писал
+     * документ. Раздел, которому есть что терять, ставит страж через
+     * src/lib/closeGuard.ts; для остальных это по-прежнему мгновенное закрытие.
+     */
+    requestClose: async (id) => {
+      if (!(await mayClose(id))) return false;
+      get().close(id);
+      return true;
     },
     focus: (id) => update((list) => raise(list.map((w) => (w.id === id ? { ...w, minimized: false } : w)), id)),
 
