@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit, isKnownUnit } from './normalize.js';
+import { looksLikeVezaXml, parseVezaXml } from './vezaXml.js';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam { key: string; value: string; unit: string; }
@@ -12,6 +13,11 @@ export interface EquipParseResult { units: ParsedUnit[]; }
 
 // Тип детали по её названию (для группировки и профилей видимости)
 const TYPE_RULES: { type: string; kw: string[] }[] = [
+  // «Блок воздухоприёмный (один горизонтальный клапан)» — это воздухоприёмный
+  // блок, а не клапан: клапан в нём стоит, но вид блока определяет не он.
+  // Поэтому слово стоит выше «клапана», а «панель» осталась ниже — «Передняя
+  // панель c клапаном» именно клапаном и является
+  { type: 'ВОЗДУХОПРИЁМНЫЙ', kw: ['воздухоприемн', 'воздухоприёмн'] },
   { type: 'КЛАПАН', kw: ['клапан'] },
   { type: 'ФИЛЬТР', kw: ['фильтр'] },
   { type: 'НАГРЕВАТЕЛЬ', kw: ['нагреват', 'нагрев', 'тэн', 'калорифер'] },
@@ -21,7 +27,7 @@ const TYPE_RULES: { type: string; kw: string[] }[] = [
   { type: 'РЕКУПЕРАТОР', kw: ['рекуператор', 'утилизат', 'теплоутил'] },
   { type: 'ШУМОГЛУШИТЕЛЬ', kw: ['шумоглуш', 'глушител'] },
   { type: 'КАМЕРА', kw: ['камера', 'промежуточн'] },
-  { type: 'ВОЗДУХОПРИЁМНЫЙ', kw: ['воздухоприемн', 'воздухоприёмн', 'приемн', 'панель', 'заслонк'] },
+  { type: 'ВОЗДУХОПРИЁМНЫЙ', kw: ['приемн', 'панель', 'заслонк'] },
   { type: 'ЗАВЕСА', kw: ['завеса'] },
   { type: 'СЕКЦИЯ', kw: ['секция'] },
 ];
@@ -499,6 +505,19 @@ function findSystems(node: any, acc: any[]): void {
 }
 
 export function parseEquipmentXML(xmlText: string): EquipParseResult {
+  // Выгрузка САПР устроена не как обычный XML (плоский словарь + отдельное
+  // дерево), и общий разбор ниже на ней не срабатывает вовсе: он ищет теги по
+  // именам, а там все теги называются «N<число>». Поэтому формат узнаётся
+  // первым, до всего остального.
+  if (looksLikeVezaXml(xmlText)) {
+    try {
+      const veza = parseVezaXml(xmlText, detectEquipType);
+      if (veza.units.length) return veza;
+    } catch (err) {
+      console.warn('[equipmentParser] выгрузка САПР не разобралась:', (err as any)?.message);
+    }
+  }
+
   try {
     const parser = new XMLParser({
       ignoreAttributes: false,

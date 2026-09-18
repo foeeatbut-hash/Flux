@@ -20,6 +20,7 @@ import { planTagLinks, normalizeTag } from '../server/equipmentTags';
 import {
   equipmentColumns, buildEquipmentExchange, byTag, type ExchangeComponent,
 } from '../src/lib/equipmentExchange';
+import { canDelete, deleteWarning, deletedNote, tagsOf } from '../src/lib/equipmentDelete';
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -183,6 +184,29 @@ console.log('\n§9. Величины, которые нельзя путать')
     unitInfo('квт')?.dim !== unitInfo('ква')?.dim);
   ok('Па и мм вод. ст. переводятся друг в друга',
     Math.abs((convert(1, 'мм вод ст', 'па') || 0) - 9.80665) < 1e-9);
+}
+
+console.log('\nУдаление позиции: что теряется, а что остаётся');
+{
+  const valve = { itemCode: 'бл2.1', name: 'КЕДР-С', tags: [{ identifier: '3700-D01-DS-002' }] };
+  ok('обычную позицию удалять можно', canDelete(valve));
+  // Служебные строки — не позиции: кнопка у них обещала бы то, чего не будет
+  ok('параметры установки — не позиция', !canDelete({ itemCode: '__unit__' }));
+  ok('общие параметры моноблока — не позиция', !canDelete({ itemCode: 'M1_общие' }));
+  ok('строка без кода не удаляется', !canDelete({ itemCode: '' }));
+
+  // Тег — адрес в проекте, на него ссылаются документы. Человек должен узнать,
+  // что тег останется, ДО нажатия, а не обнаружить свободный тег через неделю
+  ok('про один тег сказано в единственном числе',
+    deleteWarning(valve).includes('Тег 3700-D01-DS-002 останется'), deleteWarning(valve));
+  ok('про два — во множественном',
+    deleteWarning({ itemCode: 'x', tags: [{ identifier: 'A' }, { identifier: 'B' }] }).includes('Теги A, B останутся'));
+  ok('без тегов лишнего не обещаем',
+    !deleteWarning({ itemCode: 'x' }).includes('тег') && deleteWarning({ itemCode: 'x' }).includes('необратимо'));
+  ok('пустые теги не считаются',
+    tagsOf({ itemCode: 'x', tags: [{ identifier: '  ' }, { identifier: 'A' }] }).join() === 'A');
+  ok('после удаления сказано, сколько тегов освободилось',
+    deletedNote(valve) === 'Удалено; освобождено тегов: 1', deletedNote(valve));
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

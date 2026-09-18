@@ -41,6 +41,8 @@ interface Monoblock { id: string; name: string; components: Component[]; }
 interface SystemUnit { id: string; name: string; category: string; fileName?: string; monoblocks: Monoblock[]; }
 interface Category { id: string; label: string; composite?: boolean; }
 
+import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
+
 const api = (p: string) => `/api${p}`;
 
 // ── Нормализация specs к виду { groups: [...] } для любого сохранённого формата ──
@@ -414,6 +416,18 @@ export default function Equipment() {
     addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems();
   };
 
+  /** Убрать лишнюю позицию. Что предупредить и что сказать — в lib/equipmentDelete */
+  const deleteComponent = async (c: Component) => {
+    if (!await openConfirm(`Удалить «${blockLabel(c)}»?`, deleteWarning(c as any), { confirmLabel: 'Удалить', tone: 'danger' })) return;
+    try {
+      const res = await fetch(api(`/equipment/component/${c.id}`), { method: 'DELETE' });
+      if (!res.ok) throw new Error('отказ сервера');
+      if (selectedBlockId === c.id) setSelectedBlockId(null);
+      addToast(deletedNote(c as any), 'success');
+      loadSystems();
+    } catch (_) { addToast('Не удалось удалить позицию', 'error'); }
+  };
+
   const blockLabel = (c: Component) =>
     c.itemCode === '__unit__' ? 'Параметры установки'
     : c.itemCode.endsWith('_общие') ? 'Общие параметры моноблока'
@@ -550,13 +564,29 @@ export default function Equipment() {
                         <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
                       </button>
                     )}
+                    {/* Строка позиции и кнопка удаления — СОСЕДИ, а не вложенные
+                        друг в друга: кнопка внутри кнопки в этом проекте уже
+                        ловилась и засоряла журнал */}
                     {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
-                      <button type="button" key={c.id} onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
-                        className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                        <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
-                        {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
-                      </button>
+                      <div key={c.id} className="group flex items-center gap-0.5">
+                        <button type="button" onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
+                          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                          <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
+                          {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
+                        </button>
+                        {/* Служебные строки — параметры установки и общие
+                            параметры моноблока — не позиции, и удалять их
+                            отдельно нечего: они исчезнут вместе с узлом */}
+                        {canDelete(c as any) && (
+                          <button type="button" onClick={() => deleteComponent(c)}
+                            title={`Удалить «${blockLabel(c)}»`} aria-label={`Удалить ${blockLabel(c)}`}
+                            className="shrink-0 p-1 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100
+                                       focus-visible:opacity-100 hover:text-rose-500 cursor-pointer">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 );

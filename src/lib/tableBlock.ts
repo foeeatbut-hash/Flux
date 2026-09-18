@@ -25,6 +25,7 @@ export interface RangeLike {
   setFontWeight?: (v: string) => unknown;
   setBackgroundColor?: (v: string) => unknown;
   setHorizontalAlignment?: (v: string) => unknown;
+  setFontColor?: (v: string) => unknown;
 }
 
 /** Движок бросает на закрытом листе — ни одна правка вида не стоит падения. */
@@ -35,10 +36,15 @@ const quiet = <T,>(fn: () => T): T | null => {
 /**
  * Нарисовать шапку разметки.
  *
- * Пока не собрано — подложка мятная: видно, что место занято полем, но данных
- * ещё нет. После сборки — серая, как обычная шапка таблицы. Это единственное
- * отличие «заготовки» от готовой таблицы на вид, и большего не нужно: в Excel
- * уедет обычная ячейка с текстом, а не пустота с картинкой.
+ * Пока не собрано — подложка мятная и буквы зелёные: видно, что место занято
+ * полем, но данных ещё нет. После сборки — серая с тёмными буквами, как
+ * обычная шапка таблицы. Это единственное отличие «заготовки» от готовой
+ * таблицы на вид, и большего не нужно: в Excel уедет обычная ячейка с
+ * текстом, а не пустота с картинкой.
+ *
+ * Рамку не рисуем намеренно. Движок умеет её ставить, но только через свои
+ * перечисления, а тащить их сюда — значит привязать эти правила к движку
+ * таблиц ради одной линии. Цвет буквы отличает заготовку не хуже.
  */
 export function paintHeader(ws: SheetLike, layout: TableLayout, collected: boolean): void {
   for (const c of layout.columns) {
@@ -48,12 +54,13 @@ export function paintHeader(ws: SheetLike, layout: TableLayout, collected: boole
       r.setValue?.(headerText(c));
       r.setFontWeight?.('bold');
       r.setBackgroundColor?.(collected ? CHIP.collected : CHIP.pending);
+      r.setFontColor?.(collected ? CHIP.collectedInk : CHIP.pendingInk);
       r.setHorizontalAlignment?.('center');
     });
   }
 }
 
-/** Убрать поле из шапки: и текст, и подложку — иначе останется призрак. */
+/** Убрать поле из шапки: текст, подложку и цвет — иначе останется призрак. */
 export function clearHeaderCell(ws: SheetLike, headerRow: number, col: number): void {
   quiet(() => {
     const r = ws.getRange(headerRow, col, 1, 1);
@@ -61,6 +68,7 @@ export function clearHeaderCell(ws: SheetLike, headerRow: number, col: number): 
     r.setValue?.('');
     r.setFontWeight?.('normal');
     r.setBackgroundColor?.('');
+    r.setFontColor?.(CHIP.collectedInk);
   });
 }
 

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, onDatabaseSwapped, sendError } from '../context.js';
 import { ensureTables, type TableSpec } from '../ddl.js';
-import { readTemplateBody, whyNotSaveTemplate } from '../../src/lib/tableLayout.js';
+import { asArray as safeArray, readTemplateBody, whyNotSaveTemplate } from '../../src/lib/tableLayout.js';
 
 /**
  * Шаблоны шапки таблицы.
@@ -67,13 +67,6 @@ function toTemplate(row: any) {
     ...body,
     updatedAt: row.updatedAt,
   };
-}
-
-function safeArray(raw: unknown): unknown[] {
-  try {
-    const parsed = JSON.parse(String(raw || '[]'));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) { return []; }
 }
 
 export function registerTableTemplateRoutes(app: Express): void {
