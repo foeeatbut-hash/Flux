@@ -13,6 +13,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { makeLatest } from '../lib/latest';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
 import { useInsightStore } from '../store/insightStore';
@@ -57,6 +58,9 @@ const KIND_LABEL: Record<Hit['kind'], string> = {
   file: 'Файл',
   vdr: 'ВДР',
 };
+
+/** Номер последнего поиска: по нему отбрасываются запоздавшие ответы (F20) */
+const searches = makeLatest();
 
 export default function Dashboard() {
   const { user, activeProject, setActiveProject } = useStore();
@@ -165,9 +169,17 @@ export default function Dashboard() {
   const [remote, setRemote] = useState<SearchHit[]>([]);
   useEffect(() => {
     const text = query.trim();
-    if (text.length < 2) { setRemote([]); return; }
+    const projectId = activeProject?.id;
+    // Гашение таймера отменяет ещё НЕ отправленный запрос. Отправленный так не
+    // отменить: ответ по «кла» мог прийти после ответа по «клапан» и заменить
+    // собой актуальные находки. Поэтому каждый запрос пронумерован, и поздний
+    // ответ узнаётся по номеру и по проекту
+    if (text.length < 2) { searches.cancel(); setRemote([]); return; }
+    const token = searches.next();
     const t = setTimeout(() => {
-      fetchSearch(text, activeProject?.id).then(setRemote).catch(() => setRemote([]));
+      fetchSearch(text, projectId)
+        .then((hits) => { if (searches.isCurrent(token)) setRemote(hits); })
+        .catch(() => { if (searches.isCurrent(token)) setRemote([]); });
     }, 220);
     return () => clearTimeout(t);
   }, [query, activeProject?.id]);

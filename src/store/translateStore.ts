@@ -11,6 +11,7 @@
  * тысяче строк.
  */
 import { create } from 'zustand';
+import { makeLatest, stillWanted } from '../lib/latest';
 import type { Lang, Segment, TermPair, TmEntry } from '../translate/types';
 import { buildIndex, type TermIndex } from '../translate/glossary';
 import { buildTm, EMPTY_TM, type TmIndex } from '../translate/tm';
@@ -52,6 +53,14 @@ const PACK_KEY = 'flux_translate_pack';
  */
 export type PackState = 'idle' | 'loading' | 'ready' | 'off' | 'none';
 
+/**
+ * Чем закончилась запись в память.
+ *
+ * `count: 0` при `ok: true` — это «ничего нового, всё уже там». `ok: false` —
+ * не сохранилось. Раньше оба случая были нулём, и второй выдавался за первый.
+ */
+export interface RememberResult { ok: boolean; count: number; error?: string }
+
 const loadPackOn = (): boolean => {
   try {
     return typeof localStorage === 'undefined' ? true : localStorage.getItem(PACK_KEY) !== '0';
@@ -73,6 +82,8 @@ interface TranslateState {
   ready: boolean;
   loading: boolean;
   projectId: string;
+  /** Какой проект спрашивали последним: по нему отбрасываются поздние ответы */
+  wantedProjectId: string;
   terms: TermRow[];
   memory: MemoryRow[];
   model: ModelSettings;
@@ -102,10 +113,10 @@ interface TranslateState {
   many: (text: string, from: Lang, to: Lang) => Segment[];
   /** Спросить локальный движок; null, если он не подключён или не ответил */
   viaModel: (texts: string[], from: Lang, to: Lang) => Promise<string[] | null>;
-  remember: (units: { src: string; dst: string; from: Lang; to: Lang; docId?: string }[]) => Promise<number>;
+  remember: (units: { src: string; dst: string; from: Lang; to: Lang; docId?: string }[]) => Promise<RememberResult>;
   saveTerm: (t: Partial<TermRow>) => Promise<TermRow | null>;
-  removeTerm: (id: string) => Promise<void>;
-  removeMemory: (id: string) => Promise<void>;
+  removeTerm: (id: string) => Promise<RememberResult>;
+  removeMemory: (id: string) => Promise<RememberResult>;
   seed: () => Promise<{ added: number }>;
 }
 
@@ -149,10 +160,14 @@ async function pullPack(set: any, get: () => TranslateState): Promise<void> {
   });
 }
 
+/** Номер последней загрузки словаря: по нему узнаются запоздавшие ответы */
+const loads = makeLatest();
+
 export const useTranslateStore = create<TranslateState>((set, get) => ({
   ready: false,
   loading: false,
   projectId: '',
+  wantedProjectId: '',
   terms: [],
   memory: [],
   model: loadModel(),
@@ -172,11 +187,23 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
 
   setPending: (text) => set({ pending: String(text || '') }),
 
+  /**
+   * Прочитать словарь проекта.
+   *
+   * Было: `if (st.loading) return` — то есть переключение на проект B, пока
+   * ответы по A ещё в пути, ПРОСТО НЕ ПРОИСХОДИЛО. Ответ A записывал свой
+   * projectId и словари, второй загрузки не было, и человек на экране проекта
+   * B работал со словарём A. Хуже: `remember` берёт projectId отсюда же, и
+   * следующая запомненная строка уходила в чужой проект.
+   *
+   * Стало: загрузка не отменяется, а нумеруется. Запоздавший ответ узнаётся по
+   * номеру и по имени проекта и отбрасывается целиком.
+   */
   load: async (projectId, force) => {
     const st = get();
-    if (st.loading) return;
-    if (st.ready && st.projectId === projectId && !force) return;
-    set({ loading: true });
+    if (st.ready && st.projectId === projectId && !force && !st.loading) return;
+    const token = loads.next();
+    set({ loading: true, wantedProjectId: projectId });
     try {
       const [tRes, mRes] = await Promise.all([
         fetch(`/api/translate/terms?projectId=${encodeURIComponent(projectId)}`),
@@ -200,11 +227,15 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
       for (const m of memory) {
         both.push({ ...m, id: `${m.id}~`, src: m.dst, dst: m.src, fromLang: m.toLang, toLang: m.fromLang });
       }
+      // Пришёл ответ не на последний вопрос — выбрасываем целиком: человек
+      // уже смотрит на другой проект, и подставлять ему чужой словарь нельзя
+      if (!stillWanted({ latest: loads, token, asked: projectId, wanted: get().wantedProjectId })) return;
       set({ terms, memory, projectId, ready: true, loading: false, ...buildAll(terms, both) });
     } catch (_) {
-      set({ loading: false, ready: true });
+      if (loads.isCurrent(token)) set({ loading: false, ready: true });
     }
     // Пакет читаем после словаря проекта: он младше и ждать себя не заставляет
+    if (!loads.isCurrent(token)) return;
     if (get().packOn) void pullPack(set, get);
     else set({ packState: 'off' });
   },
@@ -237,19 +268,33 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
     return askModel({ url: model.url, key: model.key }, texts, from, to);
   },
 
+  /**
+   * Запомнить пары в память переводов.
+   *
+   * Возвращает исход, а не голое число. Раньше и «ничего нового» и «сервер
+   * ответил 500» давали 0, и экран на оба случая говорил «Ничего нового — эти
+   * строки уже там». Человек уходил уверенный, что всё на месте, а работа не
+   * сохранилась вовсе.
+   */
   remember: async (units) => {
-    if (!units.length) return 0;
+    if (!units.length) return { ok: true, count: 0 };
+    // Проект берём ОДИН раз, до запроса: пока идёт запись, человек может
+    // переключить проект, и вторая половина работы ушла бы не туда
+    const projectId = get().projectId;
     try {
       const res = await fetch('/api/translate/memory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: get().projectId, units }),
+        body: JSON.stringify({ projectId, units }),
       });
-      if (!res.ok) return 0;
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        return { ok: false, count: 0, error: d?.error || `Сервер отказал (${res.status})` };
+      }
       const data = await res.json();
-      await get().load(get().projectId, true);
-      return (data.added || 0) + (data.updated || 0);
-    } catch (_) { return 0; }
+      await get().load(projectId, true);
+      return { ok: true, count: (data.added || 0) + (data.updated || 0) };
+    } catch (_) { return { ok: false, count: 0, error: 'Нет связи с сервером' }; }
   },
 
   saveTerm: async (t) => {
@@ -266,18 +311,24 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
     } catch (_) { return null; }
   },
 
+  // Отказ сервера при удалении раньше глотался, и строка исчезала с экрана,
+  // оставаясь в базе: при следующем открытии словаря она возвращалась
   removeTerm: async (id) => {
     try {
-      await fetch(`/api/translate/terms/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/translate/terms/${id}`, { method: 'DELETE' });
+      if (!res.ok) return { ok: false, count: 0, error: `Не удалось удалить (${res.status})` };
       await get().load(get().projectId, true);
-    } catch (_) { /* уже удалён */ }
+      return { ok: true, count: 1 };
+    } catch (_) { return { ok: false, count: 0, error: 'Нет связи с сервером' }; }
   },
 
   removeMemory: async (id) => {
     try {
-      await fetch(`/api/translate/memory/${id.replace(/~$/, '')}`, { method: 'DELETE' });
+      const res = await fetch(`/api/translate/memory/${id.replace(/~$/, '')}`, { method: 'DELETE' });
+      if (!res.ok) return { ok: false, count: 0, error: `Не удалось удалить (${res.status})` };
       await get().load(get().projectId, true);
-    } catch (_) { /* уже удалена */ }
+      return { ok: true, count: 1 };
+    } catch (_) { return { ok: false, count: 0, error: 'Нет связи с сервером' }; }
   },
 
   seed: async () => {

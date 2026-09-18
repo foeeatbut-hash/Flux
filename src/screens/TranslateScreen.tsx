@@ -110,8 +110,12 @@ export default function TranslateScreen() {
       .filter((r) => r.ok && r.src.trim() && r.dst.trim())
       .map((r) => ({ src: r.src.trim(), dst: r.dst.trim(), from: guessed, to: target }));
     if (!units.length) { addToast('Подтвердите строки, которые стоит запомнить', 'error'); return; }
-    const n = await store.remember(units);
-    addToast(n ? `В память легло строк: ${n}` : 'Ничего нового — эти строки уже там', n ? 'success' : 'info');
+    const r = await store.remember(units);
+    // Отказ сервера больше не выдаётся за «уже там»: это две разные новости, и
+    // вторая означает, что работа не сохранилась
+    if (!r.ok) { addToast(`${r.error || 'Не удалось запомнить'} — повторите`, 'error'); return; }
+    addToast(r.count ? `В память легло строк: ${r.count}` : 'Ничего нового — эти строки уже там',
+      r.count ? 'success' : 'info');
   };
 
   const translated = React.useMemo(() => rows.map((r) => (r.dst || r.src)).join(''), [rows]);
