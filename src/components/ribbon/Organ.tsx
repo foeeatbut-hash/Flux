@@ -11,9 +11,11 @@
  * не украшение: в чужой программе такой кнопки не будет, и человеку полезно
  * видеть границу.
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ORGAN_H, BIG_H, organWidth, type Organ as OrganModel } from '../../lib/ribbon';
 import { ribbonIcon } from './icons';
+import { colorName } from '../../lib/colorName';
+import Popover from '../Popover';
 
 export interface OrganProps {
   organ: OrganModel;
@@ -57,10 +59,38 @@ function buttonClass(o: OrganModel, on: boolean, disabled: boolean, attention: b
     + 'hover:bg-slate-100 dark:hover:bg-slate-850 hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer';
 }
 
+/**
+ * Образец цвета в палитре.
+ *
+ * Отдельной кнопкой ради одной вещи: срабатывал он по `onMouseDown`, и это
+ * значило «только мышью». Клавиатура шлёт `click` без `mousedown` — человек,
+ * дошедший до образца табуляцией и нажавший пробел, не менял цвет ничем.
+ *
+ * Обычный `onClick` этого не ломает: `mousedown` гасил потерю выделения в
+ * документе, но выделение теперь и так переживает раскрытие — палитра живёт
+ * порталом и фокус у неё не отбирает.
+ */
+function Swatch({ colour, current, onPick }: { colour: string; current: boolean; onPick: () => void }) {
+  const clear = colour === 'transparent';
+  return (
+    <button type="button" onClick={onPick} aria-label={colorName(colour)} aria-pressed={current}
+      title={colorName(colour)}
+      className={`w-5 h-5 rounded border cursor-pointer outline-none
+        focus-visible:ring-2 focus-visible:ring-emerald-500
+        ${current ? 'ring-2 ring-emerald-500 border-transparent' : 'border-slate-300 dark:border-slate-700'}`}
+      style={{
+        background: clear ? 'transparent' : colour,
+        backgroundImage: clear
+          ? 'linear-gradient(45deg, transparent 45%, #e11d48 45%, #e11d48 55%, transparent 55%)' : undefined,
+      }} />
+  );
+}
+
 export default function Organ({ organ: o, value, disabled, attention, onRun }: OrganProps) {
   // Палитра разделённой кнопки живёт внутри самого органа: только он знает,
   // где стоит, — и список раскрывается точно под ним, а не «примерно там»
   const [palette, setPalette] = useState(false);
+  const arrow = useRef<HTMLButtonElement>(null);
   const on = value === true;
   const off = !!disabled;
   const title = titleOf(o, disabled);
@@ -119,36 +149,31 @@ export default function Organ({ organ: o, value, disabled, attention, onRun }: O
   if (o.kind === 'split') {
     const colour = typeof value === 'string' ? value : (o.colors?.[0] || '');
     return (
-      <span className="relative inline-flex items-stretch rounded-md border border-slate-200 dark:border-slate-800 shrink-0"
+      <span className="inline-flex items-stretch rounded-md border border-slate-200 dark:border-slate-800 shrink-0"
         style={{ height: ORGAN_H }} title={title}>
         <button type="button" disabled={off} onClick={() => run(colour)} data-organ={o.id}
           className="flex flex-col items-center justify-center px-1.5 rounded-l-md hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:cursor-not-allowed">
           <Icon className="w-3.5 h-3.5 text-slate-600 dark:text-slate-350" />
           {colour && <span className="w-4 h-1 rounded-sm mt-0.5" style={{ background: colour === 'transparent' ? '#94a3b8' : colour }} />}
         </button>
-        <button type="button" disabled={off} onClick={() => setPalette((v) => !v)} aria-expanded={palette}
-          aria-label={`${o.label || o.hint || o.id}: выбрать`}
+        <button ref={arrow} type="button" disabled={off} onClick={() => setPalette((v) => !v)} aria-expanded={palette}
+          aria-haspopup="menu" aria-label={`${o.label || o.hint || o.id}: выбрать`}
           /* Двадцать точек в ширину — не украшение: в четырнадцать мышью
              попадают через раз, а за этой стрелкой вся палитра цветов */
           className="w-5 shrink-0 text-2xs text-slate-400 border-l border-slate-200 dark:border-slate-800 rounded-r-md
                      hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:cursor-not-allowed">▾</button>
+        {/* Порталом: полоса ленты обрезает по высоте, и раскрытая палитра
+            оказывалась целиком под её нижним краем */}
         {palette && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setPalette(false)} />
-            <div className="absolute left-0 top-full z-50 mt-1 p-1.5 flex gap-1 rounded-lg shadow-2xl
-                            bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <Popover anchor={arrow.current} onClose={() => setPalette(false)}
+            label={o.label || o.hint || 'Палитра'} className="p-1.5">
+            <div className="flex gap-1">
               {(o.colors || []).map((c) => (
-                <button key={c} type="button" title={c === 'transparent' ? 'Без заливки' : c}
-                  onMouseDown={(e) => { e.preventDefault(); setPalette(false); run(c); }}
-                  className="w-5 h-5 rounded border border-slate-300 dark:border-slate-700 cursor-pointer"
-                  style={{
-                    background: c === 'transparent' ? 'transparent' : c,
-                    backgroundImage: c === 'transparent'
-                      ? 'linear-gradient(45deg, transparent 45%, #e11d48 45%, #e11d48 55%, transparent 55%)' : undefined,
-                  }} />
+                <Swatch key={c} colour={c} current={colour === c}
+                  onPick={() => { setPalette(false); run(c); }} />
               ))}
             </div>
-          </>
+          </Popover>
         )}
       </span>
     );
@@ -159,7 +184,8 @@ export default function Organ({ organ: o, value, disabled, attention, onRun }: O
       <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-slate-800 px-1.5 shrink-0"
         style={{ height: ORGAN_H }} title={title}>
         {(o.colors || []).map((c) => (
-          <button key={c} type="button" disabled={off} onClick={() => run(c)} aria-label={`Цвет ${c}`}
+          <button key={c} type="button" disabled={off} onClick={() => run(c)}
+            aria-label={colorName(c)} aria-pressed={value === c} title={colorName(c)}
             className={`w-3.5 h-3.5 rounded-sm border cursor-pointer disabled:cursor-not-allowed
               ${value === c ? 'ring-2 ring-emerald-500 border-transparent' : 'border-slate-300 dark:border-slate-700'}`}
             style={{ background: c }} />

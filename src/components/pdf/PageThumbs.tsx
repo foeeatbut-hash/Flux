@@ -33,6 +33,10 @@ export default function PageThumbs({ pdf, pages, page, onPick }: {
   useEffect(() => {
     if (!pdf) return;
     let alive = true;
+    // Задача отрисовки отменяется явно: флаг останавливает наш цикл, но сама
+    // отрисовка — дело pdf.js, и без отмены она дорисовывает миниатюру уже
+    // закрытой полосы, отбирая окно у страницы, которую человек смотрит
+    let task: any = null;
     (async () => {
       for (let i = 1; i <= shown; i++) {
         if (!alive) return;
@@ -47,14 +51,16 @@ export default function PageThumbs({ pdf, pages, page, onPick }: {
           canvas.height = Math.round(view.height);
           const ctx = canvas.getContext('2d');
           if (!ctx) continue;
-          await p.render({ canvasContext: ctx, viewport: view }).promise;
+          task = p.render({ canvasContext: ctx, viewport: view });
+          await task.promise;
+          task = null;
           if (!alive) return;
           const url = canvas.toDataURL('image/png');
           setDrawn((all) => ({ ...all, [i]: url }));
         } catch (_) { /* страница без миниатюры покажется рамкой с номером */ }
       }
     })();
-    return () => { alive = false; };
+    return () => { alive = false; task?.cancel(); };
   }, [pdf, shown, drawn]);
 
   const onScroll = () => {

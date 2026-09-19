@@ -165,15 +165,37 @@ export default function PdfEditor() {
   useEffect(() => { loadMarkups(); }, [fileId]);
 
   // ── Отрисовка страницы ──
+  /**
+   * Задача отрисовки, которая сейчас идёт.
+   *
+   * Флага `cancelled` было мало. Он останавливал НАШ код, но сама отрисовка —
+   * дело pdf.js: она уже запущена и продолжает писать в холст. Человек крутит
+   * масштаб или поворот — а это одно движение колеса, то есть пять-шесть
+   * перерисовок подряд, — и на одном холсте оказывается несколько отрисовок
+   * сразу. Движок на это отвечает отказом «Cannot use the same canvas during
+   * multiple render() operations», а лист остаётся наполовину нарисованным: на
+   * тяжёлом чертеже это половина штампа и пустое поле вместо схемы.
+   *
+   * Поэтому задача хранится и отменяется явно, а номер поколения отсекает
+   * ответы, пришедшие уже не к своему холсту.
+   */
+  const renderTask = useRef<any>(null);
+  const renderGen = useRef(0);
+
   useEffect(() => {
     const pdf = pdfRef.current;
     const canvas = canvasRef.current;
     if (!pdf || !canvas) return;
-    let cancelled = false;
+    const gen = ++renderGen.current;
+    // Предыдущую отрисовку останавливаем ДО того, как тронем холст: менять его
+    // размеры под работающим рендером — тот же разнобой, только молча
+    renderTask.current?.cancel();
+    renderTask.current = null;
+
     (async () => {
       try {
         const p = await pdf.getPage(Math.min(Math.max(1, page), pdf.numPages));
-        if (cancelled) return;
+        if (gen !== renderGen.current) return;
         const viewport = p.getViewport({ scale: zoom / 100, rotation: rotate });
         // Размер листа берём при масштабе 1: на нём считается место подписи, а
         // оно не должно зависеть от того, как человек приблизил чертёж
@@ -185,13 +207,21 @@ export default function PdfEditor() {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        await p.render({ canvasContext: ctx, viewport }).promise;
+        const task = p.render({ canvasContext: ctx, viewport });
+        renderTask.current = task;
+        await task.promise;
+        if (gen === renderGen.current) renderTask.current = null;
       } catch (e: any) {
         // Отмену рендера новым масштабом молчим — она штатная; остальное видно
         if (e?.name !== 'RenderingCancelledException') console.error('[ПДФ] Страница не отрисована:', e);
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      renderGen.current++;
+      renderTask.current?.cancel();
+      renderTask.current = null;
+    };
   }, [page, zoom, rotate, loading]);
 
   /** Вписать лист: по ширине окна или целиком */
