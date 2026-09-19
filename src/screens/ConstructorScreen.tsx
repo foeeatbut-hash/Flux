@@ -8,15 +8,17 @@ import LabelBar from '../components/constructor/LabelBar';
 import RecentDocsPanel from '../components/office/RecentDocsPanel';
 import { rememberDoc } from '../store/recentStore';
 import { type ConflictChoice } from '../lib/docConflict';
+import { canCloseAfter, saveResultText, type SaveResult } from '../lib/saveResult';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
 import BlocksPanel from '../components/office/BlocksPanel';
 import LayoutDocks from '../components/office/LayoutDocks';
+import { putDoc, useCloseGuard, useFlushOnClose, resolveSaveChoice } from '../components/doc/docSaveKit';
 import { useTableLayout } from '../components/office/useTableLayout';
 import type { CatalogData, WizardResult } from '../lib/constructorTypes';
 import EditorFrame from '../components/ribbon/EditorFrame';
-import { useWindowTitle } from '../lib/paneTitle';
+import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { sheetRibbon, SHEET_TEXT_COLORS, SHEET_FILL_COLORS } from '../lib/ribbonSheet';
 import { editorFileMenu } from '../lib/ribbonFile';
 import { dataService } from '../services/dataService';
@@ -294,66 +296,71 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     setReloadTick(t => t + 1); // редактор перечитывает документ уже с данными
   };
 
-  const saveNow = async (extra?: Record<string, any>, force = false) => {
+  /**
+   * Записать книгу.
+   *
+   * Возвращает ИСХОД, а не ничего. Раньше отказ сервера и успешная запись были
+   * снаружи неотличимы, и разбор конфликта после `await` показывал «Сохранено»
+   * даже на 500 — человек закрывал единственную копию своей работы.
+   */
+  const saveNow = async (extra?: Record<string, any>, force = false): Promise<SaveResult> => {
     // Пропуск записывается наравне с записью: «сохранений не было» и
     // «сохранять было нечего» при разборе жалобы отвечают на разные вопросы
-    const skip = (reason: string) => saveSpan('sheet', docId, { reason, outcome: 'skipped' });
-    if (saveConflictRef.current && !force) { skip('conflict-hold'); return; }
+    const skip = (reason: string): SaveResult => {
+      saveSpan('sheet', docId, { reason, outcome: 'skipped' });
+      return { kind: 'unchanged', reason };
+    };
+    if (saveConflictRef.current && !force) return skip('conflict-hold');
     // Связи с комнатой нет, а в документе кто-то есть: пока чужие правки до
     // меня не доходят, писать свою книгу целиком — значит класть её поверх них
-    if (roomRef.current?.hold.current && !force) { skip('room-hold'); return; }
+    if (roomRef.current?.hold.current && !force) return skip('room-hold');
     const snapshot = takeSnapshot();
     const bindingsChanged = bindingsDirtyRef.current;
-    if (!snapshot && !extra && !bindingsChanged) { skip('empty'); return; }
-    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged && !force) { skip('unchanged'); return; }
+    if (!snapshot && !extra && !bindingsChanged) return skip('empty');
+    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged && !force) return skip('unchanged');
     setSaveState('saving');
     const startedAt = performance.now();
-    try {
-      const res = await fetch(`/api/constructor/docs/${docId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(snapshot ? { workbook: snapshot } : {}),
-          ...(bindingsChanged ? { bindings: JSON.stringify(bindingsRef.current) } : {}),
-          ...(extra || {}),
-          baseUpdatedAt: baseRef.current,
-          ...(force ? { force: true } : {}),
-        }),
-      });
-      if (res.ok) {
-        if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
-        if (bindingsChanged) bindingsDirtyRef.current = false;
-        const d = await res.json();
-        setDoc(d.doc);
-        baseRef.current = d.doc?.updatedAt || baseRef.current;
-        // Участникам комнаты: документ записан, время у него теперь такое.
-        // Они получили мою правку операциями и отставшими не являются
-        roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
-        saveConflictRef.current = false;
-        setSaveConflict(null);
-        setSaveState('saved');
-        // Правка могла увести русский от английской версии — сверяем сразу,
-        // а не при следующем открытии: два разных документа заказчику уходят
-        // именно в тот день, когда «поправил и отправил»
-        if (snapshot) checkStale(snapshot);
-        saveSpan('sheet', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
-        return;
-      }
-      const d = await res.json().catch(() => ({}));
-      if (res.status === 409 && d.conflict) {
-        // Разбор вместо записи. Правка человека цела — она в книге на экране
-        saveConflictRef.current = true;
-        setSaveConflict({ who: d.who || '', at: d.at || null });
-        setSaveState('idle');
-        saveSpan('sheet', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
-        return;
-      }
-      if (d.error) addToast(d.error, 'error');
-      setSaveState('idle');
-      saveSpan('sheet', docId, { reason: 'refused', status: String(res.status), startedAt, outcome: 'error' });
-    } catch (_) {
-      setSaveState('idle');
-      saveSpan('sheet', docId, { reason: 'network', startedAt, outcome: 'error' });
+    const { result, doc: d } = await putDoc(docId, {
+      ...(snapshot ? { workbook: snapshot } : {}),
+      ...(bindingsChanged ? { bindings: JSON.stringify(bindingsRef.current) } : {}),
+      ...(extra || {}),
+      baseUpdatedAt: baseRef.current,
+      ...(force ? { force: true } : {}),
+    }, snapshot);
+
+    if (result.kind === 'saved') {
+      if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
+      if (bindingsChanged) bindingsDirtyRef.current = false;
+      setDoc(d.doc);
+      baseRef.current = d.doc?.updatedAt || baseRef.current;
+      // Участникам комнаты: документ записан, время у него теперь такое.
+      // Они получили мою правку операциями и отставшими не являются
+      roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
+      saveConflictRef.current = false;
+      setSaveConflict(null);
+      setSaveState('saved');
+      // Правка могла увести русский от английской версии — сверяем сразу, а не
+      // при следующем открытии: два разных документа заказчику уходят именно в
+      // тот день, когда «поправил и отправил»
+      if (snapshot) checkStale(snapshot);
+      saveSpan('sheet', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
+      return { kind: 'saved', at: baseRef.current };
     }
+
+    setSaveState('idle');
+    // Конфликт и отказ от записи поверх держат разбор открытым: правка человека
+    // цела, она в книге на экране, и «Сохранить копию» рядом
+    if (result.kind === 'conflict') {
+      saveConflictRef.current = true;
+      setSaveConflict({ who: result.who, at: result.at || null });
+      saveSpan('sheet', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
+    } else if (result.kind === 'blocked') {
+      saveConflictRef.current = true;
+      saveSpan('sheet', docId, { reason: 'snapshot-failed', status: '503', startedAt, outcome: 'error' });
+    } else {
+      saveSpan('sheet', docId, { reason: 'refused', status: String((result as any).status ?? 0), startedAt, outcome: 'error' });
+    }
+    return result;
   };
 
   /**
@@ -389,62 +396,19 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
    * уводит чужую правку в историю версий, «его» теряет только то, что человек
    * прямо сейчас видит на экране, — и об этом сказано прямо в окне.
    */
-  const resolveSaveConflict = async (choice: ConflictChoice) => {
-    if (choice === 'theirs') {
-      saveConflictRef.current = false;
-      setSaveConflict(null);
-      lastSavedRef.current = '';
-      setLoading(true);
-      setReloadTick(t => t + 1);
-      return;
-    }
-    if (choice === 'mine') {
-      saveConflictRef.current = false;
-      setSaveConflict(null);
-      await saveNow(undefined, true);
-      addToast('Сохранено. Правка коллеги — в истории версий', 'success');
-      return;
-    }
-    // Копия: своё уходит отдельным документом, а это окно перечитывает чужую
-    // правку — обе работы целы и лежат раздельно
-    const copyName = `${doc?.name || 'Документ'} — моя правка`;
-    try {
-      await dataService.forkDoc(docId, takeSnapshot(), copyName);
-      addToast(`Ваша правка сохранена документом «${copyName}»`, 'success');
-      saveConflictRef.current = false;
-      setSaveConflict(null);
-      lastSavedRef.current = '';
-      setLoading(true);
-      setReloadTick(t => t + 1);
-    } catch (e: any) {
-      addToast(e?.message || 'Не удалось сохранить копию', 'error');
-    }
-  };
+  const resolveSaveConflict = (choice: ConflictChoice) => resolveSaveChoice(choice, {
+    save: () => saveNow(undefined, true),
+    fork: async () => { await dataService.forkDoc(docId, takeSnapshot(), `${doc?.name || 'Документ'} — моя правка`); },
+    copyName: `${doc?.name || 'Документ'} — моя правка`,
+    reload: () => { lastSavedRef.current = ''; setLoading(true); setReloadTick(t => t + 1); },
+    keepConflict: (who) => { saveConflictRef.current = true; setSaveConflict({ who, at: null }); },
+    clearConflict: () => { saveConflictRef.current = false; setSaveConflict(null); },
+    say: (text, kind) => addToast(text, (kind || 'info') as any),
+  });
 
-  // Страховка от вылета/закрытия окна: несохранённый снапшот уходит запросом
-  // с keepalive — браузер дошлёт его даже после закрытия страницы. Вместе с
-  // автосейвом раз в 2.5 с потеря правок сводится к нулю.
-  useEffect(() => {
-    const flushOnClose = () => {
-      try {
-        const snapshot = takeSnapshot();
-        if (!snapshot || snapshot === lastSavedRef.current) return;
-        fetch(`/api/constructor/docs/${docId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workbook: snapshot, baseUpdatedAt: baseRef.current }),
-          keepalive: true,
-        }).catch(() => {});
-        lastSavedRef.current = snapshot;
-      } catch (_) {}
-    };
-    window.addEventListener('beforeunload', flushOnClose);
-    window.addEventListener('pagehide', flushOnClose);
-    return () => {
-      window.removeEventListener('beforeunload', flushOnClose);
-      window.removeEventListener('pagehide', flushOnClose);
-    };
-  }, [docId]);
+  // Последний рывок при закрытии вкладки: снимок уходит с версией и заодно
+  // ложится в местный черновик — keepalive гарантией не является
+  useFlushOnClose({ docId, snapshot: takeSnapshot, saved: () => lastSavedRef.current, base: () => baseRef.current });
 
   // Инициализация движка: загрузка документа → createUniver → книга из снапшота
   useEffect(() => {
@@ -1072,15 +1036,34 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };
 
-  // Закрытие: единственный диалог — имя, и только если оно автогенерированное
+  /**
+   * Закрытие: единственный диалог — имя, и только если оно автогенерированное.
+   *
+   * Но сначала — запись, и её исход решает, закрываемся ли вообще. Отказ
+   * сервера здесь означает, что единственная копия правок сейчас на экране:
+   * закрыть окно молча — потерять работу. Поэтому при неуспехе окно остаётся,
+   * и человеку показывают, что делать.
+   */
   const handleClose = async () => {
-    await saveNow();
+    const r = await saveNow();
+    if (!canCloseAfter(r)) {
+      if (r.kind === 'conflict' || r.kind === 'blocked') {
+        // Разбор уже открыт (или откроется): там есть и «Сохранить копию»
+        addToast(saveResultText(r), 'error');
+      } else {
+        addToast(`${saveResultText(r)}. Окно оставлено открытым, чтобы правка не пропала`, 'error');
+      }
+      return;
+    }
     if (doc && !doc.named) {
       setNameDialog({ suggestion: suggestionRef.current || `Таблица — ${new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}` });
       return;
     }
     onClose();
   };
+
+  // Крестик рамы дописывает книгу и не закрывает окно на отказе (F01)
+  useCloseGuard(usePaneId(), () => saveNow(), (t, k) => addToast(t, (k || 'info') as any));
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
 

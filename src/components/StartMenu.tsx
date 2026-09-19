@@ -12,10 +12,11 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock, Home } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
 import { rememberSectionUse } from '../store/workspaceStore';
+import { useWindowStore } from '../store/windowStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
 import { groupSections, countFound, pinnedTiles, stepFocus } from '../lib/startMenu';
@@ -122,6 +123,17 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   // меню не должно об этом гадать. Раньше здесь звали панели напрямую, и в
   // оконной оболочке нажатие в Пуске не открывало ничего
   const go = (path: string) => { rememberSectionUse(path); navigate(path); onClose(); };
+
+  /**
+   * Открыть Главную окном.
+   *
+   * Обычным переходом её не открыть намеренно: «/» — начальный адрес
+   * программы, и оболочка на него окон не заводит (иначе окно всплывало бы
+   * само после каждого входа и перезапуска, а закрыть его насовсем было бы
+   * нельзя). Но нажатие по кнопке «Главная» — это как раз просьба, сказанная
+   * вслух, и отвечать на неё надо окном.
+   */
+  const openHome = () => { rememberSectionUse('/'); useWindowStore.getState().open('/'); onClose(); };
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
   const titleOf = (path: string) => SECTIONS.find((s) => s.path === path)?.title || path;
 
@@ -360,6 +372,20 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
             {isAdmin ? 'Администратор' : 'Сотрудник'}
           </span>
         </span>
+        {/* Главная — в подвале, рядом с Параметрами.
+            Раздел «смешанной» области в группы Пуска не попадает, и это верно:
+            он не про выбор области. Но в подвал его при этом никто не положил,
+            а на столе и на панели задач по умолчанию его тоже нет. Выходило,
+            что сводка по проекту существует, а открыть её человеку нечем —
+            обход разделов упёрся в это первым же шагом */}
+        <button
+          type="button" onClick={openHome} title="Главная — сводка по проекту"
+          style={{ width: TILE_BOX, height: TILE_BOX }}
+          className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
+                     hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
+        >
+          <Home className="w-4 h-4" />
+        </button>
         <button
           type="button" onClick={toggleTheme} title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
           style={{ width: TILE_BOX, height: TILE_BOX }}

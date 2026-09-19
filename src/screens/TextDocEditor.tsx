@@ -23,7 +23,7 @@ import {
   patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
 } from '../lib/docEngine';
 import EditorFrame from '../components/ribbon/EditorFrame';
-import { useWindowTitle } from '../lib/paneTitle';
+import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { docRibbon, DOC_TEXT_COLORS, DOC_MARK_COLORS } from '../lib/ribbonDoc';
 import { editorFileMenu } from '../lib/ribbonFile';
 import { useEscape } from '../lib/useEscape';
@@ -34,6 +34,9 @@ import { dataService } from '../services/dataService';
 import { wordBytes, wordToExplorer, snapshotToPlainText, saveText, textToExplorer } from '../lib/docOutput';
 import { snapshotSpan, saveSpan, initSpan, disposeSpan, exportSpan } from '../lib/officeSpans';
 import { saveBytes } from '../lib/saveToWindows';
+import DraftRestoreBar from '../components/doc/DraftRestoreBar';
+import { putDoc, useCloseGuard, useDocDraft, useFlushOnClose, resolveSaveChoice } from '../components/doc/docSaveKit';
+import { canCloseAfter, saveResultText, type SaveResult } from '../lib/saveResult';
 import { useDocLabels } from '../components/doc/useDocLabels';
 
 // Диалоги программы вместо системных окон Windows
@@ -71,6 +74,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const univerRef = useRef<any>(null);
   const fdocRef = useRef<any>(null);         // FDocument для вставки текста
   const lastSavedRef = useRef<string>('');
+  /** Черновик прошлой сессии, который предлагаем вернуть (F02) */
+  const draft = useDocDraft(docId, (snapshot) => {
+    // Пересоздаём документ движка: точечно вставить чужой снимок он не даёт
+    const api = univerRef.current?.univerAPI;
+    if (api) fdocRef.current = api.createUniverDoc(normalizeDocSnapshot(JSON.parse(snapshot)));
+    myEditRef.current = true;
+    lastSavedRef.current = '';
+  }, (t, k) => addToast(t, (k || 'info') as any));
   const [doc, setDoc] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'idle'>('idle');
@@ -159,89 +170,72 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { return ''; }
   });
 
-  const saveNow = async (extra?: Record<string, any>, force = false) => {
+  /** Записать страницу. Возвращает исход — см. src/lib/saveResult.ts */
+  const saveNow = async (extra?: Record<string, any>, force = false): Promise<SaveResult> => {
     // Пока столкновение не разобрано, окно молчит: иначе оно повторяло бы
     // отказ каждые две с половиной секунды
     // Пропуск записывается наравне с записью: при разборе жалобы «не
     // сохраняется» ответы «сохранений не было» и «сохранять было нечего» —
     // это два разных ответа, и без первого разбор упирается в тупик
-    const skip = (reason: string) => saveSpan('doc', docId, { reason, outcome: 'skipped' });
-    if (saveConflictRef.current && !force) { skip('conflict-hold'); return; }
+    const skip = (reason: string): SaveResult => {
+      saveSpan('doc', docId, { reason, outcome: 'skipped' });
+      return { kind: 'unchanged', reason };
+    };
+    if (saveConflictRef.current && !force) return skip('conflict-hold');
     // Связи с комнатой нет, а в документе кто-то есть: чужие правки до меня не
     // доходят, и запись своей страницы целиком легла бы поверх них
-    if (roomRef.current?.hold.current && !force) { skip('room-hold'); return; }
+    if (roomRef.current?.hold.current && !force) return skip('room-hold');
     const snapshot = takeSnapshot();
-    if (!snapshot && !extra) { skip('empty'); return; }
-    if (snapshot === lastSavedRef.current && !extra && !force) { skip('unchanged'); return; }
+    if (!snapshot && !extra) return skip('empty');
+    if (snapshot === lastSavedRef.current && !extra && !force) return skip('unchanged');
     setSaveState('saving');
     const startedAt = performance.now();
-    try {
-      const res = await fetch(`/api/constructor/docs/${docId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(snapshot ? { workbook: snapshot } : {}),
-          ...(extra || {}),
-          baseUpdatedAt: baseRef.current,
-          ...(force ? { force: true } : {}),
-        }),
-      });
-      if (res.ok) {
-        if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
-        const d = await res.json();
-        setDoc(d.doc);
-        baseRef.current = d.doc?.updatedAt || baseRef.current;
-        roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
-        saveConflictRef.current = false;
-        setSaveConflict(null);
-        setSaveState('saved');
-        saveSpan('doc', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
-        return;
-      }
-      const d = await res.json().catch(() => ({}));
-      if (res.status === 409 && d.conflict) {
-        // Разбор вместо записи. Текст человека цел — он на экране
-        saveConflictRef.current = true;
-        setSaveConflict({ who: d.who || '', at: d.at || null });
-        setSaveState('idle');
-        saveSpan('doc', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
-        return;
-      }
-      if (d.error) addToast(d.error, 'error');
-      setSaveState('idle');
-      saveSpan('doc', docId, { reason: 'refused', status: String(res.status), startedAt, outcome: 'error' });
-    } catch (_) {
-      setSaveState('idle');
-      saveSpan('doc', docId, { reason: 'network', startedAt, outcome: 'error' });
+    const { result, doc: d } = await putDoc(docId, {
+      ...(snapshot ? { workbook: snapshot } : {}),
+      ...(extra || {}),
+      baseUpdatedAt: baseRef.current,
+      ...(force ? { force: true } : {}),
+    }, snapshot);
+
+    if (result.kind === 'saved') {
+      if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
+      setDoc(d.doc);
+      baseRef.current = d.doc?.updatedAt || baseRef.current;
+      roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
+      saveConflictRef.current = false;
+      setSaveConflict(null);
+      setSaveState('saved');
+      saveSpan('doc', docId, { characters: snapshot.length, reason: force ? 'force' : 'auto', status: '200', startedAt, outcome: 'ok' });
+      return { kind: 'saved', at: baseRef.current };
     }
+
+    setSaveState('idle');
+    // Конфликт и отказ от записи поверх держат разбор открытым: текст человека
+    // цел, он на экране, и «Сохранить копию» рядом
+    if (result.kind === 'conflict') {
+      saveConflictRef.current = true;
+      setSaveConflict({ who: result.who, at: result.at || null });
+      saveSpan('doc', docId, { reason: 'conflict', status: '409', startedAt, outcome: 'conflict' });
+    } else if (result.kind === 'blocked') {
+      saveConflictRef.current = true;
+      saveSpan('doc', docId, { reason: 'snapshot-failed', status: '503', startedAt, outcome: 'error' });
+    } else {
+      saveSpan('doc', docId, { reason: 'refused', status: String((result as any).status ?? 0), startedAt, outcome: 'error' });
+    }
+    return result;
   };
 
+
   /** Три выхода из столкновения — те же, что у таблиц, и с тем же смыслом */
-  const resolveSaveConflict = async (choice: ConflictChoice) => {
-    saveConflictRef.current = false;
-    setSaveConflict(null);
-    if (choice === 'theirs') {
-      lastSavedRef.current = '';
-      setLoading(true);
-      setReloadTick(t => t + 1);
-      return;
-    }
-    if (choice === 'mine') {
-      await saveNow(undefined, true);
-      addToast('Сохранено. Правка коллеги — в истории версий', 'success');
-      return;
-    }
-    try {
-      await dataService.forkDoc(docId, takeSnapshot(), `${doc?.name || 'Документ'} — моя правка`);
-      addToast('Ваша правка сохранена отдельным документом', 'success');
-      lastSavedRef.current = '';
-      setLoading(true);
-      setReloadTick(t => t + 1);
-    } catch (_) {
-      addToast('Не удалось создать копию — правка осталась на экране', 'error');
-      saveConflictRef.current = true;
-      setSaveConflict({ who: '', at: null });
-    }
-  };
+  const resolveSaveConflict = (choice: ConflictChoice) => resolveSaveChoice(choice, {
+    save: () => saveNow(undefined, true),
+    fork: async () => { await dataService.forkDoc(docId, takeSnapshot(), `${doc?.name || 'Документ'} — моя правка`); },
+    copyName: `${doc?.name || 'Документ'} — моя правка`,
+    reload: () => { lastSavedRef.current = ''; setLoading(true); setReloadTick(t => t + 1); },
+    keepConflict: (who) => { saveConflictRef.current = true; setSaveConflict({ who, at: null }); },
+    clearConflict: () => { saveConflictRef.current = false; setSaveConflict(null); },
+    say: (text, kind) => addToast(text, (kind || 'info') as any),
+  });
 
   /**
    * Комната документа: кто здесь ещё, чужие правки и поведение при обрыве
@@ -267,26 +261,9 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const peers = room.peers;
 
   // Страховка от вылета: несохранённый снапшот уходит keepalive-запросом
-  useEffect(() => {
-    const flushOnClose = () => {
-      try {
-        const snapshot = takeSnapshot();
-        if (!snapshot || snapshot === lastSavedRef.current) return;
-        fetch(`/api/constructor/docs/${docId}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workbook: snapshot }),
-          keepalive: true,
-        }).catch(() => {});
-        lastSavedRef.current = snapshot;
-      } catch (_) {}
-    };
-    window.addEventListener('beforeunload', flushOnClose);
-    window.addEventListener('pagehide', flushOnClose);
-    return () => {
-      window.removeEventListener('beforeunload', flushOnClose);
-      window.removeEventListener('pagehide', flushOnClose);
-    };
-  }, [docId]);
+  // Последний рывок при закрытии вкладки: снимок уходит С ВЕРСИЕЙ и заодно
+  // ложится в местный черновик — keepalive гарантией не является
+  useFlushOnClose({ docId, snapshot: takeSnapshot, saved: () => lastSavedRef.current, base: () => baseRef.current });
 
   // Инициализация движка: документный пресет Univer (страницы как в Ворде)
   useEffect(() => {
@@ -385,6 +362,10 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         const fdoc = univerAPI.createUniverDoc(snapshot);
         fdocRef.current = fdoc;
         lastSavedRef.current = loaded.workbook || '';
+
+        // Правка, не дошедшая до сервера в прошлый раз. Молча подставлять её
+        // нельзя — человек не поймёт, откуда взялся текст; поэтому спрашиваем
+        draft.checkAfterLoad(loaded.workbook || '');
 
         // Метки документа: что и откуда сюда подставлено. Без этого чтения
         // документ, открытый заново, забывал бы свои метки, и «Обновить
@@ -747,11 +728,25 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { addToast('Не удалось изменить разметку', 'error'); }
   };
 
+  /**
+   * Закрытие: сначала запись, и её исход решает, закрываемся ли.
+   *
+   * Отказ сервера означает, что единственная копия правки сейчас на экране.
+   * Закрыть окно молча — потерять её; поэтому окно остаётся, а снимок уже лёг
+   * в черновик и переживёт даже закрытие программы.
+   */
   const handleClose = async () => {
-    await saveNow();
+    const r = await saveNow();
+    if (!canCloseAfter(r)) {
+      addToast(`${saveResultText(r)}. Окно оставлено открытым, чтобы правка не пропала`, 'error');
+      return;
+    }
     if (doc && !doc.named) { setNameDialog(true); return; }
     onClose();
   };
+
+  // Крестик рамы дописывает текст и не закрывает окно на отказе (F01)
+  useCloseGuard(usePaneId(), () => saveNow(), (t, k) => addToast(t, (k || 'info') as any));
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
 
@@ -1083,6 +1078,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         />
       )}
       {/* Документ ушёл вперёд, пока его правили: разбор, а не тихая запись */}
+      {/* Правка прошлой сессии, не дошедшая до сервера (F02). Решает человек */}
+      {draft.pending && (
+        <DraftRestoreBar draft={draft.pending} onDismiss={draft.dismiss} onRestore={draft.restore} />
+      )}
+
       {saveConflict && (
         <SaveConflictDialog
           info={saveConflict}

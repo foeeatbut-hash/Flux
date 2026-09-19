@@ -20,10 +20,22 @@ import EventDialog, { type Draft } from '../components/calendar/EventDialog';
 import {
   monthGrid, occurrences, dayOccurrences, startOfDay, startOfWeek, startOfMonth,
   monthLabel, dateLabel, timeLabel, rangeLabel, untilLabel, weekday, sameDay, inMonth,
+  stepMonth, dueRange,
   KIND_LABEL, WEEKDAYS, DAY, HOUR, MINUTE, type Occurrence,
 } from '../lib/calendar';
 
 type View = 'month' | 'week' | 'day' | 'due';
+
+/**
+ * Какие календари человек волен погасить. Список один на оба исполнения —
+ * боковую колонку и узкую полосу: разойдись они, в узком окне остался бы
+ * календарь, который нечем вернуть.
+ */
+const CALENDARS = [
+  { id: 'project', label: 'События проекта', short: 'Проект', tone: 'bg-emerald-500' },
+  { id: 'deadlines', label: 'Сроки ВДР', short: 'Сроки ВДР', tone: 'bg-amber-500' },
+  { id: 'private', label: 'Личное', short: 'Личное', tone: 'bg-sky-500' },
+] as const;
 
 const TONE: Record<string, string> = {
   emerald: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',
@@ -60,7 +72,9 @@ export default function CalendarScreen() {
   const [from, to] = React.useMemo(() => {
     if (view === 'day') return [startOfDay(anchor), startOfDay(anchor) + DAY];
     if (view === 'week') return [startOfWeek(anchor), startOfWeek(anchor) + 7 * DAY];
-    if (view === 'due') return [Date.now() - 30 * DAY, Date.now() + 180 * DAY];
+    // Отрезок сроков считается от выбранного месяца, а не от «сегодня»:
+    // иначе стрелки меняли заголовок и не меняли список под ним
+    if (view === 'due') return dueRange(anchor);
     const grid = monthGrid(anchor);
     return [grid[0], grid[41] + DAY];
   }, [view, anchor]);
@@ -68,11 +82,15 @@ export default function CalendarScreen() {
   const list = React.useMemo(() => occurrences(events, from, to), [events, from, to]);
 
   const step = (dir: number) => {
-    const d = new Date(anchor);
-    if (view === 'day') d.setDate(d.getDate() + dir);
-    else if (view === 'week') d.setDate(d.getDate() + 7 * dir);
-    else d.setMonth(d.getMonth() + dir);
-    setAnchor(d.getTime());
+    if (view === 'day' || view === 'week') {
+      const d = new Date(anchor);
+      d.setDate(d.getDate() + (view === 'week' ? 7 : 1) * dir);
+      setAnchor(d.getTime());
+      return;
+    }
+    // Месяц — через stepMonth: `setMonth` с сохранением дня проскакивал
+    // короткий месяц целиком (31 января + месяц = 3 марта)
+    setAnchor(stepMonth(anchor, dir));
   };
 
   const openAt = (t: number) => setDraft({
@@ -136,16 +154,45 @@ export default function CalendarScreen() {
         </button>
       </div>
 
+      {/* Сбой чтения — вне боковой колонки: она прячется в узком окне, и
+          непрочитанный календарь выглядел бы просто пустым */}
+      {st.error && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b
+                        border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30">
+          <p className="min-w-0 flex-1 text-2xs text-rose-700 dark:text-rose-300">
+            Календарь не прочитан: {st.error}
+          </p>
+          <button type="button" onClick={() => void st.load(projectId)}
+            className="shrink-0 px-2 py-0.5 rounded-lg text-2xs font-semibold cursor-pointer
+                       text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40">
+            Повторить
+          </button>
+        </div>
+      )}
+
+      {/* Узкое окно: те же переключатели строкой. Раньше вместе с колонкой
+          пропадала и возможность вернуть погашенный календарь */}
+      <div className="@[900px]:hidden shrink-0 flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto
+                      border-b border-slate-200 dark:border-dark-border">
+        {CALENDARS.map((c) => (
+          <button key={c.id} type="button" aria-pressed={!!st.shown[c.id]}
+            onClick={() => st.setShown({ [c.id]: !st.shown[c.id] } as any)}
+            className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-lg border text-2xs cursor-pointer ${
+              st.shown[c.id]
+                ? 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-150'
+                : 'border-transparent text-slate-400'}`}>
+            <span className={`w-2.5 h-2.5 rounded shrink-0 ${st.shown[c.id] ? c.tone : 'bg-slate-200 dark:bg-slate-800'}`} />
+            {c.short}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 min-h-0 flex">
         {/* Какие календари показывать */}
         <aside className="hidden @[900px]:flex w-48 shrink-0 flex-col gap-1 p-3 border-r border-slate-200 dark:border-dark-border">
           <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">Календари</p>
-          {([
-            { id: 'project', label: 'События проекта', tone: 'bg-emerald-500' },
-            { id: 'deadlines', label: 'Сроки ВДР', tone: 'bg-amber-500' },
-            { id: 'private', label: 'Личное', tone: 'bg-sky-500' },
-          ] as const).map((c) => (
-            <button key={c.id} type="button"
+          {CALENDARS.map((c) => (
+            <button key={c.id} type="button" aria-pressed={!!st.shown[c.id]}
               onClick={() => st.setShown({ [c.id]: !st.shown[c.id] } as any)}
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer
                          hover:bg-slate-100 dark:hover:bg-slate-850">
@@ -155,10 +202,6 @@ export default function CalendarScreen() {
               </span>
             </button>
           ))}
-
-          {st.error && (
-            <p className="mt-3 text-2xs text-rose-600 dark:text-rose-400">Календарь не прочитан: {st.error}</p>
-          )}
 
           <div className="mt-auto pt-3 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
             Сроки ВДР приходят из реестра и здесь только показываются — двигать их надо в Менеджменте.

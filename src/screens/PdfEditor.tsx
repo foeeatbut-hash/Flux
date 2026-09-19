@@ -165,15 +165,37 @@ export default function PdfEditor() {
   useEffect(() => { loadMarkups(); }, [fileId]);
 
   // ── Отрисовка страницы ──
+  /**
+   * Задача отрисовки, которая сейчас идёт.
+   *
+   * Флага `cancelled` было мало. Он останавливал НАШ код, но сама отрисовка —
+   * дело pdf.js: она уже запущена и продолжает писать в холст. Человек крутит
+   * масштаб или поворот — а это одно движение колеса, то есть пять-шесть
+   * перерисовок подряд, — и на одном холсте оказывается несколько отрисовок
+   * сразу. Движок на это отвечает отказом «Cannot use the same canvas during
+   * multiple render() operations», а лист остаётся наполовину нарисованным: на
+   * тяжёлом чертеже это половина штампа и пустое поле вместо схемы.
+   *
+   * Поэтому задача хранится и отменяется явно, а номер поколения отсекает
+   * ответы, пришедшие уже не к своему холсту.
+   */
+  const renderTask = useRef<any>(null);
+  const renderGen = useRef(0);
+
   useEffect(() => {
     const pdf = pdfRef.current;
     const canvas = canvasRef.current;
     if (!pdf || !canvas) return;
-    let cancelled = false;
+    const gen = ++renderGen.current;
+    // Предыдущую отрисовку останавливаем ДО того, как тронем холст: менять его
+    // размеры под работающим рендером — тот же разнобой, только молча
+    renderTask.current?.cancel();
+    renderTask.current = null;
+
     (async () => {
       try {
         const p = await pdf.getPage(Math.min(Math.max(1, page), pdf.numPages));
-        if (cancelled) return;
+        if (gen !== renderGen.current) return;
         const viewport = p.getViewport({ scale: zoom / 100, rotation: rotate });
         // Размер листа берём при масштабе 1: на нём считается место подписи, а
         // оно не должно зависеть от того, как человек приблизил чертёж
@@ -185,13 +207,21 @@ export default function PdfEditor() {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        await p.render({ canvasContext: ctx, viewport }).promise;
+        const task = p.render({ canvasContext: ctx, viewport });
+        renderTask.current = task;
+        await task.promise;
+        if (gen === renderGen.current) renderTask.current = null;
       } catch (e: any) {
         // Отмену рендера новым масштабом молчим — она штатная; остальное видно
         if (e?.name !== 'RenderingCancelledException') console.error('[ПДФ] Страница не отрисована:', e);
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      renderGen.current++;
+      renderTask.current?.cancel();
+      renderTask.current = null;
+    };
   }, [page, zoom, rotate, loading]);
 
   /** Вписать лист: по ширине окна или целиком */
@@ -278,24 +308,48 @@ export default function PdfEditor() {
     } catch (_) { addToast('Не удалось поставить пометку', 'error'); }
   };
 
+  /**
+   * Правка пометки.
+   *
+   * Отказ сервера раньше глотался молча: правка пропадала с экрана без слова,
+   * а при следующем открытии чертежа возвращалась прежняя. Человек был уверен,
+   * что поправил, — и узнавал обратное через день.
+   */
   const patchMarkup = async (id: string, data: any) => {
     try {
       const r = await fetch(`/api/pdf-markups/${id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
       });
-      if (!r.ok) return;
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        addToast(d.error || `Правка не сохранена (${r.status})`, 'error');
+        return;
+      }
       const { markup } = await r.json();
       setMarkups((list) => list.map((m) => (m.id === id ? markup : m)));
-    } catch (_) { /* молча: список перечитается при следующем открытии */ }
+    } catch (_) { addToast('Правка не сохранена: нет связи с сервером', 'error'); }
   };
 
+  /**
+   * Снять пометку.
+   *
+   * Раньше ответ сервера не проверялся вовсе: пометка исчезала из списка при
+   * любом исходе, в том числе при 403 «нет права» — и возвращалась при
+   * повторном открытии. Теперь с экрана уходит только то, что сервер
+   * подтвердил.
+   */
   const removeMarkup = async (id: string) => {
     if (!await openConfirm('Снять пометку?', 'Замечание уйдёт из списка. Историю переписки это не меняет.', { confirmLabel: 'Снять' })) return;
     try {
-      await fetch(`/api/pdf-markups/${id}`, { method: 'DELETE' });
+      const r = await fetch(`/api/pdf-markups/${id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        addToast(d.error || `Не удалось снять пометку (${r.status})`, 'error');
+        return;
+      }
       setMarkups((list) => list.filter((m) => m.id !== id));
       if (selected === id) setSelected(null);
-    } catch (_) { addToast('Не удалось снять пометку', 'error'); }
+    } catch (_) { addToast('Не удалось снять пометку: нет связи с сервером', 'error'); }
   };
 
   /**

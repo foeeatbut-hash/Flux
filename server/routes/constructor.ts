@@ -519,8 +519,32 @@ export function registerConstructorRoutes(app: Express): void {
         const who = doc.updatedById
           ? await prisma.user.findUnique({ where: { id: doc.updatedById }, select: { name: true } })
           : null;
-        await createDocVersion(doc, `перед сохранением поверх правки: ${who?.name || 'коллега'}`, doc.updatedById || null)
-          .catch(() => { /* без снимка не отказываем: иначе правка не сохранится вовсе */ });
+        try {
+          await createDocVersion(doc, `перед сохранением поверх правки: ${who?.name || 'коллега'}`, doc.updatedById || null);
+        } catch (err: any) {
+          /**
+           * Снимок не удался — запись поверх прекращается.
+           *
+           * Раньше ошибка глоталась и запись шла дальше. Выглядело это
+           * милосердно («иначе правка не сохранится вовсе»), но на деле окно
+           * обещало человеку «Правка коллеги — в истории версий», а история
+           * оставалась пуста: работа коллеги исчезала совсем, и никто об этом
+           * не узнавал.
+           *
+           * Теперь честно: чужую версию защитить не смогли — поверх не пишем.
+           * Правка того, кто сохраняет сейчас, при этом не теряется: окно
+           * держит разбор открытым, рядом есть «Сохранить копию», а снимок уже
+           * лёг в местный черновик (src/lib/docDraft.ts).
+           */
+          console.warn('[constructor] снимок версии не удался, запись поверх отменена:', err?.message);
+          return res.status(503).json({
+            snapshotFailed: true,
+            error: 'Не удалось убрать предыдущую версию в историю, поэтому запись поверх отменена. '
+              + 'Сохраните свою правку копией — ничего не потеряется.',
+            who: who?.name || '',
+            at: doc.updatedAt,
+          });
+        }
       }
 
       const data: any = { updatedById: me?.id || null };

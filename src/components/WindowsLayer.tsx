@@ -154,7 +154,7 @@ function WindowFrame({
         </button>
         <button type="button" title="Закрыть" aria-label="Закрыть"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => st.getState().close(win.id)}
+          onClick={() => { void st.getState().requestClose(win.id); }}
           className={`${btn} text-slate-500 hover:bg-rose-600 hover:text-white`}>
           <X className="w-3.5 h-3.5" />
         </button>
@@ -294,7 +294,7 @@ export default function WindowsLayer() {
       if (act === 'minimizeAll') { st.minimizeAll(); return; }
       const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk)
         .reduce<typeof st.windows[number] | null>((a, b) => (!a || b.z > a.z ? b : a), null);
-      if (act === 'closeWindow') { if (cur) st.close(cur.id); return; }
+      if (act === 'closeWindow') { if (cur) void st.requestClose(cur.id); return; }
       if (act === 'newWindow') {
         // Ещё одно окно той же программы: у единичных разделов второго не бывает
         if (cur && sectionForPath(cur.path).multi) st.openAnother(cur.href);

@@ -48,9 +48,9 @@ export default function MarkupList({
                 <span className="text-2xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1">
                   {m.text || 'без замечания'}
                 </span>
-                <span className="text-[10px] font-mono text-slate-400 shrink-0">стр. {m.page}</span>
+                <span className="text-2xs font-mono text-slate-400 shrink-0">стр. {m.page}</span>
               </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-455">
+              <div className="mt-1 flex items-center gap-2 text-2xs text-slate-400 dark:text-slate-455">
                 <span>{m.createdBy?.name || 'кто-то'}</span>
                 <span>·</span>
                 <span>ред. {m.revision}{old ? ' (прошлая)' : ''}</span>
@@ -61,7 +61,7 @@ export default function MarkupList({
                 {(['DONE', 'REJECTED', 'OPEN'] as const).map((s) => (
                   <button key={s} type="button"
                     onClick={(e) => { e.stopPropagation(); onState(m.id, s); }}
-                    className={`px-2 h-5 rounded-md text-[10px] font-semibold cursor-pointer transition-ui
+                    className={`px-2 h-5 rounded-md text-2xs font-semibold cursor-pointer transition-ui
                       ${m.state === s
                         ? 'bg-emerald-600 text-white'
                         : 'border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'}`}>

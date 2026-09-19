@@ -115,7 +115,7 @@ export default function DocRuler({ model, pxPerPt, leftPx, hasSelection, onMargi
           <div key={i} className="absolute top-0" style={{ left: t.xPt * pxPerPt }}>
             <div className={`w-px bg-slate-400 dark:bg-slate-600 ${t.big ? 'h-2' : 'h-1'}`} />
             {t.label && (
-              <div className="absolute top-1.5 -translate-x-1/2 text-[9px] leading-none font-semibold text-slate-500 dark:text-slate-400">
+              <div className="absolute top-1.5 -translate-x-1/2 text-2xs leading-none font-semibold text-slate-500 dark:text-slate-400">
                 {t.label}
               </div>
             )}
@@ -147,7 +147,7 @@ export default function DocRuler({ model, pxPerPt, leftPx, hasSelection, onMargi
       {/* Подсказка со значением — пока тянут, видно число в миллиметрах */}
       {drag && (
         <div
-          className="absolute -top-6 z-10 px-1.5 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold whitespace-nowrap -translate-x-1/2"
+          className="absolute -top-6 z-10 px-1.5 py-0.5 rounded bg-slate-900 text-white text-2xs font-bold whitespace-nowrap -translate-x-1/2"
           style={{ left: leftPx + posPx(drag.h) }}
         >
           {HANDLE_TITLE[drag.h].split(' ')[0]}: {fmtMm(valueOf(shown, drag.h))}

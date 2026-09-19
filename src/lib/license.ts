@@ -22,7 +22,15 @@ export async function fetchLicenseStatus(): Promise<LicenseStatus> {
     try { return await r.invoke('license:status'); } catch (_) { /* фолбэк ниже */ }
   }
   const res = await fetch('/api/license/status');
-  return await res.json();
+  // Отказ сервера обязан быть отказом, а не «ответом без лицензии»: разбор
+  // страницы с ошибкой давал невнятное исключение разбора, и экран лицензии
+  // выдавал сбой связи за «ключ не введён»
+  if (!res.ok) throw new Error(`сервер ответил ${res.status}`);
+  try {
+    return await res.json();
+  } catch (_) {
+    throw new Error('сервер ответил не по делу');
+  }
 }
 
 export async function activateLicense(code: string): Promise<LicenseStatus> {

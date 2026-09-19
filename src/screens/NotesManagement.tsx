@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -353,17 +354,21 @@ export default function NotesManagement() {
     }
   };
 
-  // Горячие клавиши: Ctrl+S — сохранить, Ctrl+N — новая заметка, Ctrl+F — поиск
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 's') { e.preventDefault(); flushPendingSave(); }
-      else if (k === 'n') { e.preventDefault(); handleCreateNote(); }
-      else if (k === 'f') { e.preventDefault(); searchInputRef.current?.focus(); }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+  /**
+   * Горячие клавиши: Ctrl+S — сохранить, Ctrl+N — новая заметка, Ctrl+F — поиск.
+   *
+   * Раньше подписка была прямой на `window` и без массива зависимостей:
+   * слушатель переподписывался каждой отрисовкой, и КАЖДЫЙ смонтированный
+   * Блокнот отвечал на Ctrl+N. Два открытых окна — две заметки за одно
+   * нажатие, да ещё и из чужой программы. Теперь клавишу получает только
+   * активное окно (src/lib/hotkeys.ts).
+   */
+  useWindowHotkeys((e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') { e.preventDefault(); flushPendingSave(); }
+    else if (k === 'n') { e.preventDefault(); handleCreateNote(); }
+    else if (k === 'f') { e.preventDefault(); searchInputRef.current?.focus(); }
   });
 
   // Open sticker window / external link

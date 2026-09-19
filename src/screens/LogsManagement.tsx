@@ -9,6 +9,7 @@ import {
   AlertTriangle, Trash2
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
+import { authorsOf, authorKey, ALL_AUTHORS } from '../lib/outcomes';
 
 export default function LogsManagement() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ export default function LogsManagement() {
   const [logs, setLogs] = useState<SystemChangeLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedUser, setSelectedUser] = useState('');
+  const [selectedUser, setSelectedUser] = useState<string>(ALL_AUTHORS);
   const [selectedCategory, setSelectedCategory] = useState('');
 
   /**
@@ -39,7 +40,10 @@ export default function LogsManagement() {
           const d = await r.json();
           actions = (Array.isArray(d?.actions) ? d.actions : []).map((a: any) => ({
             id: `a:${a.id}`,
+            userId: a.userId || '',
             userName: a.userName || 'Сотрудник',
+            // Символа у серверного действия нет — и раньше сюда ставилась
+            // пустая строка, по которой список авторов схлопывал ВСЕХ в одного
             userSymbol: '',
             description: a.target ? `${a.what} (${String(a.target).slice(0, 8)})` : a.what,
             targetRoute: a.route || '',
@@ -109,9 +113,12 @@ export default function LogsManagement() {
   };
 
   // Extract list of all unique users from current logs for filter selection
-  const uniqueUsers = Array.from(
-    new Map<string, string>(logs.map(log => [log.userSymbol, `${log.userName} (${log.userSymbol})`])).entries()
-  ).sort((a, b) => a[1].localeCompare(b[1]));
+  // Авторы — по устойчивому ключу (userId у серверных действий, символ у
+  // событий проекта). Раньше ключом был символ, и всем серверным действиям он
+  // ставился пустым: в фильтре они сливались в одну запись, счётчик людей
+  // занижался, а выбрать такого автора было нельзя вовсе — пустое значение
+  // означало «все»
+  const uniqueUsers = authorsOf(logs as any);
 
   // Filter logs based on search + selected filters
   const filteredLogs = logs.filter(log => {
@@ -120,7 +127,7 @@ export default function LogsManagement() {
       log.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       log.userSymbol.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesUser = selectedUser ? log.userSymbol === selectedUser : true;
+    const matchesUser = selectedUser === ALL_AUTHORS ? true : authorKey(log as any) === selectedUser;
 
     // Filter by categoric tagging based on keyword mapper
     let matchesCategory = true;
@@ -143,7 +150,7 @@ export default function LogsManagement() {
 
   const handleClearFilters = () => {
     setSearchQuery('');
-    setSelectedUser('');
+    setSelectedUser(ALL_AUTHORS);
     setSelectedCategory('');
     addToast('Фильтры очищены', 'info');
   };
@@ -232,7 +239,7 @@ export default function LogsManagement() {
             <Filter className="w-3.5 h-3.5" />
             <span>Параметры фильтрации логов</span>
           </h3>
-          {(searchQuery || selectedUser || selectedCategory) && (
+          {(searchQuery || selectedUser !== ALL_AUTHORS || selectedCategory) && (
             <button type="button"
               onClick={handleClearFilters}
               className="text-xs font-bold text-rose-650 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-350 cursor-pointer flex items-center gap-1"
@@ -265,11 +272,9 @@ export default function LogsManagement() {
               onChange={(e) => setSelectedUser(e.target.value)}
               className="block w-full px-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-white transition-ui shadow-2xs cursor-pointer"
             >
-              <option value="">Все сотрудники</option>
-              {uniqueUsers.map(([symbol, display]) => (
-                <option key={symbol} value={symbol}>
-                  {display}
-                </option>
+              <option value={ALL_AUTHORS}>Все сотрудники</option>
+              {uniqueUsers.map(({ key, label }) => (
+                <option key={key} value={key}>{label}</option>
               ))}
             </select>
           </div>
@@ -315,7 +320,7 @@ export default function LogsManagement() {
             <p className="text-xs text-slate-400 max-w-sm leading-relaxed px-4">
               Возможно, заданы слишком строгие фильтры поиска или база данных изменений еще не содержит связанных записей.
             </p>
-            {(searchQuery || selectedUser || selectedCategory) && (
+            {(searchQuery || selectedUser !== ALL_AUTHORS || selectedCategory) && (
               <button type="button"
                 onClick={handleClearFilters}
                 className="mt-2.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs font-bold transition-ui border border-slate-200 dark:border-slate-700 cursor-pointer"

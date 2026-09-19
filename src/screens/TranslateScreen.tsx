@@ -24,7 +24,8 @@ import { useStore } from '../store/store';
 import { useWindowStore } from '../store/windowStore';
 import { useWindowTitle } from '../lib/paneTitle';
 import { detectLang } from '../translate/lang';
-import { LANG_NAME, type Lang } from '../translate/types';
+import { LANG_NAME, swapLangs, type Lang } from '../translate/types';
+import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { readiness } from '../translate/engine';
 
 type Mode = 'text' | 'terms' | 'memory';
@@ -110,8 +111,12 @@ export default function TranslateScreen() {
       .filter((r) => r.ok && r.src.trim() && r.dst.trim())
       .map((r) => ({ src: r.src.trim(), dst: r.dst.trim(), from: guessed, to: target }));
     if (!units.length) { addToast('Подтвердите строки, которые стоит запомнить', 'error'); return; }
-    const n = await store.remember(units);
-    addToast(n ? `В память легло строк: ${n}` : 'Ничего нового — эти строки уже там', n ? 'success' : 'info');
+    const r = await store.remember(units);
+    // Отказ сервера больше не выдаётся за «уже там»: это две разные новости, и
+    // вторая означает, что работа не сохранилась
+    if (!r.ok) { addToast(`${r.error || 'Не удалось запомнить'} — повторите`, 'error'); return; }
+    addToast(r.count ? `В память легло строк: ${r.count}` : 'Ничего нового — эти строки уже там',
+      r.count ? 'success' : 'info');
   };
 
   const translated = React.useMemo(() => rows.map((r) => (r.dst || r.src)).join(''), [rows]);
@@ -135,13 +140,30 @@ export default function TranslateScreen() {
 
   const swap = () => {
     // Меняем не только языки, но и текст местами: чаще всего человек хочет
-    // проверить обратный перевод того, что только что получил
-    const back = guessed === 'ru' ? (to as Lang) : 'ru';
-    setFrom(target);
-    setTo(back === 'zh' ? 'ru' : back);
+    // проверить обратный перевод того, что только что получил.
+    // Само правило — в translate/types.swapLangs: прежнее считало «назад» из
+    // `to` и для ru→en давало en→en, а перевод при этом шёл en→ru
+    const next = swapLangs(guessed, target);
+    if ('error' in next) { addToast(next.error, 'error'); return; }
+    setFrom(next.from);
+    setTo(next.to);
     if (translated.trim()) setSrc(translated);
     setRows([]);
   };
+
+  /**
+   * Ctrl+Shift+S — перестановка языков.
+   *
+   * Сочетание было объявлено в подсказке ленты, а обработчика не имело: лента
+   * показывает `keys` текстом, а командой его не регистрирует. Обещание, на
+   * которое программа не отвечает, хуже отсутствия обещания.
+   */
+  useWindowHotkeys((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      swap();
+    }
+  });
 
   const tmxOut = async () => {
     try {
@@ -258,7 +280,7 @@ export default function TranslateScreen() {
           <div className="h-full min-h-0 grid grid-cols-1 @[720px]:grid-cols-2">
             <div className="min-h-0 flex flex-col border-b @[720px]:border-b-0 @[720px]:border-r
                             border-slate-200 dark:border-slate-800">
-              <div className="shrink-0 px-3 py-1.5 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="shrink-0 px-3 py-1.5 text-2xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 Исходник {guessed !== 'und' && `· ${LANG_NAME[guessed]}`}
               </div>
               <textarea value={src} onChange={(e) => setSrc(e.target.value)}
@@ -268,7 +290,7 @@ export default function TranslateScreen() {
                            text-slate-800 dark:text-slate-150 outline-none scrollbar-thin" />
             </div>
             <div className="min-h-0 flex flex-col">
-              <div className="shrink-0 px-3 py-1.5 flex items-center gap-2 text-[10px] uppercase tracking-wide
+              <div className="shrink-0 px-3 py-1.5 flex items-center gap-2 text-2xs uppercase tracking-wide
                               text-slate-400 dark:text-slate-500">
                 Перевод · {LANG_NAME[target]}
                 {ready.total > 0 && (

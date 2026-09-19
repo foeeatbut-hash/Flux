@@ -90,7 +90,7 @@ export function DocStatus(p: DocRowProps) {
       {p.stage && (
         <button type="button" onClick={p.onStage} disabled={!p.onStage}
           title="Стадия документа"
-          className={`shrink-0 px-2 h-5 rounded-full text-[10px] font-bold ${STAGE_TONE[p.stage.tone]}
+          className={`shrink-0 px-2 h-5 rounded-full text-2xs font-bold ${STAGE_TONE[p.stage.tone]}
                       ${p.onStage ? 'cursor-pointer' : 'cursor-default'}`}>
           {p.stage.label}
         </button>
@@ -98,7 +98,7 @@ export function DocStatus(p: DocRowProps) {
       {p.revision && (
         <button type="button" onClick={p.onRevision} disabled={!p.onRevision}
           title="История версий этой ревизии и выпуск следующей"
-          className={`shrink-0 text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400
+          className={`shrink-0 text-2xs font-mono font-bold text-slate-500 dark:text-slate-400
                       ${p.onRevision ? 'cursor-pointer hover:text-emerald-600' : 'cursor-default'}`}>
           ред. {p.revision}
         </button>
@@ -106,7 +106,7 @@ export function DocStatus(p: DocRowProps) {
       {p.scope && p.onScope && (
         <select value={p.scope} onChange={(e) => p.onScope?.(e.target.value)}
           title="Общий — виден всем; Личный — только вам"
-          className="shrink-0 h-5 text-[10px] font-semibold px-1.5 rounded-md border border-slate-200
+          className="shrink-0 h-5 text-2xs font-semibold px-1.5 rounded-md border border-slate-200
                      dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-350 cursor-pointer">
           <option value="SHARED">Общий</option>
           <option value="PERSONAL">Личный</option>
@@ -115,7 +115,7 @@ export function DocStatus(p: DocRowProps) {
       {p.onTag && (
         <button type="button" onClick={p.onTag}
           title="К чему относится документ. Отсюда он попадает в связи проекта"
-          className="shrink-0 h-5 px-2 rounded-md text-[10px] font-bold text-emerald-700 dark:text-emerald-400
+          className="shrink-0 h-5 px-2 rounded-md text-2xs font-bold text-emerald-700 dark:text-emerald-400
                      hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer">
           ◆ {p.tag || 'Привязать'}
         </button>
@@ -125,7 +125,7 @@ export function DocStatus(p: DocRowProps) {
           <div className="flex -space-x-1.5">
             {p.peers.slice(0, MAX_AVATARS).map((x) => (
               <div key={x.socketId} title={x.name}
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black text-white
+                className="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-black text-white
                            ring-2 ring-white dark:ring-slate-900"
                 style={{ background: x.color }}>
                 {initial(x.name)}
@@ -135,7 +135,7 @@ export function DocStatus(p: DocRowProps) {
           {/* Шестой и дальше — числом: пять кружков помещаются, восемь съедают
               имя документа, а «кто ещё» отвечает и число */}
           {extraPeers(p.peers) > 0 && (
-            <span className="ml-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+            <span className="ml-1 text-2xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
               +{extraPeers(p.peers)}
             </span>
           )}
@@ -143,7 +143,7 @@ export function DocStatus(p: DocRowProps) {
       )}
       {!!p.link && (
         <span title="Пока связи нет, ваши правки не уходят коллегам, а их правки не приходят вам"
-          className="shrink-0 flex items-center gap-1 text-[10px] font-semibold
+          className="shrink-0 flex items-center gap-1 text-2xs font-semibold
                      text-amber-600 dark:text-amber-400">
           <WifiOff className="w-3 h-3" /> {p.link}
         </span>
@@ -151,7 +151,7 @@ export function DocStatus(p: DocRowProps) {
       {/* Состояние сохранения прячется в узком окне: место нужнее вкладкам, а
           «сохранено» — это подтверждение, а не предупреждение. Тревожное
           «не сохранено» остаётся видно всегда */}
-      <span className={`shrink-0 text-[10px] ${p.saveState === 'conflict'
+      <span className={`shrink-0 text-2xs ${p.saveState === 'conflict'
         ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'hidden @[760px]:inline text-slate-400 dark:text-slate-455'}`}>
         {saved}
       </span>
@@ -172,7 +172,7 @@ export function DocStatus(p: DocRowProps) {
                     onClick={() => { setMenuOpen(false); m.run(); }}
                     className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
                     <span className="block text-2xs font-bold text-slate-700 dark:text-slate-300">{m.label}</span>
-                    {m.hint && <span className="block text-[10px] text-slate-400 dark:text-slate-455 leading-snug">{m.hint}</span>}
+                    {m.hint && <span className="block text-2xs text-slate-400 dark:text-slate-455 leading-snug">{m.hint}</span>}
                   </button>
                 ))}
               </div>

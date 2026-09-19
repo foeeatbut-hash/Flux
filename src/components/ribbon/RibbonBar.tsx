@@ -17,6 +17,7 @@ import {
   type RibbonGroup, type RibbonTab,
 } from '../../lib/ribbon';
 import Organ from './Organ';
+import Popover from '../Popover';
 
 export interface RibbonBarProps {
   tabs: RibbonTab[];
@@ -64,7 +65,10 @@ function Group({ group, state, disabled, attention, onCommand }: {
             attention={attention?.[o.id]} onRun={onCommand} />
         ))}
       </div>
-      <div className="text-[9px] uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
+      {/* Подпись группы — 11 точек, нижняя ступень шкалы из `index.css`. Было
+          девять: ниже объявленного предела, и на экране с масштабом 125 % это
+          читалось уже с трудом */}
+      <div className="text-2xs uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
         {group.name}
       </div>
     </div>
@@ -80,33 +84,31 @@ function Collapsed({ group, ...rest }: {
   onCommand: (id: string, value?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
   return (
     <div data-group={group.name} data-collapsed="1"
-      className="relative flex flex-col justify-between h-full shrink-0 border-r border-slate-150 dark:border-slate-850"
+      className="flex flex-col justify-between h-full shrink-0 border-r border-slate-150 dark:border-slate-850"
       style={{ paddingLeft: GROUP_PAD, paddingRight: GROUP_PAD }}>
-      <button type="button" onClick={() => setOpen((v) => !v)}
-        title={`${group.name}: раскрыть группу`} aria-expanded={open}
+      <button ref={btn} type="button" onClick={() => setOpen((v) => !v)}
+        title={`${group.name}: раскрыть группу`} aria-expanded={open} aria-haspopup="menu"
         className="flex-1 w-7 flex items-center justify-center rounded-md text-slate-500 dark:text-slate-400
                    hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer transition-ui">
         ⋯
       </button>
-      <div className="text-[9px] uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
+      <div className="text-2xs uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
         {group.name}
       </div>
+      {/* Порталом, а не `absolute`: полоса ленты обрезает по высоте, и раньше
+          раскрытая группа не была видна вовсе */}
       {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 p-2 rounded-xl shadow-2xl
-                          bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
-            onClick={() => setOpen(false)}>
-            <div className="flex flex-wrap gap-1 max-w-72">
-              {group.organs.map((o) => (
-                <Organ key={o.id} organ={o} value={rest.state?.[o.id]} disabled={rest.disabled?.[o.id]}
-                  attention={rest.attention?.[o.id]} onRun={rest.onCommand} />
-              ))}
-            </div>
+        <Popover anchor={btn.current} onClose={() => setOpen(false)} label={group.name}>
+          <div className="p-2 flex flex-wrap gap-1 max-w-72" onClick={() => setOpen(false)}>
+            {group.organs.map((o) => (
+              <Organ key={o.id} organ={o} value={rest.state?.[o.id]} disabled={rest.disabled?.[o.id]}
+                attention={rest.attention?.[o.id]} onRun={rest.onCommand} />
+            ))}
           </div>
-        </>
+        </Popover>
       )}
     </div>
   );
@@ -118,6 +120,7 @@ export default function RibbonBar({
 }: RibbonBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
   const [barW, setBarW] = useState(1200);
   const [tabsW, setTabsW] = useState(1200);
   const [moreTabs, setMoreTabs] = useState(false);
@@ -191,27 +194,24 @@ export default function RibbonBar({
           })}
         </div>
         {hidden.length > 0 && (
-          <div className="relative shrink-0">
-            <button type="button" onClick={() => setMoreTabs((v) => !v)}
-              title="Вкладки, не поместившиеся в полосу"
+          <div className="shrink-0">
+            <button ref={moreRef} type="button" onClick={() => setMoreTabs((v) => !v)}
+              title="Вкладки, не поместившиеся в полосу" aria-expanded={moreTabs} aria-haspopup="menu"
               className="h-[26px] px-2 text-2xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 rounded-t-md cursor-pointer">
               ▾
             </button>
             {moreTabs && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setMoreTabs(false)} />
-                <div className="absolute right-0 top-full z-50 mt-1 py-1 w-52 rounded-xl shadow-2xl
-                                bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  {hidden.map((n) => (
-                    <button key={n} type="button"
-                      onClick={() => { setMoreTabs(false); onActive(n); }}
-                      className="w-full text-left px-3 py-1.5 text-2xs font-semibold text-slate-700 dark:text-slate-300
-                                 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <Popover anchor={moreRef.current} align="right" onClose={() => setMoreTabs(false)}
+                label="Вкладки, не поместившиеся в полосу" className="py-1 w-52">
+                {hidden.map((n) => (
+                  <button key={n} type="button"
+                    onClick={() => { setMoreTabs(false); onActive(n); }}
+                    className="w-full text-left px-3 py-1.5 text-2xs font-semibold text-slate-700 dark:text-slate-300
+                               hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
+                    {n}
+                  </button>
+                ))}
+              </Popover>
             )}
           </div>
         )}

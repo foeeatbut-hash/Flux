@@ -147,7 +147,7 @@ export function DigestCard({ digest, asks, now = new Date() }: {
 
       {asks.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">
+          <p className="text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">
             Просят
           </p>
           <ul className="space-y-1">
