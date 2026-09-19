@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -1182,96 +1183,99 @@ export default function Explorer() {
     setContextMenu({ x: e.clientX, y: e.clientY, targetId: id, isFile, isSection: isSectionId(id) });
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if writing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  /**
+   * Клавиши файловых команд.
+   *
+   * Проверка «не в поле ввода» раньше знала только про input и textarea, а
+   * редактор документа — contenteditable: Delete, набранный в ЧУЖОМ тексте,
+   * открывал здесь диалог удаления файлов. Свёрнутое окно Проводника и окно на
+   * соседнем столе слушали наравне с открытым. Теперь клавишу получает только
+   * активное окно, и внутри текста она не перехватывается вовсе
+   * (src/lib/hotkeys.ts).
+   */
+  useWindowHotkeys((e) => {
+    const selected = selectedIdsRef.current;
+    const currFolderId = currentFolderIdRef.current;
+    const items = allCurrentItemsRef.current;
+    const clip = clipboardRef.current;
 
-      const selected = selectedIdsRef.current;
-      const currFolderId = currentFolderIdRef.current;
-      const items = allCurrentItemsRef.current;
-      const clip = clipboardRef.current;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selected.size > 0) {
-        setClipboard({ ids: Array.from(selected), type: 'copy' });
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && selected.size > 0) {
-        setClipboard({ ids: Array.from(selected), type: 'cut' });
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault();
-        setSelectedIds(new Set(items.map(i => i.id)));
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clip) {
-        handlePasteRef.current();
-      } else if (e.key === 'Delete' && selected.size > 0) {
-        const deletable = Array.from(selected).filter(id => !isSectionId(id));
-        if (deletable.length === 0) return;
-        openConfirm(`Удалить ${countOf(deletable.length, 'элемент')}?`,
-          'Удалённое попадёт в корзину Проводника — оттуда его можно вернуть.',
-          { confirmLabel: 'Удалить', tone: 'danger' }).then(confirmed => {
-           if (confirmed) {
-             deletable.forEach(id => {
-               const item = items.find(i => i.id === id);
-               const isFile = item ? !item.isFolder : false;
-               handleDeleteRef.current(id, isFile, true);
-             });
-             setSelectedIds(new Set());
-             addToast(`Перемещено в корзину: ${countOf(deletable.length, 'элемент')}`, 'success');
-           }
-        });
-      } else if (e.key === 'F2' && selected.size === 1) {
-        const id = Array.from(selected)[0];
-        if (isSectionId(id)) return; // встроенные разделы не переименовываются
-        setRenamingId(id);
-        const item = items.find(i => i.id === id);
-        setRenameValue(item?.name || '');
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        const lastSelIdx = lastSelectedIdRef.current;
-        const currentIdx = items.findIndex(i => i.id === lastSelIdx);
-        if (currentIdx < items.length - 1) {
-          const nextId = items[currentIdx + 1].id;
-          setSelectedIds(new Set([nextId]));
-          setLastSelectedId(nextId);
-        } else if (items.length > 0 && currentIdx === -1) {
-          const nextId = items[0].id;
-          setSelectedIds(new Set([nextId]));
-          setLastSelectedId(nextId);
-        }
-      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        const lastSelIdx = lastSelectedIdRef.current;
-        const currentIdx = items.findIndex(i => i.id === lastSelIdx);
-        if (currentIdx > 0) {
-          const prevId = items[currentIdx - 1].id;
-          setSelectedIds(new Set([prevId]));
-          setLastSelectedId(prevId);
-        } else if (items.length > 0 && currentIdx === -1) {
-          const prevId = items[items.length - 1].id;
-          setSelectedIds(new Set([prevId]));
-          setLastSelectedId(prevId);
-        }
-      } else if (e.key === 'Enter') {
-        if (selected.size === 1) {
-          const id = Array.from(selected)[0] as string;
-          const item = items.find(i => i.id === id);
-          if (item?.isFolder) navigateToRef.current(id);
-        }
-      } else if (e.key === 'Backspace') {
-        e.preventDefault();
-        if (!currFolderId) return;
-        if (isSectionId(currFolderId)) {
-          navigateToRef.current(null);
-          return;
-        }
-        const folder = foldersRef.current.find(f => f.id === currFolderId);
-        // Из папки на верхнем уровне возвращаемся в её раздел (Общий/Личный)
-        const target = folder?.parentId
-          || (folder ? (folder.scope === 'PERSONAL' && folder.ownerId ? personalSecId(folder.ownerId) : SEC_SHARED) : null);
-        navigateToRef.current(target);
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selected.size > 0) {
+      setClipboard({ ids: Array.from(selected), type: 'copy' });
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && selected.size > 0) {
+      setClipboard({ ids: Array.from(selected), type: 'cut' });
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      setSelectedIds(new Set(items.map(i => i.id)));
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clip) {
+      handlePasteRef.current();
+    } else if (e.key === 'Delete' && selected.size > 0) {
+      const deletable = Array.from(selected).filter(id => !isSectionId(id));
+      if (deletable.length === 0) return;
+      openConfirm(`Удалить ${countOf(deletable.length, 'элемент')}?`,
+        'Удалённое попадёт в корзину Проводника — оттуда его можно вернуть.',
+        { confirmLabel: 'Удалить', tone: 'danger' }).then(confirmed => {
+         if (confirmed) {
+           deletable.forEach(id => {
+             const item = items.find(i => i.id === id);
+             const isFile = item ? !item.isFolder : false;
+             handleDeleteRef.current(id, isFile, true);
+           });
+           setSelectedIds(new Set());
+           addToast(`Перемещено в корзину: ${countOf(deletable.length, 'элемент')}`, 'success');
+         }
+      });
+    } else if (e.key === 'F2' && selected.size === 1) {
+      const id = Array.from(selected)[0];
+      if (isSectionId(id)) return; // встроенные разделы не переименовываются
+      setRenamingId(id);
+      const item = items.find(i => i.id === id);
+      setRenameValue(item?.name || '');
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const lastSelIdx = lastSelectedIdRef.current;
+      const currentIdx = items.findIndex(i => i.id === lastSelIdx);
+      if (currentIdx < items.length - 1) {
+        const nextId = items[currentIdx + 1].id;
+        setSelectedIds(new Set([nextId]));
+        setLastSelectedId(nextId);
+      } else if (items.length > 0 && currentIdx === -1) {
+        const nextId = items[0].id;
+        setSelectedIds(new Set([nextId]));
+        setLastSelectedId(nextId);
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const lastSelIdx = lastSelectedIdRef.current;
+      const currentIdx = items.findIndex(i => i.id === lastSelIdx);
+      if (currentIdx > 0) {
+        const prevId = items[currentIdx - 1].id;
+        setSelectedIds(new Set([prevId]));
+        setLastSelectedId(prevId);
+      } else if (items.length > 0 && currentIdx === -1) {
+        const prevId = items[items.length - 1].id;
+        setSelectedIds(new Set([prevId]));
+        setLastSelectedId(prevId);
+      }
+    } else if (e.key === 'Enter') {
+      if (selected.size === 1) {
+        const id = Array.from(selected)[0] as string;
+        const item = items.find(i => i.id === id);
+        if (item?.isFolder) navigateToRef.current(id);
+      }
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (!currFolderId) return;
+      if (isSectionId(currFolderId)) {
+        navigateToRef.current(null);
+        return;
+      }
+      const folder = foldersRef.current.find(f => f.id === currFolderId);
+      // Из папки на верхнем уровне возвращаемся в её раздел (Общий/Личный)
+      const target = folder?.parentId
+        || (folder ? (folder.scope === 'PERSONAL' && folder.ownerId ? personalSecId(folder.ownerId) : SEC_SHARED) : null);
+      navigateToRef.current(target);
+    }
+  });
 
 
   const handleContextMenu = (e: React.MouseEvent, targetId?: string, isFile?: boolean) => {

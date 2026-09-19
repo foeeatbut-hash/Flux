@@ -24,7 +24,8 @@ import { useStore } from '../store/store';
 import { useWindowStore } from '../store/windowStore';
 import { useWindowTitle } from '../lib/paneTitle';
 import { detectLang } from '../translate/lang';
-import { LANG_NAME, type Lang } from '../translate/types';
+import { LANG_NAME, swapLangs, type Lang } from '../translate/types';
+import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { readiness } from '../translate/engine';
 
 type Mode = 'text' | 'terms' | 'memory';
@@ -139,13 +140,30 @@ export default function TranslateScreen() {
 
   const swap = () => {
     // Меняем не только языки, но и текст местами: чаще всего человек хочет
-    // проверить обратный перевод того, что только что получил
-    const back = guessed === 'ru' ? (to as Lang) : 'ru';
-    setFrom(target);
-    setTo(back === 'zh' ? 'ru' : back);
+    // проверить обратный перевод того, что только что получил.
+    // Само правило — в translate/types.swapLangs: прежнее считало «назад» из
+    // `to` и для ru→en давало en→en, а перевод при этом шёл en→ru
+    const next = swapLangs(guessed, target);
+    if ('error' in next) { addToast(next.error, 'error'); return; }
+    setFrom(next.from);
+    setTo(next.to);
     if (translated.trim()) setSrc(translated);
     setRows([]);
   };
+
+  /**
+   * Ctrl+Shift+S — перестановка языков.
+   *
+   * Сочетание было объявлено в подсказке ленты, а обработчика не имело: лента
+   * показывает `keys` текстом, а командой его не регистрирует. Обещание, на
+   * которое программа не отвечает, хуже отсутствия обещания.
+   */
+  useWindowHotkeys((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      swap();
+    }
+  });
 
   const tmxOut = async () => {
     try {
