@@ -278,24 +278,48 @@ export default function PdfEditor() {
     } catch (_) { addToast('Не удалось поставить пометку', 'error'); }
   };
 
+  /**
+   * Правка пометки.
+   *
+   * Отказ сервера раньше глотался молча: правка пропадала с экрана без слова,
+   * а при следующем открытии чертежа возвращалась прежняя. Человек был уверен,
+   * что поправил, — и узнавал обратное через день.
+   */
   const patchMarkup = async (id: string, data: any) => {
     try {
       const r = await fetch(`/api/pdf-markups/${id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
       });
-      if (!r.ok) return;
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        addToast(d.error || `Правка не сохранена (${r.status})`, 'error');
+        return;
+      }
       const { markup } = await r.json();
       setMarkups((list) => list.map((m) => (m.id === id ? markup : m)));
-    } catch (_) { /* молча: список перечитается при следующем открытии */ }
+    } catch (_) { addToast('Правка не сохранена: нет связи с сервером', 'error'); }
   };
 
+  /**
+   * Снять пометку.
+   *
+   * Раньше ответ сервера не проверялся вовсе: пометка исчезала из списка при
+   * любом исходе, в том числе при 403 «нет права» — и возвращалась при
+   * повторном открытии. Теперь с экрана уходит только то, что сервер
+   * подтвердил.
+   */
   const removeMarkup = async (id: string) => {
     if (!await openConfirm('Снять пометку?', 'Замечание уйдёт из списка. Историю переписки это не меняет.', { confirmLabel: 'Снять' })) return;
     try {
-      await fetch(`/api/pdf-markups/${id}`, { method: 'DELETE' });
+      const r = await fetch(`/api/pdf-markups/${id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        addToast(d.error || `Не удалось снять пометку (${r.status})`, 'error');
+        return;
+      }
       setMarkups((list) => list.filter((m) => m.id !== id));
       if (selected === id) setSelected(null);
-    } catch (_) { addToast('Не удалось снять пометку', 'error'); }
+    } catch (_) { addToast('Не удалось снять пометку: нет связи с сервером', 'error'); }
   };
 
   /**

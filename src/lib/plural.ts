@@ -41,7 +41,7 @@ export const WORDS = {
   'важное замечание': ['важное замечание', 'важных замечания', 'важных замечаний'],
 } as const;
 
-type WordKey = keyof typeof WORDS;
+export type WordKey = keyof typeof WORDS;
 
 /** Короткая форма: countOf(2, 'элемент') → '2 элемента' */
 export function countOf(n: number, word: WordKey): string {

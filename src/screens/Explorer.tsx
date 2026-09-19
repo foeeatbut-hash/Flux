@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useWindowHotkeys } from '../lib/useWindowHotkeys';
+import { summarize, type ItemOutcome } from '../lib/outcomes';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -233,6 +234,8 @@ export default function Explorer() {
   const foldersRef = useRef(folders);
   
   const handleDeleteRef = useRef<any>(null);
+  // Перечитать список после пачки удалений: сама fetchData объявлена ниже
+  const fetchDataRef = useRef<any>(null);
   const handlePasteRef = useRef<any>(null);
   const navigateToRef = useRef<any>(null);
   const filesRef = useRef<any[]>([]);
@@ -805,10 +808,20 @@ export default function Explorer() {
   // skipConfirm — когда подтверждение уже спросили один раз на всю пачку
   // (удаление нескольких выделенных), иначе программа спрашивала бы про
   // каждый файл отдельно.
-  const handleDelete = async (id: string, isFile: boolean, skipConfirm = false) => {
+  /**
+   * Удалить один предмет и СКАЗАТЬ, чем это кончилось.
+   *
+   * Возвращает исход, а не ничего. Массовое удаление раньше звало эту функцию
+   * через `forEach` без ожидания и сразу писало «Перемещено в корзину: 5
+   * элементов»: отказ сервера по любому из них в сообщение не попадал, выбор
+   * уже очищался, и файл просто оставался на месте — как будто его и не
+   * выбирали.
+   */
+  const handleDelete = async (id: string, isFile: boolean, skipConfirm = false): Promise<ItemOutcome> => {
     if (isSectionId(id)) {
-      addToast('Разделы «Общий» и «Личный» встроены в программу — их нельзя удалить.', 'error');
-      return;
+      const error = 'Разделы «Общий» и «Личный» встроены в программу — их нельзя удалить.';
+      if (!skipConfirm) addToast(error, 'error');
+      return { id, ok: false, error };
     }
     const confirmed = skipConfirm || await openConfirm(
       isFile ? 'Удалить файл?' : 'Удалить папку?',
@@ -817,18 +830,28 @@ export default function Explorer() {
         : 'Папка со всем содержимым попадёт в корзину Проводника — оттуда её можно вернуть.',
       { confirmLabel: 'Удалить', tone: 'danger' },
     );
-    if (!confirmed) return;
+    if (!confirmed) return { id, ok: false, error: 'отменено' };
     const endpoint = isFile ? `/api/files/${id}` : `/api/folders/${id}`;
-    const res = await fetch(endpoint, { method: 'DELETE' });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      addToast(d.error || 'Не удалось удалить', 'error');
-      return;
+    try {
+      const res = await fetch(endpoint, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        const error = d.error || `Сервер отказал (${res.status})`;
+        if (!skipConfirm) addToast(error, 'error');
+        return { id, ok: false, error };
+      }
+    } catch (_) {
+      const error = 'Нет связи с сервером';
+      if (!skipConfirm) addToast(error, 'error');
+      return { id, ok: false, error };
     }
     if (!isFile && currentFolderId === id) navigateTo(null);
-    if (!skipConfirm) addToast(isFile ? 'Файл перемещён в корзину' : 'Папка перемещена в корзину', 'success');
-    fetchData();
-    if (trash) loadTrash();
+    if (!skipConfirm) {
+      addToast(isFile ? 'Файл перемещён в корзину' : 'Папка перемещена в корзину', 'success');
+      fetchData();
+      if (trash) loadTrash();
+    }
+    return { id, ok: true };
   };
 
   const handleAssignTag = (fileId: string) => {
@@ -895,6 +918,7 @@ export default function Explorer() {
     fetchData();
   };
 
+  useEffect(() => { fetchDataRef.current = fetchData; });
   useEffect(() => { handleDeleteRef.current = handleDelete; }, [handleDelete]);
   useEffect(() => { handlePasteRef.current = handlePaste; }, [handlePaste]);
   useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
@@ -1213,16 +1237,22 @@ export default function Explorer() {
       if (deletable.length === 0) return;
       openConfirm(`Удалить ${countOf(deletable.length, 'элемент')}?`,
         'Удалённое попадёт в корзину Проводника — оттуда его можно вернуть.',
-        { confirmLabel: 'Удалить', tone: 'danger' }).then(confirmed => {
-         if (confirmed) {
-           deletable.forEach(id => {
-             const item = items.find(i => i.id === id);
-             const isFile = item ? !item.isFolder : false;
-             handleDeleteRef.current(id, isFile, true);
-           });
-           setSelectedIds(new Set());
-           addToast(`Перемещено в корзину: ${countOf(deletable.length, 'элемент')}`, 'success');
-         }
+        { confirmLabel: 'Удалить', tone: 'danger' }).then(async (confirmed) => {
+         if (!confirmed) return;
+         // Ждём КАЖДОГО. Раньше здесь стоял forEach без ожидания и безусловный
+         // зелёный тост: отказ сервера в него не попадал, выбор очищался, и
+         // неудалённый файл оставался на месте, будто его и не выбирали
+         const results = await Promise.all(deletable.map(async (id) => {
+           const item = items.find((i) => i.id === id);
+           return handleDeleteRef.current(id, item ? !item.isFolder : false, true);
+         }));
+         const out = summarize(results, 'элемент', {
+           done: 'Перемещено в корзину', failed: 'Не удалось удалить',
+         });
+         // Неудавшиеся остаются выбранными: человеку с ними ещё работать
+         setSelectedIds(new Set(out.failed));
+         addToast(out.text, out.tone);
+         fetchDataRef.current?.();
       });
     } else if (e.key === 'F2' && selected.size === 1) {
       const id = Array.from(selected)[0];

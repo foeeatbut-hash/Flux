@@ -73,6 +73,33 @@ export default function ProjectsManagement() {
 
   const initForm = (proj: Project) => setDraft(draftOf(proj as any));
 
+  /**
+   * Есть ли в карточке несохранённая правка.
+   *
+   * Сравниваем с тем, что пришло с сервера. Нужно ради одного: выбор другого
+   * проекта раньше молча подменял форму, и набранное название или заказчик
+   * исчезали без следа и без вопроса.
+   */
+  const isDirty = (): boolean => {
+    if (!selectedProject) return false;
+    return JSON.stringify(trimmed(draft)) !== JSON.stringify(trimmed(draftOf(selectedProject as any)));
+  };
+
+  /** Переключиться на другой проект, спросив про несохранённое. */
+  const selectProject = async (p: Project) => {
+    if (p.id === selectedProject?.id) return;
+    if (isDirty()) {
+      const go = await openConfirm(
+        'Правки не сохранены',
+        `В карточке «${selectedProject?.name}» есть несохранённые изменения. Перейти к другому проекту и потерять их?`,
+        { confirmLabel: 'Перейти и потерять', tone: 'danger' },
+      );
+      if (!go) return;
+    }
+    setSelectedProject(p);
+    initForm(p);
+  };
+
   useEffect(() => {
     loadProjects();
   }, []);
@@ -244,10 +271,7 @@ export default function ProjectsManagement() {
                   data-share-route="/projects"
                   data-share-focus={`project:${p.id}`}
                   data-share-label={`Проект: ${p.name}`}
-                  onClick={() => {
-                    setSelectedProject(p);
-                    initForm(p);
-                  }}
+                  onClick={() => { void selectProject(p); }}
                   className={`p-3 rounded-xl border transition-ui cursor-pointer flex flex-col justify-between items-stretch gap-1.5 relative group ${
                     isSelected
                       ? 'bg-slate-50 dark:bg-slate-850 border-slate-300 dark:border-slate-700'
