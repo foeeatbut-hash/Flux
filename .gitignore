@@ -35,3 +35,4 @@ license-generator.html
 # (в них имена сотрудников и данные заказчика). Обезличенные образцы той же
 # формы лежат в scripts/fixtures/blanks.
 .probe/
+.walkthrough/
