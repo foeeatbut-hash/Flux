@@ -124,9 +124,18 @@ export default function BrowserScreen() {
     let raf = requestAnimationFrame(tick);
     const ro = new ResizeObserver(() => place(true));
     ro.observe(el);
-    window.addEventListener('scroll', () => place(true), true);
+    // Слушатель именованный и снимается тем же capture, каким поставлен: без
+    // этого каждое открытие Браузера оставляло на window ещё один обработчик
+    // прокрутки, и он продолжал двигать уже закрытую страницу
+    const onScroll = () => place(true);
+    window.addEventListener('scroll', onScroll, true);
     place(true);
-    return () => { alive = false; cancelAnimationFrame(raf); ro.disconnect(); };
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener('scroll', onScroll, true);
+    };
   }, [place]);
 
   /**
