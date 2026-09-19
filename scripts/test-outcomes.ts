@@ -116,7 +116,7 @@ console.log('\n6. Авторы журнала различаются');
 console.log('\n7. «Все сотрудники» — отдельное значение');
 {
   // Раньше «все» и «автор без символа» были одной и той же пустой строкой
-  ok('у «всех» свой ключ', ALL_AUTHORS !== '');
+  ok('у «всех» свой ключ', String(ALL_AUTHORS).length > 0);
   ok('и он не совпадает ни с одним автором',
     authorKey({ userId: 'u1' }) !== ALL_AUTHORS
     && authorKey({ userSymbol: 'ИИ' }) !== ALL_AUTHORS
