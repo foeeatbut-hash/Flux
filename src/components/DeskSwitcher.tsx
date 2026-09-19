@@ -80,7 +80,7 @@ function DeskCard({ index, dragging, onPick, onDrop }: {
           />
         ))}
         {!mine.length && (
-          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-slate-400 dark:text-slate-455">
+          <span className="absolute inset-0 flex items-center justify-center text-2xs text-slate-400 dark:text-slate-455">
             пусто
           </span>
         )}

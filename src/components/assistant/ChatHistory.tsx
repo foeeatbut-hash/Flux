@@ -70,7 +70,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
         )}
         {groups.map((g) => (
           <div key={g.label} className="mb-2">
-            <p className="px-1 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <p className="px-1 py-1 text-2xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               {g.label}
             </p>
             {g.chats.map((c) => (
@@ -88,7 +88,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
                     {c.title || 'Разговор'}
                   </span>
                   {c.preview && (
-                    <span className="block text-[10px] text-slate-400 dark:text-slate-500 truncate">{c.preview}</span>
+                    <span className="block text-2xs text-slate-400 dark:text-slate-500 truncate">{c.preview}</span>
                   )}
                 </span>
                 <button
@@ -107,7 +107,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
       </div>
 
       <p className="shrink-0 flex items-start gap-1 px-3 py-2 border-t border-slate-200 dark:border-slate-800
-                    text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+                    text-2xs leading-snug text-slate-500 dark:text-slate-400">
         <Lock className="w-3 h-3 mt-px shrink-0" />
         Разговоры видите только вы — администратор тоже нет.
       </p>

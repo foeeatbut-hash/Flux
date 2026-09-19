@@ -75,7 +75,7 @@ export default function FileMenu({ sections, info, onClose }: {
                       <span className={`block text-2xs font-bold ${it.disabled
                         ? 'text-slate-350 dark:text-slate-455' : 'text-slate-700 dark:text-slate-300'}`}>{it.label}</span>
                       {(it.hint || it.disabled) && (
-                        <span className="block text-[10px] leading-snug text-slate-400 dark:text-slate-455">
+                        <span className="block text-2xs leading-snug text-slate-400 dark:text-slate-455">
                           {it.disabled || it.hint}
                         </span>
                       )}

@@ -69,7 +69,7 @@ export default function TermTable({ adding, onAdded }: { adding: boolean; onAdde
       <div className="flex-1 min-h-0 overflow-auto scrollbar-thin">
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">
-            <tr className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <tr className="text-2xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
               <th className="px-2 py-1.5 text-left font-semibold">Русский</th>
               <th className="px-2 py-1.5 text-left font-semibold">English</th>
               <th className="px-2 py-1.5 text-left font-semibold hidden @[720px]:table-cell">中文</th>

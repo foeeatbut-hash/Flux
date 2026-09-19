@@ -58,7 +58,7 @@ export default function TaskbarPeek({ path, left, onClose }: {
             <span className="block text-2xs font-semibold text-slate-700 dark:text-slate-300 truncate">
               {titles[w.id] || def.title}
             </span>
-            {w.minimized && <span className="block text-[10px] text-slate-400 dark:text-slate-455">свёрнуто</span>}
+            {w.minimized && <span className="block text-2xs text-slate-400 dark:text-slate-455">свёрнуто</span>}
           </span>
           <button type="button" aria-label="Закрыть окно"
             onClick={(e) => { e.stopPropagation(); close(w.id); }}

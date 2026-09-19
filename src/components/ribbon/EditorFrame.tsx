@@ -41,7 +41,7 @@ export default function EditorFrame({
       <div className="flex-1 min-h-0 relative">{children}</div>
       {(statusLeft || statusRight) && (
         <div className="flex items-center gap-3 px-3 shrink-0 border-t border-slate-200 dark:border-slate-800
-                        bg-white dark:bg-slate-900 text-[10px] text-slate-500 dark:text-slate-400"
+                        bg-white dark:bg-slate-900 text-2xs text-slate-500 dark:text-slate-400"
           style={{ height: STATUS_H }}>
           <span className="truncate">{statusLeft}</span>
           <span className="flex-1" />

@@ -78,7 +78,7 @@ export default function TranslateEngineSection() {
           ].map((x) => (
             <div key={x.label} className="rounded-md bg-slate-50 dark:bg-slate-900 px-3 py-2">
               <div className="text-lg font-bold text-slate-800 dark:text-slate-150 tabular-nums">{x.value}</div>
-              <div className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">{x.label}</div>
+              <div className="text-2xs text-slate-400 dark:text-slate-500 leading-tight">{x.label}</div>
             </div>
           ))}
         </div>
