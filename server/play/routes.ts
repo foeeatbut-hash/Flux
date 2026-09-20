@@ -13,8 +13,14 @@ import {
   PLAY_ENABLED_KEY, allowed, invalidatePlatform, notThere, platformState, verdict,
 } from './access.js';
 import { PLAY_ADMIN } from '../../play/features.js';
+import { registerPlayApi } from './api.js';
+import { setupTestGame } from './adapters/testgame.js';
 
 export function registerPlayRoutes(app: Express): void {
+  // Игры подключаются до маршрутов: матч по неподключённой игре не начнётся,
+  // и человек увидит «игра не подключена», а не бесконечное «Подключение…»
+  setupTestGame((m) => console.log('[Play]', m));
+
   /**
    * Состояние платформы словами — для Настроек.
    *
@@ -64,7 +70,10 @@ export function registerPlayRoutes(app: Express): void {
     }
   });
 
-  // Заглушка на остальное: пока маршрутов игр нет, а заслон уже стоит, любой
-  // другой адрес под /api/play обязан отвечать так же, как выдуманный
+  // Группа, приглашения, лобби, матч, билеты, результат
+  registerPlayApi(app);
+
+  // Всё остальное под /api/play отвечает так же, как выдуманный адрес:
+  // «такого нет» — единственный ответ, который ничего не рассказывает
   app.use('/api/play', (_req: Request, res: Response) => notThere(res));
 }
