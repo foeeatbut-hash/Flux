@@ -14,6 +14,8 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock, Home } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
+import { visibleSections } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
 import { useStore } from '../store/store';
 import { rememberSectionUse } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
@@ -83,11 +85,17 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
+  /**
+   * Разделы, закрытые правом, в Пуске не показываются: видный в меню, но
+   * закрытый раздел — обещание, которое программа не выполнит. Отбор идёт той
+   * же политикой, что на панели задач и на столе: три списка, посчитанных
+   * по-разному, однажды разойдутся, и разойдутся молча.
+   */
+  const ctx = useAppContext();
+  const allowedSections = React.useMemo(() => visibleSections(SECTIONS, ctx), [ctx]);
   const groups = React.useMemo(
-    // Разделы, закрытые правом, в Пуске не показываются: видный в меню, но
-    // закрытый раздел — обещание, которое программа не выполнит
-    () => groupSections(SECTIONS as any, isAdmin, q, (f) => can(user as any, f)),
-    [isAdmin, q, user],
+    () => groupSections(allowedSections, isAdmin, q, (f) => can(user as any, f)),
+    [allowedSections, isAdmin, q, user],
   );
   const found = countFound(groups);
   // «Рекомендуем» — недавние ВЕЩИ, а не разделы: человек и так помнит, что
@@ -101,8 +109,8 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
   // Свой набор человека идёт первым: искать его в общем списке каждый раз незачем
   const pinnedList = React.useMemo(
-    () => (q ? [] : pinnedTiles(apps, SECTIONS as any, isAdmin, (f) => can(user as any, f))),
-    [apps, isAdmin, q, user],
+    () => (q ? [] : pinnedTiles(apps, allowedSections, isAdmin, (f) => can(user as any, f))),
+    [apps, allowedSections, isAdmin, q, user],
   );
 
   /**

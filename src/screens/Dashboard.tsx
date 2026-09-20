@@ -23,6 +23,8 @@ import { useWindowStore } from '../store/windowStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { SECTIONS } from '../workspace/sections';
+import { visibleSections } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
 import { countOf } from '../lib/plural';
 import { motion } from 'motion/react';
 import SeasonalBackdrop from '../components/SeasonalBackdrop';
@@ -130,20 +132,24 @@ export default function Dashboard() {
   const openWindows = useWindowStore((s) => s.windows);
 
   // ── Разделы: порядок по частоте использования ──────────────────────────────
+  // Плитки Главной — такой же вход в раздел, как Пуск и стол, и отбор у них
+  // обязан быть тот же. Здесь он был только по роли администратора, и раздел,
+  // закрытый правом, оставался плиткой: нажатие приводило на «Раздел закрыт»
+  const ctx = useAppContext();
+  const allowedSections = useMemo(() => visibleSections(SECTIONS, ctx), [ctx]);
+
   const sections = useMemo(() => {
     const uses = sectionUses();
-    const list = SECTIONS
-      .filter((s) => s.path !== '/' && s.path !== '/logs')
-      .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
+    const list = allowedSections.filter((s) => s.path !== '/' && s.path !== '/logs');
     return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
-  }, [user?.role, loading, openWindows]);
+  }, [allowedSections, loading, openWindows]);
 
   const recent = useMemo(() => {
     return recentSections()
-      .map((path) => SECTIONS.find((s) => s.path === path))
+      .map((path) => allowedSections.find((s) => s.path === path))
       .filter((s): s is (typeof SECTIONS)[number] => !!s && s.path !== '/')
       .slice(0, 4);
-  }, [loading, openWindows]);
+  }, [allowedSections, loading, openWindows]);
 
   // ── Поиск по всему сразу ───────────────────────────────────────────────────
   const [query, setQuery] = useState('');

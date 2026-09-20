@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAssistantStore, AssistantMessage, AssistantAction } from '../../store/assistantStore';
 import { getSection } from '../../assistant/sections';
+import { allowEntitlement } from '../../store/policyStore';
 import { useWindowStore } from '../../store/windowStore';
 import { useToastStore } from '../../store/toastStore';
 import { useInsightStore } from '../../store/insightStore';
@@ -144,7 +145,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
   const addToast = useToastStore((s) => s.addToast);
   const addReminder = useReminderStore((s) => s.add);
 
-  const section = getSection(currentRoute);
+  const section = getSection(currentRoute, allowEntitlement);
 
   // Что открыто сейчас: помощник смотрит на верхнее окно того же стола и
   // предлагает разговор про него. Раньше он знал только адрес панели — в

@@ -51,14 +51,16 @@ const ELECTRON = walk('electron');
 // Общий код в корне: договоры, которые читают и окно, и сервер, и оболочка.
 // Он лежит вне src/, server/ и electron/ — и потому раньше не попадал ни под
 // планку размера, ни под проверку на внешние сервисы
-const SHARED = [...walk('diagnostics'), ...walk('feedback')];
+const SHARED = [...walk('diagnostics'), ...walk('feedback'), ...walk('play')];
 
 console.log('1. Разделы рабочего стола независимы друг от друга');
 // Раздел — экран, зарегистрированный в SECTIONS. Файлы screens/, которых там
 // нет (TitlePanel, VdrPanel и т.п.) — по сути общие компоненты, им можно.
 const sectionsSrc = read('src/workspace/sections.tsx');
 const sectionNames = new Set(
-  [...sectionsSrc.matchAll(/import\(['"]\.\.\/screens\/([A-Za-z0-9_]+)['"]\)/g)].map((m) => m[1]),
+  // Разделы лежат в src/screens/, а встроенные программы — своей папкой
+  // (src/play/): экран платформы не один файл, а рама со вкладками
+  [...sectionsSrc.matchAll(/import\(['"]\.\.\/(?:screens|play)\/([A-Za-z0-9_]+)['"]\)/g)].map((m) => m[1]),
 );
 ok('реестр разделов прочитан', sectionNames.size >= 10, sectionNames.size);
 for (const file of SRC.filter((p) => p.startsWith('src/screens/'))) {

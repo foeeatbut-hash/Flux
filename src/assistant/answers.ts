@@ -18,8 +18,12 @@ import { parseMailQuery } from './mailQueries';
  */
 
 /** Ответ из руководства: кусок статьи и переход в это самое место. */
-export function handbookMessage(question: string, minScore: number): AssistantMessage | null {
-  const ans = answerFromHandbook(question, minScore);
+export function handbookMessage(
+  question: string,
+  minScore: number,
+  allow?: (entitlement: string) => boolean,
+): AssistantMessage | null {
+  const ans = answerFromHandbook(question, minScore, allow);
   if (!ans) return null;
   return say(`${ans.text}\n\nЭто в руководстве: «${ans.articleTitle}» → ${ans.anchorTitle}.`, {
     actions: [{

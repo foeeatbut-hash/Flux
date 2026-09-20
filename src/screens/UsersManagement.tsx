@@ -9,6 +9,9 @@ import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
+import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
+import { canManagePlay, canOpenApp } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -101,6 +104,37 @@ export default function UsersManagement() {
       [feature]: { enabled: prev[feature]?.enabled ?? true, until: value ? new Date(value).toISOString() : null },
     }));
   };
+
+  /**
+   * Доступ к встроенным программам: три положения вместо двух.
+   *
+   * «По роли» — это стереть запись, а не записать `enabled: false`. Разница
+   * не косметическая: отсутствие ключа значит «ничего не сказано», и ответ
+   * ищется в правах роли, а `enabled: false` — это личный запрет, который
+   * права роли перебивает.
+   */
+  const setPlayMode = (key: string, mode: PlayMode, until: string | null) => {
+    setEditPerms((prev) => {
+      const next = { ...prev };
+      if (mode === 'INHERIT') { delete next[key]; return next; }
+      next[key] = { enabled: mode === 'ALLOW', until, mode };
+      return next;
+    });
+  };
+
+  /**
+   * Блок программ видит только тот, у кого самого есть к ним доступ.
+   *
+   * Иначе список игр прочитал бы любой администратор — а скрывать платформу
+   * от сотрудника и показывать её в чужой карточке значит не скрывать вовсе.
+   *
+   * Одна оговорка, без которой платформу нельзя было бы включить ни разу:
+   * главный администратор видит блок всегда. Первый доступ кому-то обязан
+   * выдать человек, у которого этого доступа ещё нет, — иначе выдавать его
+   * некому. Дальше правило работает как написано.
+   */
+  const policyCtx = useAppContext();
+  const showsPlay = canOpenApp(policyCtx) || canManagePlay(policyCtx) || isTopAdmin(user as any, roles);
 
   const toDateInputValue = (value: any): string => {
     if (!value) return '';
@@ -936,6 +970,15 @@ export default function UsersManagement() {
                       </div>
                     )}
                   </div>
+
+                  {showsPlay && (
+                    <PlayAccess
+                      perms={editPerms}
+                      rolePerms={parsePermissions((editUser as any)?.rolePermissions)}
+                      disabled={isEditSubmitting}
+                      onSet={setPlayMode}
+                    />
+                  )}
 
                   <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-5">
                     <button

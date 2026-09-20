@@ -21,8 +21,20 @@ export const BY_ID = new Map(ARTICLES.map((a) => [a.id, a]));
 /** Собирается один раз при загрузке модуля: перебор строк дешевле сборки. */
 const INDEX = indexOf(ARTICLES);
 
-export function search(query: string, limit = 20): HandbookHit[] {
-  return searchHandbook(INDEX, query, limit);
+/**
+ * Статьи, открытые этому человеку.
+ *
+ * Решение принимает политика (src/lib/appPolicy.ts), а сюда приходит готовым:
+ * реестр остаётся чистым и проверяемым, а правило доступа — одно на программу.
+ */
+export function openTo(list: HandbookArticle[], allow: (entitlement: string) => boolean): HandbookArticle[] {
+  return list.filter((a) => !a.entitlement || allow(a.entitlement));
+}
+
+export function search(query: string, limit = 20, allow?: (entitlement: string) => boolean): HandbookHit[] {
+  const hits = searchHandbook(INDEX, query, allow ? limit * 2 : limit);
+  if (!allow) return hits;
+  return hits.filter((h) => !h.article.entitlement || allow(h.article.entitlement)).slice(0, limit);
 }
 
 export function articleById(id: string): HandbookArticle | null {

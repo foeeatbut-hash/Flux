@@ -46,6 +46,12 @@ export interface HandbookArticle {
   links?: HandbookLink[];
   /** Права из каталога src/lib/permissions.ts */
   perms?: string[];
+  /**
+   * Статья о встроенной программе, доступ к которой выдаётся отдельно
+   * (src/lib/appPolicy.ts). Без права её нет ни в оглавлении, ни в поиске:
+   * статья — самый простой способ узнать, что такая программа существует.
+   */
+  entitlement?: string;
   /** Сочетания клавиш: клавиша — что делает */
   keys?: Array<[keys: string, does: string]>;
   /** Что легко сделать не так */

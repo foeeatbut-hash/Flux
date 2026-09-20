@@ -20,6 +20,8 @@ import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
 import SnapAssist from './SnapAssist';
 import { deskAction, isTyping, nextInCycle } from '../lib/deskKeys';
 import { stepDesk } from '../lib/desks';
+import { sectionAccess } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
 
@@ -195,6 +197,7 @@ export default function WindowsLayer() {
   const setArea = useWindowStore((s) => s.setArea);
   const location = useLocation();
   const navigate = useNavigate();
+  const policy = useAppContext();
   const deskRef = React.useRef<HTMLDivElement>(null);
 
   // Стол меряем сами и сообщаем геометрии: она не должна знать про DOM
@@ -266,6 +269,19 @@ export default function WindowsLayer() {
     // перезапуск снова приводят сюда. Главная открывается со стола, из Пуска
     // и с панели задач — там нажатие сказано вслух
     if (location.pathname === '/') return;
+    /**
+     * Адресная строка — тоже поверхность.
+     *
+     * Скрытый раздел окна не открывает, и раньше адрес после такой попытки
+     * так и оставался «/play» при пустом столе: сам по себе это уже ответ на
+     * вопрос, есть ли в программе такой раздел. Возвращаем на Главную, как
+     * будто адреса не существует, — то же самое делает рама раздела, когда
+     * успевает смонтироваться
+     */
+    if (sectionAccess(sectionForPath(location.pathname), policy) === 'hide') {
+      navigate('/', { replace: true });
+      return;
+    }
     const st = useWindowStore.getState();
     const here = asHref(location);
     const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk);
@@ -276,7 +292,7 @@ export default function WindowsLayer() {
     const from = (location.state as any)?.__pane;
     if (now && from === `win:${now.id}` && now.path === location.pathname) return;
     st.open(here);
-  }, [location]);
+  }, [location, policy, navigate]);
 
   /**
    * Клавиши окон: Alt+Tab по кругу, Ctrl+F4 закрыть, Ctrl+Alt+D показать стол.

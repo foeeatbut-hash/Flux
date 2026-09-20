@@ -25,6 +25,11 @@ export interface Tour {
   questions: string[];     // типичные формулировки вопроса (для подбора по смыслу)
   intro: string;
   steps: TourStep[];
+  /**
+   * Демонстрация по встроенной программе, доступ к которой выдаётся отдельно
+   * (src/lib/appPolicy.ts). Без права её не предлагают и не находят.
+   */
+  entitlement?: string;
 }
 
 export const TOURS: Tour[] = [
@@ -669,11 +674,20 @@ function scoreTour(tour: Tour, userText: string, userToks: string[]): number {
 
 export interface TourMatch { tour: Tour; score: number; }
 
-export function findBestTour(text: string): TourMatch | null {
+/**
+ * Подходящая демонстрация.
+ *
+ * `allow` отсекает демонстрации по закрытым встроенным программам: иначе
+ * помощник предложил бы «показать в программе» то, чего у человека нет, —
+ * и этим сообщил бы, что оно есть.
+ */
+export function findBestTour(text: string, allow?: (entitlement: string) => boolean): TourMatch | null {
   const userToks = toks(text);
   let best: Tour | null = null;
   let bestScore = 0;
   for (const tour of TOURS) {
+    if (tour.entitlement && allow && !allow(tour.entitlement)) continue;
+    if (tour.entitlement && !allow) continue;
     const s = scoreTour(tour, text, userToks);
     if (s > bestScore) { bestScore = s; best = tour; }
   }

@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BookOpen, PanelLeftClose, PanelLeftOpen, Link2, Link2Off } from 'lucide-react';
 import HandbookNav from '../components/handbook/HandbookNav';
 import HandbookArticleView from '../components/handbook/HandbookArticleView';
-import { ARTICLES, search, articleById } from '../handbook/registry';
+import { ARTICLES, openTo, search, articleById } from '../handbook/registry';
+import { allowEntitlement } from '../store/policyStore';
 import { anchorsOf } from '../handbook/model';
 import { useWindowStore } from '../store/windowStore';
 import { useWindowTitle } from '../lib/paneTitle';
@@ -50,21 +51,30 @@ export default function Handbook() {
     return shown.reduce((a, b) => (b.z > a.z ? b : a)).path;
   });
 
+  /**
+   * Оглавление — это тоже список программ.
+   *
+   * Статья о встроенной программе, доступ к которой не выдан, не показывается
+   * и не открывается по ссылке: руководство было бы самым спокойным способом
+   * узнать, что в программе есть раздел, которого тебе не показывают.
+   */
+  const openArticles = useMemo(() => openTo(ARTICLES, allowEntitlement), []);
+
   // Что открыто: явная статья, статья раздела по F1, либо начало
   const openId = useMemo(() => {
     const byId = params.get('article');
-    if (byId && articleById(byId)) return byId;
+    if (byId && openArticles.some((a) => a.id === byId)) return byId;
     const forRoute = params.get('for');
     if (forRoute) {
-      const a = ARTICLES.find((x) => x.route === forRoute);
+      const a = openArticles.find((x) => x.route === forRoute);
       if (a) return a.id;
     }
     return 'start';
-  }, [params]);
+  }, [params, openArticles]);
 
-  const article = articleById(openId) || ARTICLES[0];
+  const article = (openArticles.find((a) => a.id === openId) || openArticles[0] || ARTICLES[0]);
   useWindowTitle(`Справка · ${article.title}`);
-  const hits = useMemo(() => search(query), [query]);
+  const hits = useMemo(() => search(query, 20, allowEntitlement), [query]);
   const anchors = useMemo(() => anchorsOf(article), [article]);
 
   const open = (id: string) => {
@@ -79,7 +89,7 @@ export default function Handbook() {
   // «С чего начать» выглядел бы поломкой
   useEffect(() => {
     if (!follow || !topPath) return;
-    const a = ARTICLES.find((x) => x.route === topPath);
+    const a = openArticles.find((x) => x.route === topPath);
     if (a && a.id !== openId) open(a.id);
   }, [follow, topPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -186,7 +196,7 @@ export default function Handbook() {
           className={`${navOpen ? 'flex' : 'hidden'} @[820px]:flex shrink-0 w-56 @[1180px]:w-64 flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden`}
         >
           <HandbookNav
-            articles={ARTICLES}
+            articles={openArticles}
             openId={openId}
             query={query}
             hits={hits}

@@ -18,7 +18,6 @@ import {
   Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages, CalendarDays,
 } from 'lucide-react';
 import { useStore } from '../store/store';
-import { can } from '../lib/permissions';
 import { useInsightStore } from '../store/insightStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
@@ -27,6 +26,8 @@ import { useReminderStore } from '../store/reminderStore';
 import { useTranslateStore } from '../store/translateStore';
 import { useCalendarStore } from '../store/calendarStore';
 import { SECTIONS } from '../workspace/sections';
+import { visibleSections } from '../lib/appPolicy';
+import { useAppContext, allowEntitlement } from '../store/policyStore';
 import { fetchSearch, type SearchHit } from '../lib/insight';
 import { search as searchHandbook } from '../handbook/registry';
 import { suggest, whenLabel, type BarItem, type BarGroup } from '../lib/commandBar';
@@ -70,6 +71,7 @@ export default function CommandBar() {
   const openChanges = useInsightStore((s) => s.openChanges);
   const activeProject = useStore((s) => s.activeProject);
   const user = useStore((s) => s.user);
+  const ctx = useAppContext();
   const askAssistant = useAssistantStore((s) => s.ask);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const addToast = useToastStore((s) => s.addToast);
@@ -123,11 +125,12 @@ export default function CommandBar() {
 
   const sections = React.useMemo(
     // Разделы, закрытые правом, не находятся и поиском: иначе строка команд
-    // предлагала бы то, что не откроется
-    () => SECTIONS.filter((s) => (!s.adminOnly || user?.role === 'ADMIN')
-      && (!s.feature || user?.role === 'ADMIN' || can(user as any, s.feature)))
+    // предлагала бы то, что не откроется. А раздел со скрытым доступом не
+    // должен находиться даже по точному названию — поиск был бы самым простым
+    // способом узнать, что он вообще есть
+    () => visibleSections(SECTIONS, ctx)
       .map((s) => ({ path: s.path, title: s.title, multi: s.multi })),
-    [user?.role],
+    [ctx],
   );
 
   // Подпись открытого окна: помощник ответит с оглядкой на него, и сказать об
@@ -143,7 +146,7 @@ export default function CommandBar() {
     const text = q.trim();
     const forHandbook = text.startsWith('/справка ') ? text.slice(9) : text;
     const articles = forHandbook.length >= 2
-      ? searchHandbook(forHandbook, 6).map((h) => ({ id: h.article.id, title: h.article.title, hint: h.excerpt }))
+      ? searchHandbook(forHandbook, 6, allowEntitlement).map((h) => ({ id: h.article.id, title: h.article.title, hint: h.excerpt }))
       : [];
     return suggest(text, { sections, articles, hits, context });
   }, [q, sections, hits, context]);
