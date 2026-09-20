@@ -17,9 +17,10 @@
 
 import type { Express, NextFunction, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
-import { getDialect } from '../ddl.js';
+import { getDialect, supportsPartialIndex } from '../ddl.js';
 import { allows, decide, toMap, PLATFORM_OFF, type PlatformState, type PolicySubject } from '../../play/policy.js';
 import { APP_PLAY, PLAY_ADMIN, isPlayKey } from '../../play/features.js';
+import { ensurePlayReady } from './tables.js';
 
 /** Ключ общей настройки: платформа включена по всей компании. */
 export const PLAY_ENABLED_KEY = 'play_enabled';
@@ -32,9 +33,10 @@ export const PLAY_ENABLED_KEY = 'play_enabled';
  * и включать там платформу означало бы получить двойные группы и двойные
  * матчи на втором десятке игр. Поэтому там она не включается, и в Настройках
  * сказано почему — а не умалчивается.
+ *
+ * Ответ берётся у самого слоя DDL, а не списком имён: список разошёлся бы с
+ * тем, что этот слой на самом деле умеет.
  */
-export const SUPPORTED_DIALECTS = new Set(['postgresql', 'sqlite']);
-
 export const UNSUPPORTED_NOTE = 'Платформа требует частичных уникальных индексов: '
   + 'на MariaDB их нет, поэтому раздел там не включается. Работает на PostgreSQL и SQLite.';
 
@@ -55,7 +57,7 @@ const CACHE_MS = 5000;
 /** Общий выключатель платформы — из настроек компании, с коротким кэшем. */
 export async function platformState(): Promise<PlatformState> {
   const dialect = getDialect();
-  const supported = SUPPORTED_DIALECTS.has(dialect);
+  const supported = supportsPartialIndex(dialect);
   if (cached && Date.now() - cached.at < CACHE_MS) {
     return { ...cached.state, supported, version: policyVersion };
   }
@@ -164,6 +166,10 @@ export function registerPlayAccess(app: Express): void {
       // выключенную платформу некому было бы включить — выключатель лежит
       // ровно за этим заслоном
       if (!(await allowed(user, APP_PLAY)) && !(await allowed(user, PLAY_ADMIN))) return notThere(res);
+      // Таблицы платформы создаются при первом же заходе внутрь, а не при
+      // старте сервера: пока платформа выключена, заводить их незачем
+      const failure = await ensurePlayReady((m) => console.warn('[Play]', m));
+      if (failure) return res.status(500).json({ error: failure });
     } catch (_) {
       // Решить не удалось — значит, не пускаем. Ошибка в проверке доступа не
       // может открывать доступ

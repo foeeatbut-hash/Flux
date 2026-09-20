@@ -23,6 +23,8 @@ import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
 import { registerPlayAccess } from './server/play/access.js';
 import { registerPlayRoutes } from './server/play/routes.js';
+import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
+import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { ensureDiskProject } from './server/systemFolders.js';
@@ -1098,6 +1100,11 @@ io.on('connection', (socket) => {
     }
   }
 
+  // Живая часть платформы: присутствие с арендой и подписка на её события.
+  // Доступ проверяется на каждом событии, а не один раз здесь: его отбирают
+  // в живой сессии, и подключившийся минуту назад сокет права не даёт
+  if (uid) attachPlaySocket(socket, uid, getAuthUser);
+
   // Пришедшему — весь список сразу: без него человек до первого чужого входа
   // видел бы всех офлайн. Список считается от его лица: себя скрывший видит
   const sendRoster = async () => socket.emit('presence:list', await rosterFromDb(uid || ''));
@@ -1907,6 +1914,10 @@ const limits = registerLimitRoutes(app, () => prisma);
 registerPolicyRoutes(app);
 registerPlayAccess(app);
 registerPlayRoutes(app);
+// Очередь доставки и уборка протухших аренд присутствия: и то и другое
+// переживает перезапуск сервера, потому что живёт в базе, а не в памяти
+startPlayOutbox();
+startPresenceSweep();
 registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
