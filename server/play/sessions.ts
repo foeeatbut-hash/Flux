@@ -25,6 +25,7 @@ import { getPrisma } from '../context.js';
 import { PLAY_ERRORS } from '../../play/contracts.js';
 import { gameById } from '../../play/features.js';
 import { appendEvent, enqueue, fail, isDuplicate } from './commands.js';
+import { platformState } from './access.js';
 import { adapterFor } from './adapters/contract.js';
 import { closeLobby } from './lobbies.js';
 import { issueTickets, reissueTicket } from './tickets.js';
@@ -105,6 +106,11 @@ export async function claimSession(
   if (lobby.revision !== expectedVersion) {
     fail(PLAY_ERRORS.VERSION_CONFLICT);
   }
+
+  // Обслуживание проверяется здесь, а не только кнопкой в окне: кнопка — это
+  // вежливость, а запрет должен стоять там, где матч заводится
+  const platform = await platformState();
+  if (platform.maintenance) fail(PLAY_ERRORS.MAINTENANCE);
 
   const slots = await tx.playLobbySlot.findMany({ where: { lobbyId } });
   if (!slots.length) fail(PLAY_ERRORS.INVALID, 'В лобби никого нет');

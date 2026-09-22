@@ -64,6 +64,13 @@ const SPECIAL: { test: (m: string, p: string[]) => boolean; what: string; route:
   { test: (m, p) => m === 'POST' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => m === 'PUT' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => p[0] === 'constructor' && p[1] === 'docs' && p[2] === 'import-file', what: 'Открыл файл в Flux Office', route: '/sheet' },
+  // Flux Play: в журнал попадает распоряжение администратора, а не игра
+  // сотрудника. Про игру см. isNoise ниже
+  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'platform', what: 'Переключил Flux Play', route: '/settings?section=play' },
+  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'maintenance', what: 'Переключил обслуживание Flux Play', route: '/settings?section=play' },
+  { test: (m, p) => m === 'POST' && p[0] === 'play' && p[1] === 'builds', what: 'Опубликовал сборку игры', route: '/settings?section=play' },
+  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'publisher-key', what: 'Сменил ключ издателя сборок', route: '/settings?section=play' },
+  { test: (m, p) => m === 'POST' && p[0] === 'play' && p[1] === 'admin' && p[2] === 'cancel', what: 'Отменил зависший матч', route: '/settings?section=play' },
 ];
 
 /** Идентификатор из адреса, если он там есть: по нему запись и находят */
@@ -103,8 +110,19 @@ const SKIP = [
   'feedback/uploads',
 ];
 
+/**
+ * Распоряжения администратора платформы — единственное, что от Flux Play
+ * попадает в журнал действий.
+ *
+ * Остальное там не нужно и вредно: один вечер игры втроём — это сотни команд
+ * («готов», «не готов», «начать»), и журнал, в котором их больше, чем работы,
+ * перестаёт отвечать на свой единственный вопрос — кто удалил ведомость.
+ */
+const PLAY_WORTH_LOGGING = ['platform', 'maintenance', 'builds', 'publisher-key', 'admin'];
+
 export function isNoise(path: string): boolean {
   const parts = headOf(path);
   if (!parts.length) return true;
+  if (parts[0] === 'play') return !PLAY_WORTH_LOGGING.includes(parts[1] || '');
   return SKIP.includes(parts[0]) || SKIP.includes(`${parts[0]}/${parts[1]}`);
 }

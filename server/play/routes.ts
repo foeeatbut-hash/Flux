@@ -13,6 +13,7 @@ import {
   PLAY_ENABLED_KEY, allowed, invalidatePlatform, notThere, platformState, verdict,
 } from './access.js';
 import { PLAY_ADMIN } from '../../play/features.js';
+import { registerPlayAdmin } from './admin.js';
 import { registerPlayApi } from './api.js';
 import { setupTestGame } from './adapters/testgame.js';
 
@@ -69,6 +70,10 @@ export function registerPlayRoutes(app: Express): void {
       return res.status(500).json({ error: 'Не удалось изменить состояние платформы', details: e?.message });
     }
   });
+
+  // Распоряжения администратора: обслуживание, ключ издателя, сборки,
+  // зависшие матчи. До общих маршрутов — у них свои адреса и своё право
+  registerPlayAdmin(app);
 
   // Группа, приглашения, лобби, матч, билеты, результат
   registerPlayApi(app);

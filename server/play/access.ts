@@ -26,6 +26,15 @@ import { ensurePlayReady } from './tables.js';
 export const PLAY_ENABLED_KEY = 'play_enabled';
 
 /**
+ * Обслуживание: зайти можно, начинать новое нельзя.
+ *
+ * Отдельно от выключателя намеренно. Выключатель убирает раздел у всех — вместе
+ * с идущими матчами и группами; обслуживание же нужно, чтобы дать доиграть и
+ * не дать начать новое. Одной настройкой эти два намерения не выражаются.
+ */
+export const PLAY_MAINTENANCE_KEY = 'play_maintenance';
+
+/**
  * Базы, на которых платформа работает.
  *
  * Инварианты платформы держатся частичными уникальными индексами («одна
@@ -62,10 +71,14 @@ export async function platformState(): Promise<PlatformState> {
     return { ...cached.state, supported, version: policyVersion };
   }
   let enabled = false;
+  let maintenance = false;
   try {
     const prisma = getPrisma();
-    const row = await prisma.appSetting.findFirst({ where: { key: PLAY_ENABLED_KEY, userId: null } });
-    enabled = String(row?.value || '') === '1';
+    const rows = await prisma.appSetting.findMany({
+      where: { key: { in: [PLAY_ENABLED_KEY, PLAY_MAINTENANCE_KEY] }, userId: null },
+    });
+    enabled = rows.some((r: any) => r.key === PLAY_ENABLED_KEY && String(r.value || '') === '1');
+    maintenance = rows.some((r: any) => r.key === PLAY_MAINTENANCE_KEY && String(r.value || '') === '1');
   } catch (_) {
     // Настройки нет или таблица недоступна — платформа выключена. Умолчание
     // здесь отказ: включённая «по недосмотру» платформа хуже выключенной
@@ -74,7 +87,7 @@ export async function platformState(): Promise<PlatformState> {
   const state: PlatformState = {
     enabled,
     supported,
-    maintenance: false,
+    maintenance,
     version: policyVersion,
     note: supported ? '' : UNSUPPORTED_NOTE,
   };
