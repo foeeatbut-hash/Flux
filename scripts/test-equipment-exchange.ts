@@ -12,6 +12,8 @@ import {
   BASE_EQUIPMENT_COLUMNS, type ExchangeComponent,
 } from '../src/lib/equipmentExchange';
 import { pickColumns, toCsv } from '../src/lib/exchange';
+import { rowsOfSystem } from '../src/lib/equipmentRows';
+import { layoutPositions } from '../src/components/equipment/PositionTree';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -104,6 +106,97 @@ console.log('4. Выбор столбцов');
   const t = buildEquipmentExchange([fan], only);
   ok('выгрузка «расход воздуха вентилятора „тег“» собирается',
     JSON.stringify(t.rows[0]) === JSON.stringify(['1000-A01-BL-001A', '20000']), t.rows[0]);
+}
+
+console.log('\nСостав: роль, тег родителя, тег установки и порядок');
+{
+  /**
+   * Установка с двумя вентиляторами; у каждого свой двигатель, на первом
+   * двигателе — датчик ПТС, заведённый инженером руками. Ровно тот случай,
+   * ради которого владелец всё и просил.
+   */
+  const sys = {
+    name: '3700-B01-AS-001A',
+    monoblocks: [
+      {
+        name: '__unit__',
+        components: [
+          { id: 'u', itemCode: '__unit__', name: 'Установка', equipType: 'УСТАНОВКА', role: 'УСТАНОВКА', tags: [{ identifier: '3700-B01-AS-001A' }] },
+        ],
+      },
+      {
+        name: 'Моноблок 3',
+        components: [
+          { id: 'b', itemCode: '3', name: 'Вентилятор ВСК', equipType: 'ВЕНТИЛЯТОР', role: 'БЛОК', sourceOrder: 0 },
+          { id: 'f2', itemCode: '3/вентилятор2', name: 'Вентилятор №2', equipType: 'ВЕНТИЛЯТОР', role: 'ВЕНТИЛЯТОР', parentElementId: 'b', instanceNo: 2, sourceOrder: 3, tags: [{ identifier: '3700-B01-BL-002A' }] },
+          { id: 'f1', itemCode: '3/вентилятор1', name: 'Вентилятор №1', equipType: 'ВЕНТИЛЯТОР', role: 'ВЕНТИЛЯТОР', parentElementId: 'b', instanceNo: 1, sourceOrder: 1, tags: [{ identifier: '3700-B01-BL-001A' }] },
+          { id: 'm1', itemCode: '3/вентилятор1/двигатель1', name: 'Электродвигатель', equipType: 'ДВИГАТЕЛЬ', role: 'ДВИГАТЕЛЬ', parentElementId: 'f1', sourceOrder: 2, tags: [{ identifier: '3700-B01-M-001A' }] },
+          { id: 's1', itemCode: '3/вентилятор1/двигатель1/датчик1', name: 'Датчик ПТС', equipType: 'ДАТЧИК', role: 'ДАТЧИК', parentElementId: 'm1', manual: true, sourceOrder: 9, tags: [{ identifier: '3700-B01-TE-001A' }] },
+        ],
+      },
+    ],
+  };
+  const rows = rowsOfSystem(sys as any, (raw?: string) => ({ groups: [] }));
+  const by = (id: string) => rows.find((r) => r.id === id)!;
+
+  ok('служебная строка установки в изделия не попала', !rows.some((r) => r.itemCode === '__unit__'), rows.map((r) => r.itemCode));
+  ok('тег установки стоит у каждой строки',
+    rows.every((r) => r.unitTag === '3700-B01-AS-001A'), rows.map((r) => r.unitTag));
+  ok('родитель двигателя — его вентилятор', by('m1').parentTag === '3700-B01-BL-001A', by('m1').parentTag);
+  ok('родитель датчика — двигатель', by('s1').parentTag === '3700-B01-M-001A', by('s1').parentTag);
+  // Блок тега не имеет — цепочка не обрывается, а поднимается к установке
+  ok('вентилятор в нетегированном блоке встал под установку',
+    by('f1').parentTag === '3700-B01-AS-001A', by('f1').parentTag);
+  ok('ручная позиция помечена', by('s1').manual === true && by('f1').manual === false);
+  ok('роль доехала до строки', by('s1').role === 'ДАТЧИК' && by('m1').role === 'ДВИГАТЕЛЬ');
+
+  // Столбцы состава: «тег двигателей, дальше их данные и тег родителя»
+  const cols = BASE_EQUIPMENT_COLUMNS.filter((c) => ['tag', 'role', 'parentTag', 'unitTag', 'origin'].includes(c.key));
+  const t = buildEquipmentExchange(rows, cols as any);
+  ok('столбцы состава есть в списке постоянных',
+    JSON.stringify(t.headers) === JSON.stringify(['Тег', 'Роль', 'Тег родителя', 'Тег установки', 'Откуда']), t.headers);
+
+  // Порядок строк — по алфавиту тега, а не по порядку в расчёте
+  ok('строки идут по алфавиту тега',
+    JSON.stringify(t.rows.map((r) => r[0])) === JSON.stringify([
+      '3700-B01-BL-001A', '3700-B01-BL-002A', '3700-B01-M-001A', '3700-B01-TE-001A', '',
+    ]), t.rows.map((r) => r[0]));
+  ok('позиция без тега ушла в конец', t.rows[t.rows.length - 1][0] === '', t.rows[t.rows.length - 1]);
+  ok('ручное и расчётное различимы',
+    t.rows.find((r) => r[0] === '3700-B01-TE-001A')?.[4] === 'заведено вручную', t.rows);
+
+  // Срез «только датчики ПТС с их тегами» — это фильтр по роли, а не программа
+  const sensors = buildEquipmentExchange(rows.filter((r) => r.role === 'ДАТЧИК'), cols as any);
+  ok('срез по роли оставляет одну строку', sensors.rows.length === 1, sensors.rows);
+  ok('и в ней тег датчика', sensors.rows[0][0] === '3700-B01-TE-001A', sensors.rows[0]);
+}
+
+console.log('\nДерево позиций: отступ по составу, алфавит внутри уровня');
+{
+  const comps = [
+    { id: 'b', itemCode: '3', name: 'Блок', equipType: 'ВЕНТИЛЯТОР', role: 'БЛОК', sourceOrder: 0 },
+    { id: 'f2', itemCode: '3/в2', name: 'Вентилятор №2', equipType: 'ВЕНТИЛЯТОР', role: 'ВЕНТИЛЯТОР', parentElementId: 'b', sourceOrder: 3, tags: [{ id: 't2', identifier: 'BL-002A' }] },
+    { id: 'f1', itemCode: '3/в1', name: 'Вентилятор №1', equipType: 'ВЕНТИЛЯТОР', role: 'ВЕНТИЛЯТОР', parentElementId: 'b', sourceOrder: 1, tags: [{ id: 't1', identifier: 'BL-001A' }] },
+    { id: 'm1', itemCode: '3/в1/д1', name: 'Двигатель', equipType: 'ДВИГАТЕЛЬ', role: 'ДВИГАТЕЛЬ', parentElementId: 'f1', sourceOrder: 2 },
+    // Владелец потерялся: позиция должна остаться видимой, а не пропасть
+    { id: 'x', itemCode: '3/сирота', name: 'Сирота', equipType: 'ПРОЧЕЕ', role: 'ДАТЧИК', parentElementId: 'нет-такого', sourceOrder: 7 },
+  ];
+  const out = layoutPositions(comps as any);
+  ok('все позиции остались', out.length === comps.length, out.map((o) => o.c.itemCode));
+  ok('двигатель стоит глубже своего вентилятора',
+    out.find((o) => o.c.id === 'm1')!.depth === out.find((o) => o.c.id === 'f1')!.depth + 1, out.map((o) => [o.c.id, o.depth]));
+  ok('вентиляторы идут по алфавиту тега',
+    out.filter((o) => o.c.role === 'ВЕНТИЛЯТОР').map((o) => o.c.id).join(',') === 'f1,f2',
+    out.map((o) => o.c.id));
+  ok('позиция с потерянным владельцем видна на верхнем уровне',
+    out.find((o) => o.c.id === 'x')!.depth === 0, out.map((o) => [o.c.id, o.depth]));
+
+  // Кольцо в данных не должно вешать окно
+  const ring = [
+    { id: 'a', itemCode: 'a', name: 'A', equipType: '', role: 'БЛОК', parentElementId: 'b' },
+    { id: 'b', itemCode: 'b', name: 'B', equipType: '', role: 'БЛОК', parentElementId: 'a' },
+  ];
+  ok('кольцо не зацикливает раскладку', layoutPositions(ring as any).length >= 0);
 }
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);

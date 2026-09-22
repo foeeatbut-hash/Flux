@@ -31,6 +31,10 @@ interface Component {
   specs?: string; overrides?: string; paramConflicts?: string;
   version: number; hasConflict: boolean; status: string;
   tags?: { id: string; identifier: string }[];
+  // Состав: где позиция стоит и откуда взялась
+  role?: string; parentElementId?: string | null;
+  instanceNo?: number | null; instanceCount?: number | null;
+  sourceOrder?: number | null; manual?: boolean;
 }
 // Тег в списке привязки: с занятостью (один тег — одно изделие)
 interface PickerTag {
@@ -42,6 +46,9 @@ interface SystemUnit { id: string; name: string; category: string; fileName?: st
 interface Category { id: string; label: string; composite?: boolean; }
 
 import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
+import PositionTree, { blockLabel } from '../components/equipment/PositionTree';
+import { rowsOfProject } from '../lib/equipmentRows';
+import AddPositionDialog, { type AddPositionTarget } from '../components/equipment/AddPositionDialog';
 
 const api = (p: string) => `/api${p}`;
 
@@ -204,22 +211,10 @@ export default function Equipment() {
 
   // Плоский список изделий для выгрузки: строка таблицы — одна единица
   // оборудования со своими тегами и характеристиками
-  const exchangeItems = useMemo<ExchangeComponent[]>(() => {
-    const parseOv = (raw?: string) => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } };
-    const flat = (list: SystemUnit[]) => list.flatMap(sys =>
-      sys.monoblocks.flatMap(mb => mb.components
-        // Служебный блок параметров установки в перечень изделий не входит
-        .filter(c => c.itemCode !== '__unit__')
-        .map(c => ({
-          id: c.id, itemCode: c.itemCode, name: c.name, equipType: c.equipType,
-          groups: normalizeSpecs(c.specs).groups,
-          overrides: parseOv(c.overrides),
-          tags: c.tags || [],
-          systemName: sys.name,
-          monoblockName: mb.name === '__unit__' ? '' : mb.name,
-        }))));
-    return flat(systems);
-  }, [systems]);
+  const exchangeItems = useMemo<ExchangeComponent[]>(
+    () => rowsOfProject(systems as any, normalizeSpecs),
+    [systems],
+  );
 
   const exchangeScopes = useMemo(() => {
     const inCat = exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
@@ -358,6 +353,33 @@ export default function Equipment() {
 
   const toggle = (id: string) => setExpanded(e => ({ ...e, [id]: !e[id] }));
 
+  // Позиция, внутрь которой заводят новую. Пусто — диалог закрыт
+  const [addTo, setAddTo] = useState<AddPositionTarget | null>(null);
+
+  /**
+   * Завести позицию руками.
+   *
+   * Отказ сервера показывается словами и в диалоге, а не всплывашкой: человек
+   * стоит в форме, и исправлять написание тега ему прямо здесь.
+   */
+  const addPosition = async (body: { name: string; role: string; tag: string; params: { key: string; value: string; unit: string }[] }): Promise<string> => {
+    try {
+      const res = await fetch(api(`/equipment/component/${addTo?.id}/position`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data?.error || 'Не удалось завести позицию';
+      addToast(
+        data?.parentTag ? `Позиция заведена, родитель тега — «${data.parentTag}»` : 'Позиция заведена',
+        'success',
+      );
+      if (data?.warning) addToast(data.warning, 'info');
+      loadSystems();
+      return '';
+    } catch (_) { return 'Сервер не ответил'; }
+  };
+
   const isHidden = (equipType: string, token: string) => (visibility[equipType] || []).includes(token);
   const toggleHidden = (equipType: string, token: string) => {
     const cur = visibility[equipType] || [];
@@ -427,11 +449,6 @@ export default function Equipment() {
       loadSystems();
     } catch (_) { addToast('Не удалось удалить позицию', 'error'); }
   };
-
-  const blockLabel = (c: Component) =>
-    c.itemCode === '__unit__' ? 'Параметры установки'
-    : c.itemCode.endsWith('_общие') ? 'Общие параметры моноблока'
-    : c.name;
 
   const catIcon = (id: string) => id === 'FAN' ? <Wind className="w-4 h-4" /> : id === 'AHU' ? <Boxes className="w-4 h-4" /> : <Layers className="w-4 h-4" />;
 
@@ -516,6 +533,10 @@ export default function Equipment() {
         />
       )}
 
+      {addTo && (
+        <AddPositionDialog target={addTo} onClose={() => setAddTo(null)} onSubmit={addPosition} />
+      )}
+
       {showDocImport && (
         <DocImportWizard
           projectId={pid}
@@ -525,76 +546,23 @@ export default function Equipment() {
         />
       )}
 
-      {/* ДЕРЕВО */}
-      <div className="zone w-56 @[820px]:w-64 @[1060px]:w-80 shrink-0 flex flex-col overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
-          <div className="flex items-center gap-1.5">
-            {totalConflicts > 0 && <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
-            <button type="button" onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {catSystems.length === 0 ? (
-            <div className="blank">
-              <div className="blank-title">Категория пуста</div>
-              <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Импорт из документов» — внизу списка категорий.</div>
-            </div>
-          ) : (catSystems || []).map(unit => (
-            <div key={unit.id}>
-              <div className="flex items-center group">
-                <button type="button" onClick={() => toggle(unit.id)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0 cursor-pointer" title={expanded[unit.id] ? 'Свернуть' : 'Развернуть'}>
-                  {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                </button>
-                <button type="button" onClick={() => { setSelectedUnitId(unit.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [unit.id]: true })); }}
-                  className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-                  <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="text-xs font-bold truncate">{unit.name}</span>
-                </button>
-                <button type="button" onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-              {expanded[unit.id] && (unit.monoblocks || []).map(mb => {
-                const isUnitMb = mb.name === '__unit__';
-                return (
-                  <div key={mb.id} className="ml-4">
-                    {!isUnitMb && (
-                      <button type="button" onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
-                        {expanded[mb.id] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
-                        <Layers className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
-                      </button>
-                    )}
-                    {/* Строка позиции и кнопка удаления — СОСЕДИ, а не вложенные
-                        друг в друга: кнопка внутри кнопки в этом проекте уже
-                        ловилась и засоряла журнал */}
-                    {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
-                      <div key={c.id} className="group flex items-center gap-0.5">
-                        <button type="button" onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
-                          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                          <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
-                          {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
-                        </button>
-                        {/* Служебные строки — параметры установки и общие
-                            параметры моноблока — не позиции, и удалять их
-                            отдельно нечего: они исчезнут вместе с узлом */}
-                        {canDelete(c as any) && (
-                          <button type="button" onClick={() => deleteComponent(c)}
-                            title={`Удалить «${blockLabel(c)}»`} aria-label={`Удалить ${blockLabel(c)}`}
-                            className="shrink-0 p-1 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100
-                                       focus-visible:opacity-100 hover:text-rose-500 cursor-pointer">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
+      <PositionTree
+        title={categories.find(c => c.id === activeCat)?.label || activeCat}
+        units={catSystems as any}
+        loading={loading}
+        conflicts={totalConflicts}
+        expanded={expanded}
+        selectedUnitId={selectedUnitId}
+        selectedBlockId={selectedBlockId}
+        onToggle={toggle}
+        onPickUnit={(u) => { setSelectedUnitId(u.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [u.id]: true })); }}
+        onPickBlock={(c) => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
+        onReload={loadSystems}
+        onDeleteUnit={(u) => deleteUnit(u as any)}
+        onDeleteComponent={(c) => deleteComponent(c as any)}
+        onAddPosition={(c) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role })}
+      />
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">

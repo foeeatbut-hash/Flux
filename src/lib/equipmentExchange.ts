@@ -17,6 +17,7 @@
  */
 import type { Column } from './exchange';
 import { convert, parseNumericValue, unitInfo } from '../import/valueGrammar';
+import { compareTags } from '../../equipment/notes';
 
 export interface ExchangeParam { key: string; value: string; unit: string }
 export interface ExchangeGroup { title: string; params: ExchangeParam[] }
@@ -32,6 +33,20 @@ export interface ExchangeComponent {
   tags?: { identifier: string }[];
   systemName: string;
   monoblockName: string;
+
+  // ── Состав: где позиция стоит ──
+  /** Роль позиции: БЛОК, ВЕНТИЛЯТОР, ДВИГАТЕЛЬ, КЛАПАН, ПРИВОД, ДАТЧИК… */
+  role?: string;
+  /** Тег владельца позиции; пусто — владелец без тега или это блок */
+  parentTag?: string;
+  /** Тег установки — главный тег, корень всей цепочки */
+  unitTag?: string;
+  /** Номер экземпляра, когда позиций несколько: «Вентилятор №2» */
+  instanceNo?: number | null;
+  /** Заведена вручную, а не из расчёта */
+  manual?: boolean;
+  /** Порядок появления в файле — им сортируются позиции без тега */
+  sourceOrder?: number | null;
 }
 
 /** Ключ ручной правки — тот же, что пишет карточка оборудования */
@@ -53,6 +68,15 @@ export const BASE_EQUIPMENT_COLUMNS: Column[] = [
   { key: 'itemCode', label: 'Код позиции' },
   { key: 'name', label: 'Наименование' },
   { key: 'equipType', label: 'Тип' },
+
+  // Состав. Ради них всё и затевалось: «вывести только датчики ПТС с их
+  // тегами» — это срез по роли, а «тег двигателей и тег родителя рядом» —
+  // два столбца, а не отдельная программа
+  { key: 'role', label: 'Роль' },
+  { key: 'parentTag', label: 'Тег родителя' },
+  { key: 'unitTag', label: 'Тег установки' },
+  { key: 'instanceNo', label: 'Экземпляр' },
+  { key: 'origin', label: 'Откуда' },
 ];
 
 /**
@@ -210,6 +234,11 @@ export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '
     case 'itemCode': return String(it.itemCode || '');
     case 'name': return String(it.name || '');
     case 'equipType': return String(it.equipType || '');
+    case 'role': return String(it.role || '');
+    case 'parentTag': return String(it.parentTag || '');
+    case 'unitTag': return String(it.unitTag || '');
+    case 'instanceNo': return it.instanceNo ? String(it.instanceNo) : '';
+    case 'origin': return it.manual ? 'заведено вручную' : 'из расчёта';
     default: return '';
   }
 }
@@ -234,6 +263,28 @@ export function byTag(items: ExchangeComponent[]): ExchangeComponent[] {
 }
 
 /**
+ * Порядок строк выгрузки — по алфавиту тега.
+ *
+ * Так распорядился владелец проекта, и так эти таблицы читают: инженер помнит
+ * тег, а не место блока в расчёте. Сортировка естественная — `001A` раньше
+ * `002A`, а `B01-9` раньше `B01-10`; посимвольное сравнение поставило бы
+ * десятый раньше девятого.
+ *
+ * Позиции без тега идут после тегированных, в порядке файла: своего места в
+ * алфавите у них нет, и выдумывать его не из чего.
+ */
+export function byTagOrder(items: ExchangeComponent[]): ExchangeComponent[] {
+  return [...items].sort((a, b) => {
+    const at = (a.tags || [])[0]?.identifier || '';
+    const bt = (b.tags || [])[0]?.identifier || '';
+    if (at && bt) return compareTags(at, bt);
+    if (at) return -1;
+    if (bt) return 1;
+    return (a.sourceOrder || 0) - (b.sourceOrder || 0);
+  });
+}
+
+/**
  * Таблица для выгрузки: заголовки в том порядке, в каком выбраны столбцы.
  *
  * Вместе с таблицей возвращается список того, что не удалось привести к
@@ -245,7 +296,7 @@ export function buildEquipmentExchange(items: ExchangeComponent[], cols: Column[
 } {
   const rows: string[][] = [];
   const problems: ExchangeProblem[] = [];
-  const expanded = byTag(items || []);
+  const expanded = byTagOrder(byTag(items || []));
   for (const it of expanded) {
     const row: string[] = [];
     for (const c of cols) {
