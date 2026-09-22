@@ -1658,6 +1658,24 @@ model ProjectTagPolicy {
   updatedAt   DateTime @default(now())
 }
 
+model PlayMatch {
+  id         String   @id @default(uuid())
+  sessionId  String   @unique
+  gameId     String
+  /// Семя партии: вся её случайность повторяема сервером и окном
+  seed       String   @default("")
+  /// JSON: кто за доской, по порядку команд
+  seatsJson  String   @default("[]")
+  /// JSON: состояние доски по правилам игры (play/games/*)
+  stateJson  String   @default("{}")
+  revision   Int      @default(1)
+  resignedBy String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([gameId])
+}
+
 model PlayBuild {
   id            String   @id @default(uuid())
   gameId        String

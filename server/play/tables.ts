@@ -212,6 +212,21 @@ export const PLAY_TABLES: TableSpec[] = [
     ],
   },
   {
+    table: 'PlayMatch',
+    cols: [
+      id(), key('sessionId'), key('gameId'),
+      { name: 'seed', kind: 'text', notNull: true, def: '' },
+      text('seatsJson', '[]'), text('stateJson', '{}'),
+      int('revision', 1), opt('resignedBy'), at('createdAt'), at('updatedAt'),
+    ],
+    indexes: [
+      // Одна доска на матч. Вторая означала бы, что партию начали заново
+      // поверх сделанных ходов, и заметил бы это только тот, кто ходил
+      { name: 'PlayMatch_session_key', cols: ['sessionId'], unique: true },
+      { name: 'PlayMatch_gameId_idx', cols: ['gameId'] },
+    ],
+  },
+  {
     table: 'PlayBuild',
     cols: [
       id(), key('gameId'), key('channel'), key('version'),

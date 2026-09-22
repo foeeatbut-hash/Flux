@@ -102,3 +102,23 @@ export const startSession = (lobbyId: string, expectedVersion: number, key: stri
 export const rejoinSession = () => post<any>('/session/rejoin', {});
 
 export const cancelSession = () => post<any>('/session/cancel', {});
+
+// ── Встроенная игра: доска и ход ────────────────────────────────────────────
+
+/** Доска матча глазами того, кто спрашивает: скрытое сервер не отдаёт */
+export const fetchMatch = (sessionId: string) =>
+  get<any>(`/match/${encodeURIComponent(sessionId)}`);
+
+/**
+ * Ход.
+ *
+ * `expectedRevision` — версия доски, которую человек видел. Пришёл на старую —
+ * значит соперник успел раньше, и сервер отвечает VERSION_CONFLICT, а не
+ * кладёт ход поверх чужого.
+ */
+export const makeMove = (sessionId: string, move: unknown, expectedRevision: number, key: string) =>
+  post<any>(`/match/${encodeURIComponent(sessionId)}/move`, { move, expectedRevision }, key);
+
+/** Сдаться. Отдельно от хода: у половины игр ходом это не выражается */
+export const resignMatch = (sessionId: string, key: string) =>
+  post<any>(`/match/${encodeURIComponent(sessionId)}/resign`, {}, key);

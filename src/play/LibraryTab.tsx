@@ -27,14 +27,18 @@ function GameCard({ game }: { game: PlayGameDef }) {
           <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400 leading-relaxed">{game.desc}</p>
           <p className="mt-1.5 inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 dark:text-slate-500">
             <Users className="w-3 h-3" />
-            {game.teams} × {game.teamSize} — {seats} мест
+            {game.solo ? 'одиночная' : `${game.teams} × ${game.teamSize} — ${seats} мест`}
           </p>
         </div>
       </div>
       <p className="mt-2.5 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
-        {game.installable
-          ? 'Сборка ещё не опубликована — установить нечего. Как только администратор выложит её в канал, здесь появится «Установить».'
-          : 'Служебная игра платформы: идёт вместе с программой, устанавливать нечего.'}
+        {game.kind === 'builtin'
+          ? (game.solo
+            ? 'Встроенная и одиночная: открывается прямо здесь, соперник не нужен.'
+            : 'Встроенная: доска открывается прямо здесь, устанавливать и запускать нечего.')
+          : game.installable
+            ? 'Сборка ещё не опубликована — установить нечего. Как только администратор выложит её в канал, здесь появится «Установить».'
+            : 'Служебная игра платформы: идёт вместе с программой, устанавливать нечего.'}
       </p>
     </article>
   );
