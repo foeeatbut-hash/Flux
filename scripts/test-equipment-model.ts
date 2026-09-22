@@ -17,6 +17,7 @@ import { convert, unitInfo, unitInfoFor, unitDimensions } from '../src/import/va
 import { matchLabel, EQUIP_TYPES } from '../src/import/dictionary';
 import { draftToUnits } from '../src/import/recognize';
 import { planTagLinks, normalizeTag } from '../server/equipmentTags';
+import { DEFAULT_TAG_POLICY } from '../equipment/tagPolicy';
 import {
   equipmentColumns, buildEquipmentExchange, byTag, type ExchangeComponent,
 } from '../src/lib/equipmentExchange';
@@ -95,13 +96,30 @@ console.log('\nG24. Совпадение после приведения — н�
   // Точное совпадение буква в букву есть — его и берём, это тот же тег
   ok('точное совпадение выбирается', links[0].action === 'link' && links[0].existingTagId === 't1', links[0]);
 
+  /**
+   * Тот же случай, но по алфавиту: «АВ-01» кириллицей и «AB-01» латиницей — на
+   * глаз одно и то же, а для программы разные теги. Пока проект кириллицу
+   * разрешает, написание законно, и выбрать за инженера между двумя похожими
+   * записями нельзя: это могут быть разные позиции.
+   */
+  const cyrillicOk = { ...DEFAULT_TAG_POLICY, allowCyrillic: true };
   const blind = planTagLinks(
-    [{ key: 'b1', tags: ['AB.01'] }],
-    [{ id: 't1', identifier: 'AB-01' }, { id: 't2', identifier: 'AB_01' }],
+    [{ key: 'b1', tags: ['АВ-01'] }],
+    [{ id: 't1', identifier: 'AB-01' }, { id: 't2', identifier: 'AB01' }],
+    cyrillicOk,
   );
   ok('без точного совпадения — неоднозначность', blind[0].action === 'ambiguous', blind[0]);
   ok('первый не выбран за инженера', !blind[0].existingTagId, blind[0]);
   ok('показаны оба кандидата', (blind[0].candidates || []).length === 2, blind[0].candidates);
+
+  // А при запрещённой кириллице до поиска похожих дело не доходит вовсе:
+  // разрешать запись того, что записывать нельзя, — хуже, чем отказать
+  const strict = planTagLinks(
+    [{ key: 'b1', tags: ['АВ-01'] }],
+    [{ id: 't1', identifier: 'AB-01' }, { id: 't2', identifier: 'AB01' }],
+  );
+  ok('запрещённое написание — отказ, а не выбор', strict[0].action === 'invalid', strict[0]);
+  ok('и предложено исправление', strict[0].fix === 'AB-01', strict[0].fix);
 }
 
 console.log('\nG25. Один и тот же клапан не задваивается в выгрузке');

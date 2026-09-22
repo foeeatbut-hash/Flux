@@ -154,6 +154,38 @@ export const emptyLayout = (grain = 'tag', headerRow = 0): TableLayout => ({
   grain, headerRow, columns: [], filters: [],
 });
 
+// ── Роль строки ──────────────────────────────────────────────────────────────
+
+/**
+ * Поле, по которому режется срез «строка — двигатель».
+ *
+ * Роль — это обычный отбор по обычному полю, а не третий вид строки. Так
+ * владелец и просил: «вывести в Excel только данные ПТС с тегами» — это те же
+ * позиции, только не все. Заведи мы под каждую роль свой вид строки, к
+ * пятнадцати ролям пришлось бы пятнадцать раз повторить весь список полей, и
+ * шаблон, сохранённый для двигателей, не применился бы к датчикам.
+ */
+export const ROLE_FIELD = 'role';
+
+/** Какая роль сейчас отобрана. Пусто — все позиции подряд. */
+export function layoutRole(layout: TableLayout): string {
+  const f = (layout.filters || []).find((x) => x.field === ROLE_FIELD && x.op === 'eq');
+  return f ? String(f.value || '') : '';
+}
+
+/**
+ * Оставить в таблице позиции одной роли.
+ *
+ * Пустая роль снимает отбор. Остальные отборы человека при этом не трогаются:
+ * он мог отобрать по установке или по статусу, и терять это при выборе роли
+ * было бы обидно вдвойне — отбор пришлось бы набирать заново.
+ */
+export function withRole(layout: TableLayout, role: string): TableLayout {
+  const rest = (layout.filters || []).filter((x) => !(x.field === ROLE_FIELD && x.op === 'eq'));
+  const want = String(role || '').trim();
+  return { ...layout, filters: want ? [...rest, { field: ROLE_FIELD, op: 'eq', value: want }] : rest };
+}
+
 /** Столбцы всегда по возрастанию номера: так их видит человек на листе. */
 const ordered = (columns: LayoutColumn[]): LayoutColumn[] =>
   [...columns].sort((a, b) => a.col - b.col);
@@ -431,6 +463,51 @@ export function templateToLayout(
     columns: (body.columns || []).map((f, i) => ({ ...f, col: at.col + i })),
     filters: (body.filters || []).map(f => ({ ...f })),
   };
+}
+
+/** Шаблон вида: какие характеристики оборудования нужны для этой работы. */
+export interface ViewTemplate {
+  id: string;
+  name: string;
+  scope: string;
+  role: string;
+  fields: { group: string; key: string; unit: string }[];
+}
+
+/**
+ * Шаблон вида → столбцы таблицы, начиная от выбранной ячейки.
+ *
+ * Это и есть то, о чём просил владелец: «шаблон вида берёт скомканный, а в
+ * таблице мы уже настраиваем, в каком порядке они будут идти, в каких
+ * столбцах». Шаблон кладёт поля подряд — дальше человек двигает столбцы как
+ * хочет, обычной разметкой.
+ *
+ * Вид строки при этом становится «позиция»: характеристики оборудования
+ * принадлежат позициям, а не тегам, и оставить строку тегом значило бы собрать
+ * таблицу, в которой половина ячеек пуста без объяснения.
+ *
+ * Уже размеченные столбцы НЕ стираются: шаблон прикладывается к тому, что
+ * есть. Так и работают: первый столбец — тег двигателей, руками, а дальше
+ * шаблоном ложатся их данные.
+ */
+export function viewToColumns(
+  view: ViewTemplate, layout: TableLayout, at: { row: number; col: number },
+): TableLayout {
+  const taken = new Set(layout.columns.map((c) => c.col));
+  const out: LayoutColumn[] = [...layout.columns];
+  let col = at.col;
+  for (const f of view.fields || []) {
+    while (taken.has(col)) col++;   // поверх занятого столбца не пишем
+    taken.add(col);
+    out.push({
+      path: `param:${f.group}|${f.key}`,
+      title: f.key,
+      unit: f.unit || '',
+      col,
+    });
+    col++;
+  }
+  return { ...layout, grain: 'element', headerRow: at.row, columns: ordered(out) };
 }
 
 /**

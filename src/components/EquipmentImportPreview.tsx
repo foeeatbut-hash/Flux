@@ -16,11 +16,23 @@ interface PlanParam {
   group: string; key: string; value: string; unit: string;
   status: 'new' | 'changed' | 'same'; oldValue?: string; warning?: string;
 }
+/** Откуда взялся тег позиции и что с ним решено (см. equipment/notes.ts) */
+interface TagEvidence {
+  identifier: string;
+  verdict: string;
+  why: string;
+  fix?: string;
+  role?: string;
+  phrase?: string;
+}
 interface PlanBlock {
   key: string; systemName: string; monoblockName: string; itemCode: string;
   title: string; equipType: string;
   action: 'create' | 'update' | 'unchanged';
   params: PlanParam[]; changedCount: number; newCount: number; overrideImpact: number;
+  // Состав: роль позиции, её владелец и номер экземпляра
+  role?: string; parentKey?: string; instanceNo?: number; instanceCount?: number;
+  sourceOrder?: number; tagNotes?: TagEvidence[];
 }
 interface PlanSystem { name: string; title: string; action: 'create' | 'match'; matchedName?: string }
 interface ImportPlan {
@@ -106,18 +118,71 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
     setTagLinks(list => list.map((l, j) => (j === i ? { ...l, action } : l)));
 
   // Дерево: система → её блоки (моноблок как подпись строки)
+  /**
+   * Блоки по установкам, а внутри — деревом: сначала владелец, потом его
+   * содержимое с отступом.
+   *
+   * Плоский список здесь врал бы про состав: двигатель шёл бы строкой следом за
+   * вентилятором и читался как соседнее изделие. Порядок внутри уровня — из
+   * файла (`sourceOrder`), потому что предпросмотр показывает, ЧТО приехало, а
+   * не как это потом будет отсортировано в реестре.
+   */
   const grouped = useMemo(() => {
-    const map = new Map<string, PlanBlock[]>();
+    const map = new Map<string, { b: PlanBlock; depth: number }[]>();
     for (const b of plan?.blocks || []) {
       if (!map.has(b.systemName)) map.set(b.systemName, []);
-      map.get(b.systemName)!.push(b);
+      map.get(b.systemName)!.push({ b, depth: 0 });
+    }
+    for (const [sys, list] of map) {
+      const live = new Set(list.map(x => x.b.key));
+      const byParent = new Map<string, PlanBlock[]>();
+      for (const { b } of list) {
+        const key = b.parentKey && live.has(b.parentKey) ? b.parentKey : '';
+        if (!byParent.has(key)) byParent.set(key, []);
+        byParent.get(key)!.push(b);
+      }
+      const out: { b: PlanBlock; depth: number }[] = [];
+      const seen = new Set<string>();
+      const walk = (key: string, depth: number) => {
+        const kids = [...(byParent.get(key) || [])].sort((x, y) => (x.sourceOrder || 0) - (y.sourceOrder || 0));
+        for (const b of kids) {
+          if (seen.has(b.key)) continue;   // кольцо в данных не должно вешать окно
+          seen.add(b.key);
+          out.push({ b, depth });
+          walk(b.key, depth + 1);
+        }
+      };
+      walk('', 0);
+      map.set(sys, out);
     }
     return map;
   }, [plan]);
 
   const active = plan?.blocks.find(b => b.key === activeBlock) || null;
   const isExcluded = (k: string) => excluded.has(k);
-  const toggleBlock = (k: string) => setExcluded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  /**
+   * Снять галочку с позиции — снять её и со всего, что внутри.
+   *
+   * Импорт двигателя без его вентилятора оставил бы позицию без владельца:
+   * родителя тега взять неоткуда, и в дереве она повисла бы на установке.
+   * Сервер отбрасывает такую пару сам, но окно обязано показывать то, что
+   * произойдёт, а не более удобную картинку.
+   */
+  const withKin = (key: string): string[] => {
+    const all = plan?.blocks || [];
+    const out = [key];
+    for (let i = 0; i < out.length; i++) {
+      for (const b of all) if (b.parentKey === out[i] && !out.includes(b.key)) out.push(b.key);
+    }
+    return out;
+  };
+  const toggleBlock = (k: string) => setExcluded(s => {
+    const n = new Set(s);
+    const kin = withKin(k);
+    if (n.has(k)) for (const x of kin) n.delete(x);
+    else for (const x of kin) n.add(x);
+    return n;
+  });
   const toggleSystem = (sys: string, blocks: PlanBlock[]) => {
     const allOn = blocks.every(b => !isExcluded(b.key));
     setExcluded(s => { const n = new Set(s); for (const b of blocks) allOn ? n.add(b.key) : n.delete(b.key); return n; });
@@ -159,6 +224,36 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
       else { onDone({ files: queueLength, conflicts }); }
+    } catch (e: any) { setError(e.message || 'Ошибка сети'); }
+    finally { setApplying(false); }
+  };
+
+  /**
+   * Остальные файлы очереди — в фон.
+   *
+   * Двадцать три выгрузки никто не просматривает по одной: посмотрели первую,
+   * убедились, что разбор верный, и отправили остаток работать без себя. Окно
+   * после этого можно закрыть — очередь живёт на сервере.
+   *
+   * Ключ сеанса собирается из списка файлов, а не из времени: нажали дважды,
+   * закрыли и вернулись — задания те же, а не вторые.
+   */
+  const rest = fileIds.slice(idx + 1);
+  const queueRest = async () => {
+    setApplying(true);
+    try {
+      const r = await fetch('/api/import-jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId, category,
+          title: `Расчёт, файлов: ${rest.length}`,
+          idemKey: `files:${rest.join(',')}`.slice(0, 120),
+          files: rest.map((id) => ({ fileId: id })),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error || 'Не удалось поставить в очередь'); return; }
+      onDone({ files: queueLength, conflicts: totalConflicts });
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setApplying(false); }
   };
@@ -216,8 +311,9 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
               {/* Дерево */}
               <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
-                {[...grouped.entries()].map(([sys, blocks]) => {
+                {[...grouped.entries()].map(([sys, rows]) => {
                   const s = plan.systems.find(x => x.name === sys);
+                  const blocks = rows.map(r => r.b);
                   const allOn = blocks.every(b => !isExcluded(b.key));
                   return (
                     <div key={sys} className="mb-1">
@@ -231,16 +327,31 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                           ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
                           : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
                       </div>
-                      {!collapsed[sys] && blocks.map(b => {
+                      {!collapsed[sys] && rows.map(({ b, depth }) => {
                         const ba = actionBadge(b.action);
+                        // Тег, доставшийся позиции из примечания, и расхождения
+                        // по нему — прямо в дереве: их решают до записи
+                        const got = (b.tagNotes || []).filter(e => e.verdict === 'assigned');
+                        const trouble = (b.tagNotes || []).filter(e => e.verdict !== 'assigned');
                         return (
                           <div key={b.key}
-                            className={`flex items-center gap-1.5 pl-8 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-850'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
+                            style={{ paddingLeft: `${32 + depth * 12}px` }}
+                            className={`flex items-center gap-1.5 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-850'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
                             onClick={() => setActiveBlock(b.key)}>
                             <input type="checkbox" checked={!isExcluded(b.key)} onClick={e => e.stopPropagation()} onChange={() => toggleBlock(b.key)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                            <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1" title={b.title}>
+                            <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1" title={b.role && b.role !== 'БЛОК' ? `${b.title} · ${b.role}` : b.title}>
                               {b.itemCode === '__unit__' ? '⚙ параметры установки' : b.title}
                             </span>
+                            {got.length > 0 && (
+                              <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-mono truncate max-w-[9rem]" title={got.map(e => e.identifier).join(', ')}>
+                                {got[0].identifier}
+                              </span>
+                            )}
+                            {trouble.length > 0 && (
+                              <span title={trouble.map(e => `${e.identifier}: ${e.why}`).join('\n')}>
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              </span>
+                            )}
                             <span className={`text-2xs px-1 rounded font-bold ${ba.cls}`}>{ba.text}</span>
                           </div>
                         );
@@ -255,7 +366,31 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                 {active ? (
                   <>
                     <div className="text-sm font-bold text-slate-800 dark:text-white mb-1">{active.itemCode === '__unit__' ? 'Параметры установки' : active.title}</div>
-                    <div className="text-xs text-slate-400 mb-3">{active.equipType} · {active.params.length} параметров{active.overrideImpact > 0 ? ` · перекроет ${active.overrideImpact} ваших правок` : ''}</div>
+                    <div className="text-xs text-slate-400 mb-3">
+                      {active.equipType} · {active.params.length} параметров
+                      {active.instanceNo ? ` · экземпляр ${active.instanceNo} из ${active.instanceCount || active.instanceNo}` : ''}
+                      {active.overrideImpact > 0 ? ` · перекроет ${active.overrideImpact} ваших правок` : ''}
+                    </div>
+
+                    {/* Откуда взялся тег: фраза примечания целиком и решение
+                        программы. Показывать только вывод нельзя — тогда
+                        расхождение «три тега привода при двух приводах»
+                        выглядело бы как ошибка программы, а не как данные */}
+                    {(active.tagNotes || []).length > 0 && (
+                      <div className="mb-3 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-850">
+                        {(active.tagNotes || []).map((e, i) => (
+                          <div key={i} className="px-2.5 py-1.5 text-2xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`font-mono font-bold ${e.verdict === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>{e.identifier}</span>
+                              {e.role && <span className="text-slate-400">{e.role}</span>}
+                              {e.fix && <span className="text-slate-500">предлагается «{e.fix}»</span>}
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400">{e.why}</div>
+                            {e.phrase && <div className="text-slate-400 italic truncate" title={e.phrase}>из примечания: «{e.phrase}»</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <table className="w-full text-xs">
                       <thead className="text-slate-400 text-left">
                         <tr><th className="py-1 font-semibold">Параметр</th><th className="py-1 font-semibold">Значение</th><th className="py-1 font-semibold">Ед.</th><th className="py-1 font-semibold w-8"></th></tr>
@@ -316,6 +451,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               <span className="text-xs text-slate-500">Выбрано к импорту: <b>{selectedCount}</b> из {plan.blocks.length}</span>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+                {rest.length > 0 && (
+                  <button type="button" onClick={queueRest} disabled={applying}
+                    title="Остальные файлы очереди уедут в фоне: окно можно закрыть, за ходом следите в «Центре операций»"
+                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-emerald-600 disabled:opacity-40 cursor-pointer">
+                    Остальные {rest.length} — в фоне
+                  </button>
+                )}
                 <button type="button" onClick={apply} disabled={applying || selectedCount === 0}
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

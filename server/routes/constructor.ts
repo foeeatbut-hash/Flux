@@ -1,3 +1,4 @@
+import { compositionOf } from '../../equipment/composition.js';
 import type { Express, Request, Response } from 'express';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
 import * as XLSX from 'xlsx';
@@ -101,9 +102,17 @@ async function loadProjectSlice(projectId: string) {
   ]);
   const elements: any[] = [];
   for (const sys of systems) {
+    // Состав: тег владельца и тег установки — сразу у каждой строки. Считать
+    // родителя в момент сборки ячейки значило бы обходить дерево на каждое
+    // значение. Само правило — общее, в equipment/composition
+    const comp = compositionOf((sys.monoblocks || []).flatMap((m: any) => m.components || []), sys.name);
     for (const mono of (sys.monoblocks || [])) {
       for (const el of (mono.components || [])) {
-        elements.push({ ...el, _system: sys, _monoblock: mono });
+        elements.push({
+          ...el, _system: sys, _monoblock: mono,
+          _parentTag: comp.parentTagOf(el), _unitTag: comp.unitTag,
+          _parentName: comp.parentNameOf(el),
+        });
       }
     }
   }
@@ -181,6 +190,14 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
       case 'system.name': return String(row._system?.name ?? '');
       case 'monoblock.name': return String(row._monoblock?.name ?? '');
       case 'tags': return (row.tags || []).map((t: any) => t.identifier).join('; ');
+      // ── Состав ──
+      case 'tag': return String((row.tags || [])[0]?.identifier ?? '');
+      case 'role': return String(row.role ?? 'БЛОК');
+      case 'parentTag': return String(row._parentTag ?? '');
+      case 'unitTag': return String(row._unitTag ?? '');
+      case 'parent.name': return String(row._parentName ?? '');
+      case 'instanceNo': return row.instanceNo ? String(row.instanceNo) : '';
+      case 'origin': return row.manual ? 'заведено вручную' : 'из расчёта';
     }
     return '';
   }
@@ -788,6 +805,15 @@ export function registerConstructorRoutes(app: Express): void {
           { path: 'monoblock.name', title: 'Моноблок' },
           { path: 'tags', title: 'Теги' },
           { path: 'status', title: 'Статус' },
+          // Состав: ради этих полей всё и затевалось — «теги двигателей,
+          // дальше их данные и тег родителя» это три столбца, а не программа
+          { path: 'tag', title: 'Тег' },
+          { path: 'role', title: 'Роль' },
+          { path: 'parentTag', title: 'Тег родителя' },
+          { path: 'unitTag', title: 'Тег установки' },
+          { path: 'parent.name', title: 'Владелец' },
+          { path: 'instanceNo', title: 'Экземпляр' },
+          { path: 'origin', title: 'Откуда' },
         ],
         params: Array.from(paramMap.values()).sort((a, b) =>
           a.group.localeCompare(b.group, 'ru') || a.key.localeCompare(b.key, 'ru')),

@@ -23,6 +23,7 @@ import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
 import { registerPlayAccess } from './server/play/access.js';
 import { registerPlayRoutes } from './server/play/routes.js';
+import { registerPlayDiagnostics } from './server/play/diagnostics.js';
 import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
@@ -36,6 +37,10 @@ import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
+import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
+import { registerImportJobRoutes } from './server/routes/importJobs.js';
+import { readEquipmentFile } from './server/equipmentFile.js';
+import { startImportJobs } from './server/importJobs.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
@@ -56,6 +61,7 @@ import { registerTranslateRoutes } from './server/routes/translate.js';
 import { registerCalendarRoutes } from './server/routes/calendar.js';
 import { registerMemberRoutes, canSeeProject } from './server/routes/members.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
+import { registerTagPolicyRoutes } from './server/routes/tagPolicy.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite, snapshotSqlite } from './server/sqliteSafety.js';
@@ -1913,6 +1919,10 @@ const limits = registerLimitRoutes(app, () => prisma);
  */
 registerPolicyRoutes(app);
 registerPlayAccess(app);
+// Диагностика платформы для администратора — ВНЕ заслона /api/play:
+// иначе настройка пряталась бы за дверью, ключ от которой она и выдаёт
+registerPlayDiagnostics(app);
+
 registerPlayRoutes(app);
 // Очередь доставки и уборка протухших аренд присутствия: и то и другое
 // переживает перезапуск сервера, потому что живёт в базе, а не в памяти
@@ -2181,6 +2191,9 @@ registerCalendarRoutes(app);
 registerMemberRoutes(app);
 
 registerEquipmentUndoRoutes(app);
+
+// Правила тегов проекта: чтение, изменение и проверка на примере
+registerTagPolicyRoutes(app);
 
 
 // Registry (Equipment & Tags)
@@ -2900,6 +2913,10 @@ registerMailLinkRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
+registerEquipmentViewRoutes(app);
+registerImportJobRoutes(app);
+// Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно
+startImportJobs();
 registerEquipmentEditRoutes(app);
 registerVdrRoutes(app);
 
@@ -3712,34 +3729,22 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 // 1. Импорт расчёта в выбранную категорию (новый парсер: группы + тип + ревизии)
 // Общий шаг: файл Проводника → разобранный расчёт. Кидает { status, error }
 // при проблемах формата, чтобы оба роута (план и запись) отвечали одинаково.
-async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
-  const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
-  if (!fileNode) throw { status: 404, error: 'Файл не найден' };
-  const buffer = await fileBytes(fileNode);
-  if (!buffer.length) throw { status: 400, error: 'Содержимое файла пустое' };
-  const extension = fileNode.name.split('.').pop()?.toLowerCase();
 
-  if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
-    throw { status: 400, error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.` };
-  }
-
-  let result;
-  try {
-    result = (extension === 'xml') ? parseEquipmentXML(buffer.toString('utf-8')) : parseEquipmentExcel(buffer);
-  } catch {
-    throw { status: 400, error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».' };
-  }
-  if (!result.units.length) {
-    throw { status: 400, error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' };
-  }
-  return { result, fileName: fileNode.name };
-}
-
+/**
+ * Проект импорта — только названный в запросе.
+ *
+ * Прежний вариант брал первый попавшийся проект, а если проектов не было —
+ * заводил «Общий Проект» прямо во время предпросмотра. Оборудование при этом
+ * могло уехать в чужой проект, и заметить это было нечем.
+ */
 async function resolveImportProject(reqProjectId: any): Promise<string> {
-  if (reqProjectId && !['null', 'undefined', 'default'].includes(reqProjectId)) return reqProjectId;
-  let first = await prisma.project.findFirst();
-  if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
-  return first.id;
+  const projectId = String(reqProjectId || '');
+  if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
+    throw { status: 400, error: 'Не выбран проект. Импорт оборудования ведётся по проекту — выберите его и повторите.' };
+  }
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) throw { status: 400, error: 'Проект не найден — выберите проект и повторите.' };
+  return projectId;
 }
 
 // Dry-run: что изменится в проекте, без записи (дерево + дифф для предпросмотра)

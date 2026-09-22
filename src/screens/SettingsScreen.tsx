@@ -35,6 +35,7 @@ import {
 } from '../lib/procurementStages';
 import { countOf } from '../lib/plural';
 import PlayPlatform from '../components/settings/PlayPlatform';
+import TagRules from '../components/settings/TagRules';
 import { canManagePlay } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { PLAY_ADMIN } from '../../play/features';
@@ -48,7 +49,7 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play';
+type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -95,6 +96,10 @@ const SECTIONS: Array<{
   { id: 'play', label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global', entitlement: PLAY_ADMIN },
   // Своё в каждом проекте
   { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },
+  // Правила тегов: алфавит и приставки. Своё в каждом проекте — в одном
+  // заказчик требует кириллицу, в другом её запрещает, и общее правило
+  // сделало бы половину проектов неработающими
+  { id: 'tagrules', label: 'Правила тегов', icon: Tag, desc: 'Алфавит и приставки', scope: 'project' },
 ];
 
 const SETTING_GROUPS: Array<{ scope: SettingScope; label: string; hint: string }> = [
@@ -233,6 +238,7 @@ export default function SettingsScreen() {
         {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'play' && <PlayPlatform addToast={addToast} />}
+        {section === 'tagrules' && <TagRules addToast={addToast} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
             <div className="max-w-md"><UpdaterWidget /></div>

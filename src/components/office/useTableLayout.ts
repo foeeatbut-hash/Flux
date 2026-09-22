@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  emptyLayout, bindColumn, unbindColumn, diffLayout, layoutToTemplate, templateToLayout, nextTarget,
+  emptyLayout, bindColumn, unbindColumn, diffLayout, layoutToTemplate, templateToLayout, nextTarget, withRole,
+  viewToColumns, type ViewTemplate,
   type CatalogField, type Cell, type LastPlacement, type LayoutDiff, type ProjectCatalog, type TableLayout,
 } from '../../lib/tableLayout';
 import {
@@ -51,6 +52,9 @@ export function useTableLayout(opts: {
   const [layout, setLayout] = useState<TableLayout>(() => opts.initial || emptyLayout());
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
+  // Шаблоны вида из раздела «Оборудование»: какие характеристики нужны для
+  // этой работы. Порядок и столбцы они не хранят — это дело разметки
+  const [views, setViews] = useState<ViewTemplate[]>([]);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [diff, setDiff] = useState<LayoutDiff | null>(null);
@@ -106,6 +110,14 @@ export function useTableLayout(opts: {
   }, []);
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
 
+  const loadViews = useCallback(() => {
+    fetch('/api/equipment/view-templates')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.views) setViews(d.views); })
+      .catch(() => { /* шаблонов вида нет — полка будет пустой */ });
+  }, []);
+  useEffect(() => { loadViews(); }, [loadViews]);
+
   /** Прошлая привязка: откуда считать «человек не двигался» и куда расти. */
   const last = useRef<LastPlacement | null>(null);
 
@@ -147,6 +159,20 @@ export function useTableLayout(opts: {
     change({ ...emptyLayout(grain, layout.headerRow) });
     last.current = null;
   }, [layout, getSheet, change]);
+
+  /**
+   * Оставить в таблице позиции одной роли.
+   *
+   * Разметку это НЕ сбрасывает, в отличие от смены вида строки: поля у
+   * двигателя и у датчика одни и те же, меняется только то, какие строки в
+   * таблицу попадут. Сбрось мы столбцы, «показать те же данные, но по
+   * датчикам» стоило бы человеку всей разметки.
+   */
+  const setRole = useCallback((role: string) => {
+    change(withRole(layout, role));
+    collected.current = { keys: [], written: [] };
+    setDiff(null);
+  }, [layout, change]);
 
   const clearLayout = useCallback(() => {
     const ws = getSheet();
@@ -290,6 +316,33 @@ export function useTableLayout(opts: {
     say(`Шаблон «${t.name}» разложен — нажмите «Собрать»`, 'success');
   }, [templates, getSheet, getCursor, layout, change, say]);
 
+  /**
+   * Разложить шаблон вида столбцами от выбранной ячейки.
+   *
+   * Уже размеченные столбцы не стираются: так и работают — первый столбец тег
+   * ставят руками, а дальше шаблоном ложатся данные. Значения не собираются:
+   * человек сначала двигает столбцы, а потом нажимает «Собрать».
+   */
+  const applyView = useCallback((id: string) => {
+    const v = views.find((x) => x.id === id);
+    if (!v) return;
+    const ws = getSheet();
+    const at = getCursor() || { row: layout.headerRow, col: nextFreeColumn(layout) };
+    const next = viewToColumns(v, layout, { row: layout.headerRow, col: at.col });
+    change(next);
+    if (ws) paintHeader(ws, next, false);
+    collected.current = { keys: [], written: [] };
+    // Шаблон занял столбцы сам: следующее поле должно встать правее
+    // последнего, а не поверх того, на чём стоял курсор до применения
+    last.current = next.columns.length
+      ? (() => {
+          const right = { row: next.headerRow, col: Math.max(...next.columns.map((c) => c.col)) };
+          return { anchor: getCursor() || right, placed: right };
+        })()
+      : null;
+    say(`Шаблон вида «${v.name}» разложен — двигайте столбцы и нажмите «Собрать»`, 'success');
+  }, [views, getSheet, getCursor, layout, change, say]);
+
   const deleteTemplate = useCallback(async (id: string) => {
     await fetch(`/api/table-templates/${id}`, { method: 'DELETE' }).catch(() => null);
     loadTemplates();
@@ -308,7 +361,7 @@ export function useTableLayout(opts: {
   return {
     layout, catalog, templates, diff, busy, cursor: target,
     fieldsOpen, setFieldsOpen, diffOpen, setDiffOpen,
-    pickField, dropField, setGrain, clearLayout, collect, applyFresh, keepMine,
-    saveTemplate, applyTemplate, deleteTemplate,
+    pickField, dropField, setGrain, setRole, clearLayout, collect, applyFresh, keepMine,
+    saveTemplate, applyTemplate, deleteTemplate, views, applyView,
   };
 }

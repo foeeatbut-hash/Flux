@@ -8,6 +8,10 @@
 // каждым тегом» до записи (для предпросмотра) и применение решений инженера.
 // Молча тег не создаётся и не перевешивается: решение принимает человек.
 
+import {
+  DEFAULT_TAG_POLICY, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
+} from '../equipment/tagPolicy.js';
+
 export interface TagCandidate { id: string; identifier: string; why: string }
 
 export interface TagLink {
@@ -23,7 +27,11 @@ export interface TagLink {
    * месте молча брался первый, и предложение выглядело как единственное
    * точное совпадение.
    */
-  action: 'link' | 'create' | 'skip' | 'ambiguous';
+  action: 'link' | 'create' | 'skip' | 'ambiguous' | 'invalid';
+  /** Почему запись невозможна — для состояния «Кириллица запрещена» */
+  problem?: string;
+  /** Предложенное исправление написания; применяет его человек, не программа */
+  fix?: string;
   /** Точное совпадение в проекте */
   existingTagId?: string;
   /** Тег занят другим изделием — «один тег — одно изделие» */
@@ -33,10 +41,12 @@ export interface TagLink {
 }
 
 /**
- * Написание тега к сравнимому виду: регистр, пробелы, разные дефисы и
- * кириллические двойники латинских букв. «3700-C01-BL-001Е» (с кириллической Е)
- * и «3700-c01-bl-001e» — один и тот же тег: в бланках это встречается
- * постоянно, потому что часть кода набирают в русской раскладке.
+ * Написание к сравнимому виду — ТОЛЬКО для подсказки «похоже на…».
+ *
+ * Раньше эта же функция решала, один ли это тег, и потому подменяла
+ * кириллические буквы латинскими. Из-за этого запрет кириллицы был невыполним:
+ * «В» становилась «B» раньше любой проверки. Теперь идентичность считает
+ * `equipment/tagPolicy.ts` и алфавит не трогает, а здесь остаётся похожесть.
  */
 const LOOKALIKE: Record<string, string> = {
   а: 'a', в: 'b', с: 'c', е: 'e', н: 'h', к: 'k', м: 'm', о: 'o', р: 'p', т: 't', х: 'x', у: 'y',
@@ -53,7 +63,7 @@ export function normalizeTag(raw: string): string {
 export interface ExistingTag { id: string; identifier: string; componentIds?: string[] }
 
 /** Похожесть без учёта разделителей вовсе: «3700C01BL001E» */
-const bare = (s: string) => normalizeTag(s).replace(/-/g, '');
+const bare = (s: string) => similarityKeyOf(s);
 
 /**
  * Что делать с каждым тегом бланка. Ничего не пишет — только раскладывает
@@ -62,6 +72,7 @@ const bare = (s: string) => normalizeTag(s).replace(/-/g, '');
 export function planTagLinks(
   blocks: { key: string; tags?: string[] }[],
   existing: ExistingTag[],
+  policy: TagPolicy = DEFAULT_TAG_POLICY,
 ): TagLink[] {
   // Собираем ВСЕХ, кто сходится после приведения, а не первого. «AB-01» и
   // «AB_01» дают один нормализованный вид, и выбирать между ними за инженера
@@ -69,7 +80,7 @@ export function planTagLinks(
   const byNorm = new Map<string, ExistingTag[]>();
   const byBare = new Map<string, ExistingTag[]>();
   for (const t of existing) {
-    const n = normalizeTag(t.identifier);
+    const n = identityKeyOf(t.identifier);
     (byNorm.get(n) ?? byNorm.set(n, []).get(n)!).push(t);
     const b = bare(t.identifier);
     (byBare.get(b) ?? byBare.set(b, []).get(b)!).push(t);
@@ -85,7 +96,21 @@ export function planTagLinks(
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const hits = byNorm.get(normalizeTag(identifier)) || [];
+      /**
+       * Сначала проверка правил проекта, и только потом поиск совпадений.
+       * Запрещённое написание не ищется в реестре вовсе: найденное «похожее»
+       * выглядело бы как разрешение записать то, что записывать нельзя.
+       */
+      const check = validateTag(identifier, policy);
+      if (!check.ok) {
+        out.push({
+          blockKey: blk.key, identifier, action: 'invalid',
+          problem: check.problem, ...(check.fix ? { fix: check.fix } : {}),
+        });
+        continue;
+      }
+
+      const hits = byNorm.get(identityKeyOf(identifier)) || [];
 
       // Точное совпадение, буква в букву, — единственный случай, когда решать
       // за инженера можно: это тот же самый тег
@@ -129,7 +154,17 @@ export function planTagLinks(
   return out;
 }
 
-export interface TagApplyResult { linked: number; created: number; skipped: number; conflicts: string[] }
+export interface TagApplyResult {
+  linked: number; created: number; skipped: number; conflicts: string[];
+  /**
+   * Что кому досталось: по этому списку строится родство тегов.
+   *
+   * Без него родителя пришлось бы искать повторным запросом к базе, а до
+   * первого такого запроса связь «двигатель под вентилятором» не появилась бы
+   * вовсе — и дерево тегов осталось бы плоским.
+   */
+  assigned: { blockKey: string; componentId: string; tagId: string; identifier: string }[];
+}
 
 /**
  * Применяет решения инженера: привязывает существующие теги, заводит новые,
@@ -141,11 +176,22 @@ export async function applyTagLinks(
   projectId: string,
   links: TagLink[],
   componentIdByKey: Map<string, string>,
+  policy: TagPolicy = DEFAULT_TAG_POLICY,
 ): Promise<TagApplyResult> {
-  const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [] };
+  const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [], assigned: [] };
   for (const link of links) {
     const componentId = componentIdByKey.get(link.blockKey);
     if (!componentId || link.action === 'skip') { res.skipped++; continue; }
+
+    // Правила проекта проверяются ЗДЕСЬ ещё раз, а не только в предпросмотре:
+    // между предпросмотром и записью политику могли поменять, а запрос мог
+    // прийти и мимо окна
+    const check = validateTag(link.identifier, policy);
+    if (!check.ok) {
+      res.skipped++;
+      res.conflicts.push(`«${link.identifier}»: ${check.problem}`);
+      continue;
+    }
     // Неоднозначное решение инженер не принял — писать нечего. Взять первого
     // кандидата здесь значило бы обойти собственную защиту
     if (link.action === 'ambiguous' && !link.existingTagId) {
@@ -166,6 +212,18 @@ export async function applyTagLinks(
       include: { componentElements: { select: { id: true, name: true, itemCode: true } } },
     });
     if (!tag) { res.skipped++; continue; }
+    /**
+     * Тег обязан принадлежать ЭТОМУ проекту.
+     *
+     * Идентификатор существующего тега приходит снаружи, и без этой проверки
+     * подстановка чужого id привязывала бы оборудование одного проекта к тегу
+     * другого. Реестр тегов после такого не чинится ничем, кроме рук.
+     */
+    if (tag.projectId !== projectId) {
+      res.skipped++;
+      res.conflicts.push(`«${link.identifier}» принадлежит другому проекту — привязка не сделана`);
+      continue;
+    }
     const takenBy = (tag.componentElements || []).find((c: any) => c.id !== componentId);
     if (takenBy) {
       res.conflicts.push(`«${tag.identifier}» уже привязан к «${takenBy.name || takenBy.itemCode}» — оставлен как был`);
@@ -175,6 +233,7 @@ export async function applyTagLinks(
       where: { id: componentId },
       data: { tags: { connect: { id: tagId } } },
     });
+    res.assigned.push({ blockKey: link.blockKey, componentId, tagId: tagId!, identifier: tag.identifier });
     res.linked++;
   }
   return res;

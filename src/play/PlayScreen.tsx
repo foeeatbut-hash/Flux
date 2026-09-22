@@ -36,6 +36,7 @@ import PartyBar, { type Person } from './PartyBar';
 import PrepareTab from './PrepareTab';
 import LibraryTab from './LibraryTab';
 import InvitePicker, { type Candidate } from './InvitePicker';
+import MatchFrame from './runtime/MatchFrame';
 import { Failure, Reconnecting, Stale, Waiting } from './states';
 
 type TabId = 'prepare' | 'library';
@@ -161,6 +162,8 @@ export default function PlayScreen() {
     maintenance: !!ctx.platform.maintenance,
     install,
     manager: gm.hasManager(),
+    // Встроенной игре ставиться нечем и незачем: доска считается сервером
+    builtin: game?.kind === 'builtin',
     session: st.session ? { state: String(st.session.state) } : null,
     lobby: st.lobby ? { state: String(st.lobby.state) } : null,
     party: st.party ? { leaderId: String(st.party.leaderId) } : null,
@@ -205,7 +208,8 @@ export default function PlayScreen() {
         const back: any = await pending.run('session.rejoin', () => api.rejoinSession());
         const ticket = String(back?.ticket || '');
         const address = String(back?.session?.serverAddr || '');
-        if (ticket && address && gm.hasManager()) {
+        // Встроенную игру запускать нечем: её доска уже открыта в этом же окне
+        if (game?.kind !== 'builtin' && ticket && address && gm.hasManager()) {
           await gm.launch({ gameId, address, ticket, sessionId: String(st.session?.id || '') });
         }
         await st.refresh();
@@ -251,6 +255,15 @@ export default function PlayScreen() {
     || busyOf('session.rejoin') || busyOf('game.install');
   const mainFailure = failOf('lobby.open') || failOf('lobby.ready') || failOf('session.start')
     || failOf('session.rejoin') || failOf('game.install') || local.failure;
+
+  /**
+   * Встроенная игра идёт прямо здесь.
+   *
+   * Условие именно такое: матч живой И игра встроенная. Внешняя открывается
+   * своим окном, и подменять его доской было бы враньём про то, где играют.
+   */
+  const playing = String(st.session?.state || '') === 'RUNNING'
+    && gameById(String((st.session as any)?.gameId || gameId || ''))?.kind === 'builtin';
 
   const members: Person[] = (st.party?.members || []).map((m: any) => ({
     userId: m.userId,
@@ -316,6 +329,21 @@ export default function PlayScreen() {
           />
         ) : st.loading && !st.at ? (
           <Waiting />
+        ) : playing ? (
+          /**
+           * Идёт матч встроенной игры — доска занимает всё место.
+           *
+           * Вкладки в этот момент не нужны: человек играет, и подсовывать ему
+           * рядом с доской библиотеку значит предлагать уйти с середины партии.
+           * У внешней игры так не сделано намеренно — она в своём окне, и
+           * раздел остаётся разделом.
+           */
+          <MatchFrame
+            sessionId={String(st.session?.id || '')}
+            meId={meId}
+            names={names}
+            onLeave={() => { void st.refresh(); }}
+          />
         ) : tab === 'prepare' ? (
           <PrepareTab
             invites={st.invites}

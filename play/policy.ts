@@ -22,7 +22,7 @@ export interface PolicyEntry {
   mode?: 'ALLOW' | 'DENY';
 }
 
-export type PolicyMap = Record<string, PolicyEntry>;
+export type PolicyMap = Record<string, PolicyEntry | boolean>;
 
 /** Состояние платформы целиком — общее для всех сотрудников. */
 export interface PlatformState {
@@ -81,8 +81,19 @@ const expired = (until: string | null | undefined): boolean =>
  * Запись с истёкшим сроком равна её отсутствию: временная выдача кончилась —
  * значит, ответ снова ищется в правах роли. То же и с временным запретом.
  */
-export function entryMode(e: PolicyEntry | undefined | null): 'ALLOW' | 'DENY' | 'INHERIT' {
+export function entryMode(e: PolicyEntry | boolean | undefined | null): 'ALLOW' | 'DENY' | 'INHERIT' {
   if (!e) return 'INHERIT';
+  /**
+   * Голое `true` вместо записи — это «выдано».
+   *
+   * Карта прав приходит из базы, и написать в неё `"app.play": true` проще
+   * всего: так её пишут руками, так её присылает половина примеров. Читая
+   * такую запись как объект, мы получали `enabled === undefined` и отвечали
+   * ЗАПРЕЩЕНО — то есть выданное право работало запретом, и молча. Найдено
+   * живым прогоном: второй игрок, которому право выдали, перестал видеть
+   * платформу вовсе
+   */
+  if (typeof e === 'boolean') return 'ALLOW';   // `false` уже отсеяно строкой выше
   if (expired(e.until)) return 'INHERIT';
   if (e.mode === 'ALLOW' || e.mode === 'DENY') return e.mode;
   return e.enabled ? 'ALLOW' : 'DENY';

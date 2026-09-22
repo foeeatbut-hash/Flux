@@ -90,10 +90,22 @@ async function press(page: any, label: RegExp | string): Promise<boolean> {
      * `import-draft-plan`, и разойдись они полем — человек увидел бы пустой
      * план вместо своего расчёта. План ничего не пишет, проверять им безопасно.
      */
+    /**
+     * Проект указывается явно.
+     *
+     * Раньше предпросмотр без проекта заводил «Общий Проект» сам, и оборудование
+     * уезжало не туда, куда человек думал. Теперь отсутствие проекта — отказ со
+     * словами, и проверка обязана ходить так же, как окно: с проектом.
+     */
+    const projects = await fetch(BASE + '/api/projects', { headers: { Authorization: `Bearer ${token}` } });
+    const pj: any = await projects.json().catch(() => ({}));
+    const projectId = (Array.isArray(pj) ? pj : (pj?.projects || []))[0]?.id || '';
+    ok('проект для проверки найден', !!projectId, pj);
+
     const plan = await fetch(BASE + '/api/equipment/import-draft-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ units: data.units, category: 'AHU' }),
+      body: JSON.stringify({ units: data.units, category: 'AHU', projectId }),
     });
     const planned: any = await plan.json().catch(() => ({}));
     ok('план по разобранному расчёту строится', plan.ok && !!planned?.plan, planned?.error);

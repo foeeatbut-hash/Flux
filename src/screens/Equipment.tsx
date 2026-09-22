@@ -10,7 +10,7 @@ import {
   RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network,
   ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine,
   Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square,
-  ArrowRight, LayoutGrid, List, Search
+  ArrowRight, LayoutGrid, List, Search, Save
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
 import ExchangeDialog from '../components/ExchangeDialog';
@@ -23,14 +23,15 @@ import { useEscapeClose } from '../lib/useDismiss';
 const { openConfirm } = useModalStore.getState();
 
 // ── Типы данных ──
-interface SpecParam { key: string; value: string; unit: string; }
-interface SpecGroup { title: string; params: SpecParam[]; }
-interface ParamConflict { group: string; key: string; oldValue: string; newValue: string; unit: string; }
 interface Component {
   id: string; itemCode: string; name: string; equipType: string;
   specs?: string; overrides?: string; paramConflicts?: string;
   version: number; hasConflict: boolean; status: string;
   tags?: { id: string; identifier: string }[];
+  // Состав: где позиция стоит и откуда взялась
+  role?: string; parentElementId?: string | null;
+  instanceNo?: number | null; instanceCount?: number | null;
+  sourceOrder?: number | null; manual?: boolean;
 }
 // Тег в списке привязки: с занятостью (один тег — одно изделие)
 interface PickerTag {
@@ -42,30 +43,15 @@ interface SystemUnit { id: string; name: string; category: string; fileName?: st
 interface Category { id: string; label: string; composite?: boolean; }
 
 import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
+import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs';
+import BlockCard from '../components/equipment/BlockCard';
+import PositionTree, { blockLabel } from '../components/equipment/PositionTree';
+import { rowsOfProject } from '../lib/equipmentRows';
+import AddPositionDialog, { type AddPositionTarget } from '../components/equipment/AddPositionDialog';
+import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
+import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
 
 const api = (p: string) => `/api${p}`;
-
-// ── Нормализация specs к виду { groups: [...] } для любого сохранённого формата ──
-// (новый сгруппированный, старый плоский {ключ:значение}, или массив групп)
-function normalizeSpecs(raw: any): { groups: SpecGroup[] } {
-  let parsed: any = {};
-  try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) { parsed = {}; }
-  if (parsed && Array.isArray(parsed.groups)) {
-    return { groups: parsed.groups.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
-  }
-  if (Array.isArray(parsed)) {
-    return { groups: parsed.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
-  }
-  if (parsed && typeof parsed === 'object') {
-    const params = Object.entries(parsed).map(([k, v]: [string, any]) => ({
-      key: k,
-      value: v && typeof v === 'object' ? String(v.value ?? '') : String(v ?? ''),
-      unit: v && typeof v === 'object' ? String(v.unit ?? '') : '',
-    }));
-    return { groups: params.length ? [{ title: 'Параметры', params }] : [] };
-  }
-  return { groups: [] };
-}
 
 // ── Схема приточной установки: физический порядок секций по ходу воздуха ──
 const SECTION_ORDER: Record<string, number> = {
@@ -204,22 +190,10 @@ export default function Equipment() {
 
   // Плоский список изделий для выгрузки: строка таблицы — одна единица
   // оборудования со своими тегами и характеристиками
-  const exchangeItems = useMemo<ExchangeComponent[]>(() => {
-    const parseOv = (raw?: string) => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } };
-    const flat = (list: SystemUnit[]) => list.flatMap(sys =>
-      sys.monoblocks.flatMap(mb => mb.components
-        // Служебный блок параметров установки в перечень изделий не входит
-        .filter(c => c.itemCode !== '__unit__')
-        .map(c => ({
-          id: c.id, itemCode: c.itemCode, name: c.name, equipType: c.equipType,
-          groups: normalizeSpecs(c.specs).groups,
-          overrides: parseOv(c.overrides),
-          tags: c.tags || [],
-          systemName: sys.name,
-          monoblockName: mb.name === '__unit__' ? '' : mb.name,
-        }))));
-    return flat(systems);
-  }, [systems]);
+  const exchangeItems = useMemo<ExchangeComponent[]>(
+    () => rowsOfProject(systems as any, normalizeSpecs),
+    [systems],
+  );
 
   const exchangeScopes = useMemo(() => {
     const inCat = exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
@@ -358,6 +332,90 @@ export default function Equipment() {
 
   const toggle = (id: string) => setExpanded(e => ({ ...e, [id]: !e[id] }));
 
+  // Позиция, внутрь которой заводят новую. Пусто — диалог закрыт
+  const [addTo, setAddTo] = useState<AddPositionTarget | null>(null);
+  // Карточка, с которой сохраняют шаблон вида. Пусто — диалог закрыт
+  const [saveViewOf, setSaveViewOf] = useState<any | null>(null);
+
+  // ── Центр операций: что ввозится в фоне ──
+  const [showOps, setShowOps] = useState(false);
+  const [ops, setOps] = useState<OperationBatch[]>([]);
+  const [opsLoading, setOpsLoading] = useState(false);
+
+  const loadOps = useCallback(async () => {
+    if (!pid) return;
+    setOpsLoading(true);
+    try {
+      const r = await fetch(api(`/import-jobs?projectId=${pid}`));
+      const d = await r.json();
+      setOps(Array.isArray(d?.batches) ? d.batches : []);
+    } catch (_) { /* сервер не ответил — центр покажет прежнее */ }
+    finally { setOpsLoading(false); }
+  }, [pid]);
+
+  /**
+   * Пока партия не закончилась, состояние перечитывается само.
+   *
+   * Опрос, а не сокет: ввоз идёт минутами, и три секунды задержки здесь ничего
+   * не решают, а вот лишний канал доставки — это ещё одно место, где «у меня не
+   * обновилось». Как только незаконченных партий не осталось, опрос гаснет.
+   */
+  useEffect(() => {
+    if (!showOps) return;
+    loadOps();
+    const live = ops.some(b => b.state === 'RUNNING');
+    if (!live) return;
+    const t = setInterval(loadOps, 3000);
+    return () => clearInterval(t);
+  }, [showOps, loadOps, ops.length, ops.map(b => `${b.id}:${b.done}:${b.state}`).join(',')]);
+
+  const cancelOps = async (batchId: string) => {
+    try {
+      const r = await fetch(api(`/import-jobs/${batchId}/cancel`), { method: 'POST' });
+      const d = await r.json();
+      addToast(d?.note || 'Отменено', d?.running ? 'info' : 'success');
+    } catch (_) { addToast('Не удалось отменить', 'error'); }
+    loadOps();
+  };
+
+  /** Сохранить набор характеристик шаблоном вида — он появится в «Таблице». */
+  const saveView = async (body: { name: string; scope: string; role: string; fields: ViewParam[] }): Promise<string> => {
+    try {
+      const res = await fetch(api('/equipment/view-templates'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data?.error || 'Не удалось сохранить шаблон вида';
+      addToast(`Шаблон вида «${body.name}» сохранён — он есть в «Таблице», полка «Шаблоны вида»`, 'success');
+      return '';
+    } catch (_) { return 'Сервер не ответил'; }
+  };
+
+  /**
+   * Завести позицию руками.
+   *
+   * Отказ сервера показывается словами и в диалоге, а не всплывашкой: человек
+   * стоит в форме, и исправлять написание тега ему прямо здесь.
+   */
+  const addPosition = async (body: { name: string; role: string; tag: string; params: { key: string; value: string; unit: string }[] }): Promise<string> => {
+    try {
+      const res = await fetch(api(`/equipment/component/${addTo?.id}/position`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data?.error || 'Не удалось завести позицию';
+      addToast(
+        data?.parentTag ? `Позиция заведена, родитель тега — «${data.parentTag}»` : 'Позиция заведена',
+        'success',
+      );
+      if (data?.warning) addToast(data.warning, 'info');
+      loadSystems();
+      return '';
+    } catch (_) { return 'Сервер не ответил'; }
+  };
+
   const isHidden = (equipType: string, token: string) => (visibility[equipType] || []).includes(token);
   const toggleHidden = (equipType: string, token: string) => {
     const cur = visibility[equipType] || [];
@@ -428,11 +486,6 @@ export default function Equipment() {
     } catch (_) { addToast('Не удалось удалить позицию', 'error'); }
   };
 
-  const blockLabel = (c: Component) =>
-    c.itemCode === '__unit__' ? 'Параметры установки'
-    : c.itemCode.endsWith('_общие') ? 'Общие параметры моноблока'
-    : c.name;
-
   const catIcon = (id: string) => id === 'FAN' ? <Wind className="w-4 h-4" /> : id === 'AHU' ? <Boxes className="w-4 h-4" /> : <Layers className="w-4 h-4" />;
 
   if (!activeProject) {
@@ -500,6 +553,17 @@ export default function Equipment() {
             <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
           </button>
+          {/* Центр операций рядом с импортом не случайно: сюда идут за
+              ответом «а мой ввоз-то как?» — сразу после того, как его
+              отправили в фон */}
+          <button type="button"
+            onClick={() => { setShowOps(true); loadOps(); }}
+            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
+            title="Центр операций: что ввозится в фоне и чем кончилось недавнее"
+          >
+            <List className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden @[820px]:inline">Центр операций</span>
+          </button>
           <div className="hidden @[820px]:block text-2xs text-slate-400 text-center">
             PDF · Excel · Word · XML, или расчёт через «Проводник»
           </div>
@@ -516,6 +580,28 @@ export default function Equipment() {
         />
       )}
 
+      {addTo && (
+        <AddPositionDialog target={addTo} onClose={() => setAddTo(null)} onSubmit={addPosition} />
+      )}
+
+      {showOps && (
+        <ImportOperations
+          batches={ops} loading={opsLoading}
+          onRefresh={loadOps} onCancel={cancelOps}
+          onClose={() => { setShowOps(false); loadSystems(); }}
+        />
+      )}
+
+      {saveViewOf && (
+        <SaveViewDialog
+          role={saveViewOf.role || saveViewOf.equipType || 'ПРОЧЕЕ'}
+          params={saveViewOf.params}
+          preselected={saveViewOf.preselected}
+          onClose={() => setSaveViewOf(null)}
+          onSubmit={saveView}
+        />
+      )}
+
       {showDocImport && (
         <DocImportWizard
           projectId={pid}
@@ -525,76 +611,23 @@ export default function Equipment() {
         />
       )}
 
-      {/* ДЕРЕВО */}
-      <div className="zone w-56 @[820px]:w-64 @[1060px]:w-80 shrink-0 flex flex-col overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
-          <div className="flex items-center gap-1.5">
-            {totalConflicts > 0 && <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
-            <button type="button" onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {catSystems.length === 0 ? (
-            <div className="blank">
-              <div className="blank-title">Категория пуста</div>
-              <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Импорт из документов» — внизу списка категорий.</div>
-            </div>
-          ) : (catSystems || []).map(unit => (
-            <div key={unit.id}>
-              <div className="flex items-center group">
-                <button type="button" onClick={() => toggle(unit.id)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0 cursor-pointer" title={expanded[unit.id] ? 'Свернуть' : 'Развернуть'}>
-                  {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                </button>
-                <button type="button" onClick={() => { setSelectedUnitId(unit.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [unit.id]: true })); }}
-                  className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-                  <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="text-xs font-bold truncate">{unit.name}</span>
-                </button>
-                <button type="button" onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-              {expanded[unit.id] && (unit.monoblocks || []).map(mb => {
-                const isUnitMb = mb.name === '__unit__';
-                return (
-                  <div key={mb.id} className="ml-4">
-                    {!isUnitMb && (
-                      <button type="button" onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
-                        {expanded[mb.id] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
-                        <Layers className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
-                      </button>
-                    )}
-                    {/* Строка позиции и кнопка удаления — СОСЕДИ, а не вложенные
-                        друг в друга: кнопка внутри кнопки в этом проекте уже
-                        ловилась и засоряла журнал */}
-                    {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
-                      <div key={c.id} className="group flex items-center gap-0.5">
-                        <button type="button" onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
-                          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                          <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
-                          {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
-                        </button>
-                        {/* Служебные строки — параметры установки и общие
-                            параметры моноблока — не позиции, и удалять их
-                            отдельно нечего: они исчезнут вместе с узлом */}
-                        {canDelete(c as any) && (
-                          <button type="button" onClick={() => deleteComponent(c)}
-                            title={`Удалить «${blockLabel(c)}»`} aria-label={`Удалить ${blockLabel(c)}`}
-                            className="shrink-0 p-1 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100
-                                       focus-visible:opacity-100 hover:text-rose-500 cursor-pointer">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
+      <PositionTree
+        title={categories.find(c => c.id === activeCat)?.label || activeCat}
+        units={catSystems as any}
+        loading={loading}
+        conflicts={totalConflicts}
+        expanded={expanded}
+        selectedUnitId={selectedUnitId}
+        selectedBlockId={selectedBlockId}
+        onToggle={toggle}
+        onPickUnit={(u) => { setSelectedUnitId(u.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [u.id]: true })); }}
+        onPickBlock={(c) => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
+        onReload={loadSystems}
+        onDeleteUnit={(u) => deleteUnit(u as any)}
+        onDeleteComponent={(c) => deleteComponent(c as any)}
+        onAddPosition={(c) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role })}
+      />
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">
@@ -610,6 +643,17 @@ export default function Equipment() {
             onResolve={resolveConflict}
             onOverride={overrideParam}
             onHistory={() => openHistory(selected.block)}
+            onSaveView={() => {
+              const groups = normalizeSpecs(selected.block.specs).groups;
+              const params = groups.flatMap((g: any) => (g.params || []).map((p: any) => ({ group: g.title, key: p.key, unit: p.unit || '' })));
+              // Отмечено заранее то, что человек сейчас видит: профиль
+              // видимости — это уже ответ на вопрос «какие поля нужны»
+              const preselected = params
+                .filter((p: any) => !isHidden(selected.block.equipType, `p:${p.group}||${p.key}`)
+                  && !isHidden(selected.block.equipType, `g:${p.group}`))
+                .map((p: any) => `${p.group}||${p.key}`);
+              setSaveViewOf({ role: selected.block.role, equipType: selected.block.equipType, params, preselected });
+            }}
             onPickTag={() => setTagPickerFor(selected.block)}
             onUnlinkTag={(tid: string) => unlinkTag(selected.block, tid)}
             blockLabel={blockLabel}
@@ -869,166 +913,6 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 }
 
 // ── Карточка блока ──
-function BlockCard(props: any) {
-  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit, highlightKey, onReload } = props;
-  const specs = normalizeSpecs(comp?.specs);
-  // Подсветка характеристики, к которой привёл ИИ-чат: скроллим к строке
-  const hlNorm = (highlightKey || '').trim().toLowerCase();
-  useEffect(() => {
-    if (!hlNorm) return;
-    const t = setTimeout(() => {
-      document.querySelector('[data-hl-param="1"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 150);
-    return () => clearTimeout(t);
-  }, [hlNorm, comp?.id]);
-  let conflicts: ParamConflict[] = [];
-  try { conflicts = comp?.paramConflicts ? JSON.parse(comp.paramConflicts) : []; } catch (_) { conflicts = []; }
-  if (!Array.isArray(conflicts)) conflicts = [];
-  let overrides: Record<string, string> = {};
-  try { overrides = comp?.overrides ? JSON.parse(comp.overrides) : {}; } catch (_) { overrides = {}; }
-  const conflictOf = (g: string, k: string) => conflicts.find(c => c.group === g && c.key === k);
-  const openWhereUsed = useInsightStore((st) => st.openWhere);
-  // Кто-то ещё правит эту же карточку: сообщаем, но не перечитываем сами —
-  // иначе набранное в поле значение исчезло бы под руками
-  const me = useStore((st) => st.user);
-  const { change, clear } = useEntityChanged('element', comp?.id, me?.id);
-  const [editKey, setEditKey] = useState<string | null>(null);
-  const [editVal, setEditVal] = useState('');
-
-  return (
-    <>
-      <div
-        data-share-route="/equipment"
-        data-share-focus={`equip:${comp?.id}`}
-        data-share-label={`Оборудование: ${blockLabel ? blockLabel(comp) : (comp?.name || '')}`}
-        className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {onBackToUnit && (
-              <button type="button" onClick={onBackToUnit} className="inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
-                <LayoutGrid className="w-3 h-3" /> схема
-              </button>
-            )}
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold uppercase tracking-wider">{comp.equipType}</span>
-            <span className="text-2xs text-slate-400 font-mono">{unitName} · v{comp.version}</span>
-          </div>
-          <h3 className="u-sel text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
-          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-            {(comp.tags || []).map((t: any) => (
-              <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-2xs text-emerald-700 dark:text-emerald-300">
-                <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
-                <button type="button" onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
-              </span>
-            ))}
-            <button type="button" onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button type="button" onClick={() => setShowAllParams(!showAllParams)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title={showAllParams ? 'Показывать по профилю' : 'Показать все параметры'}>
-            {showAllParams ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-          <button type="button" onClick={onHistory} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="История версий"><History className="w-4 h-4" /></button>
-          {/* Связи элемента: в каких документах, файлах и строках ВДР он
-              встречается. Рядом с историей не случайно — оба вопроса задают
-              перед тем, как что-то в элементе поменять. */}
-          <button type="button" onClick={() => openWhereUsed('element', comp.id)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Карточка связей: теги, документы, обсуждения"><Network className="w-4 h-4" /></button>
-        </div>
-      </div>
-
-      {change && (
-        <div className="px-4 py-2 bg-sky-50 dark:bg-sky-950/20 border-b border-sky-200 dark:border-sky-900/40 text-xs text-sky-800 dark:text-sky-300 flex items-center gap-2">
-          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-          <span className="flex-1 min-w-0 truncate">
-            {change.by ? `${change.by} изменил эту карточку` : 'Карточку изменили'} — вы смотрите старые данные
-          </span>
-          <button type="button" onClick={() => { clear(); onReload?.(); }}
-            className="shrink-0 px-2 py-0.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">
-            Обновить
-          </button>
-          <button type="button" onClick={clear} title="Скрыть сообщение"
-            className="shrink-0 p-0.5 rounded hover:bg-sky-100 dark:hover:bg-sky-900/40 cursor-pointer">
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-
-      {conflicts.length > 0 && (
-        <div className="px-4 py-2 bg-rose-50 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/40 text-xs text-rose-700 dark:text-rose-400 flex items-center gap-2">
-          <AlertTriangle className="w-3.5 h-3.5" /> Данные изменились в {conflicts.length} параметрах — примите расчёт ✓ или измените вручную ✎
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {specs.groups.length === 0 && (
-          <div className="text-xs text-slate-400 text-center py-6">У этого элемента нет параметров.</div>
-        )}
-        {specs.groups.map(g => {
-          const groupHidden = isHidden(comp.equipType, `g:${g.title}`);
-          if (groupHidden && !showAllParams) return null;
-          const visibleParams = (g.params || []).filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
-          if (visibleParams.length === 0 && !showAllParams) return null;
-          return (
-            <div key={g.title}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
-                {showAllParams && (
-                  <button type="button" onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
-                    {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  </button>
-                )}
-              </div>
-              <div className="rounded-lg border border-slate-150 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-850">
-                {(showAllParams ? g.params : visibleParams).map(p => {
-                  const token = `p:${g.title}||${p.key}`;
-                  const pHidden = isHidden(comp.equipType, token);
-                  const conf = conflictOf(g.title, p.key);
-                  const overridden = overrides[`${g.title}||${p.key}`] !== undefined;
-                  const isEditing = editKey === token;
-                  const isHl = !!hlNorm && String(p.key || '').trim().toLowerCase() === hlNorm;
-                  return (
-                    <div key={p.key} {...(isHl ? { 'data-hl-param': '1' } : {})}
-                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors duration-500 ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''} ${isHl ? 'bg-emerald-100 dark:bg-emerald-900/40 ring-2 ring-inset ring-emerald-400 animate-pulse rounded-md' : ''}`}>
-                      <span className="u-sel text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate">{p.key}</span>
-                      {isEditing ? (
-                        <>
-                          <input value={editVal} onChange={e => setEditVal(e.target.value)} autoFocus className="w-28 px-1.5 py-0.5 text-xs bg-white dark:bg-slate-950 border border-emerald-400 rounded" />
-                          <button type="button" onClick={() => { onOverride(comp, g.title, p.key, editVal); setEditKey(null); }} className="text-emerald-600 cursor-pointer"><Check className="w-3.5 h-3.5" /></button>
-                          <button type="button" onClick={() => setEditKey(null)} className="text-slate-400 cursor-pointer"><X className="w-3.5 h-3.5" /></button>
-                        </>
-                      ) : (
-                        <>
-                          <span className={`u-sel font-semibold text-right ${overridden ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100'}`} title={overridden ? 'Изменено вручную' : ''}>
-                            {p.value}{p.unit ? <span className="text-slate-400 font-normal"> {p.unit}</span> : ''}
-                          </span>
-                          {conf ? (
-                            <span className="flex items-center gap-1 shrink-0">
-                              <span className="text-2xs text-rose-500">→ {conf.newValue}</span>
-                              <button type="button" onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
-                              <button type="button" onClick={() => { setEditKey(token); setEditVal(conf.newValue); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
-                            </span>
-                          ) : (
-                            <button type="button" onClick={() => { setEditKey(token); setEditVal(p.value); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
-                          )}
-                          {showAllParams && (
-                            <button type="button" onClick={() => toggleHidden(comp.equipType, token)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0" title={pHidden ? 'Показывать' : 'Скрыть'}>
-                              {pHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-        {specs.groups.length === 0 && <p className="text-xs text-slate-400">Нет параметров.</p>}
-      </div>
-    </>
-  );
-}
-
 // ── Выбор тега для привязки: поиск + занятость (один тег — одно изделие) ──
 function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
   tags: PickerTag[];

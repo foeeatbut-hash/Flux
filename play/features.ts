@@ -66,6 +66,17 @@ export interface PlayGameDef {
   installable: boolean;
   /** Код адаптера на сервере: server/play/adapters/<adapter>.ts */
   adapter: string;
+  /**
+   * Где живёт игра.
+   *
+   * `external` — отдельный процесс на машине в сети: платформа выделяет сервер
+   * и принимает подписанный результат. `builtin` — доска считается тем же
+   * сервером, что и всё остальное: ставить нечего, запускать нечего, и окно
+   * открывается прямо в разделе.
+   */
+  kind: 'external' | 'builtin';
+  /** Одиночная игра: лобби и соперник ей не нужны */
+  solo?: boolean;
 }
 
 /**
@@ -88,6 +99,76 @@ export const PLAY_GAMES: PlayGameDef[] = [
     teams: 2,
     installable: false,
     adapter: 'testgame',
+    kind: 'external',
+  },
+  // ── Встроенные: доска считается сервером, ставить и запускать нечего ──
+  {
+    id: 'reversi',
+    title: 'Реверси',
+    short: 'Реверси',
+    desc: 'Классическая доска 8×8 на двоих: кто перевернул больше, тот и выиграл',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'reversi',
+    kind: 'builtin',
+  },
+  {
+    id: 'g2048',
+    title: '2048',
+    short: '2048',
+    desc: 'Одиночная: складывайте одинаковые плитки, пока есть куда двигать',
+    teamSize: 1,
+    teams: 1,
+    installable: false,
+    adapter: 'g2048',
+    kind: 'builtin',
+    solo: true,
+  },
+  {
+    id: 'sudoku',
+    title: 'Судоку',
+    short: 'Судоку',
+    desc: 'Одиночная: сетка 9×9, у которой решение ровно одно',
+    teamSize: 1,
+    teams: 1,
+    installable: false,
+    adapter: 'sudoku',
+    kind: 'builtin',
+    solo: true,
+  },
+  {
+    id: 'checkers',
+    title: 'Русские шашки',
+    short: 'Шашки',
+    desc: 'Доска 8×8 на двоих по русским правилам: бить обязательно и до конца',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'checkers',
+    kind: 'builtin',
+  },
+  {
+    id: 'seabattle',
+    title: 'Морской бой',
+    short: 'Морской бой',
+    desc: 'На двоих: расставьте флот, попал — стреляете снова',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'seabattle',
+    kind: 'builtin',
+  },
+  {
+    id: 'chess',
+    title: 'Шахматы',
+    short: 'Шахматы',
+    desc: 'На двоих, по всем правилам: рокировка, взятие на проходе, превращение, ничьи',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'chess',
+    kind: 'builtin',
   },
   {
     id: 'fluxstrike',
@@ -98,6 +179,7 @@ export const PLAY_GAMES: PlayGameDef[] = [
     teams: 2,
     installable: true,
     adapter: 'fluxstrike',
+    kind: 'external',
   },
 ];
 

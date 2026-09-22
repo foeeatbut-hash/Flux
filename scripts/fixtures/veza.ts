@@ -26,10 +26,10 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
     <N6 cfnName="Элемент отчета ptgНЕИЗВЕСТНО.ptЧтоТо" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgНЕИЗВЕСТНО" proReportPropType="ptЧтоТо" proReportPropValue="42" proMeasureUnit="unNone"/>
 
     <N10 cfnName="Установки" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitsFolder"/>
-    <N11 cfnName="Установка 1" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-01-УХЛ4" proUnitName="ПР-01-AS-001"/>
+    <N11 cfnName="Установка 1" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-01-УХЛ4" proUnitName="PR-01-AS-001"/>
     <N12 cfnName="Установка 2" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-02-УХЛ4" proUnitName=""/>
     <N13 cfnName="Коллекция элементов отчета установка" cfnAmount="1" cfnLevel="caePropCollection" cfnElement="cadReportCollection" proItemCount="5" proReportLevel="UnitItem"/>
-    <N14 cfnName="Элемент отчета ptgPARAMETERS.ptUnitName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgPARAMETERS" proReportPropType="ptUnitName" proReportPropValue="ПР-01-AS-001" proMeasureUnit="unNone"/>
+    <N14 cfnName="Элемент отчета ptgPARAMETERS.ptUnitName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgPARAMETERS" proReportPropType="ptUnitName" proReportPropValue="PR-01-AS-001" proMeasureUnit="unNone"/>
     <N15 cfnName="Элемент отчета ptgCHARACTERISTICS.ptAirFlow" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgCHARACTERISTICS" proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unCubicMeterPerHour"/>
     <N16 cfnName="Элемент отчета ptgNOICE.ptLSUMOUTA" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgNOICE" proReportPropType="ptLSUMOUTA" proReportPropValue="74.5" proMeasureUnit="unDecibelA"/>
     <N17 cfnName="Элемент отчета ptgFAN.ptFanKFactor" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptFanKFactor" proReportPropValue="470" proMeasureUnit="unPiece2"/>
@@ -55,6 +55,23 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
     <N40 cfnName="Коллекция элементов отчета блок" cfnAmount="1" cfnLevel="caePropCollection" cfnElement="cadReportCollection" proItemCount="2" proReportLevel="BlockItem"/>
     <N41 cfnName="Элемент отчета ptgBLOCK.ptName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgBLOCK" proReportPropType="ptName" proReportPropValue="Фильтр карманный" proMeasureUnit="unNone"/>
     <N42 cfnName="Элемент отчета ptgFILTER.ptEU" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFILTER" proReportPropType="ptEU" proReportPropValue="G4" proMeasureUnit="unNone"/>
+
+    <N43 cfnName="Элемент отчета ptgMEMOES.ptMemoItems" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMEMOES" proReportPropType="ptMemoItems" proReportPropValue="&quot;Класс уровня протечки по CEN EN 1751 - 3&quot;,&quot;Таг-номер клапана PR-01-DW-001A&quot;,&quot;Таг-номер привода PR-01-DWD-001, PR-01-DWD-007, PR-01-DWD-004&quot;" proMeasureUnit="unNone"/>
+
+    <N44 cfnName="Блок 1.3 Вентилятор ВСК" cfnAmount="1" cfnNote="1.3" cfnLevel="caeFolder" cfnElement="cadBlockFolder" proBlockType="Fan" proSideType="TheLeft"/>
+    <N45 cfnName="Коллекция элементов отчета блок" cfnAmount="1" cfnLevel="caePropCollection" cfnElement="cadReportCollection" proItemCount="4" proReportLevel="BlockItem"/>
+    <N46 cfnName="Элемент отчета ptgBLOCK.ptName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgBLOCK" proReportPropType="ptName" proReportPropValue="Вентилятор ВСК" proMeasureUnit="unNone"/>
+    <N47 cfnName="Элемент отчета ptgFAN.ptFanKFactor" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptFanKFactor" proReportPropValue="470" proMeasureUnit="unPiece2"/>
+    <N48 cfnName="Элемент отчета ptgMOTOR.ptNY" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMOTOR" proReportPropType="ptNY" proReportPropValue="15" proMeasureUnit="unKilowatt"/>
+    <N49 cfnName="Элемент отчета ptgMEMOES.ptMemoItems" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMEMOES" proReportPropType="ptMemoItems" proReportPropValue="&quot;Таг-номер вентилятор PR-01-BL-001A, PR-01-BL-002A&quot;" proMeasureUnit="unNone"/>
+
+    <N70 cfnName="Клапан ПРОБА-С-1220-3300-П-П-30-00-00-УХЛ2-02" cfnAmount="1" cfnLevel="caeAssem" cfnElement="cadConnAssem" proMarking="КЛ-1"/>
+    <N71 cfnName="Электропривод ПР24-С2-В" cfnAmount="2" cfnLevel="caeDetail" cfnElement="cadConnAct" proMarking="ЭП-1"/>
+    <N72 cfnName="Вентилятор ПРОБА62-100-01500-06-1-Г-УХЛ2" cfnAmount="2" cfnLevel="caeAssem" cfnElement="cadFanFreeAssem" proMarking="ВН-1"/>
+    <N73 cfnName="Вентилятор ПРОБА62-100" cfnAmount="2" cfnLevel="caeDetail" cfnElement="cadFan" proMarking="ВН-1-1"/>
+    <N74 cfnName="Электродвигатель 160М6-УХЛ2-400-IM1001" cfnAmount="2" cfnLevel="caeDetail" cfnElement="cadEMotor" proMarking="ДВ-1"/>
+    <N75 cfnName="Уплотнитель D-профиль 9х8" cfnAmount="383.048" cfnLevel="caeMaterial" cfnElement="cadUntyped" proMeasureUnitStr="м"/>
+    <N76 cfnName="Увлажнитель паровой ПРОБА-10" cfnAmount="1" cfnLevel="caeAssem" cfnElement="cadSteamHumidifier" proMarking="УВ-1"/>
 
     <N50 cfnName="Внутренний каркас" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadInnercarcassFolder" proMarking="ВК-1"/>
     <N51 cfnName="Панель боковая" cfnAmount="4" cfnLevel="caeDetail" cfnElement="cadPanel" proMarking="ПБ-1" proWeigt="12"/>
@@ -96,7 +113,11 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
                       <N37 cfnAmount="1"/>
                       <N38 cfnAmount="1"/>
                       <N39 cfnAmount="1"/>
+                      <N43 cfnAmount="1"/>
                     </N33>
+                    <N70 cfnAmount="1">
+                      <N71 cfnAmount="2"/>
+                    </N70>
                     <N50 cfnAmount="1">
                       <N51 cfnAmount="4">
                         <N52 cfnAmount="1">
@@ -112,6 +133,20 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
                       <N42 cfnAmount="1"/>
                     </N40>
                   </N32>
+                  <N44 cfnAmount="1">
+                    <N45 cfnAmount="1">
+                      <N46 cfnAmount="1"/>
+                      <N47 cfnAmount="1"/>
+                      <N48 cfnAmount="1"/>
+                      <N49 cfnAmount="1"/>
+                    </N45>
+                    <N72 cfnAmount="2">
+                      <N73 cfnAmount="2"/>
+                      <N74 cfnAmount="2"/>
+                    </N72>
+                    <N75 cfnAmount="383.048"/>
+                    <N76 cfnAmount="1"/>
+                  </N44>
                 </N30>
               </N21>
             </N20>

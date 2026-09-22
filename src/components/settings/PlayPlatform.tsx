@@ -30,6 +30,8 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
   const [busy, setBusy] = React.useState(false);
   const [failure, setFailure] = React.useState('');
   const [keyDraft, setKeyDraft] = React.useState('');
+  const [diag, setDiag] = React.useState<any | null>(null);
+  const [diagFailure, setDiagFailure] = React.useState('');
   const [sessions, setSessions] = React.useState<Array<{
     id: string; gameId: string; state: string; ageMs: number; stuck: boolean;
   }>>([]);
@@ -40,6 +42,47 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(String(data?.error || `сервер ответил ${res.status}`));
     return data;
+  };
+
+  /**
+   * Диагностика спрашивается ВНЕ заслона платформы.
+   *
+   * Заслон отвечает «такого нет» всем без игровых прав — в том числе
+   * администратору, которому платформу настраивать. Поэтому у диагностики свой
+   * адрес и своя проверка: главный администратор видит причину, а обычный
+   * сотрудник по-прежнему не видит ничего.
+   */
+  const loadDiagnostics = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${ENV_CONFIG.apiUrl}/admin/play-diagnostics`, { headers: authHeaders() });
+      if (res.status === 404) { setDiag(null); return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `сервер ответил ${res.status}`));
+      setDiag(data);
+      setDiagFailure('');
+    } catch (e: any) {
+      setDiagFailure(e?.message || 'Не удалось собрать диагностику');
+    }
+  }, []);
+
+  React.useEffect(() => { void loadDiagnostics(); }, [loadDiagnostics]);
+
+  const grantAdmin = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${ENV_CONFIG.apiUrl}/admin/play-diagnostics/bootstrap`, {
+        method: 'POST', headers: authHeaders(), body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `сервер ответил ${res.status}`));
+      await refresh();
+      await loadDiagnostics();
+      addToast('Управление платформой выдано вам. Доступ к самим играм выдаётся отдельно.', 'success');
+    } catch (e: any) {
+      setDiagFailure(e?.message || 'Не удалось выдать право');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const loadSessions = React.useCallback(async () => {
@@ -153,6 +196,89 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Диагностика: почему раздела не видно и что с этим делать */}
+      {diag && (
+        <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Диагностика</h3>
+            <button
+              type="button"
+              onClick={() => void loadDiagnostics()}
+              className="px-2 py-1 rounded-lg text-2xs font-bold bg-slate-100 dark:bg-slate-850
+                         text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800
+                         cursor-pointer transition-colors"
+            >
+              Повторить проверку
+            </button>
+          </div>
+
+          <dl className="mt-2 space-y-1.5 text-xs">
+            <div className="flex gap-2">
+              <dt className="w-40 shrink-0 text-slate-400 dark:text-slate-500">Платформа</dt>
+              <dd className="text-slate-700 dark:text-slate-150">
+                {diag.platform?.enabled ? 'включена' : 'выключена'}
+                {diag.platform?.maintenance ? ' · идёт обслуживание' : ''}
+                {` · правило версии ${diag.platform?.policyVersion ?? '—'}`}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-40 shrink-0 text-slate-400 dark:text-slate-500">База</dt>
+              <dd className="text-slate-700 dark:text-slate-150">
+                {String(diag.database?.dialect || '')} · {diag.database?.note}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-40 shrink-0 text-slate-400 dark:text-slate-500">Ваш доступ к разделу</dt>
+              <dd className={diag.me?.app?.allowed ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}>
+                {diag.me?.app?.allowed ? 'есть' : 'нет'} — {diag.me?.app?.note}
+                {diag.me?.validUntil ? ` (до ${new Date(diag.me.validUntil).toLocaleDateString('ru-RU')})` : ''}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-40 shrink-0 text-slate-400 dark:text-slate-500">Управление платформой</dt>
+              <dd className={diag.me?.admin?.allowed ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}>
+                {diag.me?.admin?.allowed ? 'есть' : 'нет'} — {diag.me?.admin?.note}
+              </dd>
+            </div>
+          </dl>
+
+          <ul className="mt-2 space-y-1 text-2xs">
+            {(diag.games || []).map((g: any) => (
+              <li key={g.id} className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-slate-700 dark:text-slate-150">{g.title}</span>
+                <span className={g.allowed ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}>
+                  {g.allowed ? 'доступна вам' : g.why}
+                </span>
+                {g.installable && (
+                  <span className="text-slate-400 dark:text-slate-500">
+                    {g.published ? `сборка ${g.published}` : 'сборка не опубликована'}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {!diag.me?.admin?.allowed && (
+            <button
+              type="button"
+              onClick={grantAdmin}
+              disabled={busy}
+              className="mt-3 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700
+                         text-white disabled:opacity-50 cursor-pointer transition-colors"
+            >
+              Выдать мне управление платформой
+            </button>
+          )}
+          <p className="mt-2 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
+            Кнопка выдаёт только управление платформой — записью в вашей карточке, с автором и временем.
+            Доступ к самим играм она не выдаёт: его по-прежнему выдают отдельно, каждому сотруднику.
+          </p>
+          {diagFailure && (
+            <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-400">{diagFailure}</p>
+          )}
         </div>
       )}
 

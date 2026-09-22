@@ -28,6 +28,7 @@ import { redeemTicket } from './tickets.js';
 import { acceptResult, resultOf } from './results.js';
 import { DEFAULT_CHANNEL, latestBuild, publisherKey } from './builds.js';
 import { snapshotFor } from './snapshot.js';
+import { makeMove, matchView, resign } from './match.js';
 
 const actorOf = (req: Request): string => String((req as any).authUser?.id || '');
 
@@ -73,6 +74,59 @@ export function registerPlayApi(app: Express): void {
 
   app.get('/api/play/inbox', async (req: Request, res: Response) => {
     await read(res, () => inboxOf(actorOf(req)));
+  });
+
+  // ── Встроенная игра: доска и ход ─────────────────────────────────────────
+
+  /**
+   * Доска глазами того, кто спрашивает.
+   *
+   * Отдельным запросом, а не полем снимка: доска меняется на каждом ходу, а
+   * снимок — на каждое изменение платформы, и таскать сетку судоку в каждом
+   * ответе про присутствие незачем.
+   */
+  app.get('/api/play/match/:sessionId', async (req: Request, res: Response) => {
+    await read(res, () => matchView(String(req.params.sessionId || ''), actorOf(req)));
+  });
+
+  /**
+   * Ход.
+   *
+   * Сюда приходит ХОД, а не доска: доску считает сервер теми же правилами,
+   * которыми окно подсвечивает разрешённое. `expectedRevision` — версия, на
+   * которую смотрел игрок: пришёл на старую, значит соперник успел раньше, и
+   * ход не применяется.
+   */
+  app.post('/api/play/match/:sessionId/move', async (req: Request, res: Response) => {
+    const actorId = actorOf(req);
+    const key = keyFromRequest(req);
+    try {
+      const receipt = await makeMove(
+        String(req.params.sessionId || ''), actorId, req.body?.move,
+        key, req.body?.expectedRevision,
+      );
+      if (receipt.ok) { res.status(receipt.repeated ? 200 : 201).json(receipt); return; }
+      res.status(playErrorHttp(String(receipt.code))).json(receipt);
+    } catch (e: any) {
+      if (e instanceof PlayFailure) {
+        res.status(playErrorHttp(String(e.code))).json({ ok: false, repeated: false, code: e.code, message: e.message });
+        return;
+      }
+      res.status(500).json({ ok: false, repeated: false, code: 'INTERNAL', message: e?.message || 'Не получилось' });
+    }
+  });
+
+  /** Сдаться. Отдельно от хода: у половины игр ходом это не выражается */
+  app.post('/api/play/match/:sessionId/resign', async (req: Request, res: Response) => {
+    const actorId = actorOf(req);
+    const key = keyFromRequest(req);
+    try {
+      const receipt = await resign(String(req.params.sessionId || ''), actorId, key);
+      if (receipt.ok) { res.status(receipt.repeated ? 200 : 201).json(receipt); return; }
+      res.status(playErrorHttp(String(receipt.code))).json(receipt);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, repeated: false, code: 'INTERNAL', message: e?.message || 'Не получилось' });
+    }
   });
 
   /**

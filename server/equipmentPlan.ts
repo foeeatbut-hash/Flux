@@ -1,7 +1,8 @@
-import { EquipParseResult, SpecGroup, SpecParam } from './equipmentParser.js';
+import { EquipParseResult, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
 import { overrideKey, blockKey } from './specUtils.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
+import { policyOfProject } from './routes/tagPolicy.js';
 import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
@@ -30,6 +31,19 @@ export interface PlanBlock {
   changedCount: number;
   newCount: number;
   overrideImpact: number;      // сколько ручных правок инженера перекроет обновление
+
+  // ── Состав: где позиция стоит ──
+  /** Роль позиции: БЛОК, ВЕНТИЛЯТОР, ДВИГАТЕЛЬ, КЛАПАН, ПРИВОД, ДАТЧИК… */
+  role?: string;
+  /** blockKey владельца; пусто — блок */
+  parentKey?: string;
+  /** Номер экземпляра и сколько их всего: «Вентилятор №2 из 2» */
+  instanceNo?: number;
+  instanceCount?: number;
+  /** Порядок появления в файле */
+  sourceOrder?: number;
+  /** Откуда взялись теги позиции и что с ними решено */
+  tagNotes?: TagEvidence[];
 }
 
 export interface PlanSystem {
@@ -47,7 +61,7 @@ export interface ImportPlan {
    * предпросмотре; молча теги не создаются и не перевешиваются.
    */
   tagLinks: TagLink[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number };
+  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -145,7 +159,7 @@ export async function planEquipmentImport(
     systems: [],
     blocks: [],
     tagLinks: [],
-    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0 },
+    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
   };
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
@@ -171,10 +185,18 @@ export async function planEquipmentImport(
     });
 
     // Плоский список блоков установки (как в importEquipmentToDB)
-    const flatBlocks: { code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[] }[] = [
-      { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups, tags: unitData.tags },
+    const flatBlocks: {
+      code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[];
+      role?: string; parent?: string; instanceNo?: number; instanceCount?: number; sourceOrder?: number;
+      tagNotes?: TagEvidence[];
+    }[] = [
+      { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups, tags: unitData.tags, role: 'УСТАНОВКА' },
       ...unitData.monoblocks.flatMap(mb =>
-        mb.blocks.map(b => ({ code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups, tags: b.tags }))),
+        mb.blocks.map(b => ({
+          code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups, tags: b.tags,
+          role: b.role, parent: b.parentName, instanceNo: b.instanceNo, instanceCount: b.instanceCount,
+          sourceOrder: b.sourceOrder, tagNotes: b.tagNotes,
+        }))),
     ];
 
     for (const blk of flatBlocks) {
@@ -235,6 +257,11 @@ export async function planEquipmentImport(
         title: blk.title,
         equipType: blk.equipType,
         action, params, changedCount, newCount, overrideImpact,
+        ...(blk.role ? { role: blk.role } : {}),
+        ...(blk.parent ? { parentKey: blockKey(unitData.name, blk.mbName, blk.parent) } : {}),
+        ...(blk.instanceNo ? { instanceNo: blk.instanceNo, instanceCount: blk.instanceCount } : {}),
+        ...(blk.sourceOrder !== undefined ? { sourceOrder: blk.sourceOrder } : {}),
+        ...(blk.tagNotes?.length ? { tagNotes: blk.tagNotes } : {}),
       });
     }
   }
@@ -250,9 +277,13 @@ export async function planEquipmentImport(
       id: r.id, identifier: r.identifier,
       componentIds: (r.componentElements || []).map((c: any) => c.id),
     }));
-    plan.tagLinks = planTagLinks(tagged, existingTags);
+    // Правила проекта (алфавит, приставки) читаются здесь же: предпросмотр
+    // обязан показывать то, что случится на записи, а не более мягкую картину
+    const policy = await policyOfProject(projectId);
+    plan.tagLinks = planTagLinks(tagged, existingTags, policy);
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
+    plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;
   }
 
   return plan;
@@ -268,10 +299,23 @@ export function filterBySelection(result: EquipParseResult, sel: Selection): Equ
   if (sel === null) return result;
   const units = result.units.map(u => {
     const unitGroupsKept = isSelected(sel, blockKey(u.name, '', '__unit__'));
-    const monoblocks = u.monoblocks.map(mb => ({
-      ...mb,
-      blocks: mb.blocks.filter(b => isSelected(sel, blockKey(u.name, mb.name, b.name))),
-    })).filter(mb => mb.blocks.length > 0);
+    const monoblocks = u.monoblocks.map(mb => {
+      const kept = new Set<string>();
+      const blocks = mb.blocks.filter(b => {
+        /**
+         * Подпозиция уезжает вместе с владельцем.
+         *
+         * Выбирают в предпросмотре блоки, а не двигатели внутри них. Импорт
+         * двигателя без вентилятора оставил бы позицию без владельца: родителя
+         * тега взять неоткуда, и в дереве она повисла бы на установке.
+         */
+        if (b.parentName) return kept.has(b.parentName);
+        const own = isSelected(sel, blockKey(u.name, mb.name, b.name));
+        if (own) kept.add(b.name);
+        return own;
+      });
+      return { ...mb, blocks };
+    }).filter(mb => mb.blocks.length > 0);
     return { ...u, groups: unitGroupsKept ? u.groups : [], monoblocks };
   }).filter(u => u.monoblocks.length > 0 || u.groups.length > 0);
   return { units };
