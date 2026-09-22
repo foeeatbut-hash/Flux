@@ -154,7 +154,17 @@ export function planTagLinks(
   return out;
 }
 
-export interface TagApplyResult { linked: number; created: number; skipped: number; conflicts: string[] }
+export interface TagApplyResult {
+  linked: number; created: number; skipped: number; conflicts: string[];
+  /**
+   * Что кому досталось: по этому списку строится родство тегов.
+   *
+   * Без него родителя пришлось бы искать повторным запросом к базе, а до
+   * первого такого запроса связь «двигатель под вентилятором» не появилась бы
+   * вовсе — и дерево тегов осталось бы плоским.
+   */
+  assigned: { blockKey: string; componentId: string; tagId: string; identifier: string }[];
+}
 
 /**
  * Применяет решения инженера: привязывает существующие теги, заводит новые,
@@ -168,7 +178,7 @@ export async function applyTagLinks(
   componentIdByKey: Map<string, string>,
   policy: TagPolicy = DEFAULT_TAG_POLICY,
 ): Promise<TagApplyResult> {
-  const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [] };
+  const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [], assigned: [] };
   for (const link of links) {
     const componentId = componentIdByKey.get(link.blockKey);
     if (!componentId || link.action === 'skip') { res.skipped++; continue; }
@@ -223,6 +233,7 @@ export async function applyTagLinks(
       where: { id: componentId },
       data: { tags: { connect: { id: tagId } } },
     });
+    res.assigned.push({ blockKey: link.blockKey, componentId, tagId: tagId!, identifier: tag.identifier });
     res.linked++;
   }
   return res;

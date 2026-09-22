@@ -29,13 +29,64 @@ export interface ParsedBlock {
   position?: string;
   /** Инженерное примечание — текст целиком, как написано */
   note?: string;
+
+  // ── Подпозиции: оборудование внутри блока ──
+  /**
+   * Роль позиции: ВЕНТИЛЯТОР, ДВИГАТЕЛЬ, КЛАПАН, ПРИВОД (`equipment/roles.ts`).
+   *
+   * Роль — это не тип по названию, а место в составе. По ней раздаются теги из
+   * примечания, строится родство тегов и режутся срезы для таблицы.
+   */
+  role?: string;
+  /** `name` владельца: у подпозиции — блок, у блока — пусто */
+  parentName?: string;
+  /** Вид узла в выгрузке (`cadEMotor`) — чтобы было видно, откуда взялось */
+  sourceKind?: string;
+  /** Номер экземпляра, когда позиций несколько: «Вентилятор №2» */
+  instanceNo?: number;
+  /** Сколько всего таких экземпляров у владельца */
+  instanceCount?: number;
+  /** Порядок появления в файле: по нему раздаются теги из примечания */
+  sourceOrder?: number;
+  /** Кому из тегов примечания досталась позиция и почему — для предпросмотра */
+  tagNotes?: TagEvidence[];
+}
+
+/**
+ * Свидетельство о теге: откуда он взят и что с ним решено.
+ *
+ * Хранится рядом с планом, а не вместо него: инженер должен видеть фразу
+ * примечания целиком, а не только вывод программы.
+ */
+export interface TagEvidence {
+  identifier: string;
+  /** assigned | no-slot | invalid — см. `equipment/notes.ts` */
+  verdict: string;
+  /** Словами: почему так решено */
+  why: string;
+  /** Предложенное исправление написания, если оно очевидно */
+  fix?: string;
+  /** Роль, которой адресована фраза; пусто — самому блоку */
+  role?: string;
+  /** Фраза примечания целиком */
+  phrase?: string;
 }
 export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBlock[]; note?: string; }
 export interface ParsedUnit {
   name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[];
   tags?: string[]; note?: string;
 }
-export interface EquipParseResult { units: ParsedUnit[]; }
+export interface EquipParseResult {
+  units: ParsedUnit[];
+  /**
+   * Виды узлов выгрузки, которых нет в словаре.
+   *
+   * Не ошибка и не мусор: САПР развивается, и новый аппарат приезжает под новым
+   * словом. Показать его человеку дешевле, чем объяснять потом, почему позиция
+   * не доехала до реестра.
+   */
+  unknownKinds?: string[];
+}
 
 // Тип детали по её названию (для группировки и профилей видимости)
 const TYPE_RULES: { type: string; kw: string[] }[] = [

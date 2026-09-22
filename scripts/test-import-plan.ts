@@ -108,8 +108,12 @@ const result = (value: string, tags?: string[]) => ({
     ok('оба тега разобраны по отдельности', links.length === 2);
   }
   {
-    const links = planTagLinks([{ key: 'k1', tags: ['AHU 2 1'] }], [{ id: 't9', identifier: 'AHU-2-1' }]);
+    // Те же знаки, разные разделители: пробела в теге быть не может (правило
+    // проекта его отвергает раньше поиска), а вот дефисы расставляют по-разному
+    const links = planTagLinks([{ key: 'k1', tags: ['AHU21'] }], [{ id: 't9', identifier: 'AHU-2-1' }]);
     ok('похожий тег предложен кандидатом', (links[0].candidates || []).length === 1, links[0]);
+    const spaced = planTagLinks([{ key: 'k1', tags: ['AHU 2 1'] }], [{ id: 't9', identifier: 'AHU-2-1' }]);
+    ok('тег с пробелом отвергнут до поиска похожих', spaced[0].action === 'invalid', spaced[0]);
   }
   {
     const links = planTagLinks([{ key: 'k1', tags: ['T-1'] }], [{ id: 't1', identifier: 'T-1', componentIds: ['other'] }]);
@@ -122,9 +126,11 @@ const result = (value: string, tags?: string[]) => ({
     const prisma: any = {
       tag: {
         create: async ({ data }: any) => { created.push(data); return { id: 'new1', ...data }; },
+        // `projectId` здесь не для полноты: без него применение решений обязано
+        // отказать — тег чужого проекта привязывать нельзя
         findUnique: async ({ where }: any) => (where.id === 'busy'
-          ? { id: 'busy', identifier: 'T-9', componentElements: [{ id: 'other', name: 'Другое изделие' }] }
-          : { id: where.id, identifier: 'T-1', componentElements: [] }),
+          ? { id: 'busy', projectId: 'p1', identifier: 'T-9', componentElements: [{ id: 'other', name: 'Другое изделие' }] }
+          : { id: where.id, projectId: 'p1', identifier: 'T-1', componentElements: [] }),
       },
       componentElement: { update: async ({ where, data }: any) => { connected.push({ where, data }); return {}; } },
     };
@@ -137,11 +143,21 @@ const result = (value: string, tags?: string[]) => ({
     ok('существующий тег привязан', res.linked === 2, res);
     ok('новый тег заведён один', res.created === 1 && created[0].identifier === 'T-NEW', created);
     ok('занятый тег не перевешен, а объяснён', res.conflicts.length === 1 && /уже привязан/.test(res.conflicts[0]), res.conflicts);
+
+    // Тег чужого проекта не привязывается, как бы ни выглядел запрос
+    const alien: any = {
+      ...prisma,
+      tag: { ...prisma.tag, findUnique: async ({ where }: any) => ({ id: where.id, projectId: 'p2', identifier: 'T-1', componentElements: [] }) },
+    };
+    const res2 = await applyTagLinks(alien, 'p1', [
+      { blockKey: 'k1', identifier: 'T-1', action: 'link', existingTagId: 'ok1' },
+    ], map);
+    ok('чужой тег не привязан', res2.linked === 0 && /другому проекту/.test(res2.conflicts[0] || ''), res2);
   }
   {
     const plan = await planEquipmentImport(
-      makePrisma(undefined, [{ id: 't1', identifier: 'ТЕГ-1', componentElements: [] }]),
-      'p1', 'AHU', result('5000', ['ТЕГ-1', 'ТЕГ-2']) as any,
+      makePrisma(undefined, [{ id: 't1', identifier: 'TEG-1', componentElements: [] }]),
+      'p1', 'AHU', result('5000', ['TEG-1', 'TEG-2']) as any,
     );
     ok('план несёт теги бланка', plan.tagLinks.length === 2, plan.tagLinks);
     ok('счётчики тегов посчитаны', plan.totals.tagsLinked === 1 && plan.totals.tagsNew === 1, plan.totals);

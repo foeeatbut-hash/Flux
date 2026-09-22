@@ -1883,12 +1883,21 @@ export default function Registry() {
       return p ? { id: n.id, connections: p.connections, parentId: p.parentId } : n;
     });
 
-  /** Записать правки дерева: обе стороны связи одним движением */
+  /**
+   * Записать правки дерева: обе стороны связи одним движением.
+   *
+   * Смена родителя помечается `parentBy: 'hand'`. Импорт расчёта строит
+   * родство сам, по составу оборудования, и без этой отметки он переставлял бы
+   * связь обратно при каждом новом файле: инженер знает про объект то, чего в
+   * расчёте нет, и переделывать одну работу дважды его заставлять нельзя.
+   */
   const applyTreePatches = async (patches: TreePatch[]) => {
     for (const patch of patches) {
       const tag = tagsById[patch.id];
       if (!tag) continue;
-      const meta = { ...parseTagMetadata(tag), connections: patch.connections, parentId: patch.parentId };
+      const was = parseTagMetadata(tag);
+      const meta: ParsedMetadata = { ...was, connections: patch.connections, parentId: patch.parentId };
+      if ((was as any).parentId !== patch.parentId) (meta as any).parentBy = 'hand';
       await saveTagMetadata(patch.id, meta);
     }
   };

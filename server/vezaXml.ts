@@ -1,7 +1,10 @@
 import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit } from './normalize.js';
-import { vezaGroup, vezaLevel, vezaProp, vezaUnit } from './vezaDict.js';
-import type { EquipParseResult, ParsedBlock, ParsedMonoblock, ParsedUnit, SpecGroup, SpecParam } from './equipmentParser.js';
+import { vezaGroup, vezaGroupRoles, vezaKindSense, vezaLevel, vezaProp, vezaRole, vezaUnit, VEZA_SAME_ROLE } from './vezaDict.js';
+import { distribute, type TagSlot } from '../equipment/notes.js';
+import { PERMISSIVE_TAG_POLICY } from '../equipment/tagPolicy.js';
+import { roleById, type RoleId } from '../equipment/roles.js';
+import type { EquipParseResult, ParsedBlock, ParsedMonoblock, ParsedUnit, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 
 /**
  * Разбор выгрузки САПР вентиляционного оборудования.
@@ -23,8 +26,16 @@ import type { EquipParseResult, ParsedBlock, ParsedMonoblock, ParsedUnit, SpecGr
  * шестигранных, панели, профили, краска, заклёпки. Это правда про то, как
  * изделие сделано, но не про то, какое оборудование стоит в системе. Реестр
  * оборудования, куда идёт импорт, — про позиции, и если ссыпать туда крепёж,
- * им нельзя будет пользоваться. Всё, что инженеру нужно про блок, выгрузка и
- * так складывает в его коллекцию отчёта: и модель клапана, и привод, и масса.
+ * им нельзя будет пользоваться.
+ *
+ * Третье, добавленное позже: между блоком и крепежом лежит слой оборудования,
+ * и именно его тегируют. Вентилятор в блоке, его двигатель, клапан и два
+ * привода клапана — это отдельные позиции с отдельными тегами, а не строки
+ * карточки блока. Поэтому внутрь блока разбор всё-таки спускается — но только
+ * по закрытому списку видов (`VEZA_ROLES`), и всё, чего в списке нет, остаётся
+ * в исходном файле. Параметры подпозиции берутся из разделов коллекции блока
+ * (`ptgMOTOR` — двигателя, `ptgVARCONN` — клапана): своих коллекций у
+ * подпозиций в выгрузке не бывает.
  */
 
 /** Узел словаря: только атрибуты, детей у него нет. */
@@ -154,7 +165,181 @@ function stripBlockPrefix(name: string): string {
 /** Позиция ли это: «1.1», «2», «3.4.1» — и ничего кроме */
 const isPosition = (s: string) => /^\d+(\.\d+)*$/.test(String(s || '').trim());
 
-function parseBlock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string): ParsedBlock {
+// ── Подпозиции блока ────────────────────────────────────────────────────────
+
+/** Узел-кандидат в позиции: что за оборудование и сколько его. */
+interface RawPos {
+  kind: string;
+  role: RoleId;
+  title: string;
+  /** Сколько штук приходится на ОДИН экземпляр владельца */
+  qty: number;
+  children: RawPos[];
+}
+
+/**
+ * Количество из выгрузки, приведённое к одному экземпляру владельца.
+ *
+ * В файле `cfnAmount` — это ИТОГ по всему блоку, а не «столько на штуку».
+ * Сборка вентилятора стоит в количестве 2, и двигатель внутри неё тоже помечен
+ * двойкой: двигателей два на два вентилятора, по одному на каждый. Если взять
+ * двойку как есть, у каждого вентилятора окажется по два двигателя, и в реестр
+ * уедут четыре мотора вместо двух.
+ *
+ * Делится только нацело: 2 на 2 — это один, а 3 на 2 — это расхождение
+ * выгрузки, и выдумывать полтора привода программа не станет. Дробное
+ * количество (382.956 м уплотнителя) — признак материала, а не штук.
+ */
+function perInstance(amount: string, parentQty: number): number {
+  const n = Number(String(amount || '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  if (!Number.isInteger(n)) return 0;
+  if (parentQty > 1 && n % parentQty === 0) return n / parentQty;
+  return n;
+}
+
+/**
+ * Значимое оборудование внутри узла — по закрытому списку видов.
+ *
+ * В производство (материалы, крепёж, ламели, кассеты фильтра) обход не
+ * спускается: `vezaKindSense` отвечает «skip», и ветка целиком остаётся в
+ * файле. Незнакомый вид не молчит — он возвращается отдельным списком, чтобы
+ * предпросмотр спросил человека, а не решил за него.
+ */
+function positionsIn(
+  node: any,
+  dict: Record<string, El>,
+  parentQty: number,
+  parentRole: RoleId | '',
+  unknown: Set<string>,
+): RawPos[] {
+  const out: RawPos[] = [];
+  for (const c of childrenOf(node, dict)) {
+    if (c.kind === 'cadReportCollection') continue;
+    const sense = vezaKindSense(c.kind);
+    if (sense === 'skip') continue;
+    if (sense === 'unknown') { if (c.kind) unknown.add(c.kind); continue; }
+
+    const role = vezaRole(c.kind) as RoleId;
+    const qty = perInstance(attr(c.el, 'cfnAmount'), parentQty);
+    if (qty <= 0) continue; // дробное количество — материал, а не позиция
+
+    /**
+     * «Вентилятор ВОСК62-100-01500-06-1-Г-УХЛ2» и «Вентилятор ВОСК62-100»
+     * внутри него — один и тот же вентилятор, записанный полным обозначением
+     * и типоразмером. Вторая позиция тут означала бы вдвое больше вентиляторов
+     * в реестре и вдвое больше требуемых тегов.
+     */
+    if (VEZA_SAME_ROLE.has(c.kind) && role === parentRole) {
+      out.push(...positionsIn(c.node, dict, parentQty, parentRole, unknown));
+      continue;
+    }
+
+    out.push({
+      kind: c.kind,
+      role,
+      title: attr(c.el, 'cfnName') || roleById(role).title,
+      qty,
+      children: positionsIn(c.node, dict, qty, role, unknown),
+    });
+  }
+  return out;
+}
+
+/**
+ * Разделы параметров, принадлежащие роли.
+ *
+ * Собственных коллекций отчёта у подпозиций в выгрузке нет: всё лежит
+ * разделами в коллекции блока. `ptgMOTOR` — данные двигателя, `ptgVARCONN` —
+ * клапана. Разделы при этом **остаются и у блока**: карточка блока выглядит
+ * как раньше, а подпозиция получает свою копию. Переносить значило бы
+ * обеднить привычный вид ради нового.
+ */
+function groupsForRole(groups: SpecGroup[], role: RoleId): SpecGroup[] {
+  const out: SpecGroup[] = [];
+  for (const g of groups) {
+    const params = (g.params || []).filter(p => vezaGroupRoles(p.sourceGroup || '').includes(role));
+    if (params.length) out.push({ title: g.title, params });
+  }
+  return out;
+}
+
+/**
+ * Развернуть дерево кандидатов в позиции реестра.
+ *
+ * Здесь количество превращается в отдельные строки: `cfnAmount=2` у
+ * вентилятора — это два вентилятора, у каждого свой тег, свой двигатель и своя
+ * судьба в проекте, а не «одна позиция с числом 2». Так просил владелец, и так
+ * устроена документация: тег вешают на изделие, а не на строку спецификации.
+ *
+ * Номер экземпляра считается по роли внутри владельца, а не по узлу: бак и
+ * соединитель оба «обвязка», и без общего счётчика их имена совпали бы.
+ */
+function expand(
+  raw: RawPos[],
+  parentName: string,
+  blockGroups: SpecGroup[],
+  detectType: (s: string) => string,
+  counter: { at: number },
+  out: ParsedBlock[],
+): void {
+  const total = new Map<RoleId, number>();
+  for (const r of raw) total.set(r.role, (total.get(r.role) || 0) + r.qty);
+  const seen = new Map<RoleId, number>();
+
+  for (const r of raw) {
+    const count = total.get(r.role) || r.qty;
+    for (let i = 0; i < r.qty; i++) {
+      const no = (seen.get(r.role) || 0) + 1;
+      seen.set(r.role, no);
+      const name = `${parentName}/${r.role.toLowerCase()}${no}`;
+      /**
+       * «№2» дописывается только к настоящим одинаковым экземплярам.
+       *
+       * Номер в имени позиции (`обвязка2`) считается по роли, чтобы имена не
+       * столкнулись, а номер в названии — по самому узлу. Бак и соединитель
+       * оба «обвязка», но «Соединитель №2» при одном соединителе — враньё:
+       * инженер пойдёт искать первый.
+       */
+      const title = r.qty > 1 ? `${r.title} №${i + 1}` : r.title;
+      const groups = groupsForRole(blockGroups, r.role);
+
+      out.push({
+        name,
+        title,
+        equipType: detectType(title) === 'ПРОЧЕЕ' ? r.role : detectType(title),
+        groups,
+        position: name,
+        role: r.role,
+        parentName,
+        sourceKind: r.kind,
+        instanceNo: no,
+        instanceCount: count,
+        sourceOrder: counter.at++,
+      });
+
+      expand(r.children, name, blockGroups, detectType, counter, out);
+    }
+  }
+}
+
+// ── Блок ────────────────────────────────────────────────────────────────────
+
+/**
+ * Блок и его подпозиции одним списком.
+ *
+ * Первым идёт сам блок, дальше — оборудование внутри него в порядке файла.
+ * Плоский список, а не дерево: родство держится полем `parentName`, и весь
+ * дальнейший путь (план импорта, запись, выгрузка) остаётся тем же, каким был
+ * для блоков, — новых веток в нём не заводится.
+ */
+function parseBlock(
+  entry: { el: El; node: any },
+  dict: Record<string, El>,
+  index: number,
+  detectType: (s: string) => string,
+  unknown: Set<string>,
+): ParsedBlock[] {
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const cfnName = attr(entry.el, 'cfnName');
   const title = paramValue(groups, 'Блок', 'Наименование') || stripBlockPrefix(cfnName) || cfnName || `бл${index + 1}`;
@@ -171,18 +356,78 @@ function parseBlock(entry: { el: El; node: any }, dict: Record<string, El>, inde
   const fromParams = paramValue(groups, 'Блок', 'Позиция');
   const position = (isPosition(raw) ? raw : '') || fromParams || `бл${index + 1}`;
   const noteParts = [isPosition(raw) ? '' : raw, notesOf(entry.node, dict)].filter(Boolean);
+  const note = noteParts.join('\n');
 
-  return {
+  const block: ParsedBlock = {
     name: position,
     title,
     equipType: detectType(title),
     groups,
     position,
-    ...(noteParts.length ? { note: noteParts.join('\n') } : {}),
+    role: 'БЛОК',
+    sourceKind: kindOf(entry.el),
+    sourceOrder: 0,
+    ...(note ? { note } : {}),
   };
+
+  const counter = { at: 1 };
+  const subs: ParsedBlock[] = [];
+  expand(positionsIn(entry.node, dict, 1, 'БЛОК', unknown), position, groups, detectType, counter, subs);
+
+  return assignTagsFromNote([block, ...subs], note);
 }
 
-function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string): ParsedMonoblock {
+/**
+ * Раздать теги примечания блоку и его подпозициям.
+ *
+ * Правило раздачи одно — порядок: первый тег роли достаётся первой позиции
+ * этой роли, второй — второй. Подгонки по названию модели нет и не будет:
+ * выдумав соответствие один раз, программа ошибалась бы в нём молча и всегда.
+ *
+ * Расхождения не выравниваются. Три тега привода при двух приводах остаются
+ * тремя строками: две привязки и одно «позиции для тега нет» с выбором для
+ * человека. Это данные заказчика, а не ошибка разбора.
+ */
+function assignTagsFromNote(positions: ParsedBlock[], note: string): ParsedBlock[] {
+  if (!note.trim()) return positions;
+
+  const slots: TagSlot[] = positions.map(p => ({
+    key: p.name,
+    role: (p.role || 'ПРОЧЕЕ') as RoleId,
+    order: p.sourceOrder || 0,
+    ...(p.instanceNo ? { instanceNo: p.instanceNo } : {}),
+    title: p.title,
+  }));
+
+  // Разбор раздаёт теги, но не судит написание: правила проекта тут ещё
+  // неизвестны, а отброшенный тег — это молча потерянная связь. Кириллическую
+  // «С» вместо латинской «C» поймает план импорта, когда проект уже выбран
+  const { assignments } = distribute(note, slots, PERMISSIVE_TAG_POLICY);
+  const byKey = new Map<string, ParsedBlock>(positions.map(p => [p.name, p]));
+  const loose: TagEvidence[] = [];
+
+  for (const a of assignments) {
+    const evidence: TagEvidence = {
+      identifier: a.identifier,
+      verdict: a.verdict,
+      why: a.why,
+      ...(a.fix ? { fix: a.fix } : {}),
+      ...(a.role ? { role: a.role } : {}),
+      phrase: a.evidence.text,
+    };
+    const target = a.slotKey ? byKey.get(a.slotKey) : undefined;
+    if (!target) { loose.push(evidence); continue; }
+    target.tags = [...(target.tags || []), a.identifier];
+    target.tagNotes = [...(target.tagNotes || []), evidence];
+  }
+
+  // Теги без позиции показываются на блоке: там же лежит примечание, из
+  // которого они взяты, и оттуда человеку и решать, куда их деть
+  if (loose.length) positions[0].tagNotes = [...(positions[0].tagNotes || []), ...loose];
+  return positions;
+}
+
+function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string, unknown: Set<string>): ParsedMonoblock {
   const name = attr(entry.el, 'cfnName') || `мн${index + 1}`;
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const note = notesOf(entry.node, dict);
@@ -198,7 +443,7 @@ function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, 
 
   for (const folder of childrenByKind(entry.node, dict, 'cadBlocksFolder')) {
     const items = childrenByKind(folder.node, dict, 'cadBlockFolder');
-    items.forEach((b, i) => blocks.push(parseBlock(b, dict, i, detectType)));
+    items.forEach((b, i) => blocks.push(...parseBlock(b, dict, i, detectType, unknown)));
   }
 
   return { name, title: name, blocks, ...(note ? { note } : {}) };
@@ -235,6 +480,11 @@ export function parseVezaXml(xmlText: string, detectType: (s: string) => string)
   const structure = root.Structure;
   if (!structure) return result;
 
+  // Виды узлов, которых нет ни в списке оборудования, ни в списке «не позиция».
+  // Молчать о них нельзя: завтра САПР назовёт новый аппарат новым словом, и
+  // тихо пропавшая позиция обнаружится на объекте, а не в предпросмотре
+  const unknown = new Set<string>();
+
   for (const ordersFolder of childrenByKind(structure, dict, 'cadOrdersFolder')) {
     for (const order of childrenByKind(ordersFolder.node, dict, 'cadOrderFolder')) {
       // Параметры заказа (номер, объект, заказчик, примечания) относятся ко
@@ -245,11 +495,12 @@ export function parseVezaXml(xmlText: string, detectType: (s: string) => string)
 
       for (const unitsFolder of childrenByKind(order.node, dict, 'cadUnitsFolder')) {
         const units = childrenByKind(unitsFolder.node, dict, 'cadUnitFolder');
-        units.forEach((u, i) => result.units.push(parseUnit(u, dict, i, orderGroups, detectType)));
+        units.forEach((u, i) => result.units.push(parseUnit(u, dict, i, orderGroups, detectType, unknown)));
       }
     }
   }
 
+  if (unknown.size) result.unknownKinds = [...unknown].sort();
   return result;
 }
 
@@ -259,6 +510,7 @@ function parseUnit(
   index: number,
   orderGroups: SpecGroup[],
   detectType: (s: string) => string,
+  unknown: Set<string>,
 ): ParsedUnit {
   const ownGroups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const groups = [...orderGroups, ...ownGroups];
@@ -274,7 +526,7 @@ function parseUnit(
   const monoblocks: ParsedMonoblock[] = [];
   for (const folder of childrenByKind(entry.node, dict, 'cadMonoblocksFolder')) {
     for (const m of childrenByKind(folder.node, dict, 'cadMonoblockFolder')) {
-      monoblocks.push(parseMonoblock(m, dict, monoblocks.length, detectType));
+      monoblocks.push(parseMonoblock(m, dict, monoblocks.length, detectType, unknown));
     }
   }
 
