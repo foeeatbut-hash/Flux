@@ -100,16 +100,44 @@ function groupsOfCollection(node: any, dict: Record<string, El>): SpecGroup[] {
     if (!byGroup.has(title)) { byGroup.set(title, []); order.push(title); }
     const params = byGroup.get(title)!;
 
-    // Один и тот же параметр в разделе дважды встречается редко, но встречается.
-    // Повтор с тем же значением молча пропускаем; с другим — сохраняем оба под
-    // разными ключами: потерять одно из двух расчётных значений хуже, чем
-    // показать оба и дать инженеру решить.
+    /**
+     * Повтор параметра в разделе встречается редко, но встречается.
+     *
+     * Совпадением считается совпадение значения ВМЕСТЕ С ЕДИНИЦЕЙ. Раньше
+     * сравнивалось одно значение, и «1 м» рядом с «1 мм» схлопывалось в одну
+     * строку: терялся не повтор, а другое измерение. Разные значения остаются
+     * оба, под разными ключами — выбирать за инженера тут нечего.
+     */
     const sameKey = params.filter(p => p.key === key || p.key.startsWith(`${key} (`));
-    if (sameKey.some(p => p.value === value)) continue;
-    params.push({ key: sameKey.length ? `${key} (${sameKey.length + 1})` : key, value, unit });
+    if (sameKey.some(p => p.value === value && p.unit === unit)) continue;
+    params.push({
+      key: sameKey.length ? `${key} (${sameKey.length + 1})` : key,
+      value, unit, sourceGroup: groupCode, sourceKey: typeCode,
+    });
   }
 
   return order.map(title => ({ title, params: byGroup.get(title) || [] })).filter(g => g.params.length > 0);
+}
+
+/**
+ * Инженерные примечания узла — только его собственные.
+ *
+ * В выгрузке они лежат в коллекции отчёта как параметр `ptgMEMOES.ptMemoItems`.
+ * Примечание принадлежит своему уровню: заметка моноблока — про моноблок, и
+ * раздавать её всем блокам внутри нельзя. Тег из чужого примечания повесил бы
+ * оборудование не на тот адрес, а разбираться с этим пришлось бы на объекте.
+ */
+function notesOf(node: any, dict: Record<string, El>): string {
+  const out: string[] = [];
+  for (const c of childrenByKind(node, dict, 'cadReportCollection')) {
+    for (const item of childrenByKind(c.node, dict, 'cadReportCollectionItem')) {
+      if (attr(item.el, 'proReportPropGroup') !== 'ptgMEMOES') continue;
+      if (attr(item.el, 'proReportPropType') !== 'ptMemoItems') continue;
+      const value = attr(item.el, 'proReportPropValue');
+      if (value) out.push(value);
+    }
+  }
+  return out.join('\n');
 }
 
 /** Значение параметра по разделу и ключу — чтобы достать обозначение и позицию. */
@@ -123,19 +151,41 @@ function stripBlockPrefix(name: string): string {
   return String(name || '').replace(/^Блок\s+[\d.]+\s*/i, '').trim();
 }
 
+/** Позиция ли это: «1.1», «2», «3.4.1» — и ничего кроме */
+const isPosition = (s: string) => /^\d+(\.\d+)*$/.test(String(s || '').trim());
+
 function parseBlock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string): ParsedBlock {
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const cfnName = attr(entry.el, 'cfnName');
   const title = paramValue(groups, 'Блок', 'Наименование') || stripBlockPrefix(cfnName) || cfnName || `бл${index + 1}`;
-  // Код позиции («1.1») — адрес блока внутри установки: по нему повторный
-  // импорт находит тот же блок, а инженер — ту же строку в спецификации
-  const code = attr(entry.el, 'cfnNote') || paramValue(groups, 'Блок', 'Позиция') || `бл${index + 1}`;
-  return { name: code, title, equipType: detectType(title), groups };
+
+  /**
+   * Позиция и заметка — разные вещи, хотя лежат в одном атрибуте.
+   *
+   * В `cfnNote` чаще всего стоит позиция («1.1»), но иногда туда дописывают
+   * текст. Раньше весь `cfnNote` становился ИМЕНЕМ блока: стоило инженеру
+   * добавить пояснение, и повторный импорт видел новый блок вместо прежнего —
+   * со всей потерянной историей и отвязанными тегами.
+   */
+  const raw = attr(entry.el, 'cfnNote');
+  const fromParams = paramValue(groups, 'Блок', 'Позиция');
+  const position = (isPosition(raw) ? raw : '') || fromParams || `бл${index + 1}`;
+  const noteParts = [isPosition(raw) ? '' : raw, notesOf(entry.node, dict)].filter(Boolean);
+
+  return {
+    name: position,
+    title,
+    equipType: detectType(title),
+    groups,
+    position,
+    ...(noteParts.length ? { note: noteParts.join('\n') } : {}),
+  };
 }
 
 function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string): ParsedMonoblock {
   const name = attr(entry.el, 'cfnName') || `мн${index + 1}`;
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
+  const note = notesOf(entry.node, dict);
   const blocks: ParsedBlock[] = [];
 
   // Собственные параметры моноблока (масса, габариты, сопротивление) — служебной
@@ -151,7 +201,7 @@ function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, 
     items.forEach((b, i) => blocks.push(parseBlock(b, dict, i, detectType)));
   }
 
-  return { name, title: name, blocks };
+  return { name, title: name, blocks, ...(note ? { note } : {}) };
 }
 
 /**
@@ -228,5 +278,10 @@ function parseUnit(
     }
   }
 
-  return { name, title, groups, monoblocks, tags: designation ? [designation] : [] };
+  const note = notesOf(entry.node, dict);
+  return {
+    name, title, groups, monoblocks,
+    tags: designation ? [designation] : [],
+    ...(note ? { note } : {}),
+  };
 }

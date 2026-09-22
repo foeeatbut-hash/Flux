@@ -1564,6 +1564,21 @@ model PlayResult {
 }
 
 /// Опубликованная сборка игры: канал, версия, отпечаток файла.
+/// Правила тегов проекта: алфавит, приставки и маски.
+///
+/// Отдельной таблицей, а не полем проекта: у правил своя версия, и план
+/// импорта её запоминает, чтобы перед записью убедиться, что правила не
+/// поменялись, пока человек смотрел предпросмотр.
+model ProjectTagPolicy {
+  id          String   @id @default(uuid())
+  projectId   String   @unique
+  /// { allowCyrillic, prefixes[], masks[], version }
+  policyJson  String   @default("{}")
+  version     Int      @default(1)
+  updatedById String?
+  updatedAt   DateTime @default(now())
+}
+
 model PlayBuild {
   id           String   @id @default(uuid())
   gameId       String

@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
+import { TAG_MAX } from '../../equipment/tagPolicy.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
 import type { TagLink } from '../equipmentTags.js';
 
@@ -12,6 +13,29 @@ import type { TagLink } from '../equipmentTags.js';
 // пути идут одинаково: разбор → ПЛАН → предпросмотр (решает человек) → запись,
 // поэтому здесь два эндпоинта на одной санитизации.
 
+/**
+ * Пределы присланного дерева.
+ *
+ * Раньше лишнее просто отрезалось `slice`, и человек об этом не узнавал: файл
+ * на сто пятьдесят позиций импортировался как сто, и недостающие полсотни
+ * искали потом руками. Теперь предел — это отказ с числом, а не тихая потеря.
+ */
+export const DRAFT_LIMITS = { units: 100, monoblocks: 50, blocks: 200, groups: 40, params: 200 };
+
+export class DraftTooBig extends Error {
+  constructor(public what: string, public limit: number, public got: number) {
+    super(`${what}: прислано ${got} при пределе ${limit}. Разделите файл или увеличьте предел на сервере.`);
+    this.name = 'DraftTooBig';
+  }
+}
+
+/** Список с пределом: переполнение — отказ с числом, а не обрезка. */
+function countedList(raw: any, what: string, limit: number): any[] {
+  const list = Array.isArray(raw) ? raw : [];
+  if (list.length > limit) throw new DraftTooBig(what, limit, list.length);
+  return list;
+}
+
 /** Управляющие и бинарные символы вырезаем: «кракозябры» в названия не попадают */
 const clean = (s: any, max = 200) => String(s ?? '')
   // управляющие (C0/C1), область частного использования, замещающий символ
@@ -20,32 +44,44 @@ const clean = (s: any, max = 200) => String(s ?? '')
   .trim()
   .slice(0, max);
 
-const cleanGroups = (groups: any): any[] => (Array.isArray(groups) ? groups : []).slice(0, 40).map((g: any) => ({
-  title: clean(g?.title, 80) || 'Характеристики',
-  params: (Array.isArray(g?.params) ? g.params : []).slice(0, 200).map((p: any) => ({
-    key: clean(p?.key, 120), value: clean(p?.value, 300), unit: clean(p?.unit, 40),
-  })).filter((p: any) => p.key && p.value),
-})).filter((g: any) => g.params.length);
+const cleanGroups = (groups: any): any[] => {
+  const list = Array.isArray(groups) ? groups : [];
+  if (list.length > DRAFT_LIMITS.groups) throw new DraftTooBig('Разделов параметров', DRAFT_LIMITS.groups, list.length);
+  return list.map((g: any) => {
+    const params = Array.isArray(g?.params) ? g.params : [];
+    if (params.length > DRAFT_LIMITS.params) {
+      throw new DraftTooBig('Параметров в разделе', DRAFT_LIMITS.params, params.length);
+    }
+    return {
+      title: clean(g?.title, 80) || 'Характеристики',
+      params: params.map((p: any) => ({
+        key: clean(p?.key, 120), value: clean(p?.value, 300), unit: clean(p?.unit, 40),
+      })).filter((p: any) => p.key && p.value),
+    };
+  }).filter((g: any) => g.params.length);
+};
 
-/** Теги позиции: список коротких кодов */
+/** Теги позиции. Длина — общая с правилом тегов, а не своя короче */
 const cleanTags = (tags: any): string[] | undefined => {
   if (!Array.isArray(tags)) return undefined;
-  const out = tags.slice(0, 50).map((t: any) => clean(t, 40)).filter(Boolean);
+  if (tags.length > 50) throw new DraftTooBig('Тегов у позиции', 50, tags.length);
+  const out = tags.map((t: any) => clean(t, TAG_MAX)).filter(Boolean);
   return out.length ? out : undefined;
 };
 
 /** Присланное дерево → та же модель, что даёт разбор файла на сервере */
 export function sanitizeDraftUnits(units: any[]): any {
+  if (units.length > DRAFT_LIMITS.units) throw new DraftTooBig('Установок', DRAFT_LIMITS.units, units.length);
   return {
-    units: units.slice(0, 100).map((u: any) => ({
+    units: units.map((u: any) => ({
       name: clean(u?.name, 120) || 'Импорт',
       title: clean(u?.title, 200) || 'Импортированное оборудование',
       tags: cleanTags(u?.tags),
       groups: cleanGroups(u?.groups),
-      monoblocks: (Array.isArray(u?.monoblocks) ? u.monoblocks : []).slice(0, 50).map((mb: any) => ({
+      monoblocks: countedList(u?.monoblocks, 'Моноблоков', DRAFT_LIMITS.monoblocks).map((mb: any) => ({
         name: clean(mb?.name, 120) || 'M1',
         title: clean(mb?.title, 200) || '',
-        blocks: (Array.isArray(mb?.blocks) ? mb.blocks : []).slice(0, 200).map((b: any) => ({
+        blocks: countedList(mb?.blocks, 'Блоков в моноблоке', DRAFT_LIMITS.blocks).map((b: any) => ({
           name: clean(b?.name, 120) || 'Позиция',
           title: clean(b?.title, 200) || '',
           equipType: clean(b?.equipType, 60) || 'component',
@@ -57,27 +93,75 @@ export function sanitizeDraftUnits(units: any[]): any {
   };
 }
 
-/** Решения инженера по тегам: проверяем форму, личность сверяется в базе */
+const TAG_ACTIONS = new Set(['link', 'create', 'skip', 'ambiguous', 'invalid']);
+
+/**
+ * Решения инженера по тегам — как есть, без «приведения к разумному».
+ *
+ * Раньше всё, кроме `create` и `skip`, превращалось в `link`. В том числе
+ * `ambiguous` — честное «в проекте несколько похожих, выберите». Превращённое
+ * в `link` без указанного тега, оно доходило до записи, и следующий слой
+ * заводил НОВЫЙ тег: защита от неоднозначности обходилась сама собой.
+ *
+ * Теперь неизвестное действие — отказ, а `link` без тега бессмыслен и
+ * становится `ambiguous`: пусть человек выберет, а не программа угадает.
+ */
 export function cleanTagLinks(raw: any): TagLink[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const out = raw.slice(0, 2000).map((l: any) => ({
-    blockKey: String(l?.blockKey ?? '').slice(0, 300),
-    identifier: String(l?.identifier ?? '').trim().slice(0, 40),
-    action: (l?.action === 'create' || l?.action === 'skip') ? l.action : 'link',
-    existingTagId: l?.existingTagId ? String(l.existingTagId).slice(0, 64) : undefined,
-  })).filter((l: any) => l.blockKey && l.identifier) as TagLink[];
+  if (raw.length > 2000) throw new DraftTooBig('Решений по тегам', 2000, raw.length);
+  const out = raw.map((l: any) => {
+    const action = String(l?.action || '');
+    if (!TAG_ACTIONS.has(action)) throw new Error(`Неизвестное действие с тегом: «${action || 'пусто'}»`);
+    const existingTagId = l?.existingTagId ? String(l.existingTagId).slice(0, 64) : undefined;
+    return {
+      blockKey: String(l?.blockKey ?? '').slice(0, 300),
+      // Предел длины тега общий с правилом (equipment/tagPolicy.ts): прежние
+      // 40 знаков молча резали длинные обозначения
+      identifier: String(l?.identifier ?? '').trim().slice(0, TAG_MAX),
+      action: (action === 'link' && !existingTagId) ? 'ambiguous' : action,
+      existingTagId,
+    };
+  }).filter((l: any) => l.blockKey && l.identifier) as TagLink[];
   return out.length ? out : undefined;
 }
 
-async function resolveProject(reqProjectId: any): Promise<string> {
-  const prisma = getPrisma();
-  let projectId = reqProjectId;
-  if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-    let first = await prisma.project.findFirst();
-    if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
-    projectId = first.id;
+export class ProjectRequired extends Error {
+  constructor() {
+    super('Не выбран проект. Импорт оборудования ведётся по проекту — выберите его и повторите.');
+    this.name = 'ProjectRequired';
   }
+}
+
+/**
+ * Проект берётся из запроса и только из него.
+ *
+ * Раньше пустой проект означал «возьмём первый попавшийся, а если проектов
+ * нет — заведём „Общий Проект“». Это делал в том числе ПРЕДПРОСМОТР, который
+ * ничего писать не должен: посмотрел, что получится, — и в базе новый проект.
+ * А импорт при этом мог уехать в чужой проект, открытый у кого-то другого.
+ */
+async function resolveProject(reqProjectId: any): Promise<string> {
+  const projectId = String(reqProjectId || '');
+  if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) throw new ProjectRequired();
+  const project = await getPrisma().project.findUnique({ where: { id: projectId } });
+  if (!project) throw new ProjectRequired();
   return projectId;
+}
+
+/**
+ * Понятный отказ вместо «500 Внутренняя ошибка».
+ *
+ * Переполненное дерево и невыбранный проект — это не поломка сервера, а
+ * разговор с человеком: он может разделить файл или выбрать проект. Код нужен
+ * окну, текст — человеку.
+ */
+function draftFailure(error: any): { code: string; error: string } | null {
+  if (error instanceof DraftTooBig) return { code: 'IMPORT_LIMIT_EXCEEDED', error: error.message };
+  if (error instanceof ProjectRequired) return { code: 'PROJECT_REQUIRED', error: error.message };
+  if (String(error?.message || '').startsWith('Неизвестное действие с тегом')) {
+    return { code: 'TAG_ACTION_UNKNOWN', error: error.message };
+  }
+  return null;
 }
 
 export function registerEquipmentDraftRoutes(app: Express): void {
@@ -124,8 +208,10 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       const plan = await planEquipmentImport(getPrisma(), projectId, category, result);
       res.json({ plan });
     } catch (error: any) {
+      const known = draftFailure(error);
+      if (known) return res.status(400).json(known);
       console.error('Error in import-draft-plan:', error);
-      res.status(500).json({ error: error.message || 'Не удалось построить план' });
+      return res.status(500).json({ error: error.message || 'Не удалось построить план' });
     }
   });
 
@@ -157,8 +243,10 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       );
       res.json({ success: true, ...summary, conflictMode });
     } catch (error: any) {
+      const known = draftFailure(error);
+      if (known) return res.status(400).json(known);
       console.error('Error in import-draft:', error);
-      res.status(500).json({ error: error.message || 'Не удалось импортировать распознанные данные' });
+      return res.status(500).json({ error: error.message || 'Не удалось импортировать распознанные данные' });
     }
   });
 }

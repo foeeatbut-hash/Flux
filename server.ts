@@ -23,6 +23,7 @@ import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
 import { registerPlayAccess } from './server/play/access.js';
 import { registerPlayRoutes } from './server/play/routes.js';
+import { registerPlayDiagnostics } from './server/play/diagnostics.js';
 import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
@@ -56,6 +57,7 @@ import { registerTranslateRoutes } from './server/routes/translate.js';
 import { registerCalendarRoutes } from './server/routes/calendar.js';
 import { registerMemberRoutes, canSeeProject } from './server/routes/members.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
+import { registerTagPolicyRoutes } from './server/routes/tagPolicy.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite, snapshotSqlite } from './server/sqliteSafety.js';
@@ -1913,6 +1915,10 @@ const limits = registerLimitRoutes(app, () => prisma);
  */
 registerPolicyRoutes(app);
 registerPlayAccess(app);
+// Диагностика платформы для администратора — ВНЕ заслона /api/play:
+// иначе настройка пряталась бы за дверью, ключ от которой она и выдаёт
+registerPlayDiagnostics(app);
+
 registerPlayRoutes(app);
 // Очередь доставки и уборка протухших аренд присутствия: и то и другое
 // переживает перезапуск сервера, потому что живёт в базе, а не в памяти
@@ -2181,6 +2187,9 @@ registerCalendarRoutes(app);
 registerMemberRoutes(app);
 
 registerEquipmentUndoRoutes(app);
+
+// Правила тегов проекта: чтение, изменение и проверка на примере
+registerTagPolicyRoutes(app);
 
 
 // Registry (Equipment & Tags)
@@ -3735,11 +3744,21 @@ async function readEquipmentFile(fileId: string): Promise<{ result: any; fileNam
   return { result, fileName: fileNode.name };
 }
 
+/**
+ * Проект импорта — только названный в запросе.
+ *
+ * Прежний вариант брал первый попавшийся проект, а если проектов не было —
+ * заводил «Общий Проект» прямо во время предпросмотра. Оборудование при этом
+ * могло уехать в чужой проект, и заметить это было нечем.
+ */
 async function resolveImportProject(reqProjectId: any): Promise<string> {
-  if (reqProjectId && !['null', 'undefined', 'default'].includes(reqProjectId)) return reqProjectId;
-  let first = await prisma.project.findFirst();
-  if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
-  return first.id;
+  const projectId = String(reqProjectId || '');
+  if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
+    throw { status: 400, error: 'Не выбран проект. Импорт оборудования ведётся по проекту — выберите его и повторите.' };
+  }
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) throw { status: 400, error: 'Проект не найден — выберите проект и повторите.' };
+  return projectId;
 }
 
 // Dry-run: что изменится в проекте, без записи (дерево + дифф для предпросмотра)

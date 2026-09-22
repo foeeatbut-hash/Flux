@@ -2,6 +2,7 @@ import { EquipParseResult, SpecGroup, SpecParam } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
 import { overrideKey, blockKey } from './specUtils.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
+import { policyOfProject } from './routes/tagPolicy.js';
 import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
@@ -47,7 +48,7 @@ export interface ImportPlan {
    * предпросмотре; молча теги не создаются и не перевешиваются.
    */
   tagLinks: TagLink[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number };
+  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -145,7 +146,7 @@ export async function planEquipmentImport(
     systems: [],
     blocks: [],
     tagLinks: [],
-    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0 },
+    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
   };
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
@@ -250,9 +251,13 @@ export async function planEquipmentImport(
       id: r.id, identifier: r.identifier,
       componentIds: (r.componentElements || []).map((c: any) => c.id),
     }));
-    plan.tagLinks = planTagLinks(tagged, existingTags);
+    // Правила проекта (алфавит, приставки) читаются здесь же: предпросмотр
+    // обязан показывать то, что случится на записи, а не более мягкую картину
+    const policy = await policyOfProject(projectId);
+    plan.tagLinks = planTagLinks(tagged, existingTags, policy);
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
+    plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;
   }
 
   return plan;

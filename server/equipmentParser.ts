@@ -4,11 +4,37 @@ import { canonicalUnit, isKnownUnit } from './normalize.js';
 import { looksLikeVezaXml, parseVezaXml } from './vezaXml.js';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
-export interface SpecParam { key: string; value: string; unit: string; }
+export interface SpecParam {
+  key: string;
+  value: string;
+  unit: string;
+  /**
+   * Исходные коды параметра в выгрузке: `ptgBLOCK` и `ptBLOCKHEIGHT`.
+   *
+   * По русскому названию шаблон вида привязывать нельзя: переименуют
+   * «Высоту» в «Высоту блока» — и настроенный инженером вид опустеет. Коды
+   * переживают переименование, потому что их пишет не человек.
+   */
+  sourceGroup?: string;
+  sourceKey?: string;
+}
 export interface SpecGroup { title: string; params: SpecParam[]; }
-export interface ParsedBlock { name: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[]; }
-export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBlock[]; }
-export interface ParsedUnit { name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[]; tags?: string[]; }
+export interface ParsedBlock {
+  name: string;
+  title: string;
+  equipType: string;
+  groups: SpecGroup[];
+  tags?: string[];
+  /** Позиция блока внутри установки: «1.1». Отдельно от заметки */
+  position?: string;
+  /** Инженерное примечание — текст целиком, как написано */
+  note?: string;
+}
+export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBlock[]; note?: string; }
+export interface ParsedUnit {
+  name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[];
+  tags?: string[]; note?: string;
+}
 export interface EquipParseResult { units: ParsedUnit[]; }
 
 // Тип детали по её названию (для группировки и профилей видимости)
