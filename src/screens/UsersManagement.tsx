@@ -12,6 +12,7 @@ import PresencePanel from '../components/users/PresencePanel';
 import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
 import { canManagePlay, canOpenApp } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
+import { useNavigate } from 'react-router-dom';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -134,6 +135,7 @@ export default function UsersManagement() {
    * некому. Дальше правило работает как написано.
    */
   const policyCtx = useAppContext();
+  const navigate = useNavigate();
   const showsPlay = canOpenApp(policyCtx) || canManagePlay(policyCtx) || isTopAdmin(user as any, roles);
 
   const toDateInputValue = (value: any): string => {
@@ -977,6 +979,9 @@ export default function UsersManagement() {
                       rolePerms={parsePermissions((editUser as any)?.rolePermissions)}
                       disabled={isEditSubmitting}
                       onSet={setPlayMode}
+                      platformOn={policyCtx.platform.supported ? policyCtx.platform.enabled : undefined}
+                      onOpenSettings={canManagePlay(policyCtx) || isTopAdmin(user as any, roles)
+                        ? () => navigate('/settings?section=play') : undefined}
                     />
                   )}
 

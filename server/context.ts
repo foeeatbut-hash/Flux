@@ -73,6 +73,20 @@ export function pushToUser(userId: string, event: string, payload: any): void {
   try { if (_push && userId) _push(userId, event, payload); } catch (_) { /* сокет догонит опросом */ }
 }
 
+/**
+ * Сбросить профиль сессии из кэша сервера.
+ *
+ * Сервер держит профиль вошедшего полминуты, чтобы не ходить в базу на каждый
+ * запрос. Кто меняет права мимо маршрутов «Сотрудников» (кнопки диагностики
+ * платформы), обязан сбросить и кэш — иначе выданное право полминуты
+ * «не работает», а человек решает, что кнопка сломана.
+ */
+let _forget: ((userId?: string) => void) | null = null;
+export function setSessionForget(fn: (userId?: string) => void): void { _forget = fn; }
+export function forgetSessionUser(userId?: string): void {
+  try { _forget?.(userId); } catch (_) { /* кэш истечёт сам */ }
+}
+
 // Настройка приложения: глобальная (userId=null) или персональная.
 // Используется и в server.ts, и в вынесенных роутах — живёт здесь, чтобы не
 // дублироваться.

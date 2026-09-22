@@ -65,6 +65,8 @@ const SECTIONS: Array<{
    * тем, что должность здесь не значит ничего: право выдаётся явно.
    */
   entitlement?: string;
+  /** Главному администратору виден и без права */
+  orTop?: boolean;
 }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
   // Подпись — настройка человека, и место ей здесь. До этого она пряталась
@@ -93,7 +95,8 @@ const SECTIONS: Array<{
   // Встроенная игровая платформа. Лист видит только тот, кому выдано её
   // управление, — и видит даже при выключенной платформе: иначе выключатель
   // отнимал бы право, которым его двигают
-  { id: 'play', label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global', entitlement: PLAY_ADMIN },
+  // Главному администратору лист виден всегда: включить платформу больше некому
+  { id: 'play', label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global', entitlement: PLAY_ADMIN, orTop: true },
   // Своё в каждом проекте
   { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },
   // Правила тегов: алфавит и приставки. Своё в каждом проекте — в одном
@@ -138,8 +141,8 @@ export default function SettingsScreen() {
   const policyCtx = useAppContext();
   const mayManagePlay = canManagePlay(policyCtx);
   const allows = React.useCallback(
-    (def: { topOnly?: boolean; entitlement?: string }) =>
-      (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay),
+    (def: { topOnly?: boolean; entitlement?: string; orTop?: boolean }) =>
+      (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
     [topAdmin, mayManagePlay],
   );
 

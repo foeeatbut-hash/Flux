@@ -74,15 +74,22 @@ async function revokePlay(token: string, userId: string): Promise<void> {
   const adminId = String(admin.json?.user?.id || '');
   if (!adminToken) { console.error('Не удалось войти администратором.'); process.exit(2); }
 
-  console.log('1. Пока платформа выключена, её нет даже у администратора');
+  console.log('1. Пока платформа выключена, сама она молчит даже администратору');
   {
-    // Стенд мог остаться после прошлого прогона с выданными правами: проверка
-    // обязана начинаться с известного состояния, а не с того, что осталось
+    // Стенд мог остаться после прошлого прогона включённым и с выданными
+    // правами: проверка обязана начинаться с известного состояния. Выключить
+    // может только управляющий — выдаём управление, выключаем, снимаем всё
+    await api(adminToken, 'POST', '/api/admin/play-diagnostics/bootstrap', {});
+    await api(adminToken, 'PUT', '/api/play/platform', { enabled: false });
     await revokePlay(adminToken, adminId);
+    await new Promise((r) => setTimeout(r, 5500));   // кэш состояния платформы — 5 с
     const before = await api(adminToken, 'GET', '/api/play/platform');
     ok('выключенная платформа отвечает как выдуманный адрес', before.status === 404, before.status);
     const boot = await api(adminToken, 'GET', '/api/me/bootstrap');
-    ok('в доступе нет состояния платформы', boot.json?.platform?.enabled === false, boot.json?.platform);
+    // Главному администратору состояние отдаётся настоящим: иначе лист
+    // настроек с выключателем был бы скрыт и от того, кто может включить
+    ok('главный администратор видит настоящее состояние: выключена',
+      boot.json?.platform?.supported === true && boot.json?.platform?.enabled === false, boot.json?.platform);
   }
 
   console.log('\n2. Включаем платформу и выдаём доступ');

@@ -14,7 +14,7 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
-import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting } from './server/context.js';
+import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting, setSessionForget } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
@@ -1008,6 +1008,7 @@ function invalidateAuthUser(userId?: string) {
     else io.emit('capabilities:changed', { at: Date.now() });
   } catch (_) { /* сокета может не быть — окно перечитает при подключении */ }
 }
+setSessionForget(invalidateAuthUser);
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < 30000) return hit.user;
