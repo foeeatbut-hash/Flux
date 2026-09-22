@@ -17,6 +17,10 @@
 
 import { getPrisma } from '../context.js';
 import { viewFor } from './presence.js';
+import { partyOf } from './parties.js';
+import { lobbyOfParty } from './lobbies.js';
+import { lastFinishedOf, sessionOf } from './sessions.js';
+import { resultOf } from './results.js';
 import type { PlaySnapshot } from '../../play/contracts.js';
 
 /** Ключ версии агрегата в снимке: «party:<id>» и так далее. */
@@ -34,27 +38,43 @@ export async function snapshotFor(userId: string): Promise<PlaySnapshot> {
   const versions: Record<string, number> = {};
   const at = Date.now();
 
-  const membership = await prisma.playPartyMember.findFirst({
-    where: { userId, leftAt: null },
-  });
-  const party = membership
-    ? await prisma.playParty.findUnique({ where: { id: membership.partyId } })
-    : null;
+  /**
+   * Состояние собирается ТЕМИ ЖЕ читателями, что и ответы команд.
+   *
+   * Иначе у окна оказываются две разные формы одного и того же: команда
+   * отдаёт лобби с местами и числом мест, а снимок — голую строку таблицы.
+   * Экран, написанный по одной форме, падает на другой, и падает не сразу, а
+   * при первом же переподключении — когда разбираться труднее всего.
+   */
+  const party = await partyOf(userId);
   if (party) versions[versionKey('party', party.id)] = party.revision;
 
-  const lobby = party
-    ? await prisma.playLobby.findFirst({
-      where: { partyId: party.id, state: { in: ['FORMING', 'READY', 'STARTED'] } },
-      orderBy: { createdAt: 'desc' },
-    })
-    : null;
+  const lobby = party ? await lobbyOfParty(party.id) : null;
   if (lobby) versions[versionKey('lobby', lobby.id)] = lobby.revision;
 
-  const seat = await prisma.playSessionMember.findFirst({ where: { userId, state: 'ACTIVE' } });
-  const session = seat
-    ? await prisma.playSession.findUnique({ where: { id: seat.sessionId } })
-    : null;
+  const session = await sessionOf(userId);
   if (session) versions[versionKey('session', session.id)] = session.revision;
+
+  /**
+   * Итог прошлого матча едет в снимке, а не докладывается окном отдельно.
+   *
+   * После матча мест `ACTIVE` не остаётся, и матч из снимка пропадает целиком:
+   * окну, которое запоминало бы его само, хватило бы одной перезагрузки
+   * страницы, чтобы счёт исчез. Снимок — единственный источник состояния, и
+   * счёт обязан быть в нём.
+   *
+   * Показывается ровно «до следующего»: пока идёт новый матч, итог старого
+   * убирается сам; ушёл человек из группы — лобби нет, и показывать итог не
+   * при чем. Поэтому итог берётся только у матча ЭТОГО же лобби.
+   */
+  let result: PlaySnapshot['result'] = null;
+  if (!session && lobby) {
+    const done = await lastFinishedOf(userId);
+    if (done && done.lobbyId === lobby.id) {
+      const payload = await resultOf(done.id);
+      if (payload) result = { sessionId: done.id, payload };
+    }
+  }
 
   const invites = await prisma.playInvite.findMany({
     where: { toUserId: userId, state: 'PENDING', expiresAt: { gte: new Date(at) } },
@@ -65,18 +85,8 @@ export async function snapshotFor(userId: string): Promise<PlaySnapshot> {
   // Присутствие — только про тех, кого человек и так видит: свою группу и
   // свой матч. Раздавать список всех сотрудников платформа не должна
   const around = new Set<string>([userId]);
-  if (party) {
-    const mates = await prisma.playPartyMember.findMany({
-      where: { partyId: party.id, leftAt: null }, select: { userId: true },
-    });
-    for (const m of mates) around.add(m.userId);
-  }
-  if (session) {
-    const mates = await prisma.playSessionMember.findMany({
-      where: { sessionId: session.id }, select: { userId: true },
-    });
-    for (const m of mates) around.add(m.userId);
-  }
+  for (const m of party?.members || []) around.add(m.userId);
+  for (const m of session?.members || []) around.add(m.userId);
   const presence = await viewFor([...around], new Date(at));
 
   return {
@@ -85,6 +95,7 @@ export async function snapshotFor(userId: string): Promise<PlaySnapshot> {
     party: party || null,
     lobby: lobby || null,
     session: session || null,
+    result,
     invites,
     presence,
   };

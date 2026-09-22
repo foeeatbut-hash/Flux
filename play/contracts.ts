@@ -174,6 +174,14 @@ export interface PlaySnapshot {
   party: unknown | null;
   lobby: unknown | null;
   session: unknown | null;
+  /**
+   * Итог прошлого матча — пока не начался следующий.
+   *
+   * Лежит здесь, а не добирается окном отдельным запросом: после матча запись
+   * о нём уходит из `session`, и окно, которое помнило бы его само, теряло бы
+   * счёт при первой же перезагрузке страницы.
+   */
+  result: { sessionId: string; payload: Record<string, unknown> } | null;
   invites: unknown[];
   presence: unknown[];
 }

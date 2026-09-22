@@ -48,6 +48,29 @@ export async function sessionOf(userId: string): Promise<SessionView | null> {
   return readSession(prisma, seat.sessionId);
 }
 
+/**
+ * Последний законченный матч этого человека.
+ *
+ * Нужен ради одной вещи: после матча мест со `state:'ACTIVE'` не остаётся, и
+ * `sessionOf` честно отвечает «нет». Если на этом остановиться, окну будет
+ * неоткуда узнать, чем кончился матч, из которого человек только что вышел, —
+ * и счёт не покажет никто. Поэтому законченный матч ищется отдельно и только
+ * свой: смотрим места самого спрашивающего, а не чужие.
+ */
+export async function lastFinishedOf(userId: string): Promise<SessionView | null> {
+  const prisma = getPrisma();
+  const seats = await prisma.playSessionMember.findMany({
+    where: { userId, state: 'FINISHED' },
+    orderBy: { joinedAt: 'desc' },
+    take: 5,
+  });
+  for (const seat of seats) {
+    const s = await prisma.playSession.findUnique({ where: { id: seat.sessionId } });
+    if (s?.state === 'FINISHED') return readSession(prisma, s.id);
+  }
+  return null;
+}
+
 async function readSession(tx: any, sessionId: string): Promise<SessionView> {
   const s = await tx.playSession.findUnique({ where: { id: sessionId } });
   const members = await tx.playSessionMember.findMany({
