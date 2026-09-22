@@ -3,6 +3,7 @@ import { ENV_CONFIG } from '../config/env';
 import { findKnowledge, matchKnowledge } from '../assistant/knowledge';
 import { TOURS, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
+import { allowEntitlement } from './policyStore';
 import { applyRename } from '../assistant/renameDialog';
 import { exportTableToExcel, exportTableToWord } from '../assistant/tableExport';
 import {
@@ -284,7 +285,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     // Встречаем пользователя при заходе в новый раздел (один раз за сессию),
     // только в режиме «Демонстрация» и при открытом чате
     if (route !== prev && get().isOpen && get().demoMode) {
-      const sec = getSection(route);
+      const sec = getSection(route, allowEntitlement);
       if (sec && !get().greetedRoutes[route]) {
         set(s => ({
           greetedRoutes: { ...s.greetedRoutes, [route]: true },
@@ -301,7 +302,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   setHighlight: (selector) => set({ highlightSelector: selector }),
 
   describeCurrentSection: () => {
-    const sec = getSection(get().currentRoute);
+    const sec = getSection(get().currentRoute, allowEntitlement);
     if (!sec) return;
     set(s => ({
       messages: [...s.messages, {
@@ -418,7 +419,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
    */
   scene: () => {
     const route = get().currentRoute;
-    const sec = getSection(route);
+    const sec = getSection(route, allowEntitlement);
     return {
       route,
       section: sec?.title || '',
@@ -717,7 +718,7 @@ export async function resolveQuery(
 
   // Режим «Демонстрация»: любой вопрос → ближайшая по смыслу демонстрация
   if (demoMode) {
-    const m = findBestTour(text);
+    const m = findBestTour(text, allowEntitlement);
     if (m && m.tour) {
       return msg(
         m.score >= 1.5 ? m.tour.intro : `Похоже, вам подойдёт демонстрация «${m.tour.title}». ${m.tour.intro}`,
@@ -735,7 +736,7 @@ export async function resolveQuery(
 
   // A1. «Где в руководстве написано про …» — руководство отвечает первым
   if (asksWhereWritten(text)) {
-    const hb = handbookMessage(text, 2);
+    const hb = handbookMessage(text, 2, allowEntitlement);
     if (hb) return { message: hb };
   }
 
@@ -771,7 +772,7 @@ export async function resolveQuery(
   const wantsTour = /(^|[^а-яёa-z])как([^а-яёa-z]|$)/i.test(lower)
     || /(демонстрац|научи|инструкц|покажи как|пошагов)/.test(lower);
   if (wantsTour) {
-    const tourM = findBestTour(lower);
+    const tourM = findBestTour(lower, allowEntitlement);
     const knowM = matchKnowledge(lower);
     // Демонстрация подбирается по пересечению слов, и одного общего слова
     // хватало, чтобы перебить справку: на «как вернуть удалённый файл»
@@ -1182,7 +1183,7 @@ export async function resolveQuery(
         // Прежде чем сказать «не найдено», спрашиваем руководство. Вопрос
         // «чем проектные данные отличаются от общих» доезжал сюда и получал
         // ответ «теги не найдены» — при том, что статья ровно об этом есть.
-        const hb = handbookMessage(text, 6);
+        const hb = handbookMessage(text, 6, allowEntitlement);
         if (hb) return { message: hb };
         return msg(stems.length ? `По запросу «${stems.join(' ')}» теги не найдены. Попробуйте другое слово или проверьте активный проект.` : 'В активном проекте пока нет тегов.');
       }
@@ -1199,7 +1200,7 @@ export async function resolveQuery(
       };
     } else {
       if (matchedComps.length === 0) {
-        const hb = handbookMessage(text, 6);
+        const hb = handbookMessage(text, 6, allowEntitlement);
         if (hb) return { message: hb };
         return msg(stems.length ? `По запросу «${stems.join(' ')}» оборудование не найдено.` : 'В активном проекте пока нет оборудования.');
       }
@@ -1223,7 +1224,7 @@ export async function resolveQuery(
   // набора заготовок помощника — прежде чем разводить руками, спрашиваем их.
   // Порог здесь высокий: поиск по руководству отвечает почти на любой набор
   // букв, и без порога к каждому вопросу притягивалась бы какая-нибудь статья.
-  const hbFallback = handbookMessage(text, 5);
+  const hbFallback = handbookMessage(text, 5, allowEntitlement);
   if (hbFallback) return { message: hbFallback };
 
   // I. Честное «не знаю»: сначала говорим, что именно поняли из вопроса,

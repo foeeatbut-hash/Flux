@@ -111,13 +111,27 @@ export function createTableSql(d: Dialect, table: string, cols: Col[]): string {
  * У MySQL нет «CREATE INDEX IF NOT EXISTS»: повторный запуск отвечает ошибкой
  * «дубликат имени ключа». Это не беда — она ловится там, где индекс создаётся,
  * и считается успехом: индекс уже есть, значит цель достигнута.
+ *
+ * `where` — частичный индекс: уникальность держится не по всей таблице, а по
+ * той её части, где условие истинно. На нём стоят правила вида «одна активная
+ * группа на человека»: закрытых групп у человека сотни, активная одна, и
+ * обычный UNIQUE тут запретил бы вторую игру навсегда. PostgreSQL и SQLite
+ * частичные индексы умеют, MySQL и MariaDB — нет; там такой индекс НЕ
+ * создаётся (см. `supportsPartialIndex`), и возможность, которая на нём
+ * держится, там не включается — молча ослаблять правило нельзя.
  */
-export function createIndexSql(d: Dialect, table: string, name: string, cols: string[], unique = false): string {
+export function createIndexSql(
+  d: Dialect, table: string, name: string, cols: string[], unique = false, where?: string,
+): string {
   const kind = unique ? 'UNIQUE INDEX' : 'INDEX';
   const list = cols.map((c) => q(d, c)).join(', ');
   if (d === 'mysql') return `CREATE ${kind} ${q(d, name)} ON ${q(d, table)} (${list})`;
-  return `CREATE ${kind} IF NOT EXISTS ${q(d, name)} ON ${q(d, table)} (${list})`;
+  const tail = where ? ` WHERE ${where}` : '';
+  return `CREATE ${kind} IF NOT EXISTS ${q(d, name)} ON ${q(d, table)} (${list})${tail}`;
 }
+
+/** Движок умеет частичные индексы. От этого зависит, включать ли платформу. */
+export const supportsPartialIndex = (d: Dialect): boolean => d !== 'mysql';
 
 /** «Индекс уже есть» — это не ошибка, а достигнутая цель */
 export const isDuplicateIndex = (message: string): boolean =>
@@ -140,10 +154,21 @@ export function addColumnSql(d: Dialect, table: string, c: Col): string {
 export const isDuplicateColumn = (message: string): boolean =>
   /duplicate column|already exists|ER_DUP_FIELDNAME/i.test(String(message || ''));
 
+export interface IndexSpec {
+  name: string;
+  cols: string[];
+  unique?: boolean;
+  /**
+   * Условие частичного индекса. Пишется на SQL и одинаково читается
+   * PostgreSQL и SQLite; на MySQL индекс с условием не создаётся вовсе.
+   */
+  where?: string;
+}
+
 export interface TableSpec {
   table: string;
   cols: Col[];
-  indexes?: { name: string; cols: string[]; unique?: boolean }[];
+  indexes?: IndexSpec[];
 }
 
 /**
@@ -175,8 +200,15 @@ export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: st
       }
     }
     for (const idx of spec.indexes || []) {
+      // Частичный индекс на MySQL не создаётся и не подменяется полным:
+      // полный запретил бы больше, чем надо, и сломал бы работу вместо того,
+      // чтобы честно отказать
+      if (idx.where && !supportsPartialIndex(d)) {
+        log?.(`Индекс ${idx.name} пропущен: ${d} не поддерживает частичные индексы`);
+        continue;
+      }
       try {
-        await prisma.$executeRawUnsafe(createIndexSql(d, spec.table, idx.name, idx.cols, idx.unique));
+        await prisma.$executeRawUnsafe(createIndexSql(d, spec.table, idx.name, idx.cols, idx.unique, idx.where));
       } catch (e: any) {
         if (!isDuplicateIndex(e?.message)) log?.(`Индекс ${idx.name} не создан: ${e?.message || e}`);
       }

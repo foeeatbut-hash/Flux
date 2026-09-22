@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
+import { parseEquipmentXML } from '../equipmentParser.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
 import type { TagLink } from '../equipmentTags.js';
 
@@ -80,6 +81,35 @@ async function resolveProject(reqProjectId: any): Promise<string> {
 }
 
 export function registerEquipmentDraftRoutes(app: Express): void {
+  /**
+   * Разбор расчёта, принесённого прямо в мастер, — без Проводника.
+   *
+   * Выгрузка САПР устроена так, что распознавать её нечем: там не бланк с
+   * парами «ключ — значение», а плоский словарь из десятков тысяч узлов, и
+   * разбирает его отдельный движок на сервере. Раньше мастер в этом месте
+   * заканчивался советом пойти в «Оборудование» → «Импорт расчёта» — кнопки с
+   * таким именем там нет, и человек оставался ни с чем. Теперь файл
+   * разбирается тем же движком и попадает в тот же предпросмотр.
+   *
+   * Ничего не пишет: это чтение, как и план.
+   */
+  app.post('/api/equipment/parse-calc', async (req: Request, res: Response) => {
+    const text = String(req.body?.text || '');
+    if (!text.trim()) return res.status(400).json({ error: 'Пустой файл' });
+    try {
+      const result = parseEquipmentXML(text);
+      if (!result.units.length) {
+        return res.status(400).json({
+          error: 'В файле не нашлось установок. Похоже, это не выгрузка расчёта — попробуйте импорт бланка.',
+        });
+      }
+      res.json({ units: result.units, fileName: clean(req.body?.fileName, 200) || 'Расчёт' });
+    } catch (error: any) {
+      console.error('Error in parse-calc:', error);
+      res.status(400).json({ error: 'Не удалось прочитать файл как расчёт' });
+    }
+  });
+
   // План по распознанному документу: тот же дифф, те же теги, что у файла.
   // Ничего не пишет — предпросмотр обязан быть безопасным.
   app.post('/api/equipment/import-draft-plan', async (req: Request, res: Response) => {

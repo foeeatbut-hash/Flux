@@ -6,6 +6,7 @@ import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
+import { setupGames } from './games';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
@@ -158,6 +159,9 @@ app.whenReady().then(() => {
   // Снимок своего окна для обращения — отдельно от захвата данных: у того своя
   // корзина и распознавание, и «приложить снимок» не должно их запускать
   setupFeedbackCapture();
+
+  // Локальный менеджер игр Flux Play: установка, сверка описи, запуск
+  setupGames(() => mainWindow);
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 

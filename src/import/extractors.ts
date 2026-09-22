@@ -174,6 +174,22 @@ export async function extractDocx(data: ArrayBuffer): Promise<ExtractedDoc> {
 // Универсальный режим: любые элементы и атрибуты → пары «ключ→значение».
 // Без DOMParser (его нет в Node) — регэксп-обход, как в существующем equipmentParser.
 
+/**
+ * Выгрузка САПР или обычный XML.
+ *
+ * Отдельной функцией, потому что ответ нужен дважды: здесь — чтобы не
+ * распознавать такой файл как бланк, и в мастере импорта — чтобы отправить его
+ * на разбор настоящим движком вместо распознавания.
+ *
+ * Признак по существу, а не по имени файла: `cfnElement="cad…"` не встречается
+ * больше нигде, а `<Root><Elements>` бывает у кого угодно. Тот же признак, что
+ * и на сервере (server/vezaXml.ts, `looksLikeVezaXml`).
+ */
+export function looksLikeCadExport(xmlText: string): boolean {
+  const head = String(xmlText || '').slice(0, 60000);
+  return /<Elements\b/.test(head) && /cfnElement\s*=\s*"cad/.test(head);
+}
+
 export function extractXml(xmlText: string): ExtractedDoc {
   const blocks: DocBlock[] = [];
   const clean = xmlText.replace(/<!--[\s\S]*?-->/g, '');
@@ -181,13 +197,13 @@ export function extractXml(xmlText: string): ExtractedDoc {
   // Выгрузка САПР сюда не годится: распознавание ищет пары «ключ — значение»,
   // а там их десятки тысяч — каждое отверстие, каждый винт. Получился бы
   // бланк из мусора, и человек узнал бы об этом, только вычитав его целиком.
-  // Такой файл разбирается отдельным движком (server/vezaXml.ts), поэтому
-  // здесь не угадываем, а говорим, куда идти.
-  if (/<Elements\b/.test(clean.slice(0, 60000)) && /cfnElement\s*=\s*"cad/.test(clean.slice(0, 60000))) {
+  // Такой файл разбирает отдельный движок (server/vezaXml.ts); мастер отдаёт
+  // его туда сам, и сюда этот файл доходить не должен вовсе
+  if (looksLikeCadExport(clean)) {
     return {
       blocks: [],
       source: 'xml',
-      warnings: ['Это выгрузка из САПР. Её загружает «Оборудование» → «Импорт расчёта»: там установки, моноблоки и блоки встают на свои места. Распознавание бланка для неё не подходит.'],
+      warnings: ['Это выгрузка расчёта из САПР: её разбирает не распознавание бланка, а отдельный движок. Загрузите файл через мастер импорта — он отправит его на разбор сам.'],
     };
   }
 

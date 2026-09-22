@@ -5,7 +5,7 @@ import {
   AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Plus,
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
-import { extractByName, extractClipboard } from '../import/extractors';
+import { extractByName, extractClipboard, looksLikeCadExport } from '../import/extractors';
 import { draftToUnits, applyMatrixColumn } from '../import/recognize';
 import { recognizeAsync, extractRecognizeAsync } from '../import/importClient';
 import { loadLearnedDict, getLearnedDict, loadSymbolRules, observe } from '../import/learn';
@@ -41,6 +41,13 @@ interface FileJob {
   ocrEnhance?: boolean;
   /** Управление отменой текущего OCR */
   ocrController?: AbortController;
+  /**
+   * Разобранная выгрузка САПР: установки, моноблоки и блоки.
+   *
+   * Лежит отдельно от `draft`: распознавания здесь не было и обучать словарь
+   * нечему — разбор точный, а не угаданный.
+   */
+  cad?: { units: any[]; blocks: number };
 }
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tif', 'tiff', 'gif'];
@@ -107,6 +114,42 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           draft: { docType: 'unknown', items: [], warnings: [], stats: { dataBlocks: 0, totalBlocks: 0 } },
         });
         return;
+      }
+
+      /**
+       * Выгрузка расчёта из САПР: её не распознают, её разбирают.
+       *
+       * Внутри не бланк, а плоский словарь из десятков тысяч узлов — каждое
+       * отверстие и каждый винт. Распознавание бланка сделало бы из этого
+       * мусор, поэтому файл уходит на разбор настоящим движком, и человек
+       * попадает в тот же предпросмотр, что и при ввозе расчёта из Проводника.
+       *
+       * Раньше на этом месте стоял совет пойти в «Оборудование» → «Импорт
+       * расчёта». Кнопки с таким именем там нет — и человек оставался ни с чем
+       * (обращение ОБР-000006).
+       */
+      if (ext === 'xml') {
+        const text = new TextDecoder('utf-8').decode(data);
+        if (looksLikeCadExport(text)) {
+          updateJob(id, { statusText: 'Разбор расчёта…' });
+          const res = await fetch('/api/equipment/parse-calc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, fileName: file.name }),
+          });
+          const parsed = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            updateJob(id, { status: 'error', error: String(parsed?.error || 'Не удалось разобрать расчёт') });
+            return;
+          }
+          const units = Array.isArray(parsed?.units) ? parsed.units : [];
+          const blocks = units.reduce(
+            (s: number, u: any) => s + (u.monoblocks || []).reduce((k: number, m: any) => k + (m.blocks || []).length, 0),
+            0,
+          );
+          updateJob(id, { status: 'ready', statusText: undefined, cad: { units, blocks } });
+          return;
+        }
       }
 
       // «Чистые» форматы: извлечение и распознавание целиком в фоновом воркере.
@@ -305,6 +348,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // значениями, без выбора области и без разбора тегов. Теперь оба источника
   // сходятся в одном окне, поэтому и результат у них одинаковый.
   const commitJob = (job: FileJob) => {
+    // Разобранный расчёт идёт в предпросмотр как есть: собирать позиции из
+    // распознанного тут нечего — их и не распознавали
+    if (job.cad) {
+      setPreview({ jobId: job.id, units: job.cad.units, fileName: job.fileName });
+      return;
+    }
     if (!job.draft || job.draft.items.length === 0) return;
     setPreview({
       jobId: job.id,
@@ -317,10 +366,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     const job = jobs.find(j => j.id === preview?.jobId);
     setPreview(null);
     if (!job) return;
-    // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR)
+    // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR).
+    // У разобранного расчёта учить нечему: там не распознавание, а точный разбор
     observe(job.draft?.observations);
     updateJob(job.id, { status: 'imported' });
-    addToast(`«${job.fileName}»: импортировано позиций: ${job.draft?.items.length || 0}`, 'success');
+    const count = job.cad ? job.cad.blocks : (job.draft?.items.length || 0);
+    addToast(`«${job.fileName}»: импортировано позиций: ${count}`, 'success');
     onImported();
   };
 
@@ -391,7 +442,10 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {jobs.map(j => {
-                const itemCount = j.draft?.items.length || 0;
+                // У разобранного расчёта позиции считаются по блокам: своих
+                // «распознанных позиций» у него нет, и «нет данных» в списке
+                // рядом с разобранным файлом — прямая неправда
+                const itemCount = j.cad ? j.cad.blocks : (j.draft?.items.length || 0);
                 return (
                   <button type="button"
                     key={j.id}
@@ -507,6 +561,35 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
                 {/* Позиции */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {/* Выгрузка САПР: разобрана точно, распознавать нечего */}
+                  {activeJob.cad && (
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-3">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-white">Расчёт разобран</h3>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Это выгрузка из расчётной программы. Здесь ничего не угадывалось:
+                        установки, моноблоки и блоки взяты из файла как есть.
+                      </p>
+                      <ul className="mt-2 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
+                        {activeJob.cad.units.map((u: any, i: number) => (
+                          <li key={i} className="truncate">
+                            <span className="font-semibold">{u.name}</span>
+                            {u.title && u.title !== u.name ? ` — ${u.title}` : ''}
+                            <span className="text-slate-400 dark:text-slate-500">
+                              {' '}· моноблоков: {(u.monoblocks || []).length}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
+                        Дальше — тот же предпросмотр, что и при ввозе расчёта из Проводника:
+                        видно, что изменится, и можно снять лишнее.
+                      </p>
+                    </div>
+                  )}
+
                   {(activeJob.draft?.items || []).map(item => {
                     const collapsed = collapsedItems[item.id];
                     return (
@@ -607,8 +690,24 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   )}
                 </div>
 
+                {/* Нижняя панель импорта: разобранный расчёт */}
+                {activeJob.status === 'ready' && activeJob.cad && (
+                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+                    <div className="text-xs text-slate-400">
+                      Установок: {activeJob.cad.units.length} · блоков: {activeJob.cad.blocks}
+                    </div>
+                    <button type="button"
+                      onClick={() => commitJob(activeJob)}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Проверить и импортировать в «{categories.find(c => c.id === category)?.label || category}»
+                    </button>
+                  </div>
+                )}
+
                 {/* Нижняя панель импорта */}
-                {activeJob.status === 'ready' && (activeJob.draft?.items.length || 0) > 0 && (
+                {activeJob.status === 'ready' && !activeJob.cad && (activeJob.draft?.items.length || 0) > 0 && (
                   <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
                     <div className="text-xs text-slate-400">
                       Зелёное — уверенно · жёлтое — проверьте · серое — подпись не распознана.

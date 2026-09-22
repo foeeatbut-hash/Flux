@@ -16,6 +16,8 @@ import {
   Bell, BellOff, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
+import { visibleSections } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
 import { openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
@@ -149,9 +151,18 @@ export default function Taskbar() {
   const barPins = useDesktopStore((s) => s.bar);
   const pinBar = useDesktopStore((s) => s.pinBar);
   const unpinBar = useDesktopStore((s) => s.unpinBar);
+  /**
+   * Закрытый раздел не должен стоять на панели задач.
+   *
+   * Отбор здесь был только по роли администратора, и раздел, выданный правом,
+   * оставался кнопкой у того, у кого право сняли: закрепление живёт в браузере
+   * и про права ничего не знает. Теперь состав панели проходит через ту же
+   * политику, что Пуск и рабочий стол, — и снятое право убирает кнопку сразу.
+   */
+  const ctx = useAppContext();
   const sources = React.useMemo(
-    () => SECTIONS.map((s) => ({ ...s, pinned: barPins.includes(s.path) })),
-    [barPins],
+    () => visibleSections(SECTIONS, ctx).map((s) => ({ ...s, pinned: barPins.includes(s.path) })),
+    [barPins, ctx],
   );
 
   const view = React.useMemo(

@@ -20,6 +20,12 @@ import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
+import { registerPolicyRoutes } from './server/routes/policy.js';
+import { registerPlayAccess } from './server/play/access.js';
+import { registerPlayRoutes } from './server/play/routes.js';
+import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
+import { startPlayOutbox } from './server/play/outbox.js';
+import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
@@ -986,6 +992,15 @@ const authUserCache = new Map<string, { user: any; at: number }>();
 /** Сброс кэша сессии: снятое право должно действовать сразу, а не через полминуты. */
 function invalidateAuthUser(userId?: string) {
   if (userId) authUserCache.delete(userId); else authUserCache.clear();
+  /**
+   * Права поменяли — окно обязано узнать об этом сейчас, а не при следующем
+   * входе. Толчок несёт только «перечитай»: сами права окно спрашивает само
+   * (`GET /api/me/bootstrap`), и присланному в событии верить не приходится.
+   */
+  try {
+    if (userId) io.to(`user:${userId}`).emit('capabilities:changed', { at: Date.now() });
+    else io.emit('capabilities:changed', { at: Date.now() });
+  } catch (_) { /* сокета может не быть — окно перечитает при подключении */ }
 }
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
@@ -1084,6 +1099,11 @@ io.on('connection', (socket) => {
       else io.emit('presence:online', { userId: uid });
     }
   }
+
+  // Живая часть платформы: присутствие с арендой и подписка на её события.
+  // Доступ проверяется на каждом событии, а не один раз здесь: его отбирают
+  // в живой сессии, и подключившийся минуту назад сокет права не даёт
+  if (uid) attachPlaySocket(socket, uid, getAuthUser);
 
   // Пришедшему — весь список сразу: без него человек до первого чужого входа
   // видел бы всех офлайн. Список считается от его лица: себя скрывший видит
@@ -1198,7 +1218,13 @@ async function rolePermissionsOf(code: string): Promise<Record<string, any>> {
   rolePermCache.set(code, { perms, at: Date.now() });
   return perms;
 }
-function invalidateRolePerms() { rolePermCache.clear(); }
+function invalidateRolePerms() {
+  rolePermCache.clear();
+  // У платформы свой кэш прав роли и своя версия политики: без этого снятое
+  // право платформы продолжало бы действовать до перезапуска сервера
+  invalidateRoleMaps();
+  try { io.emit('capabilities:changed', { at: Date.now() }); } catch (_) {}
+}
 
 async function effectivePermsOf(user: any): Promise<Record<string, any>> {
   let personal: Record<string, any> = {};
@@ -1878,6 +1904,20 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 const limits = registerLimitRoutes(app, () => prisma);
+/**
+ * Доступ к встроенным программам: свой запрос и свой заслон.
+ *
+ * Заслон стоит на префиксе `/api/play` целиком и отвечает нейтральным 404:
+ * запрещающий ответ сообщил бы ровно то, что скрывается. Подключается он до
+ * самих маршрутов платформы — иначе первый же забытый обработчик открыл бы её
+ */
+registerPolicyRoutes(app);
+registerPlayAccess(app);
+registerPlayRoutes(app);
+// Очередь доставки и уборка протухших аренд присутствия: и то и другое
+// переживает перезапуск сервера, потому что живёт в базе, а не в памяти
+startPlayOutbox();
+startPresenceSweep();
 registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами

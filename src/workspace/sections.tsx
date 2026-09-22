@@ -10,7 +10,8 @@
  */
 import React, { lazy } from 'react';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2 } from 'lucide-react';
+import { APP_PLAY } from '../../play/features';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -33,6 +34,7 @@ const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
 const CalendarScreen = lazy(() => import('../screens/CalendarScreen'));
+const PlayScreen = lazy(() => import('../play/PlayScreen'));
 
 /**
  * Область данных раздела — см. src/lib/projectScope.ts.
@@ -66,6 +68,23 @@ export interface SectionDef {
    * Пуске, ни по прямому адресу — и отвечает он словами, а не пустотой
    */
   feature?: string;
+  /**
+   * Раздел — встроенная программа, доступ к которой выдаётся отдельной осью
+   * прав (src/lib/appPolicy.ts). От `feature` отличается тем, что роль
+   * администратора его не обходит и что запрет можно записать явно.
+   */
+  entitlement?: string;
+  /**
+   * Как выглядит отказ.
+   *
+   * 'normal'  — раздел прячется из списков, но по прямому адресу объясняет,
+   *             что дело в праве: человек должен понять, что это не поломка;
+   * 'stealth' — раздела для человека не существует. Ни в Пуске, ни на столе,
+   *             ни в поиске, ни в руководстве, ни у помощника; прямой адрес
+   *             молча уводит на Главную. Так устроена игровая платформа:
+   *             сотрудник без доступа не должен узнать даже о её наличии.
+   */
+  accessMode?: 'normal' | 'stealth';
   /** Значок раздела: тот же в Пуске, в заголовке окна и на панели задач */
   icon?: React.ComponentType<{ className?: string }>;
   /** Стоит на нижней панели всегда, даже когда не запущен */
@@ -133,6 +152,10 @@ export const SECTIONS: SectionDef[] = [
   // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
   // после переключения проекта не должно пропадать из списка
   { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },
+  // Flux Play — встроенная игровая платформа. Область общая: группы и матчи
+  // живут поверх проектов. Доступ выдаётся отдельно и молча: сотрудник без
+  // него не видит раздела нигде и по адресу /play уходит на Главную
+  { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, feature: 'log.view', Component: LogsManagement },

@@ -41,6 +41,9 @@ import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
 import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
+import { visibleSections } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
+import { SECTIONS } from '../workspace/sections';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
@@ -115,7 +118,20 @@ export default function Desktop() {
    * Пока папка искала свои значки в уже отфильтрованном списке, она находила
    * ноль (её же значки оттуда и убраны) и открывалась пустым белым полотном.
    */
-  const base = React.useMemo(() => withApps(items, apps), [items, apps]);
+  /**
+   * Значки программ отбираются политикой, а не только ролью.
+   *
+   * Закрепление живёт в браузере и про права ничего не знает: снятое право
+   * оставляло значок на столе, а нажатие по нему — пустой экран или увод на
+   * Главную. Программа, которой у человека нет, со стола исчезает.
+   */
+  const ctx = useAppContext();
+  const allowedApps = React.useMemo(() => {
+    const open = new Set(visibleSections(SECTIONS, ctx).map((s) => s.path));
+    return apps.filter((p) => open.has(p));
+  }, [apps, ctx]);
+
+  const base = React.useMemo(() => withApps(items, allowedApps), [items, allowedApps]);
 
   /**
    * Что лежит на столе с учётом папок: спрятанное в папках со стола убирается,

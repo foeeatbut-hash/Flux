@@ -162,7 +162,11 @@ function shorten(text: string, max = 420): string {
  * набор букв, и без порога помощник начал бы притягивать статью к каждому
  * вопросу, включая те, на которые умеет отвечать сам и лучше.
  */
-export function answerFromHandbook(question: string, minScore = 4): HandbookAnswer | null {
+export function answerFromHandbook(
+  question: string,
+  minScore = 4,
+  allow?: (entitlement: string) => boolean,
+): HandbookAnswer | null {
   const q = String(question || '').trim();
   if (q.length < 3) return null;
 
@@ -171,6 +175,10 @@ export function answerFromHandbook(question: string, minScore = 4): HandbookAnsw
   if (!found || found.score < minScore) return null;
 
   const a = found.article;
+  // Статья о закрытой встроенной программе не отвечает никому, кроме тех, кому
+  // она открыта: ответ помощника — такой же способ узнать о программе, как
+  // строка поиска. Умолчание — отказ: забытый предикат не должен открывать
+  if (a.entitlement && !(allow && allow(a.entitlement))) return null;
   const part = bestPart(a, ws);
   return {
     text: shorten(part.text),

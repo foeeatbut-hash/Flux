@@ -19,7 +19,7 @@ import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
   Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
-  ShieldCheck, Lock, Pencil, PenLine, Sigma, Languages, Globe } from 'lucide-react';
+  ShieldCheck, Lock, Pencil, PenLine, Sigma, Languages, Globe, Gamepad2 } from 'lucide-react';
 import RoleIcon from '../components/RoleIcon';
 import FormulaManager from '../components/FormulaManager';
 import {
@@ -34,6 +34,10 @@ import {
   loadStageTemplates, saveStageTemplates, emptyRules
 } from '../lib/procurementStages';
 import { countOf } from '../lib/plural';
+import PlayPlatform from '../components/settings/PlayPlatform';
+import { canManagePlay } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
+import { PLAY_ADMIN } from '../../play/features';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -44,7 +48,7 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -52,7 +56,15 @@ type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 
 // «Формулы документа», настроенные вчера, сегодня в другом проекте пустые.
 type SettingScope = 'global' | 'project';
 
-const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope; topOnly?: boolean }> = [
+const SECTIONS: Array<{
+  id: SectionId; label: string; icon: any; desc: string; scope: SettingScope;
+  topOnly?: boolean;
+  /**
+   * Лист виден только по праву встроенной программы. От `topOnly` отличается
+   * тем, что должность здесь не значит ничего: право выдаётся явно.
+   */
+  entitlement?: string;
+}> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
   // Подпись — настройка человека, и место ей здесь. До этого она пряталась
   // значком в подвале Пуска: найти её мог только тот, кто знал, что она там
@@ -77,6 +89,10 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; s
   // теперь он сюда заходит не за файлами, а чтобы сообщить о сбое
   { id: 'logs', label: 'Ошибки и сбои', icon: Terminal, desc: 'Сообщить о сбое', scope: 'global' },
   { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления', scope: 'global' },
+  // Встроенная игровая платформа. Лист видит только тот, кому выдано её
+  // управление, — и видит даже при выключенной платформе: иначе выключатель
+  // отнимал бы право, которым его двигают
+  { id: 'play', label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global', entitlement: PLAY_ADMIN },
   // Своё в каждом проекте
   { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },
 ];
@@ -113,13 +129,21 @@ export default function SettingsScreen() {
   // Главный администратор — уровень 1 (lib/roles). Роли и доступ доступны
   // только ему, и список настроек это учитывает, а не показывает всем
   const topAdmin = isTopAdmin(user);
+  // Листы встроенных программ: должность их не открывает, только выданное право
+  const policyCtx = useAppContext();
+  const mayManagePlay = canManagePlay(policyCtx);
+  const allows = React.useCallback(
+    (def: { topOnly?: boolean; entitlement?: string }) =>
+      (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay),
+    [topAdmin, mayManagePlay],
+  );
 
   // Раздел могли открыть по адресу — тот, кому он не положен, попадает
   // в «Общие», а не в пустую страницу с отказом
   React.useEffect(() => {
     const def = SECTIONS.find(s => s.id === section);
-    if (def?.topOnly && !topAdmin) setSection('general');
-  }, [section, topAdmin]);
+    if (def && !allows(def)) setSection('general');
+  }, [section, allows]);
 
   return (
     <motion.div
@@ -146,7 +170,7 @@ export default function SettingsScreen() {
             <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
             <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
           </div>
-          {SECTIONS.filter(s => s.scope === g.scope && (!s.topOnly || topAdmin)).map(s => {
+          {SECTIONS.filter(s => s.scope === g.scope && allows(s)).map(s => {
             const Icon = s.icon;
             const active = section === s.id;
             return (
@@ -208,6 +232,7 @@ export default function SettingsScreen() {
         {section === 'database' && <DatabaseSection addToast={addToast} />}
         {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'logs' && <LogsSection addLog={addLog} />}
+        {section === 'play' && <PlayPlatform addToast={addToast} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
             <div className="max-w-md"><UpdaterWidget /></div>

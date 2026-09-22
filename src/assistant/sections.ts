@@ -15,6 +15,12 @@ export interface SectionInfo {
   greeting: string;       // короткая встреча при заходе в раздел
   description: string;    // полный рассказ «что умеет / что можно найти»
   suggestions: SectionSuggestion[];
+  /**
+   * Справка по встроенной программе, доступ к которой выдаётся отдельно
+   * (src/lib/appPolicy.ts). Без права помощник о ней не рассказывает — даже
+   * если человек как-то оказался на её адресе.
+   */
+  entitlement?: string;
 }
 
 export const SECTIONS: Record<string, SectionInfo> = {
@@ -130,9 +136,20 @@ export const SECTIONS: Record<string, SectionInfo> = {
   },
 };
 
-export function getSection(route: string): SectionInfo | null {
-  if (SECTIONS[route]) return SECTIONS[route];
+/**
+ * Справка по разделу.
+ *
+ * `allow` отсекает справку по закрытым встроенным программам. Без предиката
+ * закрытая справка не выдаётся вовсе: умолчание здесь — отказ, а не доступ,
+ * иначе забытый вызов стал бы утечкой, которую никто не заметит.
+ */
+export function getSection(route: string, allow?: (entitlement: string) => boolean): SectionInfo | null {
+  const gated = (s: SectionInfo | null): SectionInfo | null => {
+    if (!s || !s.entitlement) return s;
+    return allow && allow(s.entitlement) ? s : null;
+  };
+  if (SECTIONS[route]) return gated(SECTIONS[route]);
   // частичное совпадение для вложенных маршрутов
   const key = Object.keys(SECTIONS).find(k => k !== '/' && route.startsWith(k));
-  return key ? SECTIONS[key] : SECTIONS['/'] || null;
+  return gated(key ? SECTIONS[key] : SECTIONS['/'] || null);
 }

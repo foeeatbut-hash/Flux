@@ -17,10 +17,12 @@ import type { Location, To } from 'react-router-dom';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
 import { sectionForPath } from '../workspace/sections';
-import { useStore } from '../store/store';
 import SectionErrorBoundary from './SectionErrorBoundary';
 import { PaneContext } from '../lib/paneTitle';
-import { can, featureById } from '../lib/permissions';
+import { featureById } from '../lib/permissions';
+import { sectionAccess } from '../lib/appPolicy';
+import { useAppContext } from '../store/policyStore';
+import { playEntitlementById } from '../../play/features';
 
 export const asHref = (l: Location | { pathname: string; search?: string; hash?: string }) =>
   `${l.pathname}${l.search || ''}${l.hash || ''}`;
@@ -57,7 +59,7 @@ export default function SectionFrame({
   globalNavigate: (to: To, opts?: any) => void;
 }) {
   const def = sectionForPath(path);
-  const user = useStore((s) => s.user);
+  const ctx = useAppContext();
   const setFrozenHref = useWorkspaceStore((s) => s.setFrozenHref);
   const dropFrozen = useWorkspaceStore((s) => s.dropFrozen);
   const initialHref = useWorkspaceStore.getState().frozenHrefs[`${paneId}::${path}`];
@@ -117,15 +119,23 @@ export default function SectionFrame({
     [isLive, globalNavigate, paneId],
   );
 
-  if (def.adminOnly && user?.role !== 'ADMIN') {
+  /**
+   * Один ответ на «пускать ли сюда» — тот же, по которому раздел показывается
+   * в Пуске, на столе и в поиске. Пока их было два (здесь своя проверка, там
+   * своя), они и разъезжались: закреплённый раздел оставался на панели задач
+   * после снятия права.
+   */
+  const access = sectionAccess(def, ctx);
+  if (access === 'hide') {
     return visible ? <Navigate to="/" replace /> : null;
   }
 
   // Раздел, закрытый правом, отвечает словами, а не пустотой и не уводом на
   // Главную: человек должен понять, что дело в праве, а не в поломке
-  if (def.feature && user?.role !== 'ADMIN' && !can(user as any, def.feature)) {
+  if (access === 'explain') {
     if (!visible) return null;
-    const what = featureById(def.feature)?.label || def.feature;
+    const key = def.feature || def.entitlement || '';
+    const what = featureById(key)?.label || playEntitlementById(key)?.label || key;
     return (
       <div className="h-full flex items-center justify-center p-8">
         <div className="max-w-sm text-center">

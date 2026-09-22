@@ -10,7 +10,7 @@
  */
 import {
   createTableSql, createIndexSql, columnSql, dialectOf, isDuplicateIndex,
-  addColumnSql, isDuplicateColumn, type Col,
+  addColumnSql, isDuplicateColumn, supportsPartialIndex, type Col,
 } from '../server/ddl';
 // Автомиграция общей базы: она создаёт таблицы по схеме Prisma, и именно она
 // однажды пропустила колонку с файлом обновления
@@ -261,6 +261,29 @@ console.log('Узкую колонку в живой базе расширяют
   check('отказ старого движка распознан',
     isTextDefaultRefusal("BLOB/TEXT column 'permissions' can't have a default value"));
   check('чужая ошибка за него не принимается', !isTextDefaultRefusal('Table does not exist'));
+}
+
+console.log('Частичные индексы: там, где они есть');
+{
+  // На них держатся правила вида «одна активная группа на человека»: обычный
+  // UNIQUE запретил бы вторую игру навсегда, а не вторую ОДНОВРЕМЕННУЮ
+  const cond = `"state" = 'ACTIVE'`;
+  const pg = createIndexSql('postgresql', 'PlayParty', 'PlayParty_active_key', ['leaderId'], true, cond);
+  check('PostgreSQL получает условие', pg.includes('WHERE "state"'), pg);
+  check('и остаётся уникальным', pg.includes('UNIQUE INDEX'), pg);
+
+  const lite = createIndexSql('sqlite', 'PlayParty', 'PlayParty_active_key', ['leaderId'], true, cond);
+  check('SQLite получает то же условие', lite.includes('WHERE "state"'), lite);
+
+  // У MySQL частичных индексов нет. Полный вместо частичного был бы не
+  // «почти то же самое», а другое правило: он запретил бы человеку вторую
+  // группу вообще, и раздел сломался бы после первой же игры
+  check('MySQL частичных индексов не умеет', !supportsPartialIndex('mysql'));
+  check('PostgreSQL умеет', supportsPartialIndex('postgresql'));
+  check('SQLite умеет', supportsPartialIndex('sqlite'));
+
+  const plain = createIndexSql('postgresql', 'T', 'i', ['a']);
+  check('без условия ничего не дописывается', !plain.includes('WHERE'), plain);
 }
 
 if (failed) {

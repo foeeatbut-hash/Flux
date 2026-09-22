@@ -8,6 +8,7 @@ import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
 import { useFeedbackStore } from '../store/feedbackStore';
 import { useChatStore } from '../store/chatStore';
+import { usePolicyStore } from '../store/policyStore';
 import { useNavigate } from 'react-router-dom';
 import { diagnostic } from '../lib/diagnostics';
 
@@ -74,8 +75,21 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     if (!userId) {
       setSocket(null);
       setIsConnected(false);
+      // Вышли — прежний доступ к встроенным программам к новому входу
+      // отношения не имеет. Умолчание здесь «ничего не открыто», а не
+      // «осталось как было»
+      usePolicyStore.getState().reset();
       return;
     }
+
+    /**
+     * Что человеку сейчас открыто.
+     *
+     * Спрашивается при каждом подключении, а не только при входе: пока связи
+     * не было, права могли отобрать, и держать на экране раздел, которого
+     * больше нет, значит обещать то, чего сервер не даст.
+     */
+    void usePolicyStore.getState().refresh();
 
     console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
     const activeSocket = io(ENV_CONFIG.socketUrl, {
@@ -248,7 +262,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
      */
     const handleFeedback = () => useFeedbackStore.getState().touched();
 
+    /**
+     * Администратор изменил доступ — перечитываем его немедленно.
+     *
+     * Раньше снятое право начинало действовать только после перезапуска
+     * программы: доступ приезжал один раз, в ответе на вход. Для встроенных
+     * программ это недопустимо — отобранный доступ обязан пропасть сразу.
+     */
+    const handleCapabilities = () => { void usePolicyStore.getState().refresh(); };
+
     activeSocket.on('notify:new', handleNotify);
+    activeSocket.on('capabilities:changed', handleCapabilities);
+    activeSocket.on('connect', handleCapabilities);
     activeSocket.on('feedback:changed', handleFeedback);
     activeSocket.on('feedback:unread', handleFeedback);
     // Переписка слушается ОБЩИМ сокетом и всегда, а не только при открытом
@@ -265,6 +290,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('app:update-published', handleUpdatePublished);
       activeSocket.off('entity:changed', handleEntityChanged);
       activeSocket.off('notify:new', handleNotify);
+      activeSocket.off('capabilities:changed', handleCapabilities);
+      activeSocket.off('connect', handleCapabilities);
       activeSocket.off('feedback:changed', handleFeedback);
       activeSocket.off('feedback:unread', handleFeedback);
       useChatStore.getState().unbindSocket(activeSocket);

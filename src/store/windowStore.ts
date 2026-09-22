@@ -18,6 +18,8 @@ import {
 import { shareRect } from '../lib/layouts';
 import { clampDesk, deskName, reindexWindows, safeDesks, stepDesk } from '../lib/desks';
 import { sectionForPath } from '../workspace/sections';
+import { sectionAccess } from '../lib/appPolicy';
+import { appContext } from './policyStore';
 
 const KEY = 'flux_windows';
 const DESKS_KEY = 'flux_desks';
@@ -134,6 +136,12 @@ export const useWindowStore = create<WindowState>((set, get) => {
     open: (href) => {
       const { windows } = get();
       const path = pathOf(href);
+      // Окно — единственный способ показать раздел, и потому единственное
+      // место, где закрытый раздел можно остановить разом для всех входов:
+      // значка на столе, плитки Пуска, строки Ctrl+K, ссылки из руководства и
+      // подсказки помощника. Скрытый раздел не открывается молча — так же,
+      // как его нет в списках
+      if (sectionAccess(sectionForPath(path), appContext()) === 'hide') return;
       // Единичный раздел занимает одно окно и просто переезжает на новый адрес:
       // второе окно Почты не даёт ничего, кроме двух счётчиков непрочитанного
       const multi = !!sectionForPath(path).multi;
@@ -155,6 +163,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
 
     openAnother: (href) => {
       const { windows, area } = get();
+      if (sectionAccess(sectionForPath(pathOf(href)), appContext()) === 'hide') return;
       const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;
       const rect = initialRect(area, windows.length);
       update((list) => [...list, {

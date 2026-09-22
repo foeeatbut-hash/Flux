@@ -1321,3 +1321,262 @@ model TableTemplate {
 
   @@index([scope, ownerId])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flux Play — встроенная игровая платформа.
+//
+// Правила, на которых всё держится, вынесены не в код, а в частичные
+// уникальные индексы: «одна активная группа на человека», «одно живое лобби на
+// группу», «один незавершённый матч на лобби», «один результат на матч».
+// Prisma частичных индексов не умеет объявлять, поэтому они создаются
+// отдельно — server/play/tables.ts, — а здесь объявлены обычные. Расхождение
+// двух списков ловит scripts/test-play-ddl.ts.
+//
+// Почему именно индексы, а не проверка в коде: сервер у каждого сотрудника
+// свой, а база одна. Двое нажали «Создать группу» в одну секунду — и проверка
+// «а нет ли уже активной» ответит «нет» обоим. База отвечает на это одна.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Расписка о выполненной команде: по ней повтор возвращает тот же ответ.
+///
+/// Повтор — не редкость, а норма: обрыв связи посреди запроса выглядит для
+/// окна как неудача, и оно отправляет снова. Без расписки «Создать группу»
+/// создала бы вторую.
+model PlayCommand {
+  id              String   @id @default(uuid())
+  actorId         String
+  /// Ключ идемпотентности, присланный окном (Idempotency-Key)
+  key             String
+  /// Хеш тела: тот же ключ с другим телом — это ошибка, а не повтор
+  requestHash     String
+  kind            String
+  /// OK | FAILED
+  status          String   @default("OK")
+  resultJson      String   @default("{}")
+  errorCode       String?
+  createdAt       DateTime @default(now())
+  /// Расписка живёт сутки: дольше повторов не бывает, а таблица растёт
+  expiresAt       DateTime @default(now())
+
+  @@unique([actorId, key])
+  @@index([expiresAt])
+}
+
+/// Событие домена. На них строится досылка после обрыва связи.
+model PlayEvent {
+  id          String   @id @default(uuid())
+  /// party | lobby | session | presence
+  aggregate   String
+  aggregateId String
+  /// Версия агрегата: растёт на единицу, без пропусков
+  version     Int      @default(0)
+  kind        String
+  dataJson    String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@unique([aggregate, aggregateId, version])
+  @@index([aggregate, aggregateId, createdAt])
+}
+
+/// Очередь доставки: сокет толкают только после коммита.
+model PlayOutbox {
+  id          String    @id @default(uuid())
+  dedupeKey   String    @unique
+  recipientId String
+  kind        String
+  payloadJson String    @default("{}")
+  /// PENDING | DONE | FAILED
+  state       String    @default("PENDING")
+  attempt     Int       @default(0)
+  availableAt DateTime  @default(now())
+  leaseUntil  DateTime?
+  leaseOwner  String?
+  createdAt   DateTime  @default(now())
+
+  @@index([state, availableAt])
+  @@index([recipientId])
+}
+
+/// Одно соединение одного устройства.
+///
+/// Присутствие живёт в базе, а не в памяти сервера: серверов много, база одна.
+/// Аренда (`expiresAt`) нужна потому, что «в сети» нельзя доверять факту
+/// открытого сокета — обрыв бывает беззвучным, и тогда человек остаётся
+/// «онлайн» навсегда. Поколение (`generation`) отсекает поздний disconnect
+/// старого соединения, который иначе погасил бы уже новое.
+model PlayPresence {
+  id           String   @id @default(uuid())
+  userId       String
+  deviceId     String
+  connectionId String   @unique
+  generation   Int      @default(0)
+  /// ONLINE | AWAY | INVISIBLE | OFFLINE
+  status       String   @default("ONLINE")
+  /// IDLE | LOBBY | MATCH
+  activity     String   @default("IDLE")
+  gameId       String?
+  expiresAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+/// Группа: постоянный состав, который вместе заходит в игру.
+model PlayParty {
+  id        String    @id @default(uuid())
+  leaderId  String
+  gameId    String?
+  /// ACTIVE | CLOSED
+  state     String    @default("ACTIVE")
+  revision  Int       @default(1)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  closedAt  DateTime?
+
+  @@index([leaderId, state])
+  @@index([state, updatedAt])
+}
+
+/// Участие в группе. Человек одновременно состоит не более чем в одной —
+/// это держит частичный индекс по `leftAt IS NULL`.
+model PlayPartyMember {
+  id       String    @id @default(uuid())
+  partyId  String
+  userId   String
+  /// LEADER | MEMBER
+  role     String    @default("MEMBER")
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  @@index([partyId, leftAt])
+  @@index([userId, leftAt])
+}
+
+/// Приглашение в группу. Живого приглашения на пару «группа — человек» не
+/// бывает двух: это держит частичный индекс по `state = 'PENDING'`.
+model PlayInvite {
+  id              String    @id @default(uuid())
+  partyId         String
+  fromUserId      String
+  toUserId        String
+  /// PENDING | ACCEPTED | DECLINED | CANCELLED | EXPIRED
+  state           String    @default("PENDING")
+  clientRequestId String?
+  expiresAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  respondedAt     DateTime?
+
+  @@index([toUserId, state])
+  @@index([partyId, state])
+  @@index([state, expiresAt])
+}
+
+/// Лобби: подготовка к матчу. У группы не бывает двух живых лобби.
+model PlayLobby {
+  id        String   @id @default(uuid())
+  partyId   String
+  gameId    String
+  /// FORMING | READY | STARTED | CLOSED
+  state     String   @default("FORMING")
+  revision  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([partyId, state])
+  @@index([state, updatedAt])
+}
+
+/// Место в лобби: команда и отметка готовности.
+model PlayLobbySlot {
+  id        String   @id @default(uuid())
+  lobbyId   String
+  userId    String
+  team      Int      @default(1)
+  ready     Boolean  @default(false)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([lobbyId, userId])
+  @@index([lobbyId, team])
+}
+
+/// Матч. У лобби не бывает двух незавершённых матчей — иначе повторное
+/// нажатие «Начать» завело бы второй, и половина группы ушла бы не туда.
+model PlaySession {
+  id         String    @id @default(uuid())
+  lobbyId    String
+  gameId     String
+  /// ALLOCATING | RUNNING | FINISHED | CANCELLED
+  state      String    @default("ALLOCATING")
+  /// Адрес выделенного игрового сервера
+  serverAddr String    @default("")
+  revision   Int       @default(1)
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([lobbyId, state])
+  @@index([state, createdAt])
+}
+
+/// Участие в матче. Человек одновременно не более чем в одном незавершённом —
+/// это держит частичный индекс по `state = 'ACTIVE'`.
+model PlaySessionMember {
+  id        String   @id @default(uuid())
+  sessionId String
+  userId    String
+  team      Int      @default(1)
+  /// ACTIVE | LEFT | FINISHED
+  state     String   @default("ACTIVE")
+  joinedAt  DateTime @default(now())
+
+  @@unique([sessionId, userId])
+  @@index([userId, state])
+}
+
+/// Билет на подключение к игровому серверу: одноразовый и со сроком.
+///
+/// Хранится ХЕШ, а не сам билет: база — не место для действующего пропуска.
+model PlayTicket {
+  id        String    @id @default(uuid())
+  sessionId String
+  userId    String
+  tokenHash String    @unique
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  @@unique([sessionId, userId])
+  @@index([expiresAt])
+}
+
+/// Результат матча — от игрового сервера, а не от игрока.
+///
+/// Один на матч: повтор доставки не должен удваивать счёт.
+model PlayResult {
+  id          String   @id @default(uuid())
+  sessionId   String   @unique
+  payloadJson String   @default("{}")
+  /// Подпись игрового сервера: результат без неё не принимается
+  signature   String   @default("")
+  createdAt   DateTime @default(now())
+}
+
+/// Опубликованная сборка игры: канал, версия, отпечаток файла.
+model PlayBuild {
+  id           String   @id @default(uuid())
+  gameId       String
+  /// stable | beta | internal
+  channel      String   @default("stable")
+  version      String
+  url          String   @default("")
+  sha256       String   @default("")
+  sizeBytes    Int      @default(0)
+  manifestJson String   @default("{}")
+  publishedById String?
+  publishedAt  DateTime @default(now())
+
+  @@unique([gameId, channel, version])
+  @@index([gameId, channel, publishedAt])
+}
