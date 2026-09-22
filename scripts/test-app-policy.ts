@@ -121,7 +121,11 @@ ok('рабочее право платформой не считается', !is
 ok('пустая строка не считается', !isPlayKey(''));
 
 console.log('\n8. Разбор карты прав');
-ok('строка JSON разбирается', toMap('{"a":{"enabled":true}}').a?.enabled === true);
+ok('строка JSON разбирается', (toMap('{"a":{"enabled":true}}').a as any)?.enabled === true);
+// Голое `true` в карте прав — «выдано», а не «запрещено». Читая его как
+// объект, мы отвечали ЗАПРЕЩЕНО, и выданное право работало запретом
+ok('голое true означает «выдано»', entryMode(true as any) === 'ALLOW');
+ok('голое false означает «не сказано»', entryMode(false as any) === 'INHERIT');
 ok('мусор не роняет разбор', Object.keys(toMap('не json')).length === 0);
 ok('null даёт пустую карту', Object.keys(toMap(null)).length === 0);
 

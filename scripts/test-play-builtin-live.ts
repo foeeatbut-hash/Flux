@@ -13,6 +13,7 @@
  */
 
 import { flipsOf, movesOf } from '../play/games/reversi';
+import { autoFleet } from '../play/games/seabattle';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const ONE = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
@@ -48,6 +49,36 @@ const login = async (creds: { symbol: string; password: string }): Promise<Who |
 };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Довести двоих от группы до матча. Шагов шесть, и в трёх разделах подряд они
+ * одни и те же: группа, приглашение, лобби, готовность обоих, запуск.
+ */
+async function start(one: Who, two: Who, gameId: string): Promise<string> {
+  await call(one, 'POST', '/api/play/session/cancel', {});
+  await call(two, 'POST', '/api/play/session/cancel', {});
+  await call(one, 'POST', '/api/play/party/leave', {}, newKey());
+  await call(two, 'POST', '/api/play/party/leave', {}, newKey());
+
+  await call(one, 'POST', '/api/play/party', { gameId }, newKey());
+  const inv = await call(one, 'POST', '/api/play/invites', { userId: two.id, gameId }, newKey());
+  const inviteId = String(inv.data?.result?.id || inv.data?.result?.invite?.id || '');
+  if (!inviteId) return '';
+  await call(two, 'POST', `/api/play/invites/${inviteId}/accept`, {}, newKey());
+
+  const lob = await call(one, 'POST', '/api/play/lobby', { gameId }, newKey());
+  const lobbyId = String(lob.data?.result?.id || lob.data?.result?.lobby?.id || '');
+  if (!lobbyId) return '';
+  for (const who of [one, two]) {
+    const st = await call(who, 'GET', '/api/play/state');
+    const rev = Number(st.data?.result?.lobby?.revision || 0);
+    await call(who, 'POST', '/api/play/lobby/ready', { lobbyId, ready: true, expectedVersion: rev }, newKey());
+  }
+  const stS = await call(one, 'GET', '/api/play/state');
+  const revS = Number(stS.data?.result?.lobby?.revision || 0);
+  const started = await call(one, 'POST', '/api/play/session', { lobbyId, expectedVersion: revS }, newKey());
+  return String(started.data?.result?.session?.id || '');
+}
 
 (async () => {
   try {
@@ -215,6 +246,115 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     ok('матч закрыт у обоих', !end.data?.result?.session, end.data?.result?.session);
     ok('итог записан', !!end.data?.result?.result, end.data?.result?.result);
 
+    await call(one, 'POST', '/api/play/party/leave', {}, newKey());
+    await call(two, 'POST', '/api/play/party/leave', {}, newKey());
+  }
+
+  console.log('\n3. Морской бой: чужие корабли не доезжают до соперника');
+  {
+    const two = await login(TWO);
+    if (!two) { console.log(`\nПРОВАЛОВ: ${f}`); process.exit(1); }
+
+    const sessionId = await start(one, two, 'seabattle');
+    ok('матч морского боя начался', !!sessionId);
+    if (sessionId) {
+      const fleetOne = autoFleet('живой-первый', 1);
+      const fleetTwo = autoFleet('живой-второй', 2);
+      for (const [who, fleet] of [[one, fleetOne], [two, fleetTwo]] as const) {
+        const st = await call(who, 'GET', `/api/play/match/${sessionId}`);
+        const put = await call(who, 'POST', `/api/play/match/${sessionId}/move`,
+          { move: { place: fleet }, expectedRevision: st.data?.result?.revision }, newKey());
+        ok('флот принят', put.ok, put.data);
+      }
+
+      const mine = await call(one, 'GET', `/api/play/match/${sessionId}`);
+      const raw = JSON.stringify(mine.data);
+      ok('бой начался', mine.data?.result?.view?.phase === 'battle', mine.data?.result?.view?.phase);
+      ok('чужое поле чисто', (mine.data?.result?.view?.theirs || []).every((c: number) => c === 0));
+      /**
+       * Главная проверка этой игры: чужая расстановка не просто не нарисована,
+       * её НЕТ в ответе сервера. Проверяется по сырому телу ответа, а не по
+       * разобранному снимку: спрятанное разбором всё равно доехало бы
+       */
+      ok('расстановки соперника нет в теле ответа',
+        !fleetTwo.some((ship) => raw.includes(JSON.stringify(ship))), fleetTwo[0]);
+
+      // Стреляем в клетку, где у соперника точно корабль, — попадание видно
+      const target = fleetTwo[0][0];
+      const shot = await call(one, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: { shot: target }, expectedRevision: mine.data.result.revision }, newKey());
+      ok('выстрел принят', shot.ok, shot.data);
+      const after = await call(one, 'GET', `/api/play/match/${sessionId}`);
+      ok('попадание отмечено', [3, 4].includes(after.data?.result?.view?.theirs?.[target]),
+        after.data?.result?.view?.theirs?.[target]);
+      ok('попал — ходит снова', after.data?.result?.yourTurn === true);
+      const again = await call(one, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: { shot: target }, expectedRevision: after.data.result.revision }, newKey());
+      ok('дважды в одну клетку нельзя', !again.ok && /уже стреляли/.test(String(again.data?.message || '')), again.data);
+
+      await call(one, 'POST', `/api/play/match/${sessionId}/resign`, {}, newKey());
+      await wait(300);
+    }
+    await call(one, 'POST', '/api/play/party/leave', {}, newKey());
+    await call(two, 'POST', '/api/play/party/leave', {}, newKey());
+  }
+
+  console.log('\n4. Шахматы на двоих');
+  {
+    const two = await login(TWO);
+    if (!two) { console.log(`\nПРОВАЛОВ: ${f}`); process.exit(1); }
+    const sessionId = await start(one, two, 'chess');
+    ok('матч шахмат начался', !!sessionId);
+    if (sessionId) {
+      const b1 = await call(one, 'GET', `/api/play/match/${sessionId}`);
+      const white = b1.data?.result?.yourTurn ? one : two;
+      const black = b1.data?.result?.yourTurn ? two : one;
+      const view = (await call(white, 'GET', `/api/play/match/${sessionId}`)).data.result;
+      ok('у белых двадцать ходов', (view.view.moves || []).length === 20, (view.view.moves || []).length);
+      ok('чёрным ходов не отдают', ((await call(black, 'GET', `/api/play/match/${sessionId}`)).data.result.view.moves || []).length === 0);
+
+      const bad = await call(white, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: { from: 57, to: 41 }, expectedRevision: view.revision }, newKey());
+      ok('невозможный ход отвергнут словами', !bad.ok && /не ходят|нечем/.test(String(bad.data?.message || '')), bad.data);
+
+      const e2e4 = view.view.moves.find((m: any) => m.from === 52 && m.to === 36);
+      const mv = await call(white, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: e2e4, expectedRevision: view.revision }, newKey());
+      ok('ход e2—e4 принят', mv.ok, mv.data);
+      const seen = await call(black, 'GET', `/api/play/match/${sessionId}`);
+      ok('соперник видит пешку на e4', seen.data?.result?.view?.board?.[36] === 'P', seen.data?.result?.view?.board?.[36]);
+      ok('ход перешёл чёрным', seen.data?.result?.yourTurn === true);
+
+      await call(white, 'POST', `/api/play/match/${sessionId}/resign`, {}, newKey());
+      await wait(300);
+    }
+    await call(one, 'POST', '/api/play/party/leave', {}, newKey());
+    await call(two, 'POST', '/api/play/party/leave', {}, newKey());
+  }
+
+  console.log('\n5. Шашки: бить обязательно — и на сервере тоже');
+  {
+    const two = await login(TWO);
+    if (!two) { console.log(`\nПРОВАЛОВ: ${f}`); process.exit(1); }
+    const sessionId = await start(one, two, 'checkers');
+    ok('матч шашек начался', !!sessionId);
+    if (sessionId) {
+      const b1 = await call(one, 'GET', `/api/play/match/${sessionId}`);
+      const mover = b1.data?.result?.yourTurn ? one : two;
+      const view = (await call(mover, 'GET', `/api/play/match/${sessionId}`)).data.result;
+      ok('в начале семь ходов', (view.view.moves || []).length === 7, (view.view.moves || []).length);
+
+      const wrong = await call(mover, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: { path: [40, 41] }, expectedRevision: view.revision }, newKey());
+      ok('ход не по правилам отвергнут', !wrong.ok, wrong.data);
+
+      const mv = await call(mover, 'POST', `/api/play/match/${sessionId}/move`,
+        { move: { path: view.view.moves[0] }, expectedRevision: view.revision }, newKey());
+      ok('законный ход принят', mv.ok, mv.data);
+
+      await call(mover, 'POST', `/api/play/match/${sessionId}/resign`, {}, newKey());
+      await wait(300);
+    }
     await call(one, 'POST', '/api/play/party/leave', {}, newKey());
     await call(two, 'POST', '/api/play/party/leave', {}, newKey());
   }
