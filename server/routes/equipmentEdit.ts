@@ -288,10 +288,16 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
     tagId: (r.tags || [])[0]?.id,
   }));
 
-  // Тег установки — тег позиции без владельца, у которой он есть. Если такой
-  // нет, родителя ставить не от чего, и выдумывать его не надо
+  /**
+   * Тег установки — тег позиции без владельца, у которой он есть.
+   *
+   * Его может не быть: обозначение установки иногда не проходит правило
+   * проекта. Это не повод не строить родство вовсе — датчик внутри
+   * тегированного двигателя должен встать под него и без корня. Пустой корень
+   * означает только, что позициям без тегированного владельца родителя не
+   * достанется, и выдумывать его никто не станет.
+   */
   const root = positions.find(p => !p.parentKey && p.tagId);
-  if (!root?.tagId) return '';
 
   const tags = await prisma.tag.findMany({
     where: { projectId },
@@ -302,7 +308,7 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
     return { id: t.id, connections: Array.isArray(meta.connections) ? meta.connections : [], parentId: meta.parentId ?? null };
   });
   const handSet = new Set<string>(tags.filter((t: any) => parentSetByHand(t.metadata)).map((t: any) => t.id));
-  const plan = planTagParents(positions, root.tagId, nodes, handSet);
+  const plan = planTagParents(positions, root?.tagId || '', nodes, handSet);
 
   const metaById = new Map<string, any>(tags.map((t: any) => [t.id, safeMeta(t.metadata)]));
   for (const patch of plan.patches) {

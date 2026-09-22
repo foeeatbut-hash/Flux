@@ -288,10 +288,24 @@ async function linkTagsByComposition(
   const allPatches = new Map<string, any>();
 
   for (const unitData of result.units) {
+    /**
+     * Тег установки — корень всей цепочки, но его может не быть.
+     *
+     * Обозначение установки иногда не проходит правило проекта (кириллическая
+     * «С» вместо латинской), и тогда тега у неё просто нет. Раньше здесь стояло
+     * «нет корня — пропускаем установку целиком», и родство не строилось ВООБЩЕ
+     * НИ У КОГО, причём молча: двигатель не вставал под свой вентилятор, хотя
+     * оба тега были на месте и к установке отношения не имели.
+     *
+     * Теперь строится всё, что можно построить: цепочки внутри установки
+     * складываются, а про отсутствующий корень говорится словами.
+     */
     const unitTagId = tagByKey.get(blockKey(unitData.name, '', '__unit__'))
       || rows.find((t: any) => t.identifier === unitData.name)?.id
       || '';
-    if (!unitTagId) continue;
+    if (!unitTagId) {
+      kept.push(`У установки «${unitData.name}» нет тега — позиции без тегированного владельца остались без родителя`);
+    }
 
     const positions: TaggedPosition[] = placed
       .filter(p => p.unit === unitData.name)

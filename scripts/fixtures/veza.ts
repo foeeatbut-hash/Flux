@@ -26,10 +26,10 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
     <N6 cfnName="Элемент отчета ptgНЕИЗВЕСТНО.ptЧтоТо" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgНЕИЗВЕСТНО" proReportPropType="ptЧтоТо" proReportPropValue="42" proMeasureUnit="unNone"/>
 
     <N10 cfnName="Установки" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitsFolder"/>
-    <N11 cfnName="Установка 1" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-01-УХЛ4" proUnitName="ПР-01-AS-001"/>
+    <N11 cfnName="Установка 1" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-01-УХЛ4" proUnitName="PR-01-AS-001"/>
     <N12 cfnName="Установка 2" cfnAmount="1" cfnLevel="caeFolder" cfnElement="cadUnitFolder" proFrontType="frПробная" proFrontName="ПРОБА-100-200-02-УХЛ4" proUnitName=""/>
     <N13 cfnName="Коллекция элементов отчета установка" cfnAmount="1" cfnLevel="caePropCollection" cfnElement="cadReportCollection" proItemCount="5" proReportLevel="UnitItem"/>
-    <N14 cfnName="Элемент отчета ptgPARAMETERS.ptUnitName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgPARAMETERS" proReportPropType="ptUnitName" proReportPropValue="ПР-01-AS-001" proMeasureUnit="unNone"/>
+    <N14 cfnName="Элемент отчета ptgPARAMETERS.ptUnitName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgPARAMETERS" proReportPropType="ptUnitName" proReportPropValue="PR-01-AS-001" proMeasureUnit="unNone"/>
     <N15 cfnName="Элемент отчета ptgCHARACTERISTICS.ptAirFlow" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgCHARACTERISTICS" proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unCubicMeterPerHour"/>
     <N16 cfnName="Элемент отчета ptgNOICE.ptLSUMOUTA" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgNOICE" proReportPropType="ptLSUMOUTA" proReportPropValue="74.5" proMeasureUnit="unDecibelA"/>
     <N17 cfnName="Элемент отчета ptgFAN.ptFanKFactor" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptFanKFactor" proReportPropValue="470" proMeasureUnit="unPiece2"/>

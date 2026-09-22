@@ -56,6 +56,11 @@ const cleanGroups = (groups: any): any[] => {
       title: clean(g?.title, 80) || 'Характеристики',
       params: params.map((p: any) => ({
         key: clean(p?.key, 120), value: clean(p?.value, 300), unit: clean(p?.unit, 40),
+        // Исходные коды выгрузки («ptgMOTOR», «ptNY») живут рядом со значением
+        // и переживают переименование раздела: по ним подпозиция узнаёт свои
+        // параметры, а шаблон вида не опустеет от правки названия столбца
+        ...(p?.sourceGroup ? { sourceGroup: clean(p.sourceGroup, 60) } : {}),
+        ...(p?.sourceKey ? { sourceKey: clean(p.sourceKey, 60) } : {}),
       })).filter((p: any) => p.key && p.value),
     };
   }).filter((g: any) => g.params.length);
@@ -66,6 +71,34 @@ const cleanTags = (tags: any): string[] | undefined => {
   if (!Array.isArray(tags)) return undefined;
   if (tags.length > 50) throw new DraftTooBig('Тегов у позиции', 50, tags.length);
   const out = tags.map((t: any) => clean(t, TAG_MAX)).filter(Boolean);
+  return out.length ? out : undefined;
+};
+
+/** Число из запроса: не число и не положительное — значит не прислали */
+const cleanNum = (v: any, max: number): number | undefined => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= max ? Math.trunc(n) : undefined;
+};
+
+/**
+ * Свидетельства о тегах — откуда взялся тег и что с ним решено.
+ *
+ * Едут вместе с позицией, а не считаются заново: разбор примечания видел
+ * исходный текст, а санитайзер видит уже разобранное дерево. Потеряй мы их
+ * здесь, предпросмотр показал бы связи без объяснения, а расхождение «три тега
+ * привода при двух приводах» выглядело бы как ошибка программы.
+ */
+const cleanTagNotes = (raw: any): any[] | undefined => {
+  if (!Array.isArray(raw)) return undefined;
+  if (raw.length > 200) throw new DraftTooBig('Свидетельств о тегах', 200, raw.length);
+  const out = raw.map((e: any) => ({
+    identifier: clean(e?.identifier, TAG_MAX),
+    verdict: clean(e?.verdict, 20),
+    why: clean(e?.why, 300),
+    ...(e?.fix ? { fix: clean(e.fix, TAG_MAX) } : {}),
+    ...(e?.role ? { role: clean(e.role, 40) } : {}),
+    ...(e?.phrase ? { phrase: clean(e.phrase, 500) } : {}),
+  })).filter((e: any) => e.identifier);
   return out.length ? out : undefined;
 };
 
@@ -87,6 +120,23 @@ export function sanitizeDraftUnits(units: any[]): any {
           equipType: clean(b?.equipType, 60) || 'component',
           tags: cleanTags(b?.tags),
           groups: cleanGroups(b?.groups),
+          /**
+           * Состав едет через санитайзер целиком.
+           *
+           * Это не мелочь: мастер распознавания — та самая дорога, по которой
+           * человек приносит расчёт (обращение ОБР-000006). Отбрось санитайзер
+           * роль и владельца, и двигатель дошёл бы до реестра соседом
+           * вентилятора, а родителя тега взять было бы неоткуда — причём молча.
+           */
+          ...(b?.role ? { role: clean(b.role, 40) } : {}),
+          ...(b?.parentName ? { parentName: clean(b.parentName, 120) } : {}),
+          ...(b?.sourceKind ? { sourceKind: clean(b.sourceKind, 60) } : {}),
+          ...(cleanNum(b?.instanceNo, 10000) ? { instanceNo: cleanNum(b.instanceNo, 10000) } : {}),
+          ...(cleanNum(b?.instanceCount, 10000) ? { instanceCount: cleanNum(b.instanceCount, 10000) } : {}),
+          ...(cleanNum(b?.sourceOrder, 1000000) ? { sourceOrder: cleanNum(b.sourceOrder, 1000000) } : {}),
+          ...(b?.position ? { position: clean(b.position, 60) } : {}),
+          ...(b?.note ? { note: clean(b.note, 4000) } : {}),
+          ...(cleanTagNotes(b?.tagNotes) ? { tagNotes: cleanTagNotes(b.tagNotes) } : {}),
         })),
       })),
     })),
