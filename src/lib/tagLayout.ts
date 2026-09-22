@@ -529,3 +529,60 @@ export function parkGrid(count: number, origin: Point, box: LayoutBox = DEFAULT_
     y: origin.y + Math.floor(i / perRow) * rowH,
   }));
 }
+
+// ── Теги без координат ──────────────────────────────────────────────────────
+
+/**
+ * Метаданные тега к записи — без служебных пометок окна.
+ *
+ * Ключи на `_` окно вычисляет само при разборе (`_noPos` — «координат в базе
+ * нет»). Пока они уезжали в базу вместе с координатами, перенесённый автотег
+ * возвращался на место: окно видело свою же пометку и снова ставило карточку
+ * в сетку неразмещённых.
+ */
+export function cleanMeta<T extends object>(meta: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta || {})) if (!k.startsWith('_')) out[k] = v;
+  return out as T;
+}
+
+/** Тег для раскладки: `at` — координаты из базы; нет их — место выдаётся */
+export type PlaceNode = TreeNode & { at?: Point };
+
+/**
+ * Места для тегов без координат — такие, что не перескакивают.
+ *
+ * Прежняя сетка раздавала места по порядку и по ЧИСЛУ неразмещённых: стоило
+ * одной карточке уйти из сетки, как число менялось, и все остальные
+ * перескакивали на соседние клетки. Теперь место, однажды выданное,
+ * помнится (`remembered`) и больше не меняется, а новым тегам места выдаются
+ * деревьями по связям родитель—потомок НИЖЕ всего, что уже стоит: ввезённая
+ * установка ложится своим деревом, а не россыпью поверх расставленного.
+ *
+ * `remembered` дополняется новыми местами — это и есть память на сессию.
+ */
+export function placeUnplaced(
+  nodes: PlaceNode[], remembered: Record<string, Point>, axis: TreeAxis,
+  opts: { box?: LayoutBox; keyOf?: (id: string) => string } = {},
+): Record<string, Point> {
+  const box = opts.box || DEFAULT_BOX;
+  const out: Record<string, Point> = {};
+  const fresh: TreeNode[] = [];
+  for (const n of nodes) {
+    const p = n.at || remembered[n.id];
+    if (p) out[n.id] = p; else fresh.push(n);
+  }
+  if (!fresh.length) return out;
+  const taken = Object.keys(out);
+  const b = taken.length ? boundsOf(out, taken, box) : null;
+  const res = layoutForest(fresh, axis, {
+    box, keyOf: opts.keyOf, grid: GRID,
+    originX: b ? snap(Math.min(b.x, MARGIN_X)) : MARGIN_X,
+    originY: b ? snap(b.y + b.h + box.treeGap) : MARGIN_Y,
+  });
+  for (const n of fresh) {
+    out[n.id] = res.positions[n.id];
+    remembered[n.id] = res.positions[n.id];
+  }
+  return out;
+}
