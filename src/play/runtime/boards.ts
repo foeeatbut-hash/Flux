@@ -12,6 +12,7 @@ import G2048Board from './G2048Board';
 import SudokuBoard from './SudokuBoard';
 import CheckersBoard from './CheckersBoard';
 import SeaBattleBoard from './SeaBattleBoard';
+import ChessBoard from './ChessBoard';
 import UnknownBoard from './UnknownBoard';
 
 export interface BoardProps {
@@ -27,6 +28,7 @@ const BOARDS: Record<string, React.ComponentType<BoardProps>> = {
   sudoku: SudokuBoard,
   checkers: CheckersBoard,
   seabattle: SeaBattleBoard,
+  chess: ChessBoard,
 };
 
 export const boardFor = (gameId: string): React.ComponentType<BoardProps> =>

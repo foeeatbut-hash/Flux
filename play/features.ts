@@ -160,6 +160,17 @@ export const PLAY_GAMES: PlayGameDef[] = [
     kind: 'builtin',
   },
   {
+    id: 'chess',
+    title: 'Шахматы',
+    short: 'Шахматы',
+    desc: 'На двоих, по всем правилам: рокировка, взятие на проходе, превращение, ничьи',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'chess',
+    kind: 'builtin',
+  },
+  {
     id: 'fluxstrike',
     title: 'Flux Strike',
     short: 'Strike',
