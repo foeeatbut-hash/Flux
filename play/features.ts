@@ -149,6 +149,17 @@ export const PLAY_GAMES: PlayGameDef[] = [
     kind: 'builtin',
   },
   {
+    id: 'seabattle',
+    title: 'Морской бой',
+    short: 'Морской бой',
+    desc: 'На двоих: расставьте флот, попал — стреляете снова',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'seabattle',
+    kind: 'builtin',
+  },
+  {
     id: 'fluxstrike',
     title: 'Flux Strike',
     short: 'Strike',
