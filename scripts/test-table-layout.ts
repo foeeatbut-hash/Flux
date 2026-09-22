@@ -13,8 +13,10 @@ import {
   GRAINS, grainById, emptyLayout, bindColumn, unbindColumn, columnAt, headerText,
   diffLayout, layoutToTemplate, templateToLayout, readTemplateBody, whyNotSaveTemplate,
   catalogFields, searchFields, bySection, asArray, cellAddress, nextTarget,
+  withRole, layoutRole, viewToColumns, ROLE_FIELD,
   type LayoutColumn,
 } from '../src/lib/tableLayout';
+import { compositionOf } from '../equipment/composition';
 import {
   paintHeader, clearHeaderCell, readColumnValues, writeColumnValues, clearColumnValues,
   nextFreeColumn,
@@ -328,6 +330,94 @@ console.log('\n7. Адрес ячейки — тот же, что человек
   // Отрицательное и нечисловое приходит от движка на закрытом листе
   ok('отрицательный столбец адреса не даёт', cellAddress(0, -1) === '');
   ok('нечисловое адреса не даёт', cellAddress(NaN, 0) === '' && cellAddress(0, NaN) === '');
+}
+
+console.log('\nРоль строки: срез по роли — обычный отбор, а не третий вид строки');
+{
+  const base = emptyLayout('element', 0);
+  ok('по умолчанию роль не отобрана', layoutRole(base) === '', layoutRole(base));
+
+  const motors = withRole(base, 'ДВИГАТЕЛЬ');
+  ok('роль встала отбором', layoutRole(motors) === 'ДВИГАТЕЛЬ', motors.filters);
+  ok('отбор по тому полю, которое отдаёт сервер',
+    motors.filters[0].field === ROLE_FIELD && motors.filters[0].op === 'eq', motors.filters);
+
+  // Смена роли не плодит второй отбор: иначе запрос вернул бы пусто — позиция
+  // не бывает одновременно двигателем и датчиком
+  const sensors = withRole(motors, 'ДАТЧИК');
+  ok('смена роли заменяет отбор, а не добавляет второй',
+    sensors.filters.filter((f) => f.field === ROLE_FIELD).length === 1, sensors.filters);
+  ok('и новая роль на месте', layoutRole(sensors) === 'ДАТЧИК', layoutRole(sensors));
+
+  // Чужие отборы человека не трогаются: набирать их заново было бы обидно
+  const withMine = { ...sensors, filters: [...sensors.filters, { field: 'system.name', op: 'eq', value: 'У1' }] };
+  const off = withRole(withMine, '');
+  ok('пустая роль снимает только свой отбор',
+    off.filters.length === 1 && off.filters[0].field === 'system.name', off.filters);
+  // Столбцы при этом остаются: «те же данные, но по датчикам» не должно
+  // стоить человеку всей разметки
+  const painted = bindColumn(withRole(base, 'ДВИГАТЕЛЬ'), 2, { path: 'tag', title: 'Тег' });
+  ok('разметка переживает смену роли', withRole(painted, 'ДАТЧИК').columns.length === 1);
+}
+
+console.log('\nШаблон вида → столбцы: «какие поля» отдельно от «в каком порядке»');
+{
+  const view = {
+    id: 'v1', name: 'Ведомость автоматики', scope: 'SHARED', role: 'ДВИГАТЕЛЬ',
+    fields: [
+      { group: 'Электродвигатель', key: 'Номинальная мощность', unit: 'кВт' },
+      { group: 'Электродвигатель', key: 'Номинальный ток', unit: 'А' },
+    ],
+  };
+  // Первый столбец тег ставят руками, дальше шаблоном ложатся данные
+  const start = bindColumn(emptyLayout('element', 0), 0, { path: 'tag', title: 'Тег' });
+  const out = viewToColumns(view, start, { row: 0, col: 1 });
+
+  ok('размеченный столбец не стёрт', out.columns.some((c) => c.path === 'tag' && c.col === 0), out.columns);
+  ok('поля легли подряд от указанной ячейки',
+    out.columns.map((c) => c.col).join(',') === '0,1,2', out.columns.map((c) => c.col));
+  ok('поле стало характеристикой со своими кодами',
+    out.columns[1].path === 'param:Электродвигатель|Номинальная мощность', out.columns[1]);
+  ok('единица поля сохранена', out.columns[2].unit === 'А', out.columns[2]);
+  // Характеристики принадлежат позициям: строка тегом собрала бы половину
+  // ячеек пустыми и ничего бы об этом не сказала
+  ok('вид строки стал позицией', out.grain === 'element', out.grain);
+
+  // Поверх занятого столбца шаблон не пишет
+  const busy = bindColumn(start, 2, { path: 'name', title: 'Наименование' });
+  const around = viewToColumns(view, busy, { row: 0, col: 1 });
+  ok('занятый столбец обойдён', around.columns.map((c) => c.col).join(',') === '0,1,2,3',
+    around.columns.map((c) => [c.col, c.path]));
+  ok('и чужое поле осталось на своём месте',
+    around.columns.find((c) => c.col === 2)?.path === 'name', around.columns);
+
+  ok('пустой шаблон ничего не меняет',
+    viewToColumns({ ...view, fields: [] }, start, { row: 0, col: 1 }).columns.length === 1);
+}
+
+console.log('\nСостав установки: один расчёт родителя на всю программу');
+{
+  const nodes = [
+    { id: 'u', itemCode: '__unit__', name: 'Установка', tags: [{ identifier: 'AS-001' }] },
+    { id: 'b', itemCode: '3', name: 'Блок' },
+    { id: 'f', itemCode: '3/в1', name: 'Вентилятор', parentElementId: 'b', tags: [{ identifier: 'BL-001' }] },
+    { id: 'm', itemCode: '3/в1/д1', name: 'Двигатель', parentElementId: 'f', tags: [{ identifier: 'M-001' }] },
+    { id: 's', itemCode: '3/в1/д1/т1', name: 'Датчик ПТС', parentElementId: 'm', tags: [{ identifier: 'TE-001' }] },
+  ];
+  const c = compositionOf(nodes, 'AS-001');
+  ok('тег установки найден', c.unitTag === 'AS-001', c.unitTag);
+  ok('родитель двигателя — вентилятор', c.parentTagOf(nodes[3]) === 'BL-001', c.parentTagOf(nodes[3]));
+  ok('родитель датчика — двигатель', c.parentTagOf(nodes[4]) === 'M-001');
+  // Блок тега не имеет: цепочка не обрывается и тега ему не выдумывают
+  ok('через нетегированный блок поднимаемся к установке', c.parentTagOf(nodes[2]) === 'AS-001');
+  ok('владелец назван по имени', c.parentNameOf(nodes[3]) === 'Вентилятор', c.parentNameOf(nodes[3]));
+
+  // Кольцо в данных не должно зацикливать обход
+  const ring = [
+    { id: 'a', name: 'A', parentElementId: 'b' },
+    { id: 'b', name: 'B', parentElementId: 'a' },
+  ];
+  ok('кольцо не вешает расчёт', compositionOf(ring).parentTagOf(ring[0]) === '');
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

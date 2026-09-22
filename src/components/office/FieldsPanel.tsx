@@ -15,14 +15,15 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, X, Trash2, Save, FolderOpen, Check, MousePointerClick } from 'lucide-react';
+import { Search, X, Trash2, Save, FolderOpen, Check, MousePointerClick, Boxes } from 'lucide-react';
 import {
-  GRAINS, catalogFields, searchFields, bySection, headerText, cellAddress,
+  GRAINS, catalogFields, searchFields, bySection, headerText, cellAddress, layoutRole,
   type CatalogField, type ProjectCatalog, type TableLayout,
 } from '../../lib/tableLayout';
+import { ROLES } from '../../../equipment/roles';
 
 export default function FieldsPanel({
-  catalog, layout, cursor, onPick, onDrop, onGrain, onClose, templates,
+  catalog, layout, cursor, onPick, onDrop, onGrain, onRole, onClose, templates, views, onApplyView,
   onSaveTemplate, onApplyTemplate, onDeleteTemplate,
 }: {
   catalog: ProjectCatalog | null;
@@ -32,8 +33,13 @@ export default function FieldsPanel({
   onPick: (field: CatalogField) => void;
   onDrop: (col: number) => void;
   onGrain: (grain: string) => void;
+  /** Оставить в таблице позиции одной роли; пусто — все подряд */
+  onRole: (role: string) => void;
   onClose: () => void;
   templates: { id: string; name: string; scope: string; columns: { title: string }[] }[];
+  /** Шаблоны вида из «Оборудования»: какие характеристики нужны для работы */
+  views: { id: string; name: string; scope: string; role: string; fields: { key: string }[] }[];
+  onApplyView: (id: string) => void;
   onSaveTemplate: (name: string, personal: boolean) => void;
   onApplyTemplate: (id: string) => void;
   onDeleteTemplate: (id: string) => void;
@@ -43,6 +49,7 @@ export default function FieldsPanel({
   const [name, setName] = useState('');
   const [personal, setPersonal] = useState(false);
   const [shelf, setShelf] = useState(false);
+  const [viewShelf, setViewShelf] = useState(false);
 
   const all = useMemo(() => catalogFields(catalog, layout.grain), [catalog, layout.grain]);
   const found = useMemo(() => bySection(searchFields(all, query)), [all, query]);
@@ -96,6 +103,20 @@ export default function FieldsPanel({
             </button>
           ))}
         </div>
+
+        {/* Роль строки. Это обычный отбор по обычному полю, а не третий вид
+            строки: «вывести только датчики ПТС» — те же позиции, только не все */}
+        {layout.grain === 'element' && (
+          <label className="mt-1.5 flex items-center gap-1.5">
+            <span className="text-2xs text-slate-500 dark:text-slate-400 shrink-0">Роль</span>
+            <select value={layoutRole(layout)} onChange={(e) => onRole(e.target.value)}
+              className="flex-1 min-w-0 px-1.5 py-1 text-2xs rounded-md border border-slate-200
+                         dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer">
+              <option value="">все позиции</option>
+              {ROLES.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* Что уже размечено: отсюда поле и снимается, без похода на лист */}
@@ -178,6 +199,42 @@ export default function FieldsPanel({
             ))}
           </div>
         ))}
+      </div>
+
+      {/* Шаблоны вида — из раздела «Оборудование».
+          Разделение здесь главное: шаблон вида отвечает «какие поля нужны», а
+          таблица — «в каком порядке и в каких столбцах». Поэтому он кладёт
+          поля подряд от выбранной ячейки, а дальше человек двигает столбцы */}
+      <div className="border-t border-slate-200 dark:border-dark-border">
+        <button type="button" onClick={() => setViewShelf((v) => !v)}
+          className="w-full px-3 py-2 flex items-center gap-2 cursor-pointer text-2xs font-semibold
+                     text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850">
+          <Boxes className="w-3.5 h-3.5" />
+          Шаблоны вида
+          <span className="flex-1" />
+          <span className="text-slate-400">{views.length}</span>
+        </button>
+
+        {viewShelf && (
+          <div className="px-3 pb-2 space-y-1 max-h-40 overflow-auto scrollbar-thin">
+            {views.length === 0 && (
+              <p className="text-2xs text-slate-500 dark:text-slate-400">
+                Пока ни одного. Наборы характеристик заводят в разделе «Оборудование» —
+                кнопкой «Сохранить вид» в карточке позиции.
+              </p>
+            )}
+            {views.map((v) => (
+              <button key={v.id} type="button" onClick={() => onApplyView(v.id)}
+                className="w-full text-left px-2 py-1 rounded-lg cursor-pointer text-2xs
+                           text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                {v.name}
+                <span className="text-slate-400">
+                  {' · '}{v.fields.length} полей{v.role ? ` · ${v.role.toLowerCase()}` : ''}{v.scope === 'PERSONAL' ? ' · личный' : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Шаблоны шапки: набор полей без данных, общий на всю программу или свой */}

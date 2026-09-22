@@ -12,6 +12,7 @@
  */
 
 import type { ExchangeComponent } from './equipmentExchange';
+import { compositionOf } from '../../equipment/composition';
 
 export interface RowComponent {
   id: string; itemCode: string; name: string; equipType: string;
@@ -25,8 +26,6 @@ export interface RowComponent {
 }
 export interface RowMonoblock { name: string; components: RowComponent[] }
 export interface RowSystem { name: string; monoblocks: RowMonoblock[] }
-
-const tagOf = (c?: RowComponent): string => (c?.tags || [])[0]?.identifier || '';
 
 const parseJson = (raw?: string): any => {
   try { return raw ? JSON.parse(raw) : {}; } catch (_) { return {}; }
@@ -43,26 +42,8 @@ export function rowsOfSystem(
   sys: RowSystem,
   normalizeSpecs: (raw?: string) => { groups: any[] },
 ): ExchangeComponent[] {
-  const byId = new Map<string, RowComponent>();
-  for (const mb of sys.monoblocks || []) for (const c of mb.components || []) byId.set(c.id, c);
-
-  const unitRow = [...byId.values()].find((c) => c.itemCode === '__unit__');
-  const unitTag = tagOf(unitRow)
-    || [...byId.values()].map(tagOf).find((t) => t === sys.name)
-    || '';
-
-  /** Тег ближайшего тегированного владельца; нет такого — тег установки */
-  const parentTagOf = (c: RowComponent): string => {
-    const seen = new Set<string>([c.id]);
-    let at = c.parentElementId ? byId.get(c.parentElementId) : undefined;
-    while (at && !seen.has(at.id)) {
-      seen.add(at.id);
-      const t = tagOf(at);
-      if (t) return t;
-      at = at.parentElementId ? byId.get(at.parentElementId) : undefined;
-    }
-    return unitTag;
-  };
+  const all = (sys.monoblocks || []).flatMap((mb) => mb.components || []);
+  const { unitTag, parentTagOf } = compositionOf(all as any, sys.name);
 
   return (sys.monoblocks || []).flatMap((mb) => (mb.components || [])
     // Служебный блок параметров установки в перечень изделий не входит
@@ -75,7 +56,7 @@ export function rowsOfSystem(
       systemName: sys.name,
       monoblockName: mb.name === '__unit__' ? '' : mb.name,
       role: c.role || 'БЛОК',
-      parentTag: parentTagOf(c),
+      parentTag: parentTagOf(c as any),
       unitTag,
       instanceNo: c.instanceNo ?? null,
       manual: !!c.manual,

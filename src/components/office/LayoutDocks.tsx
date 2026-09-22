@@ -27,9 +27,12 @@ export default function LayoutDocks({ lay }: { lay: ReturnType<typeof useTableLa
           layout={lay.layout}
           cursor={lay.cursor}
           templates={lay.templates as any}
+          views={lay.views as any}
+          onApplyView={lay.applyView}
           onPick={lay.pickField}
           onDrop={lay.dropField}
           onGrain={lay.setGrain}
+          onRole={lay.setRole}
           onSaveTemplate={lay.saveTemplate}
           onApplyTemplate={lay.applyTemplate}
           onDeleteTemplate={lay.deleteTemplate}

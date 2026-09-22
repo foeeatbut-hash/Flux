@@ -37,6 +37,7 @@ import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
+import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
@@ -2909,6 +2910,7 @@ registerMailLinkRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
+registerEquipmentViewRoutes(app);
 registerEquipmentEditRoutes(app);
 registerVdrRoutes(app);
 
