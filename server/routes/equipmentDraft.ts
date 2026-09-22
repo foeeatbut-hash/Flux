@@ -205,7 +205,7 @@ async function resolveProject(reqProjectId: any): Promise<string> {
  * разговор с человеком: он может разделить файл или выбрать проект. Код нужен
  * окну, текст — человеку.
  */
-function draftFailure(error: any): { code: string; error: string } | null {
+export function draftFailure(error: any): { code: string; error: string } | null {
   if (error instanceof DraftTooBig) return { code: 'IMPORT_LIMIT_EXCEEDED', error: error.message };
   if (error instanceof ProjectRequired) return { code: 'PROJECT_REQUIRED', error: error.message };
   if (String(error?.message || '').startsWith('Неизвестное действие с тегом')) {

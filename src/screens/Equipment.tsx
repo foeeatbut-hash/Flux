@@ -49,6 +49,7 @@ import PositionTree, { blockLabel } from '../components/equipment/PositionTree';
 import { rowsOfProject } from '../lib/equipmentRows';
 import AddPositionDialog, { type AddPositionTarget } from '../components/equipment/AddPositionDialog';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
+import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
 
 const api = (p: string) => `/api${p}`;
 
@@ -336,6 +337,47 @@ export default function Equipment() {
   // Карточка, с которой сохраняют шаблон вида. Пусто — диалог закрыт
   const [saveViewOf, setSaveViewOf] = useState<any | null>(null);
 
+  // ── Центр операций: что ввозится в фоне ──
+  const [showOps, setShowOps] = useState(false);
+  const [ops, setOps] = useState<OperationBatch[]>([]);
+  const [opsLoading, setOpsLoading] = useState(false);
+
+  const loadOps = useCallback(async () => {
+    if (!pid) return;
+    setOpsLoading(true);
+    try {
+      const r = await fetch(api(`/import-jobs?projectId=${pid}`));
+      const d = await r.json();
+      setOps(Array.isArray(d?.batches) ? d.batches : []);
+    } catch (_) { /* сервер не ответил — центр покажет прежнее */ }
+    finally { setOpsLoading(false); }
+  }, [pid]);
+
+  /**
+   * Пока партия не закончилась, состояние перечитывается само.
+   *
+   * Опрос, а не сокет: ввоз идёт минутами, и три секунды задержки здесь ничего
+   * не решают, а вот лишний канал доставки — это ещё одно место, где «у меня не
+   * обновилось». Как только незаконченных партий не осталось, опрос гаснет.
+   */
+  useEffect(() => {
+    if (!showOps) return;
+    loadOps();
+    const live = ops.some(b => b.state === 'RUNNING');
+    if (!live) return;
+    const t = setInterval(loadOps, 3000);
+    return () => clearInterval(t);
+  }, [showOps, loadOps, ops.length, ops.map(b => `${b.id}:${b.done}:${b.state}`).join(',')]);
+
+  const cancelOps = async (batchId: string) => {
+    try {
+      const r = await fetch(api(`/import-jobs/${batchId}/cancel`), { method: 'POST' });
+      const d = await r.json();
+      addToast(d?.note || 'Отменено', d?.running ? 'info' : 'success');
+    } catch (_) { addToast('Не удалось отменить', 'error'); }
+    loadOps();
+  };
+
   /** Сохранить набор характеристик шаблоном вида — он появится в «Таблице». */
   const saveView = async (body: { name: string; scope: string; role: string; fields: ViewParam[] }): Promise<string> => {
     try {
@@ -511,6 +553,17 @@ export default function Equipment() {
             <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
           </button>
+          {/* Центр операций рядом с импортом не случайно: сюда идут за
+              ответом «а мой ввоз-то как?» — сразу после того, как его
+              отправили в фон */}
+          <button type="button"
+            onClick={() => { setShowOps(true); loadOps(); }}
+            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
+            title="Центр операций: что ввозится в фоне и чем кончилось недавнее"
+          >
+            <List className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden @[820px]:inline">Центр операций</span>
+          </button>
           <div className="hidden @[820px]:block text-2xs text-slate-400 text-center">
             PDF · Excel · Word · XML, или расчёт через «Проводник»
           </div>
@@ -529,6 +582,14 @@ export default function Equipment() {
 
       {addTo && (
         <AddPositionDialog target={addTo} onClose={() => setAddTo(null)} onSubmit={addPosition} />
+      )}
+
+      {showOps && (
+        <ImportOperations
+          batches={ops} loading={opsLoading}
+          onRefresh={loadOps} onCancel={cancelOps}
+          onClose={() => { setShowOps(false); loadSystems(); }}
+        />
       )}
 
       {saveViewOf && (

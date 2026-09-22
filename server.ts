@@ -38,6 +38,9 @@ import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
+import { registerImportJobRoutes } from './server/routes/importJobs.js';
+import { readEquipmentFile } from './server/equipmentFile.js';
+import { startImportJobs } from './server/importJobs.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
@@ -2911,6 +2914,9 @@ registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
 registerEquipmentViewRoutes(app);
+registerImportJobRoutes(app);
+// Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно
+startImportJobs();
 registerEquipmentEditRoutes(app);
 registerVdrRoutes(app);
 
@@ -3723,28 +3729,6 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 // 1. Импорт расчёта в выбранную категорию (новый парсер: группы + тип + ревизии)
 // Общий шаг: файл Проводника → разобранный расчёт. Кидает { status, error }
 // при проблемах формата, чтобы оба роута (план и запись) отвечали одинаково.
-async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
-  const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
-  if (!fileNode) throw { status: 404, error: 'Файл не найден' };
-  const buffer = await fileBytes(fileNode);
-  if (!buffer.length) throw { status: 400, error: 'Содержимое файла пустое' };
-  const extension = fileNode.name.split('.').pop()?.toLowerCase();
-
-  if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
-    throw { status: 400, error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.` };
-  }
-
-  let result;
-  try {
-    result = (extension === 'xml') ? parseEquipmentXML(buffer.toString('utf-8')) : parseEquipmentExcel(buffer);
-  } catch {
-    throw { status: 400, error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».' };
-  }
-  if (!result.units.length) {
-    throw { status: 400, error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' };
-  }
-  return { result, fileName: fileNode.name };
-}
 
 /**
  * Проект импорта — только названный в запросе.

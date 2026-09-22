@@ -1359,6 +1359,48 @@ model EquipmentViewTemplate {
   @@index([scope, ownerId])
 }
 
+model ImportBatch {
+  id          String   @id @default(uuid())
+  projectId   String
+  category    String
+  /// Как назвать партию человеку: «Расчёт, 23 файла»
+  title       String
+  /// RUNNING | DONE | FAILED | CANCELLED
+  state       String   @default("RUNNING")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, createdAt])
+}
+
+model ImportJob {
+  id          String    @id @default(uuid())
+  batchId     String
+  projectId   String
+  category    String
+  fileName    String
+  /// QUEUED | RUNNING | DONE | FAILED | CANCELLED
+  state       String    @default("QUEUED")
+  /// JSON: {units, tagLinks, selection, edits} — всё, что нужно для записи
+  payloadJson String
+  /// JSON: итог importEquipmentToDB
+  summaryJson String?
+  error       String?
+  attempt     Int       @default(0)
+  availableAt DateTime  @default(now())
+  leaseUntil  DateTime?
+  leaseOwner  String?
+  /// Ключ идемпотентности: повтор той же постановки не заводит второе задание
+  idemKey     String    @unique
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([state, availableAt])
+  @@index([batchId])
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Flux Play — встроенная игровая платформа.
 //

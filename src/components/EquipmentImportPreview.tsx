@@ -228,6 +228,36 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
     finally { setApplying(false); }
   };
 
+  /**
+   * Остальные файлы очереди — в фон.
+   *
+   * Двадцать три выгрузки никто не просматривает по одной: посмотрели первую,
+   * убедились, что разбор верный, и отправили остаток работать без себя. Окно
+   * после этого можно закрыть — очередь живёт на сервере.
+   *
+   * Ключ сеанса собирается из списка файлов, а не из времени: нажали дважды,
+   * закрыли и вернулись — задания те же, а не вторые.
+   */
+  const rest = fileIds.slice(idx + 1);
+  const queueRest = async () => {
+    setApplying(true);
+    try {
+      const r = await fetch('/api/import-jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId, category,
+          title: `Расчёт, файлов: ${rest.length}`,
+          idemKey: `files:${rest.join(',')}`.slice(0, 120),
+          files: rest.map((id) => ({ fileId: id })),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d.error || 'Не удалось поставить в очередь'); return; }
+      onDone({ files: queueLength, conflicts: totalConflicts });
+    } catch (e: any) { setError(e.message || 'Ошибка сети'); }
+    finally { setApplying(false); }
+  };
+
   const t = plan?.totals;
 
   return (
@@ -421,6 +451,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               <span className="text-xs text-slate-500">Выбрано к импорту: <b>{selectedCount}</b> из {plan.blocks.length}</span>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+                {rest.length > 0 && (
+                  <button type="button" onClick={queueRest} disabled={applying}
+                    title="Остальные файлы очереди уедут в фоне: окно можно закрыть, за ходом следите в «Центре операций»"
+                    className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-emerald-600 disabled:opacity-40 cursor-pointer">
+                    Остальные {rest.length} — в фоне
+                  </button>
+                )}
                 <button type="button" onClick={apply} disabled={applying || selectedCount === 0}
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

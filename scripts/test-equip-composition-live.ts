@@ -185,7 +185,57 @@ const get = (path: string) => call('GET', path);
   ok('характеристика двигателя собралась',
     rows.every((r) => String(r.cells?.[4] || '') === '15'), rows.map((r) => r.cells));
 
-  console.log('\n11. Уборка');
+  console.log('\n11. Фоновый ввоз: очередь переживает закрытое окно');
+  {
+    /**
+     * Папка расчётов — тот самый случай, ради которого очередь и заведена:
+     * двадцать три выгрузки, окно закрыли на седьмой. Здесь их две, но путь
+     * тот же самый: файл в хранилище → задание → разбор и запись на сервере.
+     */
+    const b64 = Buffer.from(VEZA_SAMPLE_XML, 'utf-8').toString('base64');
+    const made: string[] = [];
+    for (const name of ['партия-1.XML', 'партия-2.XML']) {
+      const f = await post('/api/files', { name, content: b64, type: 'FILE', size: b64.length });
+      const id = f.data?.file?.id || '';
+      if (id) made.push(id);
+    }
+    ok('файлы положены в хранилище', made.length === 2, made);
+
+    const idemKey = `проверка-${stamp}`;
+    const queued = await post('/api/import-jobs', {
+      projectId, category: 'AHU', title: 'Партия проверки', idemKey,
+      files: made.map((id) => ({ fileId: id })),
+    });
+    ok('партия поставлена в очередь', queued.status === 200 && queued.data?.queued === 2, queued.data);
+
+    // Повтор той же постановки не заводит второй ввоз — это держит база
+    const twice = await post('/api/import-jobs', {
+      projectId, category: 'AHU', title: 'Партия проверки', idemKey,
+      files: made.map((id) => ({ fileId: id })),
+    });
+    ok('повтор постановки не завёл второй ввоз', twice.data?.queued === 0 && twice.data?.already === 2, twice.data);
+
+    // Ждём проход очереди: она сама читает файлы, строит план и пишет
+    let batch: any = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const list = await get(`/api/import-jobs?projectId=${projectId}`);
+      batch = (list.data?.batches || []).find((x: any) => x.id === queued.data?.batchId);
+      if (batch && batch.state !== 'RUNNING') break;
+    }
+    ok('партия дошла до конца', batch?.state === 'DONE', batch);
+    ok('оба задания записаны', batch?.done === 2 && batch?.failed === 0, batch);
+    ok('в задании виден итог', !!batch?.jobs?.[0]?.summary, batch?.jobs?.[0]);
+
+    // Повторный ввоз того же файла позиций не удваивает — это уже проверено
+    // выше, здесь важно, что фоновый путь ведёт себя так же
+    const after = await get(`/api/projects/${projectId}/systems`);
+    const count = (after.data?.systems || []).flatMap((s: any) =>
+      (s.monoblocks || []).flatMap((m: any) => m.components || [])).length;
+    ok('позиций не удвоилось после фонового ввоза', count === comps4.length, [comps4.length, count]);
+  }
+
+  console.log('\n12. Уборка');
   const gone = await call('DELETE', `/api/projects/${projectId}`);
   ok('проверочный проект удалён', gone.ok, gone.status);
 
