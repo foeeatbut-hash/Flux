@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit, isKnownUnit } from './normalize.js';
-import { looksLikeVezaXml, parseVezaXml } from './vezaXml.js';
+import { looksLikeVezaXml, parseVezaXml, type VezaOptions } from './vezaXml.js';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam {
@@ -75,6 +75,8 @@ export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBl
 export interface ParsedUnit {
   name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[];
   tags?: string[]; note?: string;
+  /** Обозначение исправлено при разборе: кириллическая «А» на конце и т. п. */
+  nameFix?: { from: string; what: string };
 }
 export interface EquipParseResult {
   units: ParsedUnit[];
@@ -581,14 +583,14 @@ function findSystems(node: any, acc: any[]): void {
   }
 }
 
-export function parseEquipmentXML(xmlText: string): EquipParseResult {
+export function parseEquipmentXML(xmlText: string, opts: VezaOptions = {}): EquipParseResult {
   // Выгрузка САПР устроена не как обычный XML (плоский словарь + отдельное
   // дерево), и общий разбор ниже на ней не срабатывает вовсе: он ищет теги по
   // именам, а там все теги называются «N<число>». Поэтому формат узнаётся
   // первым, до всего остального.
   if (looksLikeVezaXml(xmlText)) {
     try {
-      const veza = parseVezaXml(xmlText, detectEquipType);
+      const veza = parseVezaXml(xmlText, detectEquipType, opts);
       if (veza.units.length) return veza;
     } catch (err) {
       console.warn('[equipmentParser] выгрузка САПР не разобралась:', (err as any)?.message);

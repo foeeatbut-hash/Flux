@@ -1,3 +1,4 @@
+import { similarityKeyOf } from '../equipment/tagPolicy.js';
 /**
  * Compares two JSON spec objects to see if they are different.
  * Returns an object with isDifferent: boolean and a list of changed properties.
@@ -102,4 +103,32 @@ export function overrideKey(group: string, key: string): string {
  */
 export function blockKey(systemName: string, mbName: string, code: string): string {
   return `${systemName}\u2016${mbName}\u2016${code}`;
+}
+
+// Нормализация кода установки для сопоставления: регистр, латиница/кириллица, дефисы
+function normCode(s: string): string {
+  return String(s || '').toLowerCase().replace(/[\s \-_.]/g, '')
+    .replace(/y/g, 'у').replace(/mn/g, 'мн').replace(/bl/g, 'бл');
+}
+
+/**
+ * Найти установку, в которую ляжет ввоз: точное имя, затем то же написание
+ * без опечаток раскладки, затем прежнее грубое сравнение.
+ *
+ * Обозначение теперь исправляется при разборе («…-001А» с кириллической «А»
+ * становится «…-001A»), а в реестре могла остаться установка, ввезённая раньше
+ * с опечаткой. Без сравнения по похожести повторный ввоз завёл бы ВТОРУЮ
+ * установку рядом с первой — со всеми тегами и историей у старой.
+ *
+ * Функция общая для плана и записи: раньше план сравнивал грубо, а запись —
+ * только точно, и предпросмотр обещал «обновим существующую», а в базе
+ * появлялась новая.
+ */
+export function matchSystem<T extends { name: string }>(existing: T[], name: string): { system: T | null; how: 'exact' | 'similar' | 'none' } {
+  const exact = existing.find(s => s.name === name);
+  if (exact) return { system: exact, how: 'exact' };
+  const key = similarityKeyOf(name);
+  const similar = existing.find(s => similarityKeyOf(s.name) === key)
+    || existing.find(s => normCode(s.name) === normCode(name));
+  return similar ? { system: similar, how: 'similar' } : { system: null, how: 'none' };
 }

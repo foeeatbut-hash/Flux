@@ -1,9 +1,12 @@
 import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit } from './normalize.js';
-import { vezaGroup, vezaGroupRoles, vezaKindSense, vezaLevel, vezaProp, vezaRole, vezaUnit, VEZA_SAME_ROLE } from './vezaDict.js';
-import { distribute, type TagSlot } from '../equipment/notes.js';
-import { PERMISSIVE_TAG_POLICY } from '../equipment/tagPolicy.js';
-import { roleById, type RoleId } from '../equipment/roles.js';
+import {
+  vezaGroup, vezaGroupRoles, vezaKindSense, vezaLevel, vezaParamRole, vezaProp, vezaRole, vezaUnit,
+  VEZA_SAME_ROLE, type KindMap,
+} from './vezaDict.js';
+import { distribute, type TagAssignment, type TagSlot } from '../equipment/notes.js';
+import { PERMISSIVE_TAG_POLICY, autoFixTag, type TagPolicy } from '../equipment/tagPolicy.js';
+import { NATURAL_OWNERS, isPtcWord, roleById, roleTitle, type RoleId } from '../equipment/roles.js';
 import type { EquipParseResult, ParsedBlock, ParsedMonoblock, ParsedUnit, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 
 /**
@@ -56,6 +59,28 @@ const kindOf = (el: El | undefined): string => attr(el, 'cfnElement');
 export function looksLikeVezaXml(text: string): boolean {
   const head = String(text || '').slice(0, 60000);
   return /<Elements\b/.test(head) && /cfnElement\s*=\s*"cad/.test(head);
+}
+
+/**
+ * Что разбору известно о проекте, куда кладут файл.
+ *
+ * Без проекта файл тоже разбирается — так его открывают для просмотра. Тогда
+ * теги ищутся по маркеру «Таг-номер», а исправляется только написание,
+ * смешивающее алфавиты: для остального нужен код проекта.
+ */
+export interface VezaOptions {
+  /** Правило тегов проекта; код проекта лежит в приставках */
+  policy?: TagPolicy;
+  /** Виды узлов, отнесённые к ролям людьми */
+  kinds?: KindMap;
+}
+
+interface Ctx {
+  policy: TagPolicy;
+  prefixes: string[];
+  kinds: KindMap;
+  detectType: (s: string) => string;
+  unknown: Set<string>;
 }
 
 /** Дети узла дерева, вместе с их видом; порядок сохраняется. */
@@ -212,15 +237,16 @@ function positionsIn(
   parentQty: number,
   parentRole: RoleId | '',
   unknown: Set<string>,
+  kinds: KindMap = {},
 ): RawPos[] {
   const out: RawPos[] = [];
   for (const c of childrenOf(node, dict)) {
     if (c.kind === 'cadReportCollection') continue;
-    const sense = vezaKindSense(c.kind);
+    const sense = vezaKindSense(c.kind, kinds);
     if (sense === 'skip') continue;
     if (sense === 'unknown') { if (c.kind) unknown.add(c.kind); continue; }
 
-    const role = vezaRole(c.kind) as RoleId;
+    const role = vezaRole(c.kind, kinds) as RoleId;
     const qty = perInstance(attr(c.el, 'cfnAmount'), parentQty);
     if (qty <= 0) continue; // дробное количество — материал, а не позиция
 
@@ -231,7 +257,7 @@ function positionsIn(
      * в реестре и вдвое больше требуемых тегов.
      */
     if (VEZA_SAME_ROLE.has(c.kind) && role === parentRole) {
-      out.push(...positionsIn(c.node, dict, parentQty, parentRole, unknown));
+      out.push(...positionsIn(c.node, dict, parentQty, parentRole, unknown, kinds));
       continue;
     }
 
@@ -240,7 +266,7 @@ function positionsIn(
       role,
       title: attr(c.el, 'cfnName') || roleById(role).title,
       qty,
-      children: positionsIn(c.node, dict, qty, role, unknown),
+      children: positionsIn(c.node, dict, qty, role, unknown, kinds),
     });
   }
   return out;
@@ -257,10 +283,23 @@ function positionsIn(
  */
 function groupsForRole(groups: SpecGroup[], role: RoleId): SpecGroup[] {
   const out: SpecGroup[] = [];
+  // Параметры, у которых своё место и своё имя в карточке подпозиции:
+  // «Электропривод SM24-S2» раздела клапана у привода становится «Привод · Модель»
+  const moved = new Map<string, SpecParam[]>();
   for (const g of groups) {
-    const params = (g.params || []).filter(p => vezaGroupRoles(p.sourceGroup || '').includes(role));
+    const params: SpecParam[] = [];
+    for (const p of g.params || []) {
+      const own = vezaParamRole(p.sourceGroup || '', p.sourceKey || '');
+      const roles = own ? own.roles : vezaGroupRoles(p.sourceGroup || '');
+      if (!roles.includes(role)) continue;
+      const as = own?.as?.[role];
+      if (!as) { params.push(p); continue; }
+      if (!moved.has(as.group)) moved.set(as.group, []);
+      moved.get(as.group)!.push({ ...p, key: as.key });
+    }
     if (params.length) out.push({ title: g.title, params });
   }
+  for (const [title, params] of moved) out.unshift({ title, params });
   return out;
 }
 
@@ -337,9 +376,9 @@ function parseBlock(
   entry: { el: El; node: any },
   dict: Record<string, El>,
   index: number,
-  detectType: (s: string) => string,
-  unknown: Set<string>,
+  ctx: Ctx,
 ): ParsedBlock[] {
+  const { detectType, unknown } = ctx;
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const cfnName = attr(entry.el, 'cfnName');
   const title = paramValue(groups, 'Блок', 'Наименование') || stripBlockPrefix(cfnName) || cfnName || `бл${index + 1}`;
@@ -372,9 +411,9 @@ function parseBlock(
 
   const counter = { at: 1 };
   const subs: ParsedBlock[] = [];
-  expand(positionsIn(entry.node, dict, 1, 'БЛОК', unknown), position, groups, detectType, counter, subs);
+  expand(positionsIn(entry.node, dict, 1, 'БЛОК', unknown, ctx.kinds), position, groups, detectType, counter, subs);
 
-  return assignTagsFromNote([block, ...subs], note);
+  return assignTagsFromNote([block, ...subs], note, ctx, groups, counter);
 }
 
 /**
@@ -384,11 +423,19 @@ function parseBlock(
  * этой роли, второй — второй. Подгонки по названию модели нет и не будет:
  * выдумав соответствие один раз, программа ошибалась бы в нём молча и всегда.
  *
- * Расхождения не выравниваются. Три тега привода при двух приводах остаются
- * тремя строками: две привязки и одно «позиции для тега нет» с выбором для
- * человека. Это данные заказчика, а не ошибка разбора.
+ * Тег, которому в расчёте места нет, заводит позицию сам (`fromNote`): так
+ * распорядился владелец — «если позиции нет, всё создаётся автоматически».
+ * Три тега привода при двух приводах в расчёте — это третий привод, и терять
+ * его тег нельзя. Позиция помечена «по примечанию», и в предпросмотре её
+ * снимают галочкой, если расчёт прав, а примечание — нет.
  */
-function assignTagsFromNote(positions: ParsedBlock[], note: string): ParsedBlock[] {
+function assignTagsFromNote(
+  positions: ParsedBlock[],
+  note: string,
+  ctx: Ctx,
+  blockGroups: SpecGroup[],
+  counter: { at: number },
+): ParsedBlock[] {
   if (!note.trim()) return positions;
 
   const slots: TagSlot[] = positions.map(p => ({
@@ -401,10 +448,11 @@ function assignTagsFromNote(positions: ParsedBlock[], note: string): ParsedBlock
 
   // Разбор раздаёт теги, но не судит написание: правила проекта тут ещё
   // неизвестны, а отброшенный тег — это молча потерянная связь. Кириллическую
-  // «С» вместо латинской «C» поймает план импорта, когда проект уже выбран
-  const { assignments } = distribute(note, slots, PERMISSIVE_TAG_POLICY);
+  // «С» вместо латинской «C» исправит план импорта, когда проект уже выбран
+  const { assignments } = distribute(note, slots, { policy: PERMISSIVE_TAG_POLICY, prefixes: ctx.prefixes });
   const byKey = new Map<string, ParsedBlock>(positions.map(p => [p.name, p]));
   const loose: TagEvidence[] = [];
+  const homeless: { a: TagAssignment; evidence: TagEvidence }[] = [];
 
   for (const a of assignments) {
     const evidence: TagEvidence = {
@@ -416,10 +464,18 @@ function assignTagsFromNote(positions: ParsedBlock[], note: string): ParsedBlock
       phrase: a.evidence.text,
     };
     const target = a.slotKey ? byKey.get(a.slotKey) : undefined;
-    if (!target) { loose.push(evidence); continue; }
-    target.tags = [...(target.tags || []), a.identifier];
-    target.tagNotes = [...(target.tagNotes || []), evidence];
+    if (target) {
+      target.tags = [...(target.tags || []), a.identifier];
+      target.tagNotes = [...(target.tagNotes || []), evidence];
+      continue;
+    }
+    // Блок уже есть — второй блок из примечания не заводится: лишний тег
+    // блока остаётся на нём с объяснением
+    if (a.verdict === 'no-slot' && a.role && a.role !== 'БЛОК') { homeless.push({ a, evidence }); continue; }
+    loose.push(evidence);
   }
+
+  if (homeless.length) fromNote(positions, homeless, blockGroups, ctx.detectType, counter);
 
   // Теги без позиции показываются на блоке: там же лежит примечание, из
   // которого они взяты, и оттуда человеку и решать, куда их деть
@@ -427,7 +483,89 @@ function assignTagsFromNote(positions: ParsedBlock[], note: string): ParsedBlock
   return positions;
 }
 
-function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, detectType: (s: string) => string, unknown: Set<string>): ParsedMonoblock {
+/** Сначала владельцы, потом содержимое: привод по примечанию ищет клапан */
+const CREATE_ORDER: RoleId[] = [
+  'ВЕНТИЛЯТОР', 'КЛАПАН', 'ФИЛЬТР', 'НАГРЕВАТЕЛЬ', 'ОХЛАДИТЕЛЬ', 'УВЛАЖНИТЕЛЬ', 'РЕКУПЕРАТОР',
+  'ШУМОГЛУШИТЕЛЬ', 'ОБВЯЗКА', 'ДВИГАТЕЛЬ', 'ПРИВОД', 'НАСОС', 'ТЭН', 'КОРОБКА', 'ДАТЧИК',
+  'ОСНАЩЕНИЕ', 'ПРОЧЕЕ',
+];
+
+/**
+ * Позиции, которых нет в расчёте, но у которых есть тег.
+ *
+ * Владелец выбирается по тому, где такое оборудование стоит обычно
+ * (`NATURAL_OWNERS`): привод — в клапане, клеммная коробка — в клапане, датчик
+ * ПТС — в двигателе, ТЭН — в нагревателе. Один подходящий владелец — все к
+ * нему; владельцев столько же, сколько тегов, — по одному, по порядку, как и
+ * всё в примечании. Иначе позиция встаёт в блок, и об этом сказано словами:
+ * угадать владельца из трёх клапанов программа не вправе.
+ */
+function fromNote(
+  positions: ParsedBlock[],
+  homeless: { a: TagAssignment; evidence: TagEvidence }[],
+  blockGroups: SpecGroup[],
+  detectType: (s: string) => string,
+  counter: { at: number },
+): void {
+  const block = positions[0];
+  const byRole = new Map<RoleId, typeof homeless>();
+  for (const h of homeless) {
+    const r = h.a.role as RoleId;
+    if (!byRole.has(r)) byRole.set(r, []);
+    byRole.get(r)!.push(h);
+  }
+
+  for (const role of CREATE_ORDER) {
+    const list = byRole.get(role);
+    if (!list) continue;
+    const ptc = role === 'ДАТЧИК' && list.every(h => isPtcWord(h.a.word));
+    const pref: RoleId[] = ptc ? ['ДВИГАТЕЛЬ'] : (NATURAL_OWNERS[role] || []);
+    let owners: ParsedBlock[] = [];
+    for (const r of pref) {
+      const found = positions.filter(p => p.role === r);
+      if (found.length) { owners = found; break; }
+    }
+
+    list.forEach((h, i) => {
+      const owner = owners.length === 1 ? owners[0]
+        : owners.length > 1 && owners.length === list.length ? owners[i]
+          : block;
+      const siblings = positions.filter(p => p.parentName === owner.name && p.role === role);
+      const no = siblings.length + 1;
+      const base = siblings[0]?.title.replace(/\s+№\d+$/, '') || (ptc ? 'Датчик ПТС' : roleTitle(role));
+      const title = siblings.length || list.length > 1 ? `${base} №${no}` : base;
+      const name = `${owner.name}/${role.toLowerCase()}${no}`;
+      const detected = detectType(title);
+
+      const why = [
+        siblings.length
+          ? `В расчёте позиций «${roleTitle(role)}» здесь ${siblings.length}, а тегов в примечании больше — эта заведена по примечанию`
+          : `В расчёте такой позиции нет — заведена по примечанию`,
+        owner === block && pref.length
+          ? 'Владельца не определить однозначно: позиция стоит в блоке, перенесите её, если нужно'
+          : '',
+      ].filter(Boolean).join('. ');
+
+      positions.push({
+        name,
+        title,
+        equipType: detected === 'ПРОЧЕЕ' ? role : detected,
+        groups: groupsForRole(blockGroups, role),
+        position: name,
+        role,
+        parentName: owner.name,
+        sourceKind: 'note',
+        instanceNo: no,
+        instanceCount: no,
+        sourceOrder: counter.at++,
+        tags: [h.a.identifier],
+        tagNotes: [{ ...h.evidence, verdict: 'created', why }],
+      });
+    });
+  }
+}
+
+function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, index: number, ctx: Ctx): ParsedMonoblock {
   const name = attr(entry.el, 'cfnName') || `мн${index + 1}`;
   const groups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const note = notesOf(entry.node, dict);
@@ -443,7 +581,7 @@ function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, 
 
   for (const folder of childrenByKind(entry.node, dict, 'cadBlocksFolder')) {
     const items = childrenByKind(folder.node, dict, 'cadBlockFolder');
-    items.forEach((b, i) => blocks.push(...parseBlock(b, dict, i, detectType, unknown)));
+    items.forEach((b, i) => blocks.push(...parseBlock(b, dict, i, ctx)));
   }
 
   return { name, title: name, blocks, ...(note ? { note } : {}) };
@@ -455,7 +593,11 @@ function parseMonoblock(entry: { el: El; node: any }, dict: Record<string, El>, 
  * `detectType` передаётся снаружи, а не берётся из `equipmentParser`: иначе
  * два модуля ссылались бы друг на друга по кругу, и сборка это бы не простила.
  */
-export function parseVezaXml(xmlText: string, detectType: (s: string) => string): EquipParseResult {
+export function parseVezaXml(
+  xmlText: string,
+  detectType: (s: string) => string,
+  opts: VezaOptions = {},
+): EquipParseResult {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -484,6 +626,13 @@ export function parseVezaXml(xmlText: string, detectType: (s: string) => string)
   // Молчать о них нельзя: завтра САПР назовёт новый аппарат новым словом, и
   // тихо пропавшая позиция обнаружится на объекте, а не в предпросмотре
   const unknown = new Set<string>();
+  const ctx: Ctx = {
+    policy: opts.policy || PERMISSIVE_TAG_POLICY,
+    prefixes: opts.policy?.prefixes || [],
+    kinds: opts.kinds || {},
+    detectType,
+    unknown,
+  };
 
   for (const ordersFolder of childrenByKind(structure, dict, 'cadOrdersFolder')) {
     for (const order of childrenByKind(ordersFolder.node, dict, 'cadOrderFolder')) {
@@ -495,7 +644,7 @@ export function parseVezaXml(xmlText: string, detectType: (s: string) => string)
 
       for (const unitsFolder of childrenByKind(order.node, dict, 'cadUnitsFolder')) {
         const units = childrenByKind(unitsFolder.node, dict, 'cadUnitFolder');
-        units.forEach((u, i) => result.units.push(parseUnit(u, dict, i, orderGroups, detectType, unknown)));
+        units.forEach((u, i) => result.units.push(parseUnit(u, dict, i, orderGroups, ctx)));
       }
     }
   }
@@ -509,8 +658,7 @@ function parseUnit(
   dict: Record<string, El>,
   index: number,
   orderGroups: SpecGroup[],
-  detectType: (s: string) => string,
-  unknown: Set<string>,
+  ctx: Ctx,
 ): ParsedUnit {
   const ownGroups = collectionsOf(entry.node, dict).flatMap(c => c.groups);
   const groups = [...orderGroups, ...ownGroups];
@@ -518,7 +666,17 @@ function parseUnit(
   // Обозначение установки по проекту («3700-A01-HU-001В») — это тег, адрес
   // установки в документации. Он и становится именем: по нему установку ищут,
   // и по нему импорт привязывает её к уже заведённому в проекте тегу
-  const designation = attr(entry.el, 'proUnitName') || paramValue(ownGroups, 'Параметры установки', 'Обозначение установки');
+  const written = attr(entry.el, 'proUnitName') || paramValue(ownGroups, 'Параметры установки', 'Обозначение установки');
+
+  /**
+   * Обозначение набирают руками, и последняя буква нередко кириллическая:
+   * «3700-B02-AS-001А». Из двадцати трёх выгрузок заказчика таких одиннадцать.
+   * С кириллической буквой тег установки не проходит правил проекта, и
+   * дерево тегов теряет корень — поэтому опечатка раскладки исправляется
+   * здесь же, а предпросмотр говорит, что было исправлено.
+   */
+  const fix = written ? autoFixTag(written, ctx.policy) : null;
+  const designation = fix ? fix.identifier : written;
   const cfnName = attr(entry.el, 'cfnName');
   const name = designation || cfnName || `у${index + 1}`;
   const title = attr(entry.el, 'proFrontName') || cfnName || name;
@@ -526,7 +684,7 @@ function parseUnit(
   const monoblocks: ParsedMonoblock[] = [];
   for (const folder of childrenByKind(entry.node, dict, 'cadMonoblocksFolder')) {
     for (const m of childrenByKind(folder.node, dict, 'cadMonoblockFolder')) {
-      monoblocks.push(parseMonoblock(m, dict, monoblocks.length, detectType, unknown));
+      monoblocks.push(parseMonoblock(m, dict, monoblocks.length, ctx));
     }
   }
 
@@ -534,6 +692,7 @@ function parseUnit(
   return {
     name, title, groups, monoblocks,
     tags: designation ? [designation] : [],
+    ...(fix ? { nameFix: { from: fix.from, what: fix.what } } : {}),
     ...(note ? { note } : {}),
   };
 }

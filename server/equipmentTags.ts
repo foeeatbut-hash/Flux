@@ -9,7 +9,7 @@
 // Молча тег не создаётся и не перевешивается: решение принимает человек.
 
 import {
-  DEFAULT_TAG_POLICY, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
+  DEFAULT_TAG_POLICY, autoFixTag, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
 } from '../equipment/tagPolicy.js';
 
 export interface TagCandidate { id: string; identifier: string; why: string }
@@ -38,6 +38,13 @@ export interface TagLink {
   takenBy?: string;
   /** Похожие теги проекта: другой регистр, латиница/кириллица, дефисы */
   candidates?: TagCandidate[];
+  /**
+   * Написание исправлено сразу: опечатка раскладки («3700-B01-СС-001A» с
+   * кириллическими «С»). Так решил владелец — такие теги читать и заводить, а
+   * не отбрасывать. `from` — как было в файле: предпросмотр показывает его и
+   * даёт вернуть, если «опечатка» была намеренной.
+   */
+  corrected?: { from: string; what: string; keepValid: boolean };
 }
 
 /**
@@ -90,11 +97,18 @@ export function planTagLinks(
   const seen = new Set<string>();
   for (const blk of blocks) {
     for (const raw of blk.tags || []) {
-      const identifier = String(raw || '').trim();
-      if (!identifier) continue;
+      const written = String(raw || '').trim();
+      if (!written) continue;
+      const fix = autoFixTag(written, policy);
+      const identifier = fix ? fix.identifier : written;
       const key = `${blk.key}‖${identifier}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      // «Оставить как в файле» возможно, только если так писать разрешено:
+      // при запрещённой кириллице запись всё равно отказала бы
+      const corrected = fix
+        ? { corrected: { from: fix.from, what: fix.what, keepValid: validateTag(fix.from, policy).ok } }
+        : {};
 
       /**
        * Сначала проверка правил проекта, и только потом поиск совпадений.
@@ -105,7 +119,7 @@ export function planTagLinks(
       if (!check.ok) {
         out.push({
           blockKey: blk.key, identifier, action: 'invalid',
-          problem: check.problem, ...(check.fix ? { fix: check.fix } : {}),
+          problem: check.problem, ...(check.fix ? { fix: check.fix } : {}), ...corrected,
         });
         continue;
       }
@@ -117,18 +131,18 @@ export function planTagLinks(
       const exact = hits.filter(t => t.identifier === identifier);
       if (exact.length === 1) {
         const takenBy = (exact[0].componentIds || [])[0];
-        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: exact[0].id, takenBy });
+        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: exact[0].id, takenBy, ...corrected });
         continue;
       }
 
       if (hits.length === 1) {
         const takenBy = (hits[0].componentIds || [])[0];
-        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: hits[0].id, takenBy });
+        out.push({ blockKey: blk.key, identifier, action: 'link', existingTagId: hits[0].id, takenBy, ...corrected });
         continue;
       }
       if (hits.length > 1) {
         out.push({
-          blockKey: blk.key, identifier, action: 'ambiguous',
+          blockKey: blk.key, identifier, action: 'ambiguous', ...corrected,
           candidates: hits.slice(0, 5).map(t => ({
             id: t.id, identifier: t.identifier,
             why: 'после приведения написаний совпадает с этим тегом',
@@ -141,13 +155,14 @@ export function planTagLinks(
       const near = (byBare.get(bare(identifier)) || []).slice(0, 5)
         .map(t => ({ id: t.id, identifier: t.identifier, why: 'то же обозначение, другие разделители' }));
       if (near.length > 1) {
-        out.push({ blockKey: blk.key, identifier, action: 'ambiguous', candidates: near });
+        out.push({ blockKey: blk.key, identifier, action: 'ambiguous', candidates: near, ...corrected });
         continue;
       }
       out.push({
         blockKey: blk.key, identifier,
         action: near.length ? 'link' : 'create',
         ...(near.length ? { existingTagId: near[0].id, candidates: near } : {}),
+        ...corrected,
       });
     }
   }

@@ -78,6 +78,28 @@ const result = (value: string, tags?: string[]) => ({
     const none = filterBySelection(result('6200') as any, new Set(['другой']));
     ok('невыбранное отброшено целиком', none.units.length === 0, none);
   }
+  {
+    // Привод внутри клапана и двигатель внутри вентилятора — второй уровень
+    // состава. Раньше выбор блоков их отбрасывал всегда: владельцем привода
+    // считался только блок, а у привода владелец — клапан
+    const deep = {
+      units: [{ name: 'У1', title: '', groups: [], monoblocks: [{ name: 'M1', title: '', blocks: [
+        { name: '4', title: 'Блок', equipType: 'ВОЗДУХОПРИЁМНЫЙ', groups: [], role: 'БЛОК' },
+        { name: '4/клапан1', title: 'Клапан', equipType: 'КЛАПАН', groups: [], role: 'КЛАПАН', parentName: '4' },
+        { name: '4/клапан1/привод1', title: 'Привод №1', equipType: 'ПРИВОД', groups: [], role: 'ПРИВОД', parentName: '4/клапан1' },
+        { name: '4/клапан1/привод2', title: 'Привод №2', equipType: 'ПРИВОД', groups: [], role: 'ПРИВОД', parentName: '4/клапан1' },
+      ] }] }],
+    };
+    const keys = deep.units[0].monoblocks[0].blocks.map((b) => blockKey('У1', 'M1', b.name));
+    const all = filterBySelection(deep as any, new Set(keys));
+    ok('приводы внутри клапана пережили выбор', all.units[0].monoblocks[0].blocks.length === 4,
+      all.units[0].monoblocks[0].blocks.map((b: any) => b.name));
+    const noDrive = filterBySelection(deep as any, new Set(keys.filter((k) => !k.endsWith('привод2'))));
+    ok('снятый привод не уезжает', noDrive.units[0].monoblocks[0].blocks.length === 3);
+    const noValve = filterBySelection(deep as any, new Set(keys.filter((k) => !k.endsWith('клапан1'))));
+    ok('без клапана не уезжают и его приводы', noValve.units[0].monoblocks[0].blocks.length === 1,
+      noValve.units[0].monoblocks[0].blocks.map((b: any) => b.name));
+  }
 
   console.log('4. Новое оборудование');
   {
@@ -118,6 +140,29 @@ const result = (value: string, tags?: string[]) => ({
   {
     const links = planTagLinks([{ key: 'k1', tags: ['T-1'] }], [{ id: 't1', identifier: 'T-1', componentIds: ['other'] }]);
     ok('занятость тега видна заранее', links[0].takenBy === 'other', links[0]);
+  }
+  {
+    // «3700-B01-СС-001A» с кириллическими «СС» — из присланного владельцем файла.
+    // Раньше план говорил «недопустим» и тег не писался вовсе
+    const strict = { allowCyrillic: false, prefixes: ['3700'], masks: [], version: 1 };
+    const [cc] = planTagLinks([{ key: 'k1', tags: ['3700-B01-СС-001A'] }], [], strict);
+    ok('опечатка раскладки исправлена сразу', cc.identifier === '3700-B01-CC-001A' && cc.action === 'create', cc);
+    ok('видно, как было в файле', cc.corrected?.from === '3700-B01-СС-001A', cc.corrected);
+    ok('при запрете кириллицы «оставить как есть» недоступно', cc.corrected?.keepValid === false, cc.corrected);
+    const [known] = planTagLinks([{ key: 'k1', tags: ['3700-B01-СС-001A'] }], [{ id: 't7', identifier: '3700-B01-CC-001A' }], strict);
+    ok('исправленный тег находит уже заведённый', known.action === 'link' && known.existingTagId === 't7', known);
+    const cyr = { ...strict, allowCyrillic: true };
+    const [mixed] = planTagLinks([{ key: 'k1', tags: ['3700-B01-СС-001A'] }], [], cyr);
+    ok('смешение алфавитов исправляется и при разрешённой кириллице', mixed.identifier === '3700-B01-CC-001A', mixed);
+    ok('а оставить как есть тогда можно', mixed.corrected?.keepValid === true, mixed.corrected);
+  }
+  {
+    // Установка ищется одинаково в плане и при записи
+    const { matchSystem } = await import('../server/specUtils.js');
+    const got = matchSystem([{ name: '3700-B02-AS-001А' }], '3700-B02-AS-001A');
+    ok('установка с опечаткой находится по исправленному имени', got.how === 'similar', got);
+    ok('точное имя — точное', matchSystem([{ name: 'У1' }], 'У1').how === 'exact');
+    ok('чужая не находится', matchSystem([{ name: '3700-B02-AS-001B' }], '3700-B02-AS-001A').how === 'none');
   }
   {
     // Применение решений: занятый тег не перевешивается молча

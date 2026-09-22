@@ -3753,7 +3753,7 @@ app.post('/api/equipment/import-plan', async (req: Request, res: Response) => {
   if (!fileId || !category) return res.status(400).json({ error: 'Не указан файл или категория' });
   try {
     const projectId = await resolveImportProject(reqProjectId);
-    const { result, fileName } = await readEquipmentFile(fileId);
+    const { result, fileName } = await readEquipmentFile(fileId, projectId);
     const edited = applyEdits(result, edits);
     const plan = await planEquipmentImport(prisma, projectId, category, edited);
     res.json({ success: true, fileName, plan });
@@ -3772,7 +3772,7 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
 
   try {
     const projectId = await resolveImportProject(reqProjectId);
-    const { result, fileName } = await readEquipmentFile(fileId);
+    const { result, fileName } = await readEquipmentFile(fileId, projectId);
 
     // Правки предпросмотра и выбор области применяются до записи
     const edited = applyEdits(result, edits);

@@ -11,17 +11,28 @@ export interface TagCandidate { id: string; identifier: string; why: string }
 export interface TagLink {
   blockKey: string;
   identifier: string;
-  action: 'link' | 'create' | 'skip';
+  action: 'link' | 'create' | 'skip' | 'ambiguous' | 'invalid';
   existingTagId?: string;
   takenBy?: string;
   candidates?: TagCandidate[];
+  problem?: string;
+  /** Опечатка раскладки исправлена сервером: как было и что заменено */
+  corrected?: { from: string; what: string; keepValid: boolean };
+  /** Человек выбрал «оставить как в файле» — уедет написание из файла */
+  keepAsWritten?: boolean;
 }
+
+/** Какое написание уедет на запись — с учётом решения «оставить как в файле». */
+export const writtenAs = (l: TagLink): string =>
+  (l.keepAsWritten && l.corrected ? l.corrected.from : l.identifier);
 
 interface Props {
   links: TagLink[];
   /** Подпись позиции по её адресу — чтобы было видно, к чему относится тег */
   titleOf: (blockKey: string) => string;
   onChange: (index: number, action: TagLink['action']) => void;
+  /** Вернуть написание из файла или снова исправить */
+  onKeep?: (index: number, keep: boolean) => void;
 }
 
 const CHOICES: { value: TagLink['action']; label: string; hint: string; Icon: any }[] = [
@@ -30,7 +41,7 @@ const CHOICES: { value: TagLink['action']; label: string; hint: string; Icon: an
   { value: 'skip', label: 'Не связывать', hint: 'оставить позицию без тега', Icon: MinusCircle },
 ];
 
-export default function TagLinksPanel({ links, titleOf, onChange }: Props) {
+export default function TagLinksPanel({ links, titleOf, onChange, onKeep }: Props) {
   if (!links.length) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-slate-400 p-8 text-center">
@@ -59,7 +70,7 @@ export default function TagLinksPanel({ links, titleOf, onChange }: Props) {
               className="rounded-lg border border-slate-200 dark:border-slate-800 p-2.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <TagIcon className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="font-mono text-sm font-bold text-slate-800 dark:text-white">{l.identifier}</span>
+                <span className="font-mono text-sm font-bold text-slate-800 dark:text-white">{writtenAs(l)}</span>
                 <span className="text-xs text-slate-400 truncate">→ {titleOf(l.blockKey)}</span>
                 <span className="flex-1" />
                 {CHOICES.map(c => (
@@ -78,6 +89,24 @@ export default function TagLinksPanel({ links, titleOf, onChange }: Props) {
                   </button>
                 ))}
               </div>
+              {l.corrected && (
+                <div className="mt-1.5 pl-6 flex items-center gap-2 flex-wrap text-xs">
+                  <span className={l.keepAsWritten ? 'text-amber-600' : 'text-emerald-700 dark:text-emerald-400'}>
+                    {l.keepAsWritten
+                      ? `Оставлено как в файле — без исправления (${l.corrected.what})`
+                      : <>Исправлено: {l.corrected.what}. В файле было «<span className="font-mono">{l.corrected.from}</span>»</>}
+                  </span>
+                  {onKeep && (
+                    <button type="button"
+                      disabled={!l.keepAsWritten && !l.corrected.keepValid}
+                      title={!l.corrected.keepValid ? 'В проекте кириллица запрещена — так тег не запишется' : undefined}
+                      onClick={() => onKeep(i, !l.keepAsWritten)}
+                      className="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white font-bold cursor-pointer disabled:opacity-40 disabled:cursor-default">
+                      {l.keepAsWritten ? 'Исправить' : 'Оставить как в файле'}
+                    </button>
+                  )}
+                </div>
+              )}
               {(l.takenBy || duplicated || (l.candidates || []).length > 0) && (
                 <div className="mt-1.5 pl-6 space-y-1 text-xs">
                   {l.takenBy && (

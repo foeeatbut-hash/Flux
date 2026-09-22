@@ -230,7 +230,10 @@ console.log('\n11. Подпозиции: оборудование внутри �
   ok('клапан стал позицией внутри блока', !!by('1.1/клапан1'), all.map(b => b.name));
   ok('у клапана роль КЛАПАН', by('1.1/клапан1')?.role === 'КЛАПАН', by('1.1/клапан1')?.role);
   ok('владелец клапана — блок', by('1.1/клапан1')?.parentName === '1.1', by('1.1/клапан1')?.parentName);
-  ok('приводов два', all.filter(b => b.role === 'ПРИВОД').length === 2, all.filter(b => b.role === 'ПРИВОД').map(b => b.name));
+  // Из расчёта приводов два; третий завёл лишний тег примечания (раздел 12)
+  ok('приводов из расчёта два',
+    all.filter(b => b.role === 'ПРИВОД' && b.sourceKind !== 'note').length === 2,
+    all.filter(b => b.role === 'ПРИВОД').map(b => `${b.name}:${b.sourceKind}`));
   ok('владелец привода — клапан, а не блок',
     by('1.1/клапан1/привод2')?.parentName === '1.1/клапан1', by('1.1/клапан1/привод2')?.parentName);
   ok('у одинаковых экземпляров номер в названии',
@@ -286,13 +289,19 @@ console.log('\n12. Теги примечания раздаются по пор�
   ok('второй — второму',
     JSON.stringify(by('1.1/клапан1/привод2')?.tags) === '["PR-01-DWD-007"]', by('1.1/клапан1/привод2')?.tags);
 
-  // Три тега привода при двух приводах — это данные заказчика. Программа
-  // показывает расхождение и спрашивает, а не прилепляет лишний к первому
-  const loose = (by('1.1')?.tagNotes || []).filter(e => e.verdict === 'no-slot');
-  ok('лишний тег привода не потерян и не пристроен молча',
-    loose.length === 1 && loose[0].identifier === 'PR-01-DWD-004', loose);
-  ok('у лишнего тега сказана причина', !!loose[0]?.why && loose[0].why.includes('ПРИВОД'), loose[0]?.why);
-  ok('видна фраза, из которой он взят', (loose[0]?.phrase || '').includes('Таг-номер привода'), loose[0]?.phrase);
+  // Три тега привода при двух приводах: по распоряжению владельца лишний тег
+  // заводит третий привод — «если позиции нет, всё создаётся автоматически».
+  // Не молча: позиция помечена «по примечанию» и объясняет, откуда взялась
+  const third = by('1.1/клапан1/привод3');
+  ok('лишний тег завёл третий привод', JSON.stringify(third?.tags) === '["PR-01-DWD-004"]', third);
+  ok('он помечен «по примечанию»', third?.sourceKind === 'note', third?.sourceKind);
+  ok('стоит в клапане, а не в блоке', third?.parentName === '1.1/клапан1', third?.parentName);
+  ok('номер продолжает счёт', /№3$/.test(third?.title || ''), third?.title);
+  const born = (third?.tagNotes || [])[0];
+  ok('у позиции сказана причина', born?.verdict === 'created' && /по примечанию/.test(born?.why || ''), born);
+  ok('видна фраза, из которой он взят', (born?.phrase || '').includes('Таг-номер привода'), born?.phrase);
+  ok('на блоке лишнего тега не осталось',
+    !(by('1.1')?.tagNotes || []).some(e => e.identifier === 'PR-01-DWD-004'), by('1.1')?.tagNotes);
 
   // Два вентилятора — два тега подряд, по порядку появления в файле
   ok('вентилятору №1 — первый тег',
@@ -304,6 +313,64 @@ console.log('\n12. Теги примечания раздаются по пор�
   // Фраза без маркера остаётся обычным примечанием
   ok('примечание не про теги осталось примечанием',
     (by('1.1')?.note || '').includes('Класс уровня протечки'), by('1.1')?.note);
+}
+
+console.log('\n13. Модель привода — у привода');
+{
+  const all = parse().units[0].monoblocks[0].blocks as ParsedBlock[];
+  const drive = all.find(b => b.name === '1.1/клапан1/привод1');
+  const valve = all.find(b => b.name === '1.1/клапан1');
+  const d = flat(drive?.groups || []);
+  ok('у привода есть модель', d.get('Привод||Модель') === 'ПР24-С', [...d.entries()]);
+  ok('у клапана модель привода осталась',
+    [...flat(valve?.groups || []).entries()].some(([k, v]) => /Электропривод/.test(k) && v === 'ПР24-С'),
+    [...flat(valve?.groups || []).keys()]);
+}
+
+console.log('\n14. Теги по коду проекта — без маркера и в любом месте фразы');
+{
+  const policy = { allowCyrillic: false, prefixes: ['PR'], masks: [], version: 1 };
+  const xml = VEZA_SAMPLE_XML.replace(
+    '&quot;Таг-номер вентилятор PR-01-BL-001A, PR-01-BL-002A&quot;',
+    '&quot;Вентиляторы PR-01-BL-001A и PR-01-BL-002A, коробка PR-01-JB-001&quot;',
+  );
+  const all = parseVezaXml(xml, detectEquipType, { policy }).units[0].monoblocks[0].blocks as ParsedBlock[];
+  const by = (name: string) => all.find(b => b.name === name);
+  ok('без «Таг-номер» тег вентилятора найден по коду',
+    JSON.stringify(by('1.3/вентилятор1')?.tags) === '["PR-01-BL-001A"]', by('1.3/вентилятор1')?.tags);
+  ok('второй — второму', JSON.stringify(by('1.3/вентилятор2')?.tags) === '["PR-01-BL-002A"]', by('1.3/вентилятор2')?.tags);
+  const box = all.find(b => b.role === 'КОРОБКА');
+  ok('клеммная коробка из примечания стала позицией', JSON.stringify(box?.tags) === '["PR-01-JB-001"]', all.map(b => `${b.name}:${b.role}`));
+  ok('коробка — «по примечанию»', box?.sourceKind === 'note', box?.sourceKind);
+
+  // Без кода проекта прежнее правило: тег только после маркера
+  const bare = parseVezaXml(xml, detectEquipType).units[0].monoblocks[0].blocks as ParsedBlock[];
+  ok('без кода проекта фраза без маркера тегов не даёт',
+    !(bare.find(b => b.name === '1.3/вентилятор1')?.tags || []).length);
+}
+
+console.log('\n15. Опечатка раскладки в обозначении установки');
+{
+  const policy = { allowCyrillic: false, prefixes: ['PR'], masks: [], version: 1 };
+  // Кириллическая «С» в обозначении — так в одиннадцати выгрузках заказчика из двадцати трёх
+  const xml = VEZA_SAMPLE_XML.replace('proUnitName="PR-01-AS-001"', 'proUnitName="PR-01-AS-001С"');
+  const u = parseVezaXml(xml, detectEquipType, { policy }).units[0] as ParsedUnit;
+  ok('обозначение исправлено на латиницу', u.name === 'PR-01-AS-001C', u.name);
+  ok('тег установки — исправленный', JSON.stringify(u.tags) === '["PR-01-AS-001C"]', u.tags);
+  ok('исправление названо', u.nameFix?.from === 'PR-01-AS-001С' && /С → C/.test(u.nameFix?.what || ''), u.nameFix);
+  // Без правил проекта исправляется только смешение алфавитов — оно тут есть
+  const loose = parseVezaXml(xml, detectEquipType).units[0] as ParsedUnit;
+  ok('смешение алфавитов исправляется и без проекта', loose.name === 'PR-01-AS-001C', loose.name);
+}
+
+console.log('\n16. Вид узла, отнесённый к роли человеком');
+{
+  const r = parseVezaXml(VEZA_SAMPLE_XML, detectEquipType, { kinds: { cadSteamHumidifier: 'УВЛАЖНИТЕЛЬ' } });
+  const all = r.units.flatMap(u => u.monoblocks.flatMap(m => m.blocks)) as ParsedBlock[];
+  ok('незнакомый вид больше не незнакомый', !(r.unknownKinds || []).includes('cadSteamHumidifier'), r.unknownKinds);
+  ok('и приехал позицией', all.some(b => b.role === 'УВЛАЖНИТЕЛЬ'), all.map(b => b.role));
+  const skipped = parseVezaXml(VEZA_SAMPLE_XML, detectEquipType, { kinds: { cadSteamHumidifier: 'НЕ_ПОЗИЦИЯ' } });
+  ok('«не позиция» просто пропускается', !(skipped.unknownKinds || []).includes('cadSteamHumidifier'), skipped.unknownKinds);
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

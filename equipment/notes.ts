@@ -24,7 +24,7 @@
  */
 
 import { roleByWord, type RoleId } from './roles.js';
-import { validateTag, type TagPolicy, DEFAULT_TAG_POLICY } from './tagPolicy.js';
+import { startsWithCode, tokensOf, validateTag, type TagPolicy, DEFAULT_TAG_POLICY } from './tagPolicy.js';
 
 /** Одна фраза примечания: текст и где он лежит в исходной строке. */
 export interface NotePhrase {
@@ -81,16 +81,69 @@ export interface TagPhrase {
   phrase: NotePhrase;
 }
 
+/** Как искать теги в примечании. */
+export interface PhraseOptions {
+  policy?: TagPolicy;
+  /**
+   * Коды проекта: «3700», «3700-B01».
+   *
+   * Известен код — тегом считается любое слово, которое с него начинается, в
+   * любом месте фразы: так владелец и описал правило, «тег начинается с кода
+   * проекта». Маркер «Таг-номер» при этом не обязателен. Кода нет — работает
+   * прежнее правило: тег идёт после маркера.
+   */
+  prefixes?: string[];
+}
+
+const optionsOf = (opts: TagPolicy | PhraseOptions | undefined): { policy: TagPolicy; prefixes: string[] } => {
+  if (opts && 'allowCyrillic' in opts) return { policy: opts as TagPolicy, prefixes: [] };
+  const o = (opts || {}) as PhraseOptions;
+  return {
+    policy: o.policy || DEFAULT_TAG_POLICY,
+    prefixes: (o.prefixes || []).map((p) => String(p || '').trim()).filter(Boolean),
+  };
+};
+
+/**
+ * Теги фразы по коду проекта — с ролью у каждого.
+ *
+ * Роль — ближайшее слово роли ПЕРЕД тегом. Фраза читается слева направо, и
+ * «Таг-номер клапана 3700-…-DW-001A, привода 3700-…-DWD-001» даёт клапану его
+ * тег, а приводу — свой. Слово роли после тега на тег не влияет: «3700-…,
+ * фильтр» — это пояснение, а не адрес.
+ */
+function coded(phrase: NotePhrase, prefixes: string[]): TagPhrase[] {
+  const out: TagPhrase[] = [];
+  let role: RoleId | '' = '';
+  let word = '';
+  for (const t of tokensOf(phrase.text)) {
+    if (prefixes.some((p) => startsWithCode(t.raw, p))) {
+      const last = out[out.length - 1];
+      if (last && last.role === role) last.tags.push(t.raw);
+      else out.push({ role, word, tags: [t.raw], phrase });
+      continue;
+    }
+    const guess = roleByWord(t.raw);
+    if (guess) { role = guess; word = t.raw; }
+  }
+  return out;
+}
+
 /**
  * Тег-фразы примечания.
  *
- * Фраза без маркера остаётся обычным примечанием: «Освещение внутри блока не
+ * Фраза без тега остаётся обычным примечанием: «Освещение внутри блока не
  * устанавливать» — это распоряжение производству, и превращать его во что-то
  * ещё программа не должна.
  */
-export function tagPhrasesOf(note: unknown, policy: TagPolicy = DEFAULT_TAG_POLICY): TagPhrase[] {
+export function tagPhrasesOf(note: unknown, opts: TagPolicy | PhraseOptions = DEFAULT_TAG_POLICY): TagPhrase[] {
+  const { policy, prefixes } = optionsOf(opts);
   const out: TagPhrase[] = [];
   for (const phrase of splitNote(note)) {
+    if (prefixes.length) {
+      const found = coded(phrase, prefixes);
+      if (found.length) { out.push(...found); continue; }
+    }
     const m = MARKER.exec(phrase.text);
     if (!m) continue;
     let rest = phrase.text.slice(m[0].length).trim().replace(/^[:—–-]\s*/, '');
@@ -144,6 +197,8 @@ export type AssignVerdict =
 export interface TagAssignment {
   identifier: string;
   role: RoleId | '';
+  /** Слово, по которому названа роль: «привода», «ПТС» */
+  word: string;
   verdict: AssignVerdict;
   /** Кому назначен — пусто, если назначать было некому */
   slotKey: string;
@@ -172,9 +227,10 @@ export interface DistributeResult {
 export function distribute(
   note: unknown,
   slots: TagSlot[],
-  policy: TagPolicy = DEFAULT_TAG_POLICY,
+  opts: TagPolicy | PhraseOptions = DEFAULT_TAG_POLICY,
   blockRole: RoleId = 'БЛОК',
 ): DistributeResult {
+  const { policy } = optionsOf(opts);
   const assignments: TagAssignment[] = [];
   const taken = new Set<string>();
   const byRole = new Map<RoleId, TagSlot[]>();
@@ -183,7 +239,7 @@ export function distribute(
     byRole.get(s.role)!.push(s);
   }
 
-  for (const phrase of tagPhrasesOf(note, policy)) {
+  for (const phrase of tagPhrasesOf(note, opts)) {
     const role = (phrase.role || blockRole) as RoleId;
     const queue = (byRole.get(role) || []).filter((s) => !taken.has(s.key));
     let at = 0;
@@ -193,7 +249,7 @@ export function distribute(
       const evidence = { text: phrase.phrase.text, start: phrase.phrase.start, end: phrase.phrase.end };
       if (!check.ok) {
         assignments.push({
-          identifier: check.identifier, role: phrase.role, verdict: 'invalid',
+          identifier: check.identifier, role: phrase.role, word: phrase.word, verdict: 'invalid',
           slotKey: '', why: check.problem, fix: check.fix, evidence,
         });
         continue;
@@ -201,7 +257,7 @@ export function distribute(
       const slot = queue[at];
       if (!slot) {
         assignments.push({
-          identifier: check.identifier, role: phrase.role, verdict: 'no-slot', slotKey: '',
+          identifier: check.identifier, role: phrase.role, word: phrase.word, verdict: 'no-slot', slotKey: '',
           why: queue.length
             ? `Тегов для роли «${role}» больше, чем позиций: лишний тег нужно отнести к позиции вручную`
             : `Позиции с ролью «${role}» в этом блоке нет — заведите её или отнесите тег к другой`,
@@ -212,7 +268,7 @@ export function distribute(
       at++;
       taken.add(slot.key);
       assignments.push({
-        identifier: check.identifier, role: phrase.role, verdict: 'assigned', slotKey: slot.key,
+        identifier: check.identifier, role: phrase.role, word: phrase.word, verdict: 'assigned', slotKey: slot.key,
         why: slot.instanceNo
           ? `Тег ${at} по порядку — позиции «${slot.title || slot.key}» (экземпляр ${slot.instanceNo})`
           : `Тег относится к позиции «${slot.title || slot.key}»`,

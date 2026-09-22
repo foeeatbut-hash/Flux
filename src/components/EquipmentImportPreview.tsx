@@ -5,7 +5,8 @@ import {
   Plus, RefreshCw, Minus, Pencil,
 } from 'lucide-react';
 import { rememberImport } from '../lib/lastImport';
-import TagLinksPanel, { type TagLink } from './import/TagLinksPanel';
+import TagLinksPanel, { type TagLink, writtenAs } from './import/TagLinksPanel';
+import UnknownKinds from './import/UnknownKinds';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -33,10 +34,17 @@ interface PlanBlock {
   // Состав: роль позиции, её владелец и номер экземпляра
   role?: string; parentKey?: string; instanceNo?: number; instanceCount?: number;
   sourceOrder?: number; tagNotes?: TagEvidence[];
+  /** `note` — позиции нет в расчёте, её завело примечание */
+  sourceKind?: string;
 }
-interface PlanSystem { name: string; title: string; action: 'create' | 'match'; matchedName?: string }
+interface PlanSystem {
+  name: string; title: string; action: 'create' | 'match'; matchedName?: string;
+  /** Обозначение исправлено при разборе: опечатка раскладки */
+  nameFix?: { from: string; what: string };
+}
 interface ImportPlan {
   systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
+  unknownKinds?: string[];
   totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
@@ -116,6 +124,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   };
   const setTagAction = (i: number, action: TagLink['action']) =>
     setTagLinks(list => list.map((l, j) => (j === i ? { ...l, action } : l)));
+  const setTagKeep = (i: number, keepAsWritten: boolean) =>
+    setTagLinks(list => list.map((l, j) => (j === i ? { ...l, keepAsWritten } : l)));
+  /** Тег позиции так, как он уедет на запись: с исправлением или без */
+  const tagOf = (key: string): string => {
+    const l = tagLinks.find(x => x.blockKey === key && x.action !== 'skip');
+    return l ? writtenAs(l) : '';
+  };
 
   // Дерево: система → её блоки (моноблок как подпись строки)
   /**
@@ -200,7 +215,10 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
     setApplying(true);
     try {
       // Теги только выбранных позиций: снятая галочка не должна завести тег
-      const chosenTags = tagLinks.filter(l => selectedBlocks.some(b => b.key === l.blockKey));
+      const chosenTags = tagLinks
+        .filter(l => selectedBlocks.some(b => b.key === l.blockKey))
+        // Решение «оставить как в файле» уезжает написанием из файла
+        .map(l => ({ ...l, identifier: writtenAs(l) }));
       const selection = selectedBlocks.map(b => b.key);
       const r = draft
         ? await fetch('/api/equipment/import-draft', {
@@ -308,6 +326,10 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               )}
             </div>
 
+            {(plan.unknownKinds || []).length > 0 && (
+              <UnknownKinds kinds={plan.unknownKinds || []} onSaved={() => loadPlan(edits)} />
+            )}
+
             <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
               {/* Дерево */}
               <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
@@ -322,7 +344,16 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                           {collapsed[sys] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1" title={s?.title}>{sys}</span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1"
+                          title={s?.nameFix ? `${s.title}\nОбозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»` : s?.title}>
+                          {sys}
+                        </span>
+                        {s?.nameFix && (
+                          <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold"
+                            title={`Обозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»`}>
+                            исправлено
+                          </span>
+                        )}
                         {s?.action === 'create'
                           ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
                           : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
@@ -332,7 +363,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                         // Тег, доставшийся позиции из примечания, и расхождения
                         // по нему — прямо в дереве: их решают до записи
                         const got = (b.tagNotes || []).filter(e => e.verdict === 'assigned');
-                        const trouble = (b.tagNotes || []).filter(e => e.verdict !== 'assigned');
+                        const trouble = (b.tagNotes || []).filter(e => e.verdict !== 'assigned' && e.verdict !== 'created');
                         return (
                           <div key={b.key}
                             style={{ paddingLeft: `${32 + depth * 12}px` }}
@@ -342,9 +373,16 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                             <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1" title={b.role && b.role !== 'БЛОК' ? `${b.title} · ${b.role}` : b.title}>
                               {b.itemCode === '__unit__' ? '⚙ параметры установки' : b.title}
                             </span>
-                            {got.length > 0 && (
-                              <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-mono truncate max-w-[9rem]" title={got.map(e => e.identifier).join(', ')}>
-                                {got[0].identifier}
+                            {b.sourceKind === 'note' && (
+                              <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold shrink-0"
+                                title="В расчёте такой позиции нет — её завёл тег из примечания. Снимите галочку, если прав расчёт">
+                                по примечанию
+                              </span>
+                            )}
+                            {(got.length > 0 || b.sourceKind === 'note') && (
+                              <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-mono truncate max-w-[9rem]"
+                                title={[...(b.tagNotes || [])].map(e => e.identifier).join(', ')}>
+                                {tagOf(b.key) || got[0]?.identifier || (b.tagNotes || [])[0]?.identifier}
                               </span>
                             )}
                             {trouble.length > 0 && (
@@ -442,7 +480,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             {/* Второй шаг: технологические позиции бланка */}
             {showTags && (
               <div className="flex-1 min-h-0 flex">
-                <TagLinksPanel links={tagLinks} titleOf={titleOfBlock} onChange={setTagAction} />
+                <TagLinksPanel links={tagLinks} titleOf={titleOfBlock} onChange={setTagAction} onKeep={setTagKeep} />
               </div>
             )}
 

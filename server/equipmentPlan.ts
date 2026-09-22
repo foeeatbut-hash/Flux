@@ -1,8 +1,8 @@
 import { EquipParseResult, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
-import { overrideKey, blockKey } from './specUtils.js';
+import { overrideKey, blockKey, matchSystem } from './specUtils.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
-import { policyOfProject } from './routes/tagPolicy.js';
+import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
@@ -44,12 +44,16 @@ export interface PlanBlock {
   sourceOrder?: number;
   /** Откуда взялись теги позиции и что с ними решено */
   tagNotes?: TagEvidence[];
+  /** Вид узла выгрузки; `note` — позиция заведена по примечанию */
+  sourceKind?: string;
 }
 
 export interface PlanSystem {
   name: string; title: string;
   action: 'create' | 'match';  // новая установка или обновление существующей
   matchedName?: string;        // если сопоставлена fuzzy — фактическое имя в БД
+  /** Обозначение исправлено при разборе: что было в файле и что заменено */
+  nameFix?: { from: string; what: string };
 }
 
 export interface ImportPlan {
@@ -61,6 +65,14 @@ export interface ImportPlan {
    * предпросмотре; молча теги не создаются и не перевешиваются.
    */
   tagLinks: TagLink[];
+  /**
+   * Виды узлов выгрузки, которых программа не знает.
+   *
+   * Разбор собирал их всегда, а до окна они не доходили — предпросмотр о них
+   * молчал, и позиция тихо не приезжала. Теперь их видно, и человек относит
+   * вид к роли прямо здесь.
+   */
+  unknownKinds?: string[];
   totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
 }
 
@@ -105,11 +117,6 @@ function validateParam(equipType: string, key: string, value: string): string | 
   return undefined;
 }
 
-// Нормализация кода установки для сопоставления: регистр, латиница/кириллица, дефисы
-function normCode(s: string): string {
-  return String(s || '').toLowerCase().replace(/[\s \-_.]/g, '')
-    .replace(/y/g, 'у').replace(/mn/g, 'мн').replace(/bl/g, 'бл');
-}
 
 // Правки предпросмотра: blockKey → "группа‖ключ" → новое значение
 export type EditMap = Record<string, Record<string, string>>;
@@ -159,6 +166,7 @@ export async function planEquipmentImport(
     systems: [],
     blocks: [],
     tagLinks: [],
+    ...(result.unknownKinds?.length ? { unknownKinds: result.unknownKinds } : {}),
     totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
   };
 
@@ -169,33 +177,30 @@ export async function planEquipmentImport(
 
   for (const unitData of result.units) {
     plan.totals.systems++;
-    // Точное имя, затем нормализованное сопоставление (у1==У1==y1==У-1)
-    let system = existingSystems.find((s: any) => s.name === unitData.name);
-    let matchedName: string | undefined;
-    if (!system) {
-      const nc = normCode(unitData.name);
-      system = existingSystems.find((s: any) => normCode(s.name) === nc);
-      if (system) matchedName = system.name;
-    }
+    // Точное имя, затем то же без опечаток раскладки (у1==У1==y1==У-1)
+    const found = matchSystem(existingSystems as any[], unitData.name);
+    const system: any = found.system;
+    const matchedName = found.how === 'similar' ? system.name : undefined;
     plan.systems.push({
       name: unitData.name,
       title: unitData.title,
       action: system ? 'match' : 'create',
       matchedName,
+      ...(unitData.nameFix ? { nameFix: unitData.nameFix } : {}),
     });
 
     // Плоский список блоков установки (как в importEquipmentToDB)
     const flatBlocks: {
       code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[];
       role?: string; parent?: string; instanceNo?: number; instanceCount?: number; sourceOrder?: number;
-      tagNotes?: TagEvidence[];
+      tagNotes?: TagEvidence[]; sourceKind?: string;
     }[] = [
       { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups, tags: unitData.tags, role: 'УСТАНОВКА' },
       ...unitData.monoblocks.flatMap(mb =>
         mb.blocks.map(b => ({
           code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups, tags: b.tags,
           role: b.role, parent: b.parentName, instanceNo: b.instanceNo, instanceCount: b.instanceCount,
-          sourceOrder: b.sourceOrder, tagNotes: b.tagNotes,
+          sourceOrder: b.sourceOrder, tagNotes: b.tagNotes, sourceKind: b.sourceKind,
         }))),
     ];
 
@@ -262,6 +267,7 @@ export async function planEquipmentImport(
         ...(blk.instanceNo ? { instanceNo: blk.instanceNo, instanceCount: blk.instanceCount } : {}),
         ...(blk.sourceOrder !== undefined ? { sourceOrder: blk.sourceOrder } : {}),
         ...(blk.tagNotes?.length ? { tagNotes: blk.tagNotes } : {}),
+        ...(blk.sourceKind ? { sourceKind: blk.sourceKind } : {}),
       });
     }
   }
@@ -279,7 +285,7 @@ export async function planEquipmentImport(
     }));
     // Правила проекта (алфавит, приставки) читаются здесь же: предпросмотр
     // обязан показывать то, что случится на записи, а не более мягкую картину
-    const policy = await policyOfProject(projectId);
+    const policy = await importPolicyOfProject(projectId);
     plan.tagLinks = planTagLinks(tagged, existingTags, policy);
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
@@ -303,16 +309,22 @@ export function filterBySelection(result: EquipParseResult, sel: Selection): Equ
       const kept = new Set<string>();
       const blocks = mb.blocks.filter(b => {
         /**
-         * Подпозиция уезжает вместе с владельцем.
+         * Подпозиция уезжает, только если выбрана она сама И уехал её владелец.
          *
-         * Выбирают в предпросмотре блоки, а не двигатели внутри них. Импорт
-         * двигателя без вентилятора оставил бы позицию без владельца: родителя
-         * тега взять неоткуда, и в дереве она повисла бы на установке.
+         * Владелец без подпозиции — законный выбор («двигатель уже заведён,
+         * не трогайте его»). Подпозиция без владельца — нет: родителя тега
+         * взять неоткуда, и в дереве она повисла бы на установке.
+         *
+         * Раньше здесь в «уехавших» числились только блоки, и привод внутри
+         * клапана (владелец — клапан, а не блок) отбрасывался всегда, стоило
+         * предпросмотру прислать выбор. Двигатель внутри вентилятора — так же.
+         * Владелец в списке всегда раньше своих подпозиций, поэтому одного
+         * прохода хватает на любую глубину.
          */
-        if (b.parentName) return kept.has(b.parentName);
         const own = isSelected(sel, blockKey(u.name, mb.name, b.name));
-        if (own) kept.add(b.name);
-        return own;
+        const ok = own && (!b.parentName || kept.has(b.parentName));
+        if (ok) kept.add(b.name);
+        return ok;
       });
       return { ...mb, blocks };
     }).filter(mb => mb.blocks.length > 0);

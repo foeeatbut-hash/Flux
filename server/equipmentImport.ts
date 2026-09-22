@@ -1,8 +1,8 @@
 import { EquipParseResult, SpecGroup } from './equipmentParser.js';
-import { blockKey } from './specUtils.js';
+import { blockKey, matchSystem } from './specUtils.js';
 import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
-import { policyOfProject } from './routes/tagPolicy.js';
+import { importPolicyOfProject } from './routes/tagPolicy.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
 export function flattenGroups(groups: SpecGroup[]): Record<string, { value: string; unit: string }> {
@@ -75,15 +75,23 @@ export async function importEquipmentToDB(
   // Состав в терминах blockKey — из него строится родство тегов
   const placed: { unit: string; key: string; parentKey: string; title: string }[] = [];
 
+  const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
   for (const unitData of result.units) {
     summary.systems++;
-    let system = await prisma.equipmentSystem.findFirst({
-      where: { projectId, name: unitData.name, category },
-    });
+    // Тот же поиск, что у плана: предпросмотр обещал «обновим существующую» —
+    // значит, обновляем её, даже если в реестре она записана с опечаткой
+    const found = matchSystem(existingSystems as any[], unitData.name);
+    let system: any = found.system;
+    if (system && found.how === 'similar' && system.name !== unitData.name) {
+      // В реестре — прежнее написание с опечаткой раскладки, в файле —
+      // исправленное. Установка остаётся той же, меняется только имя
+      system = await prisma.equipmentSystem.update({ where: { id: system.id }, data: { name: unitData.name } });
+    }
     if (!system) {
       system = await prisma.equipmentSystem.create({
         data: { projectId, name: unitData.name, category, fileName },
       });
+      existingSystems.push(system);
     }
 
     // Параметры самой установки храним отдельным служебным блоком "__unit__"
@@ -236,7 +244,7 @@ export async function importEquipmentToDB(
   // Теги — последним шагом: элементы уже есть, и решения инженера ложатся
   // ровно на те позиции, которые он видел в предпросмотре
   if (tagLinks && tagLinks.length) {
-    const policy = await policyOfProject(projectId);
+    const policy = await importPolicyOfProject(projectId);
     const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy);
     summary.tagsLinked = applied.linked;
     summary.tagsCreated = applied.created;
