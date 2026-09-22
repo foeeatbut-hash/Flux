@@ -9,5 +9,6 @@
 import './reversi.js';
 import './g2048.js';
 import './sudoku.js';
+import './checkers.js';
 
 export { rulesOf, allRules, freshSeed } from './kit.js';

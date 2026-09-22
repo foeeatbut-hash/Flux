@@ -138,6 +138,17 @@ export const PLAY_GAMES: PlayGameDef[] = [
     solo: true,
   },
   {
+    id: 'checkers',
+    title: 'Русские шашки',
+    short: 'Шашки',
+    desc: 'Доска 8×8 на двоих по русским правилам: бить обязательно и до конца',
+    teamSize: 1,
+    teams: 2,
+    installable: false,
+    adapter: 'checkers',
+    kind: 'builtin',
+  },
+  {
     id: 'fluxstrike',
     title: 'Flux Strike',
     short: 'Strike',
