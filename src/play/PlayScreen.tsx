@@ -27,6 +27,8 @@ import { isStale, usePlayStore } from '../store/playStore';
 import { usePlayPendingStore } from '../store/playPendingStore';
 import { dataService } from '../services/dataService';
 import * as api from '../services/playService';
+import * as gm from '../services/gameManager';
+import { gameById } from '../../play/features';
 import type { PlayActivity, PlayStatus } from '../../play/contracts';
 import { mainAction, type InstallState } from './mainAction';
 import { useLive } from './useLive';
@@ -58,6 +60,17 @@ export default function PlayScreen() {
   const pending = usePlayPendingStore();
   useLive(true);
 
+  // Что с игрой на этой машине и что выложено на сервере. Держится отдельно от
+  // состояния платформы: первое знает оболочка, второе — сервер
+  const [local, setLocal] = React.useState<gm.GameStatus>({
+    gameId: '', state: 'unavailable', installed: '', published: '', bytesDone: 0, bytesTotal: 0, failure: '',
+  });
+  const [build, setBuild] = React.useState<{ manifest: unknown; base: string; key: string } | null>(null);
+
+  /** Игра, о которой сейчас речь: выбранная группой, лобби или первая из своих */
+  const gameId = String(st.lobby?.gameId || st.party?.gameId || games[0]?.id || '');
+  const game = React.useMemo(() => gameById(gameId), [gameId]);
+
   // Состояние загружается и при обычном открытии, а не только по сокету:
   // связь могла не подняться, а раздел уже открыт
   React.useEffect(() => { void st.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,6 +96,45 @@ export default function PlayScreen() {
     return () => clearInterval(t);
   }, []);
 
+  /**
+   * Что выложено на сервере и что стоит на машине.
+   *
+   * Спрашиваем при смене игры и после каждой закачки. Чаще не надо: сборки
+   * выкладывают раз в неделю, а пересчёт отпечатков установленного — работа с
+   * диском, и делать её в цикле значило бы греть машину сотрудника ни за чем.
+   */
+  React.useEffect(() => {
+    let alive = true;
+    const g = gameById(gameId);
+    if (!gameId || (g && !g.installable)) { setBuild(null); return () => { alive = false; }; }
+    void (async () => {
+      const res = await api.fetchBuild(gameId);
+      const published = String((res.result as any)?.build?.version || '');
+      if (!alive) return;
+      setBuild(res.ok && (res.result as any)?.build
+        ? {
+          manifest: (res.result as any).build.manifest,
+          base: String((res.result as any).build.url || ''),
+          key: String((res.result as any).publisherKey || ''),
+        }
+        : null);
+      setLocal(await gm.statusOf(gameId, published));
+    })();
+    return () => { alive = false; };
+  }, [gameId]);
+
+  // Ход закачки приходит от оболочки событиями: опрашивать её незачем
+  React.useEffect(() => gm.onProgress((p) => {
+    if (p.gameId !== gameId) return;
+    setLocal((was) => ({
+      ...was,
+      state: p.failure ? was.state : (p.paused ? 'paused' : 'downloading'),
+      bytesDone: p.bytesDone,
+      bytesTotal: p.bytesTotal,
+      failure: p.failure || '',
+    }));
+  }), [gameId]);
+
   const stale = isStale(st.at, now);
   const presence = React.useMemo(() => {
     const map: Record<string, { status: PlayStatus; activity: PlayActivity }> = {};
@@ -95,20 +147,20 @@ export default function PlayScreen() {
   const allReady = slots.length > 0 && slots.every((s) => s.ready);
 
   /**
-   * Состояние игры на этой машине.
+   * Состояние игры на этой машине — от того, кто видит диск.
    *
-   * Локального менеджера игр ещё нет, и придумывать за него нельзя. Пока он не
-   * появился, проверочная игра считается установленной (она идёт вместе с
-   * программой), а всё остальное — неопубликованным: кнопка честно скажет, что
-   * ставить нечего, вместо того чтобы обещать установку.
+   * Игры, идущие вместе с программой (проверочная), менеджера не спрашивают:
+   * ставить их не надо, и ответа «не установлена» о них не существует.
+   * Остальное считает оболочка; в браузере её нет, и состояние честное —
+   * «поставить отсюда нечем».
    */
-  const gameId = String(st.lobby?.gameId || st.party?.gameId || games[0]?.id || '');
-  const install: InstallState = gameId === 'testgame' ? 'ready' : 'unavailable';
+  const install: InstallState = game && !game.installable ? 'ready' : local.state;
 
   const action = mainAction({
     link: st.link,
     maintenance: !!ctx.platform.maintenance,
     install,
+    manager: gm.hasManager(),
     session: st.session ? { state: String(st.session.state) } : null,
     lobby: st.lobby ? { state: String(st.lobby.state) } : null,
     party: st.party ? { leaderId: String(st.party.leaderId) } : null,
@@ -121,6 +173,23 @@ export default function PlayScreen() {
   const busyOf = (name: string) => pending.of(name).phase === 'sending';
   const failOf = (name: string) => (pending.of(name).phase === 'failed' ? pending.of(name).message : '');
 
+  /**
+   * Поставить игру по описи.
+   *
+   * Одна дорога на «Установить», «Обновить» и «Восстановить»: во всех трёх
+   * случаях делается ровно одно — скачивается и укладывается то, что описано
+   * описью. Разными их делает только состояние до нажатия.
+   */
+  const runInstall = async () => {
+    if (!build) return;
+    const status = await pending.run('game.install', () => gm.install({
+      gameId, manifest: build.manifest, base: build.base, publisherKey: build.key,
+    }).then((r) => (r.ok
+      ? { ok: true, result: r.status }
+      : { ok: false, message: r.problem })));
+    setLocal(status || await gm.statusOf(gameId, local.published));
+  };
+
   /** Нажали главную кнопку. Что именно делать, решает то же правило. */
   const runMain = async () => {
     const lobbyId = String(st.lobby?.id || '');
@@ -130,10 +199,35 @@ export default function PlayScreen() {
         await st.refresh();
         return;
       case 'return': {
-        await pending.run('session.rejoin', () => api.rejoinSession());
+        // Пропуск одноразовый: сначала берём новый, потом отдаём его игре.
+        // Порядок именно такой — запустить игру без пропуска значит показать
+        // человеку окно игры, которое тут же его выгонит
+        const back: any = await pending.run('session.rejoin', () => api.rejoinSession());
+        const ticket = String(back?.ticket || '');
+        const address = String(back?.session?.serverAddr || '');
+        if (ticket && address && gm.hasManager()) {
+          await gm.launch({ gameId, address, ticket, sessionId: String(st.session?.id || '') });
+        }
         await st.refresh();
         return;
       }
+      case 'install':
+      case 'update': {
+        if (!build) return;
+        await runInstall();
+        return;
+      }
+      case 'pause':
+        await gm.pause(gameId);
+        return;
+      case 'resume':
+        await gm.resume(gameId);
+        return;
+      case 'restore':
+        // «Восстановить» — это переустановка по описи, а не «лечение» файлов на
+        // месте: чинить повреждённое тем же повреждённым нечем
+        await runInstall();
+        return;
       case 'prepare':
         await pending.run('lobby.open', (key) => api.openLobby(gameId, key));
         await st.refresh();
@@ -148,14 +242,15 @@ export default function PlayScreen() {
         await st.refresh();
         return;
       default:
-        // Установка, обновление и восстановление придут с локальным
-        // менеджером игр. Пока его нет, кнопка в этих состояниях выключена
+        // Остальные состояния кнопку не нажимают: она в них выключена
         return;
     }
   };
 
-  const mainBusy = busyOf('lobby.open') || busyOf('lobby.ready') || busyOf('session.start') || busyOf('session.rejoin');
-  const mainFailure = failOf('lobby.open') || failOf('lobby.ready') || failOf('session.start') || failOf('session.rejoin');
+  const mainBusy = busyOf('lobby.open') || busyOf('lobby.ready') || busyOf('session.start')
+    || busyOf('session.rejoin') || busyOf('game.install');
+  const mainFailure = failOf('lobby.open') || failOf('lobby.ready') || failOf('session.start')
+    || failOf('session.rejoin') || failOf('game.install') || local.failure;
 
   const members: Person[] = (st.party?.members || []).map((m: any) => ({
     userId: m.userId,

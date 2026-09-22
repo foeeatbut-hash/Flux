@@ -26,6 +26,7 @@ import { closeLobby, lobbyOfParty, openLobby, setReady, setTeam, syncSlots } fro
 import { allocateServer, claimSession, cancelSession, rejoin, sessionOf } from './sessions.js';
 import { redeemTicket } from './tickets.js';
 import { acceptResult, resultOf } from './results.js';
+import { DEFAULT_CHANNEL, latestBuild, publisherKey } from './builds.js';
 import { snapshotFor } from './snapshot.js';
 
 const actorOf = (req: Request): string => String((req as any).authUser?.id || '');
@@ -72,6 +73,26 @@ export function registerPlayApi(app: Express): void {
 
   app.get('/api/play/inbox', async (req: Request, res: Response) => {
     await read(res, () => inboxOf(actorOf(req)));
+  });
+
+  /**
+   * Что опубликовано для этой игры.
+   *
+   * Спрашивает окно, а ставит оболочка: окно передаёт ей опись и открытый ключ
+   * издателя, оболочка сверяет подпись сама. Ключ отдаётся открытый — это ключ
+   * ПРОВЕРКИ; подписывающий лежит у владельца и на сервер не попадает.
+   *
+   * Игра, которой в каталоге нет, отвечает так же, как отсутствующая сборка:
+   * перечислять несуществующие игры платформа не должна.
+   */
+  app.get('/api/play/builds/:gameId', async (req: Request, res: Response) => {
+    const gameId = String(req.params.gameId || '');
+    await read(res, async () => {
+      if (!gameById(gameId)) return { build: null, publisherKey: '' };
+      const channel = String(req.query.channel || DEFAULT_CHANNEL);
+      const build = await latestBuild(gameId, channel);
+      return { build, publisherKey: build ? await publisherKey() : '' };
+    });
   });
 
   // ── Группа ────────────────────────────────────────────────────────────────

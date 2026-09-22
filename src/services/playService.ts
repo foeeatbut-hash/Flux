@@ -66,6 +66,9 @@ export const fetchState = () => get<any>('/state');
 export const fetchInbox = () => get<any[]>('/inbox');
 export const fetchPlatform = () => get<any>('/platform');
 
+/** Что опубликовано для игры: опись сборки и открытый ключ издателя. */
+export const fetchBuild = (gameId: string) => get<any>(`/builds/${encodeURIComponent(gameId)}`);
+
 // ── Группа ──────────────────────────────────────────────────────────────────
 
 export const createParty = (gameId: string | null, key: string) => post<any>('/party', { gameId }, key);

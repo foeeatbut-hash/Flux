@@ -183,6 +183,34 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  /**
+   * Локальный менеджер игр Flux Play.
+   *
+   * Каналы перечислены поимённо — это не украшение. Рядом висит общий мост
+   * (`ipcRenderer.invoke` выше), которым можно позвать любой канал оболочки; для
+   * менеджера так делать нельзя: он пишет файлы на диск по присланной описи, и
+   * «любой канал» здесь означает «любую запись куда угодно». Поэтому у игр свой
+   * узкий список, и ничего кроме перечисленного окно позвать не может.
+   */
+  games: {
+    state: (p: { gameId: string; published?: string }) => ipcRenderer.invoke('games:state', p),
+    install: (p: {
+      gameId: string; manifest: unknown; base: string; server: string; token?: string; publisherKey: string;
+    }) => ipcRenderer.invoke('games:install', p),
+    pause: (p: { gameId: string }) => ipcRenderer.invoke('games:pause', p),
+    resume: (p: { gameId: string }) => ipcRenderer.invoke('games:resume', p),
+    cancel: (p: { gameId: string }) => ipcRenderer.invoke('games:cancel', p),
+    verify: (p: { gameId: string; published?: string }) => ipcRenderer.invoke('games:verify', p),
+    launch: (p: { gameId: string; address: string; ticket: string; sessionId: string }) =>
+      ipcRenderer.invoke('games:launch', p),
+    remove: (p: { gameId: string }) => ipcRenderer.invoke('games:remove', p),
+    onProgress: (callback: (p: any) => void) => {
+      const subscription = (_event: any, p: any) => callback(p);
+      ipcRenderer.on('games:progress', subscription);
+      return () => ipcRenderer.removeListener('games:progress', subscription);
+    },
+  },
+
   // Журналы: папка на рабочем столе, файл на день
   logs: {
     append: (p: { level?: string; where?: string; text?: string }) => ipcRenderer.invoke('logs:append', p),
