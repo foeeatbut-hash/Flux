@@ -158,6 +158,29 @@ export default function PositionTree({
   }, [menu]);
   const openMenu = (e: React.MouseEvent, c: TreeComponent) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, c }); };
 
+  // Ширина дерева — у человека: названия вроде «Электродвигатель 160М6-УХЛ2-400»
+  // длинные, и кому-то нужно шире. Тянется за правый край, двойной щелчок —
+  // обратно по умолчанию. Помнится в браузере: это привычка, а не свойство проекта
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const [width, setWidth] = React.useState<number | null>(() => {
+    try { const v = Number(localStorage.getItem('flux_equip_tree_w')); return v >= 200 ? v : null; } catch (_) { return null; }
+  });
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = rootRef.current?.offsetWidth || 280;
+    let last = w0;
+    const move = (ev: MouseEvent) => { last = Math.max(200, Math.min(720, w0 + ev.clientX - x0)); setWidth(last); };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      try { localStorage.setItem('flux_equip_tree_w', String(last)); } catch (_) { /* приватный режим */ }
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+  const resetWidth = () => { setWidth(null); try { localStorage.removeItem('flux_equip_tree_w'); } catch (_) { /* приватный режим */ } };
+
   // Строка позиции одна на оба вида: тег виден всегда, а не только значком
   const row = (c: TreeComponent, pad: number, sub?: string, label?: string) => (
     <div key={c.id} className="group flex items-center gap-0.5" onContextMenu={(e) => openMenu(e, c)}>
@@ -170,7 +193,8 @@ export default function PositionTree({
             съедал название до «Клапан ПРОБ…», а в узкой колонке дерева
             нужны оба */}
         <span className="min-w-0 flex-1 flex flex-col">
-          <span className="text-xs truncate">{label || blockLabel(c)}</span>
+          {/* Две строки, а не многоточие: марка — это и есть то, что отличает позиции */}
+          <span className="text-xs break-words line-clamp-2" title={label || blockLabel(c)}>{label || blockLabel(c)}</span>
           {(firstTag(c) || sub) && (
             <span className="text-2xs truncate">
               {firstTag(c) && <span className="font-mono text-emerald-700 dark:text-emerald-400 u-sel">{firstTag(c)}</span>}
@@ -204,9 +228,13 @@ export default function PositionTree({
   const seg = (on: boolean) => `px-1.5 py-0.5 text-2xs font-bold rounded cursor-pointer ${on ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-emerald-600'}`;
 
   return (
-    <div className="zone w-56 @[820px]:w-64 @[1060px]:w-80 shrink-0 flex flex-col overflow-hidden">
-      <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <span className="text-sm font-bold truncate">{title}</span>
+    <div ref={rootRef} style={width ? { width } : undefined}
+      className={`zone relative ${width ? '' : 'w-60 @[820px]:w-72 @[1060px]:w-96'} shrink-0 flex flex-col overflow-hidden`}>
+      <div onMouseDown={startResize} onDoubleClick={resetWidth} role="separator" aria-orientation="vertical"
+        title="Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию"
+        className="absolute top-0 right-0 bottom-0 w-1.5 z-10 cursor-col-resize hover:bg-emerald-400/40" />
+      <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+        <span className="text-sm font-bold min-w-0 break-words line-clamp-2" title={title}>{title}</span>
         <div className="flex items-center gap-1.5">
           {conflicts > 0 && (
             <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400">
@@ -260,7 +288,7 @@ export default function PositionTree({
               <button type="button" onClick={() => onPickUnit(unit)}
                 className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                 <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="text-xs font-bold truncate">{unit.name}</span>
+                <span className="text-xs font-bold truncate" title={unit.name}>{unit.name}</span>
               </button>
               <button type="button" onClick={() => onDeleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
