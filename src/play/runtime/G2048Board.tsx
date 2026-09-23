@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 import type { BoardProps } from './boards';
 
 /**
@@ -36,17 +36,14 @@ export default function G2048Board({ view, yourTurn, busy, onMove }: BoardProps)
   const board: number[] = view?.board || [];
   const dirs: string[] = view?.dirs || [];
 
-  React.useEffect(() => {
-    if (!yourTurn || busy) return;
-    const onKey = (e: KeyboardEvent) => {
-      const dir = KEYS[e.key];
-      if (!dir) return;
-      e.preventDefault();
-      void onMove({ dir });
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [yourTurn, busy, onMove]);
+  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const dir = KEYS[e.key];
+    if (!yourTurn || busy || !dir || !dirs.includes(dir)) return;
+    // Раздел может оставаться смонтированным, когда сотрудник пишет в другом
+    // окне. Ходить вправе только сфокусированная доска, не всё приложение.
+    e.preventDefault();
+    void onMove({ dir });
+  };
 
   return (
     <div className="flex flex-col gap-2 items-start">
@@ -60,7 +57,9 @@ export default function G2048Board({ view, yourTurn, busy, onMove }: BoardProps)
         className="grid gap-1.5 p-1.5 rounded-xl bg-slate-200 dark:bg-slate-850"
         style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', width: 'min(92vw, 22rem)' }}
         role="grid"
-        aria-label="Доска 2048"
+        tabIndex={0}
+        onKeyDown={onKey}
+        aria-label="Доска 2048. Выберите поле и используйте стрелки или WASD"
       >
         {board.map((v, i) => (
           <div key={i}
@@ -71,6 +70,8 @@ export default function G2048Board({ view, yourTurn, busy, onMove }: BoardProps)
           </div>
         ))}
       </div>
+
+      <span className="text-2xs text-slate-500 dark:text-slate-400">Выберите поле для управления клавишами или используйте кнопки.</span>
 
       {/* Кнопки для узкого окна и для тех, кому клавиши неудобны */}
       <div className="grid grid-cols-3 gap-1 w-36" aria-label="Куда двигать">

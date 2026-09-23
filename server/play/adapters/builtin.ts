@@ -19,8 +19,9 @@
  * правила, которыми шла партия, и подписывать нечего.
  */
 
+import { randomBytes } from 'node:crypto';
 import { registerAdapter, type AllocatedServer, type GameAdapter } from './contract.js';
-import { allRules, freshSeed } from '../../../play/games/all.js';
+import { allRules } from '../../../play/games/all.js';
 import { openMatch } from '../match.js';
 
 /** Как называется адрес встроенной игры. Не «host:port» — идти туда некуда */
@@ -33,7 +34,7 @@ const builtinAdapter = (id: string): GameAdapter => ({
     // Места в порядке команд: первый ходит первым. Порядок здесь и решается,
     // иначе «чёрные» достались бы то одному, то другому
     const ordered = [...seats].sort((a, b) => a.team - b.team).map((s) => s.userId);
-    await openMatch(sessionId, id, ordered, freshSeed());
+    await openMatch(sessionId, id, ordered, randomBytes(32).toString('hex'));
     return { address: BUILTIN_ADDRESS, externalId: sessionId };
   },
 

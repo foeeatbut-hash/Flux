@@ -47,14 +47,17 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
 
   const load = React.useCallback(async () => {
     const res = await api.fetchMatch(sessionId);
-    if (res.ok) setMatch((res.result || null) as MatchState | null);
+    if (res.ok) setMatch(previous => {
+      const next = (res.result || null) as MatchState | null;
+      return previous && next && previous.sessionId === next.sessionId && previous.revision > next.revision ? previous : next;
+    });
     setLoading(false);
   }, [sessionId]);
 
   React.useEffect(() => { void load(); }, [load]);
 
   /**
-   * Пока идёт чужой ход, доска перечитывается сама.
+   * Пока партия идёт, доска перечитывается сама.
    *
    * Событие по сокету говорит только «поменялось», и на нём одном строить
    * нельзя: окно, которое в нужную секунду было без связи, так и осталось бы
@@ -62,10 +65,10 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
    * соперника всё равно приходится.
    */
   React.useEffect(() => {
-    if (!match || match.done || match.yourTurn) return;
+    if (!match || match.done) return;
     const t = setInterval(() => { void load(); }, 2000);
     return () => clearInterval(t);
-  }, [match?.revision, match?.done, match?.yourTurn, load]);
+  }, [match?.revision, match?.done, load]);
 
   const move = async (m: unknown) => {
     if (!match || busy) return;

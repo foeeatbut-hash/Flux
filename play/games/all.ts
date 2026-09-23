@@ -12,5 +12,7 @@ import './sudoku.js';
 import './checkers.js';
 import './seabattle.js';
 import './chess.js';
+import './connectfour.js';
+import './drawpoker.js';
 
 export { rulesOf, allRules, freshSeed } from './kit.js';
