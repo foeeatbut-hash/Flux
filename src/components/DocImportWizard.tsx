@@ -196,7 +196,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       console.error('Ошибка разбора документа:', err);
       updateJob(id, { status: 'error', error: err?.message || 'Не удалось разобрать файл' });
     }
-  }, [updateJob]);
+  }, [updateJob, projectId]);
 
   const handleFiles = useCallback((files: FileList | File[]) => {
     Array.from(files).forEach(f => { processFile(f); });
@@ -412,7 +412,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   };
 
   const activeJob = jobs.find(j => j.id === activeJobId) || jobs[0] || null;
-  const readyCount = jobs.filter(j => j.status === 'ready' && (j.draft?.items.length || 0) > 0).length;
+  const readyCount = jobs.filter(j => j.status === 'ready' && ((j.draft?.items.length || 0) > 0 || (j.cad?.blocks || 0) > 0)).length;
 
   // ── Рендер ──────────────────────────────────────────────────────────────────
 
@@ -521,7 +521,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     <button type="button" onClick={commitPicked}
                       className="w-full px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      Проверить и ввезти выбранные: {pickedJobs.length}
+                      Ввезти выбранные: {pickedJobs.length}
                     </button>
                   )}
                   {pickedJobs.length > 0 && (

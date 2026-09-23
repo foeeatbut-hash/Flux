@@ -62,7 +62,7 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
     ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-emerald-600'}`;
 
   return (
-    <div className="h-full flex flex-col" data-position-list>
+    <div className="h-full flex flex-col @container" data-position-list>
       <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <b className="text-sm font-bold">Позиции списком</b>
@@ -119,11 +119,11 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
               <tr className="text-left text-2xs uppercase tracking-wide text-slate-400">
                 <th className="px-3 py-1.5 font-bold">Тег</th>
                 <th className="px-2 py-1.5 font-bold">Тип</th>
-                <th className="px-2 py-1.5 font-bold">Вид</th>
+                <th className="px-2 py-1.5 font-bold hidden @[640px]:table-cell">Вид</th>
                 <th className="px-2 py-1.5 font-bold">Наименование</th>
-                <th className="px-2 py-1.5 font-bold">Тег родителя</th>
-                <th className="px-2 py-1.5 font-bold">Установка</th>
-                <th className="px-2 py-1.5 font-bold">Откуда</th>
+                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Тег родителя</th>
+                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Установка</th>
+                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Откуда</th>
               </tr>
             </thead>
             {groups.map((g) => (
@@ -136,17 +136,32 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
                 {g.rows.map((r) => (
                   <tr key={`${r.id}:${r.tag}`} onClick={() => onOpen(r.id)}
                     className="border-t border-slate-100 dark:border-slate-850 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20 cursor-pointer">
-                    <td className="px-3 py-1.5 font-mono whitespace-nowrap">
+                    <td className="px-3 py-1.5 align-top font-mono whitespace-nowrap">
                       {r.tag
                         ? <span className="inline-flex items-center gap-1 u-sel"><TagIcon className="w-3 h-3 text-emerald-500" />{r.tag}</span>
                         : <span className="text-slate-300 dark:text-slate-500">без тега</span>}
                     </td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">{classTitle(r.cls)}</td>
-                    <td className="px-2 py-1.5 text-slate-500 dark:text-slate-400">{r.kind}</td>
-                    <td className="px-2 py-1.5 max-w-[220px] truncate" title={r.label}>{r.label}</td>
-                    <td className="px-2 py-1.5 font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.parentTag}</td>
-                    <td className="px-2 py-1.5 max-w-[160px] truncate" title={r.unitName}>{r.unitName}</td>
-                    <td className={`px-2 py-1.5 whitespace-nowrap ${r.origin === 'calc' ? 'text-slate-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    <td className="px-2 py-1.5 align-top">
+                      <div className="whitespace-nowrap">{classTitle(r.cls)}</div>
+                      {/* На узкой панели вид — под типом, а не отдельным столбцом */}
+                      {r.kind && <div className="@[640px]:hidden text-2xs text-slate-400 break-words min-w-[5rem]">{r.kind}</div>}
+                    </td>
+                    <td className="px-2 py-1.5 align-top text-slate-500 dark:text-slate-400 hidden @[640px]:table-cell min-w-[6rem]">{r.kind}</td>
+                    <td className="px-2 py-1.5 align-top min-w-[8rem]">
+                      <div className="break-words line-clamp-2" title={r.label}>{r.label}</div>
+                      {/* Узко: родитель, установка и «откуда» — строкой под наименованием,
+                          иначе столбцы уводили наименование за край панели */}
+                      <div className="@[860px]:hidden text-2xs text-slate-400 break-words">
+                        {[
+                          r.parentTag && r.parentTag !== r.tag ? `в ${r.parentTag}` : '',
+                          r.unitName && r.unitName !== r.label && r.unitName !== r.parentTag ? r.unitName : '',
+                          r.origin !== 'calc' ? ORIGIN_TITLE[r.origin] : '',
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 align-top font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap hidden @[860px]:table-cell">{r.parentTag}</td>
+                    <td className="px-2 py-1.5 align-top hidden @[860px]:table-cell"><div className="max-w-[180px] break-words line-clamp-2" title={r.unitName}>{r.unitName}</div></td>
+                    <td className={`px-2 py-1.5 align-top whitespace-nowrap hidden @[860px]:table-cell ${r.origin === 'calc' ? 'text-slate-400' : 'text-amber-600 dark:text-amber-400'}`}>
                       {ORIGIN_TITLE[r.origin]}
                     </td>
                   </tr>
