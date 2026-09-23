@@ -70,6 +70,10 @@ export default function BlockCard(props: any) {
               </span>
             ))}
             <button type="button" onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
+            {/* Своя позиция внутрь этой: датчик ПТС на двигатель, коробка на клапан */}
+            {props.onAddInside && (
+              <button type="button" onClick={props.onAddInside} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer" title="Завести позицию внутрь этой — со своим тегом"><Plus className="w-2.5 h-2.5" />позиция внутрь</button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
