@@ -75,6 +75,8 @@ export interface ParsedMonoblock { name: string; title: string; blocks: ParsedBl
 export interface ParsedUnit {
   name: string; title: string; groups: SpecGroup[]; monoblocks: ParsedMonoblock[];
   tags?: string[]; note?: string;
+  /** Файл установки — когда в одном ввозе несколько файлов */
+  fileName?: string;
   /** Обозначение исправлено при разборе: кириллическая «А» на конце и т. п. */
   nameFix?: { from: string; what: string };
 }
