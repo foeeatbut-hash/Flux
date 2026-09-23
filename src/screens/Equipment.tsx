@@ -43,7 +43,9 @@ import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs
 import BlockCard from '../components/equipment/BlockCard';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
 import PositionList from '../components/equipment/PositionList';
-import { classifyAll } from '../../equipment/classes';
+import { classifyAll, classTitle } from '../../equipment/classes';
+import { compareTags } from '../../equipment/notes';
+import { compositionView } from '../lib/cardComposition';
 import CategoryViewDialog from '../components/equipment/CategoryViewDialog';
 import { useCategoryView } from '../components/equipment/useCategoryView';
 import { arrange, isHiddenIn, toggleIn, viewOf } from '../lib/categoryView';
@@ -180,7 +182,10 @@ export default function Equipment() {
   };
 
   // ── Производные данные ──
-  const catSystems = useMemo(() => systems.filter(s => s.category === activeCat), [systems, activeCat]);
+  // Установки категории — по алфавиту тега, естественно: B01 раньше B05, а
+  // «001B» после «001A». Раньше шли в порядке ввоза, и найти нужную было нельзя
+  const catSystems = useMemo(() => systems.filter(s => s.category === activeCat)
+    .sort((a, b) => compareTags(a.name, b.name)), [systems, activeCat]);
 
   // Плоский список изделий для выгрузки: строка таблицы — одна единица
   // оборудования со своими тегами и характеристиками
@@ -562,7 +567,7 @@ export default function Equipment() {
                 title={n > 0 ? `${c.label} · ${n}` : c.label}
                 className={`w-full flex items-center justify-center @[820px]:justify-start gap-2 px-1.5 @[820px]:px-2.5 py-2 rounded-lg text-left text-xs font-semibold transition-colors cursor-pointer ${act ? 'bg-emerald-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
                 {catIcon(c.id)}
-                <span className="hidden @[820px]:block flex-1 truncate">{c.label}</span>
+                <span className="hidden @[820px]:block flex-1 min-w-0 break-words line-clamp-2 leading-tight">{c.label}</span>
                 {n > 0 && <span className={`hidden @[820px]:inline text-2xs px-1.5 py-0.5 rounded-full ${act ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{n}</span>}
               </button>
             );
@@ -691,6 +696,9 @@ export default function Equipment() {
           <PositionList systems={catSystems as any} types={types} onOpen={openBlock} onClose={() => setListMode(false)} />
         ) : selected ? (
           <BlockCard
+            composition={compositionView(selected.block as any, selected.unit.monoblocks.flatMap(m => m.components) as any, types, blockLabel as any)}
+            onOpenPosition={openBlock}
+            classTitle={classTitle}
             arrangeGroups={(g: any[]) => arrange(g, cvOf(selected.block))}
             typed={types.get(selected.block.id)}
             say={addToast}

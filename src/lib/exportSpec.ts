@@ -221,3 +221,57 @@ export function toLayout(spec: ExportSpec, headerRow = 0, fromCol = 0): TableLay
     : spec.order === 'unit-tag' ? [{ field: 'system.name' }, { field: 'tag' }] : [{ field: 'tag' }];
   return { grain: 'element', headerRow, columns, filters, sort };
 }
+
+// ── Быстрые наборы и характеристики по разделам ─────────────────────────────
+
+/**
+ * Готовые наборы столбцов — то, что выгружают чаще всего.
+ *
+ * Собирать «тег, тип, вид, модель» по одной галочке каждый раз — ровно та
+ * возня, на которую жаловались. Набор заменяет служебные столбцы и оставляет
+ * выбранные характеристики на месте: «теги с родителями» поверх «мощности и
+ * тока» не должен стирать мощность и ток.
+ */
+export const PRESETS: { id: string; title: string; keys: string[] }[] = [
+  { id: 'types', title: 'Теги и типы', keys: ['tag', 'class', 'kind', 'name'] },
+  { id: 'tree', title: 'Теги с родителями', keys: ['tag', 'parentTag', 'unitTag', 'class', 'name'] },
+  { id: 'buy', title: 'Для закупки', keys: ['tag', 'class', 'kind', 'model', 'name', 'system'] },
+  { id: 'all', title: 'Все служебные', keys: SERVICE_COLUMNS.map((c) => c.key) },
+];
+
+export function applyPreset(spec: ExportSpec, id: string): ExportSpec {
+  const preset = PRESETS.find((p) => p.id === id);
+  if (!preset) return spec;
+  const params = spec.columns.filter((c) => c.key.startsWith('param:'));
+  return { ...spec, columns: [...preset.keys.map((k) => ({ ...service(k) })), ...params] };
+}
+
+export interface ParamSection {
+  title: string;
+  params: { key: string; label: string; unit: string; count: number }[];
+}
+
+/**
+ * Характеристики по разделам карточки, с числом позиций, у которых значение
+ * есть: «Номинальная мощность — у 12». Раздел добавляется в выгрузку целиком
+ * одной кнопкой, а не двадцатью.
+ */
+export function paramSections(items: ExchangeComponent[], known: ParamColumn[]): ParamSection[] {
+  const count = new Map<string, number>();
+  for (const it of items) {
+    const seen = new Set<string>();
+    for (const g of it.groups || []) for (const p of g.params || []) {
+      const k = paramColumnKey(g.title, p.key);
+      if (seen.has(k) || !String(p.value ?? '').trim()) continue;
+      seen.add(k);
+      count.set(k, (count.get(k) || 0) + 1);
+    }
+  }
+  const out: ParamSection[] = [];
+  for (const c of known) {
+    let sec = out.find((s) => s.title === c.group);
+    if (!sec) { sec = { title: c.group, params: [] }; out.push(sec); }
+    sec.params.push({ key: c.key, label: c.param || c.label, unit: c.unit, count: count.get(c.key) || 0 });
+  }
+  return out;
+}

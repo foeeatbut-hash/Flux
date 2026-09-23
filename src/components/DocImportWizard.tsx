@@ -87,7 +87,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   const [category, setCategory] = useState(categories[0]?.id || 'FAN');
   const [isDragOver, setIsDragOver] = useState(false);
   // Открытый предпросмотр: что именно ввозим и из какой работы
-  const [preview, setPreview] = useState<{ jobId: string; units: any[]; fileName: string } | null>(null);
+  // Открытый предпросмотр: один файл или несколько выбранных расчётов разом
+  const [preview, setPreview] = useState<{ jobIds: string[]; units: any[]; fileName: string } | null>(null);
+  // Выбранные расчёты: ввозятся одним предпросмотром и одной партией. Готовый
+  // расчёт отмечается сам — ради этого папку файлов и бросают в окно разом
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -149,6 +153,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             0,
           );
           updateJob(id, { status: 'ready', statusText: undefined, cad: { units, blocks } });
+          setPicked(prev => new Set(prev).add(id));
           return;
         }
       }
@@ -191,7 +196,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       console.error('Ошибка разбора документа:', err);
       updateJob(id, { status: 'error', error: err?.message || 'Не удалось разобрать файл' });
     }
-  }, [updateJob]);
+  }, [updateJob, projectId]);
 
   const handleFiles = useCallback((files: FileList | File[]) => {
     Array.from(files).forEach(f => { processFile(f); });
@@ -352,32 +357,62 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     // Разобранный расчёт идёт в предпросмотр как есть: собирать позиции из
     // распознанного тут нечего — их и не распознавали
     if (job.cad) {
-      setPreview({ jobId: job.id, units: job.cad.units, fileName: job.fileName });
+      setPreview({ jobIds: [job.id], units: withFile(job), fileName: job.fileName });
       return;
     }
     if (!job.draft || job.draft.items.length === 0) return;
     setPreview({
-      jobId: job.id,
+      jobIds: [job.id],
       units: draftToUnits(job.draft.items, job.fileName.replace(/\.[^.]+$/, '')),
       fileName: job.fileName,
     });
   };
 
   const previewDone = () => {
-    const job = jobs.find(j => j.id === preview?.jobId);
+    const done = jobs.filter(j => preview?.jobIds.includes(j.id));
     setPreview(null);
-    if (!job) return;
-    // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR).
-    // У разобранного расчёта учить нечему: там не распознавание, а точный разбор
-    observe(job.draft?.observations);
-    updateJob(job.id, { status: 'imported' });
-    const count = job.cad ? job.cad.blocks : (job.draft?.items.length || 0);
-    addToast(`«${job.fileName}»: импортировано позиций: ${count}`, 'success');
+    if (!done.length) return;
+    for (const job of done) {
+      // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR).
+      // У разобранного расчёта учить нечему: там не распознавание, а точный разбор
+      observe(job.draft?.observations);
+      updateJob(job.id, { status: 'imported' });
+    }
+    setPicked(prev => { const n = new Set(prev); done.forEach(j => n.delete(j.id)); return n; });
+    const count = done.reduce((s, job) => s + (job.cad ? job.cad.blocks : (job.draft?.items.length || 0)), 0);
+    addToast(done.length > 1
+      ? `Файлов: ${done.length}, импортировано позиций: ${count}`
+      : `«${done[0].fileName}»: импортировано позиций: ${count}`, 'success');
     onImported();
   };
 
+  /** Установки расчёта с именем своего файла: в реестре у каждой — свой источник */
+  const withFile = (job: FileJob) => (job.cad?.units || []).map((u: any) => ({ ...u, fileName: job.fileName }));
+
+  // Несколько расчётов — один предпросмотр и одна партия: одна отмена на всё,
+  // и теги между файлами разводятся одним планом, а не двадцатью
+  const pickedJobs = jobs.filter(j => picked.has(j.id) && j.status === 'ready' && j.cad);
+  const cadReady = jobs.filter(j => j.status === 'ready' && j.cad);
+  const pickedUnits = pickedJobs.reduce((s, j) => s + (j.cad?.units.length || 0), 0);
+  const pickedBlocks = pickedJobs.reduce((s, j) => s + (j.cad?.blocks || 0), 0);
+  // Одна установка в двух файлах — ввезётся одной, последним файлом поверх: сказать заранее
+  const dupUnits = (() => {
+    const seen = new Map<string, number>();
+    for (const j of pickedJobs) for (const u of j.cad!.units) seen.set(u.name, (seen.get(u.name) || 0) + 1);
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name);
+  })();
+  const togglePick = (id: string) => setPicked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const commitPicked = () => {
+    if (!pickedJobs.length) return;
+    setPreview({
+      jobIds: pickedJobs.map(j => j.id),
+      units: pickedJobs.flatMap(withFile),
+      fileName: pickedJobs.length === 1 ? pickedJobs[0].fileName : `Расчёты: ${pickedJobs.length} файлов`,
+    });
+  };
+
   const activeJob = jobs.find(j => j.id === activeJobId) || jobs[0] || null;
-  const readyCount = jobs.filter(j => j.status === 'ready' && (j.draft?.items.length || 0) > 0).length;
+  const readyCount = jobs.filter(j => j.status === 'ready' && ((j.draft?.items.length || 0) > 0 || (j.cad?.blocks || 0) > 0)).length;
 
   // ── Рендер ──────────────────────────────────────────────────────────────────
 
@@ -448,10 +483,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 // рядом с разобранным файлом — прямая неправда
                 const itemCount = j.cad ? j.cad.blocks : (j.draft?.items.length || 0);
                 return (
+                  <div key={j.id} className="flex items-start gap-1.5">
+                  {j.cad && j.status === 'ready' ? (
+                    <input type="checkbox" checked={picked.has(j.id)} onChange={() => togglePick(j.id)}
+                      aria-label={`Ввезти ${j.fileName} вместе с другими`} className="mt-2.5 accent-emerald-600 shrink-0 cursor-pointer" />
+                  ) : <span className="w-[13px] shrink-0" />}
                   <button type="button"
-                    key={j.id}
                     onClick={() => setActiveJobId(j.id)}
-                    className={`w-full text-left p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                    className={`flex-1 min-w-0 text-left p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
                       activeJob?.id === j.id
                         ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30'
                         : 'border-slate-150 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900'
@@ -469,8 +508,32 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       {j.status === 'error' && <span className="text-rose-500 truncate">{j.error}</span>}
                     </div>
                   </button>
+                  </div>
                 );
               })}
+              {cadReady.length > 1 && (
+                <div className="pt-2 space-y-1.5">
+                  <button type="button" onClick={() => setPicked(pickedJobs.length === cadReady.length ? new Set() : new Set(cadReady.map(j => j.id)))}
+                    className="w-full text-2xs text-slate-500 hover:text-emerald-600 cursor-pointer text-left px-1">
+                    {pickedJobs.length === cadReady.length ? 'Снять выбор со всех расчётов' : `Выбрать все расчёты (${cadReady.length})`}
+                  </button>
+                  {pickedJobs.length > 0 && (
+                    <button type="button" onClick={commitPicked}
+                      className="w-full px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      Ввезти выбранные: {pickedJobs.length}
+                    </button>
+                  )}
+                  {pickedJobs.length > 0 && (
+                    <p className="text-2xs text-slate-400 px-1">Установок {pickedUnits} · блоков {pickedBlocks} — одним предпросмотром, одна отмена на всё.</p>
+                  )}
+                  {dupUnits.length > 0 && (
+                    <p className="text-2xs text-amber-600 dark:text-amber-400 px-1">
+                      В нескольких файлах одна и та же установка: {dupUnits.slice(0, 3).join(', ')}{dupUnits.length > 3 ? '…' : ''} — ввезётся одной, последним файлом.
+                    </p>
+                  )}
+                </div>
+              )}
               {jobs.length === 0 && (
                 <p className="text-xs text-slate-400 text-center px-4 py-6">
                   Бланки подбора, ведомости, опросные листы, страницы каталогов — с любым расположением данных.

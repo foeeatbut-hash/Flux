@@ -89,7 +89,7 @@ export async function importEquipmentToDB(
     }
     if (!system) {
       system = await prisma.equipmentSystem.create({
-        data: { projectId, name: unitData.name, category, fileName },
+        data: { projectId, name: unitData.name, category, fileName: unitData.fileName || fileName },
       });
       existingSystems.push(system);
     }

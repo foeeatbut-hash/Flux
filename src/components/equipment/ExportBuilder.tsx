@@ -9,7 +9,7 @@ import { equipmentColumns, type ExchangeComponent } from '../../lib/equipmentExc
 import { toCsv, toClipboard, fileName } from '../../lib/exchange';
 import { sheetSnapshot } from '../../lib/officeOpen';
 import {
-  SERVICE_COLUMNS, ORDER_TITLE, defaultSpec, exportTable, selectItems, specOf, toLayout,
+  SERVICE_COLUMNS, ORDER_TITLE, PRESETS, applyPreset, paramSections, defaultSpec, exportTable, selectItems, specOf, toLayout,
   type ExportColumn, type ExportOrder, type ExportSpec,
 } from '../../lib/exportSpec';
 
@@ -42,6 +42,8 @@ interface Props {
   onClose: () => void;
 }
 
+const LAST_KEY = 'flux_export_last';
+
 const download = (blob: Blob, name: string) => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -52,8 +54,14 @@ const download = (blob: Blob, name: string) => {
 
 export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose }: Props) {
   const navigate = useNavigate();
-  const [scope, setScope] = React.useState(scopes[0]?.id || 'all');
-  const [spec, setSpec] = React.useState<ExportSpec>(defaultSpec);
+  // Прошлая выгрузка помнится у человека: обычно выгружают одно и то же, и
+  // собирать столбцы заново каждый раз — та самая возня
+  const last = React.useMemo(() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (_) { return null; } }, []);
+  const [scope, setScope] = React.useState(scopes.some((s) => s.id === last?.scope) ? last.scope : (scopes[0]?.id || 'all'));
+  const [spec, setSpec] = React.useState<ExportSpec>(() => (last?.spec ? specOf(last.spec) : defaultSpec()));
+  React.useEffect(() => {
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({ scope, spec })); } catch (_) { /* приватный режим */ }
+  }, [scope, spec]);
   const [views, setViews] = React.useState<SavedView[]>([]);
   const [viewId, setViewId] = React.useState('');
   const [q, setQ] = React.useState('');
@@ -153,7 +161,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
         return;
       }
       if (target === 'csv') {
-        download(new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' }), fileName('Оборудование', 'csv'));
+        download(new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' }), fileName(saveName.trim() || 'Оборудование', 'csv'));
         say('Выгружено в CSV', 'success');
         return;
       }
@@ -164,7 +172,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
       XLSX.utils.book_append_sheet(book, sheet, 'Оборудование');
       const out = XLSX.write(book, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
       if (target === 'xlsx') {
-        download(new Blob([out], { type: 'application/octet-stream' }), fileName('Оборудование', 'xlsx'));
+        download(new Blob([out], { type: 'application/octet-stream' }), fileName(saveName.trim() || 'Оборудование', 'xlsx'));
         say(`Выгружено строк: ${flat.count}`, 'success');
         return;
       }
@@ -191,7 +199,13 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
   };
 
   const needle = q.trim().toLowerCase();
-  const paramsShown = known.filter((c) => !needle || c.label.toLowerCase().includes(needle) || c.group.toLowerCase().includes(needle));
+  // Характеристики по разделам карточки, с числом позиций, у которых они заполнены
+  const sections = React.useMemo(() => paramSections(inScope, known), [inScope, known]);
+  const sectionsShown = sections
+    .map((sec) => ({ ...sec, params: sec.params.filter((x) => !needle || x.label.toLowerCase().includes(needle) || sec.title.toLowerCase().includes(needle)) }))
+    .filter((sec) => sec.params.length);
+  const addSection = (sec: typeof sections[number]) =>
+    set({ columns: [...spec.columns, ...sec.params.filter((x) => !hasCol(x.key)).map((x) => ({ key: x.key, label: x.label, unit: x.unit }))] });
   const label = 'text-2xs font-bold uppercase tracking-wide text-slate-400';
   const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-2xs font-semibold border cursor-pointer ${on
     ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`;
@@ -199,7 +213,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Выгрузка оборудования по шаблону" onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-6xl h-[min(760px,92vh)] flex flex-col rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+        className="@container w-full max-w-6xl h-[min(780px,92vh)] flex flex-col rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <Download className="w-4 h-4 text-emerald-600" />
           <b className="text-sm">Выгрузка оборудования</b>
@@ -213,9 +227,11 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
           <button type="button" onClick={onClose} aria-label="Закрыть" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="flex-1 min-h-0 grid grid-cols-[250px_300px_1fr]">
+        {/* В узком окне три колонки встают друг под другом и листаются целиком,
+            а не сжимаются до нечитаемых полосок */}
+        <div className="flex-1 min-h-0 overflow-y-auto @[980px]:overflow-hidden grid grid-cols-1 @[980px]:grid-cols-[230px_300px_1fr] @[980px]:grid-rows-[minmax(0,1fr)]">
           {/* 1. Что */}
-          <div className="border-r border-slate-100 dark:border-slate-800 overflow-y-auto p-3 space-y-3">
+          <div className="border-b @[980px]:border-b-0 @[980px]:border-r border-slate-100 dark:border-slate-800 @[980px]:overflow-y-auto p-3 space-y-3">
             <div className={label}>Что выгружаем</div>
             <div className="flex flex-col gap-1">
               {scopes.map((s) => (
@@ -268,18 +284,33 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
           </div>
 
           {/* 2. Столбцы */}
-          <div className="border-r border-slate-100 dark:border-slate-800 flex flex-col min-h-0">
+          <div className="border-b @[980px]:border-b-0 @[980px]:border-r border-slate-100 dark:border-slate-800 flex flex-col @[980px]:min-h-0">
             <div className="p-3 space-y-1 overflow-y-auto flex-1 min-h-0">
-              <div className={label}>Столбцы — порядок перетаскиванием</div>
-              {spec.columns.length === 0 && <div className="text-2xs text-slate-400 py-2">Добавьте столбцы ниже.</div>}
+              <div className={label}>Быстрые наборы</div>
+              <div className="flex flex-wrap gap-1 pb-2">
+                {PRESETS.map((p) => (
+                  <button key={p.id} type="button" className={chip(false)} onClick={() => setSpec((s) => applyPreset(s, p.id))}
+                    title="Поставить эти служебные столбцы; выбранные характеристики останутся">{p.title}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`${label} flex-1`}>Столбцы — порядок перетаскиванием</div>
+                {spec.columns.length > 0 && (
+                  <button type="button" onClick={() => set({ columns: [] })} className="text-2xs text-slate-400 hover:text-rose-500 cursor-pointer">очистить</button>
+                )}
+              </div>
+              {spec.columns.length === 0 && <div className="text-2xs text-slate-400 py-2">Выберите быстрый набор или добавьте столбцы ниже.</div>}
               {spec.columns.map((c) => (
                 <div key={c.key} draggable onDragStart={() => setDrag(c.key)} onDragEnd={() => setDrag(null)}
                   onDragOver={(e) => { if (drag && drag !== c.key) e.preventDefault(); }}
                   onDrop={() => { if (drag) moveCol(drag, c.key); setDrag(null); }}
                   className={`flex items-center gap-1 px-1.5 py-1 rounded-lg border ${drag === c.key ? 'border-emerald-400' : 'border-slate-150 dark:border-slate-800'}`}>
                   <GripVertical className="w-3.5 h-3.5 text-slate-300 cursor-grab shrink-0" aria-hidden />
-                  <input value={c.label} onChange={(e) => rename(c.key, e.target.value)} aria-label="Заголовок столбца"
-                    className="flex-1 min-w-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-emerald-400 rounded px-1" />
+                  <span className="flex-1 min-w-0">
+                    <input value={c.label} onChange={(e) => rename(c.key, e.target.value)} aria-label="Заголовок столбца"
+                      className="w-full bg-transparent text-xs outline-none focus:ring-1 focus:ring-emerald-400 rounded px-1" />
+                    {c.key.startsWith('param:') && <span className="block px-1 text-2xs text-slate-400 truncate">{c.key.slice(6).split('|')[0]}</span>}
+                  </span>
                   {c.unit ? <span className="text-2xs text-slate-400 shrink-0">{c.unit}</span> : null}
                   <button type="button" onClick={() => stepCol(c.key, -1)} aria-label="Левее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowUp className="w-3 h-3" /></button>
                   <button type="button" onClick={() => stepCol(c.key, 1)} aria-label="Правее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowDown className="w-3 h-3" /></button>
@@ -302,23 +333,32 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                 <Search className="w-3.5 h-3.5 text-slate-400" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Мощность, расход…" className="flex-1 min-w-0 bg-transparent text-xs outline-none" />
               </label>
-              <div className="space-y-0.5">
-                {paramsShown.slice(0, 200).map((c) => (
-                  <button key={c.key} type="button" disabled={hasCol(c.key)}
-                    onClick={() => addCol({ key: c.key, label: c.param || c.label, unit: c.unit })}
-                    className="w-full flex items-center gap-1.5 text-left px-2 py-1 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:opacity-35 disabled:cursor-default">
-                    <Plus className="w-3 h-3 text-emerald-600 shrink-0" />
-                    <span className="flex-1 min-w-0 truncate">{c.param || c.label}{c.unit ? <span className="text-slate-400">, {c.unit}</span> : null}</span>
-                    <span className="text-2xs text-slate-400 truncate max-w-[40%]">{c.group}</span>
-                  </button>
+              <div className="space-y-2">
+                {sectionsShown.map((sec) => (
+                  <div key={sec.title}>
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="flex-1 min-w-0 text-2xs font-bold text-slate-500 dark:text-slate-400 break-words">{sec.title}</span>
+                      <button type="button" onClick={() => addSection(sec)} disabled={sec.params.every((x) => hasCol(x.key))}
+                        className="shrink-0 text-2xs text-emerald-600 hover:text-emerald-700 cursor-pointer disabled:opacity-35 disabled:cursor-default">+ весь раздел</button>
+                    </div>
+                    {sec.params.slice(0, 120).map((x) => (
+                      <button key={x.key} type="button" disabled={hasCol(x.key)}
+                        onClick={() => addCol({ key: x.key, label: x.label, unit: x.unit })}
+                        className="w-full flex items-start gap-1.5 text-left px-2 py-1 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:opacity-35 disabled:cursor-default">
+                        <Plus className="w-3 h-3 mt-0.5 text-emerald-600 shrink-0" />
+                        <span className="flex-1 min-w-0 break-words">{x.label}{x.unit ? <span className="text-slate-400">, {x.unit}</span> : null}</span>
+                        <span className="text-2xs text-slate-400 shrink-0 tabular-nums" title="У скольких позиций значение заполнено">у {x.count}</span>
+                      </button>
+                    ))}
+                  </div>
                 ))}
-                {paramsShown.length === 0 && <div className="text-2xs text-slate-400">Нет характеристик{needle ? ' по запросу' : ''}.</div>}
+                {sectionsShown.length === 0 && <div className="text-2xs text-slate-400">Нет характеристик{needle ? ' по запросу' : ''}.</div>}
               </div>
             </div>
           </div>
 
           {/* 3. Предпросмотр */}
-          <div className="flex flex-col min-w-0 min-h-0">
+          <div className="flex flex-col min-w-0 min-h-[320px] @[980px]:min-h-0">
             <div className="px-3 py-2 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800">
               <span className={label}>Предпросмотр</span>
               <span className="text-2xs text-slate-400">первые 20 строк из {table.count}</span>

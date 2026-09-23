@@ -9,7 +9,7 @@
  *
  * Запуск: npx tsx scripts/test-export-builder.ts
  */
-import { specOf, defaultSpec, selectItems, orderItems, exportTable, toLayout, SERVICE_COLUMNS } from '../src/lib/exportSpec';
+import { specOf, defaultSpec, selectItems, orderItems, exportTable, toLayout, SERVICE_COLUMNS, applyPreset, paramSections } from '../src/lib/exportSpec';
 import { equipmentColumns, type ExchangeComponent } from '../src/lib/equipmentExchange';
 import { modelOf } from '../equipment/classes';
 import { resolveValue } from '../server/routes/constructor';
@@ -98,6 +98,18 @@ console.log('Шаблон в Таблице: отбор и порядок — т
   const specs = JSON.stringify({ groups: [{ title: 'Привод', params: [{ key: 'Модель', value: 'SF24-S2' }] }] });
   eq('модель в Таблице — та же, что в выгрузке', resolveValue('element', { specs }, 'model'), modelOf(specs));
   eq('марка вентилятора — из поля «Вентилятор»', modelOf({ groups: [{ title: 'Вентилятор', params: [{ key: 'Вентилятор', value: 'ВОСК62' }] }] }), 'ВОСК62');
+}
+
+console.log('Быстрые наборы и характеристики по разделам');
+{
+  const withParam = { ...defaultSpec(), columns: [{ key: 'tag', label: 'Тег' }, { key: 'param:Привод|Мощность', label: 'Мощность', unit: 'кВт' }] };
+  const p = applyPreset(withParam, 'tree');
+  eq('набор ставит свои служебные столбцы', p.columns.slice(0, 5).map((c) => c.key), ['tag', 'parentTag', 'unitTag', 'class', 'name']);
+  eq('и не стирает выбранные характеристики', p.columns[p.columns.length - 1].key, 'param:Привод|Мощность');
+  eq('неизвестный набор — без изменений', applyPreset(withParam, 'нет'), withParam);
+  const sec = paramSections(ITEMS, equipmentColumns(ITEMS).filter((c) => c.key.startsWith('param:')) as any);
+  eq('разделы характеристик', sec.map((s) => s.title), ['Привод']);
+  eq('у скольких позиций значение есть', sec[0].params.map((x) => `${x.label}:${x.count}`), ['Модель:3', 'Мощность:2']);
 }
 
 if (failed) {

@@ -332,7 +332,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
 
             <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
               {/* Дерево */}
-              <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
+              <div className="w-80 xl:w-96 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
                 {[...grouped.entries()].map(([sys, rows]) => {
                   const s = plan.systems.find(x => x.name === sys);
                   const blocks = rows.map(r => r.b);
@@ -344,19 +344,19 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                           {collapsed[sys] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1"
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 break-words line-clamp-2 flex-1 min-w-0"
                           title={s?.nameFix ? `${s.title}\nОбозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»` : s?.title}>
                           {sys}
                         </span>
                         {s?.nameFix && (
-                          <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold"
+                          <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold whitespace-nowrap shrink-0"
                             title={`Обозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»`}>
                             исправлено
                           </span>
                         )}
                         {s?.action === 'create'
-                          ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
-                          : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
+                          ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold whitespace-nowrap shrink-0">новая</span>
+                          : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold whitespace-nowrap shrink-0" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
                       </div>
                       {!collapsed[sys] && rows.map(({ b, depth }) => {
                         const ba = actionBadge(b.action);
@@ -367,30 +367,38 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                         return (
                           <div key={b.key}
                             style={{ paddingLeft: `${32 + depth * 12}px` }}
-                            className={`flex items-center gap-1.5 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-850'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
+                            className={`flex items-start gap-1.5 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-850'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
                             onClick={() => setActiveBlock(b.key)}>
-                            <input type="checkbox" checked={!isExcluded(b.key)} onClick={e => e.stopPropagation()} onChange={() => toggleBlock(b.key)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                            <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1" title={b.role && b.role !== 'БЛОК' ? `${b.title} · ${b.role}` : b.title}>
-                              {b.itemCode === '__unit__' ? '⚙ параметры установки' : b.title}
-                            </span>
-                            {b.sourceKind === 'note' && (
-                              <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold shrink-0"
-                                title="В расчёте такой позиции нет — её завёл тег из примечания. Снимите галочку, если прав расчёт">
-                                по примечанию
-                              </span>
-                            )}
-                            {(got.length > 0 || b.sourceKind === 'note') && (
-                              <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-mono truncate max-w-[9rem]"
-                                title={[...(b.tagNotes || [])].map(e => e.identifier).join(', ')}>
-                                {tagOf(b.key) || got[0]?.identifier || (b.tagNotes || [])[0]?.identifier}
-                              </span>
-                            )}
-                            {trouble.length > 0 && (
-                              <span title={trouble.map(e => `${e.identifier}: ${e.why}`).join('\n')}>
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                              </span>
-                            )}
-                            <span className={`text-2xs px-1 rounded font-bold ${ba.cls}`}>{ba.text}</span>
+                            <input type="checkbox" checked={!isExcluded(b.key)} onClick={e => e.stopPropagation()} onChange={() => toggleBlock(b.key)} className="w-3.5 h-3.5 mt-px shrink-0 accent-emerald-500 cursor-pointer" />
+                            {/* Название целиком (до двух строк), тег и отметки — под ним:
+                                в одной строке тег съедал название до «Клап…» */}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-slate-700 dark:text-slate-300 break-words line-clamp-2 leading-snug" title={b.role && b.role !== 'БЛОК' ? `${b.title} · ${b.role}` : b.title}>
+                                {b.itemCode === '__unit__' ? '⚙ параметры установки' : b.title}
+                              </div>
+                              {(b.sourceKind === 'note' || got.length > 0 || trouble.length > 0) && (
+                                <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                  {b.sourceKind === 'note' && (
+                                    <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold whitespace-nowrap"
+                                      title="В расчёте такой позиции нет — её завёл тег из примечания. Снимите галочку, если прав расчёт">
+                                      по примечанию
+                                    </span>
+                                  )}
+                                  {(got.length > 0 || b.sourceKind === 'note') && (
+                                    <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-mono break-all"
+                                      title={[...(b.tagNotes || [])].map(e => e.identifier).join(', ')}>
+                                      {tagOf(b.key) || got[0]?.identifier || (b.tagNotes || [])[0]?.identifier}
+                                    </span>
+                                  )}
+                                  {trouble.length > 0 && (
+                                    <span title={trouble.map(e => `${e.identifier}: ${e.why}`).join('\n')}>
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <span className={`text-2xs px-1 rounded font-bold whitespace-nowrap shrink-0 self-start mt-px ${ba.cls}`}>{ba.text}</span>
                           </div>
                         );
                       })}
@@ -400,10 +408,10 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               </div>
 
               {/* Параметры выбранного блока */}
-              <div className="flex-1 overflow-auto p-4">
+              <div className="flex-1 min-w-0 overflow-auto p-4">
                 {active ? (
                   <>
-                    <div className="text-sm font-bold text-slate-800 dark:text-white mb-1">{active.itemCode === '__unit__' ? 'Параметры установки' : active.title}</div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-white mb-1 break-words">{active.itemCode === '__unit__' ? 'Параметры установки' : active.title}</div>
                     <div className="text-xs text-slate-400 mb-3">
                       {active.equipType} · {active.params.length} параметров
                       {active.instanceNo ? ` · экземпляр ${active.instanceNo} из ${active.instanceCount || active.instanceNo}` : ''}
@@ -418,13 +426,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                       <div className="mb-3 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-850">
                         {(active.tagNotes || []).map((e, i) => (
                           <div key={i} className="px-2.5 py-1.5 text-2xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`font-mono font-bold ${e.verdict === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>{e.identifier}</span>
+                            <div className="flex flex-wrap items-center gap-x-1.5">
+                              <span className={`font-mono font-bold break-all ${e.verdict === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>{e.identifier}</span>
                               {e.role && <span className="text-slate-400">{e.role}</span>}
                               {e.fix && <span className="text-slate-500">предлагается «{e.fix}»</span>}
                             </div>
                             <div className="text-slate-500 dark:text-slate-400">{e.why}</div>
-                            {e.phrase && <div className="text-slate-400 italic truncate" title={e.phrase}>из примечания: «{e.phrase}»</div>}
+                            {e.phrase && <div className="text-slate-400 italic break-words" title={e.phrase}>из примечания: «{e.phrase}»</div>}
                           </div>
                         ))}
                       </div>

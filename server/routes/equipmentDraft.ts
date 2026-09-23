@@ -112,6 +112,9 @@ export function sanitizeDraftUnits(units: any[]): any {
     units: units.map((u: any) => ({
       name: clean(u?.name, 120) || 'Импорт',
       title: clean(u?.title, 200) || 'Импортированное оборудование',
+      // Файл, из которого пришла установка: при ввозе нескольких файлов разом
+      // у каждой установки свой, и в реестре должно остаться именно оно
+      ...(u?.fileName ? { fileName: clean(u.fileName, 200) } : {}),
       tags: cleanTags(u?.tags),
       groups: cleanGroups(u?.groups),
       monoblocks: countedList(u?.monoblocks, 'Моноблоков', DRAFT_LIMITS.monoblocks).map((mb: any) => ({
