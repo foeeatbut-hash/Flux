@@ -19,6 +19,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PLAY_TABLES } from '../server/play/tables';
+import { createConditionalColumnSql, createIndexSql } from '../server/ddl';
 
 const ROOT = join(__dirname, '..');
 let f = 0;
@@ -172,6 +173,17 @@ console.log('\n5. Частичные индексы не потеряли усл
     ok(`${index} объявлен`, !!idx, table);
     ok(`${index} уникален`, !!idx?.unique);
     ok(`${index} ограничен условием`, !!idx?.where && must.test(idx.where), idx?.where);
+    if (idx?.where) {
+      const sql = createIndexSql('mysql', table, index, idx.cols, true, idx.where);
+      ok(`${index} в MariaDB строится по вычисляемым колонкам`,
+        idx.cols.every(c => sql.includes(`__${index}_${c}`)) && !sql.includes(' WHERE '), sql);
+      for (const col of idx.cols) {
+        const generated = createConditionalColumnSql(table, index, col, idx.where);
+        ok(`${index}.${col} оставляет закрытые записи вне ограничения`,
+          generated.includes('CASE WHEN') && generated.includes('ELSE NULL END')
+          && generated.includes(`THEN \`${col}\``) && !generated.includes('"'), generated);
+      }
+    }
   }
 
   // Обратное тоже важно: обычный UNIQUE там, где нужен частичный, — это тихо

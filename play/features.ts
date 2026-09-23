@@ -229,6 +229,10 @@ export const PLAY_ENTITLEMENTS: PlayEntitlementDef[] = [
 
 export const PLAY_GROUPS = Array.from(new Set(PLAY_ENTITLEMENTS.map((e) => e.group)));
 
+/** Полный игровой доступ без права управлять платформой. */
+export const PLAY_PLAYER_ENTITLEMENTS = PLAY_ENTITLEMENTS.filter(e =>
+  e.id === APP_PLAY || e.group === 'Игры' || e.group === 'Действия');
+
 export const playEntitlementById = (id: string): PlayEntitlementDef | null =>
   PLAY_ENTITLEMENTS.find((e) => e.id === id) || null;
 

@@ -17,7 +17,7 @@
 
 import type { Express, NextFunction, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
-import { getDialect, supportsPartialIndex } from '../ddl.js';
+import { getDialect, supportsConditionalUniqueIndex } from '../ddl.js';
 import { allows, decide, toMap, PLATFORM_OFF, type PlatformState, type PolicySubject } from '../../play/policy.js';
 import { APP_PLAY, PLAY_ADMIN, isPlayKey } from '../../play/features.js';
 import { ensurePlayReady } from './tables.js';
@@ -35,19 +35,11 @@ export const PLAY_ENABLED_KEY = 'play_enabled';
 export const PLAY_MAINTENANCE_KEY = 'play_maintenance';
 
 /**
- * Базы, на которых платформа работает.
- *
- * Инварианты платформы держатся частичными уникальными индексами («одна
- * активная группа на человека»). PostgreSQL и SQLite их умеют, MariaDB — нет,
- * и включать там платформу означало бы получить двойные группы и двойные
- * матчи на втором десятке игр. Поэтому там она не включается, и в Настройках
- * сказано почему — а не умалчивается.
- *
- * Ответ берётся у самого слоя DDL, а не списком имён: список разошёлся бы с
- * тем, что этот слой на самом деле умеет.
+ * Платформа требует уникальности только активных записей. На PostgreSQL и
+ * SQLite это частичные индексы; на MariaDB — уникальные вычисляемые колонки.
+ * Наличие ограничения проверяется до включения платформы.
  */
-export const UNSUPPORTED_NOTE = 'Платформа требует частичных уникальных индексов: '
-  + 'на MariaDB их нет, поэтому раздел там не включается. Работает на PostgreSQL и SQLite.';
+export const UNSUPPORTED_NOTE = 'База не поддерживает уникальные ограничения для активных игровых записей.';
 
 /**
  * Версия политики.
@@ -66,7 +58,7 @@ const CACHE_MS = 5000;
 /** Общий выключатель платформы — из настроек компании, с коротким кэшем. */
 export async function platformState(): Promise<PlatformState> {
   const dialect = getDialect();
-  const supported = supportsPartialIndex(dialect);
+  const supported = supportsConditionalUniqueIndex(dialect);
   if (cached && Date.now() - cached.at < CACHE_MS) {
     return { ...cached.state, supported, version: policyVersion };
   }

@@ -18,7 +18,7 @@
  */
 import React from 'react';
 import { Ban, Check, Minus } from 'lucide-react';
-import { PLAY_ENTITLEMENTS, PLAY_GROUPS, type PlayEntitlementDef } from '../../../play/features';
+import { PLAY_ENTITLEMENTS, PLAY_GROUPS, PLAY_PLAYER_ENTITLEMENTS, type PlayEntitlementDef } from '../../../play/features';
 import { entryMode } from '../../lib/appPolicy';
 import type { PermEntry, PermMap } from '../../lib/permissions';
 
@@ -123,10 +123,8 @@ export default function PlayAccess({ perms, rolePerms, disabled, onSet, platform
   /** Открыть лист «Flux Play» в Настройках — там её включают */
   onOpenSettings?: () => void;
 }) {
-  // «Выдать все игры» одним нажатием: игр шесть, и шесть переключателей
-  // подряд — это ровно то место, где одну и забывают
-  const games = PLAY_ENTITLEMENTS.filter((e) => e.group === 'Игры');
-  const allGames = () => { for (const g of games) onSet(g.id, 'ALLOW', null); };
+  // Вместе с играми нужны вход в раздел и действия для группы и матча.
+  const allGames = () => { for (const entry of PLAY_PLAYER_ENTITLEMENTS) onSet(entry.id, 'ALLOW', null); };
   return (
     <div>
       <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-2">
@@ -144,11 +142,11 @@ export default function PlayAccess({ perms, rolePerms, disabled, onSet, platform
         </div>
       )}
       <p className="text-xs text-slate-400 dark:text-slate-500 mb-2 leading-relaxed">
-        Доступ сюда не наследуется должностью: администратор получает его так же, как все, — явно.
+        Роль администратора сама по себе не открывает игры. Выдайте доступ явно в карточке или через роль.
         Пока не выдан доступ к платформе, сотрудник не видит её нигде.
         <button type="button" disabled={disabled} onClick={allGames}
           className="ml-1.5 font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer disabled:opacity-50">
-          Выдать все игры
+          Выдать доступ ко всем играм
         </button>
       </p>
       <div className="space-y-3">
