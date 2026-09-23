@@ -17,6 +17,7 @@ import { registerPlayAdmin } from './admin.js';
 import { registerPlayApi } from './api.js';
 import { setupTestGame } from './adapters/testgame.js';
 import { registerBuiltinAdapters } from './adapters/builtin.js';
+import { ensurePlayReady } from './tables.js';
 
 export function registerPlayRoutes(app: Express): void {
   // Игры подключаются до маршрутов: матч по неподключённой игре не начнётся,
@@ -63,6 +64,10 @@ export function registerPlayRoutes(app: Express): void {
         // Включать неподдержанную базу нельзя, и это единственное место, где
         // платформа объясняется вслух: человек имеет право знать, почему
         return res.status(409).json({ error: state.note || 'База не поддерживает платформу' });
+      }
+      if (want) {
+        const failure = await ensurePlayReady((m) => console.warn('[Play]', m));
+        if (failure) return res.status(409).json({ error: `Не удалось подготовить базу для Flux Play: ${failure}` });
       }
       await upsertSetting(PLAY_ENABLED_KEY, null, want ? '1' : '0');
       invalidatePlatform();

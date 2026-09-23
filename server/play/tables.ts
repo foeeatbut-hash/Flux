@@ -17,9 +17,8 @@
  * вторую группу навсегда — то есть вторую игру в жизни. Условие
  * `leftAt IS NULL` ограничивает уникальность живой частью таблицы.
  *
- * Частичных индексов нет в MySQL и MariaDB. Там платформа не включается вовсе
- * (см. server/play/access.ts): ослабить правило и промолчать нельзя — оно
- * развалилось бы не сразу, а на втором десятке матчей.
+ * В MariaDB частичного индекса нет. Вместо него DDL создаёт вычисляемые
+ * колонки и уникальный индекс по ним: у закрытых записей значение NULL.
  *
  * Расхождение с Prisma-схемой ловит `scripts/test-play-ddl.ts`: два списка без
  * проверки разъезжаются за пару выпусков.
@@ -252,13 +251,9 @@ let ready = false;
  */
 export async function ensurePlayTables(prisma: any, log?: (m: string) => void): Promise<string> {
   if (ready) return '';
-  try {
-    await prisma.playCommand.findFirst({ select: { requestHash: true } });
-    await prisma.playPresence.findFirst({ select: { generation: true } });
-    ready = true;
-    return '';
-  } catch (_) { /* таблиц нет или они неполные — создаём */ }
-  const failure = await ensureTables(prisma, PLAY_TABLES, log);
+  // Проба двух таблиц недостаточна: они могли быть созданы автомиграцией без
+  // индексов. Здесь уникальные ограничения — часть корректности игры.
+  const failure = await ensureTables(prisma, PLAY_TABLES, log, true);
   if (!failure) ready = true;
   return failure;
 }

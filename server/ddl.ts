@@ -116,22 +116,39 @@ export function createTableSql(d: Dialect, table: string, cols: Col[]): string {
  * той её части, где условие истинно. На нём стоят правила вида «одна активная
  * группа на человека»: закрытых групп у человека сотни, активная одна, и
  * обычный UNIQUE тут запретил бы вторую игру навсегда. PostgreSQL и SQLite
- * частичные индексы умеют, MySQL и MariaDB — нет; там такой индекс НЕ
- * создаётся (см. `supportsPartialIndex`), и возможность, которая на нём
- * держится, там не включается — молча ослаблять правило нельзя.
+ * частичные индексы умеют. В MariaDB то же ограничение создаётся через
+ * индексируемые вычисляемые колонки: у неактивных строк они равны NULL,
+ * поэтому уникальность касается только активных строк.
  */
+export function conditionalColumnName(index: string, column: string): string {
+  const name = `__${index}_${column}`;
+  if (!/^[A-Za-z0-9_]+$/.test(name) || name.length > 64) throw Error(`Недопустимое имя колонки индекса: ${name}`);
+  return name;
+}
+
+export function createConditionalColumnSql(table: string, index: string, column: string, where: string): string {
+  const condition = where.replace(/"([A-Za-z][A-Za-z0-9_]*)"/g, '`$1`');
+  return `ALTER TABLE ${q('mysql', table)} ADD COLUMN ${q('mysql', conditionalColumnName(index, column))} `
+    + `VARCHAR(191) AS (CASE WHEN (${condition}) THEN ${q('mysql', column)} ELSE NULL END) STORED`;
+}
+
 export function createIndexSql(
   d: Dialect, table: string, name: string, cols: string[], unique = false, where?: string,
 ): string {
   const kind = unique ? 'UNIQUE INDEX' : 'INDEX';
-  const list = cols.map((c) => q(d, c)).join(', ');
+  const indexed = d === 'mysql' && where ? cols.map(c => conditionalColumnName(name, c)) : cols;
+  const list = indexed.map((c) => q(d, c)).join(', ');
   if (d === 'mysql') return `CREATE ${kind} ${q(d, name)} ON ${q(d, table)} (${list})`;
   const tail = where ? ` WHERE ${where}` : '';
   return `CREATE ${kind} IF NOT EXISTS ${q(d, name)} ON ${q(d, table)} (${list})${tail}`;
 }
 
-/** Движок умеет частичные индексы. От этого зависит, включать ли платформу. */
+/** Движок умеет настоящие частичные индексы. */
 export const supportsPartialIndex = (d: Dialect): boolean => d !== 'mysql';
+
+/** То же ограничение на MariaDB обеспечивают уникальные вычисляемые колонки. */
+export const supportsConditionalUniqueIndex = (d: Dialect): boolean =>
+  d === 'mysql' || d === 'postgresql' || d === 'sqlite';
 
 /** «Индекс уже есть» — это не ошибка, а достигнутая цель */
 export const isDuplicateIndex = (message: string): boolean =>
@@ -177,7 +194,7 @@ export interface TableSpec {
  * таблицы выглядит для человека как «раздел сломался», и он должен прочитать,
  * почему, а не гадать.
  */
-export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: string) => void): Promise<string> {
+export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: string) => void, strict = false): Promise<string> {
   const d = getDialect();
   for (const spec of specs) {
     try {
@@ -196,21 +213,33 @@ export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: st
         await prisma.$executeRawUnsafe(addColumnSql(d, spec.table, col));
         log?.(`В таблицу ${spec.table} добавлена недостающая колонка ${col.name}`);
       } catch (e: any) {
-        if (!isDuplicateColumn(e?.message)) log?.(`Колонка ${col.name} не добавлена: ${e?.message || e}`);
+        if (!isDuplicateColumn(e?.message)) {
+          const msg = `Колонка ${spec.table}.${col.name} не добавлена: ${e?.message || e}`;
+          log?.(msg); if (strict) return msg;
+        }
       }
     }
     for (const idx of spec.indexes || []) {
-      // Частичный индекс на MySQL не создаётся и не подменяется полным:
-      // полный запретил бы больше, чем надо, и сломал бы работу вместо того,
-      // чтобы честно отказать
-      if (idx.where && !supportsPartialIndex(d)) {
-        log?.(`Индекс ${idx.name} пропущен: ${d} не поддерживает частичные индексы`);
-        continue;
+      if (d === 'mysql' && idx.where) {
+        if (!idx.unique) return `Условный индекс ${idx.name} должен быть уникальным`;
+        for (const col of idx.cols) {
+          try {
+            await prisma.$executeRawUnsafe(createConditionalColumnSql(spec.table, idx.name, col, idx.where));
+          } catch (e: any) {
+            if (!isDuplicateColumn(e?.message)) {
+              const msg = `Вычисляемая колонка для ${idx.name} не создана: ${e?.message || e}`;
+              log?.(msg); return msg;
+            }
+          }
+        }
       }
       try {
         await prisma.$executeRawUnsafe(createIndexSql(d, spec.table, idx.name, idx.cols, idx.unique, idx.where));
       } catch (e: any) {
-        if (!isDuplicateIndex(e?.message)) log?.(`Индекс ${idx.name} не создан: ${e?.message || e}`);
+        if (!isDuplicateIndex(e?.message)) {
+          const msg = `Индекс ${idx.name} не создан: ${e?.message || e}`;
+          log?.(msg); if (strict) return msg;
+        }
       }
     }
   }

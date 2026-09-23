@@ -10,6 +10,7 @@ import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
+import { cleanUserPermissions } from '../lib/userPermissions';
 import { canManagePlay, canOpenApp } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { useNavigate } from 'react-router-dom';
@@ -196,12 +197,7 @@ export default function UsersManagement() {
     setEditError('');
     setIsEditSubmitting(true);
     if (!editSymbol.trim()) { setEditError('Укажите табельный номер (логин)'); setIsEditSubmitting(false); return; }
-    // оставляем только включённые права, чтобы не копить мусор
-    const cleanPerms: PermMap = {};
-    for (const f of FEATURES) {
-      const e = editPerms[f.id];
-      if (e && e.enabled) cleanPerms[f.id] = { enabled: true, until: e.until ?? null };
-    }
+    const cleanPerms = cleanUserPermissions(editPerms);
     try {
       const res = await dataService.updateUser(editUser.id, {
         lastName: editNameValue.lastName.trim(),

@@ -20,12 +20,13 @@
 
 import type { Express, Request, Response } from 'express';
 import { broadcast, forgetSessionUser, getPrisma, upsertSetting } from '../context.js';
-import { APP_PLAY, PLAY_ADMIN, PLAY_GAMES, gameEntitlement } from '../../play/features.js';
+import { APP_PLAY, PLAY_ADMIN, PLAY_GAMES, PLAY_PLAYER_ENTITLEMENTS, gameEntitlement } from '../../play/features.js';
 import { getPolicyVersion, invalidatePlatform, isTopAdminUser, platformState, subjectOf, PLAY_ENABLED_KEY } from './access.js';
 import { decide } from '../../play/policy.js';
 import { latestBuild, publisherKey } from './builds.js';
 import { supportsPartialIndex } from '../ddl.js';
 import { getDialect } from '../ddl.js';
+import { ensurePlayReady } from './tables.js';
 
 /** Главный администратор — тот, чья роль имеет уровень 1 (как в Сотрудниках). */
 const isTopAdmin = (req: Request): Promise<boolean> => isTopAdminUser((req as any).authUser);
@@ -84,7 +85,7 @@ export function registerPlayDiagnostics(app: Express): void {
           partialIndexes: supportsPartialIndex(dialect),
           note: supportsPartialIndex(dialect)
             ? 'База держит правила платформы частичными индексами'
-            : 'Эта база не умеет частичных индексов, на которых держатся правила платформы',
+            : 'MariaDB держит те же правила уникальными вычисляемыми колонками',
         },
         me: {
           id: String(user?.id || ''),
@@ -118,6 +119,8 @@ export function registerPlayDiagnostics(app: Express): void {
       if (!state.supported) {
         return res.status(409).json({ error: state.note || 'Эта база не поддерживает платформу' });
       }
+      const schemaFailure = await ensurePlayReady((m) => console.warn('[Play]', m));
+      if (schemaFailure) return res.status(409).json({ error: `Не удалось подготовить базу для Flux Play: ${schemaFailure}` });
       const prisma = getPrisma();
       const user = (req as any).authUser;
       const row = await prisma.user.findUnique({ where: { id: String(user?.id || '') } });
@@ -136,8 +139,7 @@ export function registerPlayDiagnostics(app: Express): void {
       };
       give(PLAY_ADMIN);
       if (req.body?.openForMe === true) {
-        give(APP_PLAY);
-        for (const g of PLAY_GAMES) give(gameEntitlement(g.id));
+        for (const entry of PLAY_PLAYER_ENTITLEMENTS) give(entry.id);
       }
       if (denied.includes(PLAY_ADMIN)) {
         return res.status(409).json({
