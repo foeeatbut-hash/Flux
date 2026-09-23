@@ -18,6 +18,7 @@
 import type { Column } from './exchange';
 import { convert, parseNumericValue, unitInfo } from '../import/valueGrammar';
 import { compareTags } from '../../equipment/notes';
+import { classTitle, modelOf } from '../../equipment/classes';
 
 export interface ExchangeParam { key: string; value: string; unit: string }
 export interface ExchangeGroup { title: string; params: ExchangeParam[] }
@@ -47,6 +48,13 @@ export interface ExchangeComponent {
   manual?: boolean;
   /** Порядок появления в файле — им сортируются позиции без тега */
   sourceOrder?: number | null;
+  /** Вид узла выгрузки; `note` — позиция заведена по примечанию */
+  sourceKind?: string | null;
+  /** Тип и вид (equipment/classes) — их проставляет экран, знающий соседей */
+  cls?: string;
+  kind?: string;
+  /** Марка: модель привода, типоразмер вентилятора */
+  model?: string;
 }
 
 /** Ключ ручной правки — тот же, что пишет карточка оборудования */
@@ -77,6 +85,9 @@ export const BASE_EQUIPMENT_COLUMNS: Column[] = [
   { key: 'unitTag', label: 'Тег установки' },
   { key: 'instanceNo', label: 'Экземпляр' },
   { key: 'origin', label: 'Откуда' },
+  { key: 'class', label: 'Тип' },
+  { key: 'kind', label: 'Вид' },
+  { key: 'model', label: 'Модель' },
 ];
 
 /**
@@ -238,7 +249,10 @@ export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '
     case 'parentTag': return String(it.parentTag || '');
     case 'unitTag': return String(it.unitTag || '');
     case 'instanceNo': return it.instanceNo ? String(it.instanceNo) : '';
-    case 'origin': return it.manual ? 'заведено вручную' : 'из расчёта';
+    case 'origin': return it.manual ? 'заведено вручную' : it.sourceKind === 'note' ? 'по примечанию' : 'из расчёта';
+    case 'class': return it.cls ? classTitle(it.cls) : '';
+    case 'kind': return String(it.kind || '');
+    case 'model': return String(it.model || modelOf({ groups: it.groups }));
     default: return '';
   }
 }
@@ -291,12 +305,13 @@ export function byTagOrder(items: ExchangeComponent[]): ExchangeComponent[] {
  * единице столбца. Пустой список — выгрузка сходится; непустой показывается
  * человеку до записи файла, а не обнаруживается потом в чужой смете.
  */
-export function buildEquipmentExchange(items: ExchangeComponent[], cols: Column[]): {
+export function buildEquipmentExchange(items: ExchangeComponent[], cols: Column[], opts: { keepOrder?: boolean } = {}): {
   headers: string[]; rows: string[][]; problems: ExchangeProblem[];
 } {
   const rows: string[][] = [];
   const problems: ExchangeProblem[] = [];
-  const expanded = byTagOrder(byTag(items || []));
+  // keepOrder — строки уже развёрнуты по тегам и упорядочены шаблоном выгрузки
+  const expanded = opts.keepOrder ? (items || []) : byTagOrder(byTag(items || []));
   for (const it of expanded) {
     const row: string[] = [];
     for (const c of cols) {

@@ -13,6 +13,7 @@
 
 import type { ExchangeComponent } from './equipmentExchange';
 import { compositionOf } from '../../equipment/composition';
+import { modelOf } from '../../equipment/classes';
 
 export interface RowComponent {
   id: string; itemCode: string; name: string; equipType: string;
@@ -23,6 +24,7 @@ export interface RowComponent {
   instanceNo?: number | null;
   manual?: boolean;
   sourceOrder?: number | null;
+  sourceKind?: string | null;
 }
 export interface RowMonoblock { name: string; components: RowComponent[] }
 export interface RowSystem { name: string; monoblocks: RowMonoblock[] }
@@ -61,6 +63,8 @@ export function rowsOfSystem(
       instanceNo: c.instanceNo ?? null,
       manual: !!c.manual,
       sourceOrder: c.sourceOrder ?? null,
+      sourceKind: c.sourceKind ?? null,
+      model: modelOf(c.specs),
     })));
 }
 

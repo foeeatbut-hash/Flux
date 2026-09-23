@@ -13,8 +13,8 @@ import {
   ArrowRight, LayoutGrid, List, Search, Save
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
-import ExchangeDialog from '../components/ExchangeDialog';
-import { buildEquipmentExchange, equipmentColumns, type ExchangeComponent } from '../lib/equipmentExchange';
+import ExportBuilder from '../components/equipment/ExportBuilder';
+import type { ExchangeComponent } from '../lib/equipmentExchange';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
@@ -564,7 +564,7 @@ export default function Equipment() {
           <button type="button"
             onClick={() => setShowExchange(true)}
             className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
-            title="Выгрузить оборудование в Excel: тег, установка, характеристики"
+            title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"
           >
             <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
@@ -587,11 +587,11 @@ export default function Equipment() {
       </div>
 
       {showExchange && (
-        <ExchangeDialog
-          section="Оборудование"
+        <ExportBuilder
+          projectId={pid}
           scopes={exchangeScopes}
-          columns={equipmentColumns(exchangeItems)}
-          build={(scopeId, cols) => buildEquipmentExchange(exchangeRows(scopeId), cols)}
+          rowsOf={(scopeId) => exchangeRows(scopeId).map(it => ({ ...it, cls: types.get(it.id)?.cls, kind: types.get(it.id)?.kind }))}
+          say={addToast}
           onClose={() => setShowExchange(false)}
         />
       )}

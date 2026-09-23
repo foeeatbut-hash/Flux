@@ -33,6 +33,9 @@ const TABLES: TableSpec[] = [
       // Пусто — годится любому
       { name: 'role', kind: 'text', def: '' },
       { name: 'fieldsJson', kind: 'longtext', def: '[]' },
+      // Вторая версия шаблона (src/lib/exportSpec): отбор по типам, служебные
+      // столбцы, заголовки, порядок. Пусто — шаблон первой версии, только поля
+      { name: 'specJson', kind: 'longtext' },
       { name: 'createdById', kind: 'text' },
       { name: 'createdAt', kind: 'time', notNull: true, def: 'now' },
       { name: 'updatedAt', kind: 'time', notNull: true, def: 'now' },
@@ -96,8 +99,21 @@ const toView = (row: any) => ({
   ownerId: row.ownerId || null,
   role: row.role || '',
   fields: readFields(safeArray(row.fieldsJson)),
+  spec: readSpec(row.specJson),
   updatedAt: row.updatedAt,
 });
+
+/**
+ * Шаблон второй версии — как пришёл, но только объект с `v: 2` и в разумном
+ * размере. Разбор столбцов живёт в окне (lib/exportSpec.specOf): сервер
+ * хранит, окно толкует, и правила не двоятся.
+ */
+function readSpec(raw: unknown): Record<string, unknown> | null {
+  let v: any = raw;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { return null; } }
+  if (!v || typeof v !== 'object' || v.v !== 2) return null;
+  return JSON.stringify(v).length > 200_000 ? null : v;
+}
 
 export function registerEquipmentViewRoutes(app: Express): void {
   /**
@@ -129,7 +145,10 @@ export function registerEquipmentViewRoutes(app: Express): void {
       if (!name) return res.status(400).json({ error: 'У шаблона должно быть имя' });
 
       const fields = readFields(body.fields);
-      if (!fields.length) {
+      const spec = readSpec(body.spec);
+      // Шаблону второй версии хватает служебных столбцов: «теги и типы
+      // приводов» — законная выгрузка и без единой характеристики
+      if (!fields.length && !spec) {
         return res.status(400).json({ error: 'В шаблоне нет ни одной характеристики' });
       }
       const personal = String(body.scope || 'SHARED') === 'PERSONAL';
@@ -143,10 +162,40 @@ export function registerEquipmentViewRoutes(app: Express): void {
           ownerId: personal ? (me?.id || null) : null,
           role: String(body.role || '').trim(),
           fieldsJson: JSON.stringify(fields),
+          specJson: spec ? JSON.stringify(spec) : null,
           createdById: me?.id || null,
         },
       });
       res.json({ view: toView(row) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  /**
+   * Перезапись шаблона — «Сохранить изменения» в окне выгрузки. Права те же,
+   * что у удаления: личный — только владельцу.
+   */
+  app.put('/api/equipment/view-templates/:id', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      await ensure(prisma);
+      const me = authUserOf(req);
+      const row = await prisma.equipmentViewTemplate.findUnique({ where: { id: req.params.id } });
+      if (!row) return res.status(404).json({ error: 'Шаблон не найден' });
+      if (row.scope === 'PERSONAL' && row.ownerId !== (me?.id || '')) {
+        return res.status(403).json({ error: 'Это личный шаблон другого сотрудника' });
+      }
+      const body = (req.body || {}) as Record<string, unknown>;
+      const spec = readSpec(body.spec);
+      if (!spec) return res.status(400).json({ error: 'Шаблон не разобран' });
+      const name = String(body.name || row.name).trim().slice(0, 200) || row.name;
+      const updated = await prisma.equipmentViewTemplate.update({
+        where: { id: row.id },
+        data: {
+          name, specJson: JSON.stringify(spec), updatedAt: new Date(),
+          ...(body.fields ? { fieldsJson: JSON.stringify(readFields(body.fields)) } : {}),
+        },
+      });
+      res.json({ view: toView(updated) });
     } catch (err: any) { sendError(res, err); }
   });
 

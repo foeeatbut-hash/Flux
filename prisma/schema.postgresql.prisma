@@ -1348,6 +1348,8 @@ model EquipmentViewTemplate {
   role        String   @default("")
   /// JSON: [{group,key,unit}] — характеристики своими кодами, без порядка столбцов
   fieldsJson  String   @default("[]")
+  // Шаблон второй версии: отбор, столбцы с заголовками, порядок (lib/exportSpec)
+  specJson    String?
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

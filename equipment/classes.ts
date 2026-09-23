@@ -297,3 +297,18 @@ export function classifyAll(list: Classifiable[]): Map<string, Classified> {
 /** «Вентилятор · Радиальный, свободное колесо» — подпись в карточке и в списке */
 export const classLabel = (c: { cls: string; kind: string }): string =>
   [classTitle(c.cls), c.kind].filter(Boolean).join(' · ');
+
+// Где у позиции записана марка: у привода — «Модель», у вентилятора — сам
+// «Вентилятор», у двигателя — «Электродвигатель» и так далее. Порядок значим:
+// «Модель» есть не у всех, а там, где есть, она и есть ответ
+const MODEL_KEYS = ['Модель', 'Вентилятор', 'Электродвигатель', 'Клапан', 'Теплообменник', 'Узел обвязки', 'Кассета 1', 'Шумоглушитель', 'Увлажнитель'];
+
+/** Марка позиции — для столбца «Модель» выгрузки и Таблицы. Пусто — не нашлась */
+export function modelOf(specs: unknown): string {
+  const all = groupsOf(specs).flatMap((g) => g.params);
+  for (const key of MODEL_KEYS) {
+    const hit = all.find((x) => x.key === key && x.value.trim());
+    if (hit) return hit.value.trim();
+  }
+  return '';
+}

@@ -1,5 +1,5 @@
 import { compositionOf } from '../../equipment/composition.js';
-import { classifyAll, classTitle } from '../../equipment/classes.js';
+import { classifyAll, classTitle, modelOf } from '../../equipment/classes.js';
 import { compareBy } from '../constructorSort.js';
 import type { Express, Request, Response } from 'express';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
@@ -211,6 +211,7 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
       case 'class': return String(row._class ?? '');
       case 'classTitle': return classTitle(String(row._class ?? ''));
       case 'kind': return String(row._kind ?? '');
+      case 'model': return modelOf(row.specs);
     }
     return '';
   }
@@ -246,7 +247,8 @@ function applyFilter(value: string, op: string, target: any): boolean {
     case 'ncontains': return !v.toLowerCase().includes(String(target ?? '').toLowerCase());
     case 'eq': return v === String(target ?? '');
     case 'neq': return v !== String(target ?? '');
-    case 'in': return Array.isArray(target) && target.map(String).includes(v);
+    // Список — массивом или строкой через «|»: разметка таблицы хранит отбор строкой
+    case 'in': return (Array.isArray(target) ? target : String(target ?? '').split('|')).map(String).includes(v);
     case 'empty': return v.trim() === '';
     case 'nempty': return v.trim() !== '';
     case 'gt': { const a = parseRuNumber(v), b = parseRuNumber(String(target)); return a != null && b != null && a > b; }
@@ -835,6 +837,7 @@ export function registerConstructorRoutes(app: Express): void {
           { path: 'origin', title: 'Откуда' },
           { path: 'classTitle', title: 'Тип' },
           { path: 'kind', title: 'Вид' },
+          { path: 'model', title: 'Модель' },
         ],
         params: Array.from(paramMap.values()).sort((a, b) =>
           a.group.localeCompare(b.group, 'ru') || a.key.localeCompare(b.key, 'ru')),
