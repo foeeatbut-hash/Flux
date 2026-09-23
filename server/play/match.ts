@@ -88,11 +88,16 @@ export async function matchView(sessionId: string, userId: string): Promise<Matc
   const state = safeJson(row.stateJson);
   const outcome = rules.outcome(state);
   const turnUserId = rules.turnOf(state);
+  const resigned = row.resignedBy ? (safeJson(row.seatsJson) || []).indexOf(row.resignedBy) : -1;
+  const resignedWinner = resigned >= 0 && state.seats.length > 1 ? (resigned === 0 ? 2 : 1) : 0;
   return {
     sessionId, gameId: row.gameId, revision: row.revision,
-    turnUserId, yourTurn: !!turnUserId && turnUserId === userId,
+    turnUserId: resigned >= 0 ? '' : turnUserId,
+    yourTurn: resigned < 0 && !!turnUserId && turnUserId === userId,
     view: rules.viewOf(state, userId),
-    done: outcome.done, winnerTeam: outcome.winnerTeam, why: outcome.why,
+    done: outcome.done || resigned >= 0,
+    winnerTeam: resigned >= 0 ? resignedWinner : outcome.winnerTeam,
+    why: resigned >= 0 ? (resignedWinner ? `Игрок ${resigned + 1} сдался` : 'Партия брошена') : outcome.why,
     seats: safeJson(row.seatsJson) || [],
   };
 }
@@ -118,6 +123,7 @@ export async function makeMove(
 
       const rules = rulesOf(row.gameId);
       if (!rules) fail(PLAY_ERRORS.UNSUPPORTED);
+      if (row.resignedBy) fail(PLAY_ERRORS.INVALID, 'Партия окончена');
 
       if (expectedRevision !== undefined && expectedRevision !== row.revision) {
         fail(PLAY_ERRORS.VERSION_CONFLICT, 'Доска уже изменилась — посмотрите её заново');
@@ -197,16 +203,20 @@ export async function resign(sessionId: string, userId: string, key: string): Pr
       const seats: string[] = safeJson(row.seatsJson) || [];
       const mine = seats.indexOf(userId);
       if (mine < 0) fail(PLAY_ERRORS.FORBIDDEN, 'Вы не за этой доской');
+      if (row.resignedBy || rulesOf(row.gameId)?.outcome(safeJson(row.stateJson)).done) {
+        fail(PLAY_ERRORS.INVALID, 'Партия уже окончена');
+      }
 
       // Победил тот, кто остался. В одиночной игре победителя нет вовсе
       const winnerTeam = seats.length > 1 ? (mine === 0 ? 2 : 1) : 0;
-      const why = seats.length > 1 ? 'Соперник сдался' : 'Партия брошена';
+      const why = seats.length > 1 ? `Игрок ${mine + 1} сдался` : 'Партия брошена';
 
       const revision = row.revision + 1;
-      await tx.playMatch.updateMany({
+      const resigned = await tx.playMatch.updateMany({
         where: { id: row.id, revision: row.revision },
         data: { revision: { increment: 1 }, resignedBy: userId, updatedAt: new Date() },
       });
+      if (!resigned.count) fail(PLAY_ERRORS.VERSION_CONFLICT, 'Партия уже изменилась');
       await appendEvent(tx, 'match', sessionId, revision, 'resigned', { by: userId });
       for (const seat of seats) {
         await enqueue(tx, `match:${sessionId}:${revision}:${seat}`, seat, 'match', { sessionId, revision });
