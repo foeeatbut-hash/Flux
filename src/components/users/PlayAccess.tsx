@@ -112,21 +112,44 @@ function Row({ def, entry, fromRole, disabled, onPick, onUntil }: {
   );
 }
 
-export default function PlayAccess({ perms, rolePerms, disabled, onSet }: {
+export default function PlayAccess({ perms, rolePerms, disabled, onSet, platformOn, onOpenSettings }: {
   perms: PermMap;
   rolePerms: PermMap;
   disabled?: boolean;
   /** mode = null — стереть запись, то есть вернуть «ничего не сказано» */
   onSet: (key: string, mode: Mode, until: string | null) => void;
+  /** Включена ли платформа в компании: выключенная не видна никому, даже с доступом */
+  platformOn?: boolean;
+  /** Открыть лист «Flux Play» в Настройках — там её включают */
+  onOpenSettings?: () => void;
 }) {
+  // «Выдать все игры» одним нажатием: игр шесть, и шесть переключателей
+  // подряд — это ровно то место, где одну и забывают
+  const games = PLAY_ENTITLEMENTS.filter((e) => e.group === 'Игры');
+  const allGames = () => { for (const g of games) onSet(g.id, 'ALLOW', null); };
   return (
     <div>
       <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-2">
         Встроенные программы
       </label>
+      {platformOn === false && (
+        <div className="mb-2 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-2.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+          Flux Play сейчас выключен для всей компании — выданный доступ заработает, когда его включат.
+          {onOpenSettings && (
+            <button type="button" onClick={onOpenSettings}
+              className="ml-1.5 font-bold underline underline-offset-2 cursor-pointer">
+              Включить в Настройках
+            </button>
+          )}
+        </div>
+      )}
       <p className="text-xs text-slate-400 dark:text-slate-500 mb-2 leading-relaxed">
         Доступ сюда не наследуется должностью: администратор получает его так же, как все, — явно.
         Пока не выдан доступ к платформе, сотрудник не видит её нигде.
+        <button type="button" disabled={disabled} onClick={allGames}
+          className="ml-1.5 font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer disabled:opacity-50">
+          Выдать все игры
+        </button>
       </p>
       <div className="space-y-3">
         {PLAY_GROUPS.map((group) => {

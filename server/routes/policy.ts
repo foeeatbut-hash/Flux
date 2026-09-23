@@ -15,9 +15,9 @@
 
 import type { Express, Request, Response } from 'express';
 import {
-  hiddenPlatform, getPolicyVersion, platformState, stripPlayKeys, subjectOf, allowed,
+  hiddenPlatform, getPolicyVersion, platformState, stripPlayKeys, subjectOf, allowed, isTopAdminUser,
 } from '../play/access.js';
-import { APP_PLAY } from '../../play/features.js';
+import { APP_PLAY, PLAY_ADMIN } from '../../play/features.js';
 
 export function registerPolicyRoutes(app: Express): void {
   app.get('/api/me/bootstrap', async (req: Request, res: Response) => {
@@ -28,15 +28,25 @@ export function registerPolicyRoutes(app: Express): void {
 
     try {
       const subject = await subjectOf(user);
-      const hasPlay = await allowed(user, APP_PLAY);
+      /**
+       * Кому платформа видна: тем, у кого есть к ней доступ, тем, кто ею
+       * управляет, и главному администратору.
+       *
+       * Раньше — только первым. Пока выключатель выключен, доступа нет ни у
+       * кого, и ответ «платформы нет, база не поддерживает» получал и тот, кто
+       * её включает: из его прав вырезалось даже право управления, раздел с
+       * выключателем прятался, и включить платформу было нечем. Сотруднику без
+       * доступа ответ прежний — пустота.
+       */
+      const sees = await allowed(user, APP_PLAY)
+        || await allowed(user, PLAY_ADMIN)
+        || await isTopAdminUser(user);
       const personal = subject?.personal || {};
       const fromRole = subject?.fromRole || {};
       return res.json({
-        // Платформы нет — значит, нет и её состояния: сотруднику без доступа
-        // не сообщается даже то, что она где-то включена
-        platform: hasPlay ? await platformState() : hiddenPlatform(),
-        permissions: hasPlay ? personal : stripPlayKeys(personal),
-        rolePermissions: hasPlay ? fromRole : stripPlayKeys(fromRole),
+        platform: sees ? await platformState() : hiddenPlatform(),
+        permissions: sees ? personal : stripPlayKeys(personal),
+        rolePermissions: sees ? fromRole : stripPlayKeys(fromRole),
         policyVersion: getPolicyVersion(),
       });
     } catch (e: any) {

@@ -121,6 +121,24 @@ export function invalidateRoleMaps(): void {
   bumpPolicyVersion();
 }
 
+/**
+ * Главный администратор — роль уровня 1, как в «Сотрудниках».
+ *
+ * Ему платформа видна ВСЕГДА — как настройка, а не как игры: включить её и
+ * выдать первый доступ больше некому. Раньше выключенная платформа пряталась и
+ * от него, вместе с выключателем, и включить её не мог никто (по нажатию во
+ * всяком случае): замкнутый круг, из-за которого раздела не было ни у кого.
+ * Играть это право не даёт — доступ к разделу выдаётся явно, как и прежде.
+ */
+export async function isTopAdminUser(user: any): Promise<boolean> {
+  if (!user) return false;
+  if (user.role === 'ADMIN') return true;
+  try {
+    const role = await getPrisma().role.findUnique({ where: { code: String(user.role || '') } });
+    return !!role && Number(role.level) <= 1;
+  } catch (_) { return false; }
+}
+
 /** Профиль из сессии — в то, что понимает правило. */
 export async function subjectOf(user: any): Promise<PolicySubject | null> {
   if (!user) return null;

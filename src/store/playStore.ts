@@ -51,7 +51,8 @@ export interface PlayState {
    */
   touch: () => void;
   /** Перечитать состояние целиком. Зовётся и по событию, и при открытии */
-  refresh: () => Promise<void>;
+  /** `quiet` — фоновый опрос: без признака загрузки, чтобы раздел не мигал */
+  refresh: (opts?: { quiet?: boolean }) => Promise<void>;
   /** Принять снимок, пришедший по сокету при переподключении */
   applySnapshot: (snapshot: PlaySnapshot) => void;
   reset: () => void;
@@ -85,9 +86,9 @@ export const usePlayStore = create<PlayState>((set, get) => ({
 
   touch: () => { if (get().at) set({ at: Date.now() }); },
 
-  refresh: async () => {
+  refresh: async (opts) => {
     if (inflight) return inflight;
-    set({ loading: true });
+    if (!opts?.quiet) set({ loading: true });
     inflight = (async () => {
       const res = await play.fetchState();
       if (!res.ok) {

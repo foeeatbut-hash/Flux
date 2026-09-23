@@ -38,7 +38,7 @@ export default function FieldsPanel({
   onClose: () => void;
   templates: { id: string; name: string; scope: string; columns: { title: string }[] }[];
   /** Шаблоны вида из «Оборудования»: какие характеристики нужны для работы */
-  views: { id: string; name: string; scope: string; role: string; fields: { key: string }[] }[];
+  views: { id: string; name: string; scope: string; role: string; fields: { key: string }[]; spec?: { v?: number; columns?: unknown[] } | null }[];
   onApplyView: (id: string) => void;
   onSaveTemplate: (name: string, personal: boolean) => void;
   onApplyTemplate: (id: string) => void;
@@ -229,7 +229,7 @@ export default function FieldsPanel({
                            text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
                 {v.name}
                 <span className="text-slate-400">
-                  {' · '}{v.fields.length} полей{v.role ? ` · ${v.role.toLowerCase()}` : ''}{v.scope === 'PERSONAL' ? ' · личный' : ''}
+                  {' · '}{v.spec?.v === 2 ? `${(v.spec.columns || []).length} столбцов · разложить и собрать` : `${v.fields.length} полей`}{v.role ? ` · ${v.role.toLowerCase()}` : ''}{v.scope === 'PERSONAL' ? ' · личный' : ''}
                 </span>
               </button>
             ))}

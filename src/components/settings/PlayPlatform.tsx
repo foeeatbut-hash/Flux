@@ -85,6 +85,42 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
     }
   };
 
+  /**
+   * Включить платформу одной кнопкой.
+   *
+   * Раньше это были три действия в трёх местах, и порядок их знал только тот,
+   * кто писал программу: выдать себе управление, включить выключатель, выдать
+   * себе доступ в карточке. Поэтому раздела не было ни у кого. Сервер делает
+   * всё сразу и записывает каждое звено с автором — ничего не выдаётся молча.
+   */
+  const [openForMe, setOpenForMe] = React.useState(true);
+  const enableAll = async () => {
+    setBusy(true);
+    setFailure('');
+    try {
+      const res = await fetch(`${ENV_CONFIG.apiUrl}/admin/play-diagnostics/enable`, {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ openForMe }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `сервер ответил ${res.status}`));
+      await refresh();
+      await loadDiagnostics();
+      addToast(
+        openForMe
+          ? 'Flux Play включён, раздел открыт вам. Сотрудникам доступ выдаётся в их карточках.'
+          : 'Flux Play включён. Доступ сотрудникам выдаётся в их карточках, в разделе «Сотрудники».',
+        'success',
+      );
+      if ((data?.denied || []).length) {
+        addToast('Часть доступа запрещена вам лично — запрет снимается в карточке сотрудника.', 'info');
+      }
+    } catch (e: any) {
+      setFailure(e?.message || 'Не удалось включить платформу');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const loadSessions = React.useCallback(async () => {
     try {
       const data = await ask('/admin/sessions');
@@ -196,6 +232,26 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Главное действие, пока платформа выключена: включить её одной кнопкой */}
+      {diag && platform.supported && !platform.enabled && (
+        <div className="mb-4 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 p-3">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Flux Play выключен для всей компании</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed text-pretty">
+            Поэтому раздела нет ни у кого — даже у тех, кому доступ уже выдан. После включения он появится
+            у сотрудников с доступом в течение минуты, без перезапуска программы.
+          </p>
+          <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={openForMe} onChange={(e) => setOpenForMe(e.target.checked)}
+              className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
+            Открыть раздел и мне — доступ и все игры
+          </label>
+          <button type="button" onClick={() => void enableAll()} disabled={busy}
+            className="mt-2.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 cursor-pointer transition-colors">
+            Включить Flux Play
+          </button>
         </div>
       )}
 

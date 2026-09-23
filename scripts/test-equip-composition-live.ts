@@ -78,11 +78,15 @@ const get = (path: string) => call('GET', path);
     pb.some((b) => b.role === 'ДВИГАТЕЛЬ' && !!b.parentKey), pb.filter((b) => b.role === 'ДВИГАТЕЛЬ'));
   ok('номер экземпляра дошёл',
     pb.some((b) => b.role === 'ВЕНТИЛЯТОР' && b.instanceNo === 2), pb.filter((b) => b.role === 'ВЕНТИЛЯТОР'));
-  // Три тега привода при двух приводах — расхождение заказчика, а не наша
-  // ошибка: план обязан его показать словами
-  const loose = pb.flatMap((b) => (b.tagNotes || []).filter((e: any) => e.verdict === 'no-slot'));
-  ok('лишний тег привода показан расхождением', loose.length === 1, loose);
-  ok('и названа фраза, из которой он взят', /Таг-номер привода/.test(loose[0]?.phrase || ''), loose[0]);
+  // Три тега привода при двух приводах в расчёте: третий привод стоит на
+  // объекте, а в расчёт не попал. Владелец распорядился: «если позиции нет —
+  // всё создаётся автоматически», поэтому тег заводит свою позицию, помеченную
+  // «по примечанию», — и фраза, из которой он взят, остаётся свидетельством
+  const born = pb.filter((b) => b.sourceKind === 'note');
+  ok('лишний тег привода завёл позицию по примечанию', born.length === 1 && born[0].role === 'ПРИВОД', pb.map((b) => [b.itemCode, b.role, b.sourceKind]));
+  const why = born.flatMap((b) => b.tagNotes || []).find((e: any) => e.verdict === 'created');
+  ok('и названа фраза, из которой он взят', /Таг-номер привода/.test(why?.phrase || ''), why);
+  ok('расхождением он больше не висит', !pb.some((b) => (b.tagNotes || []).some((e: any) => e.verdict === 'no-slot')));
 
   const tagLinks = (plan?.tagLinks || []).map((l: any) => ({ ...l }));
   ok('теги бланка попали в план', tagLinks.length >= 5, tagLinks.map((l: any) => [l.identifier, l.action]));

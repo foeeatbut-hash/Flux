@@ -235,7 +235,7 @@ export async function drainImportJobs(): Promise<number> {
         let units = payload.units || [];
         let tagLinks = payload.tagLinks as TagLink[] | undefined;
         if (payload.fileId) {
-          const read = await readEquipmentFile(String(payload.fileId));
+          const read = await readEquipmentFile(String(payload.fileId), job.projectId);
           units = read.result.units;
           // Решения по тегам берутся из плана как есть: человека у экрана нет,
           // и спросить его некого. Занятый тег план не перевешивает — это его

@@ -12,6 +12,7 @@
 import {
   DEFAULT_TAG_POLICY, TAG_MAX, extractCandidates, hasProjectPrefix, identityKeyOf,
   matchesMask, similarityKeyOf, tagPolicyOf, validateTag,
+  startsWithCode, latinFix, autoFixTag, mixesScripts,
 } from '../equipment/tagPolicy';
 
 let f = 0;
@@ -108,6 +109,39 @@ console.log('\n6. Политика читается безопасно');
   ok('мусор — значения по умолчанию', tagPolicyOf('не json').prefixes.length === 0);
   ok('строкой JSON тоже читается', tagPolicyOf('{"allowCyrillic":true}').allowCyrillic === true);
   ok('умолчание в модуле — запрет', DEFAULT_TAG_POLICY.allowCyrillic === false);
+}
+
+console.log('\n7. Код проекта: граница по дефису, составной код, опечатки');
+{
+  ok('тег начинается с кода', startsWithCode('3700-B01-FA-001A', '3700'));
+  ok('составной код тоже', startsWithCode('3700-B01-FA-001A', '3700-B01'));
+  ok('«37001-B01» кодом 3700 не считается', !startsWithCode('37001-B01', '3700'));
+  ok('«3700B01» без дефиса — не тот код', !startsWithCode('3700B01-FA', '3700'));
+  ok('код, набранный с кириллической «В», узнаётся', startsWithCode('3700-B01-FA', '3700-В01'));
+  ok('тире вместо дефиса не мешает', startsWithCode('3700–B01-FA', '3700'));
+  ok('дефис в конце кода не мешает', startsWithCode('3700-B01', '3700-'));
+  ok('пустой код ничего не значит', !startsWithCode('3700-B01', ''));
+  ok('приставка политики по составному коду', hasProjectPrefix('3700-B01-FA', { ...DEFAULT_TAG_POLICY, prefixes: ['3700-B01'] }));
+}
+
+console.log('\n8. Опечатки раскладки исправляются однозначно');
+{
+  const f1 = latinFix('3700-B01-СС-001A');
+  ok('кириллические «СС» → латинские', f1?.identifier === '3700-B01-CC-001A', f1);
+  ok('что заменено — названо', /С → C ×2/.test(f1?.what || ''), f1?.what);
+  ok('«Ж» без двойника — не исправляется', latinFix('3700-B01-Ж01') === null);
+  ok('чинить нечего — пусто', latinFix('3700-B01-CC-001A') === null);
+  ok('тире и невидимый знак тоже', latinFix('3700\u2013B01\u200B-FA')?.identifier === '3700-B01-FA');
+  ok('смешение алфавитов замечено', mixesScripts('3700-B01-СС') && !mixesScripts('3700-ВЕНТ-01') && !mixesScripts('3700-B01'));
+
+  const strict = { ...DEFAULT_TAG_POLICY, prefixes: ['3700'] };
+  const cyr = { ...strict, allowCyrillic: true };
+  ok('тег с кодом и двойниками исправляется', autoFixTag('3700-B02-AS-001А', strict)?.identifier === '3700-B02-AS-001A');
+  ok('смешение алфавитов исправляется и при разрешённой кириллице',
+    autoFixTag('3700-B01-СС-001A', cyr)?.identifier === '3700-B01-CC-001A');
+  ok('тег целиком на кириллице при разрешённой кириллице остаётся', autoFixTag('3700-ВЕНТ-001', cyr) === null);
+  ok('кириллическая модель без кода — не тег, не трогается', autoFixTag('ТРВ-110', strict) === null);
+  ok('без кода — только смешение алфавитов', autoFixTag('AB-001С', DEFAULT_TAG_POLICY)?.identifier === 'AB-001C');
 }
 
 console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

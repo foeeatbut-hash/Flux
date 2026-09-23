@@ -25,6 +25,7 @@ import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from
 import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
 import { SECTIONS } from './workspace/sections';
+import PlayInviteWatcher from './play/InviteWatcher';
 
 function ScreenLoader() {
   return (
@@ -366,6 +367,7 @@ export default function App() {
             <ServerGate>
               <LicenseGate>
                 <AnimatedRoutes />
+                <PlayInviteWatcher />
               </LicenseGate>
             </ServerGate>
           </div>

@@ -14,7 +14,7 @@ import { readFileSync } from 'fs';
 import {
   rootsOf, layoutForest, treeExtent, boundsOf, portAt, linkPath, linkMid,
   snap, clampZoom, zoomAt, screenToWorld, fitZoom, fitView, centerPan, treesPerRow,
-  hitTestCard, hitTestBox, boxFromDrag, findFreePosition, parkGrid,
+  hitTestCard, hitTestBox, boxFromDrag, findFreePosition, parkGrid, placeUnplaced, cleanMeta,
   DEFAULT_BOX, CARD_W, CARD_H, PORT_STUB, PORT_Y, MARGIN_X, MARGIN_Y, GRID,
   type TreeAxis, type Point,
 } from '../src/lib/tagLayout';
@@ -341,6 +341,58 @@ console.log('Колесо переживает уход на другую вкл
   const deps = wheel.slice(0, wheel.indexOf('}, ') + 40);
   check('слушатель колеса подписан на узел, а не на вкладку', deps.includes('}, [boardEl]);'), deps.slice(-60));
   check('наблюдатель размера — тоже', /observer\.disconnect\(\);\s*\}, \[boardEl\]\);/.test(src));
+}
+
+console.log('Автотег двигается, и соседи не перескакивают');
+{
+  // Жалоба владельца: теги, заведённые программой, «при перетаскивании
+  // возвращаются на место». Пометка «координат нет» уезжала в базу вместе с
+  // координатами, а сетка неразмещённых зависела от их числа
+  const meta = { x: 10, y: 20, _noPos: true, connections: ['a'], mainName: 'Клапан' };
+  const clean = cleanMeta(meta);
+  check('служебная пометка в запись не попадает', !('_noPos' in clean), clean);
+  check('остальное на месте', clean.x === 10 && clean.mainName === 'Клапан' && clean.connections[0] === 'a', clean);
+
+  const stored: Point = { x: 80, y: 60 };
+  const tree: TreeNode[] = [
+    { id: 'У', connections: ['К', 'В'] }, { id: 'К', connections: ['П'] },
+    { id: 'В', connections: [] }, { id: 'П', connections: [] }, { id: 'Одинокий', connections: [] },
+  ];
+  const nodes = [{ id: 'Ручной', connections: [], at: stored }, ...tree];
+  const memory: Record<string, Point> = {};
+  const first = placeUnplaced(nodes, memory, 'down');
+  check('координаты из базы не тронуты', first['Ручной'] === stored, first['Ручной']);
+  check('место выдано каждому', tree.every((n) => !!first[n.id]), Object.keys(first));
+  check('новые ложатся ниже расставленного',
+    tree.every((n) => first[n.id].y >= stored.y + CARD_H), tree.map((n) => first[n.id].y));
+  check('ввезённая установка ложится деревом: клапан под установкой',
+    first['К'].y > first['У'].y && first['П'].y > first['К'].y, [first['У'], first['К'], first['П']]);
+  check('места на сетке холста', tree.every((n) => first[n.id].x % GRID === 0 && first[n.id].y % GRID === 0));
+
+  // Перенесли клапан: он стал размещённым, а остальные — те же, что были
+  const moved = { x: 2000, y: 900 };
+  const after = placeUnplaced(nodes.map((n) => (n.id === 'К' ? { ...n, at: moved } : n)), memory, 'down');
+  check('перенесённая карточка стоит там, куда её поставили', after['К'] === moved, after['К']);
+  check('соседи не перескочили', tree.filter((n) => n.id !== 'К')
+    .every((n) => after[n.id].x === first[n.id].x && after[n.id].y === first[n.id].y));
+
+  // Ввоз добавил ещё тегов — прежние места снова не меняются
+  const more = [...nodes, { id: 'Новый-1', connections: ['Новый-2'] }, { id: 'Новый-2', connections: [] }];
+  const third = placeUnplaced(more, memory, 'down');
+  check('новый ввоз не двигает прежние места',
+    tree.every((n) => third[n.id].x === first[n.id].x && third[n.id].y === first[n.id].y));
+  const occupied = tree.map((n) => first[n.id]);
+  check('новые не ложатся на прежние', ['Новый-1', 'Новый-2'].every((id) => occupied.every((p) =>
+    Math.abs(p.x - third[id].x) >= CARD_W || Math.abs(p.y - third[id].y) >= CARD_H)), [third['Новый-1'], third['Новый-2']]);
+  check('пустой холст: с поля по умолчанию',
+    placeUnplaced([{ id: 'x', connections: [] }], {}, 'right')['x'].x === snap(MARGIN_X));
+
+  const reg = readFileSync(new URL('../src/screens/Registry.tsx', import.meta.url), 'utf8');
+  check('реестр раскладывает неразмещённые общим правилом', reg.includes('placeUnplaced(') && !reg.includes('parkGrid('));
+  const save = reg.slice(reg.indexOf('const saveTagMetadata'), reg.indexOf('const saveTagMetadata') + 900);
+  check('запись метаданных чистит служебные пометки', save.includes('cleanMeta(metadata)'), save.slice(0, 200));
+  check('и после записи тег считается размещённым', save.includes('_noPos: false'));
+  check('первый перенос закрепляет места всех неразмещённых', /_noPos\)\s*\{[\s\S]{0,400}applyPositions\(\{ \.\.\.parked/.test(reg));
 }
 
 if (failed) {

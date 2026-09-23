@@ -61,7 +61,7 @@ import {
 } from '../lib/tagTree';
 import {
   layoutForest, linkPath, portAt, boundsOf, fitView, clampZoom, zoomAt, screenToWorld,
-  hitTestCard, hitTestBox, boxFromDrag, findFreePosition as freeSpot, parkGrid, snap, fitZoom,
+  hitTestCard, hitTestBox, boxFromDrag, findFreePosition as freeSpot, placeUnplaced, cleanMeta, snap, fitZoom,
   DEFAULT_BOX as LAYOUT_BOX, GRID, type TreeAxis, type Point,
 } from '../lib/tagLayout';
 import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
@@ -513,23 +513,19 @@ export default function Registry() {
     panRef.current = pan;
   }, [pan]);
 
+  // Места тегов без координат (автотеги ввоза): однажды выданное место
+  // помнится на сессию, и перенос одной карточки не двигает остальные —
+  // правило в src/lib/tagLayout.ts placeUnplaced
+  const parkedRef = useRef<Record<string, Point>>({});
   useEffect(() => {
-    // Теги без сохранённых координат раньше получали случайную точку в
-    // области 550×320: полсотни карточек ложились друг на друга, и холст
-    // при открытии читать было нельзя, пока не нажмёшь «Упорядочить».
-    // Раскладываем их сеткой — детерминированно и без наложений.
-    // Число столбцов подбирает parkGrid — так, чтобы холст был близок к
-    // пропорциям экрана: при шести столбцах две тысячи тегов вытягивались в
-    // ленту высотой 44 тысячи пикселей, и до нижних карточек было не добраться.
-    const noPos = tags.filter((t: any) => parseTagMetadata(t)._noPos);
-    const grid = parkGrid(noPos.length, { x: 80, y: 60 }, LAYOUT_BOX);
-    const spot = new Map<string, Point>(noPos.map((t: any, i: number) => [t.id, grid[i]]));
-    const positions: Record<string, { x: number, y: number }> = {};
+    const code = new Map<string, string>(tags.map((t: any) => [t.id, t.identifier || '']));
+    const positions = placeUnplaced(tags.map((t: any) => {
+      const m = parseTagMetadata(t);
+      return { id: t.id, connections: m.connections || [], at: m._noPos ? undefined : { x: m.x, y: m.y } };
+    }), parkedRef.current, axisRef.current, { box: LAYOUT_BOX, keyOf: (id) => code.get(id) || id });
     for (const t of tags) {
       const meta = parseTagMetadata(t);
-      const put = spot.get(t.id);
-      if (put) { meta.x = put.x; meta.y = put.y; }
-      positions[t.id] = { x: meta.x, y: meta.y };
+      if (meta._noPos) { meta.x = positions[t.id].x; meta.y = positions[t.id].y; }
     }
     cardPositionsRef.current = positions;
   }, [tags]);
@@ -1380,14 +1376,15 @@ export default function Registry() {
   // Safe save metadata to database
   const saveTagMetadata = async (tagId: string, metadata: ParsedMetadata) => {
     try {
-      setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: metadata, metadata: JSON.stringify(metadata) } : t));
+      // Служебные пометки окна в базу не едут, а записанные координаты делают
+      // тег размещённым: иначе перенесённый автотег возвращался в сетку
+      const clean = cleanMeta(metadata);
+      setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: { ...clean, _noPos: false }, metadata: JSON.stringify(clean) } : t));
 
       await fetch(`/api/tags/${tagId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          metadata: JSON.stringify(metadata)
-        })
+        body: JSON.stringify({ metadata: JSON.stringify(clean) })
       });
     } catch (err) {
       console.error('Failed to save tag metadata:', err);
@@ -1800,7 +1797,14 @@ export default function Registry() {
           cardPositionsRef.current[draggedTagId] = put;
           const cardEl = document.getElementById(`tag-card-${draggedTagId}`);
           if (cardEl) cardEl.style.transform = `translate(${put.x}px, ${put.y}px)`;
-          await saveTagMetadata(draggedTagId, { ...parseTagMetadata(tag), x: put.x, y: put.y });
+          // Первый перенос неразмещённой карточки закрепляет места всех
+          // неразмещённых одним запросом — при следующем открытии никто не
+          // разложится заново
+          if (parseTagMetadata(tag)._noPos) {
+            const parked = Object.fromEntries(tags.filter((t: any) => parseTagMetadata(t)._noPos)
+              .map((t: any) => [t.id, cardPositionsRef.current[t.id]]));
+            await applyPositions({ ...parked, [draggedTagId]: put }).catch(() => addToast('Не удалось сохранить место карточки', 'error'));
+          } else await saveTagMetadata(draggedTagId, { ...parseTagMetadata(tag), x: put.x, y: put.y });
         }
       }
       setDraggedTagId(null);
@@ -2217,7 +2221,7 @@ export default function Registry() {
       const p = positions[t.id];
       if (!p) continue;
       cardPositionsRef.current[t.id] = p;
-      updates.push({ id: t.id, metadata: JSON.stringify({ ...parseTagMetadata(t), x: p.x, y: p.y }) });
+      updates.push({ id: t.id, metadata: JSON.stringify(cleanMeta({ ...parseTagMetadata(t), x: p.x, y: p.y })) });
     }
     if (!updates.length) return;
     const byId = new Map(updates.map((u) => [u.id, u.metadata]));

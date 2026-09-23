@@ -240,10 +240,111 @@ export function matchesMask(identifier: string, mask: TagMask): boolean {
   return true;
 }
 
+/**
+ * Написание для сравнения с кодом проекта: регистр, двойники и тире не важны.
+ *
+ * Только для вопроса «это тег нашего проекта?», и ни для чего больше. Код
+ * набирают как попало — «3700», «3700-В01» с кириллической «В», — а спрашивают
+ * про него ровно затем, чтобы распознать тег, написанный с опечаткой.
+ */
+const foldCode = (raw: string): string =>
+  [...String(raw ?? '').trim().normalize('NFC').toLowerCase()]
+    .map((c) => (DASHES.test(c) ? '-' : LOOKALIKE[c] ?? c))
+    .join('')
+    .replace(/-+$/, '');
+
+/**
+ * Начинается ли тег с кода проекта — по ГРАНИЦЕ части.
+ *
+ * Код бывает составным («3700-B01»), поэтому граница — дефис сразу после кода,
+ * а не первая часть тега: «3700-B01-FA-001A» подходит и под «3700», и под
+ * «3700-B01», а «37001-B01» не подходит ни под то, ни под другое.
+ */
+export function startsWithCode(identifier: string, code: string): boolean {
+  const c = foldCode(code);
+  if (!c) return false;
+  const id = foldCode(identifier);
+  return id === c || id.startsWith(`${c}-`);
+}
+
 /** Начинается ли тег с одной из приставок проекта — по ГРАНИЦЕ части. */
 export function hasProjectPrefix(identifier: string, policy: TagPolicy): boolean {
-  const head = identifier.split('-')[0];
-  return policy.prefixes.some((p) => head === p);
+  return policy.prefixes.some((p) => startsWithCode(identifier, p));
+}
+
+// ── Исправление опечаток раскладки ──────────────────────────────────────────
+
+/** Есть ли в строке и латинские, и кириллические буквы. */
+export const mixesScripts = (raw: string): boolean => {
+  const s = String(raw ?? '');
+  return LATIN.test(s) && CYRILLIC.test(s);
+};
+
+export interface TagFix {
+  /** Написание после исправления — оно и будет записано */
+  identifier: string;
+  /** Как было в файле */
+  from: string;
+  /** Что заменено, словами: «С → C ×2» */
+  what: string;
+}
+
+/**
+ * Исправить опечатки раскладки: кириллические двойники — латиницей,
+ * типографское тире — дефисом, невидимые знаки — прочь.
+ *
+ * Исправление делается, только если оно однозначно: у КАЖДОЙ кириллической
+ * буквы тега есть латинский двойник. «Ж» двойника не имеет, и тег с ней не
+ * трогается — это уже не опечатка раскладки, а другое слово. Пусто — чинить
+ * нечего или нельзя.
+ */
+export function latinFix(raw: unknown): TagFix | null {
+  const from = String(raw ?? '').trim().normalize('NFC');
+  if (!from) return null;
+  const swaps = new Map<string, number>();
+  const note = (k: string) => swaps.set(k, (swaps.get(k) || 0) + 1);
+  let out = '';
+  for (const ch of from) {
+    if (INVISIBLE.test(ch)) { note('невидимый знак убран'); continue; }
+    if (DASHES.test(ch)) { out += '-'; note('тире → дефис'); continue; }
+    if (CYRILLIC.test(ch)) {
+      const twin = LOOKALIKE[ch];
+      if (!twin) return null;
+      out += twin;
+      note(`${ch} → ${twin}`);
+      continue;
+    }
+    out += ch;
+  }
+  if (out === from) return null;
+  const what = [...swaps.entries()].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(', ');
+  return { identifier: out, from, what };
+}
+
+/**
+ * Исправлять ли тег сразу, не спрашивая.
+ *
+ * Два случая, и оба — опечатка раскладки, а не другое слово:
+ *
+ *   1. тег начинается с кода проекта, а кириллица в проекте запрещена —
+ *      «3700-B02-AS-001А» с кириллической «А» на конце;
+ *   2. в одном теге смешаны алфавиты — «3700-B01-СС-001A»: латинская «B» и
+ *      кириллические «С» рядом не ставят намеренно, даже там, где кириллица
+ *      разрешена.
+ *
+ * Тег целиком на кириллице при разрешённой кириллице — выбор проекта, и он
+ * остаётся как есть. Кириллическая строка без кода проекта («ТРВ-110») — это
+ * модель, а не тег, и её тоже не трогаем.
+ */
+export function autoFixTag(raw: unknown, policy: TagPolicy): TagFix | null {
+  const fix = latinFix(raw);
+  if (!fix) return null;
+  if (CYRILLIC.test(fix.from)) {
+    const mixed = mixesScripts(fix.from);
+    if (policy.allowCyrillic && !mixed) return null;
+    if (!mixed && !hasProjectPrefix(fix.identifier, policy)) return null;
+  }
+  return validateTag(fix.identifier, policy).ok ? fix : null;
 }
 
 // ── Извлечение из текста ────────────────────────────────────────────────────
@@ -286,6 +387,16 @@ const MARKER = /(^|[^\p{Letter}])(тег|тэг|поз|позиция|tag)\.?\s*
  * совпал целиком, либо это не он.
  */
 const TOKEN = new RegExp('[\\p{Letter}\\p{Number}][\\p{Letter}\\p{Number}\\-\u2010-\u2015\u00AD\u200B]*', 'gu');
+
+/** Слова текста по тому же правилу, что и поиск кандидатов: целиком или никак. */
+export function tokensOf(text: unknown): { raw: string; start: number; end: number }[] {
+  const source = String(text ?? '');
+  const out: { raw: string; start: number; end: number }[] = [];
+  const re = new RegExp(TOKEN.source, 'gu');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) out.push({ raw: m[0], start: m.index, end: m.index + m[0].length });
+  return out;
+}
 
 export interface ExtractOptions {
   /** Реестр проекта: точное совпадение сильнее любой маски */

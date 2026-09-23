@@ -18,6 +18,7 @@ import {
   paintHeader, clearHeaderCell, readColumnValues, writeColumnValues, clearColumnValues,
   nextFreeColumn,
 } from '../../lib/tableBlock';
+import { specOf, toLayout } from '../../lib/exportSpec';
 
 export interface SavedTemplate {
   id: string; name: string; scope: string; grain: string;
@@ -50,6 +51,12 @@ export function useTableLayout(opts: {
   cursorRef.current = getCursor;
 
   const [layout, setLayout] = useState<TableLayout>(() => opts.initial || emptyLayout());
+  // Документ грузится после первой отрисовки: разметка из него приходит
+  // позже, чем заведено состояние. Без этого сохранённая разметка при
+  // повторном открытии терялась, и «Собрать» просило разметить шапку заново
+  useEffect(() => {
+    if (opts.initial?.columns?.length) setLayout((cur) => (cur.columns.length ? cur : opts.initial!));
+  }, [opts.initial]);
   const [catalog, setCatalog] = useState<ProjectCatalog | null>(null);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   // Шаблоны вида из раздела «Оборудование»: какие характеристики нужны для
@@ -184,13 +191,16 @@ export function useTableLayout(opts: {
   }, [layout, getSheet, change]);
 
   /** Запрос строк проекта по текущей разметке. */
-  const ask = useCallback(async (): Promise<{ keys: string[]; cells: string[][] } | null> => {
+  const ask = useCallback(async (given?: TableLayout): Promise<{ keys: string[]; cells: string[][] } | null> => {
+    const L = given || layout;
     const res = await fetch('/api/constructor/query', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        projectId, entity: layout.grain,
-        columns: layout.columns.map((c) => c.path),
-        filters: layout.filters, limit: 50000,
+        projectId, entity: L.grain,
+        columns: L.columns.map((c) => c.path),
+        // Порядок строк — из разметки: шаблон выгрузки «тип → тег» так и
+        // остаётся «тип → тег» при каждом обновлении листа
+        filters: L.filters, sort: L.sort || [], limit: 50000,
       }),
     });
     if (!res.ok) return null;
@@ -208,21 +218,23 @@ export function useTableLayout(opts: {
    * не пишет, если есть что решать: обновление, которое молча затирает правку
    * человека, — самая дорогая ошибка здесь.
    */
-  const collect = useCallback(async () => {
-    if (!layout.columns.length) { say('Сначала разметьте шапку: выберите поля для столбцов', 'info'); return; }
+  const collect = useCallback(async (given?: TableLayout | unknown) => {
+    // Из кнопки приходит событие мыши, из раскладки шаблона — сама разметка
+    const L: TableLayout = given && Array.isArray((given as TableLayout).columns) ? given as TableLayout : layout;
+    if (!L.columns.length) { say('Сначала разметьте шапку: выберите поля для столбцов', 'info'); return; }
     const ws = getSheet();
     if (!ws) return;
     setBusy(true);
     try {
-      const got = await ask();
+      const got = await ask(L);
       if (!got) { say('Не удалось получить данные проекта', 'error'); return; }
-      const top = layout.headerRow + 1;
+      const top = L.headerRow + 1;
       const was = collected.current;
 
       if (was.keys.length) {
-        const current = readColumnValues(ws, layout, top, was.keys.length);
+        const current = readColumnValues(ws, L, top, was.keys.length);
         const fresh = new Map(got.keys.map((k, i) => [k, got.cells[i]]));
-        const d = diffLayout({ wasKeys: was.keys, written: was.written, current, fresh, columns: layout.columns });
+        const d = diffLayout({ wasKeys: was.keys, written: was.written, current, fresh, columns: L.columns });
         setDiff(d);
         if (d.asks > 0) {
           setDiffOpen(true);
@@ -233,10 +245,10 @@ export function useTableLayout(opts: {
 
       // Старые строки стираем целиком: иначе от прошлой сборки остаются хвосты
       if (was.keys.length > got.keys.length) {
-        clearColumnValues(ws, layout, top + got.keys.length, was.keys.length - got.keys.length);
+        clearColumnValues(ws, L, top + got.keys.length, was.keys.length - got.keys.length);
       }
-      writeColumnValues(ws, layout, top, got.cells);
-      paintHeader(ws, layout, true);
+      writeColumnValues(ws, L, top, got.cells);
+      paintHeader(ws, L, true);
       collected.current = { keys: got.keys, written: got.cells };
       setDiff(null);
       say(`Собрано строк: ${got.keys.length}`, 'success');
@@ -328,7 +340,14 @@ export function useTableLayout(opts: {
     if (!v) return;
     const ws = getSheet();
     const at = getCursor() || { row: layout.headerRow, col: nextFreeColumn(layout) };
-    const next = viewToColumns(v, layout, { row: layout.headerRow, col: at.col });
+    // Шаблон второй версии — целая таблица: отбор по типу, служебные столбцы,
+    // заголовки и порядок. Он ложится от выбранной ячейки вместо прежней
+    // разметки и сразу собирается — «Разложить и собрать» одним нажатием
+    const spec = (v as any).spec?.v === 2 ? specOf((v as any).spec) : null;
+    if (spec && ws) for (const c of layout.columns) clearHeaderCell(ws, layout.headerRow, c.col);
+    const next = spec
+      ? toLayout(spec, at.row, at.col)
+      : viewToColumns(v, layout, { row: layout.headerRow, col: at.col });
     change(next);
     if (ws) paintHeader(ws, next, false);
     collected.current = { keys: [], written: [] };
@@ -340,8 +359,9 @@ export function useTableLayout(opts: {
           return { anchor: getCursor() || right, placed: right };
         })()
       : null;
-    say(`Шаблон вида «${v.name}» разложен — двигайте столбцы и нажмите «Собрать»`, 'success');
-  }, [views, getSheet, getCursor, layout, change, say]);
+    say(`Шаблон «${v.name}» разложен — собираю значения`, 'success');
+    void collect(next);
+  }, [views, getSheet, getCursor, layout, change, say, collect]);
 
   const deleteTemplate = useCallback(async (id: string) => {
     await fetch(`/api/table-templates/${id}`, { method: 'DELETE' }).catch(() => null);

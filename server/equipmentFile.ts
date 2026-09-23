@@ -14,11 +14,37 @@
 import { getPrisma } from './context.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { parseEquipmentXML, parseEquipmentExcel } from './equipmentParser.js';
+import { importPolicyOfProject } from './routes/tagPolicy.js';
+import type { KindMap } from './vezaDict.js';
+import type { VezaOptions } from './vezaXml.js';
+
+/** Общая настройка компании: виды узлов выгрузки, отнесённые к ролям людьми. */
+export const KIND_MAP_KEY = 'veza_kind_map';
+
+export async function kindMap(): Promise<KindMap> {
+  try {
+    const row = await getPrisma().appSetting.findFirst({ where: { key: KIND_MAP_KEY, userId: null } });
+    const parsed = row?.value ? JSON.parse(row.value) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
+}
+
+/**
+ * Что разбору нужно знать о проекте: код проекта (по нему ищутся теги) и
+ * правило написания. Без проекта файл тоже читается — для просмотра.
+ */
+export async function parseOptionsFor(projectId?: string): Promise<VezaOptions> {
+  const [policy, kinds] = await Promise.all([
+    projectId ? importPolicyOfProject(projectId) : Promise.resolve(undefined),
+    kindMap(),
+  ]);
+  return { ...(policy ? { policy } : {}), kinds };
+}
 
 /** Что умеет этот путь. PDF, Word и сканы идут через мастер распознавания. */
 export const CALC_EXTENSIONS = ['xlsx', 'xls', 'xml', 'csv'];
 
-export async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
+export async function readEquipmentFile(fileId: string, projectId?: string): Promise<{ result: any; fileName: string }> {
   const prisma = getPrisma();
   const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
   if (!fileNode) throw { status: 404, error: 'Файл не найден' };
@@ -35,7 +61,9 @@ export async function readEquipmentFile(fileId: string): Promise<{ result: any; 
 
   let result;
   try {
-    result = (extension === 'xml') ? parseEquipmentXML(buffer.toString('utf-8')) : parseEquipmentExcel(buffer);
+    result = (extension === 'xml')
+      ? parseEquipmentXML(buffer.toString('utf-8'), await parseOptionsFor(projectId))
+      : parseEquipmentExcel(buffer);
   } catch {
     throw { status: 400, error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».' };
   }

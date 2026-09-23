@@ -575,9 +575,46 @@ export const VEZA_NOT_POSITIONS = new Set([
   'cadSealingRing', 'cadFreonCoilsDistribKit', 'cadTankTrap',
 ]);
 
+/**
+ * Параметр, который принадлежит не той позиции, что его раздел.
+ *
+ * Раздел `ptgVARCONN` — это клапан, но строка «Электропривод SM24-S2» в нём —
+ * модель ПРИВОДА. Своих разделов у привода в выгрузке нет, и без этой строки
+ * привод, ставший отдельной позицией, остался бы без единой характеристики.
+ * Клапан параметр сохраняет: в его карточке он был и нужен там же. У привода
+ * он называется так, как его ищут в таблице, — «Привод · Модель».
+ */
+export interface ParamRole {
+  roles: string[];
+  as?: Record<string, { group: string; key: string }>;
+}
+const ACTUATOR: ParamRole = { roles: ['КЛАПАН', 'ПРИВОД'], as: { ПРИВОД: { group: 'Привод', key: 'Модель' } } };
+export const VEZA_PARAM_ROLES: Record<string, ParamRole> = {
+  'ptgVARCONN.ptACTUATOR': ACTUATOR,
+  'ptgVARCONN1.ptACTUATOR': ACTUATOR,
+  'ptgVARCONN2.ptACTUATOR': ACTUATOR,
+};
+
+export const vezaParamRole = (group: string, type: string): ParamRole | null =>
+  VEZA_PARAM_ROLES[`${String(group || '')}.${String(type || '')}`] || null;
+
+/**
+ * Сопоставления, заданные людьми: вид узла → роль или «не позиция».
+ *
+ * Выгрузку делает САПР, а он развивается: новый аппарат приезжает под новым
+ * словом. Чинить это выпуском программы долго; человек, увидевший «вид
+ * неизвестен» в предпросмотре, относит его к роли сам, и ответ живёт в общей
+ * настройке компании. Здесь только правило, как его читать.
+ */
+export type KindMap = Record<string, string>;
+export const SKIP_KIND = 'НЕ_ПОЗИЦИЯ';
+
 /** Роль узла по его виду. Пусто — вид неизвестен или это не позиция. */
-export function vezaRole(kind: string): string {
-  return VEZA_ROLES[String(kind || '')] || '';
+export function vezaRole(kind: string, extra?: KindMap): string {
+  const k = String(kind || '');
+  const own = extra?.[k];
+  if (own) return own === SKIP_KIND ? '' : own;
+  return VEZA_ROLES[k] || '';
 }
 
 /** Роли, которым принадлежит раздел параметров. Пусто — раздел про блок. */
@@ -586,8 +623,10 @@ export function vezaGroupRoles(group: string): string[] {
 }
 
 /** Значимый ли узел: позиция, «не позиция» или неизвестный вид. */
-export function vezaKindSense(kind: string): 'position' | 'skip' | 'unknown' {
+export function vezaKindSense(kind: string, extra?: KindMap): 'position' | 'skip' | 'unknown' {
   const k = String(kind || '');
+  const own = extra?.[k];
+  if (own) return own === SKIP_KIND ? 'skip' : 'position';
   if (VEZA_ROLES[k]) return 'position';
   if (VEZA_NOT_POSITIONS.has(k)) return 'skip';
   return 'unknown';

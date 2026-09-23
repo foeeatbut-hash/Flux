@@ -1,7 +1,10 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma } from '../context.js';
+import { getPrisma, upsertSetting } from '../context.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
+import { KIND_MAP_KEY, kindMap, parseOptionsFor } from '../equipmentFile.js';
+import { SKIP_KIND } from '../vezaDict.js';
+import { ROLES } from '../../equipment/roles.js';
 import { TAG_MAX } from '../../equipment/tagPolicy.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
 import type { TagLink } from '../equipmentTags.js';
@@ -216,6 +219,31 @@ export function draftFailure(error: any): { code: string; error: string } | null
 
 export function registerEquipmentDraftRoutes(app: Express): void {
   /**
+   * Незнакомый вид узла выгрузки → роль.
+   *
+   * Предпросмотр показывает виды, которых программа не знает, и человек
+   * относит вид к роли (или помечает «не позиция»). Ответ живёт в общей
+   * настройке компании и работает на всех следующих ввозах у всех сотрудников:
+   * одна и та же новинка САПР не должна объясняться программе двадцать раз.
+   */
+  app.put('/api/equipment/veza-kinds', async (req: Request, res: Response) => {
+    const kind = clean(req.body?.kind, 80);
+    const role = clean(req.body?.role, 40);
+    if (!/^cad[A-Za-z0-9]+$/.test(kind)) return res.status(400).json({ error: 'Вид узла не похож на вид выгрузки САПР' });
+    const known = role === SKIP_KIND || ROLES.some(r => r.id === role);
+    if (!known && role !== '') return res.status(400).json({ error: 'Такой роли нет' });
+    try {
+      const map = await kindMap();
+      if (role) map[kind] = role; else delete map[kind];
+      await upsertSetting(KIND_MAP_KEY, null, JSON.stringify(map));
+      console.log(`[Оборудование] Вид ${kind} отнесён к роли «${role || 'не задано'}»`);
+      return res.json({ kinds: map });
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Не удалось сохранить', details: e?.message });
+    }
+  });
+
+  /**
    * Разбор расчёта, принесённого прямо в мастер, — без Проводника.
    *
    * Выгрузка САПР устроена так, что распознавать её нечем: там не бланк с
@@ -231,7 +259,9 @@ export function registerEquipmentDraftRoutes(app: Express): void {
     const text = String(req.body?.text || '');
     if (!text.trim()) return res.status(400).json({ error: 'Пустой файл' });
     try {
-      const result = parseEquipmentXML(text);
+      // Проект нужен и здесь: по его коду в примечаниях ищутся теги
+      const projectId = String(req.body?.projectId || '');
+      const result = parseEquipmentXML(text, await parseOptionsFor(projectId || undefined));
       if (!result.units.length) {
         return res.status(400).json({
           error: 'В файле не нашлось установок. Похоже, это не выгрузка расчёта — попробуйте импорт бланка.',

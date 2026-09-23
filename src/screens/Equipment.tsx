@@ -13,8 +13,8 @@ import {
   ArrowRight, LayoutGrid, List, Search, Save
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
-import ExchangeDialog from '../components/ExchangeDialog';
-import { buildEquipmentExchange, equipmentColumns, type ExchangeComponent } from '../lib/equipmentExchange';
+import ExportBuilder from '../components/equipment/ExportBuilder';
+import type { ExchangeComponent } from '../lib/equipmentExchange';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
@@ -32,11 +32,7 @@ interface Component {
   role?: string; parentElementId?: string | null;
   instanceNo?: number | null; instanceCount?: number | null;
   sourceOrder?: number | null; manual?: boolean;
-}
-// Тег в списке привязки: с занятостью (один тег — одно изделие)
-interface PickerTag {
-  id: string; identifier: string; department?: string; metadata?: string;
-  componentElements?: { id: string; name: string; itemCode: string }[];
+  sourceKind?: string | null; equipClass?: string | null; equipKind?: string | null;
 }
 interface Monoblock { id: string; name: string; components: Component[]; }
 interface SystemUnit { id: string; name: string; category: string; fileName?: string; monoblocks: Monoblock[]; }
@@ -45,9 +41,16 @@ interface Category { id: string; label: string; composite?: boolean; }
 import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
 import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs';
 import BlockCard from '../components/equipment/BlockCard';
-import PositionTree, { blockLabel } from '../components/equipment/PositionTree';
+import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
+import PositionList from '../components/equipment/PositionList';
+import { classifyAll } from '../../equipment/classes';
+import CategoryViewDialog from '../components/equipment/CategoryViewDialog';
+import { useCategoryView } from '../components/equipment/useCategoryView';
+import { arrange, isHiddenIn, toggleIn, viewOf } from '../lib/categoryView';
 import { rowsOfProject } from '../lib/equipmentRows';
-import AddPositionDialog, { type AddPositionTarget } from '../components/equipment/AddPositionDialog';
+import AddPositionDialog, { type AddPositionTarget, type AddPositionBody } from '../components/equipment/AddPositionDialog';
+import TagPickerModal, { type PickerTag } from '../components/equipment/TagPickerModal';
+import { compositionOf } from '../../equipment/composition';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
 import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
 
@@ -164,17 +167,8 @@ export default function Equipment() {
   useEffect(() => { loadCategories(); loadVisibility(); }, [loadCategories, loadVisibility]);
   useEffect(() => { loadSystems(); loadTags(); }, [loadSystems, loadTags]);
 
-  // Сохранение профиля видимости (админ-для-всех или персонально)
-  const persistVisibility = async (next: Record<string, string[]>) => {
-    setVisibility(next);
-    if (!user) return;
-    const asGlobal = isAdmin && visMode === 'admin';
-    await fetch(api('/settings/equip_visibility'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: asGlobal ? null : user.id, value: JSON.stringify(next) }),
-    }).catch(() => {});
-  };
-
+  // Прежний профиль видимости только читается: писать в него больше нечему — вид
+  // теперь живёт на категорию и тип (useCategoryView), а старое переезжает туда
   const switchVisMode = async (mode: 'admin' | 'self') => {
     setVisMode(mode);
     if (!user) return;
@@ -226,6 +220,21 @@ export default function Equipment() {
   }, [systems]);
 
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
+  // Тип и вид каждой позиции — одним правилом на дерево, список, карточку и выгрузку
+  const types = useMemo(() => classifyAll(Object.values(allBlocks).map(x => x.block) as any), [allBlocks]);
+  const [listMode, setListMode] = useState(false);
+  const [treeMode, setTreeMode] = useState<TreeMode>(() => {
+    try { return localStorage.getItem('flux_equip_tree') === 'type' ? 'type' : 'composition'; } catch (_) { return 'composition'; }
+  });
+  const chooseTreeMode = (m: TreeMode) => {
+    setTreeMode(m);
+    try { localStorage.setItem('flux_equip_tree', m); } catch (_) { /* приватный режим */ }
+  };
+  const openBlock = (id: string) => {
+    const e = allBlocks[id];
+    if (e) setExpanded(x => ({ ...x, [e.unit.id]: true, [e.mono.id]: true }));
+    setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); setListMode(false);
+  };
   const selectedUnit = useMemo(() => systems.find(s => s.id === selectedUnitId) || null, [systems, selectedUnitId]);
 
   // ── Фокус из ИИ-чата: открыть конкретный элемент и подсветить характеристику ──
@@ -398,9 +407,10 @@ export default function Equipment() {
    * Отказ сервера показывается словами и в диалоге, а не всплывашкой: человек
    * стоит в форме, и исправлять написание тега ему прямо здесь.
    */
-  const addPosition = async (body: { name: string; role: string; tag: string; params: { key: string; value: string; unit: string }[] }): Promise<string> => {
+  const addPosition = async (body: AddPositionBody): Promise<string> => {
     try {
-      const res = await fetch(api(`/equipment/component/${addTo?.id}/position`), {
+      const url = addTo?.id ? `/equipment/component/${addTo.id}/position` : `/equipment/monoblock/${addTo?.monoblockId}/position`;
+      const res = await fetch(api(url), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
@@ -410,17 +420,40 @@ export default function Equipment() {
         data?.parentTag ? `Позиция заведена, родитель тега — «${data.parentTag}»` : 'Позиция заведена',
         'success',
       );
+      if (data?.tag?.corrected) addToast(`Тег исправлен: ${data.tag.corrected.what} — записан «${data.tag.identifier}»`, 'info');
       if (data?.warning) addToast(data.warning, 'info');
-      loadSystems();
+      loadSystems(); loadTags();
       return '';
     } catch (_) { return 'Сервер не ответил'; }
   };
 
-  const isHidden = (equipType: string, token: string) => (visibility[equipType] || []).includes(token);
-  const toggleHidden = (equipType: string, token: string) => {
-    const cur = visibility[equipType] || [];
-    const next = cur.includes(token) ? cur.filter(t => t !== token) : [...cur, token];
-    persistVisibility({ ...visibility, [equipType]: next });
+  // Вид категории — по типу оборудования (lib/categoryView). Прежние скрытия по
+  // equipType читаются, пока у типа нет своего вида, и переезжают первой правкой
+  const catView = useCategoryView(activeCat, user?.id, !isAdmin || visMode === 'self');
+  const [viewOpen, setViewOpen] = useState(false);
+  const clsOf = (c: Component) => types.get(c.id)?.cls || 'ПРОЧЕЕ';
+  // Тег родителя по составу — от него приставка нового тега в окнах привязки
+  const parentTagOf = (c: Component, inside = false) => {
+    const e = allBlocks[c.id];
+    if (!e) return '';
+    if (inside && c.tags?.[0]?.identifier) return c.tags[0].identifier;
+    return compositionOf(e.unit.monoblocks.flatMap(m => m.components) as any, e.unit.name).parentTagOf(c as any);
+  };
+  const addInside = (c: Component) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role, parentTag: parentTagOf(c, true) });
+  const createTag = async (c: Component, identifier: string): Promise<string> => {
+    const r = await fetch(api(`/equipment/component/${c.id}/tag`), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier }),
+    }).catch(() => null);
+    const d = await r?.json().catch(() => ({}));
+    if (!r?.ok) return d?.error || 'Сервер не ответил';
+    addToast(d.corrected ? `Тег исправлен (${d.corrected.what}) и привязан: «${d.identifier}»` : `Тег «${d.identifier}» заведён и привязан`, 'success');
+    setTagPickerFor(null); loadSystems(); loadTags();
+    return '';
+  };
+  const cvOf = (c: Component) => viewOf(catView.view, clsOf(c), visibility[c.equipType] || []);
+  const isHidden = (_t: string, token: string) => !!selected && isHiddenIn(cvOf(selected.block), token);
+  const toggleHidden = (_t: string, token: string) => {
+    if (selected) catView.save(toggleIn(catView.view, clsOf(selected.block), token, visibility[selected.block.equipType] || []));
   };
 
   // ── Действия ──
@@ -548,7 +581,7 @@ export default function Equipment() {
           <button type="button"
             onClick={() => setShowExchange(true)}
             className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
-            title="Выгрузить оборудование в Excel: тег, установка, характеристики"
+            title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"
           >
             <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
@@ -571,17 +604,33 @@ export default function Equipment() {
       </div>
 
       {showExchange && (
-        <ExchangeDialog
-          section="Оборудование"
+        <ExportBuilder
+          projectId={pid}
           scopes={exchangeScopes}
-          columns={equipmentColumns(exchangeItems)}
-          build={(scopeId, cols) => buildEquipmentExchange(exchangeRows(scopeId), cols)}
+          rowsOf={(scopeId) => exchangeRows(scopeId).map(it => ({ ...it, cls: types.get(it.id)?.cls, kind: types.get(it.id)?.kind }))}
+          say={addToast}
           onClose={() => setShowExchange(false)}
         />
       )}
 
+      {viewOpen && (
+        <CategoryViewDialog
+          categoryLabel={categories.find(c => c.id === activeCat)?.label || activeCat}
+          positions={catSystems.flatMap(s => s.monoblocks.flatMap(m => m.components))
+            .map(c => ({ id: c.id, cls: clsOf(c), groups: normalizeSpecs(c.specs).groups as any }))}
+          view={catView.view}
+          legacyOf={(cls) => [...new Set(Object.values(allBlocks).filter(x => clsOf(x.block) === cls)
+            .flatMap(x => visibility[x.block.equipType] || []))]}
+          initialClass={selected ? clsOf(selected.block) : undefined}
+          isAdmin={isAdmin} visMode={visMode} onSwitchMode={switchVisMode}
+          onSave={catView.save}
+          onClose={() => setViewOpen(false)}
+        />
+      )}
+
       {addTo && (
-        <AddPositionDialog target={addTo} onClose={() => setAddTo(null)} onSubmit={addPosition} />
+        <AddPositionDialog target={addTo} projectId={pid} onClose={() => setAddTo(null)} onSubmit={addPosition}
+          freeTags={tags.filter(t => !(t.componentElements || []).length).map(t => t.identifier)} />
       )}
 
       {showOps && (
@@ -626,13 +675,25 @@ export default function Equipment() {
         onReload={loadSystems}
         onDeleteUnit={(u) => deleteUnit(u as any)}
         onDeleteComponent={(c) => deleteComponent(c as any)}
-        onAddPosition={(c) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role })}
+        onAddPosition={(c) => addInside(c as any)}
+        onAddToMonoblock={(mb, u) => setAddTo({ monoblockId: mb.id, name: mb.name, parentTag: compositionOf(u.monoblocks.flatMap(m => m.components) as any, u.name).unitTag })}
+        types={types}
+        mode={treeMode}
+        onMode={chooseTreeMode}
+        onOpenList={() => setListMode(true)}
+        onOpenView={() => setViewOpen(true)}
+        onPickTag={(c) => setTagPickerFor(c as any)}
       />
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">
-        {selected ? (
+        {listMode ? (
+          <PositionList systems={catSystems as any} types={types} onOpen={openBlock} onClose={() => setListMode(false)} />
+        ) : selected ? (
           <BlockCard
+            arrangeGroups={(g: any[]) => arrange(g, cvOf(selected.block))}
+            typed={types.get(selected.block.id)}
+            say={addToast}
             comp={selected.block}
             unitName={selected.unit.name}
             showAllParams={showAllParams}
@@ -655,6 +716,7 @@ export default function Equipment() {
               setSaveViewOf({ role: selected.block.role, equipType: selected.block.equipType, params, preselected });
             }}
             onPickTag={() => setTagPickerFor(selected.block)}
+            onAddInside={() => addInside(selected.block)}
             onUnlinkTag={(tid: string) => unlinkTag(selected.block, tid)}
             blockLabel={blockLabel}
             onBackToUnit={selected.unit.category === 'AHU' || (selected.unit.monoblocks || []).some(mb => (mb.components || []).length > 1)
@@ -704,8 +766,11 @@ export default function Equipment() {
 
       {tagPickerFor && (
         <TagPickerModal
+          projectId={pid}
           tags={tags}
           currentComponentId={tagPickerFor.id}
+          parentTag={parentTagOf(tagPickerFor)}
+          onCreate={(identifier) => createTag(tagPickerFor, identifier)}
           onPick={(tagId) => linkTag(tagPickerFor, tagId)}
           onClose={() => setTagPickerFor(null)}
         />
@@ -914,85 +979,6 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 
 // ── Карточка блока ──
 // ── Выбор тега для привязки: поиск + занятость (один тег — одно изделие) ──
-function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
-  tags: PickerTag[];
-  currentComponentId: string;
-  onPick: (tagId: string) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState('');
-
-  const tagName = (t: PickerTag): string => {
-    try { return t.metadata ? (JSON.parse(t.metadata).mainName || '') : ''; } catch { return ''; }
-  };
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = q
-      ? tags.filter(t =>
-          t.identifier.toLowerCase().includes(q) ||
-          (t.department || '').toLowerCase().includes(q) ||
-          tagName(t).toLowerCase().includes(q))
-      : tags;
-    // Свободные теги сверху, занятые — в конце списка
-    return [...list].sort((a, b) => {
-      const aBusy = (a.componentElements?.length || 0) > 0 ? 1 : 0;
-      const bBusy = (b.componentElements?.length || 0) > 0 ? 1 : 0;
-      if (aBusy !== bBusy) return aBusy - bBusy;
-      return a.identifier.localeCompare(b.identifier, 'ru');
-    });
-  }, [tags, query]);
-
-  return (
-    <Modal title="Привязать тег" onClose={onClose}>
-      <div className="relative mb-2">
-        <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-        <input
-          autoFocus
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск: обозначение, наименование, отдел…"
-          className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-slate-100"
-        />
-      </div>
-      <p className="text-2xs text-slate-400 mb-2">Один тег — одно изделие: занятые теги показаны серым, сначала отвяжите их на текущем месте.</p>
-      <div className="max-h-80 overflow-y-auto space-y-1">
-        {tags.length === 0 ? (
-          <p className="text-xs text-slate-400">В проекте нет тегов. Создайте их в разделе «Теги».</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-4">Ничего не найдено по запросу «{query}».</p>
-        ) : filtered.map(t => {
-          const holder = (t.componentElements || []).find(c => c.id !== currentComponentId);
-          const linkedHere = (t.componentElements || []).some(c => c.id === currentComponentId);
-          const busy = !!holder || linkedHere;
-          const name = tagName(t);
-          return (
-            <button type="button"
-              key={t.id}
-              disabled={busy}
-              onClick={() => onPick(t.id)}
-              title={linkedHere ? 'Уже привязан к этому изделию' : holder ? `Занят: ${holder.name || holder.itemCode}` : 'Привязать'}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs ${busy
-                ? 'opacity-45 cursor-not-allowed'
-                : 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'}`}
-            >
-              <TagIcon className={`w-3.5 h-3.5 shrink-0 ${busy ? 'text-slate-400' : 'text-emerald-500'}`} />
-              <span className="font-mono font-bold shrink-0">{t.identifier}</span>
-              {name && <span className="text-slate-400 truncate">{name}</span>}
-              <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                {t.department && <span className="text-2xs text-slate-400">{t.department}</span>}
-                {linkedHere && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
-                {holder && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </Modal>
-  );
-}
-
 // ── Универсальная модалка ──
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEscapeClose(true, onClose);

@@ -135,7 +135,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           const res = await fetch('/api/equipment/parse-calc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, fileName: file.name }),
+            // Проект — ради его кода: по нему в примечаниях ищутся теги
+            body: JSON.stringify({ text, fileName: file.name, projectId }),
           });
           const parsed = await res.json().catch(() => ({}));
           if (!res.ok) {

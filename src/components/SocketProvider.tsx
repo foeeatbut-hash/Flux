@@ -91,6 +91,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
      */
     void usePolicyStore.getState().refresh();
 
+    /**
+     * И без сокета тоже: раз в минуту и при возврате к окну.
+     *
+     * У каждого сотрудника свой встроенный сервер на общей базе, и событие
+     * «права изменились» уходит только в сокеты того сервера, где их меняли.
+     * Выданный на соседнем компьютере доступ доезжал только после перезапуска
+     * программы — ровно так и выглядит «доступ выдан, а раздела нет».
+     */
+    const recheck = () => { void usePolicyStore.getState().refresh(); };
+    const recheckTimer = setInterval(recheck, 60_000);
+    window.addEventListener('focus', recheck);
+
     console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
     const activeSocket = io(ENV_CONFIG.socketUrl, {
       auth: { token },
@@ -281,6 +293,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     useChatStore.getState().bindSocket(activeSocket, userId);
 
     return () => {
+      clearInterval(recheckTimer);
+      window.removeEventListener('focus', recheck);
       activeSocket.off('presence:list', handlePresenceList);
       activeSocket.off('presence:online', handlePresenceOn);
       activeSocket.off('presence:offline', handlePresenceOff);

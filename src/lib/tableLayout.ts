@@ -148,6 +148,8 @@ export interface TableLayout {
   headerRow: number;
   columns: LayoutColumn[];
   filters: { field: string; op: string; value: string }[];
+  /** Порядок строк при сборке: поля подряд («тип, потом тег»). Пусто — как отдаёт проект */
+  sort?: { field: string; dir?: string }[];
 }
 
 export const emptyLayout = (grain = 'tag', headerRow = 0): TableLayout => ({

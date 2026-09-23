@@ -122,8 +122,12 @@ const prisma: any = {
   projectTagPolicy: { findFirst: async () => null },
   equipmentSystem: {
     findFirst: async () => { if (breakImportWith) throw new Error(breakImportWith); return { id: 'sys1' }; },
+    // Запись ищет установку тем же сравнением, что и план: списком проекта
+    findMany: async () => { if (breakImportWith) throw new Error(breakImportWith); return []; },
     create: async () => ({ id: 'sys1' }),
+    update: async ({ data }: any) => ({ id: 'sys1', ...data }),
   },
+  project: { findUnique: async () => ({ code: '' }) },
   monoblock: { findFirst: async () => ({ id: 'mb1' }), create: async () => ({ id: 'mb1' }) },
   componentElement: {
     findFirst: async () => null,

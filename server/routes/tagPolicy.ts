@@ -61,6 +61,27 @@ export async function policyOfProject(projectId: string): Promise<TagPolicy> {
   }
 }
 
+/**
+ * Правило для ввоза: то же, что у проекта, плюс код проекта приставкой.
+ *
+ * Код проекта заводят в его параметрах («3700»), а приставки политики — в
+ * отдельном экране, до которого доходят не все. Владелец описал правило так:
+ * «тег начинается с кода проекта» — значит, код и есть приставка, пока
+ * человек не задал других. В сохранённую политику это НЕ пишется: экран
+ * правил показывает то, что задано руками, а не то, что подставлено.
+ */
+export async function importPolicyOfProject(projectId: string): Promise<TagPolicy> {
+  const policy = await policyOfProject(projectId);
+  if (policy.prefixes.length || !projectId) return policy;
+  try {
+    const project = await getPrisma().project.findUnique({ where: { id: projectId }, select: { code: true } });
+    const code = String(project?.code || '').trim();
+    return code ? { ...policy, prefixes: [code] } : policy;
+  } catch (_) {
+    return policy;
+  }
+}
+
 /** Сколько существующих тегов проекта не проходит по нынешним правилам. */
 export async function mismatchCount(projectId: string, policy: TagPolicy): Promise<number> {
   try {
