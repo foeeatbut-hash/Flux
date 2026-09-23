@@ -32,6 +32,7 @@ interface Component {
   role?: string; parentElementId?: string | null;
   instanceNo?: number | null; instanceCount?: number | null;
   sourceOrder?: number | null; manual?: boolean;
+  sourceKind?: string | null; equipClass?: string | null; equipKind?: string | null;
 }
 // Тег в списке привязки: с занятостью (один тег — одно изделие)
 interface PickerTag {
@@ -45,7 +46,12 @@ interface Category { id: string; label: string; composite?: boolean; }
 import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
 import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs';
 import BlockCard from '../components/equipment/BlockCard';
-import PositionTree, { blockLabel } from '../components/equipment/PositionTree';
+import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
+import PositionList from '../components/equipment/PositionList';
+import { classifyAll } from '../../equipment/classes';
+import CategoryViewDialog from '../components/equipment/CategoryViewDialog';
+import { useCategoryView } from '../components/equipment/useCategoryView';
+import { arrange, isHiddenIn, toggleIn, viewOf } from '../lib/categoryView';
 import { rowsOfProject } from '../lib/equipmentRows';
 import AddPositionDialog, { type AddPositionTarget } from '../components/equipment/AddPositionDialog';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
@@ -164,17 +170,8 @@ export default function Equipment() {
   useEffect(() => { loadCategories(); loadVisibility(); }, [loadCategories, loadVisibility]);
   useEffect(() => { loadSystems(); loadTags(); }, [loadSystems, loadTags]);
 
-  // Сохранение профиля видимости (админ-для-всех или персонально)
-  const persistVisibility = async (next: Record<string, string[]>) => {
-    setVisibility(next);
-    if (!user) return;
-    const asGlobal = isAdmin && visMode === 'admin';
-    await fetch(api('/settings/equip_visibility'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: asGlobal ? null : user.id, value: JSON.stringify(next) }),
-    }).catch(() => {});
-  };
-
+  // Прежний профиль видимости только читается: писать в него больше нечему — вид
+  // теперь живёт на категорию и тип (useCategoryView), а старое переезжает туда
   const switchVisMode = async (mode: 'admin' | 'self') => {
     setVisMode(mode);
     if (!user) return;
@@ -226,6 +223,21 @@ export default function Equipment() {
   }, [systems]);
 
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
+  // Тип и вид каждой позиции — одним правилом на дерево, список, карточку и выгрузку
+  const types = useMemo(() => classifyAll(Object.values(allBlocks).map(x => x.block) as any), [allBlocks]);
+  const [listMode, setListMode] = useState(false);
+  const [treeMode, setTreeMode] = useState<TreeMode>(() => {
+    try { return localStorage.getItem('flux_equip_tree') === 'type' ? 'type' : 'composition'; } catch (_) { return 'composition'; }
+  });
+  const chooseTreeMode = (m: TreeMode) => {
+    setTreeMode(m);
+    try { localStorage.setItem('flux_equip_tree', m); } catch (_) { /* приватный режим */ }
+  };
+  const openBlock = (id: string) => {
+    const e = allBlocks[id];
+    if (e) setExpanded(x => ({ ...x, [e.unit.id]: true, [e.mono.id]: true }));
+    setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); setListMode(false);
+  };
   const selectedUnit = useMemo(() => systems.find(s => s.id === selectedUnitId) || null, [systems, selectedUnitId]);
 
   // ── Фокус из ИИ-чата: открыть конкретный элемент и подсветить характеристику ──
@@ -416,11 +428,15 @@ export default function Equipment() {
     } catch (_) { return 'Сервер не ответил'; }
   };
 
-  const isHidden = (equipType: string, token: string) => (visibility[equipType] || []).includes(token);
-  const toggleHidden = (equipType: string, token: string) => {
-    const cur = visibility[equipType] || [];
-    const next = cur.includes(token) ? cur.filter(t => t !== token) : [...cur, token];
-    persistVisibility({ ...visibility, [equipType]: next });
+  // Вид категории — по типу оборудования (lib/categoryView). Прежние скрытия по
+  // equipType читаются, пока у типа нет своего вида, и переезжают первой правкой
+  const catView = useCategoryView(activeCat, user?.id, !isAdmin || visMode === 'self');
+  const [viewOpen, setViewOpen] = useState(false);
+  const clsOf = (c: Component) => types.get(c.id)?.cls || 'ПРОЧЕЕ';
+  const cvOf = (c: Component) => viewOf(catView.view, clsOf(c), visibility[c.equipType] || []);
+  const isHidden = (_t: string, token: string) => !!selected && isHiddenIn(cvOf(selected.block), token);
+  const toggleHidden = (_t: string, token: string) => {
+    if (selected) catView.save(toggleIn(catView.view, clsOf(selected.block), token, visibility[selected.block.equipType] || []));
   };
 
   // ── Действия ──
@@ -580,6 +596,21 @@ export default function Equipment() {
         />
       )}
 
+      {viewOpen && (
+        <CategoryViewDialog
+          categoryLabel={categories.find(c => c.id === activeCat)?.label || activeCat}
+          positions={catSystems.flatMap(s => s.monoblocks.flatMap(m => m.components))
+            .map(c => ({ id: c.id, cls: clsOf(c), groups: normalizeSpecs(c.specs).groups as any }))}
+          view={catView.view}
+          legacyOf={(cls) => [...new Set(Object.values(allBlocks).filter(x => clsOf(x.block) === cls)
+            .flatMap(x => visibility[x.block.equipType] || []))]}
+          initialClass={selected ? clsOf(selected.block) : undefined}
+          isAdmin={isAdmin} visMode={visMode} onSwitchMode={switchVisMode}
+          onSave={catView.save}
+          onClose={() => setViewOpen(false)}
+        />
+      )}
+
       {addTo && (
         <AddPositionDialog target={addTo} onClose={() => setAddTo(null)} onSubmit={addPosition} />
       )}
@@ -627,12 +658,23 @@ export default function Equipment() {
         onDeleteUnit={(u) => deleteUnit(u as any)}
         onDeleteComponent={(c) => deleteComponent(c as any)}
         onAddPosition={(c) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role })}
+        types={types}
+        mode={treeMode}
+        onMode={chooseTreeMode}
+        onOpenList={() => setListMode(true)}
+        onOpenView={() => setViewOpen(true)}
+        onPickTag={(c) => setTagPickerFor(c as any)}
       />
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">
-        {selected ? (
+        {listMode ? (
+          <PositionList systems={catSystems as any} types={types} onOpen={openBlock} onClose={() => setListMode(false)} />
+        ) : selected ? (
           <BlockCard
+            arrangeGroups={(g: any[]) => arrange(g, cvOf(selected.block))}
+            typed={types.get(selected.block.id)}
+            say={addToast}
             comp={selected.block}
             unitName={selected.unit.name}
             showAllParams={showAllParams}

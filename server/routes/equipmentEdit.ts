@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { ROLES, roleById, roleFits, type RoleId } from '../../equipment/roles.js';
+import { isClassId } from '../../equipment/classes.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
 import { policyOfProject } from './tagPolicy.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
@@ -146,6 +147,29 @@ export function registerEquipmentEditRoutes(app: Express): void {
   /** Список ролей для выпадающего списка «Добавить позицию». */
   app.get('/api/equipment/roles', async (_req: Request, res: Response) => {
     res.json({ roles: ROLES.map(r => ({ id: r.id, title: r.title, children: r.children || [] })) });
+  });
+
+  /**
+   * Поправить тип и вид позиции.
+   *
+   * Тип угадывается правилами (`equipment/classes.ts`), и угадывание бывает
+   * неверным: блок-корпус, который на объекте всё-таки считают вентилятором,
+   * или вид, которого правила не знают. Поправка пишется в две колонки и
+   * сильнее правил; пустое значение возвращает угадывание.
+   */
+  app.put('/api/equipment/component/:id/class', async (req: Request, res: Response) => {
+    try {
+      const equipClass = String(req.body?.equipClass ?? '').trim();
+      const equipKind = String(req.body?.equipKind ?? '').trim().slice(0, 120);
+      if (equipClass && !isClassId(equipClass)) {
+        return res.status(400).json({ error: `Типа «${equipClass}» нет в справочнике типов` });
+      }
+      const row = await getPrisma().componentElement.update({
+        where: { id: req.params.id },
+        data: { equipClass: equipClass || null, equipKind: equipKind || null },
+      });
+      res.json({ ok: true, equipClass: row.equipClass || '', equipKind: row.equipKind || '' });
+    } catch (err: any) { sendError(res, err); }
   });
 
   /**

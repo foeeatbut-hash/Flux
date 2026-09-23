@@ -7,6 +7,7 @@ import { useInsightStore } from '../../store/insightStore';
 import { useStore } from '../../store/store';
 import { useEntityChanged } from '../../lib/entityWatch';
 import { normalizeSpecs, type ParamConflict } from '../../lib/specs';
+import TypeChip from './TypeChip';
 
 /**
  * Карточка позиции: характеристики, теги, конфликты, правки.
@@ -56,7 +57,8 @@ export default function BlockCard(props: any) {
                 <LayoutGrid className="w-3 h-3" /> схема
               </button>
             )}
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold uppercase tracking-wider">{comp.equipType}</span>
+            {/* Тип и вид — угаданные правилом, с поправкой по нажатию */}
+            <TypeChip componentId={comp.id} typed={props.typed} onSaved={() => onReload?.()} say={props.say || (() => {})} />
             <span className="text-2xs text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
           <h3 className="u-sel text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
@@ -114,7 +116,8 @@ export default function BlockCard(props: any) {
         {specs.groups.length === 0 && (
           <div className="text-xs text-slate-400 text-center py-6">У этого элемента нет параметров.</div>
         )}
-        {specs.groups.map(g => {
+        {/* Порядок разделов и параметров — по виду категории для этого типа */}
+        {(props.arrangeGroups ? props.arrangeGroups(specs.groups) : specs.groups).map((g: any) => {
           const groupHidden = isHidden(comp.equipType, `g:${g.title}`);
           if (groupHidden && !showAllParams) return null;
           const visibleParams = (g.params || []).filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));

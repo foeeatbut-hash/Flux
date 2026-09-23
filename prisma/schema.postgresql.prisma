@@ -371,6 +371,10 @@ model ComponentElement {
   manual          Boolean @default(false)
   createdById     String? // кто завёл вручную
   tagNotes        String? // JSON: свидетельства о тегах из примечания [{identifier,verdict,why,phrase}]
+  // Ручная поправка типа и вида (equipment/classes.ts). Пусто — угадывать по
+  // роли, названию и характеристикам: поправка человека сильнее правил
+  equipClass      String?
+  equipKind       String?
 }
 
 model EquipmentHistory {

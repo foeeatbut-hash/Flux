@@ -1,4 +1,6 @@
 import { compositionOf } from '../../equipment/composition.js';
+import { classifyAll, classTitle } from '../../equipment/classes.js';
+import { compareBy } from '../constructorSort.js';
 import type { Express, Request, Response } from 'express';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
 import * as XLSX from 'xlsx';
@@ -105,13 +107,19 @@ async function loadProjectSlice(projectId: string) {
     // Состав: тег владельца и тег установки — сразу у каждой строки. Считать
     // родителя в момент сборки ячейки значило бы обходить дерево на каждое
     // значение. Само правило — общее, в equipment/composition
-    const comp = compositionOf((sys.monoblocks || []).flatMap((m: any) => m.components || []), sys.name);
+    const all = (sys.monoblocks || []).flatMap((m: any) => m.components || []);
+    const comp = compositionOf(all, sys.name);
+    // Тип и вид — тем же правилом, что в разделе «Оборудование»: отбор строк
+    // «только приводы» обязан видеть те же приводы, что и список позиций
+    const types = classifyAll(all);
     for (const mono of (sys.monoblocks || [])) {
       for (const el of (mono.components || [])) {
+        const t = types.get(el.id);
         elements.push({
           ...el, _system: sys, _monoblock: mono,
           _parentTag: comp.parentTagOf(el), _unitTag: comp.unitTag,
           _parentName: comp.parentNameOf(el),
+          _class: t?.cls || 'ПРОЧЕЕ', _kind: t?.kind || '',
         });
       }
     }
@@ -197,7 +205,12 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
       case 'unitTag': return String(row._unitTag ?? '');
       case 'parent.name': return String(row._parentName ?? '');
       case 'instanceNo': return row.instanceNo ? String(row.instanceNo) : '';
-      case 'origin': return row.manual ? 'заведено вручную' : 'из расчёта';
+      case 'origin': return originOf(row);
+      // Тип — кодом (КЛАПАН), подпись — отдельным полем: отбор сравнивает
+      // коды, а в шапку таблицы человеку нужно слово
+      case 'class': return String(row._class ?? '');
+      case 'classTitle': return classTitle(String(row._class ?? ''));
+      case 'kind': return String(row._kind ?? '');
     }
     return '';
   }
@@ -219,6 +232,12 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
 }
 
 // Число из строки в русской записи: «1 250,5 мм» → 1250.5 (для сортировки/фильтров)
+
+/** Откуда позиция: по примечанию выгрузки, руками или из самого расчёта */
+function originOf(row: any): string {
+  if (row.manual) return 'заведено вручную';
+  return row.sourceKind === 'note' ? 'по примечанию' : 'из расчёта';
+}
 
 function applyFilter(value: string, op: string, target: any): boolean {
   const v = String(value ?? '');
@@ -814,6 +833,8 @@ export function registerConstructorRoutes(app: Express): void {
           { path: 'parent.name', title: 'Владелец' },
           { path: 'instanceNo', title: 'Экземпляр' },
           { path: 'origin', title: 'Откуда' },
+          { path: 'classTitle', title: 'Тип' },
+          { path: 'kind', title: 'Вид' },
         ],
         params: Array.from(paramMap.values()).sort((a, b) =>
           a.group.localeCompare(b.group, 'ru') || a.key.localeCompare(b.key, 'ru')),
@@ -1139,7 +1160,9 @@ export function registerConstructorRoutes(app: Express): void {
       const entity: 'tag' | 'element' = req.body?.entity === 'element' ? 'element' : 'tag';
       const columns: string[] = Array.isArray(req.body?.columns) ? req.body.columns.map(String) : [];
       const filters: { field: string; op: string; value?: any }[] = Array.isArray(req.body?.filters) ? req.body.filters : [];
-      const sort: { field: string; dir: string } | null = req.body?.sort || null;
+      // Порядок строк: одно поле или несколько подряд («тип, потом тег»)
+      const sort: { field: string; dir?: string }[] = (Array.isArray(req.body?.sort) ? req.body.sort : req.body?.sort ? [req.body.sort] : [])
+        .filter((x: any) => x && x.field);
       const limit = Math.min(Number(req.body?.limit) || 50000, 50000);
 
       const slice = await loadProjectSlice(projectId);
@@ -1150,16 +1173,7 @@ export function registerConstructorRoutes(app: Express): void {
         rows = rows.filter(r => applyFilter(resolveValue(entity, r, f.field, aliases), f.op, f.value));
       }
 
-      if (sort?.field) {
-        const dir = sort.dir === 'desc' ? -1 : 1;
-        rows = [...rows].sort((a, b) => {
-          const va = resolveValue(entity, a, sort.field, aliases);
-          const vb = resolveValue(entity, b, sort.field, aliases);
-          const na = parseRuNumber(va), nb = parseRuNumber(vb);
-          if (na != null && nb != null) return (na - nb) * dir;
-          return va.localeCompare(vb, 'ru') * dir;
-        });
-      }
+      if (sort.length) rows = [...rows].sort(compareBy(sort, (r, f) => resolveValue(entity, r, f, aliases)));
 
       const total = rows.length;
       const out = rows.slice(0, limit).map(r => ({
