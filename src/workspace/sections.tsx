@@ -164,7 +164,7 @@ export const SECTIONS: SectionDef[] = [
   // живут поверх проектов. Доступ выдаётся отдельно и молча: сотрудник без
   // него не видит раздела нигде и по адресу /play уходит на Главную
   { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen },
-  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
+  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },

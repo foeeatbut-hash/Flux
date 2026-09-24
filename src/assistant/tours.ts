@@ -337,8 +337,8 @@ export const TOURS: Tour[] = [
     questions: ['как настроить логи', 'куда сохраняются логи', 'папка crash логов', 'где журнал ошибок'],
     intro: 'Папку для аварийных логов можно выбрать в Настройках. Покажу.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Crash-логи».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'navigate' },
-      { text: 'В блоке «Crash-логи» нажмите «Выбрать папку…» — туда будут сохраняться журналы с датой и временем в имени.', action: 'info' },
+      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Ошибки и сбои».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'navigate' },
+      { text: 'В блоке «Копия на сервере» нажмите «Выбрать папку…» — туда будут сохраняться журналы с датой и временем в имени.', action: 'info' },
     ],
   },
   {
@@ -347,7 +347,7 @@ export const TOURS: Tour[] = [
     questions: ['как сменить тему', 'тёмная тема', 'светлая тема', 'как поменять оформление'],
     intro: 'Светлая и тёмная темы переключаются в Настройках. Демонстрирую.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Общее».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'navigate' },
+      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Общие».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'navigate' },
       { text: 'В блоке «Тема интерфейса» выберите «Светлая» или «Тёмная». Выбор запоминается.', action: 'info' },
     ],
   },

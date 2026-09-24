@@ -61,7 +61,7 @@ export default function TranslateEngineSection() {
 
   return (
     <div className="max-w-2xl space-y-5">
-      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4">
+      <div className="fx-set-group">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           <span className="text-sm font-bold">Программа переводит сама</span>
@@ -88,7 +88,7 @@ export default function TranslateEngineSection() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4 space-y-3">
+      <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Library className="w-4 h-4 text-slate-500 dark:text-slate-400" />
           <span className="text-sm font-bold">Словарный пакет</span>
@@ -153,7 +153,7 @@ export default function TranslateEngineSection() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4 space-y-3">
+      <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Link2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
           <span className="text-sm font-bold">Свой движок перевода</span>

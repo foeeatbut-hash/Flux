@@ -66,8 +66,8 @@ export default function OnlineVisibility({ addToast }: { addToast?: (m: string, 
   };
 
   return (
-    <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-      <div className="text-xs font-bold text-slate-400 mb-1">Присутствие</div>
+    <div className="fx-set-group">
+      <div className="fx-group-title mb-1">Присутствие</div>
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
         Видно ли сотрудникам, что вы в программе. Доступно только вам как главному администратору.
       </p>
@@ -77,14 +77,10 @@ export default function OnlineVisibility({ addToast }: { addToast?: (m: string, 
         role="switch"
         aria-checked={!hidden}
         disabled={busy}
-        className={`w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
-                    bg-white dark:bg-slate-950 text-left transition-ui
-                    ${busy ? 'opacity-50 cursor-wait' : 'hover:border-emerald-500 cursor-pointer'}`}
+        className="fx-set-row w-full flex-row-reverse items-start text-left cursor-pointer disabled:opacity-60 disabled:cursor-default"
       >
-        <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${hidden ? 'bg-slate-300 dark:bg-slate-700' : 'bg-emerald-600'}`}>
-          <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${hidden ? '' : 'translate-x-4'}`} />
-        </span>
-        <span className="min-w-0">
+        <span className="fx-switch shrink-0 pointer-events-none" aria-hidden="true" aria-checked={!(hidden)} />
+        <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
             {hidden ? <EyeOff className="w-4 h-4 text-slate-400" /> : <Eye className="w-4 h-4 text-emerald-600" />}
             Показывать, что я в сети

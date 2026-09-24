@@ -1417,6 +1417,13 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-side { background: var(--flux-bg); border-right: 1px solid var(--flux-line); }
 
   /* ── Группа и строка настройки: заголовок и линии, а не карточки ── */
+  /* Группа строк настроек: заголовок группы и строки под ним, без рамки-карточки */
+  .fx-set-group { margin-top: 20px; }
+  .fx-set-group > .fx-set-row:last-child { border-bottom: 0; }
+  /* Замечание в ходе настроек: строка второстепенным текстом, у предупреждения — цвет предупреждения, без плашки */
+  .fx-note { font-size: 12px; line-height: 16px; color: var(--flux-text-muted); padding: 6px 0; }
+  .fx-note-warn { color: var(--flux-warn-text, #b45309); }
+  .dark .fx-note-warn { color: #fcd34d; }
   .fx-group-title { font-size: 13px; line-height: 20px; font-weight: 600; color: var(--flux-text); padding-bottom: 8px; border-bottom: 1px solid var(--flux-line); }
   .fx-set-row { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 8px 0; border-bottom: 1px solid var(--flux-line); }
   .fx-set-row > .fx-set-text { flex: 1; min-width: 0; font-size: 13px; color: var(--flux-text); }

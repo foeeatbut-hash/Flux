@@ -55,7 +55,7 @@ export default function DiagnosticsCard() {
   const lost = own.dropped + (shell?.dropped || 0);
 
   return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-3 space-y-2">
+    <div className="fx-set-group space-y-2">
       <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Подробная запись работы</div>
       <p className="text-xs text-slate-600 dark:text-slate-400">
         Запросы, работа базы, паузы отрисовки, мост оболочки и работа редакторов — со временем
