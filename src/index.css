@@ -1335,7 +1335,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   }
   /* Страница раздела без внешнего отступа: шапка и панель инструментов стоят
      на месте, прокручивается только тело (раздел в SECTIONS с pad: false) */
-  .fx-page { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--flux-surface); color: var(--flux-text); }
+  .fx-page { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--flux-surface); color: var(--flux-text); font-size: 13px; line-height: 20px; }
   .fx-page-body { flex: 1; min-height: 0; overflow: auto; }
   /* крайние ячейки таблицы — по линии шапки и панели инструментов (16 px) */
   .fx-page-body > .fx-table :is(th, td):first-child { padding-left: 16px; }

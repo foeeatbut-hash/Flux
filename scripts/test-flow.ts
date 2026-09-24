@@ -230,8 +230,9 @@ const api = async (method: string, url: string, body?: any) => {
     await page.waitForTimeout(4500);
     ok('позиция видна в списке закупок', (await windowText('Обновить')).includes(CODE));
     const tally = await page.evaluate(() => {
-      const el = [...document.querySelectorAll('.tally-item')].find((x) => /Все позиции/.test(x.textContent || ''));
-      return Number((el?.querySelector('.tally-num')?.textContent || '0').trim());
+      // Счётчики этапов — фильтр со счётчиками (fx-seg), число — в .fx-n
+      const el = [...document.querySelectorAll('.fx-seg button')].find((x) => /Все позиции/.test(x.textContent || ''));
+      return Number((el?.querySelector('.fx-n')?.textContent || '0').trim());
     });
     ok('счётчик «Все позиции» посчитал её', tally >= 1, tally);
 

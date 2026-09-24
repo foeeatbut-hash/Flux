@@ -15,6 +15,7 @@ import {
 } from '../lib/procurementStages';
 import { countOf } from '../lib/plural';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { SectionHead, Tabs, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
 import NoProject from '../components/NoProject';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
@@ -37,12 +38,13 @@ interface ProcurementInfo {
   note?: string;
 }
 
-const ACTUALITY_LABELS: Record<string, { label: string; cls: string }> = {
-  actual: { label: 'Актуально', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
-  warning: { label: 'Проверить', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
-  critical: { label: 'Критично', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
-  info: { label: 'В работе', cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20' },
-  draft: { label: 'Устарело', cls: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20' },
+// Актуальность — точка и слово (01-design.md), а не пилюля с рамкой
+const ACTUALITY_LABELS: Record<string, { label: string; tone: Tone }> = {
+  actual: { label: 'Актуально', tone: 'emerald' },
+  warning: { label: 'Проверить', tone: 'amber' },
+  critical: { label: 'Критично', tone: 'rose' },
+  info: { label: 'В работе', tone: 'sky' },
+  draft: { label: 'Устарело', tone: 'slate' },
 };
 
 function parseMeta(tag: any): any {
@@ -108,22 +110,15 @@ export default function ProcurementManagement() {
     else { next.delete('tab'); next.delete('vdr'); next.delete('item'); }
     setSearchParams(next, { replace: true });
   };
+  // Одна шапка раздела с вкладками. Раньше над каждой вкладкой стояла своя
+  // шапка, а вкладки — залитыми кнопками ещё выше: два уровня заголовков
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1.5">
-        {([['procurement', 'Закупки'], ['vdr', 'ВДР']] as const).map(([id, label]) => (
-          <button type="button" key={id} onClick={() => setTab(id)}
-            /* Выбранное во всей программе зелёное. Здесь стояла почти чёрная
-               заливка — единственная такая на все разделы: рядом с зелёными
-               кнопками она читалась как чужая, а не как «выбрано». */
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === id
-              ? 'bg-emerald-600 text-white border-emerald-600 dark:bg-emerald-500 dark:border-emerald-500'
-              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === 'vdr' ? <VdrPanel /> : <ProcurementTab />}
+    <div className="fx-page @container">
+      <SectionHead title="Менеджмент">
+        <Tabs label="Вкладки Менеджмента" value={tab} onChange={setTab}
+          tabs={[{ value: 'procurement', label: 'Закупки' }, { value: 'vdr', label: 'ВДР' }]} />
+      </SectionHead>
+      {tab === 'vdr' ? <div className="flex-1 min-h-0 overflow-y-auto"><VdrPanel /></div> : <ProcurementTab />}
     </div>
   );
 }
@@ -586,13 +581,8 @@ function ProcurementTab() {
             toggleSelect(row.tag.id);
           }
         }}
-        className={`border-b border-slate-100 dark:border-slate-900 transition-colors ${
-          isSelected
-            ? 'bg-emerald-50 dark:bg-emerald-950/30'
-            : row.isDup
-              ? 'bg-rose-50/40 dark:bg-rose-950/10 hover:bg-rose-50/70 dark:hover:bg-rose-950/20'
-              : 'hover:bg-slate-50/60 dark:hover:bg-slate-900/40'
-        }`}
+        aria-selected={isSelected || undefined}
+        className="border-b border-slate-100 dark:border-slate-900 transition-colors hover:bg-[var(--flux-hover)] aria-selected:bg-[var(--flux-sel)]"
       >
         {/* Галочка мультивыбора */}
         <td className="flux-cell align-top w-8">
@@ -620,34 +610,29 @@ function ProcurementTab() {
                 </button>
               ) : <span className="w-4.5 inline-block shrink-0" style={{ width: 18 }} />
             )}
-            <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
+            <span className="code text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
             {row.isDup && (
-              <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">дубль</span>
+              <Status tone="rose" title="Дубликат кода тега">дубль</Status>
             )}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
-            {row.name || <span className="italic opacity-60">Без наименования</span>}
-          </div>
-          <div className="text-2xs text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
-            {row.tag.department || '—'} · добавлен {fmtDate(row.tag.createdAt)}
+          {/* Наименование, отдел и дата — одной строкой: было три строки на позицию */}
+          <div className="text-xs text-slate-500 dark:text-slate-400 max-w-[320px] truncate" title={`${row.name || 'Без наименования'} · ${row.tag.department || '—'} · добавлен ${fmtDate(row.tag.createdAt)}`} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
+            {row.name || 'Без наименования'}<span className="text-slate-400"> · {row.tag.department || '—'} · {fmtDate(row.tag.createdAt)}</span>
           </div>
         </td>
 
         {/* Марка */}
         <td className="flux-cell hidden @[740px]:table-cell align-top">
           {row.tag.brand ? (
-            <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 inline-block max-w-[150px] truncate" title={row.tag.brand}>
+            <span className="code text-xs text-slate-700 dark:text-slate-300 inline-block max-w-[150px] truncate" title={row.tag.brand}>
               {row.tag.brand}
             </span>
-          ) : <span className="text-xs text-slate-400 italic">—</span>}
+          ) : <span className="text-xs text-slate-400">—</span>}
         </td>
 
         {/* Актуальность */}
         <td className="flux-cell hidden @[860px]:table-cell align-top">
-          <span className={`inline-flex items-center gap-1 text-2xs font-bold px-2 py-1 rounded-full border ${act.cls}`}>
-            {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
-            {act.label}
-          </span>
+          <Status tone={act.tone}>{act.label}</Status>
         </td>
 
         {/* Этап закупки: степпер по этапам позиции (стандартным или шаблонным) */}
@@ -659,14 +644,16 @@ function ProcurementTab() {
               const reached = idx <= row.stageIdx;
               return (
                 <React.Fragment key={s.id}>
-                  {idx > 0 && <div className={`w-3 h-0.5 ${idx <= row.stageIdx ? 'bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
+                  {idx > 0 && <div className={`w-2 h-px ${idx <= row.stageIdx ? 'bg-slate-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
                   <button type="button"
                     onClick={(e) => { e.stopPropagation(); setStage(row, idx); }}
                     title={`${s.label}${idx === row.stageIdx && idx > 0 ? ' (клик — откат на шаг назад)' : ''}`}
-                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-ui cursor-pointer ${
+                    aria-label={s.label}
+                    aria-current={idx === row.stageIdx ? 'step' : undefined}
+                    className={`w-6 h-6 rounded-full border flex items-center justify-center transition-ui cursor-pointer ${
                       reached
-                        ? `${c.bg} ${c.border} ${c.color} ${idx === row.stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
-                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-455 hover:border-slate-400'
+                        ? `${c.color} ${idx === row.stageIdx ? 'border-current' : 'border-transparent'}`
+                        : 'border-transparent text-slate-300 dark:text-slate-500 hover:text-slate-500'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -675,13 +662,13 @@ function ProcurementTab() {
               );
             })}
           </div>
-          <div className="text-2xs font-bold mt-1 text-slate-500 dark:text-slate-400">
+          <div className="text-xs mt-0.5 text-slate-600 dark:text-slate-300">
             {row.stages[row.stageIdx]?.label || '—'}
             {/* Сколько дней позиция стоит на этом этапе — видно сразу, без
                 разбора дат: именно это и есть настоящая проблема закупки. */}
             {isStuck(row) && (
               <span
-                className="ml-1.5 px-1.5 py-px rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 font-bold normal-case"
+                className="ml-1.5 text-amber-700 dark:text-amber-400"
                 title={`Позиция стоит на этапе «${row.stages[row.stageIdx]?.label}» уже ${daysAtStage(row)} дн. — движения нет`}
               >
                 {daysAtStage(row)} дн.
@@ -689,7 +676,7 @@ function ProcurementTab() {
             )}
             {row.template && (
               <span
-                className="ml-1.5 px-1.5 py-px rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50 font-semibold normal-case"
+                className="ml-1.5 text-slate-400"
                 title={row.proc.templateId ? 'Шаблон назначен вручную' : 'Шаблон применён по правилам'}
               >
                 {row.template.name}
@@ -700,13 +687,13 @@ function ProcurementTab() {
 
         {/* Даты этапов */}
         <td className="flux-cell hidden @[980px]:table-cell align-top">
-          <div className="text-2xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
+          <div className="text-xs tabular-nums text-slate-500 dark:text-slate-400 leading-4">
             {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
               const c = stageColor(s.color);
               return (
                 <div key={s.id} title={rec?.by ? `Отметил: ${rec.by}` : ''}>
-                  {s.label.toLowerCase()}: <strong className={rec?.at ? c.color : ''}>{fmtDate(rec?.at)}</strong>
+                  {s.label.toLowerCase()}: <span className={rec?.at ? 'text-slate-700 dark:text-slate-100' : ''}>{fmtDate(rec?.at)}</span>
                 </div>
               );
             })}
@@ -721,7 +708,7 @@ function ProcurementTab() {
             placeholder="Поставщик…"
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== (row.proc.supplier || '')) saveField(row, 'supplier', e.target.value); }}
-            className="w-32 px-2 py-1 mb-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-emerald-400 text-slate-800 dark:text-slate-100 block"
+            className="fx-input w-32 mb-1 block"
           />
           <input
             type="text"
@@ -729,7 +716,7 @@ function ProcurementTab() {
             placeholder="Кол-во…"
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== (row.proc.qty || '')) saveField(row, 'qty', e.target.value); }}
-            className="w-32 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-emerald-400 text-slate-800 dark:text-slate-100 block"
+            className="fx-input w-32 block"
           />
         </td>
 
@@ -780,130 +767,52 @@ function ProcurementTab() {
 
   // Без входной анимации: на большом списке она добавляла заметный фриз при открытии раздела
   return (
-    <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
-      {/* Заголовок */}
-      <div className="flex flex-col @[820px]:flex-row @[820px]:items-center @[820px]:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <div className="min-w-0">
-          <div className="graf">Менеджмент</div>
-          <h1 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">Закупки</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 self-start @[820px]:self-auto">
-          <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
-            <button type="button"
-              onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' : 'text-slate-500'}`}
-            >
-              <List className="w-3.5 h-3.5" /> Список
-            </button>
-            <button type="button"
-              onClick={() => setViewMode('tree')}
-              title="Группировка: родительский тег → дочерние"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' : 'text-slate-500'}`}
-            >
-              <FolderTree className="w-3.5 h-3.5" /> Дерево
-            </button>
-          </div>
-          <button type="button"
-            onClick={() => navigate('/settings?section=management')}
-            title="Настроить этапы закупки"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
-          >
-            <Settings2 className="w-3.5 h-3.5" /> Этапы
-          </button>
-          <button type="button"
-            onClick={exportToExcel}
-            title="Выгрузить то, что сейчас на экране: с учётом фильтров, поиска и порядка"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" /> В Excel
-          </button>
-          <button type="button"
-            onClick={loadAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Обновить
-          </button>
-        </div>
-      </div>
-
-      {/* Счётчики этапов: клик — фильтр.
-          Было пять плиток с крупной цифрой и цветным значком — вид,
-          одинаковый для любой панели показателей и ничего не говорящий
-          о закупке. Теперь это одна строка граф, как в ведомости:
-          счётчики читаются слева направо в порядке движения позиции,
-          цвет остался только у выбранной графы. */}
-      <div className="tally overflow-x-auto rule-t">
-        <button type="button"
-          onClick={() => setStageFilter('all')}
-          aria-pressed={stageFilter === 'all'}
-          className="tally-item cursor-pointer"
-        >
-          <span className="tally-num">{rows.length}</span>
-          <span className="tally-lab">Все позиции</span>
-        </button>
-        {stageCards.map(({ stage: s, templateName }) => {
-          const active = stageFilter === s.id;
-          return (
-            <button type="button"
-              key={s.id}
-              onClick={() => setStageFilter(active ? 'all' : s.id)}
-              aria-pressed={active}
-              title={templateName ? `Этап шаблона «${templateName}»` : undefined}
-              className="tally-item cursor-pointer"
-            >
-              <span className="tally-num">{counts[s.id] || 0}</span>
-              <span className="tally-lab truncate">{s.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Поиск и фильтры */}
-      <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400" />
-          <input
-            type="search"
-            placeholder="Поиск: тег, наименование, марка, поставщик, примечание…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 dark:text-slate-100"
-          />
-        </div>
+    <div className="flex-1 min-h-0 flex flex-col text-slate-800 dark:text-slate-100">
+      {/* Найти → показать → вывести */}
+      <Toolbar>
+        <label className="relative w-72 max-w-full">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <Input type="search" placeholder="Поиск: тег, наименование, марка, поставщик, примечание…" aria-label="Поиск по закупкам"
+            value={search} onChange={(e) => setSearch(e.target.value)} className="pl-7" />
+        </label>
         <div className="w-44">
-          <CustomSelect
-            value={deptFilter}
-            onChange={setDeptFilter}
-            placeholder="Все отделы"
-            options={[{ value: '', label: 'Все отделы' }, ...departments.map(d => ({ value: d, label: d }))]}
-          />
+          <CustomSelect value={deptFilter} onChange={setDeptFilter} placeholder="Все отделы"
+            options={[{ value: '', label: 'Все отделы' }, ...departments.map(d => ({ value: d, label: d }))]} />
         </div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900">
-          <input type="checkbox" checked={onlyDuplicates} onChange={(e) => setOnlyDuplicates(e.target.checked)} className="accent-rose-500" />
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none px-1">
+          <input type="checkbox" checked={onlyDuplicates} onChange={(e) => setOnlyDuplicates(e.target.checked)} className="accent-emerald-600" />
           Только дубли
         </label>
-        <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900">
-          <input type="checkbox" checked={onlyCritical} onChange={(e) => setOnlyCritical(e.target.checked)} className="accent-amber-500" />
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none px-1">
+          <input type="checkbox" checked={onlyCritical} onChange={(e) => setOnlyCritical(e.target.checked)} className="accent-emerald-600" />
           Требуют внимания
         </label>
-        <label
-          className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 ${
-            stuckCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'}`}
-          title={`Позиции, которые стоят на одном этапе дольше ${stuckAfterDays} дней и ещё не закрыты`}
-        >
-          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-amber-500" />
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none px-1"
+          title={`Позиции, которые стоят на одном этапе дольше ${stuckAfterDays} дней и ещё не закрыты`}>
+          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-emerald-600" />
           Зависшие
-          {stuckCount > 0 && (
-            <span className="px-1.5 py-px rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-2xs font-bold">{stuckCount}</span>
-          )}
+          {stuckCount > 0 && <Badge tone="bad">{stuckCount}</Badge>}
         </label>
-        <span className="text-xs text-slate-400 flex items-center gap-1"><Filter className="w-3.5 h-3.5" /> Показано: {filtered.length}</span>
-      </div>
+        <span className="ml-auto" />
+        <Seg label="Вид списка" value={viewMode} onChange={setViewMode}
+          options={[{ value: 'list', label: 'Список' }, { value: 'tree', label: 'Дерево', hint: 'Группировка: родительский тег → дочерние' }]} />
+        <Btn tone="ghost" onClick={() => navigate('/settings?section=management')} title="Настроить этапы закупки"><Settings2 />Этапы</Btn>
+        <Btn tone="ghost" onClick={exportToExcel} title="Выгрузить то, что сейчас на экране: с учётом фильтров, поиска и порядка"><Download />В Excel</Btn>
+        <Btn tone="ghost" onClick={loadAll}><RefreshCw className={isLoading ? 'animate-spin' : ''} />Обновить</Btn>
+      </Toolbar>
+
+      {/* Этапы — фильтр со счётчиками в порядке движения позиции */}
+      <Toolbar>
+        <FilterSeg label="Этап закупки" value={stageFilter} onChange={(v) => setStageFilter(v)}
+          options={[{ value: 'all', label: 'Все позиции', count: rows.length },
+            ...stageCards.map(({ stage: s, templateName }) => ({ value: s.id, label: s.label, count: counts[s.id] || 0, hint: templateName ? `Этап шаблона «${templateName}»` : undefined }))]} />
+        <span className="ml-auto text-xs text-slate-400">показано {filtered.length}</span>
+      </Toolbar>
 
       {/* Панель массовых действий */}
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-xl">
-          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+        <div className="fx-tools" style={{ background: 'var(--flux-sel)' }}>
+          <span className="text-xs text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
             <CheckSquare className="w-4 h-4" /> Выбрано: {selectedIds.size}
           </span>
           <span className="text-xs text-slate-500 dark:text-slate-400">Установить этап:</span>
@@ -915,7 +824,7 @@ function ProcurementTab() {
                 key={s.id}
                 onClick={() => setStageBulk(idx)}
                 title={bulkStages ? s.label : `Этап №${idx + 1} в наборе каждой позиции`}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-ui hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
+                className={`fx-btn fx-btn-sm ${c.color}`}
               >
                 <Icon className="w-3.5 h-3.5" /> {bulkStages ? s.label : `№${idx + 1} ${s.label}`}
               </button>
@@ -942,16 +851,16 @@ function ProcurementTab() {
           )}
           <button type="button"
             onClick={() => setSelectedIds(new Set())}
-            className="ml-auto p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
-            title="Снять выделение"
+            className="ml-auto fx-ibtn"
+            title="Снять выделение" aria-label="Снять выделение"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Таблица позиций */}
-      <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
+      {/* Таблица позиций; класс overflow-y-auto — по нему виртуальный список находит, что прокручивается */}
+      <div className="fx-page-body overflow-y-auto overflow-x-auto">
         <table ref={tableRef} className="w-full text-left border-collapse">
           <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850">
             <tr>

@@ -121,7 +121,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, pinned: true, Component: Registry },
   { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
-  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
+  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
   // «/constructor»: так назывался прежний редактор книг, и старые окна людей
   // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)

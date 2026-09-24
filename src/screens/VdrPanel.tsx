@@ -1,3 +1,4 @@
+import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../components/ui';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
@@ -41,11 +42,12 @@ interface Item {
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
 
-const STATUS_META: Record<string, { label: string; cls: string }> = {
-  DRAFT: { label: 'В работе', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  READY: { label: 'Готово', cls: 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400' },
-  REMARKS: { label: 'Замечания', cls: 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400' },
-  ACCEPTED: { label: 'Принят', cls: 'bg-sky-100 dark:bg-sky-950/50 text-sky-700 dark:text-sky-400' },
+// Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки
+const STATUS_META: Record<string, { label: string; tone: Tone }> = {
+  DRAFT: { label: 'В работе', tone: 'slate' },
+  READY: { label: 'Готово', tone: 'emerald' },
+  REMARKS: { label: 'Замечания', tone: 'amber' },
+  ACCEPTED: { label: 'Принят', tone: 'sky' },
 };
 
 const fmtD = (s?: string | null) => { try { return s ? new Date(s).toLocaleDateString('ru-RU') : ''; } catch { return ''; } };
@@ -261,98 +263,71 @@ export default function VdrPanel() {
   if (loading) return <div className="flex items-center justify-center py-20 text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
   return (
-    <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
-      {/* Шапка */}
-      <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <FileSpreadsheet className="w-5 h-5 text-emerald-500 shrink-0" />
+    <div className="flex flex-col text-slate-800 dark:text-slate-100">
+      {/* Реестр → действия: главное одно («Выгрузить»), остальное тихими кнопками.
+          Раньше рядом стояли две зелёные — «Импорт» и «Выгрузить» */}
+      <Toolbar>
         {registers.length > 0 ? (
           <>
-            <select value={regId} onChange={e => setRegId(e.target.value)}
-              className="px-2.5 py-1.5 text-sm font-semibold border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white cursor-pointer max-w-64">
+            <select value={regId} onChange={e => setRegId(e.target.value)} aria-label="Реестр ВДР" className="fx-input w-64 cursor-pointer">
               {registers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-            {register && <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold" title="Текущая ревизия самого ВДР">рев. {register.revision}</span>}
+            {register && <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap" title="Текущая ревизия самого ВДР">рев. {register.revision}</span>}
           </>
         ) : (
-          <span className="text-sm text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
+          <span className="text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
         )}
-        <div className="flex-1" />
-        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer ${importing ? 'opacity-60 pointer-events-none' : ''}`}>
-          {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Импорт
+        <span className="ml-auto" />
+        <label className={`fx-btn fx-btn-quiet cursor-pointer ${importing ? 'opacity-60 pointer-events-none' : ''}`}>
+          {importing ? <Loader2 className="animate-spin" /> : <Upload />} Импорт
           <input type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importXlsx(f); e.target.value = ''; }} />
         </label>
         {register && (
           <>
-            <button type="button" onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
-              <Download className="w-3.5 h-3.5" /> Выгрузить
-            </button>
-            <button type="button" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-              <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. ВДР
-            </button>
-            <button type="button" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-              <Languages className="w-3.5 h-3.5" /> Англ. названия
-            </button>
-            <button type="button" onClick={() => setRegSettingsOpen(true)} title="Реквизиты реестра, стандарт, свои колонки"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-              <Settings2 className="w-3.5 h-3.5" />
-            </button>
-            <button type="button" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-              <Plus className="w-3.5 h-3.5" /> Строка
-            </button>
+            <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
+            <Btn tone="ghost" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
+            <IconBtn label="Реквизиты реестра, стандарт, свои колонки" onClick={() => setRegSettingsOpen(true)}><Settings2 /></IconBtn>
+            <Btn tone="ghost" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
           </>
         )}
-        <button type="button" onClick={createRegister} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-          <Plus className="w-3.5 h-3.5" /> Реестр
-        </button>
-        <button type="button" title="Обновить список" onClick={refresh} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
-      </div>
+        <Btn tone="ghost" onClick={createRegister}><Plus />Реестр</Btn>
+        <IconBtn label="Обновить список" onClick={refresh}><RefreshCw /></IconBtn>
+        {register && <Btn tone="primary" onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"><Download />Выгрузить</Btn>}
+      </Toolbar>
 
       {register && (
         <>
-          {/* Фильтры */}
-          <div className="flex flex-wrap items-center gap-2">
-            {Object.entries(STATUS_META).map(([st, meta]) => (
-              <button type="button" key={st} onClick={() => setStatusFilter(statusFilter === st ? '' : st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${statusFilter === st ? 'border-emerald-500 ring-1 ring-emerald-400' : 'border-transparent'} ${meta.cls}`}>
-                {meta.label}: {counts[st] || 0}
-              </button>
-            ))}
-            <button type="button" onClick={() => setOnlyOverdue(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 ${onlyOverdue ? 'border-rose-500 ring-1 ring-rose-400' : 'border-transparent'}`}>
-              Просрочено: {counts.OVERDUE}
-            </button>
-            <button type="button" onClick={() => setOnlyMine(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800'}`}>
-              Мои
-            </button>
-            <div className="flex-1" />
+          {/* Фильтр статусов со счётчиками — тот же вид, что у этапов закупки */}
+          <Toolbar>
+            <FilterSeg label="Статус документа" value={statusFilter || 'all'} onChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
+              options={[{ value: 'all', label: 'Все', count: items.length },
+                ...Object.entries(STATUS_META).map(([st, meta]) => ({ value: st, label: meta.label, count: counts[st] || 0 }))]} />
+            <div className="fx-seg" role="group" aria-label="Отбор">
+              <button type="button" aria-pressed={onlyOverdue} onClick={() => setOnlyOverdue(v => !v)}>Просрочено<span className="fx-n">{counts.OVERDUE}</span></button>
+              <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(v => !v)}>Мои</button>
+            </div>
+            <span className="ml-auto" />
             {selected.size > 0 && (
-              <select defaultValue="" onChange={e => { if (e.target.value !== '') bulkAssign(e.target.value); }}
-                className="px-2 py-1.5 text-xs border border-emerald-300 dark:border-emerald-800 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 cursor-pointer font-bold">
+              <select defaultValue="" onChange={e => { if (e.target.value !== '') bulkAssign(e.target.value); }} className="fx-input w-auto cursor-pointer">
                 <option value="" disabled>Назначить {countOf(selected.size, 'строка')}…</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             )}
             {codes.length > 0 && (
-              <select value={codeFilter} onChange={e => setCodeFilter(e.target.value)}
-                className="px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 cursor-pointer">
+              <select value={codeFilter} onChange={e => setCodeFilter(e.target.value)} aria-label="Тип документа" className="fx-input w-auto cursor-pointer">
                 <option value="">Все типы</option>
                 {codes.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Номер, название, тег…"
-                className="pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500 w-52" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск: номер, название, тег…" aria-label="Поиск по ВДР"
+                className="fx-input pl-7 w-56" />
             </div>
-          </div>
+          </Toolbar>
 
           {/* Таблица */}
-          <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden">
+          <div className="overflow-hidden">
             <div className="overflow-auto max-h-[calc(100vh-330px)]">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-10">
@@ -390,7 +365,7 @@ export default function VdrPanel() {
                       <td className="flux-cell font-bold">{it.revision}</td>
                       <td className={`flux-cell whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
                       <td className="flux-cell font-bold">{it.reviewCode}</td>
-                      <td className="flux-cell"><span className={`px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${STATUS_META[it.status]?.cls || ''}`}>{STATUS_META[it.status]?.label || it.status}</span></td>
+                      <td className="flux-cell whitespace-nowrap"><Status tone={STATUS_META[it.status]?.tone || 'slate'}>{STATUS_META[it.status]?.label || it.status}</Status></td>
                       <td className="flux-cell max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
                       <td className="flux-cell whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td className="flux-cell" onClick={e => e.stopPropagation()}>
@@ -529,8 +504,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     <div className="fixed inset-0 z-50 bg-black/30 flex justify-end" onClick={onClose}>
       <div className="w-[520px] max-w-[94vw] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <span className="font-bold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
-          {!isNew && <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
+          <span className="font-semibold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
+          {!isNew && <Status tone={STATUS_META[f.status]?.tone || 'slate'}>{STATUS_META[f.status]?.label || f.status}</Status>}
           <button type="button" title="Закрыть карточку" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
