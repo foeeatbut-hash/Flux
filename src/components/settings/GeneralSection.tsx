@@ -59,6 +59,13 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
             <div className="text-xs text-slate-500 dark:text-slate-400">Разработка Раупова Хусрава</div>
           </div>
         </div>
+        {/* Лицензия Apache-2.0 разрешает переименовать редактор, но требует
+            назвать исходный проект и приложить его LICENSE и NOTICE — они
+            лежат рядом с редактором (tools/genoffice/build.mjs) */}
+        <div className="text-xs text-slate-500 dark:text-slate-400 pb-3">
+          Сторонние компоненты: редактор документов Flux Office основан на GenOffice (Apache-2.0),{' '}
+          <a className="underline" href="genoffice/NOTICE" target="_blank" rel="noreferrer">лицензия и уведомление</a>.
+        </div>
       </div>
     </SectionShell>
   );

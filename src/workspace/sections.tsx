@@ -30,6 +30,7 @@ const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
 const FeedbackScreen = lazy(() => import('../screens/FeedbackScreen'));
 const PdfEditor = lazy(() => import('../screens/PdfEditor'));
+const OfficeHost = lazy(() => import('../screens/OfficeHost'));
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
@@ -138,6 +139,10 @@ export const SECTIONS: SectionDef[] = [
   // «Просмотр» открывается из Проводника и живёт своим окном: у него своя лента и
   // свои пометки, и возвращаться из него надо туда, откуда пришли
   { path: '/pdf', title: 'Просмотр', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
+  // Новый Документ Flux Office — пока по праву «Проба нового офиса»: открывает
+  // настоящий файл Word из Проводника, а не копию в базе. Старый «Документ»
+  // живёт рядом до приёмки (docs/office-genoffice-plan.md)
+  { path: '/office-doc', title: 'Документ (проба)', icon: FileType, scope: 'global', scroll: 'fixed', pad: false, multi: true, feature: 'office.next', Component: OfficeHost },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но
   // разговаривать про открытую ведомость удобнее рядом с ней, а не поверх

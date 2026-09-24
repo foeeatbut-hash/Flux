@@ -3,6 +3,7 @@ import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { summarize, type ItemOutcome } from '../lib/outcomes';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
+import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
 import { officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
@@ -2073,6 +2074,7 @@ export default function Explorer() {
           upload={() => fileInputRef.current?.click()}
           paste={handlePaste}
           editCopy={editCopyInConstructor}
+          openNext={can(user, 'office.next') ? (id) => navigate(`/office-doc?file=${encodeURIComponent(id)}`) : undefined}
           toEquipment={openImportPicker}
           attachVdr={setVdrAttachFileId}
           download={(id) => handleDownload(id, false)}

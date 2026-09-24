@@ -35,6 +35,25 @@ const LIMIT = '256mb';
 
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 
+/** Имя копии: без пути и запрещённых в Windows знаков, с расширением исходника */
+function cleanName(raw: string, fallback: string): string {
+  const ext = (fallback.match(/\.[^.]+$/) || [''])[0];
+  let n = raw.split(/[\\/]/).pop()!.replace(/[<>:"|?*\u0000-\u001f]/g, '').trim().slice(0, 200);
+  if (!n) n = fallback.replace(/(\.[^.]+)?$/, ' (копия)$1');
+  if (ext && !n.toLowerCase().endsWith(ext.toLowerCase())) n += ext;
+  return n;
+}
+
+/** Свободное имя в папке: «Отчёт.docx», «Отчёт (2).docx», … */
+function freeName(name: string, taken: Set<string>): string {
+  if (!taken.has(name.toLowerCase())) return name;
+  const m = name.match(/^(.*?)(\.[^.]+)?$/)!;
+  for (let i = 2; ; i++) {
+    const n = `${m[1]} (${i})${m[2] || ''}`;
+    if (!taken.has(n.toLowerCase())) return n;
+  }
+}
+
 let ensured = false;
 async function ensureVersionTable(): Promise<string> {
   if (ensured) return '';
@@ -72,7 +91,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       if (!file) return res.status(404).json({ error: 'Файл не найден' });
       const bytes = await fileBytes(file);
       res.json({
-        id: file.id, name: file.name, size: bytes.length, sha256: sha256(bytes),
+        id: file.id, name: file.name, folderId: file.folderId, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
       });
     } catch (err: any) { sendError(res, err); }
@@ -143,6 +162,55 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
 
         res.json({ sha256: afterSha, size: body.length, version });
+      } catch (err: any) { sendError(res, err); }
+    });
+
+  /**
+   * «Сохранить как» и «Сохранить мою копию рядом»: новый файл в той же папке.
+   *
+   * Копия ложится туда же, где исходник, с тем же разделом и владельцем: иначе
+   * личный документ, сохранённый «как», оказался бы в общем корне. Имя
+   * подбирается свободное — чужой файл с тем же именем не затирается.
+   */
+  app.post('/api/office/files/:id/copy',
+    express.raw({ type: () => true, limit: LIMIT }),
+    async (req: Request, res: Response) => {
+      const prisma = getPrisma();
+      try {
+        const fromId = String(req.params.id);
+        const user = (req as any).authUser;
+        if (!user?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
+        const denied = await deps.mayWrite(req, fromId);
+        if (denied) return res.status(403).json({ error: denied });
+        const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        if (!body.length) return res.status(400).json({ error: 'Пустое содержимое: сохранять нечего' });
+
+        const from = await prisma.fileNode.findUnique({ where: { id: fromId } });
+        if (!from) return res.status(404).json({ error: 'Файл не найден' });
+
+        const wanted = cleanName(String(req.query.name || ''), from.name);
+        const siblings = await prisma.fileNode.findMany({
+          where: { folderId: from.folderId, deletedAt: null, scope: from.scope, ownerId: from.ownerId },
+          select: { name: true },
+        });
+        const name = freeName(wanted, new Set(siblings.map((f: { name: string }) => f.name.toLowerCase())));
+        const dir = String(from.filePath || '').replace(/[^/]*$/, '') || '/shared/';
+        const step = Math.max(64 * 1024, await deps.chunkBytes());
+
+        const file = await prisma.$transaction(async (tx: any) => {
+          const made = await tx.fileNode.create({
+            data: {
+              name, filePath: dir + name, size: body.length, type: from.type,
+              department: from.department, scope: from.scope, ownerId: from.ownerId,
+              folderId: from.folderId, createdById: user.id, updatedById: user.id,
+            },
+          });
+          for (let i = 0, idx = 0; i < body.length; i += step, idx++) {
+            await tx.fileChunk.create({ data: { fileId: made.id, idx, data: body.subarray(i, i + step) } });
+          }
+          return made;
+        }, { timeout: 120_000 });
+        res.json({ id: file.id, name: file.name, sha256: sha256(body), size: body.length });
       } catch (err: any) { sendError(res, err); }
     });
 

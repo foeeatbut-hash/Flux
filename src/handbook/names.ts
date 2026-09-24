@@ -59,6 +59,8 @@ export const THING_RU: Record<string, string> = {
   FeedbackUpload: 'загружаемый файл обращения',
   FileNode: 'файл',
   PdfMarkup: 'пометка на чертеже',
+  FileChunk: 'кусок содержимого файла',
+  FileVersion: 'прежняя версия файла',
   Folder: 'папка',
   MailAccount: 'почтовый ящик',
   MailActivity: 'событие в переписке',

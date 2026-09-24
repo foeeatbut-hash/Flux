@@ -1950,8 +1950,13 @@ async function mayWriteFile(req: any, fileId: string): Promise<string> {
   const user = (req as any).authUser;
   if (user?.role === 'ADMIN') return '';
   const file = await prisma.fileNode.findUnique({
-    where: { id: fileId }, select: { folderId: true },
+    where: { id: fileId }, select: { folderId: true, scope: true, ownerId: true },
   });
+  // Личный файл пишет только его хозяин: раньше правило смотрело лишь на общий
+  // диск, и чужой личный документ можно было перезаписать, зная его номер
+  if (file?.scope === 'PERSONAL' && file.ownerId && file.ownerId !== user?.id) {
+    return 'Это личный файл другого сотрудника: изменить его может только он сам.';
+  }
   if (!file?.folderId) return '';
   const folder = await prisma.folder.findUnique({
     where: { id: file.folderId }, select: { projectId: true },

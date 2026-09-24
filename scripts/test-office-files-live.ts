@@ -6,6 +6,8 @@
  *   - с неверным — 409, содержимое не тронуто: чужая правка не затирается;
  *   - файл короче прежнего читается без старого хвоста;
  *   - перезапись кусками Проводника с числом кусков тоже без хвоста;
+ *   - «Сохранить как» кладёт копию рядом со свободным и чистым именем;
+ *   - чужой личный файл не перезаписать ни целиком, ни кусками;
  *   - без входа — 401.
  *
  * Запуск (сервер поднят): npx tsx scripts/test-office-files-live.ts
@@ -95,7 +97,47 @@ const call = async (method: string, url: string, body?: any, headers: Record<str
     const back = await call('GET', `/api/files/${id}/raw`);
     ok('хвоста прежнего файла нет', back.buf.equals(small), { длина: back.buf.length });
 
-    console.log('\n4. Без входа');
+    console.log('\n4. Копия рядом («Сохранить как»)');
+    const mine = Buffer.from('мой вариант');
+    const cp = await call('POST', `/api/office/files/${id}/copy?name=${encodeURIComponent('../../Копия:*.docx')}`, mine);
+    ok('копия заведена', cp.status === 200 && !!cp.json?.id, cp.json);
+    if (cp.json?.id) created.push(cp.json.id);
+    ok('имя без пути и запрещённых знаков, расширение на месте', cp.json?.name === 'Копия.docx', cp.json?.name);
+    ok('хеш копии верный', cp.json?.sha256 === sha(mine), cp.json);
+    const cpBytes = await call('GET', `/api/files/${cp.json?.id}/raw`);
+    ok('в копии — мой вариант', cpBytes.buf.equals(mine), { длина: cpBytes.buf.length });
+    const orig = await call('GET', `/api/files/${id}/raw`);
+    ok('исходник не тронут', orig.buf.equals(small));
+    const cp2 = await call('POST', `/api/office/files/${id}/copy?name=${encodeURIComponent('Копия.docx')}`, mine);
+    if (cp2.json?.id) created.push(cp2.json.id);
+    ok('второе то же имя — свободное «(2)»', cp2.json?.name === 'Копия (2).docx', cp2.json?.name);
+
+    console.log('\n5. Чужой личный файл');
+    const stamp = Date.now().toString(36);
+    const pass = `Пр${stamp}!7`;
+    const mk2 = await call('POST', '/api/users', { symbol: `ofc${stamp}`, name: 'Проба Офис', password: pass, role: 'USER' });
+    const mateId = mk2.json?.user?.id || mk2.json?.id;
+    ok('второй сотрудник заведён', !!mateId, mk2.json);
+    const personal = await call('POST', '/api/files', { name: `__личное ${stamp}.docx`, scope: 'PERSONAL', filePath: '/personal/x.docx' });
+    const pid = personal.json?.file?.id;
+    if (pid) created.push(pid);
+    await call('POST', `/api/files/${pid}/chunk`, { idx: 0, data: first.subarray(0, 100).toString('base64') });
+    await call('POST', `/api/files/${pid}/done`, { count: 1 });
+    const keepAdmin = token;
+    token = (await call('POST', '/api/login', { symbol: `ofc${stamp}`, password: pass })).json?.token || '';
+    ok('второй сотрудник вошёл', !!token);
+    const foreign = await call('PUT', `/api/office/files/${pid}/content`, second, { 'X-Base-Sha256': sha(first.subarray(0, 100)) });
+    ok('чужой личный файл не перезаписать', foreign.status === 403, [foreign.status, foreign.json]);
+    const foreignCopy = await call('POST', `/api/office/files/${pid}/copy?name=x.docx`, second);
+    ok('и копию в чужую личную папку не положить', foreignCopy.status === 403, foreignCopy.status);
+    const foreignChunk = await call('POST', `/api/files/${pid}/chunk`, { idx: 0, data: second.toString('base64') });
+    ok('и кусками Проводника тоже', foreignChunk.status === 403, foreignChunk.status);
+    token = keepAdmin;
+    const still2 = await call('GET', `/api/files/${pid}/raw`);
+    ok('личный файл цел', still2.buf.equals(first.subarray(0, 100)));
+    await call('DELETE', `/api/users/${mateId}`);
+
+    console.log('\n6. Без входа');
     const keep = token; token = '';
     const anon = await call('PUT', `/api/office/files/${id}/content`, second, { 'X-Base-Sha256': sha(small) });
     ok('без входа — не записано', anon.status === 401 || anon.status === 403, anon.status);

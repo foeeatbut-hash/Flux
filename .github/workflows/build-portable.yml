@@ -34,6 +34,18 @@ jobs:
       - name: Зависимости
         run: npm ci
 
+      # Редактор Документа Flux Office — из GenOffice по закреплённому коммиту
+      # (tools/genoffice/build.mjs). До сборки фронтенда: Vite кладёт public/
+      # в dist, и редактор едет в портативную сборку вместе с ним
+      - name: Кэш исходников редактора
+        uses: actions/cache@v4
+        with:
+          path: .cache/genoffice
+          key: genoffice-${{ hashFiles('tools/genoffice/build.mjs') }}
+
+      - name: Редактор Flux Office
+        run: node tools/genoffice/build.mjs docs
+
       - name: Сборка фронтенда и сервера
         run: npm run build
 
