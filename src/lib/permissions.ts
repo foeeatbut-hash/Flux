@@ -75,6 +75,12 @@ export const FEATURES: FeatureDef[] = [
   { id: 'disk.write', group: 'Проводник', label: 'Запись на общий диск', risky: true,
     desc: 'Класть файлы и заводить папки на общем диске — он виден всем сотрудникам' },
 
+  // Новый редактор Flux Office сначала получают те, кто согласился его
+  // проверять: старые документы открываются старым редактором до приёмки
+  // (docs/office-genoffice-plan.md, этап 7)
+  { id: 'office.next', group: 'Flux Office', label: 'Проба нового офиса',
+    desc: 'Открывать файлы Word из Проводника в новом редакторе Flux Office' },
+
   { id: 'procurement.manage', group: 'Менеджмент', label: 'Этапы закупки',
     desc: 'Отмечать этапы, менять поставщика, количество, примечания' },
   { id: 'procurement.setup', group: 'Менеджмент', label: 'Настройка этапов', risky: true,

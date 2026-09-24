@@ -36,3 +36,7 @@ license-generator.html
 # формы лежат в scripts/fixtures/blanks.
 .probe/
 .walkthrough/
+
+# Собранные редакторы Flux Office (tools/genoffice/build.mjs) и исходники GenOffice
+public/genoffice/
+.cache/

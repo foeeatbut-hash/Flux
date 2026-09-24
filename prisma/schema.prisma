@@ -997,6 +997,23 @@ model FileChunk {
   @@index([fileId])
 }
 
+// Прежнее содержимое файла перед сохранением из Flux Office — для отката.
+// Пишется ДО записи нового содержимого (server/routes/officeFiles.ts);
+// хранятся последние 20 версий файла. Связи с FileNode нет намеренно:
+// версия не должна уходить вместе с файлом в корзину раньше, чем её прочтут.
+model FileVersion {
+  id          String   @id @default(uuid())
+  fileId      String
+  version     Int      @default(0)
+  size        Int      @default(0)
+  sha256      String   @default("")
+  data        Bytes
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([fileId, version])
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Обращения сотрудников: «Замечания и предложения»
 //
