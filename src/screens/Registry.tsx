@@ -2661,7 +2661,7 @@ export default function Registry() {
                 />
                 {newTagIdentifier && (
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-xs">
-                    {isIdentifierUnique ? <Status tone="emerald">свободен</Status> : <Status tone="rose">занят</Status>}
+                    {isIdentifierUnique ? <Status tone="emerald">Свободен</Status> : <Status tone="rose">Занят</Status>}
                   </div>
                 )}
               </div>

@@ -207,8 +207,8 @@ const api = async (method: string, url: string, body?: any) => {
     await page.waitForTimeout(900);
     ok('код показан свободным', await page.evaluate(() => /Свободен/.test(document.body.innerText)));
 
-    await page.locator('input[placeholder="ВИР800-340"]').fill(BRAND);
-    await page.locator('input[placeholder="Приточный вентилятор"]').fill(NAME);
+    await page.locator('input[aria-label="Марка оборудования"]').fill(BRAND);
+    await page.locator('input[aria-label="Главное наименование"]').fill(NAME);
     await page.waitForTimeout(400);
 
     const createBtn = page.locator('[data-tour="tag-create-btn"]');

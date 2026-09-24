@@ -105,7 +105,7 @@ export interface DeskMetric {
  */
 export const DESK: Record<DeskScale, DeskMetric> = {
   small: { w: 60, h: 72, icon: 24, label: 12 },
-  normal: { w: 76, h: 90, icon: 32, label: 12 },
+  normal: { w: 76, h: 88, icon: 32, label: 12 },
   large: { w: 96, h: 110, icon: 40, label: 12 },
 };
 
