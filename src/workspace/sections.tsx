@@ -156,7 +156,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, multi: true, Component: NotesManagement },
   { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
-  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
+  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },
   // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
   // после переключения проекта не должно пропадать из списка
   { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },

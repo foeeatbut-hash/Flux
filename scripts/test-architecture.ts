@@ -447,7 +447,7 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 225,
+    'жирный 700 (font-bold/extrabold/black)': 205,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
     'курсив (italic)': 40,

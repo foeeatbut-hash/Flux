@@ -205,7 +205,7 @@ function Letter({
         aria-expanded={expanded}
         className="w-full flex items-start gap-3 p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer"
       >
-        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${TONE_CLASS[toneOf(sender)]}`}>
+        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${TONE_CLASS[toneOf(sender)]}`}>
           {initialsOf(sender)}
         </div>
         <div className="flex-1 min-w-0">
@@ -292,7 +292,7 @@ function Letter({
                   source: 'mail',
                   sourceId: msg.id,
                 })}
-                className="px-2.5 py-1 rounded-lg text-2xs font-bold cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700">
+                className="fx-btn fx-btn-primary fx-btn-sm">
                 Добавить в календарь
               </button>
               <button type="button"
@@ -454,7 +454,7 @@ export default function MailThread({
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <h2 className="flex-1 min-w-0 truncate text-sm font-bold text-slate-900 dark:text-white">
+        <h2 className="flex-1 min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-white">
           {subject || '(без темы)'}
         </h2>
         <button
@@ -507,7 +507,7 @@ export default function MailThread({
         {shared && (
           <section className="rounded-lg border border-sky-200 dark:border-sky-900 bg-sky-50/70 dark:bg-sky-950/25 overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-sky-200 dark:border-sky-900">
-              <span className="text-2xs font-bold text-sky-800 dark:text-sky-300">
+              <span className="text-xs font-medium text-sky-800 dark:text-sky-300">
                 Общая почта
               </span>
               {state?.repliedByName && (
@@ -673,8 +673,8 @@ function FolderPicker({ attachment, onClose, onDone }: {
     <div className="fixed inset-0 z-[85] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Куда сохранить вложение">
       <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-md rounded-lg bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-3">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">Сохранить в Проводник</h3>
+        <div className="fx-dialog relative w-full max-w-md p-5 flex flex-col gap-3">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">Сохранить в Проводник</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
             {attachment.fileName} · {humanSize(attachment.size)}
           </p>

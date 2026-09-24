@@ -148,12 +148,12 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
           initial={{ opacity: 0, scale: 0.97, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.15 }}
-          className="@container relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-lg bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800"
+          className="fx-dialog @container relative w-full max-w-3xl max-h-[90vh] flex flex-col"
         >
           <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 min-w-0">
               <PenLine className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
-              <h3 className="flex-1 min-w-0 truncate text-base font-bold text-slate-900 dark:text-white">{TITLES[mode]}</h3>
+              <h3 className="flex-1 min-w-0 truncate text-base font-semibold text-slate-900 dark:text-white">{TITLES[mode]}</h3>
             </div>
             <button
               type="button" title="Закрыть" aria-label="Закрыть" onClick={onClose} disabled={sending}
