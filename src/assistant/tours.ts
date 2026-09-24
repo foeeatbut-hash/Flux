@@ -42,7 +42,7 @@ export const TOURS: Tour[] = [
     steps: [
       { text: 'Откройте раздел «Теги» — из Пуска или с панели задач.', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
       { text: 'Введите код нового тега латиницей в поле «Код тега».', target: '[data-tour="tag-code-input"]', route: '/registry', action: 'input' },
-      { text: 'Заполните марку, отдел и при необходимости WBS и среду.', route: '/registry', action: 'info' },
+      { text: 'Заполните марку и наименование. Отдел, WBS и среда — под кнопкой «Доп» в той же строке.', route: '/registry', action: 'info' },
       { text: 'Нажмите «Создать», чтобы сохранить тег.', target: '[data-tour="tag-create-btn"]', route: '/registry', action: 'click' },
       { text: 'Готово! Тег добавлен в реестр и на Схему связей.', action: 'info' },
     ],
@@ -99,7 +99,7 @@ export const TOURS: Tour[] = [
     intro: 'Активный проект определяет, какие данные показываются во всех разделах. Покажу, как его сменить.',
     steps: [
       { text: 'Откройте раздел «Проекты».', target: '[data-tour="nav-/projects"]', route: '/projects', action: 'navigate' },
-      { text: 'Нажмите на нужный проект и выберите «Выбрать как активный проект». Его название появится в шапке слева.', action: 'info' },
+      { text: 'Нажмите на нужный проект и затем «Взять в работу». Его название появится на панели задач справа.', action: 'info' },
     ],
   },
   {
@@ -337,8 +337,8 @@ export const TOURS: Tour[] = [
     questions: ['как настроить логи', 'куда сохраняются логи', 'папка crash логов', 'где журнал ошибок'],
     intro: 'Папку для аварийных логов можно выбрать в Настройках. Покажу.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Crash-логи».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'navigate' },
-      { text: 'В блоке «Crash-логи» нажмите «Выбрать папку…» — туда будут сохраняться журналы с датой и временем в имени.', action: 'info' },
+      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Ошибки и сбои».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'navigate' },
+      { text: 'В блоке «Копия на сервере» нажмите «Выбрать папку…» — туда будут сохраняться журналы с датой и временем в имени.', action: 'info' },
     ],
   },
   {
@@ -347,7 +347,7 @@ export const TOURS: Tour[] = [
     questions: ['как сменить тему', 'тёмная тема', 'светлая тема', 'как поменять оформление'],
     intro: 'Светлая и тёмная темы переключаются в Настройках. Демонстрирую.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Общее».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'navigate' },
+      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Общие».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'navigate' },
       { text: 'В блоке «Тема интерфейса» выберите «Светлая» или «Тёмная». Выбор запоминается.', action: 'info' },
     ],
   },
@@ -590,7 +590,7 @@ export const TOURS: Tour[] = [
     steps: [
       { text: 'Открываю раздел «Теги».', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
       { text: 'Переключитесь на «Спецификацию» — это табличный вид реестра.', target: '[data-tour="tag-table-tab"]', route: '/registry', action: 'click' },
-      { text: 'Правьте значения прямо в ячейках: марка, отдел, WBS, среда. Изменение сохраняется сразу.', route: '/registry', action: 'info', afterAction: true },
+      { text: 'Наведите на строку тега и нажмите карандаш — откроется карточка: марка, отдел, WBS, среда. Изменения сохраняются сами.', route: '/registry', action: 'info', afterAction: true },
       { text: 'Характеристики изделия правятся не здесь, а в «Оборудовании»: у тега они показываются, но принадлежат изделию.', action: 'info' },
     ],
   },

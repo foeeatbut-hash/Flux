@@ -207,8 +207,8 @@ const api = async (method: string, url: string, body?: any) => {
     await page.waitForTimeout(900);
     ok('код показан свободным', await page.evaluate(() => /Свободен/.test(document.body.innerText)));
 
-    await page.locator('input[placeholder="ВИР800-340"]').fill(BRAND);
-    await page.locator('input[placeholder="Приточный вентилятор"]').fill(NAME);
+    await page.locator('input[aria-label="Марка оборудования"]').fill(BRAND);
+    await page.locator('input[aria-label="Главное наименование"]').fill(NAME);
     await page.waitForTimeout(400);
 
     const createBtn = page.locator('[data-tour="tag-create-btn"]');
@@ -230,8 +230,9 @@ const api = async (method: string, url: string, body?: any) => {
     await page.waitForTimeout(4500);
     ok('позиция видна в списке закупок', (await windowText('Обновить')).includes(CODE));
     const tally = await page.evaluate(() => {
-      const el = [...document.querySelectorAll('.tally-item')].find((x) => /Все позиции/.test(x.textContent || ''));
-      return Number((el?.querySelector('.tally-num')?.textContent || '0').trim());
+      // Счётчики этапов — фильтр со счётчиками (fx-seg), число — в .fx-n
+      const el = [...document.querySelectorAll('.fx-seg button')].find((x) => /Все позиции/.test(x.textContent || ''));
+      return Number((el?.querySelector('.fx-n')?.textContent || '0').trim());
     });
     ok('счётчик «Все позиции» посчитал её', tally >= 1, tally);
 

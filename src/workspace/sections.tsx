@@ -117,11 +117,11 @@ export interface SectionDef {
 
 export const SECTIONS: SectionDef[] = [
   { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
-  { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'auto', pad: true, Component: ProjectsManagement },
-  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, pinned: true, Component: Registry },
-  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
-  { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
-  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
+  { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
+  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Registry },
+  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
+  { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
+  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
   // «/constructor»: так назывался прежний редактор книг, и старые окна людей
   // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)
@@ -164,10 +164,10 @@ export const SECTIONS: SectionDef[] = [
   // живут поверх проектов. Доступ выдаётся отдельно и молча: сотрудник без
   // него не видит раздела нигде и по адресу /play уходит на Главную
   { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen },
-  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
+  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
-  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, feature: 'log.view', Component: LogsManagement },
-  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
+  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
+  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));

@@ -42,8 +42,8 @@ export const trimmed = (d: ProjectDraft): ProjectDraft => ({
   status: d.status,
 });
 
-const FIELD = 'w-full min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui';
-const LABEL = 'block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1';
+const FIELD = 'fx-input w-full min-w-0';
+const LABEL = 'fx-label block mb-1';
 
 interface Props {
   value: ProjectDraft;

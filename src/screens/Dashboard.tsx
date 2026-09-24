@@ -10,6 +10,7 @@
  * Порядок разделов не выдуман: он считается по тому, чем пользователь
  * действительно пользуется (счётчик открытий хранится локально).
  */
+import { Status } from '../components/ui';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -356,7 +357,7 @@ export default function Dashboard() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
-      className="relative z-10 max-w-[1600px] mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
+      className="relative z-10 max-w-[1600px] mx-auto min-h-full flex flex-col gap-5 text-[13px] text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: над чем работаем ──
            Раньше первой строкой стояло крупное «С возвращением, имя», а
@@ -494,13 +495,9 @@ export default function Dashboard() {
         });
         if (!rows.length) return null;
 
-        // Тон задаёт цветная полоса слева и лёгкая подсветка, а не сплошная
-        // заливка во всю строку: срочное видно сразу, но экран не пестрит.
-        const tones: Record<string, string> = {
-          crit: 'before:bg-rose-500 bg-rose-50/70 dark:bg-rose-950/25 text-rose-900 dark:text-rose-200',
-          warn: 'before:bg-amber-500 bg-amber-50/70 dark:bg-amber-950/25 text-amber-900 dark:text-amber-200',
-          info: 'before:bg-emerald-500 text-slate-700 dark:text-dark-text-main',
-        };
+        // Тон несёт значок цветом смысла — без полосы слева и подсветки строки
+        // (01-design.md: смысловой цвет — у точки или значка, не у поверхности)
+        const tones: Record<string, string> = { crit: '', warn: '', info: '' };
         const toneIcon: Record<string, string> = {
           crit: 'text-rose-600 dark:text-rose-400',
           warn: 'text-amber-600 dark:text-amber-400',
@@ -508,18 +505,17 @@ export default function Dashboard() {
         };
         return (
           <section aria-label="Требует внимания">
-            <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Требует внимания</h2>
+            <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 select-none">Требует внимания</h2>
             <div className="flex flex-col gap-1.5">
               {rows.map((r) => {
                 const Icon = r.icon;
                 return (
                   <div key={r.key}
-                    className={`relative flex items-center gap-3 pl-4 pr-3 py-2.5 rounded-xl flux-surface overflow-hidden
-                                before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${tones[r.tone]}`}>
+                    className={`flex items-center gap-3 px-3 h-10 rounded-lg flux-surface ${tones[r.tone]}`}>
                     <Icon className={`w-[18px] h-[18px] shrink-0 ${toneIcon[r.tone]}`} />
-                    <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{r.text}</span>
+                    <span className="flex-1 min-w-0 truncate">{r.text}</span>
                     <button type="button" onClick={r.go}
-                      className="text-xs font-bold px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0 transition-ui">
+                      className="fx-btn fx-btn-quiet fx-btn-sm shrink-0">
                       {r.action} →
                     </button>
                   </div>
@@ -531,11 +527,11 @@ export default function Dashboard() {
                     <li key={it.id}>
                       <button type="button" onClick={() => open('/management')}
                         className="w-full text-left text-xs text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white cursor-pointer truncate">
-                        <span className="font-mono font-semibold">{it.code || '—'}</span>
+                        <span className="code">{it.code || '—'}</span>
                         <span className="mx-1.5">·</span>
                         {it.title || 'Без наименования'}
                         {it.dueDate && (
-                          <span className={`ml-1.5 ${it.kind === 'overdue' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400'}`}>
+                          <span className={`ml-1.5 ${it.kind === 'overdue' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
                             {it.kind === 'overdue' ? 'просрочен ' : 'до '}{new Date(it.dueDate).toLocaleDateString('ru-RU')}
                           </span>
                         )}
@@ -552,7 +548,7 @@ export default function Dashboard() {
       {/* ── Продолжить: где человек был в прошлый раз ── */}
       {recent.length > 0 && (
         <section>
-          <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Продолжить</h2>
+          <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 select-none">Продолжить</h2>
           <div className="grid grid-cols-2 @[700px]:grid-cols-4 gap-2.5">
             {recent.map((s) => {
               const Icon = s.icon as any;
@@ -563,14 +559,10 @@ export default function Dashboard() {
                   onClick={() => open(s.path)}
                   data-share-route={s.path}
                   data-share-label={s.title}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl flux-tile transition-ui cursor-pointer text-left"
+                  className="flex items-center gap-2.5 px-3 h-10 rounded-lg flux-tile transition-ui cursor-pointer text-left min-w-0"
                 >
-                  {Icon && (
-                    <span className="w-8 h-8 rounded-lg bg-emerald-600/12 dark:bg-emerald-400/15 flex items-center justify-center shrink-0">
-                      <Icon className="w-[18px] h-[18px] text-emerald-700 dark:text-emerald-300" />
-                    </span>
-                  )}
-                  <span className="text-[14px] font-semibold truncate">{s.title}</span>
+                  {Icon && <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />}
+                  <span className="text-[13px] font-medium truncate">{s.title}</span>
                 </button>
               );
             })}
@@ -580,7 +572,7 @@ export default function Dashboard() {
 
       {/* ── Разделы: часто используемые впереди ── */}
       <section>
-        <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Разделы</h2>
+        <h2 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 select-none">Разделы</h2>
         {/* Ровная сетка вместо переносящихся пилюль: раньше последний раздел
             уезжал на вторую строку в одиночестве и блок выглядел обрывком. */}
         <div className="grid grid-cols-2 @[560px]:grid-cols-3 @[760px]:grid-cols-4 @[1000px]:grid-cols-6 gap-2">
@@ -593,10 +585,10 @@ export default function Dashboard() {
                 onClick={() => open(s.path)}
                 data-share-route={s.path}
                 data-share-label={s.title}
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl flux-tile transition-ui cursor-pointer text-left min-w-0"
+                className="flex items-center gap-2.5 px-3 h-10 rounded-lg flux-tile transition-ui cursor-pointer text-left min-w-0"
               >
                 {Icon && <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />}
-                <span className="text-[13px] font-semibold truncate">{s.title}</span>
+                <span className="text-[13px] font-medium truncate">{s.title}</span>
               </button>
             );
           })}
@@ -625,7 +617,7 @@ export default function Dashboard() {
                 key={log.id}
                 type="button"
                 onClick={() => { const r = (log as any).targetRoute; if (r && r !== '#') open(r); }}
-                className="w-full text-left px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui cursor-pointer"
+                className="w-full text-left px-4 py-2 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui cursor-pointer"
               >
                 <p className="text-[13px] leading-snug text-slate-700 dark:text-dark-text-main line-clamp-2">{log.description}</p>
                 <p className="mt-1 text-2xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
@@ -653,9 +645,9 @@ export default function Dashboard() {
               </CardEmpty>
             )}
             {notes.map((note) => (
-              <div key={note.id} className="px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui group">
+              <div key={note.id} className="px-4 py-2 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui group">
                 <button type="button" onClick={() => open('/notes')} className="w-full text-left cursor-pointer">
-                  <p className="text-[13px] font-semibold truncate">{note.title || 'Без названия'}</p>
+                  <p className="text-[13px] font-medium truncate">{note.title || 'Без названия'}</p>
                   <p className="text-xs leading-snug text-slate-500 dark:text-dark-text-muted line-clamp-2 mt-0.5">
                     {(note.content || '').replace(/<[^>]*>/g, ' ').trim() || 'Заметка не заполнена'}
                   </p>
@@ -664,7 +656,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={(e) => openSticker(e, note.id)}
                   title="Открыть заметку отдельным окном поверх других"
-                  className="mt-1.5 inline-flex items-center gap-1 text-2xs font-semibold text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-ui cursor-pointer"
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-ui cursor-pointer"
                 >
                   <ExternalLink className="w-3 h-3" /> На экран
                 </button>
@@ -694,19 +686,16 @@ export default function Dashboard() {
                   onClick={() => setActiveProject(active ? null : (p as any))}
                   aria-pressed={active}
                   title={active ? 'Снять как активный' : 'Сделать активным'}
-                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-ui cursor-pointer ${
-                    active ? 'bg-emerald-500/10' : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
-                  }`}
+                  className="w-full flex items-center gap-2.5 px-4 h-8 text-left transition-ui cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
                 >
-                  <Check className={`w-4 h-4 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-0'}`} />
-                  <span className={`text-[13px] truncate flex-1 ${active ? 'font-bold text-emerald-900 dark:text-emerald-200' : 'font-medium'}`}>{p.name}</span>
-                  {active && <span className="text-2xs font-bold text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
+                  <span className="text-[13px] truncate flex-1">{p.name}</span>
+                  {active && <Status tone="emerald">в работе</Status>}
                 </button>
               );
             })}
           </div>
           <button type="button" onClick={() => open('/projects')}
-            className="shrink-0 w-full px-4 py-2.5 text-[13px] font-semibold text-slate-600 dark:text-dark-text-muted hover:bg-black/[0.03] dark:hover:bg-white/[0.04] border-t border-black/[0.05] dark:border-white/[0.06] flex items-center justify-center gap-1.5 cursor-pointer transition-ui">
+            className="shrink-0 w-full px-4 h-9 text-[13px] text-slate-600 dark:text-dark-text-muted hover:bg-black/[0.03] dark:hover:bg-white/[0.04] border-t border-black/[0.05] dark:border-white/[0.06] flex items-center justify-center gap-1.5 cursor-pointer transition-ui">
             Управление проектами <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </section>
@@ -724,14 +713,12 @@ export default function Dashboard() {
   );
 }
 
-/** Шапка карточки: значок в мягком квадрате, название и одно действие справа. */
+/** Шапка колонки: значок, название и действие справа — без цветного квадрата под значком. */
 function CardHead({ icon: Icon, title, action }: { icon: any; title: string; action?: React.ReactNode }) {
   return (
-    <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-black/[0.05] dark:border-white/[0.06]">
-      <h2 className="text-[14px] font-bold flex items-center gap-2.5 min-w-0">
-        <span className="w-7 h-7 rounded-lg bg-emerald-600/12 dark:bg-emerald-400/15 flex items-center justify-center shrink-0">
-          <Icon className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
-        </span>
+    <div className="shrink-0 flex items-center justify-between gap-2 px-4 h-11 border-b border-black/[0.05] dark:border-white/[0.06]">
+      <h2 className="text-[13px] font-semibold flex items-center gap-2 min-w-0">
+        <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
         <span className="truncate">{title}</span>
       </h2>
       {action}
@@ -743,9 +730,7 @@ function CardHead({ icon: Icon, title, action }: { icon: any; title: string; act
 function CardLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" onClick={onClick}
-      className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg
-                 text-slate-600 dark:text-dark-text-muted hover:text-emerald-700 dark:hover:text-emerald-400
-                 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] cursor-pointer transition-ui">
+      className="fx-btn fx-btn-quiet fx-btn-sm shrink-0">
       {children}
     </button>
   );

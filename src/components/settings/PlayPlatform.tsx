@@ -222,7 +222,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
       desc="Встроенная игровая платформа: общий выключатель на всю компанию"
     >
       {!platform.supported && (
-        <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-3">
+        <div className="mb-4 fx-note fx-note-warn">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="min-w-0">
@@ -237,7 +237,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
 
       {/* Главное действие, пока платформа выключена: включить её одной кнопкой */}
       {diag && platform.supported && !platform.enabled && (
-        <div className="mb-4 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 p-3">
+        <div className="mb-4 fx-set-group">
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Flux Play выключен для всей компании</p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed text-pretty">
             Поэтому раздела нет ни у кого — даже у тех, кому доступ уже выдан. После включения он появится
@@ -257,7 +257,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
 
       {/* Диагностика: почему раздела не видно и что с этим делать */}
       {diag && (
-        <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+        <div className="mb-4 fx-set-group">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Диагностика</h3>
             <button
@@ -322,8 +322,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
               type="button"
               onClick={grantAdmin}
               disabled={busy}
-              className="mt-3 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700
-                         text-white disabled:opacity-50 cursor-pointer transition-colors"
+              className="fx-btn fx-btn-primary mt-3"
             >
               Выдать мне управление платформой
             </button>
@@ -344,14 +343,9 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
         aria-checked={on}
         disabled={busy || !platform.supported}
         onClick={flip}
-        className="w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
-                   bg-white dark:bg-slate-950 text-left hover:border-emerald-500 transition-ui cursor-pointer
-                   disabled:opacity-60 disabled:cursor-default disabled:hover:border-slate-200
-                   dark:disabled:hover:border-slate-800"
+        className="fx-set-row w-full flex-row-reverse items-start text-left cursor-pointer disabled:opacity-60 disabled:cursor-default"
       >
-        <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-          <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
-        </span>
+        <span className="fx-switch shrink-0 pointer-events-none" aria-hidden="true" aria-checked={on} />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
             Платформа включена в компании
@@ -381,17 +375,9 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
         aria-checked={!!platform.maintenance}
         disabled={busy || !platform.enabled}
         onClick={flipMaintenance}
-        className="mt-4 w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
-                   bg-white dark:bg-slate-950 text-left hover:border-amber-500 transition-ui cursor-pointer
-                   disabled:opacity-60 disabled:cursor-default disabled:hover:border-slate-200
-                   dark:disabled:hover:border-slate-800"
+        className="mt-2 fx-set-row w-full flex-row-reverse items-start text-left cursor-pointer disabled:opacity-60 disabled:cursor-default"
       >
-        <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${
-          platform.maintenance ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'
-        }`}
-        >
-          <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${platform.maintenance ? 'translate-x-4' : ''}`} />
-        </span>
+        <span className="fx-switch shrink-0 pointer-events-none" aria-hidden="true" aria-checked={platform.maintenance} />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Обслуживание</span>
           <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed text-pretty">
@@ -403,7 +389,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
       </button>
 
       {/* Ключ издателя: без него менеджер игр не поставит ничего */}
-      <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+      <div className="mt-4 fx-set-group">
         <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Ключ издателя сборок</h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-pretty">
           Открытая часть ключа, которым подписаны описи сборок игр. Ею программа на машине
@@ -424,8 +410,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
             type="button"
             onClick={saveKey}
             disabled={busy}
-            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700
-                       text-white disabled:opacity-50 cursor-pointer transition-colors"
+            className="fx-btn fx-btn-primary"
           >
             Сохранить
           </button>
@@ -433,7 +418,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
       </div>
 
       {/* Зависшие матчи: лобби, из которого иначе никогда не начать */}
-      <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+      <div className="mt-4 fx-set-group">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Идущие матчи</h3>
           <button

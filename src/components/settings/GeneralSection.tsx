@@ -6,7 +6,7 @@
  * поднять потолок вместо того, чтобы разгрузить файл.
  */
 import React from 'react';
-import { Sun, Moon } from 'lucide-react';
+import { Seg, SettingRow, Switch } from '../ui';
 import SectionShell from './SectionShell';
 import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
@@ -15,106 +15,48 @@ import OnlineVisibility from './OnlineVisibility';
 export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
-      <div className="space-y-4">
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-3">Тема интерфейса</div>
-          {/* Переключатель, а не две залитые кнопки: выбранное состояние
-              показывается плашкой, а не полным фирменным цветом. */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-            <button
-              type="button"
-              onClick={() => { if (theme === 'dark') toggleTheme(); }}
-              aria-pressed={theme !== 'dark'}
-              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
-                theme !== 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <Sun className="w-4 h-4" /> Светлая
-            </button>
-            <button
-              type="button"
-              onClick={() => { if (theme !== 'dark') toggleTheme(); }}
-              aria-pressed={theme === 'dark'}
-              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
-                theme === 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <Moon className="w-4 h-4" /> Тёмная
-            </button>
-          </div>
-        </div>
+      <div className="fx-set-group">
+        <h3 className="fx-group-title">Вид</h3>
+        <SettingRow title="Тема интерфейса">
+          <Seg label="Тема интерфейса" value={theme === 'dark' ? 'dark' : 'light'}
+            onChange={(v) => { if ((v === 'dark') !== (theme === 'dark')) toggleTheme(); }}
+            options={[{ value: 'light', label: 'Светлая' }, { value: 'dark', label: 'Тёмная' }]} />
+        </SettingRow>
+        <SettingRow title="Плотность" desc="Сколько строк помещается на экране: таблицы и списки во всех разделах.">
+          <Seg label="Плотность" value={density} onChange={setDensity}
+            options={[{ value: 'compact', label: 'Компактно' }, { value: 'standard', label: 'Стандарт' }, { value: 'comfortable', label: 'Просторно' }]} />
+        </SettingRow>
+      </div>
 
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-1">Плотность</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Сколько строк помещается на экране. Влияет на таблицы и списки во всех разделах.
-          </p>
-          {/* Три равные доли ширины вместо ряда по содержимому. Было inline-flex:
-              ряд считался по самым длинным подписям, не переносился и не сжимался —
-              при узком окне он вылезал за карточку на 47 px, и «Компактно»
-              обрезалось. Сетка не может стать шире родителя. */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-            {([
-              { key: 'comfortable', label: 'Просторно' },
-              { key: 'standard', label: 'Стандарт' },
-              { key: 'compact', label: 'Компактно' },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setDensity(opt.key)}
-                aria-pressed={density === opt.key}
-                title={opt.label}
-                className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
-                  density === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="fx-set-group">
+        <h3 className="fx-group-title">Главный экран и помощник</h3>
+        <ToggleRow
+          storageKey="flux_backdrop"
+          event="flux:backdrop-changed"
+          title="Фон главного экрана"
+          desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
+        />
+        <ToggleRow
+          storageKey="flux_art"
+          event="flux:art-changed"
+          title="Картины в шапке помощника"
+          desc="Ван Гог, Хокусай, да Винчи, Моне, Айвазовский — нарисованы кодом и оживают. Нажатие на полке меняет картину."
+        />
+      </div>
 
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-1">Главный экран и помощник</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Живой фон по времени года и картины в шапке помощника. Если отвлекают — выключите.
-          </p>
-          <div className="space-y-2">
-            <ToggleRow
-              storageKey="flux_backdrop"
-              event="flux:backdrop-changed"
-              title="Фон главного экрана"
-              desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
-            />
-            <ToggleRow
-              storageKey="flux_art"
-              event="flux:art-changed"
-              title="Картины в шапке помощника"
-              desc="Ван Гог, Хокусай, да Винчи, Моне, Айвазовский — нарисованы кодом и оживают. Нажатие на полке меняет картину."
-            />
-          </div>
-        </div>
+      {/* Присутствие. Блок сам решает, показываться ли: право скрыть себя
+          есть только у главного администратора, и спрашивается оно у сервера */}
+      <OnlineVisibility addToast={addToast} />
 
-        {/* Присутствие. Блок сам решает, показываться ли: право скрыть себя
-            есть только у главного администратора, и спрашивается оно у сервера */}
-        <OnlineVisibility addToast={addToast} />
+      <StartupSection />
 
-        <StartupSection />
-
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-3">О программе</div>
-          <div className="flex items-center gap-3.5">
-            <FluxLogo size={46} radius={13} />
-            <div className="min-w-0">
-              <div className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                Flux
-                <span className="font-mono text-xs font-normal text-slate-400 dark:text-slate-500">v{__APP_VERSION__}</span>
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Разработка <span className="font-semibold text-slate-600 dark:text-slate-300">Раупова Хусрава</span>
-              </div>
-            </div>
+      <div className="fx-set-group">
+        <h3 className="fx-group-title">О программе</h3>
+        <div className="flex items-center gap-3 py-3">
+          <FluxLogo size={36} radius={10} />
+          <div className="min-w-0">
+            <div className="text-slate-900 dark:text-white">Flux <span className="text-slate-400 tabular-nums ml-1">v{__APP_VERSION__}</span></div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Разработка Раупова Хусрава</div>
           </div>
         </div>
       </div>
@@ -163,41 +105,15 @@ function StartupSection() {
     } catch (_) { /* система не дала — состояние перечитается при следующем открытии */ }
   };
 
-  const Row = ({ on, disabled, title, desc, onFlip }: {
-    on: boolean; disabled?: boolean; title: string; desc: string; onFlip: () => void;
-  }) => (
-    <button type="button" onClick={onFlip} role="switch" aria-checked={on} disabled={disabled}
-      className={`w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
-                  bg-white dark:bg-slate-950 text-left transition-ui
-                  ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-emerald-500 cursor-pointer'}`}>
-      <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{title}</span>
-        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words text-pretty">{desc}</span>
-      </span>
-    </button>
-  );
-
   return (
-    <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-      <div className="text-xs font-bold text-slate-400 mb-3">Запуск</div>
-      <div className="space-y-2">
-        <Row
-          on={state.enabled}
-          title="Запускать Flux при входе в Windows"
-          desc="Программа поднимется сама вместе с системой."
-          onFlip={() => apply({ enabled: !state.enabled, minimized: state.minimized })}
-        />
-        <Row
-          on={state.minimized}
-          disabled={!state.enabled}
-          title="Запускаться свёрнутым"
-          desc="Окно не полезет поверх всего при входе в систему, но уведомления начнут приходить с утра."
-          onFlip={() => apply({ enabled: state.enabled, minimized: !state.minimized })}
-        />
-      </div>
+    <div className="fx-set-group">
+      <h3 className="fx-group-title">Запуск</h3>
+      <SettingRow title="Запускать Flux при входе в Windows" desc="Программа поднимется сама вместе с системой.">
+        <Switch label="Запускать Flux при входе в Windows" checked={state.enabled} onChange={(v) => apply({ enabled: v, minimized: state.minimized })} />
+      </SettingRow>
+      <SettingRow title="Запускаться свёрнутым" desc="Окно не полезет поверх всего при входе в систему, но уведомления начнут приходить с утра.">
+        <Switch label="Запускаться свёрнутым" checked={state.minimized} disabled={!state.enabled} onChange={(v) => apply({ enabled: state.enabled, minimized: v })} />
+      </SettingRow>
     </div>
   );
 }

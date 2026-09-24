@@ -97,7 +97,7 @@ export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
             <button type="button" onClick={() => setOpen(false)} aria-label="Закрыть"
               className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"><X className="w-3.5 h-3.5" /></button>
             <button type="button" disabled={busy} onClick={submit}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-2xs font-bold cursor-pointer disabled:opacity-50">
+              className="fx-btn fx-btn-primary">
               <Check className="w-3 h-3" />Записать
             </button>
           </div>

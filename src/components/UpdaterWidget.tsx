@@ -10,6 +10,7 @@
  * Состояние живёт в updateStore: о том же обновлении должен знать значок у
  * часов, а он к этому окну отношения не имеет.
  */
+import { Dialog, Btn, Field, Input, Area } from './ui';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   RefreshCw,
@@ -225,57 +226,55 @@ export default function UpdaterWidget() {
   const isDevSandbox = isElectron && !isPackaged;
 
   return (
-    <div className="bg-slate-100 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/40 text-left font-sans">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500">Автообновления</span>
+    <div className="max-w-xl text-left">
+      <div className="fx-group-title flex items-center justify-between mt-2">
+        <span>Автообновления</span>
         {status !== 'idle' && (
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         )}
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono">
-          <span>Версия ПО:</span>
-          <span className="font-bold text-slate-700 dark:text-slate-300">v{currentVersion}</span>
+        <div className="fx-set-row">
+          <span className="fx-set-text">Версия</span>
+          <span className="text-sm tabular-nums">v{currentVersion}</span>
         </div>
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono pb-1 border-b border-slate-200/50 dark:border-slate-800/50">
-          <span>Источник обновлений:</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+        <div className="fx-set-row">
+          <span className="fx-set-text">Источник обновлений</span>
+          <span className="text-sm text-slate-500 dark:text-slate-400">
             {getServerBaseUrl() && !getServerBaseUrl().includes('localhost') ? 'Сервер компании' : 'Встроенный сервер'}
           </span>
         </div>
 
         {isDevSandbox && (
-          <div className="text-center py-1 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/20 rounded">
-            <span className="text-xs font-bold text-amber-600 dark:text-amber-400">Режим разработки — установка обновлений недоступна</span>
-          </div>
+          <p className="fx-note fx-note-warn">Режим разработки — установка обновлений недоступна</p>
         )}
 
         {/* Одна кнопка на весь путь: проверить — и, если есть что ставить,
             поставить. Этапы человек видит строкой, а не набором кнопок */}
         {phase === 'available' && latest ? (
-          <div className="space-y-2">
-            <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
-              Доступна версия <span className="font-extrabold text-emerald-600 dark:text-emerald-400">v{latest.version}</span>
+          <div className="space-y-2 pt-2">
+            <div className="text-slate-700 dark:text-slate-300">
+              Доступна версия <span className="text-slate-900 dark:text-white tabular-nums">v{latest.version}</span>
               {latest.size ? <span className="text-slate-400 font-normal"> · {formatSize(latest.size)}</span> : null}
             </div>
             <button type="button"
               onClick={handleInstall}
-              className="w-full py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+              className="fx-btn fx-btn-primary"
             >
               <Download className="w-3.5 h-3.5 shrink-0" />
               <span>{isElectron ? 'Скачать и установить' : 'Скачать файл'}</span>
             </button>
             <button type="button"
               onClick={() => setShowModal(true)}
-              className="w-full py-1 text-xs font-semibold text-slate-500 hover:text-emerald-600 cursor-pointer"
+              className="fx-btn fx-btn-quiet ml-2"
             >
               Что изменилось
             </button>
           </div>
         ) : busy ? (
           <div className="space-y-1.5 py-1">
-            <div className="flex justify-between text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
+            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
               <span>{phaseLabel(phase, percent)}</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded overflow-hidden">
@@ -289,14 +288,14 @@ export default function UpdaterWidget() {
             )}
           </div>
         ) : phase === 'checking' ? (
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 py-1 text-xs justify-center bg-slate-200/40 dark:bg-slate-800/40 rounded">
+          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 py-2 text-xs">
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
-            <span className="font-medium">Сравнение версий…</span>
+            <span>Сравнение версий…</span>
           </div>
         ) : (
           <button type="button"
             onClick={handleCheck}
-            className="w-full py-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+            className="fx-btn fx-btn-primary mt-3"
           >
             <RefreshCw className="w-3.5 h-3.5 shrink-0" />
             <span>Проверить обновления</span>
@@ -306,7 +305,7 @@ export default function UpdaterWidget() {
         {/* Отказ объясняется словами и не прячется: человек должен знать, что
             обновления у него нет, и почему именно */}
         {!!error && (
-          <div className="text-xs text-rose-600 dark:text-rose-400 leading-snug bg-rose-500/10 rounded p-2">
+          <div className="fx-error py-1">
             {error}
             {phase === 'failed' && latest && (
               <button type="button" onClick={handleInstall}
@@ -351,173 +350,73 @@ export default function UpdaterWidget() {
         {isAdmin && (
           <button type="button"
             onClick={() => setShowPublishModal(true)}
-            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-300 rounded text-xs font-bold font-sans transition-ui flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
+            className="fx-btn mt-3 ml-2"
           >
-            <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />
+            <PlusCircle />
             <span>Опубликовать релиз</span>
           </button>
         )}
       </div>
 
-      {/* CHANGELOG И ПОДТВЕРЖДЕНИЕ УСТАНОВКИ */}
+      {/* Что изменилось и подтверждение установки */}
       {showModal && latest && (
-        <div className="fixed inset-0 bg-slate-950/70 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-950 rounded-lg w-full max-w-lg border border-slate-200 dark:border-slate-850 shadow-2xl overflow-hidden animate-in fade-in duration-200 max-h-[90vh] flex flex-col">
-            <div className="bg-slate-50 dark:bg-slate-990 p-4 border-b border-slate-200 dark:border-slate-850 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ArrowUpCircle className="w-5 h-5 text-emerald-500" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">Доступно обновление Flux</h3>
-              </div>
-              <span className="bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-400 px-2 py-0.5 rounded text-xs font-bold font-mono">
-                v{latest.version}
-              </span>
-            </div>
-
-            <div className="p-5 flex-1 overflow-y-auto text-left">
-              <div className="bg-slate-50 dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800/80 mb-4">
-                <h4 className="text-xs font-extrabold text-slate-500 dark:text-slate-450 mb-2 font-mono">Список изменений релиза:</h4>
-                <div className="whitespace-pre-line text-slate-700 dark:text-slate-300 text-xs font-sans leading-relaxed space-y-1">
-                  {latest.changelog || 'Описание изменений не указано.'}
-                </div>
-              </div>
-
-              <div className="text-xs leading-normal bg-sky-500/10 dark:bg-sky-500/5 p-2.5 rounded border border-sky-500/20 text-slate-700 dark:text-sky-300">
-                Файл скачивается с вашего сервера Flux. После загрузки приложение закроется,
-                обновление подменит exe и программа запустится уже новой версии — данные не затрагиваются.
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
-              <button type="button"
-                onClick={() => setShowModal(false)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded text-xs font-bold transition-ui cursor-pointer"
-              >
-                Закрыть
-              </button>
-              {phase === 'available' && (
-                <button type="button"
-                  onClick={handleInstall}
-                  className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
-                >
-                  <Download className="w-3.5 h-3.5 shrink-0" />
-                  <span>{isElectron ? 'Скачать и установить' : 'Скачать файл'}</span>
-                </button>
-              )}
-            </div>
+        <Dialog title={<>Доступно обновление Flux <span className="text-slate-400 font-normal tabular-nums">v{latest.version}</span></>} label="Доступно обновление Flux" width="max-w-lg" onClose={() => setShowModal(false)}
+          footer={<>
+            <Btn size="lg" onClick={() => setShowModal(false)}>Закрыть</Btn>
+            {phase === 'available' && (
+              <Btn size="lg" tone="primary" onClick={handleInstall}><Download />{isElectron ? 'Скачать и установить' : 'Скачать файл'}</Btn>
+            )}
+          </>}>
+          <div className="fx-label mb-1">Список изменений</div>
+          <div className="whitespace-pre-line text-slate-700 dark:text-slate-300 max-h-[50vh] overflow-y-auto">
+            {latest.changelog || 'Описание изменений не указано.'}
           </div>
-        </div>
+          <p className="fx-hint mt-3">
+            Файл скачивается с вашего сервера Flux. После загрузки приложение закроется,
+            обновление подменит exe и программа запустится уже новой версии — данные не затрагиваются.
+          </p>
+        </Dialog>
       )}
 
-      {/* АДМИН: ПУБЛИКАЦИЯ РЕЛИЗА */}
+      {/* Администратор: публикация релиза */}
       {showPublishModal && (
-        <div className="fixed inset-0 bg-slate-950/70 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-950 rounded-lg w-full max-w-lg border border-slate-200 dark:border-slate-850 shadow-2xl overflow-hidden animate-in fade-in duration-200 max-h-[90vh] flex flex-col text-left">
-            <div className="bg-slate-50 dark:bg-slate-990 p-4 border-b border-slate-200 dark:border-slate-850 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-emerald-500 animate-spin-slow" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">Публикация обновления (ADMIN)</h3>
-              </div>
-            </div>
-
-            <div className="p-5 flex-1 overflow-y-auto space-y-4">
-              {/* Куда уйдёт файл — сказано прямо. Раньше он оставался на диске
-                  того, кто публиковал, и сотрудники получали «файла этой версии
-                  нет», хотя запись о релизе видели все */}
-              <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-amber-800 dark:text-amber-300">
-                Файл уйдёт в общую базу — ту же, где лежат проекты и переписка. Оттуда его возьмёт
-                программа каждого сотрудника, на какой бы машине она ни работала.
-                Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400">Номер релиза (версия):</label>
-                <input
-                  type="text"
-                  value={pubVersion}
-                  onChange={(e) => setPubVersion(e.target.value)}
-                  placeholder="Например: 0.25.0"
-                  className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-mono"
-                />
-                {/* Ошибку в номере видно сразу, а не после рассылки оповещения */}
-                {!!versionProblem(pubVersion, currentVersion) && pubVersion.trim() !== '' && (
-                  <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
-                    {versionProblem(pubVersion, currentVersion)}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 flex items-center gap-1">
-                  <FileUp className="w-3.5 h-3.5" /> Файл обновления (exe):
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".exe"
-                  onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-emerald-600 file:text-white file:text-xs file:font-bold file:cursor-pointer"
-                />
-                {pubFile && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                    {pubFile.name} · {formatSize(pubFile.size)} — будет загружен на сервер
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 flex items-center gap-1">
-                  <Link2 className="w-3.5 h-3.5" /> Или прямая ссылка (если файл не загружаете):
-                </label>
-                <input
-                  type="text"
-                  value={pubFileUrl}
-                  onChange={(e) => setPubFileUrl(e.target.value)}
-                  placeholder="https://…/Flux-Setup.exe (необязательно)"
-                  className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-mono"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400">Список изменений (Changelog):</label>
-                <textarea
-                  rows={4}
-                  value={pubChangelog}
-                  onChange={(e) => setPubChangelog(e.target.value)}
-                  placeholder="• Добавлен конструктор таблиц ...&#10;• Улучшен импорт бланков ..."
-                  className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-sans resize-none"
-                />
-              </div>
-            </div>
-
-            {!!pubError && (
-              <div className="mx-5 mb-4 text-xs leading-snug bg-rose-500/10 border border-rose-500/20 rounded p-2.5 text-rose-700 dark:text-rose-300">
-                {pubError}
-              </div>
-            )}
-
-            <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
-              <button type="button"
-                onClick={() => setShowPublishModal(false)}
-                disabled={isPublishing}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded text-xs font-bold transition-ui cursor-pointer disabled:opacity-50"
-              >
-                Отмена
-              </button>
-              <button type="button"
-                onClick={handlePublishRelease}
-                disabled={isPublishing}
-                className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-xs font-bold transition-ui flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10 font-sans"
-              >
-                {isPublishing ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                )}
-                <span>{isPublishing ? 'Загрузка на сервер...' : 'Опубликовать релиз'}</span>
-              </button>
-            </div>
+        <Dialog title="Публикация обновления" width="max-w-lg" onClose={() => setShowPublishModal(false)} busy={isPublishing}
+          footer={<>
+            <Btn size="lg" onClick={() => setShowPublishModal(false)} disabled={isPublishing}>Отмена</Btn>
+            <Btn size="lg" tone="primary" onClick={handlePublishRelease} disabled={isPublishing}>
+              {isPublishing ? 'Загрузка на сервер…' : 'Опубликовать релиз'}
+            </Btn>
+          </>}>
+          <div className="space-y-3">
+            {/* Куда уйдёт файл — сказано прямо. Раньше он оставался на диске
+                того, кто публиковал, и сотрудники получали «файла этой версии
+                нет», хотя запись о релизе видели все */}
+            <p className="fx-note fx-note-warn">
+              Файл уйдёт в общую базу — ту же, где лежат проекты и переписка. Оттуда его возьмёт
+              программа каждого сотрудника, на какой бы машине она ни работала.
+              Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
+            </p>
+            <Field label="Номер релиза (версия)">
+              <Input value={pubVersion} onChange={(e) => setPubVersion(e.target.value)} placeholder="Например: 0.25.0" className="code" />
+              {/* Ошибку в номере видно сразу, а не после рассылки оповещения */}
+              {!!versionProblem(pubVersion, currentVersion) && pubVersion.trim() !== '' && (
+                <span className="fx-error">{versionProblem(pubVersion, currentVersion)}</span>
+              )}
+            </Field>
+            <Field label="Файл обновления (exe)">
+              <input ref={fileInputRef} type="file" accept=".exe" onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
+                className="text-xs text-slate-700 dark:text-slate-300 file:mr-2 file:border file:border-slate-300 file:rounded file:px-2 file:py-1 file:bg-transparent file:cursor-pointer" />
+              {pubFile && <span className="fx-hint">{pubFile.name} · {formatSize(pubFile.size)} — будет загружен на сервер</span>}
+            </Field>
+            <Field label="Или прямая ссылка (если файл не загружаете)">
+              <Input value={pubFileUrl} onChange={(e) => setPubFileUrl(e.target.value)} placeholder="https://…/Flux-Setup.exe (необязательно)" className="code" />
+            </Field>
+            <Field label="Список изменений">
+              <Area rows={4} value={pubChangelog} onChange={(e) => setPubChangelog(e.target.value)} placeholder={'• Добавлен конструктор таблиц …\n• Улучшен импорт бланков …'} />
+            </Field>
+            {!!pubError && <p className="fx-error">{pubError}</p>}
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

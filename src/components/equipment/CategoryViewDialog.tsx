@@ -185,17 +185,17 @@ export default function CategoryViewDialog(p: Props) {
         <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap">
           <span className="text-2xs text-slate-400">{cls ? `${classById(cls).plural}: скрыто ${hiddenCount}` : ''}</span>
           <span className="flex-1" />
-          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Для кого вид">
+          <div className="fx-segctl" role="group" aria-label="Для кого вид">
             {p.isAdmin && (
               <button type="button" onClick={() => p.onSwitchMode('admin')}
-                className={`px-2 py-1 text-2xs font-bold rounded-md cursor-pointer ${p.visMode === 'admin' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>для всех</button>
+                aria-pressed={p.visMode === 'admin'}>для всех</button>
             )}
             <button type="button" onClick={() => p.onSwitchMode('self')}
-              className={`px-2 py-1 text-2xs font-bold rounded-md cursor-pointer ${p.visMode === 'self' || !p.isAdmin ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>только для меня</button>
+              aria-pressed={p.visMode === 'self' || !p.isAdmin}>только для меня</button>
           </div>
-          <button type="button" onClick={p.onClose} className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">Отмена</button>
+          <button type="button" onClick={p.onClose} className="fx-btn">Отмена</button>
           <button type="button" onClick={save} disabled={busy}
-            className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white font-semibold cursor-pointer disabled:opacity-50">
+            className="fx-btn fx-btn-primary">
             {busy ? 'Сохраняю…' : 'Сохранить вид'}
           </button>
         </div>

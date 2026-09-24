@@ -172,7 +172,7 @@ export default function DeskIcon({
           «как называется». Место под неё занято всегда, чтобы подписи соседних
           значков стояли на одной линии */}
       {showRevision && renaming === null && (
-        <span className="text-2xs font-mono leading-none text-slate-400 dark:text-slate-500">
+        <span className="text-2xs tabular-nums leading-none text-slate-400 dark:text-slate-500">
           {item.tag ? `${item.tag} · ` : ''}ред. {item.revision || '1'}
         </span>
       )}

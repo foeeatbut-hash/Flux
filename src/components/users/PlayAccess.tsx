@@ -20,6 +20,7 @@ import React from 'react';
 import { Ban, Check, Minus } from 'lucide-react';
 import { PLAY_ENTITLEMENTS, PLAY_GROUPS, PLAY_PLAYER_ENTITLEMENTS, type PlayEntitlementDef } from '../../../play/features';
 import { entryMode } from '../../lib/appPolicy';
+import { Btn, Input, Status } from '../ui';
 import type { PermEntry, PermMap } from '../../lib/permissions';
 
 export type Mode = 'INHERIT' | 'ALLOW' | 'DENY';
@@ -47,67 +48,35 @@ function Row({ def, entry, fromRole, disabled, onPick, onUntil }: {
   onUntil: (value: string) => void;
 }) {
   const mode = entryMode(entry);
-  const tone = mode === 'ALLOW'
-    ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20'
-    : mode === 'DENY'
-      ? 'border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20'
-      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950';
-
   return (
-    <div className={`rounded-lg border p-2.5 transition-colors ${tone}`}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-slate-800 dark:text-white">{def.label}</span>
-            {def.risky && <span className="text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
-            <span className="text-2xs text-slate-400 dark:text-slate-500">{roleSays(fromRole)}</span>
-          </div>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 leading-relaxed">{def.desc}</p>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0" role="group" aria-label={`Доступ: ${def.label}`}>
-          {CHOICES.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              disabled={disabled}
-              title={c.hint}
-              aria-pressed={mode === c.id}
-              onClick={() => onPick(c.id)}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-bold cursor-pointer
-                          transition-colors disabled:opacity-50 disabled:cursor-default ${
-                mode === c.id
-                  ? c.id === 'DENY'
-                    ? 'bg-rose-600 text-white'
-                    : c.id === 'ALLOW'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-600 text-white'
-                  : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-850'
-              }`}
-            >
-              <c.icon className="w-3 h-3" />
-              {c.label}
-            </button>
-          ))}
-        </div>
+    <div className="fx-set-row items-start">
+      <div className="fx-set-text">
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          {def.label}
+          {def.risky && <Status tone="amber">осторожно</Status>}
+          <span className="text-xs text-slate-400">{roleSays(fromRole)}</span>
+        </span>
+        <div className="fx-set-desc">{def.desc}</div>
+        {mode !== 'INHERIT' && (
+          <span className="flex items-center gap-2 flex-wrap mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+            действует до
+            <Input type="datetime-local" value={entry?.until ? new Date(entry.until).toISOString().slice(0, 16) : ''}
+              onChange={(e) => onUntil(e.target.value)} disabled={disabled} className="w-auto" />
+            {entry?.until
+              ? <Btn size="sm" tone="ghost" onClick={() => onUntil('')}>бессрочно</Btn>
+              : <span>бессрочно; после срока отвечает роль</span>}
+          </span>
+        )}
       </div>
-
-      {mode !== 'INHERIT' && (
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-500 dark:text-slate-400">действует до:</span>
-          <input
-            type="datetime-local"
-            value={entry?.until ? new Date(entry.until).toISOString().slice(0, 16) : ''}
-            onChange={(e) => onUntil(e.target.value)}
-            disabled={disabled}
-            className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded
-                       text-xs text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
-          />
-          {entry?.until
-            ? <button type="button" onClick={() => onUntil('')} className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">бессрочно</button>
-            : <span className="text-xs text-slate-400 dark:text-slate-500">бессрочно; после срока отвечает роль</span>}
-        </div>
-      )}
+      {/* Три положения — переключатель вариантов, а не цветные кнопки: какое
+          выбрано, видно по подложке, смысл «запрет» несёт значок и слово */}
+      <div className="fx-segctl shrink-0" role="group" aria-label={`Доступ: ${def.label}`}>
+        {CHOICES.map((c) => (
+          <button key={c.id} type="button" disabled={disabled} title={c.hint} aria-pressed={mode === c.id} onClick={() => onPick(c.id)}>
+            <c.icon className="w-3 h-3" />{c.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -127,36 +96,25 @@ export default function PlayAccess({ perms, rolePerms, disabled, onSet, platform
   const allGames = () => { for (const entry of PLAY_PLAYER_ENTITLEMENTS) onSet(entry.id, 'ALLOW', null); };
   return (
     <div>
-      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-2">
-        Встроенные программы
-      </label>
+      <div className="fx-label mt-2 mb-1">Встроенные программы</div>
       {platformOn === false && (
-        <div className="mb-2 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-2.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+        <p className="text-xs text-amber-700 dark:text-amber-300 mb-1.5">
           Flux Play сейчас выключен для всей компании — выданный доступ заработает, когда его включат.
-          {onOpenSettings && (
-            <button type="button" onClick={onOpenSettings}
-              className="ml-1.5 font-bold underline underline-offset-2 cursor-pointer">
-              Включить в Настройках
-            </button>
-          )}
-        </div>
+          {onOpenSettings && <Btn size="sm" tone="ghost" onClick={onOpenSettings} className="ml-1">Включить в Настройках</Btn>}
+        </p>
       )}
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-2 leading-relaxed">
-        Роль администратора сама по себе не открывает игры. Выдайте доступ явно в карточке или через роль.
-        Пока не выдан доступ к платформе, сотрудник не видит её нигде.
-        <button type="button" disabled={disabled} onClick={allGames}
-          className="ml-1.5 font-bold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer disabled:opacity-50">
-          Выдать доступ ко всем играм
-        </button>
+      <p className="fx-hint mb-1">
+        Роль администратора сама не открывает игры: доступ выдаётся явно, здесь или через роль.
+        <Btn size="sm" tone="ghost" disabled={disabled} onClick={allGames} className="ml-1">Выдать доступ ко всем играм</Btn>
       </p>
-      <div className="space-y-3">
+      <div>
         {PLAY_GROUPS.map((group) => {
           const items = PLAY_ENTITLEMENTS.filter((e) => e.group === group);
           if (!items.length) return null;
           return (
             <section key={group}>
-              <h4 className="text-2xs font-bold text-slate-400 dark:text-slate-500 mb-1">{group}</h4>
-              <div className="space-y-1.5">
+              <h4 className="fx-gh px-0">{group}</h4>
+              <div>
                 {items.map((def) => (
                   <Row
                     key={def.id}

@@ -76,7 +76,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
           placeholder="Содержание: что проверено, что не так"
           className={`${field} flex-1 min-w-[10rem]`} />
         <button type="button" disabled={!text.trim()} onClick={add}
-          className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 border-none">
+          className="fx-btn fx-btn-primary shrink-0">
           <Plus className="w-3.5 h-3.5" /> Добавить
         </button>
       </div>

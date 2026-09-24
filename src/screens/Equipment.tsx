@@ -1,3 +1,4 @@
+import { SectionHead, Btn, IconBtn, Dialog } from '../components/ui';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useInsightStore } from '../store/insightStore';
@@ -6,12 +7,7 @@ import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport
 import { fetchList } from '../lib/apiList';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
-import {
-  RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network,
-  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine,
-  Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square,
-  ArrowRight, LayoutGrid, List, Search, Save
-} from 'lucide-react';
+import { RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network, ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine, Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square, ArrowRight, LayoutGrid, List, Search, Save, Download } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
 import ExportBuilder from '../components/equipment/ExportBuilder';
 import type { ExchangeComponent } from '../lib/equipmentExchange';
@@ -533,80 +529,51 @@ export default function Equipment() {
   }
 
   return (
-    <div className="h-full flex flex-col sheet text-slate-800 dark:text-slate-100">
+    <div className="fx-page @container">
+      <SectionHead title="Оборудование" count={(categories.find(c => c.id === activeCat)?.label || '') + (catCount(activeCat) ? ` · ${catCount(activeCat)}` : '')}
+        actions={<>
+          {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
+              «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
+          <Btn tone="ghost" onClick={() => { setShowOps(true); loadOps(); }} title="Центр операций: что ввозится в фоне и чем кончилось недавнее"><List />Центр операций</Btn>
+          <Btn onClick={() => setShowExchange(true)} title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"><Download />Выгрузить в Excel</Btn>
+          <Btn tone="primary" data-tour="equipment-import-btn" onClick={() => setShowDocImport(true)}
+            title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"><ScanLine />Импорт из документов</Btn>
+          <IconBtn label="Настройки оборудования" onClick={() => setShowSettings(true)}><Settings /></IconBtn>
+        </>} />
       {undoable && (
-        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/25 border-b border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200">
+        <div className="fx-tools text-amber-800 dark:text-amber-300">
           <RefreshCw className="w-3.5 h-3.5 shrink-0" />
           <span className="flex-1 min-w-0 truncate">
             Импорт расчёта от {new Date(undoable.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             {undoable.files > 1 ? ` · файлов: ${undoable.files}` : ''} — можно отменить
           </span>
-          <button type="button" onClick={undoImport} disabled={undoBusy}
-            className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer disabled:opacity-50">
-            {undoBusy ? 'Отменяю…' : 'Отменить импорт'}
-          </button>
-          <button type="button" onClick={() => { forgetImport(activeProject?.id || ''); setUndoable(null); }}
-            title="Больше не предлагать" className="shrink-0 p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer">
-            <X className="w-3 h-3" />
-          </button>
+          <Btn tone="danger" size="sm" onClick={undoImport} disabled={undoBusy}>{undoBusy ? 'Отменяю…' : 'Отменить импорт'}</Btn>
+          <IconBtn label="Больше не предлагать" onClick={() => { forgetImport(activeProject?.id || ''); setUndoable(null); }}><X /></IconBtn>
         </div>
       )}
       <div className="flex-1 min-h-0 flex overflow-x-auto">
-      {/* КАТЕГОРИИ */}
-      <div className="zone w-12 @[820px]:w-40 @[1060px]:w-56 shrink-0 flex flex-col overflow-hidden">
-        <div className="px-2 @[820px]:px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-center @[820px]:justify-between">
-          <span className="hidden @[820px]:inline text-sm font-bold">Категории</span>
-          <button type="button" onClick={() => setShowSettings(true)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Настройки оборудования"><Settings className="w-4 h-4" /></button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      {/* Категории — боковой список; подсказка о форматах — в подвале списка */}
+      <nav className="fx-side w-12 @[820px]:w-44 @[1060px]:w-56 shrink-0 flex flex-col overflow-hidden" aria-label="Категории оборудования">
+        <div className="flex-1 overflow-y-auto p-2">
+          <div className="hidden @[820px]:block fx-gh">Категории</div>
           {categories.map(c => {
             const n = catCount(c.id);
-            const act = c.id === activeCat;
             return (
               <button type="button" key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); }}
                 title={n > 0 ? `${c.label} · ${n}` : c.label}
-                className={`w-full flex items-center justify-center @[820px]:justify-start gap-2 px-1.5 @[820px]:px-2.5 py-2 rounded-lg text-left text-xs font-semibold transition-colors cursor-pointer ${act ? 'bg-emerald-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                aria-current={c.id === activeCat ? 'true' : undefined}
+                className="fx-li justify-center @[820px]:justify-start">
                 {catIcon(c.id)}
-                <span className="hidden @[820px]:block flex-1 min-w-0 break-words line-clamp-2 leading-tight">{c.label}</span>
-                {n > 0 && <span className={`hidden @[820px]:inline text-2xs px-1.5 py-0.5 rounded-full ${act ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{n}</span>}
+                <span className="hidden @[820px]:block flex-1 min-w-0 truncate">{c.label}</span>
+                {n > 0 && <span className="hidden @[820px]:inline fx-n">{n}</span>}
               </button>
             );
           })}
         </div>
-        <div className="p-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-          <button type="button"
-            data-tour="equipment-import-btn"
-            onClick={() => setShowDocImport(true)}
-            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors"
-            title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"
-          >
-            <ScanLine className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden @[820px]:inline">Импорт из документов</span>
-          </button>
-          <button type="button"
-            onClick={() => setShowExchange(true)}
-            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
-            title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"
-          >
-            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden @[820px]:inline">Выгрузить в Excel</span>
-          </button>
-          {/* Центр операций рядом с импортом не случайно: сюда идут за
-              ответом «а мой ввоз-то как?» — сразу после того, как его
-              отправили в фон */}
-          <button type="button"
-            onClick={() => { setShowOps(true); loadOps(); }}
-            className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 text-xs font-bold cursor-pointer transition-colors"
-            title="Центр операций: что ввозится в фоне и чем кончилось недавнее"
-          >
-            <List className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden @[820px]:inline">Центр операций</span>
-          </button>
-          <div className="hidden @[820px]:block text-2xs text-slate-400 text-center">
-            PDF · Excel · Word · XML, или расчёт через «Проводник»
-          </div>
+        <div className="hidden @[820px]:block px-3 py-2 text-xs text-slate-400 border-t border-slate-200 dark:border-slate-800">
+          PDF, Excel, Word, XML расчёта — или файл через «Проводник»
         </div>
-      </div>
+      </nav>
 
       {showExchange && (
         <ExportBuilder
@@ -988,19 +955,9 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 // ── Карточка блока ──
 // ── Выбор тега для привязки: поиск + занятость (один тег — одно изделие) ──
 // ── Универсальная модалка ──
+// Окна раздела — общий диалог программы (components/ui)
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEscapeClose(true, onClose);
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={onClose}>
-      <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold">{title}</h3>
-          <button type="button" title="Закрыть" onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  return <Dialog title={title} width="max-w-lg" onClose={onClose}>{children}</Dialog>;
 }
 
 // ── Настройки оборудования ──
@@ -1036,37 +993,31 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
   return (
     <Modal title="Настройки оборудования" onClose={onClose}>
       <div className="space-y-5">
+        {/* Профиль видимости («для всех / только для меня») был здесь и в окне
+            «Вид категории» — одна настройка в двух местах. Остался там, где
+            им пользуются: рядом с самим видом */}
         <div>
-          <div className="text-xs font-bold text-slate-400 mb-2">Профиль видимости параметров</div>
-          <div className="flex gap-2">
-            <button type="button" disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
-            <button type="button" onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
-          </div>
-          <p className="text-2xs text-slate-400 mt-1.5">Скрывать параметры удобно в карточке блока (значок «глаз» в режиме «показать все»). {visMode === 'admin' ? 'Сейчас изменения применяются ко всем.' : 'Сейчас изменения только для вас.'}</p>
-        </div>
-
-        <div>
-          <div className="text-xs font-bold text-slate-400 mb-2">При новой ревизии</div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
-            <button type="button" onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
+          <div className="fx-label mb-1.5">При новой ревизии</div>
+          <div className="fx-segctl" role="group" aria-label="При новой ревизии">
+            <button type="button" aria-pressed={conflictMode === 'wait'} onClick={() => saveConflictMode('wait')}>Ждать решения (✓/✎)</button>
+            <button type="button" aria-pressed={conflictMode === 'immediate'} onClick={() => saveConflictMode('immediate')}>Изменять сразу</button>
           </div>
         </div>
 
         {isAdmin && (
           <div>
-            <div className="text-xs font-bold text-slate-400 mb-2">Категории оборудования</div>
+            <div className="fx-label mb-1.5">Категории оборудования</div>
             <div className="space-y-1 mb-2 max-h-40 overflow-y-auto">
               {categories.map((c: Category) => (
-                <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs">
+                <div key={c.id} className="fx-li cursor-default justify-between">
                   <span>{c.label}</span>
                   {!['AHU', 'FAN', 'VALVE', 'CURTAIN'].includes(c.id) && <button type="button" onClick={() => removeCategory(c.id)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               ))}
             </div>
             <div className="flex gap-2">
-              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs" />
-              <button type="button" onClick={addCategory} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer">Добавить</button>
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="fx-input flex-1" />
+              <button type="button" onClick={addCategory} className="fx-btn fx-btn-primary">Добавить</button>
             </div>
           </div>
         )}

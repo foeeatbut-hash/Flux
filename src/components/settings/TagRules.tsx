@@ -109,13 +109,9 @@ export default function TagRules({ addToast }: { addToast: (m: string, kind?: an
         aria-checked={cyr}
         disabled={busy || !policy}
         onClick={() => policy && save({ ...policy, allowCyrillic: !cyr })}
-        className="w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
-                   bg-white dark:bg-slate-950 text-left hover:border-emerald-500 transition-ui cursor-pointer
-                   disabled:opacity-60 disabled:cursor-default"
+        className="fx-set-row w-full flex-row-reverse items-start text-left cursor-pointer disabled:opacity-60 disabled:cursor-default"
       >
-        <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${cyr ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-          <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${cyr ? 'translate-x-4' : ''}`} />
-        </span>
+        <span className="fx-switch shrink-0 pointer-events-none" aria-hidden="true" aria-checked={cyr} />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
             Разрешить кириллицу в тегах
@@ -129,7 +125,7 @@ export default function TagRules({ addToast }: { addToast: (m: string, kind?: an
       </button>
 
       {mismatched > 0 && (
-        <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-3">
+        <div className="mt-3 fx-note fx-note-warn">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
@@ -141,7 +137,7 @@ export default function TagRules({ addToast }: { addToast: (m: string, kind?: an
       )}
 
       {/* Приставки проекта: по ним импорт узнаёт свой тег в чужом тексте */}
-      <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+      <div className="mt-4 fx-set-group">
         <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Приставки проекта</h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-pretty">
           Код проекта и дополнительные приставки через запятую: «3700, 3800». По ним программа
@@ -174,7 +170,7 @@ export default function TagRules({ addToast }: { addToast: (m: string, kind?: an
       </div>
 
       {/* Проверка на примере: видно, что программа найдёт до запуска импорта */}
-      <div className="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
+      <div className="mt-4 fx-set-group">
         <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Проверить на примере</h3>
         <textarea
           value={sample}

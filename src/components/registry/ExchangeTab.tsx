@@ -10,7 +10,8 @@
  * Вкладка стоит после «Спецификации» — последней в ряду, как в любой
  * программе: сначала работа, потом обмен с внешним миром.
  *
- * Разделы — плитки, а не полосы во всю ширину. Полос было три, каждая с
+ * Разделы — плитки, а не полосы во всю ширину (значок — в строке названия,
+ * без цветного квадрата: цвет остаётся только у слова действия). Полос было три, каждая с
  * абзацем пояснения и кнопкой у правого края: на широком окне название и
  * кнопка расходились в разные концы экрана, и глаз вёл по пустоте от одного к
  * другой. Плитка держит название, пояснение и действие вместе, и нажимается
@@ -32,11 +33,6 @@ function Card({ tone, icon, title, hint, action, onClick, tour }: {
   onClick: () => void;
   tour?: string;
 }) {
-  const box = {
-    emerald: 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400',
-    slate: 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300',
-    sky: 'bg-sky-100 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400',
-  }[tone];
   const edge = {
     emerald: 'hover:border-emerald-300 dark:hover:border-emerald-800',
     slate: 'hover:border-slate-300 dark:hover:border-slate-700',
@@ -53,14 +49,16 @@ function Card({ tone, icon, title, hint, action, onClick, tour }: {
       onClick={onClick}
       data-tour={tour}
       title={hint}
-      className={`h-full flex flex-col items-start gap-2 p-4 text-left rounded-xl cursor-pointer
+      className={`h-full flex flex-col items-start gap-2 p-4 text-left rounded-lg cursor-pointer
                   bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850
-                  shadow-xs hover:shadow-sm transition-ui ${edge}`}
+                  transition-ui ${edge}`}
     >
-      <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${box}`}>{icon}</span>
-      <b className="text-sm font-bold text-slate-900 dark:text-white">{title}</b>
+      <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+        {icon}
+        <span className="text-[13px] font-semibold text-slate-900 dark:text-white">{title}</span>
+      </span>
       <span className="text-xs text-slate-500 leading-snug flex-1">{hint}</span>
-      <span className={`text-2xs font-bold ${label}`}>{action} →</span>
+      <span className={`text-xs font-medium ${label}`}>{action} →</span>
     </button>
   );
 }
@@ -75,7 +73,7 @@ export default function ExchangeTab({ total, onImport, onExport }: {
     <div className="grid grid-cols-1 @[520px]:grid-cols-2 @[880px]:grid-cols-3 gap-3 text-left items-stretch">
       <Card
         tone="emerald"
-        icon={<FileSpreadsheet className="w-5 h-5" />}
+        icon={<FileSpreadsheet className="w-4 h-4" />}
         title="Импорт из таблицы"
         hint="Загрузите Excel в Проводник или вставьте данные и отметьте колонки."
         action="Открыть мастер"
@@ -84,7 +82,7 @@ export default function ExchangeTab({ total, onImport, onExport }: {
       />
       <Card
         tone="slate"
-        icon={<Download className="w-5 h-5" />}
+        icon={<Download className="w-4 h-4" />}
         title="Выгрузка тегов"
         hint={`Файл или буфер обмена, выбранные колонки, все теги или только отмеченные. Сейчас в проекте ${total}.`}
         action="Выгрузить"
@@ -94,7 +92,7 @@ export default function ExchangeTab({ total, onImport, onExport }: {
       {hasCapture() && (
         <Card
           tone="sky"
-          icon={<Scissors className="w-5 h-5" />}
+          icon={<Scissors className="w-4 h-4" />}
           title="Захват с экрана"
           hint="Программа свернётся в угол. Выделите теги в любом окне и скопируйте — пульт увидит буфер сам. Ctrl+Shift+X."
           action="Свернуть и захватить"

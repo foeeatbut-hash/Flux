@@ -38,6 +38,7 @@ import PlayPlatform from '../components/settings/PlayPlatform';
 import TagRules from '../components/settings/TagRules';
 import { canManagePlay } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
+import { SectionHead, IconBtn, Status } from '../components/ui';
 import { PLAY_ADMIN } from '../../play/features';
 import { useModalStore } from '../store/modalStore';
 
@@ -154,66 +155,44 @@ export default function SettingsScreen() {
   }, [section, allows]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className="h-full flex gap-4 text-slate-800 dark:text-slate-100"
-    >
-      {/* Категории (левая колонка). Ширину спрашиваем у панели, а не у окна:
-          при 288 px намертво в узкой панели содержимому оставалось меньше
-          трети, и ряды кнопок внутри резались многоточием. */}
-      <div className="w-14 @[700px]:w-56 @[980px]:w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
-        <div className="px-2 @[700px]:px-4 py-3.5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-center @[700px]:justify-start gap-2">
-          <Settings className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
-          <h1 className="hidden @[700px]:block text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+    <div className="fx-page @container">
+      <SectionHead title="Настройки" />
+      <div className="flex-1 min-h-0 flex">
+      {/* Категории — боковой список, как в системных параметрах. Ширину
+          спрашиваем у окна, а не у экрана: в узком окне остаются значки */}
+      <nav className="fx-side w-12 @[700px]:w-56 @[980px]:w-64 shrink-0 overflow-y-auto p-2" aria-label="Категории настроек">
           {SETTING_GROUPS.map(g => (
           <React.Fragment key={g.scope}>
           {/* Заголовок области. В узкой колонке (только значки) вместо слова
-              остаётся черта: подпись там всё равно не поместилась бы, а разрыв
-              между группами нужен. */}
-          <div className="pt-1.5 first:pt-0" title={g.hint}>
-            <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
-            <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
+              остаётся черта: подпись там всё равно не поместилась бы */}
+          <div title={g.hint}>
+            <div className="hidden @[700px]:block fx-gh mt-2 first:mt-0">{g.label}</div>
+            <div className="@[700px]:hidden mx-1 my-2 border-t border-slate-200 dark:border-slate-800" />
           </div>
           {SECTIONS.filter(s => s.scope === g.scope && allows(s)).map(s => {
             const Icon = s.icon;
-            const active = section === s.id;
             return (
               <button type="button"
                 key={s.id}
                 onClick={() => pick(s.id)}
-                aria-current={active ? 'page' : undefined}
+                aria-current={section === s.id ? 'true' : undefined}
                 /* Метка для демонстраций помощника: они показывают пальцем на
                    раздел настроек, и метка обязана быть на нём самом */
                 data-tour={`settings-${s.id}`}
                 title={`${s.label} — ${s.desc}`}
-                className={`relative w-full flex items-start justify-center @[700px]:justify-start gap-3 px-1.5 @[700px]:px-3 py-2.5 rounded-xl text-left transition-ui cursor-pointer ${
-                  active
-                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-r before:bg-emerald-600 dark:before:bg-emerald-400'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300'
-                }`}
+                className="fx-li justify-center @[700px]:justify-start"
               >
-                <Icon className={`w-4.5 h-4.5 mt-0.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-emerald-600 dark:text-emerald-400'}`} />
-                <span className="hidden @[700px]:block min-w-0">
-                  <span className="block text-sm font-semibold leading-tight">{s.label}</span>
-                  {/* Пояснение под названием — только когда панель широкая:
-                      в узкой оно всё равно обрывалось многоточием, а место
-                      забирало у содержимого настроек */}
-                  <span className={`hidden @[980px]:block text-xs leading-tight mt-0.5 truncate ${active ? 'text-emerald-700/80 dark:text-emerald-300/80' : 'text-slate-400'}`}>{s.desc}</span>
-                </span>
+                <Icon />
+                <span className="hidden @[700px]:block truncate">{s.label}</span>
               </button>
             );
           })}
           </React.Fragment>
           ))}
-        </div>
-      </div>
+      </nav>
 
       {/* Содержимое категории */}
-      <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
+      <div className="flex-1 min-w-0 overflow-y-auto px-4 @[700px]:px-8 py-4">
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
         {section === 'signature' && <SignatureSection />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
@@ -244,11 +223,12 @@ export default function SettingsScreen() {
         {section === 'tagrules' && <TagRules addToast={addToast} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
-            <div className="max-w-md"><UpdaterWidget /></div>
+            <UpdaterWidget />
           </SectionShell>
         )}
       </div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -295,21 +275,21 @@ function StageListEditor({ stages, onChange, isAdmin, addToast }: {
           const Icon = stageIcon(s.icon);
           const c = stageColor(s.color);
           return (
-            <div key={s.id} className={`p-3 rounded-xl border ${c.border} ${c.bg} flex flex-wrap items-center gap-2.5`}>
+            <div key={s.id} className="fx-set-row flex-wrap gap-2.5">
               {/* Порядок */}
               <div className="flex flex-col">
                 <button type="button" disabled={!isAdmin || idx === 0} onClick={() => move(idx, -1)} className="p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-white disabled:opacity-20 cursor-pointer"><ChevronUp className="w-3.5 h-3.5" /></button>
                 <button type="button" disabled={!isAdmin || idx === stages.length - 1} onClick={() => move(idx, 1)} className="p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-white disabled:opacity-20 cursor-pointer"><ChevronDown className="w-3.5 h-3.5" /></button>
               </div>
 
-              <span className={`w-6 text-center text-xs font-black ${c.color}`}>{idx + 1}</span>
+              <span className="w-6 text-center text-xs text-slate-400 tabular-nums">{idx + 1}</span>
 
               {/* Значок */}
               <div className="relative">
                 <button type="button"
                   disabled={!isAdmin}
                   onClick={() => setEditingIconFor(editingIconFor === s.id ? null : s.id)}
-                  className={`w-9 h-9 rounded-full border ${c.border} ${c.color} bg-white/70 dark:bg-slate-950/60 flex items-center justify-center cursor-pointer hover:scale-105 transition-transform`}
+                  className={`fx-ibtn ${c.color}`}
                   title="Выбрать значок"
                 >
                   <Icon className="w-4.5 h-4.5" />
@@ -338,7 +318,7 @@ function StageListEditor({ stages, onChange, isAdmin, addToast }: {
                 disabled={!isAdmin}
                 defaultValue={s.label}
                 onBlur={(e) => { if (e.target.value.trim() && e.target.value !== s.label) update(s.id, { label: e.target.value.trim() }); }}
-                className="flex-1 min-w-[140px] px-3 py-2 bg-white/80 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                className="fx-input flex-1 min-w-[140px]"
               />
 
               {/* Цвет */}
@@ -369,7 +349,7 @@ function StageListEditor({ stages, onChange, isAdmin, addToast }: {
       </div>
 
       {isAdmin && (
-        <button type="button" onClick={addStage} className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+        <button type="button" onClick={addStage} className="fx-btn fx-btn-primary">
           <Plus className="w-4 h-4" /> Добавить этап
         </button>
       )}
@@ -392,7 +372,7 @@ function RuleListInput({ label, hint, values, onChange, disabled }: {
           const next = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
           if (JSON.stringify(next) !== JSON.stringify(values)) onChange(next);
         }}
-        className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+        className="fx-input"
       />
     </div>
   );
@@ -456,16 +436,17 @@ function ManagementSection({ isAdmin, addToast }: any) {
   return (
     <SectionShell title="Менеджмент" desc="Этапы закупки: общий набор и шаблоны по правилам.">
       {!isAdmin && (
-        <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-700 dark:text-amber-300">
+        <div className="mb-4 fx-note fx-note-warn">
           Изменять этапы и шаблоны может администратор. Вы видите текущую настройку.
         </div>
       )}
 
       {/* Переключатель: стандартный набор + шаблоны */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="fx-segctl flex-wrap" role="group" aria-label="Набор этапов">
         <button type="button"
           onClick={() => setActiveId('default')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${activeId === 'default' ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}
+          aria-pressed={activeId === 'default'}
         >
           Стандартные этапы
         </button>
@@ -473,15 +454,16 @@ function ManagementSection({ isAdmin, addToast }: any) {
           <button type="button"
             key={t.id}
             onClick={() => setActiveId(t.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${activeId === t.id ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}
+            aria-pressed={activeId === t.id}
           >
             {t.name}
           </button>
         ))}
+        </div>
         {isAdmin && (
           <button type="button"
             onClick={addTemplate}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
+            className="fx-btn fx-btn-quiet"
           >
             <Plus className="w-3.5 h-3.5" /> Новый шаблон
           </button>
@@ -513,7 +495,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
               disabled={!isAdmin}
               defaultValue={activeTemplate.name}
               onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== activeTemplate.name) updateTemplate(activeTemplate.id, { name: v }); }}
-              className="flex-1 min-w-0 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+              className="fx-input flex-1"
               placeholder="Название шаблона"
             />
             {isAdmin && (
@@ -528,7 +510,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
           </div>
 
           {/* Правила применения */}
-          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+          <div className="fx-set-group space-y-3">
             <div className="text-xs font-bold text-slate-400">Когда применяется (автоматически)</div>
             <div className="grid @[820px]:grid-cols-2 gap-3">
               <RuleListInput
@@ -569,7 +551,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
 
           {/* Этапы шаблона */}
           <div>
-            <div className="text-xs font-bold text-slate-400 mb-2">Этапы шаблона</div>
+            <div className="fx-group-title mb-1">Этапы шаблона</div>
             <StageListEditor
               stages={activeTemplate.stages}
               onChange={(next) => updateTemplate(activeTemplate.id, { stages: next })}
@@ -652,7 +634,7 @@ function BackupSection({ isAdmin, addToast }: any) {
     <SectionShell title="Резервные копии" desc="Ежедневный архив: база, файлы Проводника и данные проектов.">
       <div className="space-y-5">
         {/* Статус и ручной запуск */}
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+        <div className="fx-set-group space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <div className="text-xs font-bold text-slate-400">Папка архивов</div>
@@ -662,7 +644,7 @@ function BackupSection({ isAdmin, addToast }: any) {
               <button type="button"
                 onClick={runNow}
                 disabled={runningNow || status?.running}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer"
+                className="fx-btn fx-btn-primary"
               >
                 {runningNow ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
                 {runningNow ? 'Создание архива…' : 'Создать архив сейчас'}
@@ -678,7 +660,7 @@ function BackupSection({ isAdmin, addToast }: any) {
         </div>
 
         {/* Настройки */}
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+        <div className="fx-set-group space-y-3">
           <div className="text-xs font-bold text-slate-400">Расписание</div>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
             <input
@@ -719,7 +701,7 @@ function BackupSection({ isAdmin, addToast }: any) {
 
         {/* Список архивов */}
         <div>
-          <div className="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5">
+          <div className="fx-group-title mb-1 flex items-center gap-1.5">
             <FolderOpen className="w-3.5 h-3.5" /> Существующие архивы ({backups.length})
           </div>
           {backups.length === 0 ? (
@@ -774,16 +756,16 @@ function EquipmentSection({ isAdmin, addToast }: any) {
   return (
     <SectionShell title="Оборудование" desc="Поведение при импорте новых ревизий и категории оборудования.">
       <div className="space-y-5">
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-2">При новой ревизии</div>
-          <div className="flex gap-2 max-w-md">
-            <button type="button" onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
-            <button type="button" onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
+        <div className="fx-set-group">
+          <div className="fx-group-title mb-1">При новой ревизии</div>
+          <div className="fx-segctl" role="group" aria-label="При новой ревизии">
+            <button type="button" onClick={() => saveConflictMode('wait')} aria-pressed={conflictMode === 'wait'}>Ждать решения (✓/✎)</button>
+            <button type="button" onClick={() => saveConflictMode('immediate')} aria-pressed={conflictMode === 'immediate'}>Изменять сразу</button>
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-2">Категории оборудования</div>
+        <div className="fx-set-group">
+          <div className="fx-group-title mb-1">Категории оборудования</div>
           <div className="space-y-1 mb-2 max-h-52 overflow-y-auto max-w-md">
             {categories.map(c => (
               <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 text-xs">
@@ -796,7 +778,7 @@ function EquipmentSection({ isAdmin, addToast }: any) {
           </div>
           {isAdmin && (
             <div className="flex gap-2 max-w-md">
-              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 min-w-0 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500" />
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="fx-input flex-1" />
               <button type="button"
                 onClick={() => {
                   const label = newCat.trim();
@@ -824,14 +806,15 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
   const opt = (mode: 'click' | 'drag', icon: React.ReactNode, title: string, desc: string) => (
     <button type="button"
       onClick={() => onChange(mode)}
-      className={`flex-1 p-4 rounded-xl border text-left cursor-pointer transition-colors ${
+      aria-pressed={value === mode}
+      className={`flex-1 p-3 rounded-lg border text-left cursor-pointer transition-colors ${
         value === mode
-          ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-700 ring-2 ring-emerald-500/30'
-          : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+          ? 'border-emerald-500 dark:border-emerald-600'
+          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
       }`}
     >
       <div className="flex items-center gap-2 mb-1.5">
-        <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${value === mode ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}>{icon}</span>
+        <span aria-pressed={value === mode}>{icon}</span>
         <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{title}</span>
         {value === mode && <Check className="w-4 h-4 text-emerald-600 ml-auto" />}
       </div>
@@ -873,8 +856,8 @@ function TagsSection({ addToast }: any) {
   return (
     <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
       <div className="space-y-5">
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-1">Схема · подключение связей</div>
+        <div className="fx-set-group">
+          <div className="fx-group-title mb-1">Схема · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
           <LinkModeChooser
             value={canvasMode}
@@ -884,8 +867,8 @@ function TagsSection({ addToast }: any) {
           />
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold text-slate-400 mb-1">Дерево · подключение связей</div>
+        <div className="fx-set-group">
+          <div className="fx-group-title mb-1">Дерево · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги во вкладке «Дерево связей».</p>
           <LinkModeChooser
             value={treeMode}
@@ -1006,9 +989,9 @@ function DatabaseSection({ addToast }: any) {
   return (
     <SectionShell title="База данных" desc="Локальная SQLite (работает автономно) или сетевой PostgreSQL для совместной работы.">
       <div className="max-w-lg space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setDbType('LOCAL')} className={`py-2 rounded-xl border text-sm font-semibold cursor-pointer ${dbType === 'LOCAL' ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'}`}>Локальная</button>
-          <button type="button" onClick={() => setDbType('REMOTE')} className={`py-2 rounded-xl border text-sm font-semibold cursor-pointer ${dbType === 'REMOTE' ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'}`}>Сеть / PostgreSQL</button>
+        <div className="fx-segctl" role="group" aria-label="Тип базы данных">
+          <button type="button" onClick={() => setDbType('LOCAL')} aria-pressed={dbType === 'LOCAL'}>Локальная</button>
+          <button type="button" onClick={() => setDbType('REMOTE')} aria-pressed={dbType === 'REMOTE'}>Сеть / PostgreSQL</button>
         </div>
 
         {dbType === 'LOCAL' ? (
@@ -1017,12 +1000,14 @@ function DatabaseSection({ addToast }: any) {
               {dbDisplayLocation || 'database.sqlite'}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" disabled={isSaving} onClick={handlePickDbFile} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">Выбрать файл БД…</button>
+              <button type="button" disabled={isSaving} onClick={handlePickDbFile} className="fx-btn">Выбрать файл БД…</button>
               <button type="button" disabled={isSaving} onClick={async () => { if (await openConfirm('Вернуть базу в стандартную папку?', 'Программа снова будет работать с базой в папке AppData/pdm-app.', { confirmLabel: 'Вернуть' })) handleSwitch('LOCAL', '', ''); }} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">Стандартный путь</button>
             </div>
-            <button type="button" disabled={isSaving} onClick={() => handleSwitch('LOCAL', '')} className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold cursor-pointer disabled:opacity-50">
-              {isSaving ? 'Подключение…' : activeDbType === 'LOCAL' ? 'Локальный режим активен ✓' : 'Включить локальный режим'}
-            </button>
+            {activeDbType === 'LOCAL' && !isSaving
+              ? <Status tone="emerald">Локальный режим активен</Status>
+              : <button type="button" disabled={isSaving} onClick={() => handleSwitch('LOCAL', '')} className="fx-btn fx-btn-primary">
+                  {isSaving ? 'Подключение…' : 'Включить локальный режим'}
+                </button>}
           </div>
         ) : (
           <div className="space-y-2">
@@ -1031,11 +1016,11 @@ function DatabaseSection({ addToast }: any) {
               value={remoteUrl}
               onChange={(e) => setRemoteUrl(e.target.value)}
               placeholder="mysql://user:password@host:3306/flux или postgresql://user:password@host:5432/flux"
-              className="w-full font-mono text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-emerald-500"
+              className="fx-input code"
             />
             <p className="text-xs text-slate-500 dark:text-slate-400">MariaDB/MySQL — адрес mysql://…, PostgreSQL — postgresql://…</p>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" disabled={isTesting} onClick={handleTest} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
+              <button type="button" disabled={isTesting} onClick={handleTest} className="fx-btn">
                 {isTesting ? 'Проверка…' : 'Тестировать'}
               </button>
               <button type="button" disabled={isSaving} onClick={() => handleSwitch('REMOTE', remoteUrl)} className="py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">
@@ -1053,7 +1038,7 @@ function DatabaseSection({ addToast }: any) {
 
         {isAdmin && (
           <div className="pt-3 mt-1 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
-            <button type="button" disabled={isSyncing} onClick={handleSyncSchema} className="w-full py-2.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
+            <button type="button" disabled={isSyncing} onClick={handleSyncSchema} className="fx-btn w-full">
               {isSyncing ? 'Проверка…' : 'Проверить / обновить структуру базы'}
             </button>
             <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки после обновления программы.</p>
@@ -1187,7 +1172,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
             {standards.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <input value={name} onChange={e => setName(e.target.value)} className={inp + ' flex-1'} placeholder="Название стандарта" />
-          <button type="button" onClick={createStd} className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">+ Новый</button>
+          <button type="button" onClick={createStd} className="fx-btn">+ Новый</button>
           {isAdmin && <button type="button" title="Удалить стандарт" onClick={removeStd} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
 
@@ -1267,7 +1252,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
           <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ тип</button>
         </div>
 
-        <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+        <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
           {busy ? 'Сохраняю…' : 'Сохранить стандарт'}
         </button>
       </div>
@@ -1345,44 +1330,31 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
   return (
     <SectionShell title="Роли сотрудников" desc="Кем работают люди в программе.">
       {!top && (
-        <div className="mb-4 flex items-start gap-2 p-3 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs">
+        <div className="mb-4 flex items-start gap-2 fx-note fx-note-warn">
           <Lock className="w-4 h-4 shrink-0 mt-0.5" />
           <span>Роли создаёт и меняет только главный администратор (уровень 1). Здесь вы видите текущий список.</span>
         </div>
       )}
 
-      <div className="space-y-2">
-        {loading && <div className="text-xs text-slate-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Загружаю роли…</div>}
+      <div>
+        {loading && <div className="text-xs text-slate-400 py-2">Загружаю роли…</div>}
         {roles.map((r) => (
-          <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-950">
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shrink-0 ${roleColorClass(r.color)}`}>
-              <RoleIcon name={r.icon} className="w-3.5 h-3.5" />
+          <div key={r.id} className="fx-set-row group">
+            {/* Цвет роли — у значка, название обычным текстом */}
+            <RoleIcon name={r.icon} className={`w-4 h-4 shrink-0 ${roleColorClass(r.color).split(/\s+/).filter((c) => /^(dark:)?text-/.test(c)).join(' ')}`} />
+            <div className="fx-set-text">
               {r.name}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{r.description || 'Без описания'}</div>
-              <div className="text-2xs font-mono text-slate-400 mt-0.5">
-                {r.code} · уровень {r.level}
+              <div className="fx-set-desc">
+                {r.description || 'Без описания'} · <span className="code">{r.code}</span> · уровень {r.level}
                 {r.level > 1 && ` · прав: ${Object.values(parsePermissions(r.permissions as any)).filter((e: any) => e?.enabled).length}`}
                 {r.level <= 1 && ' — главный администратор'}
                 {r.isSystem && ' · встроенная'}
               </div>
             </div>
             {top && (
-              <div className="flex items-center gap-1 shrink-0">
-                <button type="button" disabled={busy}
-                  onClick={() => { setEditing(r); setDraft({ ...r }); }}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 cursor-pointer" title="Изменить роль">
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button type="button" disabled={busy || r.isSystem}
-                  onClick={() => remove(r)}
-                  className={`p-1.5 rounded-lg cursor-pointer ${r.isSystem
-                    ? 'text-slate-400 dark:text-slate-455 cursor-not-allowed'
-                    : 'hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500'}`}
-                  title={r.isSystem ? 'Встроенную роль удалить нельзя' : 'Удалить роль'}>
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <IconBtn label="Изменить роль" disabled={busy} onClick={() => { setEditing(r); setDraft({ ...r }); }}><Pencil /></IconBtn>
+                <IconBtn label={r.isSystem ? 'Встроенную роль удалить нельзя' : 'Удалить роль'} disabled={busy || r.isSystem} onClick={() => remove(r)} className="hover:text-rose-600"><Trash2 /></IconBtn>
               </div>
             )}
           </div>
@@ -1391,13 +1363,13 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
 
       {top && !draft && (
         <button type="button" onClick={startNew}
-          className="mt-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-ui cursor-pointer">
+          className="fx-btn fx-btn-primary mt-4 inline-flex">
           <Plus className="w-4 h-4" /> Добавить роль
         </button>
       )}
 
       {top && draft && (
-        <div className="mt-4 p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+        <div className="mt-4 fx-set-group space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               {editing ? `Роль «${editing.name}»` : 'Новая роль'}
@@ -1414,14 +1386,14 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
               <input type="text" value={draft.name || ''} autoFocus
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 placeholder="Инженер-конструктор"
-                className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+                className="fx-input" />
             </div>
             <div>
               <label className="block text-2xs font-semibold text-slate-500 mb-1">Код</label>
               <input type="text" value={draft.code || ''} disabled={!!editing}
                 onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
                 placeholder="ENGINEER_CAD"
-                className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-mono disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+                className="fx-input code" />
               <p className="text-2xs text-slate-400 mt-1">Латиницей. Пусто — программа придумает сама. Потом не меняется.</p>
             </div>
           </div>
@@ -1431,7 +1403,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
             <input type="text" value={draft.description || ''}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               placeholder="Чем занимается: разделы, зона ответственности"
-              className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+              className="fx-input" />
           </div>
 
           <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-3">
@@ -1493,8 +1465,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                             on
                               ? 'border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
                               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-slate-300'}`}>
-                          <span className={`mt-0.5 shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
-                            on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}>
+                          <span aria-pressed={on}>
                             {on && <Check className="w-3 h-3" />}
                           </span>
                           <span className="min-w-0">
@@ -1523,7 +1494,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                 {draft.name || 'Название роли'}
               </span>
               <button type="button" onClick={save} disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-ui cursor-pointer disabled:opacity-60">
+                className="fx-btn fx-btn-primary inline-flex">
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 Сохранить
               </button>

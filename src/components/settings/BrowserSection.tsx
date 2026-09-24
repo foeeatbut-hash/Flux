@@ -42,7 +42,7 @@ export default function BrowserSection() {
 
   return (
     <div className="max-w-2xl space-y-5">
-      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4">
+      <div className="fx-set-group">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           <span className="text-sm font-bold">Страница не знает о программе</span>
@@ -54,7 +54,7 @@ export default function BrowserSection() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4 space-y-3">
+      <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Globe className="w-4 h-4 text-slate-500 dark:text-slate-400" />
           <span className="text-sm font-bold">Куда разрешено ходить</span>

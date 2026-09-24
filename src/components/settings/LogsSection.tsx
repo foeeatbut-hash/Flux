@@ -71,13 +71,13 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
   };
 
   return (
-    <SectionShell title="Журналы и ошибки"
+    <SectionShell title="Ошибки и сбои"
       desc={forTriage ? 'Куда пишутся журналы и как сообщить о сбое.' : 'Как сообщить о сбое.'}>
       <div className="max-w-lg space-y-4">
         {forTriage && <DiagnosticsCard />}
 
         {!forTriage && (
-          <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-3 space-y-2">
+          <div className="fx-set-group space-y-2">
             <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Что-то сломалось</div>
             <p className="text-2xs text-slate-500 dark:text-slate-400 leading-relaxed">
               Напишите, что случилось, — программа сама приложит свои технические записи
@@ -94,7 +94,7 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
         {/* Папка на рабочем столе: её человек может открыть и отдать целиком.
             Раньше файлы лежали в AppData под именами вида pdm-crash-log-… и
             найти их не мог никто */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-3 space-y-2">
+        <div className="fx-set-group space-y-2">
           <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Папка журналов</div>
           <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5
                         border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
@@ -118,14 +118,14 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
 
         {/* Копия на сервере: администратору не приходится собирать логи по
             компьютерам */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-3 space-y-2">
+        <div className="fx-set-group space-y-2">
           <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Копия на сервере</div>
           <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5
                         border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
             {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={pickDir} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">Выбрать папку…</button>
+            <button type="button" onClick={pickDir} className="fx-btn">Выбрать папку…</button>
             <button type="button" onClick={() => save('')} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">По умолчанию</button>
           </div>
         </div>
