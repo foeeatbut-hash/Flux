@@ -247,7 +247,6 @@ const LABEL_PALETTES = [
   'src/lib/roles.ts',              // цвет роли сотрудника
   'src/lib/procurementStages.ts',  // цвет этапа закупки
   'src/screens/Equipment.tsx',     // цвет типа оборудования
-  'src/screens/LogsManagement.tsx', // цвет категории журнала
 ];
 const STRAY = new RegExp(String.raw`\b(?:bg|text|border|ring|from|to|via|fill|stroke|decoration|accent|outline|divide|placeholder|caret|shadow)-(${HUE_NAMES})-\d`, 'g');
 const strays: string[] = [];
@@ -448,14 +447,14 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 825,
+    'жирный 700 (font-bold/extrabold/black)': 807,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
     'курсив (italic)': 55,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
     'крупная тень (shadow-lg/xl/2xl)': 115,
-    'половинные оттенки (slate-503, emerald-995…)': 809,
+    'половинные оттенки (slate-503, emerald-995…)': 790,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   const PATTERNS: Record<string, RegExp> = {

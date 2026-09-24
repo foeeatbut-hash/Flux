@@ -1333,6 +1333,13 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     display: flex; align-items: center; gap: 8px; min-height: 40px; flex: none; padding: 6px 16px;
     border-bottom: 1px solid var(--flux-line); background: var(--flux-surface); min-width: 0; flex-wrap: wrap;
   }
+  /* Страница раздела без внешнего отступа: шапка и панель инструментов стоят
+     на месте, прокручивается только тело (раздел в SECTIONS с pad: false) */
+  .fx-page { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--flux-surface); color: var(--flux-text); }
+  .fx-page-body { flex: 1; min-height: 0; overflow: auto; }
+  /* крайние ячейки таблицы — по линии шапки и панели инструментов (16 px) */
+  .fx-page-body > .fx-table :is(th, td):first-child { padding-left: 16px; }
+  .fx-page-body > .fx-table :is(th, td):last-child { padding-right: 16px; }
   .fx-vsep { width: 1px; height: 20px; background: var(--flux-line); flex: none; }
 
   /* Вкладки раздела: выбранная — линия 2 px снизу, а не зелёная заливка */
@@ -1393,7 +1400,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-table tbody tr:hover td { background: var(--flux-hover); }
   .fx-table tbody tr[aria-selected="true"] td, .fx-table tbody tr.is-sel td { background: var(--flux-sel); }
   .fx-table .fx-row-acts { display: flex; gap: 2px; justify-content: flex-end; visibility: hidden; }
-  .fx-table tr:hover .fx-row-acts, .fx-table tr.is-sel .fx-row-acts, .fx-table tr[aria-selected="true"] .fx-row-acts { visibility: visible; }
+  .fx-table tr:hover .fx-row-acts, .fx-table tr.is-sel .fx-row-acts, .fx-table tr[aria-selected="true"] .fx-row-acts, .fx-table tr:focus-within .fx-row-acts { visibility: visible; }
 
   /* ── Список и дерево: пункт 32, одна строка ── */
   .fx-li {

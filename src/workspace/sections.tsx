@@ -166,7 +166,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
-  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, feature: 'log.view', Component: LogsManagement },
+  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
 ];
 

@@ -36,7 +36,7 @@ for (const f of files) {
   if (r.status === 0) continue;
   failed.push(f);
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
-  const lines = out.split('\n').filter((l) => /✗|Error|ПРОВАЛ|провал/.test(l)).slice(0, 12);
+  const lines = out.split('\n').filter((l) => /✗|ПРОВАЛ|^\s*\w*Error\b|Error:/.test(l)).slice(0, 12);
   const why = r.error ? `  ${r.error.message}` : lines.length ? lines.join('\n') : out.trim().split('\n').slice(-6).join('\n');
   console.log(`✗ ${f} (код ${r.status ?? 'нет'})\n${why}\n`);
 }

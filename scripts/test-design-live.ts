@@ -6,17 +6,20 @@
  * из чужого класса, мелкий кегль — из inline-стиля. Здесь меряется то, что
  * человек видит в окне раздела (docs/methodology/01-design.md):
  *   - текста весом 700 и больше нет;
- *   - мельче 12 px текста нет, кроме счётчиков fx-badge;
+ *   - мельче 12 px текста нет, кроме счётчиков fx-badge и инициалов fx-av;
  *   - заглавных нет;
  *   - у переведённых разделов строки таблиц и списков — 28–40 px.
  *
  * Запуск (нужен поднятый сервер):  npx tsx scripts/test-design-live.ts
- * SHOTS=1 — снимки окон в /tmp/flux-design.
+ * SHOTS=1 — снимки окон в /tmp/flux-design; THEME=dark — тёмная тема;
+ * ONLY=/logs,/users — только эти разделы.
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const SHOTS = process.env.SHOTS === '1' ? '/tmp/flux-design' : '';
+const THEME = process.env.THEME === 'dark' ? 'dark' : 'light';
+const SHOTS = process.env.SHOTS === '1' ? `/tmp/flux-design/${THEME}` : '';
+const ONLY = (process.env.ONLY || '').split(',').filter(Boolean);
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -35,7 +38,7 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Справочник', '/directory', false],
   ['Менеджмент', '/management', false],
   ['Настройки', '/settings', false],
-  ['Журнал', '/logs', false],
+  ['Журнал', '/logs', true],
   ['Сотрудники', '/users', false],
 ];
 
@@ -51,7 +54,7 @@ const PROBE = String.raw`(() => {
     if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') continue;
     if (el.tagName === 'TR' && el.parentElement && el.parentElement.tagName === 'TBODY') out.rows.push(Math.round(r.height));
     if (el.classList.contains('fx-li')) out.rows.push(Math.round(r.height));
-    if (el.closest('.fx-badge, .stamp, .graf, svg, [data-art]')) continue;
+    if (el.closest('.fx-badge, .fx-av, .stamp, .graf, svg, [data-art]')) continue;
     for (const n of el.childNodes) {
       if (n.nodeType !== 3) continue;
       const t = n.textContent.trim();
@@ -93,10 +96,12 @@ const PROBE = String.raw`(() => {
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(6500);
+    if (THEME === 'dark') await page.evaluate(() => document.documentElement.classList.add('dark'));
     if (SHOTS) (await import('fs')).mkdirSync(SHOTS, { recursive: true });
 
     console.log('\n2. Разделы');
     for (const [name, path, done] of SECTIONS) {
+      if (ONLY.length && !ONLY.includes(path)) continue;
       await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
       await page.waitForTimeout(3500);
       const p: any = await page.evaluate(PROBE);
