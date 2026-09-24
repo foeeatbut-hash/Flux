@@ -106,8 +106,10 @@ async function sendContent(
     idx++;
     onBytes?.(to);
   }
+  // Сколько кусков легло: сервер уберёт те, что остались от прежнего, более
+  // длинного содержимого, — иначе файл склеится с чужим хвостом
   const done = await fetch(`/api/files/${encodeURIComponent(fileId)}/done`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: idx }),
   });
   if (!done.ok) {
     const d = await done.json().catch(() => ({}));

@@ -28,6 +28,7 @@ import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
+import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
@@ -1943,24 +1944,26 @@ startPresenceSweep();
 registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
-registerFileChunkRoutes(app, {
-  chunkBytes: limits.chunkBytes,
-  mayWrite: async (req, fileId) => {
-    const user = (req as any).authUser;
-    if (user?.role === 'ADMIN') return '';
-    const file = await prisma.fileNode.findUnique({
-      where: { id: fileId }, select: { folderId: true },
-    });
-    if (!file?.folderId) return '';
-    const folder = await prisma.folder.findUnique({
-      where: { id: file.folderId }, select: { projectId: true },
-    });
-    const disk = await ensureDiskProject();
-    if (folder?.projectId !== disk) return '';
-    return userCan(user, 'disk.write') ? ''
-      : 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».';
-  },
-});
+// Право записи файла — одно для кусков Проводника и для сохранения из Flux
+// Office: иначе два пути записи одного файла разошлись бы в правилах
+async function mayWriteFile(req: any, fileId: string): Promise<string> {
+  const user = (req as any).authUser;
+  if (user?.role === 'ADMIN') return '';
+  const file = await prisma.fileNode.findUnique({
+    where: { id: fileId }, select: { folderId: true },
+  });
+  if (!file?.folderId) return '';
+  const folder = await prisma.folder.findUnique({
+    where: { id: file.folderId }, select: { projectId: true },
+  });
+  const disk = await ensureDiskProject();
+  if (folder?.projectId !== disk) return '';
+  return userCan(user, 'disk.write') ? ''
+    : 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».';
+}
+registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
+// Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
+registerOfficeFileRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»

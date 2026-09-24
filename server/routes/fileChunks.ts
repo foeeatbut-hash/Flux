@@ -103,6 +103,14 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
 
+      // Файл перезаписали содержимым короче прежнего: куски с номерами дальше
+      // нового конца — хвост старого файла. Без этой уборки склеилось бы новое
+      // начало со старым концом, и книга перестала бы открываться. Число кусков
+      // приходит от окна; без него (прежние окна) ничего не трогаем
+      const count = Number(req.body?.count);
+      if (Number.isInteger(count) && count >= 0) {
+        await prisma.fileChunk.deleteMany({ where: { fileId, idx: { gte: count } } });
+      }
       const rows = await prisma.fileChunk.findMany({ where: { fileId }, select: { data: true } });
       const size = rows.reduce((n: number, r: any) => n + Buffer.from(r.data).length, 0);
       const file = await prisma.fileNode.update({
