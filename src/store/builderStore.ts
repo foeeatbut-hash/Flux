@@ -24,6 +24,10 @@ interface BuilderState {
   loadLists: (projectId: string) => Promise<void>;
   openList: (id: string) => Promise<void>;
   reload: () => Promise<void>;
+  /** Перечитать открытую ведомость тихо: чужая правка, возврат фокуса */
+  refresh: () => Promise<void>;
+  /** Добавить отменяемое действие, сделанное мимо apply (связь с тегами) */
+  pushUndo: (batchId: string, title: string) => void;
   createList: (name: string, classId: string, templateId?: string | null) => Promise<void>;
   updateList: (patch: Partial<Pick<SelectionList, 'name' | 'header' | 'orderNos' | 'templateId' | 'lang'>>) => Promise<void>;
   removeList: (id: string) => Promise<void>;
@@ -74,6 +78,26 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   reload: async () => { if (get().listId) await get().openList(get().listId); },
 
+  /**
+   * Тихое перечитывание: без «Загружаю…», со стопкой отмены. Нужна, потому
+   * что ведомость правят вдвоём: сокет говорит «изменилась», а на общей базе
+   * у каждого свой сервер и сокет до чужого окна не доходит — тогда выручает
+   * возврат фокуса и редкий опрос (useCatalogLive). Пока своё пишется, не
+   * перечитываем: ответ apply и так принесёт свежие строки.
+   */
+  refresh: async () => {
+    const id = get().listId;
+    if (!id || get().saving || get().loading) return;
+    try {
+      const { list, items } = await catalogService.list(id);
+      if (get().listId !== id || get().saving) return;
+      const sig = (xs: SelectionItemData[]) => xs.map((x) => `${x.id}@${x.updatedAt}`).join('|');
+      if (sig(items) !== sig(get().items) || list.updatedAt !== get().list?.updatedAt) set({ list, items });
+    } catch { /* сеть моргнула — перечитаем в следующий раз */ }
+  },
+
+  pushUndo: (batchId, title) => set({ undoStack: [{ batchId, title }, ...get().undoStack].slice(0, 50) }),
+
   createList: async (name, classId, templateId) => {
     const projectId = get().projectId;
     if (!projectId) return;
@@ -119,6 +143,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       return res.items;
     } catch (e: any) {
       set({ saving: false, error: e?.message || 'Не сохранилось' });
+      // Позицию уже изменил другой: сервер ничего не записал. Перечитываем,
+      // чтобы человек повторил правку поверх свежей версии, а не вслепую
+      if (e?.status === 409) await get().refresh();
       throw e;
     }
   },
@@ -126,10 +153,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   undo: async () => {
     const [top, ...rest] = get().undoStack;
     if (!top) return '';
-    await catalogService.undo(top.batchId);
+    const r = await catalogService.undo(top.batchId);
     set({ undoStack: rest });
     await get().reload();
-    return top.title;
+    // Тег, к которому с тех пор привязали оборудование или файл, отмена не
+    // снимает — и говорит об этом, а не молчит
+    return r.keptTags?.length ? `${top.title} (оставлены теги, к которым уже привязано: ${r.keptTags.join(', ')})` : top.title;
   },
 }));
 

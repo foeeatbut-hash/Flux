@@ -27,7 +27,13 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     throw new Error('Нет связи с сервером — изменения не сохранены');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(String((data as any)?.error || `Сервер ответил ${res.status}`));
+  if (!res.ok) {
+    // Код ответа — вместе с текстом: 409 «позицию уже изменили» окно разбирает
+    // особо (перечитывает ведомость), а не показывает как любую ошибку
+    const err = new Error(String((data as any)?.error || `Сервер ответил ${res.status}`)) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
   return data as T;
 }
 
@@ -65,7 +71,7 @@ export interface StoredIssue extends IssueInfo {
   diffText: string;
   fileId: string | null;
   createdAt: string;
-  snapshot?: { items: SelectionItemData[]; header: ListHeader };
+  snapshot?: { items: SelectionItemData[]; header: ListHeader; orderNos?: Record<string, string>; templateId?: string | null; lang?: 'ru' | 'en' | 'ru+en' };
 }
 
 export interface TagLinkPlan {
@@ -112,9 +118,9 @@ export const catalogService = {
   apply: (listId: string, title: string, upserts: Array<Partial<SelectionItemData>>, removeIds: string[] = []) =>
     call<{ batchId: string | null; items: SelectionItemData[]; removed: string[] }>('POST', `/builder/lists/${listId}/apply`, { title, upserts, removeIds }),
   batches: (listId: string) => call<{ batches: Array<{ id: string; title: string; undone: boolean; createdAt: string }> }>('GET', `/builder/lists/${listId}/batches`),
-  undo: (batchId: string) => call<{ ok: true; listId: string }>('POST', `/builder/batches/${batchId}/undo`),
+  undo: (batchId: string) => call<{ ok: true; listId: string; removedTags?: number; keptTags?: string[] }>('POST', `/builder/batches/${batchId}/undo`),
   issues: (listId: string, withSnapshots = false) => call<{ issues: StoredIssue[] }>('GET', `/builder/lists/${listId}/issues${withSnapshots ? '?snapshots=1' : ''}`),
   issue: (listId: string, issue: IssueInfo & { diffText?: string; fileId?: string | null }) => call<{ issue: { id: string; rev: string } }>('POST', `/builder/lists/${listId}/issues`, issue),
   tagPlan: (listId: string, extraTags?: Record<string, string[]>) => call<{ links: TagLinkPlan[] }>('POST', `/builder/lists/${listId}/tag-plan`, { extraTags }),
-  tagApply: (listId: string, links: TagLinkPlan[]) => call<{ created: number; linked: number }>('POST', `/builder/lists/${listId}/tag-apply`, { links }),
+  tagApply: (listId: string, links: TagLinkPlan[]) => call<{ created: number; linked: number; refused?: string[]; batchId?: string | null }>('POST', `/builder/lists/${listId}/tag-apply`, { links }),
 };

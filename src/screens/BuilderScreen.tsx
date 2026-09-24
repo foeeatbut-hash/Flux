@@ -11,6 +11,8 @@ import { ClipboardList, Sparkles, Upload, LayoutTemplate, Send, Plus, Pencil, Tr
 import { useStore } from '../store/store';
 import { useCatalogStore } from '../store/catalogStore';
 import { useBuilderStore } from '../store/builderStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useCatalogLive } from '../components/catalog/useCatalogLive';
 import { useToastStore } from '../store/toastStore';
 import { useWindowStore } from '../store/windowStore';
 import { can } from '../lib/permissions';
@@ -48,12 +50,19 @@ export default function BuilderScreen() {
   const learned = useCatalogStore((s) => s.learned);
   const loadLearned = useCatalogStore((s) => s.loadLearned);
   const addToast = useToastStore((s) => s.addToast);
-  const b = useBuilderStore();
+  // Селектором, а не всем хранилищем: экран перерисовывается от того, что
+  // показывает, а не от каждого флажка стора
+  const b = useBuilderStore(useShallow((s) => ({
+    lists: s.lists, listId: s.listId, list: s.list, items: s.items, loading: s.loading, saving: s.saving, undoStack: s.undoStack,
+    loadLists: s.loadLists, openList: s.openList, reload: s.reload, createList: s.createList, updateList: s.updateList,
+    removeList: s.removeList, apply: s.apply, undo: s.undo,
+  })));
   const [tab, setTab] = useState<Tab>('list');
   const [openId, setOpenId] = useState('');
   const [tagsOpen, setTagsOpen] = useState(false);
 
   useEffect(() => { loadCatalog(); loadLearned(); }, [loadCatalog, loadLearned]);
+  useCatalogLive({ list: true });
   useEffect(() => { b.loadLists(project?.id || ''); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ctrl+Z — отмена последнего действия ведомости. В полях ввода у Ctrl+Z своя
@@ -174,7 +183,7 @@ export default function BuilderScreen() {
                       <div className="min-h-0 rounded-lg border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-900">
                         <ItemPanel catalog={catalog} item={openItem} onClose={() => setOpenId('')}
                           onRematch={(id) => { run('Подбор', () => ops.rematch([id])); }}
-                          onSave={async (next, title) => { await run('Не сохранилось', () => b.apply(title, [next])); }} />
+                          onSave={async (next, title) => (await run('Не сохранилось', () => b.apply(title, [next])))?.[0]} />
                       </div>
                     )}
                   </div>

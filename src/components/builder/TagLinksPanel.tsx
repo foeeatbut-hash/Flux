@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { Link2, Plus, X } from 'lucide-react';
 import { catalogService, type TagLinkPlan } from '../../services/catalogService';
 import { useToastStore } from '../../store/toastStore';
+import { useBuilderStore } from '../../store/builderStore';
 import { Btn, Chip, Select } from '../catalog/ui';
 
 const LABEL: Record<TagLinkPlan['action'], string> = { link: 'привязать', create: 'завести', skip: 'пропустить', ambiguous: 'выбрать', invalid: 'нельзя' };
@@ -30,7 +31,8 @@ export default function TagLinksPanel({ listId, onClose, onDone }: { listId: str
     setBusy(true);
     try {
       const r = await catalogService.tagApply(listId, links.filter((l) => l.action === 'link' || l.action === 'create'));
-      addToast(`Теги: привязано ${r.linked}, заведено ${r.created}`, 'success');
+      if (r.batchId) useBuilderStore.getState().pushUndo(r.batchId, 'Связь с тегами проекта');
+      addToast(`Теги: привязано ${r.linked}, заведено ${r.created}${r.refused?.length ? ` · не записано ${r.refused.length}: ${r.refused.slice(0, 2).join('; ')}` : ''}`, r.refused?.length ? 'info' : 'success');
       onDone();
     } catch (e: any) { addToast(e?.message || 'Не записалось', 'error'); } finally { setBusy(false); }
   };

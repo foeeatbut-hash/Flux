@@ -19,7 +19,8 @@ import { Area, Btn, Chip, Confidence, Field, Input, SectionTitle } from '../cata
 export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }: {
   catalog: Catalog;
   item: SelectionItemData;
-  onSave: (next: SelectionItemData, title: string) => Promise<void>;
+  /** Записанная позиция — или undefined, если не записалось */
+  onSave: (next: SelectionItemData, title: string) => Promise<SelectionItemData | undefined>;
   onClose: () => void;
   onRematch: (id: string) => void;
 }) {
@@ -27,7 +28,28 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
   const [tagsText, setTagsText] = useState(item.tags.join(', '));
   const [picking, setPicking] = useState(!item.familyId);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setDraft(item); setTagsText(item.tags.join(', ')); setPicking(!item.familyId); }, [item]);
+  const draftRef = React.useRef(draft); draftRef.current = draft;
+  const tagsRef = React.useRef(tagsText); tagsRef.current = tagsText;
+  /**
+   * Позиция перечиталась (своё сохранение, чужая правка, отмена). Несохранённый
+   * черновик при этом не перетираем: человек его набирал. Он уйдёт с прежней
+   * версией, и сервер ответит «уже изменили» — тогда «Вернуть» покажет свежую
+   */
+  const shown = React.useRef(item);
+  const [changedMeanwhile, setChangedMeanwhile] = useState(false);
+  useEffect(() => {
+    const prev = shown.current;
+    shown.current = item;
+    const wasDirty = prev.id === item.id && (JSON.stringify(draftRef.current) !== JSON.stringify(prev) || tagsRef.current !== prev.tags.join(', '));
+    if (wasDirty) {
+      // Правки остаются, версия — свежая: следующее «Сохранить» запишет своё
+      // уже осознанно, поверх показанного предупреждения
+      setDraft((d) => ({ ...d, updatedAt: item.updatedAt }));
+      setChangedMeanwhile(true);
+      return;
+    }
+    setDraft(item); setTagsText(item.tags.join(', ')); setPicking(!item.familyId); setChangedMeanwhile(false);
+  }, [item]);
 
   const family = draft.familyId ? catalog.families.find((f) => f.id === draft.familyId) : undefined;
   const dirty = JSON.stringify(draft) !== JSON.stringify(item) || tagsText !== item.tags.join(', ');
@@ -49,7 +71,10 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
       status: draft.familyId ? (draft.status === 'draft' ? 'matched' : draft.status) : 'draft',
     };
     setSaving(true);
-    try { await onSave(next, `Правка позиции ${tags[0] || ''}`.trim()); } finally { setSaving(false); }
+    try {
+      const saved = await onSave(next, `Правка позиции ${tags[0] || ''}`.trim());
+      if (saved) { shown.current = saved; setDraft(saved); setTagsText(saved.tags.join(', ')); setChangedMeanwhile(false); }
+    } finally { setSaving(false); }
   };
 
   return (
@@ -166,8 +191,10 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
       </div>
       <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
         <Btn tone="primary" onClick={save} disabled={!dirty || saving}><Save className="w-3.5 h-3.5" /> {saving ? 'Сохраняю…' : 'Сохранить'}</Btn>
-        <Btn tone="ghost" onClick={() => { setDraft(item); setTagsText(item.tags.join(', ')); }} disabled={!dirty}><Undo2 className="w-3.5 h-3.5" /> Вернуть</Btn>
-        {dirty && <span className="text-2xs text-amber-700 dark:text-amber-400">есть несохранённые правки</span>}
+        <Btn tone="ghost" onClick={() => { setDraft(item); setTagsText(item.tags.join(', ')); setChangedMeanwhile(false); }} disabled={!dirty}><Undo2 className="w-3.5 h-3.5" /> Вернуть</Btn>
+        {changedMeanwhile && dirty
+          ? <span className="text-2xs text-rose-600 dark:text-rose-400">позицию изменили, пока вы правили: «Сохранить» запишет ваше, «Вернуть» покажет свежее</span>
+          : dirty && <span className="text-2xs text-amber-700 dark:text-amber-400">есть несохранённые правки</span>}
       </div>
     </div>
   );

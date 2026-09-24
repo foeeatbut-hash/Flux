@@ -18,6 +18,7 @@ import FamilyEditor from '../components/catalog/FamilyEditor';
 import DescribeMatch from '../components/catalog/DescribeMatch';
 import { ComponentsPanel, TagRulesPanel, LearnedPanel, CheckPanel, ExchangePanel } from '../components/catalog/CatalogPanels';
 import { catalogService } from '../services/catalogService';
+import { useCatalogLive } from '../components/catalog/useCatalogLive';
 import type { Family, EquipmentClass } from '../../catalog/model';
 import { textOf, t2 } from '../../catalog/model';
 import { Btn, Chip, Empty, Select, StatusChip, promptAsk } from '../components/catalog/ui';
@@ -69,6 +70,7 @@ export default function CatalogScreen() {
   const canEdit = can(user as any, 'catalog.manage');
 
   useEffect(() => { load(); loadLearned(); }, [load, loadLearned]);
+  useCatalogLive();
   useEffect(() => { if (!classId && catalog.classes[0]) setClassId(catalog.classes[0].id); }, [catalog.classes, classId]);
   const cls = catalog.classes.find((c) => c.id === classId);
 

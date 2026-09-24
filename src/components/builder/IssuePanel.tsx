@@ -61,10 +61,17 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
       setIssues(all);
       const last = all[all.length - 1];
       setIssue((s) => ({ ...s, rev: nextRev(last?.rev), checked: last?.checked || s.checked, approved: last?.approved || s.approved }));
-      setDiff(diffText(diffItems(catalog, last?.snapshot?.items || [], items)));
+      setDiffEdited(false);
     } catch { setIssues([]); }
   };
-  useEffect(() => { reloadIssues(); }, [list.id, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reloadIssues(); }, [list.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // «Что изменилось» — от снимка прошлого выпуска до позиций сейчас. Считалось
+  // только при смене числа позиций, и правка количества в строке сюда не
+  // доезжала. Поправленный руками текст не перетираем
+  const autoDiff = useMemo(() => diffText(diffItems(catalog, issues[issues.length - 1]?.snapshot?.items || [], items)), [catalog, issues, items]);
+  const [diffEdited, setDiffEdited] = useState(false);
+  useEffect(() => { if (!diffEdited) setDiff(autoDiff); }, [autoDiff, diffEdited]);
 
   const tpl: BlankTemplate = templates.find((t) => t.id === list.templateId)?.layout
     || templates.find((t) => t.isDefault)?.layout || defaultBlankTemplate();
@@ -121,9 +128,11 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
 
   const doIssue = async () => {
     if (errors.length && !(await confirmAsk('Выпустить с ошибками?', `В ведомости ${errors.length} ошибок. Бланк уйдёт заводу с ними.`, { confirmLabel: 'Выпустить', tone: 'danger' }))) return;
-    if (dirtyHeader) await onUpdateList({ header, orderNos });
     setBusy('Выпускаю…');
     try {
+      // Реквизиты — до выпуска и внутри try: несохранённые не попали бы в
+      // снимок, а упавшее сохранение не должно оставаться без сообщения
+      if (dirtyHeader) await onUpdateList({ header, orderNos });
       const bytes = await gridsToXlsx(grids());
       let fileId: string | null = null;
       try { fileId = await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev, user?.id); } catch { /* без Проводника выпуск всё равно записывается */ }
@@ -133,12 +142,22 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
     } catch (e: any) { addToast(e?.message || 'Выпуск не записался', 'error'); } finally { setBusy(''); }
   };
 
+  /**
+   * Прошлый выпуск — ровно таким, каким он ушёл: номера б/з, шаблон и язык
+   * из снимка, а не сегодняшние. Выпуски до 1.12.0 их в снимке не держали —
+   * для них берутся текущие
+   */
   const reissue = async (it: StoredIssue) => {
     if (!it.snapshot) return;
     setBusy('Собираю прошлый выпуск…');
     try {
-      const d = buildBlankData({ catalog, header: it.snapshot.header, items: it.snapshot.items, orderNos, issue: it, revisions: issues.filter((x) => x.createdAt <= it.createdAt) }, repeat);
-      const bytes = await gridsToXlsx(renderBlank(tpl, d, lang));
+      const snap = it.snapshot;
+      const itTpl: BlankTemplate = (snap.templateId !== undefined
+        ? templates.find((t) => t.id === snap.templateId)?.layout || templates.find((t) => t.isDefault)?.layout
+        : undefined) || tpl;
+      const itRepeat = itTpl.sheets.find((x) => x.repeat !== 'none')?.repeat || 'family';
+      const d = buildBlankData({ catalog, header: snap.header, items: snap.items, orderNos: snap.orderNos || orderNos, issue: it, revisions: issues.filter((x) => x.createdAt <= it.createdAt) }, itRepeat);
+      const bytes = await gridsToXlsx(renderBlank(itTpl, d, (snap.lang as BlankLang) || lang));
       await saveBytes(`${it.snapshot.header.docNo || list.name}_${it.rev}.xlsx`, bytes);
     } catch (e: any) { addToast(e?.message || 'Не собралось', 'error'); } finally { setBusy(''); }
   };
@@ -200,7 +219,7 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
           <Field label="Утвердил"><Input value={issue.approved || ''} onChange={(e) => setIssue({ ...issue, approved: e.target.value })} /></Field>
         </div>
         <Field label="Что изменилось" hint="посчитано от прошлого выпуска — поправьте, если нужно">
-          <Area rows={4} value={diff} onChange={(e) => setDiff(e.target.value)} />
+          <Area rows={4} value={diff} onChange={(e) => { setDiff(e.target.value); setDiffEdited(true); }} />
         </Field>
 
         <div className="flex flex-wrap gap-1.5 items-center">
