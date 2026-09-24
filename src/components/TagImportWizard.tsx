@@ -181,13 +181,13 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
 
   return createPortal(
     <div className="fixed inset-0 z-[100] overflow-hidden" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !importing && onClose()} />
+      <div className="absolute inset-0 fx-backdrop" onClick={() => !importing && onClose()} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.97, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.16 }}
-          className="relative w-full max-w-5xl h-[88vh] flex flex-col rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+          className="fx-dialog relative w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden"
         >
           {/* HEADER */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -201,7 +201,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 <FileSpreadsheet className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">Импорт тегов из таблицы</h3>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white truncate">Импорт тегов из таблицы</h3>
                 <p className="text-xs text-slate-500 truncate">{step === 'source' ? 'Выберите источник данных' : fileName}</p>
               </div>
             </div>
@@ -217,23 +217,23 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button type="button" onClick={() => setPasteOpen(true)} className="flex flex-col items-start gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors text-left cursor-pointer">
                     <ClipboardPaste className="w-5 h-5 text-emerald-600" />
-                    <span className="text-sm font-bold text-slate-800 dark:text-white">Вставить из буфера</span>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-white">Вставить из буфера</span>
                     <span className="text-xs text-slate-500">Скопируйте диапазон в Excel и вставьте сюда</span>
                   </button>
                   <button type="button" onClick={downloadTemplate} className="flex flex-col items-start gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors text-left cursor-pointer">
                     <Download className="w-5 h-5 text-emerald-600" />
-                    <span className="text-sm font-bold text-slate-800 dark:text-white">Скачать шаблон</span>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-white">Скачать шаблон</span>
                     <span className="text-xs text-slate-500">Готовый .xlsx с нужными колонками</span>
                   </button>
                   <div className="flex flex-col items-start gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-left">
                     <Table2 className="w-5 h-5 text-emerald-600" />
-                    <span className="text-sm font-bold text-slate-800 dark:text-white">Файл из Проводника</span>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-white">Файл из Проводника</span>
                     <span className="text-xs text-slate-500">Выберите загруженную таблицу ниже</span>
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-xs font-bold text-slate-400 mb-2">Таблицы в Проводнике ({excelFiles.length})</div>
+                  <div className="text-xs font-medium text-slate-400 mb-2">Таблицы в Проводнике ({excelFiles.length})</div>
                   {loadingFiles ? (
                     <div className="flex items-center gap-2 text-slate-400 text-sm py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Загрузка списка…</div>
                   ) : excelFiles.length === 0 ? (
@@ -266,7 +266,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                     <span className="font-semibold">Строка заголовков:</span>
                     <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
                       <button type="button" onClick={() => setHeaderRows(p => ({ ...p, [activeSheet]: Math.max(0, headerIdx - 1) }))} className="px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">−</button>
-                      <span className="px-2 font-mono font-bold">{headerIdx + 1}</span>
+                      <span className="px-2 font-mono font-medium">{headerIdx + 1}</span>
                       <button type="button" onClick={() => setHeaderRows(p => ({ ...p, [activeSheet]: Math.min(sheet.rows.length - 1, headerIdx + 1) }))} className="px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">+</button>
                     </div>
                   </div>
@@ -299,7 +299,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                               <select
                                 value={field}
                                 onChange={(e) => setColField(ci, e.target.value as FieldKey | '')}
-                                className={`w-full text-xs rounded-md px-1.5 py-1 border cursor-pointer focus:outline-none ${field ? 'border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 font-bold bg-white dark:bg-slate-950' : 'border-slate-200 dark:border-slate-700 text-slate-400 bg-white dark:bg-slate-950'}`}
+                                className={`w-full text-xs rounded-md px-1.5 py-1 border cursor-pointer focus:outline-none ${field ? 'border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 font-semibold bg-white dark:bg-slate-950' : 'border-slate-200 dark:border-slate-700 text-slate-400 bg-white dark:bg-slate-950'}`}
                               >
                                 <option value="">— не импортировать —</option>
                                 {FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
@@ -319,7 +319,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                             {Array.from({ length: colCount }).map((_, ci) => {
                               const field = map[ci] || '';
                               return (
-                                <td key={ci} className={`border border-slate-100 dark:border-slate-800 px-2 py-1 max-w-[260px] truncate ${field && isBelow ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'} ${isHeader ? 'font-bold' : ''}`} title={row[ci]}>
+                                <td key={ci} className={`border border-slate-100 dark:border-slate-800 px-2 py-1 max-w-[260px] truncate ${field && isBelow ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'} ${isHeader ? 'font-semibold' : ''}`} title={row[ci]}>
                                   {row[ci]}
                                 </td>
                               );
@@ -350,7 +350,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                   <button type="button"
                     onClick={handleImportClick}
                     disabled={importing || !hasIdentifier || previewRows.length === 0}
-                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 cursor-pointer"
+                    className="fx-btn fx-btn-primary"
                   >
                     {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     Импортировать {previewRows.length ? `(${previewRows.length})` : ''}
@@ -366,10 +366,10 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
       <AnimatePresence>
         {pasteOpen && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setPasteOpen(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
+            <div className="absolute inset-0 fx-backdrop" onClick={() => setPasteOpen(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-2xl p-5">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2"><ClipboardPaste className="w-4 h-4 text-emerald-600" /> Вставка из буфера</h4>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><ClipboardPaste className="w-4 h-4 text-emerald-600" /> Вставка из буфера</h4>
                 <button type="button" onClick={() => setPasteOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
               </div>
               <p className="text-xs text-slate-500 mb-2">Выделите диапазон ячеек в Excel, скопируйте (Ctrl+C) и вставьте сюда. Первая строка может быть заголовком.</p>
@@ -387,11 +387,11 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
       <AnimatePresence>
         {dupDialog && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setDupDialog(null)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
+            <div className="absolute inset-0 fx-backdrop" onClick={() => setDupDialog(null)} />
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-md p-5">
               <div className="flex items-center gap-2 mb-2 text-amber-600">
                 <AlertTriangle className="w-5 h-5" />
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Такие теги уже есть</h4>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Такие теги уже есть</h4>
               </div>
               <p className="text-xs text-slate-500 mb-2">Найдено совпадений по коду: <strong className="text-slate-700 dark:text-slate-300">{dupDialog.codes.length}</strong>. Что сделать с уже существующими тегами?</p>
               <div className="max-h-24 overflow-y-auto text-xs font-mono text-slate-500 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-lg p-2 mb-4">
@@ -400,11 +400,11 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
               <div className="space-y-2">
                 <button type="button" onClick={() => runImport('update')} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-left cursor-pointer">
                   <GitMerge className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <div><div className="text-sm font-bold text-slate-800 dark:text-white">Объединить</div><div className="text-xs text-slate-500">Обновить данные существующих тегов</div></div>
+                  <div><div className="text-sm font-semibold text-slate-800 dark:text-white">Объединить</div><div className="text-xs text-slate-500">Обновить данные существующих тегов</div></div>
                 </button>
                 <button type="button" onClick={() => runImport('add')} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
                   <Copy className="w-5 h-5 text-slate-500 shrink-0" />
-                  <div><div className="text-sm font-bold text-slate-800 dark:text-white">Задублировать</div><div className="text-xs text-slate-500">Добавить копии (будут выделены как дубли)</div></div>
+                  <div><div className="text-sm font-semibold text-slate-800 dark:text-white">Задублировать</div><div className="text-xs text-slate-500">Добавить копии (будут выделены как дубли)</div></div>
                 </button>
                 <button type="button" onClick={() => setDupDialog(null)} className="w-full px-4 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold cursor-pointer">Отмена</button>
               </div>
@@ -417,13 +417,13 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
       <AnimatePresence>
         {result && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={onClose} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center">
+            <div className="absolute inset-0 fx-backdrop" onClick={onClose} />
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-sm p-6 text-center">
               <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 mx-auto mb-3"><Check className="w-6 h-6" /></div>
-              <h4 className="text-base font-bold text-slate-900 dark:text-white mb-1">Импорт завершён</h4>
+              <h4 className="text-base font-semibold text-slate-900 dark:text-white mb-1">Импорт завершён</h4>
               <p className="text-sm text-slate-500 mb-1">Создано: <strong className="text-emerald-600">{result.created}</strong> · Обновлено: <strong className="text-emerald-600">{result.updated}</strong></p>
               {result.duplicates.length > 0 && <p className="text-xs text-rose-500 mb-3">Дубли добавлены: {result.duplicates.length} (выделены в списках и дереве)</p>}
-              <button type="button" onClick={onClose} className="mt-3 w-full px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold cursor-pointer">Готово</button>
+              <button type="button" onClick={onClose} className="fx-btn fx-btn-primary mt-3 w-full">Готово</button>
             </motion.div>
           </div>
         )}

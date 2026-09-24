@@ -211,9 +211,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
     ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 fx-backdrop" onMouseDown={onClose}>
       <div role="dialog" aria-label="Выгрузка оборудования по шаблону" onMouseDown={(e) => e.stopPropagation()}
-        className="@container w-full max-w-6xl h-[min(780px,92vh)] flex flex-col rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+        className="fx-dialog @container w-full max-w-6xl h-[min(780px,92vh)] flex flex-col overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <Download className="w-4 h-4 text-emerald-600" />
           <b className="text-sm">Выгрузка оборудования</b>

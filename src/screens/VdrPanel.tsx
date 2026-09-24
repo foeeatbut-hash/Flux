@@ -502,7 +502,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/30 flex justify-end" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end fx-backdrop" onClick={onClose}>
       <div className="w-[520px] max-w-[94vw] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <span className="font-semibold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
@@ -608,7 +608,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <div className="relative">
             <input value={tagSearch} onChange={e => setTagSearch(e.target.value)} placeholder="Найти тег проекта и добавить…" className={inputCls} />
             {tagSearch.trim() && (
-              <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl">
+              <div className="fx-pop absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-auto">
                 {projectTags.filter(t => t.identifier.toLowerCase().includes(tagSearch.toLowerCase()) && !tags.includes(t.identifier)).slice(0, 12).map(t => (
                   <button type="button" key={t.id} onClick={() => { setF(s => ({ ...s, equipmentTags: JSON.stringify([...tags, t.identifier]) })); setTagSearch(''); }}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">{t.identifier}</button>
@@ -667,8 +667,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
         {/* Диалог выпуска ревизии */}
         {revDialog && (
-          <div className="absolute inset-0 z-10 bg-black/30 flex items-center justify-center p-6" onClick={() => setRevDialog(null)}>
-            <div className="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-4 space-y-2.5" onClick={e => e.stopPropagation()}>
+          <div className="absolute inset-0 z-10 fx-backdrop flex items-center justify-center p-6" onClick={() => setRevDialog(null)}>
+            <div className="fx-dialog w-full p-4 space-y-2.5" onClick={e => e.stopPropagation()}>
               <h4 className="font-semibold text-sm text-slate-800 dark:text-white">
                 {revDialog === 'void' ? 'Аннулировать документ (→V)' : revDialog === 'superseded' ? 'Пометить заменённым (→S)' : `Выпустить ревизию (текущая: ${f.revision})`}
               </h4>
@@ -769,8 +769,8 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop" onClick={onClose}>
+      <div className="fx-dialog w-full max-w-2xl max-h-[88vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
           <button type="button" title="Закрыть реквизиты" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>

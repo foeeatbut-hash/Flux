@@ -90,8 +90,8 @@ export default function AddPositionDialog({ target, projectId, freeTags = [], on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label="Добавить позицию">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fx-backdrop" role="dialog" aria-modal="true" aria-label="Добавить позицию">
+      <div className="fx-dialog w-full max-w-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="min-w-0">
             <div className="text-sm font-semibold truncate">Добавить позицию</div>

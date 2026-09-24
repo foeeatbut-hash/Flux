@@ -326,7 +326,7 @@ export default function PositionTree({
       {menu && (
         <div role="menu" onMouseDown={(e) => e.stopPropagation()}
           style={{ left: menu.x, top: menu.y }}
-          className="fixed z-50 min-w-[200px] py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl text-xs">
+          className="fx-pop fixed z-50 min-w-[200px] py-1 text-xs">
           <div className="px-3 py-1 text-2xs text-slate-400 truncate max-w-[260px]">{blockLabel(menu.c)}{firstTag(menu.c) ? ` · ${firstTag(menu.c)}` : ''}</div>
           <button type="button" role="menuitem" onClick={() => { onPickBlock(menu.c); setMenu(null); }}
             className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">Открыть карточку</button>

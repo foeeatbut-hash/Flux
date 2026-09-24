@@ -447,13 +447,13 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 400,
+    'жирный 700 (font-bold/extrabold/black)': 289,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
     'курсив (italic)': 40,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
-    'крупная тень (shadow-lg/xl/2xl)': 115,
+    'крупная тень (shadow-lg/xl/2xl)': 75,
     'половинные оттенки (slate-503, emerald-995…)': 604,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);

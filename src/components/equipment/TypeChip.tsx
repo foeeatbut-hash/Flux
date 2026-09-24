@@ -68,7 +68,7 @@ export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
       </button>
       {open && (
         <div role="dialog" aria-label="Тип позиции"
-          className="absolute left-0 top-full mt-1 z-30 w-72 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl space-y-2">
+          className="fx-pop absolute left-0 top-full mt-1 z-30 w-72 p-3 space-y-2">
           <label className="block">
             <span className="text-2xs font-semibold text-slate-500 dark:text-slate-400">Тип</span>
             <select value={cls} onChange={(e) => { setCls(e.target.value); setKind(''); }}

@@ -49,7 +49,7 @@ export default function DeskFolder({ group, items, scale, onOpen, onOut, onRenam
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-slate-900/30 backdrop-blur-[2px]"
+      className="fixed inset-0 flex items-center justify-center backdrop-blur-[2px] fx-backdrop"
       style={{ zIndex: Z.modal }}
       onMouseDown={onClose}
     >

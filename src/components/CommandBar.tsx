@@ -225,7 +225,7 @@ export default function CommandBar() {
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center pt-[12vh] px-4">
       <button type="button" aria-label="Закрыть строку" onClick={close}
-        className="absolute inset-0 bg-slate-950/30 dark:bg-slate-950/55 cursor-default" />
+        className="absolute inset-0 cursor-default fx-backdrop" />
 
       <div role="dialog" aria-label="Спросить или найти"
         className="relative w-full max-w-xl fx-dialog overflow-hidden">

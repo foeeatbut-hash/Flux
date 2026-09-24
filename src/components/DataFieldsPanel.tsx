@@ -63,13 +63,13 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
   return (
     <div className="shrink-0 w-72 @[900px]:w-80 h-full flex flex-col overflow-hidden bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-        <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Database className="w-4 h-4 text-sky-600" /> Метки данных</span>
+        <span className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-1.5"><Database className="w-4 h-4 text-sky-600" /> Метки данных</span>
         <button type="button" title="Закрыть панель меток" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
       </div>
       <div className="flex border-b border-slate-100 dark:border-slate-850">
         {([['project', 'Проект'], ['tag', 'Тег'], ['now', 'Дата'], ['doc', `В документе${labels.length ? ` (${labels.length})` : ''}`]] as const).map(([id, label]) => (
           <button type="button" key={id} onClick={() => setTab(id)}
-            className={`flex-1 px-2 py-2 text-xs font-bold cursor-pointer ${tab === id ? 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400 border-b-2 border-sky-500' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+            className={`flex-1 px-2 py-2 text-xs font-semibold cursor-pointer ${tab === id ? 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400 border-b-2 border-sky-500' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
             {label}
           </button>
         ))}
@@ -88,10 +88,10 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
         )}
         {tab === 'tag' && (
           <>
-            <label className="block text-xs font-bold text-slate-500">Обозначение тега</label>
+            <label className="fx-label block">Обозначение тега</label>
             <input value={tagId} onChange={e => setTagId(e.target.value)} placeholder="напр. AHU-01"
               className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
-            <label className="block text-xs font-bold text-slate-500 mt-2">Поле тега</label>
+            <label className="fx-label block mt-2">Поле тега</label>
             <div className="flex gap-2">
               <select value={tagField} onChange={e => setTagField(e.target.value)}
                 className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
@@ -101,17 +101,17 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
                 <option value="wbs">WBS</option>
               </select>
               <button type="button" disabled={busy || !tagId.trim()} onClick={insertTagField}
-                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
+                className="fx-btn fx-btn-primary fx-btn-sm">Вставить</button>
             </div>
             <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850">
-              <label className="block text-xs font-bold text-slate-500">Параметр оборудования по тегу</label>
+              <label className="fx-label block">Параметр оборудования по тегу</label>
               <input value={paramGroup} onChange={e => setParamGroup(e.target.value)} placeholder="группа (напр. Габариты)"
                 className="w-full mt-1 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
               <div className="flex gap-2 mt-1.5">
                 <input value={paramKey} onChange={e => setParamKey(e.target.value)} placeholder="параметр (напр. Высота)"
                   className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
                 <button type="button" disabled={busy || !tagId.trim() || !paramKey.trim()} onClick={insertParam}
-                  className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
+                  className="fx-btn fx-btn-primary fx-btn-sm">Вставить</button>
               </div>
             </div>
           </>
@@ -145,13 +145,13 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
             )}
             {labels.map((l) => (
               <div key={l.id} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800">
-                <div className="text-xs font-bold text-slate-500 truncate" title={l.title}>{l.title}</div>
+                <div className="text-xs font-medium text-slate-500 truncate" title={l.title}>{l.title}</div>
                 <div className="text-sm text-slate-800 dark:text-white truncate" title={l.value}>{l.value}</div>
               </div>
             ))}
             {labels.length > 0 && (
               <button type="button" onClick={onRefresh}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">
+                className="fx-btn fx-btn-primary w-full justify-center">
                 <RefreshCw className="w-3.5 h-3.5" /> Обновить данные
               </button>
             )}

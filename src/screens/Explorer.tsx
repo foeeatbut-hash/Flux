@@ -2133,7 +2133,7 @@ export default function Explorer() {
       )}
 
       {assignTagModal && (
-        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-50" onClick={() => setAssignTagModal(null)}>
+        <div className="fixed inset-0 flex items-center justify-center z-50 fx-backdrop" onClick={() => setAssignTagModal(null)}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -2257,7 +2257,7 @@ export default function Explorer() {
       )}
 
       {importPickerFiles && (
-        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
+        <div className="fixed inset-0 flex items-center justify-center z-[70] fx-backdrop" onClick={() => setImportPickerFiles(null)}>
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

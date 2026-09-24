@@ -142,7 +142,7 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
 
   return (
     <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label={TITLES[mode]}>
-      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !sending && onClose()} />
+      <div className="fixed inset-0 fx-backdrop" onClick={() => !sending && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.97, y: 12 }}

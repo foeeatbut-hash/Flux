@@ -204,7 +204,7 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
       <RegionPicker onCancel={() => setPicking(false)}
         onPick={(region) => void shootRegion(region)} />
     )}
-    <div className="fixed inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
+    <div className="fixed inset-0 flex items-center justify-center backdrop-blur-[1px] p-4 fx-backdrop"
       style={{ zIndex: Z.modal, ...(hidden || picking ? { visibility: 'hidden' as const } : {}) }}
       onPaste={paste} onMouseDown={() => { if (!busy) onClose(); }}>
       <div role="dialog" aria-label="Обращение" onMouseDown={(e) => e.stopPropagation()}

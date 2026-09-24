@@ -1605,7 +1605,7 @@ export default function ChatManagement() {
       {/* EQUIPMENT SELECTION PIE SYSTEM ATTACH DIALOG */}
       <AnimatePresence>
         {isEquipmentModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md select-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none fx-backdrop">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -1695,7 +1695,7 @@ export default function ChatManagement() {
       {/* SCREENSHOT ANNOTATION CANVAS DIALOG (ФИЧА 3) */}
       <AnimatePresence>
         {isAnnotating && screenshotData && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fx-backdrop">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -1776,7 +1776,7 @@ export default function ChatManagement() {
 
       {/* ── Модалка: создание группы/канала ── */}
       {showCreateGroup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => !ngBusy && setShowCreateGroup(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => !ngBusy && setShowCreateGroup(false)}>
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Создать {ngType === 'CHANNEL' ? 'канал' : 'группу'}</h3>
@@ -1828,7 +1828,7 @@ export default function ChatManagement() {
 
       {/* ── Модалка: пересылка сообщения ── */}
       {forwardFor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setForwardFor(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => setForwardFor(null)}>
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Переслать сообщение</h3>
@@ -1855,7 +1855,7 @@ export default function ChatManagement() {
 
       {/* ── Модалка: настройки группы/канала ── */}
       {showGroupSettings && activeGroup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setShowGroupSettings(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => setShowGroupSettings(false)}>
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}</h3>

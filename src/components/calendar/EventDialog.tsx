@@ -124,7 +124,7 @@ export default function EventDialog({ draft, onClose }: { draft: Draft; onClose:
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
+      className="fixed inset-0 flex items-center justify-center backdrop-blur-[1px] p-4 fx-backdrop"
       style={{ zIndex: Z.modal }}
       onMouseDown={onClose}
     >
@@ -132,11 +132,10 @@ export default function EventDialog({ draft, onClose }: { draft: Draft; onClose:
         role="dialog"
         aria-label={draft.id ? 'Событие' : 'Новое событие'}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-lg max-h-[86vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-dark-border
-                   bg-white dark:bg-dark-surface shadow-2xl"
+        className="fx-dialog w-full max-w-lg max-h-[86vh] overflow-y-auto dark:border-dark-border dark:bg-dark-surface"
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
-          <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {readOnly ? 'Срок из реестра ВДР' : draft.id ? 'Событие' : 'Новое событие'}
           </span>
           <span className="flex-1" />

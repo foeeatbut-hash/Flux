@@ -1116,7 +1116,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
       {/* Именование при закрытии */}
       {nameDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
             <h3 className="font-bold text-slate-800 dark:text-white">Как назвать документ?</h3>
             <input

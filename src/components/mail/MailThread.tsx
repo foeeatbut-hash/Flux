@@ -671,7 +671,7 @@ function FolderPicker({ attachment, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-[85] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Куда сохранить вложение">
-      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !busy && onClose()} />
+      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="relative w-full max-w-md rounded-lg bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-3">
           <h3 className="text-base font-bold text-slate-900 dark:text-white">Сохранить в Проводник</h3>

@@ -74,8 +74,8 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={onClose}>
-      <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={e => e.stopPropagation()}
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
+      <div className="fx-dialog w-full max-w-lg p-5" onClick={e => e.stopPropagation()}
         role="dialog" aria-label="Привязать тег">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold">Привязать тег</h3>
