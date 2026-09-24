@@ -54,7 +54,7 @@ export function officeMode(roster: OfficeRoster | null, clientId: string, linked
   return gaveUp ? 'alone' : 'pending';
 }
 
-export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => void) {
+export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => void, app: 'docs' | 'pdf' | 'sheets' = 'docs') {
   const [roster, setRoster] = useState<OfficeRoster | null>(null);
   const [linked, setLinked] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
@@ -81,7 +81,7 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     sock.on('connect', () => {
       setLinked(true);
       setSocketId(sock.id || '');
-      sock.emit('office:join', { fileId, clientId: clientId.current });
+      sock.emit('office:join', { fileId, clientId: clientId.current, app });
     });
     sock.on('disconnect', () => { setLinked(false); setGaveUp(true); });
     sock.on('office:roster', (r: OfficeRoster) => { if (r?.fileId === fileId) setRoster(r); });
@@ -89,9 +89,11 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
       if (m?.fileId === fileId) savedRef.current(String(m.sha256 || ''));
     });
     // Совместная правка: всё остальное окно разбирает само (OfficeHost)
-    for (const ev of ['office:y', 'office:y-state', 'office:y-aware', 'office:save-request', 'office:saved']) {
+    for (const ev of ['office:y', 'office:y-state', 'office:y-aware', 'office:save-request', 'office:saved', 'office:saved-self']) {
       sock.on(ev, (m: any) => { if (m?.fileId === fileId) subs.current.get(ev)?.forEach((fn) => fn(m)); });
     }
+    // Сообщения главного процесса редактору (PDF, Таблица) — по номеру окна
+    sock.on('office:ipc-event', (m: any) => subs.current.get('office:ipc-event')?.forEach((fn) => fn(m)));
     sock.io.on('reconnect', () => subs.current.get('reconnect')?.forEach((fn) => fn(null)));
     return () => {
       clearTimeout(giveUp);
@@ -102,7 +104,7 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
       setLinked(false);
       setGaveUp(false);
     };
-  }, [fileId]);
+  }, [fileId, app]);
 
   /** Взять свободную правку. '' — взял, иначе причина */
   const take = useCallback(() => new Promise<string>((resolve) => {
@@ -122,6 +124,13 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     sockRef.current?.emit(event, { fileId, ...payload });
   }, [fileId]);
 
+  /** Спросить сервер и дождаться ответа (редакторы на сервере: PDF, Таблица) */
+  const request = useCallback(<T = any,>(event: string, payload: object, ms = 120_000) => new Promise<T>((resolve, reject) => {
+    const sock = sockRef.current;
+    if (!sock?.connected) return reject(new Error('Нет связи с сервером'));
+    sock.timeout(ms).emit(event, { fileId, ...payload }, (err: unknown, r: T) => (err ? reject(new Error('Сервер не ответил')) : resolve(r)));
+  }), [fileId]);
+
   /** Слушать событие сервера; возвращает отписку */
   const listen = useCallback((event: string, fn: (m: any) => void) => {
     const set = subs.current.get(event) || new Set();
@@ -133,5 +142,5 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
   const mode = officeMode(roster, clientId.current, linked, gaveUp);
   /** Я записываю файл: держатель — тот, кто сохраняет за всех */
   const holding = !!roster?.holder && roster.holder.clientId === clientId.current && !roster.holder.lost;
-  return { roster, socketId, clientId: clientId.current, mode, holding, linked, take, saved, emit, listen };
+  return { roster, socketId, clientId: clientId.current, mode, holding, linked, take, saved, emit, listen, request };
 }

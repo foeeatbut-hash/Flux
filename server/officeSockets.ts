@@ -8,6 +8,7 @@
 import type { Server, Socket } from 'socket.io';
 import { setupOfficeRooms } from './officeRooms.js';
 import { setupOfficeCollab } from './officeCollab.js';
+import { setupOfficeHostApps } from './officeHostApps.js';
 import { isSharedFile } from './routes/officeFiles.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { getPrisma } from './context.js';
@@ -35,5 +36,6 @@ export function setupOfficeSockets(io: Server, socket: Socket, deps: OfficeSocke
       return fileBytes(f);
     },
   });
-  return { gone: (reason) => { rooms.gone(reason); collab.gone(); } };
+  const apps = setupOfficeHostApps(io, socket, { getAuthUser: deps.getAuthUser });
+  return { gone: (reason) => { rooms.gone(reason); collab.gone(); apps.gone(); } };
 }

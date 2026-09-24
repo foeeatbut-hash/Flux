@@ -39,4 +39,5 @@ license-generator.html
 
 # Собранные редакторы Flux Office (tools/genoffice/build.mjs) и исходники GenOffice
 public/genoffice/
+genoffice-server/
 .cache/
