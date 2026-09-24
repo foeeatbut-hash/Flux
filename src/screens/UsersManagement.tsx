@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import SignatureEditor from '../components/SignatureEditor';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
-import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
+import { FEATURES, OPEN_BY_DEFAULT, entryOf, parsePermissions, PermMap } from '../lib/permissions';
 import { Check } from 'lucide-react';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
@@ -915,7 +915,12 @@ export default function UsersManagement() {
                       <div className="space-y-1.5">
                         {FEATURES.map((f) => {
                           const e = editPerms[f.id];
-                          const on = !!e?.enabled;
+                          // Право, открытое по умолчанию, галочка показывает таким, каким
+                          // оно действует (роль, умолчание, личное); снятие пишет запрет
+                          const open = OPEN_BY_DEFAULT.includes(f.id);
+                          const on = open
+                            ? !!entryOf({ ...parsePermissions((editUser as any)?.rolePermissions), ...editPerms }, f.id)?.enabled
+                            : !!e?.enabled;
                           const isExpired = !!e?.until && new Date(e.until).getTime() < Date.now();
                           // Что уже даёт должность: иначе админ выдаёт лично то,
                           // что у человека и так есть, и потом не понимает,
@@ -941,6 +946,8 @@ export default function UsersManagement() {
                                       </span>
                                     )}
                                     {f.risky && <span className="text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
+                                    {open && !e && on && <span className="text-2xs text-slate-400">у всех по умолчанию — снимите, чтобы запретить</span>}
+                                    {open && e && !e.enabled && <span className="text-2xs font-semibold text-rose-600 dark:text-rose-400">запрещено лично</span>}
                                     {on && isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 font-semibold">истекло</span>}
                                   </div>
                                   <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{f.desc}</p>

@@ -725,8 +725,10 @@ app.whenReady().then(() => {
   // printToPDF → диалог сохранения. Векторный PDF без внешних зависимостей.
   // headerTemplate/footerTemplate — колонтитулы Chromium: спаны с классами
   // pageNumber/totalPages дают настоящую нумерацию страниц («Стр. 3 из 12»).
-  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape, headerTemplate, footerTemplate }: {
-    html: string; title?: string; landscape?: boolean; headerTemplate?: string; footerTemplate?: string;
+  // pageSize — для бланков Конструктора: без него Chromium печатает на Letter,
+  // и лист A4 из Excel в PDF выходит другой формы
+  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape, headerTemplate, footerTemplate, pageSize }: {
+    html: string; title?: string; landscape?: boolean; headerTemplate?: string; footerTemplate?: string; pageSize?: 'A4' | 'A3';
   }) => {
     const { dialog } = require('electron');
     const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
@@ -736,6 +738,7 @@ app.whenReady().then(() => {
       const pdf = await pdfWin.webContents.printToPDF({
         landscape: !!landscape,
         printBackground: true,
+        ...(pageSize === 'A4' || pageSize === 'A3' ? { pageSize } : {}),
         ...(hasHf ? {
           displayHeaderFooter: true,
           headerTemplate: String(headerTemplate || '<span></span>'),

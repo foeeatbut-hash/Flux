@@ -1,6 +1,7 @@
 import { CORE_ARTICLES } from './coreArticles';
 import { WORK_ARTICLES } from './workArticles';
 import { TOPIC_ARTICLES } from './topicArticles';
+import { BUILDER_ARTICLES } from './builderArticles';
 import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type HandbookHit } from './model';
 
 /**
@@ -13,6 +14,7 @@ import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type Ha
 export const ARTICLES: HandbookArticle[] = [
   ...CORE_ARTICLES,
   ...WORK_ARTICLES,
+  ...BUILDER_ARTICLES,
   ...TOPIC_ARTICLES,
 ];
 
