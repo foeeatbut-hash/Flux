@@ -63,7 +63,7 @@ export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
     <span className="relative inline-flex">
       <button type="button" onClick={() => setOpen((v) => !v)} data-type-chip
         title={manual ? `Поправлено вручную · угадано: ${classLabel(typed.auto)}` : 'Тип угадан по названию и характеристикам — нажмите, чтобы поправить'}
-        className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold cursor-pointer hover:ring-1 hover:ring-emerald-400">
+        className="fx-btn fx-btn-quiet fx-btn-sm">
         {classLabel(typed)}{manual ? ' ✎' : ''}
       </button>
       {open && (

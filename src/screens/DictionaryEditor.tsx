@@ -1159,7 +1159,7 @@ export default function DictionaryEditor() {
                     {/* Categories Column */}
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <h3 className="min-w-0 text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории параметров
                         </h3>
@@ -1231,7 +1231,7 @@ export default function DictionaryEditor() {
                                   ) : (
                                     <div className="flex items-center gap-2 overflow-hidden flex-1 select-none">
                                       <span className="text-xs text-slate-400 tabular-nums">{index + 1}</span>
-                                      <span className="text-xs font-bold font-sans truncate">{cat.nameRu}</span>
+                                      <span className="text-xs font-medium font-sans truncate">{cat.nameRu}</span>
                                     </div>
                                   )}
 
@@ -1296,9 +1296,9 @@ export default function DictionaryEditor() {
                           return (
                             <>
                               <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 flex items-center gap-1.5 min-w-0 max-w-[240px]">
+                                <h3 className="text-xs font-semibold text-slate-550 dark:text-slate-400 flex items-center gap-1.5 min-w-0 max-w-[240px]">
                                   <Sliders className="w-4 h-4 text-emerald-500 shrink-0" />
-                                  Варианты: <span className="text-emerald-600 dark:text-emerald-400 font-bold flex-1 min-w-0 truncate">«{activeCategory?.nameRu}»</span>
+                                  Варианты: <span className="text-emerald-600 dark:text-emerald-400 font-medium flex-1 min-w-0 truncate">«{activeCategory?.nameRu}»</span>
                                 </h3>
                                 <span className="text-xs text-slate-400 tabular-nums shrink-0">всего {options.length}
                                 </span>
@@ -1428,7 +1428,7 @@ export default function DictionaryEditor() {
                     {/* Categories Column */}
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <h3 className="min-w-0 text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории маркировки
                         </h3>
@@ -1491,7 +1491,7 @@ export default function DictionaryEditor() {
                                     </div>
                                   ) : (
                                     <div className="flex-1 min-w-0 pr-2">
-                                      <p className="text-xs font-bold text-slate-800 dark:text-slate-300 truncate">
+                                      <p className="text-xs font-medium text-slate-800 dark:text-slate-300 truncate">
                                         {cat.nameRu}
                                       </p>
                                     </div>
@@ -1558,7 +1558,7 @@ export default function DictionaryEditor() {
                           return (
                             <>
                               <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
+                                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                                   <Layers className="w-4 h-4 text-emerald-550 shrink-0" />
                                   <span className="truncate">Варианты для: "{activeCategory?.nameRu}"</span>
                                 </h3>
@@ -1686,7 +1686,7 @@ export default function DictionaryEditor() {
                   <div className="grid grid-cols-1 @[900px]:grid-cols-12 divide-y @[900px]:divide-y-0 @[900px]:divide-x divide-slate-100 dark:divide-slate-800 min-h-[500px]">
                     {/* LEFTSIDE: CATEGORIES LIST & ADD */}
                     <div className="col-span-1 @[900px]:col-span-5 p-4 flex flex-col bg-slate-50/10 dark:bg-slate-950/10">
-                      <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-3">
+                      <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">
                         Категории фильтров
                       </h3>
 
@@ -1765,7 +1765,7 @@ export default function DictionaryEditor() {
                                   </div>
                                 ) : (
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-300">{preset.nameRu}</span>
+                                    <span className="text-xs font-medium text-slate-800 dark:text-slate-300">{preset.nameRu}</span>
                                     <span className="code text-xs text-slate-400">{preset.code}</span>
                                   </div>
                                 )}
@@ -1811,7 +1811,7 @@ export default function DictionaryEditor() {
                           return (
                             <div className="flex flex-col h-full space-y-4">
                               <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300">
+                                <h3 className="text-xs font-semibold text-slate-800 dark:text-slate-300">
                                   Варианты для категории: <span className="text-emerald-600">{activeCategory?.nameRu} ({activeCategory?.code})</span>
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1822,7 +1822,7 @@ export default function DictionaryEditor() {
                               {/* Form to add a sub-option value */}
                               <form onSubmit={(e) => handleCreateSubOption(e, presetDict!.id)} className="grid grid-cols-12 gap-2 py-2">
                                 <div className="col-span-5">
-                                  <label className="block text-xs font-bold text-slate-400">Значение варианта</label>
+                                  <label className="fx-label block">Значение варианта</label>
                                   <input
                                     type="text"
                                     required
@@ -1833,7 +1833,7 @@ export default function DictionaryEditor() {
                                   />
                                 </div>
                                 <div className="col-span-5">
-                                  <label className="block text-xs font-bold text-slate-400">Код (для вставки)</label>
+                                  <label className="fx-label block">Код (для вставки)</label>
                                   <input
                                     type="text"
                                     value={newSubOptionCode}
@@ -1893,7 +1893,7 @@ export default function DictionaryEditor() {
                                           </div>
                                         ) : (
                                           <div className="flex items-center gap-3">
-                                            <span className="text-xs font-bold text-slate-800 dark:text-slate-300">{opt.nameRu}</span>
+                                            <span className="text-xs font-medium text-slate-800 dark:text-slate-300">{opt.nameRu}</span>
                                             {opt.code && opt.code !== opt.nameRu && (
                                               <span className="code text-xs text-slate-400">{opt.code}</span>
                                             )}

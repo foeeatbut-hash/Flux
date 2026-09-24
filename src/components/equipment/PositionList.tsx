@@ -58,14 +58,14 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
   const toggleClass = (cls: string) =>
     setClasses((cur) => (cur.includes(cls) ? cur.filter((c) => c !== cls) : [...cur, cls]));
 
-  const seg = (on: boolean) => `px-2 py-1 text-2xs font-bold rounded-md cursor-pointer ${on
+  const seg = (on: boolean) => `px-2 py-1 text-2xs font-semibold rounded-md cursor-pointer ${on
     ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-emerald-600'}`;
 
   return (
     <div className="h-full flex flex-col @container" data-position-list>
       <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <b className="text-sm font-bold">Позиции списком</b>
+          <b className="text-sm font-semibold">Позиции списком</b>
           <span className="text-2xs text-slate-400 tabular-nums">{rows.length} строк · с тегом {tagged}</span>
           <span className="flex-1" />
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Группировать">
@@ -117,19 +117,19 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
               <tr className="text-left text-2xs text-slate-400">
-                <th className="px-3 py-1.5 font-bold">Тег</th>
-                <th className="px-2 py-1.5 font-bold">Тип</th>
-                <th className="px-2 py-1.5 font-bold hidden @[640px]:table-cell">Вид</th>
-                <th className="px-2 py-1.5 font-bold">Наименование</th>
-                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Тег родителя</th>
-                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Установка</th>
-                <th className="px-2 py-1.5 font-bold hidden @[860px]:table-cell">Откуда</th>
+                <th className="px-3 py-1.5">Тег</th>
+                <th className="px-2 py-1.5">Тип</th>
+                <th className="px-2 py-1.5 hidden @[640px]:table-cell">Вид</th>
+                <th className="px-2 py-1.5">Наименование</th>
+                <th className="px-2 py-1.5 hidden @[860px]:table-cell">Тег родителя</th>
+                <th className="px-2 py-1.5 hidden @[860px]:table-cell">Установка</th>
+                <th className="px-2 py-1.5 hidden @[860px]:table-cell">Откуда</th>
               </tr>
             </thead>
             {groups.map((g) => (
               <tbody key={g.key || 'all'}>
                 {g.title && (
-                  <tr><td colSpan={7} className="px-3 pt-3 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
+                  <tr><td colSpan={7} className="px-3 pt-3 pb-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     {g.title} <span className="text-slate-400 font-semibold tabular-nums">· {g.rows.length}</span>
                   </td></tr>
                 )}

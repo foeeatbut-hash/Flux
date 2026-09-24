@@ -45,7 +45,7 @@ export default function BrowserSection() {
       <div className="fx-set-group">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm font-bold">Страница не знает о программе</span>
+          <span className="text-sm font-semibold">Страница не знает о программе</span>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Каждая вкладка — отдельный процесс со своей сессией: у страницы нет доступа ни к данным
@@ -57,7 +57,7 @@ export default function BrowserSection() {
       <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Globe className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-bold">Куда разрешено ходить</span>
+          <span className="text-sm font-semibold">Куда разрешено ходить</span>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Список пуст — открываются любые адреса. Как только в нём появится хотя бы один, всё

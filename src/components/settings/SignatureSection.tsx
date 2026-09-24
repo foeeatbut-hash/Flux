@@ -25,7 +25,7 @@ export default function SignatureSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-base font-bold text-slate-800 dark:text-white">Моя подпись</h2>
+        <h2 className="text-base font-semibold text-slate-800 dark:text-white">Моя подпись</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           Ею подписываются поля «Разработал», «Проверил» и «Утвердил» — и в
           документе на экране, и в файле, который уходит заказчику.

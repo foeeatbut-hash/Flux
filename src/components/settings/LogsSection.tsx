@@ -78,7 +78,7 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
 
         {!forTriage && (
           <div className="fx-set-group space-y-2">
-            <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Что-то сломалось</div>
+            <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Что-то сломалось</div>
             <p className="text-2xs text-slate-500 dark:text-slate-400 leading-relaxed">
               Напишите, что случилось, — программа сама приложит свои технические записи
               за последнее время. Искать и отправлять файлы не нужно.
@@ -95,7 +95,7 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
             Раньше файлы лежали в AppData под именами вида pdm-crash-log-… и
             найти их не мог никто */}
         <div className="fx-set-group space-y-2">
-          <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Папка журналов</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Папка журналов</div>
           <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5
                         border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
             {deskFolder || 'Рабочий стол → «Flux — журналы»'}
@@ -119,7 +119,7 @@ export default function LogsSection({ addLog }: { addLog: (level: string, where:
         {/* Копия на сервере: администратору не приходится собирать логи по
             компьютерам */}
         <div className="fx-set-group space-y-2">
-          <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Копия на сервере</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Копия на сервере</div>
           <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5
                         border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
             {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}

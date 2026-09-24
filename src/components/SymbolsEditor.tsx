@@ -74,7 +74,7 @@ export default function SymbolsEditor() {
   return (
     <div className="flex-1 overflow-auto p-4 space-y-5">
       <div>
-        <h2 className="font-bold text-slate-800 dark:text-white text-lg flex items-center gap-2">
+        <h2 className="font-semibold text-slate-800 dark:text-white text-lg flex items-center gap-2">
           <Sigma className="w-5 h-5 text-emerald-600" /> Условные обозначения
         </h2>
         <p className="text-xs text-slate-500 mt-1 max-w-2xl">
@@ -86,7 +86,7 @@ export default function SymbolsEditor() {
 
       {/* Проверка на месте */}
       <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-        <div className="text-xs font-bold text-slate-500 mb-2">Проверить</div>
+        <div className="text-xs font-medium text-slate-500 mb-2">Проверить</div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <input
             value={probe.symbol}
@@ -103,7 +103,7 @@ export default function SymbolsEditor() {
           />
           <span className="text-slate-400">→</span>
           {answer ? (
-            <span className="font-bold text-emerald-700 dark:text-emerald-400">
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">
               {answer.label}
               <span className="ml-2 text-xs font-normal text-slate-400">
                 {answer.byUnit ? 'решила единица' : 'единица не помогла'}
@@ -125,14 +125,14 @@ export default function SymbolsEditor() {
       {/* Правила отдела */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-bold text-slate-500">Правила отдела</div>
+          <div className="text-xs font-medium text-slate-500">Правила отдела</div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setRules(l => [...l, emptyRule()])}
-              className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">
+              className="fx-btn fx-btn-sm">
               <Plus className="w-3.5 h-3.5" /> Добавить
             </button>
             <button type="button" onClick={save} disabled={saving}
-              className="flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer">
+              className="fx-btn fx-btn-primary fx-btn-sm">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Сохранить
             </button>
           </div>
@@ -196,7 +196,7 @@ export default function SymbolsEditor() {
       {/* Что поставляется с программой */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-bold text-slate-500">Поставляется с программой</div>
+          <div className="text-xs font-medium text-slate-500">Поставляется с программой</div>
           <button type="button"
             onClick={() => setRules(l => [...l, { ...BASE_SYMBOLS[0], label: BASE_SYMBOLS[0].label }])}
             title="Скопировать первое правило как заготовку"
@@ -217,7 +217,7 @@ export default function SymbolsEditor() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
               {BASE_SYMBOLS.map((r, i) => (
                 <tr key={i}>
-                  <td className="py-1 px-2 font-mono font-bold text-slate-700 dark:text-slate-300">
+                  <td className="py-1 px-2 font-mono font-medium text-slate-700 dark:text-slate-300">
                     {r.symbol}{r.caseSensitive && <span className="ml-1 text-2xs text-amber-600" title="регистр важен">Aa</span>}
                   </td>
                   <td className="py-1 px-2 text-slate-500">{fieldName(r.field)}</td>

@@ -78,7 +78,7 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={e => e.stopPropagation()}
         role="dialog" aria-label="Привязать тег">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold">Привязать тег</h3>
+          <h3 className="text-base font-semibold">Привязать тег</h3>
           <button type="button" title="Закрыть" onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
         <div className="relative mb-1">
@@ -125,12 +125,12 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'}`}
               >
                 <TagIcon className={`w-3.5 h-3.5 shrink-0 ${taken ? 'text-slate-400' : 'text-emerald-500'}`} />
-                <span className="font-mono font-bold shrink-0">{t.identifier}</span>
+                <span className="font-mono font-medium shrink-0">{t.identifier}</span>
                 {name && <span className="text-slate-400 truncate">{name}</span>}
                 <span className="ml-auto flex items-center gap-1.5 shrink-0">
                   {t.department && <span className="text-2xs text-slate-400">{t.department}</span>}
-                  {linkedHere && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
-                  {holder && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
+                  {linkedHere && <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
+                  {holder && <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
                 </span>
               </button>
             );

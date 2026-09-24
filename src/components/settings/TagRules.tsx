@@ -161,8 +161,7 @@ export default function TagRules({ addToast }: { addToast: (m: string, kind?: an
             type="button"
             onClick={() => policy && save(policy)}
             disabled={busy || !policy}
-            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700
-                       text-white disabled:opacity-50 cursor-pointer transition-colors"
+            className="fx-btn fx-btn-primary fx-btn-sm"
           >
             Сохранить
           </button>

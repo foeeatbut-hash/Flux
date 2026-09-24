@@ -131,9 +131,9 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
                     title="Отметить для мультивыбора"
                   />
                   <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.text} bg-current`} title={`Актуальность: ${st.label}`} />
-                  <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
+                  <span className="font-mono font-medium text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
                   {dup && (
-                    <span className="shrink-0 text-2xs font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">дубль</span>
+                    <span className="shrink-0 text-xs font-medium px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">дубль</span>
                   )}
                   <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{meta.mainName || ''}</span>
                   {t.brand && <span className="font-mono text-2xs text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
@@ -143,7 +143,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
           </div>
           {selectedTagIds.size > 0 && (
             <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-900/40">
-              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-300">Отмечено: {selectedTagIds.size}</span>
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-300">Отмечено: {selectedTagIds.size}</span>
               <div className="flex items-center gap-1.5">
                 <button type="button"
                   onClick={() => {

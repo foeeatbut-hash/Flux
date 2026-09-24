@@ -106,7 +106,7 @@ export default function CardActions(p: CardActionsProps) {
           style={{ top: Math.min(q.y, window.innerHeight - 52), left: Math.min(q.x, window.innerWidth - 300) }}
           onClick={(e) => e.stopPropagation()}
         >
-          <span className="px-1.5 text-2xs font-mono font-bold text-slate-400 max-w-[110px] truncate">
+          <span className="px-1.5 text-xs font-mono font-medium text-slate-400 max-w-[110px] truncate">
             {p.codeOf(q.tagId)}
           </span>
           <button type="button" onClick={() => { p.onStartMulti(); p.onClosePanel(); }}

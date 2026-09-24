@@ -206,7 +206,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
     .filter((sec) => sec.params.length);
   const addSection = (sec: typeof sections[number]) =>
     set({ columns: [...spec.columns, ...sec.params.filter((x) => !hasCol(x.key)).map((x) => ({ key: x.key, label: x.label, unit: x.unit }))] });
-  const label = 'text-2xs font-bold text-slate-400';
+  const label = 'text-2xs font-semibold text-slate-400';
   const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-2xs font-semibold border cursor-pointer ${on
     ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`;
 
@@ -337,7 +337,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                 {sectionsShown.map((sec) => (
                   <div key={sec.title}>
                     <div className="flex items-center gap-2 px-1">
-                      <span className="flex-1 min-w-0 text-2xs font-bold text-slate-500 dark:text-slate-400 break-words">{sec.title}</span>
+                      <span className="flex-1 min-w-0 text-xs font-medium text-slate-500 dark:text-slate-400 break-words">{sec.title}</span>
                       <button type="button" onClick={() => addSection(sec)} disabled={sec.params.every((x) => hasCol(x.key))}
                         className="shrink-0 text-2xs text-emerald-600 hover:text-emerald-700 cursor-pointer disabled:opacity-35 disabled:cursor-default">+ весь раздел</button>
                     </div>
@@ -371,12 +371,12 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
             <div className="flex-1 overflow-auto">
               <table className="text-xs border-collapse">
                 <thead className="sticky top-0 bg-white dark:bg-slate-950">
-                  <tr>{table.headers.map((h, i) => <th key={i} className="px-2 py-1.5 text-left font-bold border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">{h}</th>)}</tr>
+                  <tr>{table.headers.map((h, i) => <th key={i} className="px-2 py-1.5 text-left border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">{h}</th>)}</tr>
                 </thead>
                 <tbody>
                   {table.rows.slice(0, 20).map((r, i) => (
                     table.groupRows.includes(i)
-                      ? <tr key={i}><td colSpan={Math.max(1, table.headers.length)} className="px-2 pt-2 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">{r[0]}</td></tr>
+                      ? <tr key={i}><td colSpan={Math.max(1, table.headers.length)} className="px-2 pt-2 pb-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">{r[0]}</td></tr>
                       : <tr key={i} className="border-b border-slate-100 dark:border-slate-850">{r.map((v, j) => <td key={j} className="px-2 py-1 whitespace-nowrap max-w-[240px] truncate">{v}</td>)}</tr>
                   ))}
                 </tbody>
@@ -405,7 +405,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
           <button type="button" disabled={busy} onClick={() => run('csv')} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"><FileSpreadsheet className="w-3.5 h-3.5" />CSV</button>
           <button type="button" disabled={busy} onClick={() => run('office')} title="Таблица Flux Office, связанная с проектом: «Собрать» потом обновит значения"
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 cursor-pointer disabled:opacity-50"><Table2 className="w-3.5 h-3.5" />В таблицу Flux Office</button>
-          <button type="button" disabled={busy} onClick={() => run('xlsx')} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-emerald-600 text-white font-bold cursor-pointer disabled:opacity-50"><Download className="w-3.5 h-3.5" />Excel</button>
+          <button type="button" disabled={busy} onClick={() => run('xlsx')} className="fx-btn fx-btn-primary fx-btn-sm"><Download className="w-3.5 h-3.5" />Excel</button>
         </div>
       </div>
     </div>

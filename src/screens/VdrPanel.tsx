@@ -329,64 +329,65 @@ export default function VdrPanel() {
           {/* Таблица */}
           <div className="overflow-hidden">
             <div className="overflow-auto max-h-[calc(100vh-330px)]">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-10">
-                  <tr className="text-left text-slate-500 dark:text-slate-400">
-                    <th className="flux-cell w-8">
+              <table className="fx-table">
+                <thead className="sticky top-0 z-10">
+                  <tr className="text-left">
+                    <th className="w-8">
                       <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
                         checked={selected.size > 0 && selected.size === filtered.length}
                         onChange={e => setSelected(e.target.checked ? new Set(filtered.map(i => i.id)) : new Set())} />
                     </th>
-                    <th className="flux-cell font-bold whitespace-nowrap">№ документа</th>
-                    <th className="flux-cell font-bold">Наименование</th>
-                    <th className="flux-cell font-bold">Тип</th>
-                    <th className="flux-cell font-bold">Рев.</th>
-                    <th className="flux-cell font-bold whitespace-nowrap">Срок</th>
-                    <th className="flux-cell font-bold">Код</th>
-                    <th className="flux-cell font-bold">Статус</th>
-                    <th className="flux-cell font-bold">Теги</th>
-                    <th className="flux-cell font-bold">Исполнитель</th>
-                    <th className="flux-cell font-bold text-right">Действия</th>
+                    <th className="whitespace-nowrap">№ документа</th>
+                    <th>Наименование</th>
+                    <th>Тип</th>
+                    <th>Рев.</th>
+                    <th className="whitespace-nowrap">Срок</th>
+                    <th>Код</th>
+                    <th>Статус</th>
+                    <th>Теги</th>
+                    <th>Исполнитель</th>
+                    <th className="w-20"><span className="sr-only">Действия</span></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
+                <tbody>
                   {filtered.map(it => (
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
-                      className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60 ${focusItemId === it.id ? 'bg-emerald-50 dark:bg-emerald-950/30' : ''}`}>
-                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
+                      aria-selected={focusItemId === it.id}
+                      className="cursor-pointer">
+                      <td onClick={e => e.stopPropagation()}>
                         <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
                           checked={selected.has(it.id)}
                           onChange={e => setSelected(s => { const n = new Set(s); e.target.checked ? n.add(it.id) : n.delete(it.id); return n; })} />
                       </td>
-                      <td className="flux-cell font-semibold whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
-                      <td className="flux-cell max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
-                      <td className="flux-cell whitespace-nowrap">{it.vdrCode}</td>
-                      <td className="flux-cell font-bold">{it.revision}</td>
-                      <td className={`flux-cell whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
-                      <td className="flux-cell font-bold">{it.reviewCode}</td>
-                      <td className="flux-cell whitespace-nowrap"><Status tone={STATUS_META[it.status]?.tone || 'slate'}>{STATUS_META[it.status]?.label || it.status}</Status></td>
-                      <td className="flux-cell max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
-                      <td className="flux-cell whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
-                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-0.5">
+                      <td className="font-medium whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
+                      <td className="max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
+                      <td className="whitespace-nowrap">{it.vdrCode}</td>
+                      <td className="font-medium">{it.revision}</td>
+                      <td className={`whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-semibold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
+                      <td className="font-medium">{it.reviewCode}</td>
+                      <td className="whitespace-nowrap"><Status tone={STATUS_META[it.status]?.tone || 'slate'}>{STATUS_META[it.status]?.label || it.status}</Status></td>
+                      <td className="max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
+                      <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <div className="fx-row-acts">
                           {it.docId ? (
                             <button type="button" title="Открыть документ" onClick={() => navigate(`/sheet?doc=${it.docId}`)}
-                              className="p-1.5 rounded-lg text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer"><FileText className="w-3.5 h-3.5" /></button>
+                              aria-label="Открыть документ" className="fx-ibtn"><FileText className="w-3.5 h-3.5" /></button>
                           ) : (
                             <button type="button" title="Сформировать документ" onClick={() => createDoc(it)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer"><Plus className="w-3.5 h-3.5" /></button>
+                              aria-label="Сформировать документ" className="fx-ibtn"><Plus className="w-3.5 h-3.5" /></button>
                           )}
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
                             <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
-                              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"><Send className="w-3.5 h-3.5" /></button>
+                              aria-label="Готово — уведомить менеджера" className="fx-ibtn"><Send className="w-3.5 h-3.5" /></button>
                           )}
                         </div>
                       </td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
+                    <tr><td colSpan={11} className="py-6 text-slate-500 dark:text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -492,12 +493,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
   const F = ({ label, k, ph }: { label: string; k: keyof Item; ph?: string }) => (
     <div>
-      <label className="block text-xs font-bold text-slate-500">{label}</label>
+      <label className="fx-label block">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF(s => ({ ...s, [k]: e.target.value }))} placeholder={ph} className={inputCls} />
     </div>
   );
   const Sect = ({ title }: { title: string }) => (
-    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-2xs font-bold text-emerald-500">{title}</div>
+    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-xs font-medium text-emerald-500">{title}</div>
   );
 
   return (
@@ -514,15 +515,15 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           {!isNew && (
             <div className="flex items-center gap-2">
               {f.docId ? (
-                <button type="button" onClick={() => onOpenDoc(f.docId!)} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">
+                <button type="button" onClick={() => onOpenDoc(f.docId!)} className="fx-btn fx-btn-primary flex-1 justify-center">
                   <FileText className="w-3.5 h-3.5" /> Открыть документ
                 </button>
               ) : (
-                <button type="button" onClick={onCreateDoc} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-bold hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer">
+                <button type="button" onClick={onCreateDoc} className="fx-btn flex-1 justify-center">
                   <Plus className="w-3.5 h-3.5" /> Сформировать документ
                 </button>
               )}
-              <button type="button" onClick={() => setRevDialog('next')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer" title="Выпустить новую ревизию">
+              <button type="button" onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>
             </div>
@@ -534,7 +535,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <F label="№ заказчика" k="ownerNo" />
             <F label="№ поставщика" k="vendorNo" />
             <div>
-              <label className="block text-xs font-bold text-slate-500">Тип (VDR-код)</label>
+              <label className="fx-label block">Тип (VDR-код)</label>
               <input list="vdr-types" value={f.vdrCode} onChange={e => setF(s => ({ ...s, vdrCode: e.target.value }))} className={inputCls} />
               <datalist id="vdr-types">
                 {(standard?.config?.vdrTypes || []).map((t: any) => <option key={t.code} value={t.code}>{t.titleRu || t.titleEn}</option>)}
@@ -546,7 +547,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <div className="grid grid-cols-3 gap-2.5">
             <F label="Ревизия" k="revision" />
             <div>
-              <label className="block text-xs font-bold text-slate-500">Причина</label>
+              <label className="fx-label block">Причина</label>
               <select value={f.reasonForIssue} onChange={e => setF(s => ({ ...s, reasonForIssue: e.target.value }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reasons.map((r: any) => <option key={r.code} value={r.code}>{r.code}</option>)}
@@ -557,11 +558,11 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-xs font-bold text-slate-500">Дата выпуска</label>
+              <label className="fx-label block">Дата выпуска</label>
               <input type="date" value={f.issueDate ? String(f.issueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, issueDate: e.target.value || null }))} className={inputCls} />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500">Срок след. ревизии</label>
+              <label className="fx-label block">Срок след. ревизии</label>
               <input type="date" value={f.dueDate ? String(f.dueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, dueDate: e.target.value || null }))} className={inputCls} />
             </div>
           </div>
@@ -569,14 +570,14 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <Sect title="Рассмотрение" />
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-xs font-bold text-slate-500" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
+              <label className="fx-label block" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
               <select value={f.reviewCode} onChange={e => setReviewCode(e.target.value)} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reviewCodes.map((c: any) => <option key={c.code} value={c.code} title={c.label}>{c.code} — {String(c.label).split('/')[0].trim()}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500">Исполнитель</label>
+              <label className="fx-label block">Исполнитель</label>
               <select value={f.assigneeId || ''} onChange={e => setF(s => ({ ...s, assigneeId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -584,12 +585,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             </div>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500">Замечания</label>
+            <label className="fx-label block">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
           {f.fileNodeId && (
             <button type="button" onClick={() => { window.location.hash = `#/explorer?file=${f.fileNodeId}`; }}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold hover:bg-amber-50 dark:hover:bg-amber-950/30 cursor-pointer">
+              className="fx-btn fx-btn-sm w-full justify-center">
               <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть в Проводнике
             </button>
           )}
@@ -597,7 +598,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">
             {tags.map(t => (
-              <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
+              <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
                 <TagIcon className="w-3 h-3" /> {t}
                 <button type="button" onClick={() => setF(s => ({ ...s, equipmentTags: JSON.stringify(tags.filter(x => x !== t)) }))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
@@ -624,7 +625,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
               <div className="grid grid-cols-2 gap-2.5">
                 {customCols.map(c => (
                   <div key={c.key}>
-                    <label className="block text-xs font-bold text-slate-500 truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
+                    <label className="fx-label block truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
                     <input value={String(f.extra?.[c.key] ?? '')}
                       onChange={e => setF(s => ({ ...s, extra: { ...s.extra, [c.key]: e.target.value } }))}
                       className={inputCls} />
@@ -641,7 +642,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850">
                   {revisions.map(v => (
                     <div key={v.id} className="px-3 py-1.5 flex items-center gap-2 text-xs">
-                      <span className="w-7 font-black text-emerald-600">{v.revision}</span>
+                      <span className="w-7 font-medium text-emerald-600">{v.revision}</span>
                       <span className="text-slate-400 w-20">{fmtD(v.date)}</span>
                       <span className="text-slate-500 w-12">{v.reason}</span>
                       <span className="flex-1 truncate text-slate-700 dark:text-slate-300" title={`${v.place}\n${v.description}`}>{[v.place, v.description].filter(Boolean).join(' — ')}</span>
@@ -650,8 +651,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 </div>
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setRevDialog('void')} className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">Аннулировать (V)</button>
-                <button type="button" onClick={() => setRevDialog('superseded')} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Заменён (S)</button>
+                <button type="button" onClick={() => setRevDialog('void')} className="fx-btn fx-btn-danger fx-btn-sm">Аннулировать (V)</button>
+                <button type="button" onClick={() => setRevDialog('superseded')} className="fx-btn fx-btn-sm">Заменён (S)</button>
               </div>
             </>
           )}
@@ -659,7 +660,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
-          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+          <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
             {busy ? 'Сохраняю…' : 'Сохранить'}
           </button>
         </div>
@@ -668,7 +669,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         {revDialog && (
           <div className="absolute inset-0 z-10 bg-black/30 flex items-center justify-center p-6" onClick={() => setRevDialog(null)}>
             <div className="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-4 space-y-2.5" onClick={e => e.stopPropagation()}>
-              <h4 className="font-bold text-sm text-slate-800 dark:text-white">
+              <h4 className="font-semibold text-sm text-slate-800 dark:text-white">
                 {revDialog === 'void' ? 'Аннулировать документ (→V)' : revDialog === 'superseded' ? 'Пометить заменённым (→S)' : `Выпустить ревизию (текущая: ${f.revision})`}
               </h4>
               <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="Место изменения (разд., лист)" className={inputCls} />
@@ -677,9 +678,9 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 <button type="button" onClick={() => setRevDialog(null)} className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
                 {revDialog === 'next' && /^[A-Za-zА-Яа-я]$/.test(f.revision) && (
                   <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
-                    className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">Утвердить (→0)</button>
+                    className="fx-btn fx-btn-sm">Утвердить (→0)</button>
                 )}
-                <button type="button" onClick={issueRevision} disabled={busy} className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
               </div>
             </div>
           </div>
@@ -722,7 +723,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
   const F = ({ label, k }: { label: string; k: string }) => (
     <div>
-      <label className="block text-xs font-bold text-slate-500">{label}</label>
+      <label className="fx-label block">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))} className={inputCls} />
     </div>
   );
@@ -739,7 +740,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
     const chosen = users.find((u) => u.id === f[kId]);
     return (
       <div>
-        <label className="block text-xs font-bold text-slate-500">{label}</label>
+        <label className="fx-label block">{label}</label>
         <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))}
           placeholder="Фамилия И.О." className={inputCls} />
         <select
@@ -771,13 +772,13 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="font-bold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
+          <h3 className="font-semibold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
           <button type="button" title="Закрыть реквизиты" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />
           <div>
-            <label className="block text-xs font-bold text-slate-500">Стандарт документооборота</label>
+            <label className="fx-label block">Стандарт документооборота</label>
             <select value={f.standardId || ''} onChange={e => setF((s: any) => ({ ...s, standardId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">— по умолчанию —</option>
               {standards.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -795,7 +796,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           <F label="№ ВДР (заказчик)" k="ownerDocNo" />
           <F label="№ ВДР (поставщик)" k="vendorDocNo" />
           <div>
-            <label className="block text-xs font-bold text-slate-500">Менеджер (уведомления «готово»)</label>
+            <label className="fx-label block">Менеджер (уведомления «готово»)</label>
             <select value={f.managerId || ''} onChange={e => setF((s: any) => ({ ...s, managerId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">—</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -807,7 +808,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-850">
-          <div className="text-xs font-bold text-emerald-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
+          <div className="text-xs font-medium text-emerald-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
           <div className="flex flex-wrap gap-1.5 mb-2 max-h-28 overflow-auto">
             {cols.filter(c => !c.field).map(c => (
               <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold">
@@ -823,13 +824,13 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
               onKeyDown={e => { if (e.key === 'Enter' && newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
               className={inputCls + ' flex-1'} />
             <button type="button" onClick={() => { if (newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
-              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer shrink-0">+ Добавить</button>
+              className="fx-btn fx-btn-sm shrink-0">+ Добавить</button>
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
-          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">Сохранить</button>
+          <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">Сохранить</button>
         </div>
       </div>
     </div>

@@ -128,9 +128,7 @@ function Links({ links, axis, box, selected, frame, showFlowDots, onSelect, onRe
                 type="button"
                 title="Разорвать связь"
                 onClick={(e) => { e.stopPropagation(); onRemove(l); }}
-                className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white
-                           flex items-center justify-center text-xs font-bold shadow-md hover:scale-110
-                           transition-ui border border-white dark:border-slate-900 cursor-pointer"
+                className="fx-btn fx-btn-danger-fill w-5 justify-center"
               >
                 ×
               </button>

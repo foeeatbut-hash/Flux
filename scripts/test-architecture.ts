@@ -196,7 +196,7 @@ const LEGACY: Record<string, number> = {
   // Слой связей уехал в components/registry/BoardLinks, меню и мини-панель
   // карточки — в CardActions, панель дублей — в DuplicatesPanel, геометрия и
   // раскладка — в lib/tagLayout: планка ниже
-  'src/screens/Registry.tsx': 5235,
+  'src/screens/Registry.tsx': 4682,
   // Проверка и копирование SQLite вынесены отдельно, мастер-вход удалён.
   'server.ts': 4206,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
@@ -447,14 +447,14 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 596,
+    'жирный 700 (font-bold/extrabold/black)': 400,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
     'курсив (italic)': 40,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
     'крупная тень (shadow-lg/xl/2xl)': 115,
-    'половинные оттенки (slate-503, emerald-995…)': 615,
+    'половинные оттенки (slate-503, emerald-995…)': 604,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   const PATTERNS: Record<string, RegExp> = {
