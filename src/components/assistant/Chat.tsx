@@ -75,10 +75,9 @@ function InteractiveList({ items }: { items: NonNullable<AssistantMessage['list'
         <div key={it.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <div className="flex items-center gap-1.5 min-w-0">
             <TagIcon className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
+            <span className="font-mono font-medium text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
             {it.badge && (
-              <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50
-                               text-rose-600 dark:text-rose-300">{it.badge}</span>
+              <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300">{it.badge}</span>
             )}
           </div>
           {it.subtitle && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
@@ -103,7 +102,7 @@ function DataTable({ table }: { table: NonNullable<AssistantMessage['table']> })
           <thead className="sticky top-0">
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {table.columns.map((c, i) => (
-                <th key={i} className="px-2 py-1.5 text-left font-bold border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">{c}</th>
+                <th key={i} className="px-2 py-1.5 text-left border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">{c}</th>
               ))}
             </tr>
           </thead>
@@ -313,7 +312,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
       {section && demoMode && (
         <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-850 shrink-0">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <span className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <Info className="w-3 h-3" /> {section.emoji} Раздел: {section.title}
             </span>
             <button type="button" onClick={() => describeCurrentSection()}
@@ -357,8 +356,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
             {/* Панелька встаёт НАД кнопкой: под ней поле ввода, и список,
                 выпавший вниз, закрывал бы то, ради чего его открыли */}
             <div className="fixed inset-0 z-10" onClick={() => setModesOpen(false)} />
-            <div className="absolute bottom-full left-3 mb-1 z-20 w-64 rounded-xl border border-slate-200
-                            dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
+            <div className="fx-dialog absolute bottom-full left-3 mb-1 z-20 w-64 overflow-hidden">
               {ASSISTANT_MODES.map((m) => {
                 const active = (m.id === 'demo') === !!demoMode;
                 return (
@@ -368,7 +366,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
                       active ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-slate-50 dark:hover:bg-slate-850'
                     }`}
                   >
-                    <div className={`text-xs font-bold ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
+                    <div className={`text-xs font-semibold ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
                       {m.label}
                     </div>
                     <div className="text-2xs text-slate-500 dark:text-slate-400 leading-snug">{m.hint}</div>

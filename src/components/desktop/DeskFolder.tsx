@@ -70,8 +70,7 @@ export default function DeskFolder({ group, items, scale, onOpen, onOut, onRenam
               if (e.key === 'Escape') { e.stopPropagation(); setName(group.name); (e.target as HTMLInputElement).blur(); }
             }}
             aria-label="Имя папки"
-            className="flex-1 min-w-0 bg-transparent outline-none text-sm font-bold
-                       text-slate-800 dark:text-slate-100 border-b border-transparent focus:border-emerald-400"
+            className="flex-1 min-w-0 bg-transparent outline-none text-sm font-semibold text-slate-800 dark:text-slate-100 border-b border-transparent focus:border-emerald-400"
           />
           <span className="shrink-0 text-2xs tabular-nums text-slate-400">{count(items.length, 'значок', 'значка', 'значков')}</span>
           <button type="button" onClick={onClose} aria-label="Закрыть папку"

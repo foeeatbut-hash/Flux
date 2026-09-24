@@ -192,7 +192,7 @@ export default function BrowserScreen() {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
         <Globe className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Браузер работает в программе на компьютере</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Браузер работает в программе на компьютере</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
           Во вкладке браузера показать чужой сайт нельзя — так устроены сами сайты. Откройте Flux
           на рабочем месте, и раздел заработает.
@@ -331,7 +331,7 @@ export default function BrowserScreen() {
         ) : showHistory ? (
           <div className="absolute inset-0 overflow-y-auto p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">История</h2>
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">История</h2>
               <button type="button" onClick={() => st.clearHistory()}
                 className="text-2xs text-slate-500 hover:text-rose-600 cursor-pointer">Очистить</button>
             </div>
@@ -350,7 +350,7 @@ export default function BrowserScreen() {
         ) : active?.error ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
             <TriangleAlert className="w-8 h-8 text-amber-500" />
-            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Страница не открылась</h2>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Страница не открылась</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md">{active.error}</p>
             <button type="button" onClick={() => st.act('reload')}
               className="mt-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700">
@@ -384,7 +384,7 @@ export default function BrowserScreen() {
             </div>
             {st.bookmarks.length > 0 && (
               <div className="w-full max-w-xl">
-                <p className="text-2xs font-bold text-slate-400 mb-2">Закладки проекта</p>
+                <p className="text-xs font-medium text-slate-400 mb-2">Закладки проекта</p>
                 <div className="grid grid-cols-2 @[720px]:grid-cols-3 gap-1.5">
                   {st.bookmarks.slice(0, 12).map((b) => (
                     <button key={b.id} type="button" onClick={() => void st.open(b.url)}

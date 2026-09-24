@@ -51,7 +51,7 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
           </div>
           <Input value={edit.title.ru} placeholder="Название" onChange={(e) => setEdit({ ...edit, title: { ...edit.title, ru: e.target.value } })} disabled={!canEdit} />
           <Input value={factsToText(edit.facts)} placeholder="Признаки: voltage=24; ex=true" onChange={(e) => setEdit({ ...edit, facts: textToFacts(e.target.value) })} className="font-mono" disabled={!canEdit} />
-          <div className="text-2xs font-bold text-slate-400 mt-1">Характеристики</div>
+          <div className="text-xs font-medium text-slate-400 mt-1">Характеристики</div>
           {(edit.specs || []).map((s, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_auto] gap-1">
               <Input value={s.label.ru} onChange={(e) => setEdit({ ...edit, specs: edit.specs!.map((x, j) => (j === i ? { ...x, label: { ...x.label, ru: e.target.value } } : x)) })} disabled={!canEdit} />

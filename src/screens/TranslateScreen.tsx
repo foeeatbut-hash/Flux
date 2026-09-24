@@ -253,7 +253,7 @@ export default function TranslateScreen() {
     <div className="h-full flex flex-col bg-white dark:bg-slate-950">
       <div className="shrink-0 flex items-center gap-2 px-3 h-10 border-b border-slate-200 dark:border-slate-800">
         <Languages className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-        <span className="text-xs font-bold text-slate-800 dark:text-slate-150">Переводчик</span>
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Переводчик</span>
         <span className="flex items-center gap-1 ml-2">
           {MODES.map((m) => (
             <button key={m.id} type="button" onClick={() => setMode(m.id)}

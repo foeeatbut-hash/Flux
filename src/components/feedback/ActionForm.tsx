@@ -79,7 +79,7 @@ export default function ActionForm({ action, assignees, candidates, busy, failur
     <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/60
                     dark:bg-emerald-950/20 p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-bold text-slate-800 dark:text-slate-150">{action.action}</span>
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-150">{action.action}</span>
         <span className="flex-1" />
         <button type="button" onClick={onCancel} aria-label="Отменить действие" disabled={busy}
           className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-slate-400

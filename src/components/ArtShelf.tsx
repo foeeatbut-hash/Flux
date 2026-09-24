@@ -141,7 +141,7 @@ export default function ArtShelf({ onClose, onExpand }: Props) {
         className="flex items-baseline gap-1.5 px-1 pt-1"
         style={{ height: LABEL_H }}
       >
-        <span className="text-2xs font-bold text-slate-800 dark:text-slate-100 shrink-0 max-w-[58%] truncate">
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-100 shrink-0 max-w-[58%] truncate">
           {v.title}
         </span>
         <span className="text-2xs text-slate-500 dark:text-slate-400 min-w-0 truncate">

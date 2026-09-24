@@ -39,7 +39,7 @@ export default function UnknownKinds({ kinds, onSaved }: { kinds: string[]; onSa
 
   return (
     <div className="px-5 py-2 border-b border-slate-200 dark:border-slate-800 bg-amber-50/60 dark:bg-amber-950/20 text-xs shrink-0">
-      <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+      <div className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
         <HelpCircle className="w-3.5 h-3.5 shrink-0" />
         В файле есть узлы, которых программа не знает — они не приедут, пока их не отнести к роли
       </div>

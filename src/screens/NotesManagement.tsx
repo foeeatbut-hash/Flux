@@ -455,16 +455,6 @@ export default function NotesManagement() {
     return d.toLocaleDateString('ru-RU');
   };
 
-  // Счетчик слов и символов выбранной заметки
-  const noteStats = (() => {
-    if (!selectedNote) return null;
-    const tmp = typeof document !== 'undefined' ? document.createElement('div') : null;
-    if (!tmp) return null;
-    tmp.innerHTML = selectedNote.content || '';
-    const text = tmp.innerText.trim();
-    const words = text ? text.split(/\s+/).length : 0;
-    return { words, chars: text.length };
-  })();
 
   return (
     <motion.div 
@@ -472,28 +462,25 @@ export default function NotesManagement() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.25 }}
-      className="h-full flex gap-4 overflow-x-auto font-sans select-none"
+      className="h-full flex overflow-x-auto select-none"
     >
       {/* LEFT SIDEBAR: NOTES DIRECTORY */}
-      <div id="notes-sidebar" className="w-56 @[900px]:w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
+      <div id="notes-sidebar" className="fx-side w-56 @[900px]:w-72 shrink-0 flex flex-col overflow-hidden">
         {/* Search & Add block */}
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
+        <div className="px-3 pt-3 pb-2 space-y-2">
           <div className="flex items-center justify-between gap-2 min-w-0">
-            <h2 className="min-w-0 text-md font-bold text-slate-850 dark:text-white flex items-center gap-2">
-              <BookOpen className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span className="truncate">Инженерный блокнот</span>
-            </h2>
+            <h2 className="min-w-0 truncate text-[15px] font-semibold text-slate-900 dark:text-white">Блокнот</h2>
             <button type="button"
               onClick={() => handleCreateNote()}
               data-tour="note-create-btn"
-              className="p-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg cursor-pointer transition-ui flex items-center justify-center shadow-xs"
-              title="Создать заметку"
+              className="fx-ibtn"
+              title="Создать заметку" aria-label="Создать заметку"
             >
               <Plus className="w-4 h-4" />
             </button>
           </div>
           {/* Чей блокнот смотрим */}
-          <div className="flex items-center gap-1">
+          <div className="fx-segctl" role="group" aria-label="Чьи заметки">
             {(() => {
               const counts = {
                 mine: notes.filter(n => n.mine).length,
@@ -507,24 +494,21 @@ export default function NotesManagement() {
                     title={id === 'shared' ? 'Заметки, которыми с вами поделились'
                       : id === 'common' ? 'Заметки из версий до личного блокнота — видны всем'
                       : 'Ваши личные заметки'}
-                    className={`px-2.5 py-1 rounded-lg text-2xs font-bold cursor-pointer transition-ui ${
-                      scope === id
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
-                    {label} {counts[id] > 0 && <span className="opacity-70">{counts[id]}</span>}
+                    aria-pressed={scope === id}>
+                    {label}{counts[id] > 0 && <span className="fx-n ml-1">{counts[id]}</span>}
                   </button>
                 ));
             })()}
           </div>
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Поиск заметок… (Ctrl+F)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
+              aria-label="Поиск заметок" className="fx-input w-full pl-7 pr-7"
             />
             {search && (
               <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 cursor-pointer" title="Очистить">
@@ -533,18 +517,19 @@ export default function NotesManagement() {
             )}
           </div>
           {/* Сортировка списка */}
-          <div className="flex flex-wrap items-center gap-1 text-xs min-w-0">
-            <span className="text-slate-400 mr-0.5">Сортировка:</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
+            <span className="fx-label">Порядок</span>
+            <div className="fx-segctl" role="group" aria-label="Порядок заметок">
             {([['updated','Изменённые'],['created','Новые'],['title','А–Я']] as const).map(([v, label]) => (
               <button type="button"
                 key={v}
                 onClick={() => changeSort(v)}
-                /* min-h-6: было 20 px — в такую кнопку целятся, а не нажимают */
-                className={`px-2 py-1 min-h-6 rounded-md font-semibold cursor-pointer transition-colors ${sortBy === v ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                aria-pressed={sortBy === v}
               >
                 {label}
               </button>
             ))}
+            </div>
           </div>
         </div>
 
@@ -584,7 +569,7 @@ export default function NotesManagement() {
                         вылезало за карточку на 34 px, карточка за колонку — на
                         22 px. Обрезает теперь вложенная строка, и она же берёт
                         на себя свободное место. */}
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-white flex-1 min-w-0 flex items-center gap-1">
+                    <h3 className="text-xs font-semibold text-slate-800 dark:text-white flex-1 min-w-0 flex items-center gap-1">
                       {pinnedIds.includes(note.id) && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
                       <span className="flex-1 min-w-0 truncate">{note.title || 'Новая заметка'}</span>
                       {/* Кому ещё видна заметка — сразу в списке, чтобы личное
@@ -734,7 +719,7 @@ export default function NotesManagement() {
                       >
                         {open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                         <Folder className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1">{g}</span>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate flex-1">{g}</span>
                         <span className="text-2xs px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{grouped[g].length}</span>
                       </button>
                       {open && <div className="pl-2 space-y-1.5">{grouped[g].map(renderNote)}</div>}
@@ -748,7 +733,7 @@ export default function NotesManagement() {
       </div>
 
       {/* RIGHT SIDEBAR: WORKSPACE EDITING AREA */}
-      <div id="notes-content" className="flex-1 min-w-[300px] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
+      <div id="notes-content" className="flex-1 min-w-[300px] flex flex-col bg-[var(--flux-surface)] overflow-hidden relative">
         {selectedNote ? (
           <div className="flex-grow flex flex-col h-full">
             {/* Header / Meta properties */}
@@ -757,29 +742,24 @@ export default function NotesManagement() {
                 {/* Save status notification badge */}
                 <div className="flex items-center gap-1.5 text-xs">
                   {saveStatus === 'saving' && (
-                    <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1 font-mono text-xs">
+                    <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1 text-xs">
                       <RefreshCw className="w-3 h-3 animate-spin" />
                       <span>Сохранение...</span>
                     </span>
                   )}
                   {saveStatus === 'saved' && (
-                    <span className="text-emerald-600 dark:text-emerald-450 flex items-center gap-1 font-mono text-xs">
+                    <span className="text-emerald-600 dark:text-emerald-450 flex items-center gap-1 text-xs">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Сохранено в SQLite</span>
+                      <span>Сохранено</span>
                     </span>
                   )}
                   {saveStatus === 'idle' && (
-                    <span className="text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono text-xs">
+                    <span className="text-slate-400 dark:text-slate-500 flex items-center gap-1 text-xs">
                       <Save className="w-3 h-3" />
                       <span>Ожидание изменений</span>
                     </span>
                   )}
                 </div>
-                {noteStats && (
-                  <span className="text-xs font-mono text-slate-400 dark:text-slate-500 select-none" title="Слов / символов (Ctrl+S — сохранить сейчас)">
-                    {noteStats.words} слов · {noteStats.chars} симв.
-                  </span>
-                )}
               </div>
 
               {/* Группа заметки */}
@@ -794,12 +774,12 @@ export default function NotesManagement() {
                   <ChevronDown className="w-3 h-3 text-slate-400" />
                 </button>
                 {groupMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1.5 w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 space-y-1">
+                  <div className="fx-dialog absolute top-full left-0 mt-1.5 w-60 p-2 z-50 space-y-1">
                     {/* Существующие группы */}
                     {[...new Set(notes.map(n => n.groupName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ru')).map(g => (
                       <button type="button" key={g}
                         onClick={() => { handleNoteChange({ groupName: g }); setGroupMenuOpen(false); }}
-                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
+                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                         <Folder className="w-3 h-3 text-emerald-500 shrink-0" />
                         <span className="truncate">{g}</span>
                       </button>
@@ -871,7 +851,7 @@ export default function NotesManagement() {
                 placeholder="Заголовок заметки"
                 value={selectedNote.title}
                 onChange={(e) => handleNoteChange({ title: e.target.value })}
-                className="w-full text-slate-900 dark:text-white text-xl font-bold border-none outline-none focus:outline-none placeholder-slate-300 dark:placeholder-slate-700 bg-transparent"
+                className="w-full text-slate-900 dark:text-white text-xl font-semibold border-none outline-none focus:outline-none placeholder-slate-300 dark:placeholder-slate-700 bg-transparent"
               />
               <div className="w-full h-[1px] bg-slate-200 dark:bg-slate-800 mt-2" />
             </div>
@@ -892,7 +872,7 @@ export default function NotesManagement() {
         ) : (
           <div className="flex-grow flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-8 h-full">
             <BookOpen className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
-            <h3 className="text-md font-bold text-slate-800 dark:text-white">Инженерный Блокнот пуст</h3>
+            <h3 className="text-md font-semibold text-slate-800 dark:text-white">Инженерный Блокнот пуст</h3>
             <p className="text-xs text-center max-w-sm mt-1 opacity-75">
               Выберите заметку слева или создайте новую.</p>
             <button type="button"

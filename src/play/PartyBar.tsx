@@ -54,7 +54,7 @@ export default function PartyBar({
     >
       <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
         <Users className="w-4 h-4 shrink-0 text-slate-400 dark:text-slate-500" />
-        <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400 shrink-0">
           Группа
         </span>
 
@@ -96,9 +96,7 @@ export default function PartyBar({
               type="button"
               onClick={onInvite}
               disabled={busy}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-bold
-                         bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50
-                         cursor-pointer transition-colors"
+              className="fx-btn fx-btn-primary fx-btn-sm"
             >
               <UserPlus className="w-3 h-3" />
               Позвать
@@ -109,10 +107,7 @@ export default function PartyBar({
             onClick={onLeave}
             disabled={busy}
             title="Выйти из группы"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-bold
-                       bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-300
-                       hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-50
-                       cursor-pointer transition-colors"
+            className="fx-btn fx-btn-sm"
           >
             <LogOut className="w-3 h-3" />
             Выйти

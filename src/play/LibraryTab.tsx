@@ -23,7 +23,7 @@ function GameCard({ game }: { game: PlayGameDef }) {
           <Gamepad2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white truncate">{game.title}</h3>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white truncate">{game.title}</h3>
           <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400 leading-relaxed">{game.desc}</p>
           <p className="mt-1.5 inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 dark:text-slate-500">
             <Users className="w-3 h-3" />

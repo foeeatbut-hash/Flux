@@ -379,8 +379,7 @@ export default function Taskbar() {
               {b.badge > 0 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
-                  className="shrink-0 px-1.5 rounded-full bg-rose-600 text-white
-                             text-2xs font-bold tabular-nums flex items-center justify-center">
+                  className="shrink-0 px-1.5 rounded-full bg-rose-600 text-white text-xs font-medium tabular-nums flex items-center justify-center">
                   {badgeLabel(b.badge)}
                 </span>
               )}

@@ -116,7 +116,7 @@ export default function StickerWindow() {
   if (!note) {
     return (
       <div className="w-screen h-screen flex flex-col items-center justify-center bg-rose-950 text-rose-250 p-4 text-center select-none">
-        <span className="text-sm font-bold">Стикер не найден</span>
+        <span className="text-sm font-semibold">Стикер не найден</span>
         <span className="text-xs mt-1 opacity-85">Возможно, заметка была удалена.</span>
         <button type="button" onClick={handleClose} className="mt-4 px-2.5 py-1 bg-rose-800 text-white text-xs rounded transition-ui">
           Закрыть
@@ -142,7 +142,7 @@ export default function StickerWindow() {
         {/* Status icon / indication */}
         <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-          <span className="text-xs font-mono max-w-[100px] truncate opacity-70 font-bold">
+          <span className="text-xs font-mono max-w-[100px] truncate opacity-70 font-medium">
             {note.title || 'Стикер'}
           </span>
           {saveStatus === 'saving' && (
@@ -195,7 +195,7 @@ export default function StickerWindow() {
           placeholder="Название стикера"
           value={note.title}
           onChange={(e) => handleNoteChange({ title: e.target.value })}
-          className="w-full text-xs font-bold border-none outline-none focus:outline-none bg-transparent placeholder-black/40 dark:placeholder-white/40"
+          className="w-full text-xs font-medium border-none outline-none focus:outline-none bg-transparent placeholder-black/40 dark:placeholder-white/40"
         />
       </div>
 

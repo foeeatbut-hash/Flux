@@ -161,7 +161,7 @@ export default function AssistantSpotlight() {
         style={tipStyle}
       >
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-2xs font-bold text-emerald-400">
+          <span className="text-xs font-medium text-emerald-400">
             Демонстрация · шаг {tourStepIndex + 1}/{activeTour.steps.length}
           </span>
           <button type="button" onClick={cancelTour} className="p-0.5 text-slate-400 hover:text-rose-400 cursor-pointer" title="Завершить демонстрацию">

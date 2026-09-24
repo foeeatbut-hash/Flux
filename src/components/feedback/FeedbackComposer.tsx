@@ -208,10 +208,9 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
       style={{ zIndex: Z.modal, ...(hidden || picking ? { visibility: 'hidden' as const } : {}) }}
       onPaste={paste} onMouseDown={() => { if (!busy) onClose(); }}>
       <div role="dialog" aria-label="Обращение" onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border border-slate-200 dark:border-dark-border
-                   bg-white dark:bg-dark-surface shadow-2xl overflow-hidden">
+        className="fx-dialog w-full max-w-2xl max-h-[88vh] flex flex-col dark:border-dark-border dark:bg-dark-surface overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
-          <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {preview ? 'Что уйдёт' : 'Обращение'}
           </span>
           <span className="flex-1" />

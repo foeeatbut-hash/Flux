@@ -67,7 +67,7 @@ export default function WhereUsedView({ kind, id }: { kind: UsageKind; id: strin
           начиналась сразу со списков, и на вопрос «а вообще есть что-нибудь»
           приходилось отвечать пролистыванием */}
       <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
-        <div className="text-sm font-bold text-slate-800 dark:text-slate-100 break-words">{data.title}</div>
+        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{data.title}</div>
         {data.subtitle && (
           <div className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{data.subtitle}</div>
         )}

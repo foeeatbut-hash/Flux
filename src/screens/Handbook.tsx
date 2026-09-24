@@ -164,7 +164,7 @@ export default function Handbook() {
         </button>
         <BookOpen className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate">Руководство</h1>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-white truncate">Руководство</h1>
           <p className="text-2xs text-slate-500 dark:text-slate-400 truncate">
             Что умеет каждый раздел, что где хранится и чем связано
           </p>

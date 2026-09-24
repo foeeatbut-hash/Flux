@@ -32,7 +32,7 @@ function Number_({ name, value, note }: { name: string; value: React.ReactNode; 
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
       <div className="text-xs text-slate-500 dark:text-slate-400">{name}</div>
-      <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{value}</div>
+      <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">{value}</div>
       {note && <div className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">{note}</div>}
     </div>
   );
@@ -43,7 +43,7 @@ function Slice({ title, rows }: { title: string; rows: Array<{ name: string; cou
   const top = rows[0]?.count || 1;
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
-      <div className="text-xs font-bold text-slate-800 dark:text-slate-150">{title}</div>
+      <div className="text-xs font-medium text-slate-800 dark:text-slate-150">{title}</div>
       {rows.map((row) => (
         <div key={row.name} className="flex items-center gap-2">
           <span className="w-32 shrink-0 truncate text-xs text-slate-700 dark:text-slate-300">{row.name}</span>

@@ -61,7 +61,7 @@ export const StatusChip = ({ code, onClick }: { code?: string; onClick?: (e: Rea
     <span
       onClick={onClick}
       title={onClick ? 'Сменить статус документа' : s.label}
-      className={`inline-flex items-center gap-1 text-2xs font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+      className={`inline-flex items-center gap-1 text-2xs font-semibold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
     </span>
@@ -177,7 +177,7 @@ export const FileRowItem = React.memo(({
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
              <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
-               className={`text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
+               className={`text-2xs font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
            ))}
            {!item.isFolder && (item.additionalTags || []).map((t: any) => (
              <span key={t.id} className="text-2xs font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
@@ -249,7 +249,7 @@ export const FileCardItem = React.memo(({
          )}
          {loaded && (
             <span
-              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-2xs font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
+              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-xs font-medium px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
               title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
             >
               <Boxes className="w-2.5 h-2.5" />v{loaded.version}

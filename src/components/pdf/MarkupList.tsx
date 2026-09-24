@@ -25,10 +25,9 @@ export default function MarkupList({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute right-3 top-3 z-40 w-96 max-h-[80%] flex flex-col rounded-xl overflow-hidden shadow-2xl
-                    bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+    <div className="fx-dialog absolute right-3 top-3 z-40 w-96 max-h-[80%] flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
-        <span className="text-sm font-bold text-slate-800 dark:text-slate-150">
+        <span className="text-sm font-semibold text-slate-800 dark:text-slate-150">
           Пометки чертежа <span className="text-slate-400 font-normal">({markups.length})</span>
         </span>
         <button type="button" onClick={onClose} aria-label="Закрыть список пометок"
@@ -45,7 +44,7 @@ export default function MarkupList({
               onClick={() => onSelect(m.id)}>
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: old ? '#94a3b8' : m.color }} />
-                <span className="text-2xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate flex-1">
                   {m.text || 'без замечания'}
                 </span>
                 <span className="text-2xs font-mono text-slate-400 shrink-0">стр. {m.page}</span>

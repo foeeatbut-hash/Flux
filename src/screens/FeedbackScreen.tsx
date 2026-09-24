@@ -314,7 +314,7 @@ export default function FeedbackScreen() {
 
             {triage && twins.length > 0 && (
               <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-1.5">
-                <div className="text-xs font-bold text-amber-800 dark:text-amber-300">Похоже на уже заведённое</div>
+                <div className="text-xs font-medium text-amber-800 dark:text-amber-300">Похоже на уже заведённое</div>
                 {twins.map((one) => (
                   <button key={one.id} type="button" onClick={() => void open(one.id)}
                     className="w-full text-left text-xs text-slate-700 dark:text-slate-300 hover:underline cursor-pointer">

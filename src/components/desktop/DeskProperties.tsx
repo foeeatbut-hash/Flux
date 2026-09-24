@@ -58,8 +58,7 @@ export default function DeskProperties({
       aria-label={`Свойства: ${titleOf(item)}`}
       onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[20] w-[420px] max-w-[calc(100%-2rem)]
-                 rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-2xl"
+      className="fx-dialog absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[20] w-[420px] max-w-[calc(100%-2rem)] dark:border-dark-border dark:bg-dark-surface"
     >
       <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
         <b className="flex-1 min-w-0 truncate text-sm font-semibold text-slate-800 dark:text-slate-150">
@@ -100,7 +99,7 @@ export default function DeskProperties({
                       type="button"
                       onClick={() => onStatus(code)}
                       title={`Перевести в «${s.label}»`}
-                      className={`inline-flex items-center gap-1 text-2xs font-bold px-1.5 py-0.5 rounded-full cursor-pointer
+                      className={`inline-flex items-center gap-1 text-2xs font-semibold px-1.5 py-0.5 rounded-full cursor-pointer
                                   ${active ? s.chip : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-450 hover:brightness-95'}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}

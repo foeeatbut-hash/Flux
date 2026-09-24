@@ -109,7 +109,7 @@ export default function FeedbackCard({
           </span>
           <span className="text-2xs text-slate-500 dark:text-slate-400">{TYPE_NAMES[card.type]}</span>
         </div>
-        <h2 className="mt-1 text-sm font-bold text-slate-900 dark:text-white break-words">{card.title}</h2>
+        <h2 className="mt-1 text-sm font-semibold text-slate-900 dark:text-white break-words">{card.title}</h2>
         <p className="mt-0.5 text-2xs text-slate-500 dark:text-slate-400">
           {names[card.authorId] || 'Сотрудник'} · {new Date(card.createdAt).toLocaleString('ru-RU')}
           {card.appVersion ? ` · версия ${card.appVersion}` : ''}
@@ -130,7 +130,7 @@ export default function FeedbackCard({
 
       {!!card.attachments?.length && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
-          <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Вложения</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Вложения</div>
           {card.attachments.map((one) => {
             // Картинки и PDF открываются в окне, остальное сохраняется: открыть
             // присланный файл в браузере — самый дешёвый способ выполнить чужую
@@ -158,7 +158,7 @@ export default function FeedbackCard({
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
           <div className="flex items-center gap-2">
             <UserIcon className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-150">Важность</span>
+            <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Важность</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {PRIORITIES.map((one) => (
@@ -178,7 +178,7 @@ export default function FeedbackCard({
 
       {actions.length > 0 && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
-          <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Что можно сделать</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Что можно сделать</div>
           {picked ? (
             <ActionForm
               action={picked} assignees={assignees} candidates={candidates} busy={busy} failure={failure}
