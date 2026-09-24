@@ -167,7 +167,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
-  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
+  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));

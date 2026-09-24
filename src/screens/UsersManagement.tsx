@@ -4,7 +4,6 @@ import SignatureEditor from '../components/SignatureEditor';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
 import { FEATURES, OPEN_BY_DEFAULT, entryOf, parsePermissions, PermMap } from '../lib/permissions';
-import { Check } from 'lucide-react';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
@@ -16,26 +15,10 @@ import { useAppContext } from '../store/policyStore';
 import { useNavigate } from 'react-router-dom';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Users, 
-  Plus, 
-  X, 
-  Lock, 
-  ShieldCheck, 
-  UserPlus, 
-  Cpu, 
-  Airplay, 
-  UserCheck, 
-  Calendar, 
-  FileText,
-  Clock,
-  Briefcase,
-  PenLine,
-  Search
-} from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
-import { useEscapeClose } from '../lib/useDismiss';
+import { countOf } from '../lib/plural';
+import { SectionHead, Toolbar, FilterSeg, Seg, Btn, Input, Select, Empty, Status, Chip, Avatar, Dialog, Field, Switch } from '../components/ui';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -74,9 +57,6 @@ export default function UsersManagement() {
   // Редактирование существующего сотрудника
   const [editUser, setEditUser] = useState<User | null>(null);
 
-  // Escape закрывает открытое окно; пока идёт запись — не закрываем
-  useEscapeClose(isModalOpen, () => { if (!isSubmitting) setIsModalOpen(false); });
-  useEscapeClose(!!editUser, () => { if (!isSubmitting) setEditUser(null); });
   const [editNameValue, setEditNameValue] = useState<NameValue>(EMPTY_NAME);
   const [editName, setEditName] = useState('');
   const [editSymbol, setEditSymbol] = useState('');
@@ -244,21 +224,16 @@ export default function UsersManagement() {
     }
   };
 
-  // Бейдж статуса доступа: активен / отключен / истекает / истек
+  // Доступ — точка и слово: активен / отключён / до даты / истёк
   const getAccessBadge = (emp: User) => {
-    if (emp.isActive === false) {
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Отключен</span>;
-    }
+    if (emp.isActive === false) return <Status tone="rose">Отключен</Status>;
     if (emp.validUntil) {
       const until = new Date(emp.validUntil);
-      const expired = until.getTime() < Date.now();
       const dateStr = until.toLocaleDateString('ru-RU');
-      if (expired) {
-        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Истек {dateStr}</span>;
-      }
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40"><Clock className="w-3 h-3 shrink-0" />до {dateStr}</span>;
+      if (until.getTime() < Date.now()) return <Status tone="rose">Истек {dateStr}</Status>;
+      return <Status tone="amber">до {dateStr}</Status>;
     }
-    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">Активен</span>;
+    return <Status tone="emerald">Активен</Status>;
   };
 
   // 1. Load users list from database
@@ -405,227 +380,116 @@ export default function UsersManagement() {
     return (parts.slice(0, 2).map((x) => x[0]).join('') || '?').toUpperCase();
   };
 
+  // Роль сотрудника может не найтись среди ролей (завели до справочника
+  // ролей). Раньше список тогда показывал первую роль — «Администратор», —
+  // хотя у человека другая: показываем её как есть
+  const roleOptions = (current: string) => {
+    const opts = roles.map((r) => ({ value: r.code, label: r.name }));
+    return current && !roles.some((r) => r.code === current) ? [{ value: current, label: `${current} (нет в списке ролей)` }, ...opts] : opts;
+  };
+
+  // Роль — значок цветом роли и название обычным текстом: цвет роли задают
+  // в Настройках, но плашка с рамкой на каждой строке перекрикивала таблицу
   const getRoleBadge = (userRole: string) => {
     const r = roleByCode(userRole, roles);
+    const tint = roleColorClass(r.color).split(/\s+/).filter((c) => /^(dark:)?text-/.test(c)).join(' ');
     return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${roleColorClass(r.color)}`}>
-        <RoleIcon name={r.icon} className="w-3.5 h-3.5" />
+      <span className="inline-flex items-center gap-1.5">
+        <RoleIcon name={r.icon} className={`w-3.5 h-3.5 shrink-0 ${tint}`} />
         {r.name}
-        {r.level <= 1 && <span className="text-2xs opacity-70">· 1 уровень</span>}
+        {r.level <= 1 && <span className="text-slate-400">· 1 уровень</span>}
       </span>
     );
   };
 
   return (
-    <motion.div 
-      id="users-management-root"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
-      className="@container pb-6"
-    >
-      {/* Штамп раздела — как у остальных разделов программы */}
-      <div className="stamp rounded-t-xl border border-slate-200 dark:border-dark-border border-b-0">
-        <Users className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        <span className="stamp-title">Сотрудники</span>
-        <span className="stamp-sub hidden @[560px]:inline">права доступа, роли, подписи</span>
-        <div className="stamp-right">
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            title="Добавить сотрудника"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-ui cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden @[520px]:inline">Добавить сотрудника</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Полоса счётчиков. Она же быстрый отбор: вопросы «кто отключён» и
-          «у кого истекает» задают чаще, чем ищут человека по фамилии. */}
-      <div className="tally border-x border-slate-200 dark:border-dark-border">
-        {([
-          { id: 'all', n: counts.total, label: 'всего' },
-          { id: 'active', n: counts.active, label: 'работают' },
-          { id: 'off', n: counts.off, label: 'закрыт доступ' },
-          { id: 'soon', n: counts.soon, label: 'истекает' },
-          { id: 'nosign', n: counts.nosign, label: 'без подписи' },
-        ] as const).map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            aria-pressed={pick === c.id}
-            onClick={() => setPick(pick === c.id && c.id !== 'all' ? 'all' : c.id)}
-            title={c.id === 'all' ? 'Показать всех' : `Показать: ${c.label}`}
-            className="tally-item cursor-pointer"
-          >
-            <span className="tally-num">{c.n}</span>
-            <span className="tally-lab truncate">{c.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Кто здесь сейчас и кто когда заходил. Отдельным блоком, а не колонкой
-          в таблице: это вопрос о людях вообще, а не о конкретной строке, и
-          задаётся он раньше, чем начинают искать человека по фамилии. */}
+    <div id="users-management-root" className="fx-page @container">
+      <SectionHead
+        title="Сотрудники"
+        count={countOf(counts.total, 'сотрудник')}
+        actions={<Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}
+      />
+      {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
+          истекает» задают чаще, чем ищут человека по фамилии */}
+      <Toolbar>
+        <label className="relative w-64 max-w-full">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Фамилия, логин или роль" aria-label="Поиск сотрудника" className="pl-7" />
+        </label>
+        <FilterSeg label="Отбор сотрудников" value={pick} onChange={setPick} options={[
+          { value: 'all', label: 'Все', count: counts.total },
+          { value: 'active', label: 'Работают', count: counts.active },
+          { value: 'off', label: 'Закрыт доступ', count: counts.off },
+          { value: 'soon', label: 'Истекает', count: counts.soon },
+          { value: 'nosign', label: 'Без подписи', count: counts.nosign },
+        ]} />
+        <span className="ml-auto" />
+        <Seg label="Порядок" value={sortBy} onChange={setSortBy} options={[
+          { value: 'name', label: 'По фамилии' },
+          { value: 'role', label: 'По роли' },
+          { value: 'created', label: 'Сначала новые' },
+        ]} />
+      </Toolbar>
+      {/* Кто здесь сейчас — строкой; кто когда заходил — по нажатию */}
       <PresencePanel people={usersList as any} />
 
-      {/* Поиск и порядок */}
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-x border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div className="flex-1 min-w-[160px] flex items-center gap-2 h-8 px-2.5 rounded-lg border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-panel">
-          <Search className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Фамилия, логин или роль"
-            aria-label="Поиск сотрудника"
-            className="flux-focus-outer flex-1 min-w-0 bg-transparent text-xs outline-none text-slate-800 dark:text-dark-text-main placeholder:text-slate-400"
-          />
-          {q && (
-            <button type="button" onClick={() => setQ('')} title="Очистить поиск"
-              className="w-5 h-5 shrink-0 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="graf hidden @[640px]:inline">Порядок</span>
-          {([
-            { id: 'name', label: 'По фамилии' },
-            { id: 'role', label: 'По роли' },
-            { id: 'created', label: 'Сначала новые' },
-          ] as const).map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => setSortBy(o.id)}
-              aria-pressed={sortBy === o.id}
-              className={`px-2.5 py-1 min-h-6 rounded-md text-2xs font-semibold transition-ui cursor-pointer ${
-                sortBy === o.id
-                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
-                  : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Список сотрудников */}
-      <div className="border-x border-b border-slate-200 dark:border-dark-border rounded-b-xl bg-white dark:bg-dark-surface overflow-hidden">
-        {isLoading ? (
-          <div className="py-16 text-center text-slate-500">
-            <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto mb-3" />
-            <p className="text-sm">Загружаю список сотрудников…</p>
-          </div>
+      <div className="fx-page-body">
+        {isLoading && usersList.length === 0 ? (
+          <Empty title="Загрузка…" />
         ) : usersList.length === 0 ? (
-          <div className="blank">
-            <div className="blank-title">Сотрудников пока нет</div>
-            <div className="blank-text">
-              Заведите первого — он получит логин, роль и права доступа. Пароль можно
-              задать сразу или выдать позже.
-            </div>
-            <button type="button" onClick={() => setIsModalOpen(true)}
-              className="mt-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer transition-ui">
-              Добавить сотрудника
-            </button>
-          </div>
+          <Empty title="Сотрудников пока нет" text="Заведите первого — он получит логин, роль и права доступа.">
+            <Btn tone="primary" onClick={() => setIsModalOpen(true)} className="mt-3">Добавить сотрудника</Btn>
+          </Empty>
         ) : shown.length === 0 ? (
-          <div className="blank">
-            <div className="blank-title">Никто не подходит под отбор</div>
-            <div className="blank-text">Снимите фильтр в полосе счётчиков или очистите поиск.</div>
-            <button type="button" onClick={() => { setQ(''); setPick('all'); }}
-              className="mt-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer transition-ui">
-              Показать всех
-            </button>
-          </div>
+          <Empty title="Никто не подходит под отбор" text="Снимите фильтр или очистите поиск.">
+            <Btn onClick={() => { setQ(''); setPick('all'); }} className="mt-3">Показать всех</Btn>
+          </Empty>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="fx-table">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-dark-border bg-slate-50/60 dark:bg-dark-panel/40">
-                <th className="flux-cell graf text-left">Сотрудник</th>
-                <th className="flux-cell graf text-left hidden @[720px]:table-cell">Роль</th>
-                <th className="flux-cell graf text-left">Доступ</th>
-                <th className="flux-cell graf text-left hidden @[560px]:table-cell">Подпись</th>
-                <th className="flux-cell graf text-left hidden @[980px]:table-cell">Заведён</th>
-                <th className="flux-cell graf text-right"> </th>
+              <tr>
+                <th>Сотрудник</th>
+                <th className="hidden @[720px]:table-cell">Роль</th>
+                <th>Доступ</th>
+                <th className="hidden @[560px]:table-cell">Подпись</th>
+                <th className="hidden @[980px]:table-cell">Заведён</th>
+                <th className="w-24" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
+            <tbody>
               {shown.map((emp) => (
-                <tr
-                  key={emp.id}
-                  onDoubleClick={() => openEdit(emp)}
-                  title="Двойное нажатие — открыть карточку сотрудника"
-                  className="hover:bg-slate-50 dark:hover:bg-dark-panel/50 transition-colors text-slate-800 dark:text-dark-text-main cursor-default"
-                >
-                  {/* Человек: кружок с инициалами, ФИО, под ним логин — логин
-                      нужен всегда, а отдельная колонка под него есть не на
-                      каждой ширине */}
-                  <td className="flux-cell w-full max-w-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="relative shrink-0">
-                        <span className="w-8 h-8 flex rounded-full items-center justify-center text-2xs font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/50">
-                          {initialsOf(emp)}
-                        </span>
-                        {/* «В сети» — то же самое, что в чате, и по тому же
-                            правилу: администратор виден наравне со всеми */}
-                        {onlineIds.includes(emp.id) && (
-                          <span
-                            aria-label="В сети"
-                            title={presenceLabel(true, null)}
-                            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500
-                                       border-2 border-white dark:border-dark-surface"
-                          />
-                        )}
+                <tr key={emp.id} onDoubleClick={() => openEdit(emp)} title="Двойное нажатие — открыть карточку сотрудника">
+                  {/* ФИО и логин в одной строке: логин нужен всегда, а своей
+                      колонки под него нет на узкой ширине */}
+                  <td className="w-full max-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {/* «В сети» — то же, что в чате, и по тому же правилу:
+                          администратор виден наравне со всеми */}
+                      <span title={onlineIds.includes(emp.id) ? presenceLabel(true, null) : undefined} aria-label={onlineIds.includes(emp.id) ? 'В сети' : undefined}>
+                        <Avatar name={emp.name || emp.symbol || ''} online={onlineIds.includes(emp.id)} />
                       </span>
-                      <span className="min-w-0">
-                        <span className="block font-semibold text-slate-900 dark:text-white truncate" title={emp.name}>
-                          {emp.name}
-                        </span>
-                        <span className="block data text-2xs text-emerald-700 dark:text-emerald-400 truncate">
-                          {emp.symbol}
-                          <span className="@[720px]:hidden text-slate-400 dark:text-dark-text-muted">
-                            {' · '}{roleByCode(emp.role, roles).name}
-                          </span>
-                        </span>
-                      </span>
+                      <span className="truncate text-slate-900 dark:text-white" title={emp.name}>{emp.name}</span>
+                      <span className="code text-xs text-slate-400 shrink-0">{emp.symbol}</span>
+                      <span className="@[720px]:hidden text-slate-400 truncate">· {roleByCode(emp.role, roles).name}</span>
                     </div>
                   </td>
-                  <td className="flux-cell hidden @[720px]:table-cell whitespace-nowrap">{getRoleBadge(emp.role)}</td>
-                  <td className="flux-cell whitespace-nowrap">{getAccessBadge(emp)}</td>
-                  <td className="flux-cell hidden @[560px]:table-cell whitespace-nowrap">
+                  <td className="hidden @[720px]:table-cell whitespace-nowrap">{getRoleBadge(emp.role)}</td>
+                  <td className="whitespace-nowrap">{getAccessBadge(emp)}</td>
+                  <td className="hidden @[560px]:table-cell whitespace-nowrap">
                     {/* Подпись видна прямо в строке: иначе, чтобы узнать, есть
                         ли она, надо открывать карточку каждого по очереди */}
-                    <button
-                      type="button"
-                      onClick={() => setSignFor(emp)}
-                      title={(emp as any).hasSignature ? 'Подпись задана — открыть' : 'Подписи нет — задать'}
-                      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-2xs font-semibold cursor-pointer transition-ui ${
-                        (emp as any).hasSignature
-                          ? 'border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
-                          : 'border-slate-200 dark:border-dark-border text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-panel'
-                      }`}
-                    >
-                      <PenLine className="w-3.5 h-3.5 shrink-0" />
+                    <Chip tone={(emp as any).hasSignature ? 'emerald' : 'slate'} onClick={() => setSignFor(emp)}
+                      title={(emp as any).hasSignature ? 'Подпись задана — открыть' : 'Подписи нет — задать'}>
                       {(emp as any).hasSignature ? 'есть' : 'нет'}
-                    </button>
+                    </Chip>
                   </td>
-                  <td className="flux-cell hidden @[980px]:table-cell data text-2xs text-slate-400 whitespace-nowrap">
+                  <td className="hidden @[980px]:table-cell text-slate-400 whitespace-nowrap">
                     {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU')}
                   </td>
-                  <td className="flux-cell text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(emp)}
-                      title={`Карточка сотрудника: ${emp.name}`}
-                      className="px-3 py-1.5 text-2xs font-semibold rounded-lg border border-slate-200 dark:border-dark-border text-slate-600 dark:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel transition-ui cursor-pointer whitespace-nowrap"
-                    >
-                      Изменить
-                    </button>
+                  <td>
+                    <div className="fx-row-acts">
+                      <Btn tone="ghost" size="sm" onClick={() => openEdit(emp)} title={`Карточка сотрудника: ${emp.name}`}>Изменить</Btn>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -649,378 +513,140 @@ export default function UsersManagement() {
         />
       )}
 
-      {/* Модальное окно добавления нового пользователя */}
-      <AnimatePresence>
+      {/* Регистрация сотрудника */}
       {isModalOpen && (
-          <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-            {/* Overlay */}
-            <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md transition-opacity" onClick={() => !isSubmitting && setIsModalOpen(false)} />
+        <Dialog title="Регистрация сотрудника" onClose={() => setIsModalOpen(false)} busy={isSubmitting}
+          footer={<>
+            <Btn size="lg" disabled={isSubmitting} onClick={() => setIsModalOpen(false)}>Отмена</Btn>
+            <Btn size="lg" tone="primary" type="submit" form="user-create-form" disabled={isSubmitting}>{isSubmitting ? 'Создание…' : 'Зарегистрировать'}</Btn>
+          </>}>
+          {formError && <p className="fx-error mb-3">{formError}</p>}
+          <form id="user-create-form" onSubmit={handleCreateUser} className="space-y-3">
+            <NameFields value={nameValue} onChange={setNameValue} disabled={isSubmitting} />
+            <Field label="Табельный номер (ID)" hint="Логин для входа: уникальный, без символа @.">
+              <Input required value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={isSubmitting} placeholder="Например, 4519" className="code" />
+            </Field>
+            <Field label="Пароль доступа в систему">
+              <Input required value={password} onChange={(e) => setPassword(e.target.value)} disabled={isSubmitting} placeholder="Задайте надёжный пароль" />
+            </Field>
+            <Field label="Роль в системе">
+              <Select value={role} onChange={setRole} disabled={isSubmitting} options={roles.map((r) => ({ value: r.code, label: r.name }))} />
+            </Field>
+            <Field label="Срок действия профиля" hint="После этой даты сотрудник не сможет войти. Пусто — бессрочно.">
+              <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} disabled={isSubmitting} />
+            </Field>
+          </form>
+        </Dialog>
+      )}
 
-            {/* Container for centering */}
-            <div className="flex min-h-full items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.15 }}
-                className="relative w-full max-w-md transform rounded-xl bg-white dark:bg-slate-900 p-6 shadow-xl border border-slate-200 dark:border-slate-800 transition-colors"
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-                    <UserPlus className="w-5 h-5" />
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                      Регистрация сотрудника
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    disabled={isSubmitting}
-                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-white transition-colors cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Form Error Feedback */}
-                {formError && (
-                  <div className="p-3 mb-4 rounded bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-450 text-xs font-medium border border-rose-200 dark:border-rose-900">
-                    {formError}
-                  </div>
-                )}
-
-                {/* Form */}
-                <form onSubmit={handleCreateUser} className="space-y-4">
-                  <NameFields value={nameValue} onChange={setNameValue} disabled={isSubmitting} />
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1 font-mono">
-                      Табельный номер (ID)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={symbol}
-                      onChange={(e) => setSymbol(e.target.value)}
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-mono"
-                      placeholder="Например, 4519"
-                    />
-                    <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">
-                      Используется как логин для входа. Не может содержать символ @ и должен быть уникальным.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
-                      Пароль доступа в систему
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                      placeholder="Задайте надежный пароль"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
-                      Роль в системе
-                    </label>
-                    <select
-                      value={role}
-                      onChange={(e) => setRole(e.target.value)}
-                      disabled={isSubmitting}
-                      className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
-                    >
-                      {roles.map((r) => (
-                        <option key={r.code} value={r.code}>{r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
-                      Срок действия профиля (опционально)
-                    </label>
-                    <input
-                      type="date"
-                      value={validUntil}
-                      onChange={(e) => setValidUntil(e.target.value)}
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                    />
-                    <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">
-                      После этой даты сотрудник не сможет войти в систему. Пусто — бессрочный доступ.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-5">
-                    <button
-                      type="button"
-                      disabled={isSubmitting}
-                      onClick={() => setIsModalOpen(false)}
-                      className="px-4 py-2 text-slate-650 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-850 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                    >
-                      Отмена
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-sm font-semibold shadow-md transition-colors cursor-pointer flex items-center gap-1.5"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <div className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                          <span>Создание...</span>
-                        </>
-                      ) : (
-                        <span>Зарегистрировать</span>
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
+      {/* Карточка сотрудника: профиль, срок, права */}
+      {editUser && (
+        <Dialog title="Управление доступом" width="max-w-lg" onClose={() => setEditUser(null)} busy={isEditSubmitting}
+          footer={<>
+            <Btn size="lg" tone="danger" disabled={isEditSubmitting} onClick={handleDeleteUser} className="mr-auto">Удалить профиль</Btn>
+            <Btn size="lg" disabled={isEditSubmitting} onClick={() => setEditUser(null)}>Отмена</Btn>
+            <Btn size="lg" tone="primary" type="submit" form="user-edit-form" disabled={isEditSubmitting}>{isEditSubmitting ? 'Сохранение…' : 'Сохранить'}</Btn>
+          </>}>
+          <p className="mb-3">
+            Сотрудник: <span className="text-slate-900 dark:text-white">{editUser.name}</span> <span className="code text-slate-400">{editUser.symbol}</span>
+          </p>
+          {editError && <p className="fx-error mb-3">{editError}</p>}
+          <form id="user-edit-form" onSubmit={handleSaveEdit} className="space-y-3">
+            <NameFields value={editNameValue} onChange={setEditNameValue} disabled={isEditSubmitting} />
+            <Field label="Табельный номер (логин)" hint="Логин для входа: уникальный, без символа @.">
+              <Input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)} disabled={isEditSubmitting} className="code" />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Роль">
+                <Select value={editRole} onChange={setEditRole} disabled={isEditSubmitting} options={roleOptions(editRole)} />
+              </Field>
+              <Field label="Новый пароль">
+                <Input value={editPassword} onChange={(e) => setEditPassword(e.target.value)} disabled={isEditSubmitting} placeholder="Не менять" />
+              </Field>
             </div>
-          </div>
-        )}
-      </AnimatePresence>
+            <Field label="Доступ действует до">
+              <Input type="date" value={editValidUntil} onChange={(e) => setEditValidUntil(e.target.value)} disabled={isEditSubmitting} />
+              <span className="flex flex-wrap gap-1 mt-1.5">
+                <Btn size="sm" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(30))}>+30 дней</Btn>
+                <Btn size="sm" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(90))}>+90 дней</Btn>
+                <Btn size="sm" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(365))}>+1 год</Btn>
+                <Btn size="sm" disabled={isEditSubmitting} onClick={() => setEditValidUntil('')}>Бессрочно</Btn>
+              </span>
+            </Field>
 
-      {/* Модальное окно управления профилем сотрудника */}
-      <AnimatePresence>
-        {editUser && (
-          <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-            <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md transition-opacity" onClick={() => !isEditSubmitting && setEditUser(null)} />
-            <div className="flex min-h-full items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.15 }}
-                className="relative w-full max-w-md transform rounded-xl bg-white dark:bg-slate-900 p-6 shadow-xl border border-slate-200 dark:border-slate-800 transition-colors"
-              >
-                <div className="flex items-center justify-between mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-                    <ShieldCheck className="w-5 h-5" />
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                      Управление доступом
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditUser(null)}
-                    disabled={isEditSubmitting}
-                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-white transition-colors cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                  Сотрудник: <span className="font-semibold text-slate-800 dark:text-white">{editUser.name}</span>
-                  {' '}<span className="font-mono text-emerald-700 dark:text-emerald-400">({editUser.symbol})</span>
-                </p>
-
-                {editError && (
-                  <div className="p-3 mb-4 rounded bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-450 text-xs font-medium border border-rose-200 dark:border-rose-900">
-                    {editError}
-                  </div>
-                )}
-
-                <form onSubmit={handleSaveEdit} className="space-y-4">
-                  <NameFields value={editNameValue} onChange={setEditNameValue} disabled={isEditSubmitting} />
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1 font-mono">Табельный номер (логин)</label>
-                    <input
-                      type="text"
-                      value={editSymbol}
-                      onChange={(e) => setEditSymbol(e.target.value)}
-                      disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-mono"
-                    />
-                    <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">Логин для входа. Должен быть уникальным, без символа @.</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">Роль</label>
-                      <select
-                        value={editRole}
-                        onChange={(e) => setEditRole(e.target.value)}
-                        disabled={isEditSubmitting}
-                        className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
-                      >
-                        {roles.map((r) => (
-                          <option key={r.code} value={r.code}>{r.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">Новый пароль</label>
-                      <input
-                        type="text"
-                        value={editPassword}
-                        onChange={(e) => setEditPassword(e.target.value)}
-                        disabled={isEditSubmitting}
-                        placeholder="Не менять"
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
-                      Доступ действует до
-                    </label>
-                    <input
-                      type="date"
-                      value={editValidUntil}
-                      onChange={(e) => setEditValidUntil(e.target.value)}
-                      disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                    />
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <button type="button" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(30))} className="px-2 py-1 text-xs font-semibold rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">+30 дней</button>
-                      <button type="button" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(90))} className="px-2 py-1 text-xs font-semibold rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">+90 дней</button>
-                      <button type="button" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(365))} className="px-2 py-1 text-xs font-semibold rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">+1 год</button>
-                      <button type="button" disabled={isEditSubmitting} onClick={() => setEditValidUntil('')} className="px-2 py-1 text-xs font-semibold rounded border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors cursor-pointer">Бессрочно</button>
-                    </div>
-                  </div>
-
-                  <label className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={editActive}
-                      onChange={(e) => setEditActive(e.target.checked)}
-                      disabled={isEditSubmitting}
-                      className="w-4 h-4 accent-emerald-600 cursor-pointer"
-                    />
-                    <span className="text-sm font-semibold text-slate-800 dark:text-white">Профиль активен</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">(снимите, чтобы мгновенно заблокировать вход)</span>
-                  </label>
-
-                  {/* Права доступа по функциям */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-2">Права доступа</label>
-                    {editRole === 'ADMIN' ? (
-                      <div className="flex items-center gap-2 p-3 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 text-sm font-semibold">
-                        <ShieldCheck className="w-4 h-4" /> Полный доступ (администратор)
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {FEATURES.map((f) => {
-                          const e = editPerms[f.id];
-                          // Право, открытое по умолчанию, галочка показывает таким, каким
-                          // оно действует (роль, умолчание, личное); снятие пишет запрет
-                          const open = OPEN_BY_DEFAULT.includes(f.id);
-                          const on = open
-                            ? !!entryOf({ ...parsePermissions((editUser as any)?.rolePermissions), ...editPerms }, f.id)?.enabled
-                            : !!e?.enabled;
-                          const isExpired = !!e?.until && new Date(e.until).getTime() < Date.now();
-                          // Что уже даёт должность: иначе админ выдаёт лично то,
-                          // что у человека и так есть, и потом не понимает,
-                          // почему снятие галочки ничего не изменило.
-                          const fromRole = !!parsePermissions((editUser as any)?.rolePermissions)[f.id]?.enabled;
-                          return (
-                            <div key={f.id} className={`rounded-lg border p-2.5 transition-colors ${on ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950'}`}>
-                              <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  checked={on}
-                                  onChange={(ev) => togglePerm(f.id, ev.target.checked)}
-                                  disabled={isEditSubmitting}
-                                  className="w-4 h-4 mt-0.5 accent-emerald-600 cursor-pointer shrink-0"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-sm font-semibold text-slate-800 dark:text-white">{f.label}</span>
-                                    <span className="text-2xs font-mono text-slate-400">{f.group}</span>
-                                    {fromRole && !on && (
-                                      <span className="text-2xs px-1.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 font-semibold border border-sky-200 dark:border-sky-900/60">
-                                        уже даёт роль
-                                      </span>
-                                    )}
-                                    {f.risky && <span className="text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
-                                    {open && !e && on && <span className="text-2xs text-slate-400">у всех по умолчанию — снимите, чтобы запретить</span>}
-                                    {open && e && !e.enabled && <span className="text-2xs font-semibold text-rose-600 dark:text-rose-400">запрещено лично</span>}
-                                    {on && isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 font-semibold">истекло</span>}
-                                  </div>
-                                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{f.desc}</p>
-                                </div>
-                              </label>
-                              {on && (
-                                <div className="mt-2 pl-7 flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs text-slate-500 dark:text-slate-400">действует до:</span>
-                                  <input
-                                    type="datetime-local"
-                                    value={toDateTimeInput(e?.until)}
-                                    onChange={(ev) => setPermUntil(f.id, ev.target.value)}
-                                    disabled={isEditSubmitting}
-                                    className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
-                                  />
-                                  {e?.until
-                                    ? <button type="button" onClick={() => setPermUntil(f.id, '')} className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">бессрочно</button>
-                                    : <span className="text-xs text-slate-400">бессрочно</span>}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Администратор всегда имеет полный доступ независимо от этих галочек.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {showsPlay && (
-                    <PlayAccess
-                      perms={editPerms}
-                      rolePerms={parsePermissions((editUser as any)?.rolePermissions)}
-                      disabled={isEditSubmitting}
-                      onSet={setPlayMode}
-                      platformOn={policyCtx.platform.supported ? policyCtx.platform.enabled : undefined}
-                      onOpenSettings={canManagePlay(policyCtx) || isTopAdmin(user as any, roles)
-                        ? () => navigate('/settings?section=play') : undefined}
-                    />
-                  )}
-
-                  <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-5">
-                    <button
-                      type="button"
-                      disabled={isEditSubmitting}
-                      onClick={handleDeleteUser}
-                      className="px-3 py-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                    >
-                      Удалить профиль
-                    </button>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        disabled={isEditSubmitting}
-                        onClick={() => setEditUser(null)}
-                        className="px-4 py-2 text-slate-650 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-850 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                      >
-                        Отмена
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isEditSubmitting}
-                        className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-sm font-semibold shadow-md transition-colors cursor-pointer"
-                      >
-                        {isEditSubmitting ? 'Сохранение...' : 'Сохранить'}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </motion.div>
+            <div className="fx-set-row">
+              <div className="fx-set-text">Профиль активен<div className="fx-set-desc">Снимите, чтобы сразу закрыть вход</div></div>
+              <Switch checked={editActive} onChange={setEditActive} label="Профиль активен" disabled={isEditSubmitting} />
             </div>
-          </div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+
+            {/* Права доступа по функциям */}
+            <div>
+              <div className="fx-label mt-2 mb-1">Права доступа</div>
+              {editRole === 'ADMIN' ? (
+                <Status tone="rose">Полный доступ (администратор)</Status>
+              ) : (
+                <div>
+                  {FEATURES.map((f) => {
+                    const e = editPerms[f.id];
+                    // Право, открытое по умолчанию, переключатель показывает таким,
+                    // каким оно действует (роль, умолчание, личное); снятие пишет запрет
+                    const open = OPEN_BY_DEFAULT.includes(f.id);
+                    const on = open
+                      ? !!entryOf({ ...parsePermissions((editUser as any)?.rolePermissions), ...editPerms }, f.id)?.enabled
+                      : !!e?.enabled;
+                    const isExpired = !!e?.until && new Date(e.until).getTime() < Date.now();
+                    // Что уже даёт должность: иначе админ выдаёт лично то,
+                    // что у человека и так есть, и потом не понимает,
+                    // почему снятие галочки ничего не изменило.
+                    const fromRole = !!parsePermissions((editUser as any)?.rolePermissions)[f.id]?.enabled;
+                    return (
+                      <div key={f.id} className="fx-set-row items-start">
+                        <div className="fx-set-text">
+                          <span className="inline-flex items-center gap-2 flex-wrap">
+                            {f.label}
+                            <span className="text-xs text-slate-400">{f.group}</span>
+                            {fromRole && !on && <Status tone="sky">уже даёт роль</Status>}
+                            {f.risky && <Status tone="amber">осторожно</Status>}
+                            {open && e && !e.enabled && <Status tone="rose">запрещено лично</Status>}
+                            {on && isExpired && <Status tone="rose">истекло</Status>}
+                          </span>
+                          <div className="fx-set-desc">
+                            {f.desc}
+                            {open && !e && on && ' У всех по умолчанию — выключите, чтобы запретить.'}
+                          </div>
+                          {on && (
+                            <span className="flex items-center gap-2 flex-wrap mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                              действует до
+                              <Input type="datetime-local" value={toDateTimeInput(e?.until)} onChange={(ev) => setPermUntil(f.id, ev.target.value)} disabled={isEditSubmitting} className="w-auto" />
+                              {e?.until
+                                ? <Btn size="sm" tone="ghost" onClick={() => setPermUntil(f.id, '')}>бессрочно</Btn>
+                                : <span>бессрочно</span>}
+                            </span>
+                          )}
+                        </div>
+                        <Switch checked={on} onChange={(v) => togglePerm(f.id, v)} label={f.label} disabled={isEditSubmitting} />
+                      </div>
+                    );
+                  })}
+                  <p className="fx-hint mt-1.5">Администратор всегда имеет полный доступ независимо от этих переключателей.</p>
+                </div>
+              )}
+            </div>
+
+            {showsPlay && (
+              <PlayAccess
+                perms={editPerms}
+                rolePerms={parsePermissions((editUser as any)?.rolePermissions)}
+                disabled={isEditSubmitting}
+                onSet={setPlayMode}
+                platformOn={policyCtx.platform.supported ? policyCtx.platform.enabled : undefined}
+                onOpenSettings={canManagePlay(policyCtx) || isTopAdmin(user as any, roles)
+                  ? () => navigate('/settings?section=play') : undefined}
+              />
+            )}
+          </form>
+        </Dialog>
+      )}
+    </div>
   );
 }

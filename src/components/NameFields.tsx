@@ -24,13 +24,9 @@ export interface NameValue {
 
 export const EMPTY_NAME: NameValue = { lastName: '', firstName: '', middleName: '', gender: '', birthDate: '' };
 
-const inputCls =
-  'w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm ' +
-  'text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ' +
-  'focus:border-emerald-500 transition-ui';
-
-const labelCls =
-  'block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1';
+// Вид полей — общий (fx-input, fx-label), как у всех форм программы
+const inputCls = 'fx-input';
+const labelCls = 'fx-label block mb-1';
 
 export default function NameFields({
   value, onChange, disabled, compact,
@@ -79,20 +75,15 @@ export default function NameFields({
       <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
         <div>
           <label className={labelCls}>Пол</label>
-          <div className="flex items-center gap-1.5">
+          <div className="fx-segctl" role="group" aria-label="Пол">
             {([['M', 'Мужской'], ['F', 'Женский']] as const).map(([id, label]) => (
-              <button key={id} type="button" disabled={disabled}
-                onClick={() => set({ gender: id })}
-                className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold transition-ui cursor-pointer ${
-                  value.gender === id
-                    ? 'bg-emerald-600 border-emerald-600 text-white'
-                    : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-emerald-500'}`}>
+              <button key={id} type="button" disabled={disabled} aria-pressed={value.gender === id} onClick={() => set({ gender: id })}>
                 {label}
               </button>
             ))}
           </div>
           {guessed && value.gender === guessed && (
-            <p className="text-2xs text-slate-400 mt-1 flex items-center gap-1">
+            <p className="fx-hint mt-1 flex items-center gap-1">
               <Wand2 className="w-3 h-3" /> определён по отчеству — можно поправить
             </p>
           )}
@@ -102,22 +93,22 @@ export default function NameFields({
           <input type="date" value={value.birthDate} disabled={disabled}
             onChange={(e) => set({ birthDate: e.target.value })}
             className={inputCls} />
-          <p className="text-2xs text-slate-400 mt-1 flex items-center gap-1">
+          <p className="fx-hint mt-1 flex items-center gap-1">
             <Cake className="w-3 h-3" /> в этот день главный экран поздравит сотрудника
           </p>
         </div>
       </div>
 
       {filled && (
-        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 px-3 py-2">
-          <div className="text-2xs font-mono text-slate-400 mb-1 flex items-center gap-1">
+        <div className="pt-1">
+          <div className="fx-label mb-1 flex items-center gap-1">
             <User2 className="w-3 h-3" /> как программа применит это имя
           </div>
           {/* Одна колонка: формы ФИО длинные, а обрезанное многоточием имя
               не даёт проверить, правильно ли программа его склонила. */}
           <dl className="space-y-0.5 text-xs">
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">в подписи:</dt>
-              <dd className="font-semibold text-slate-700 dark:text-slate-300">{initials(parts)}</dd></div>
+              <dd className="text-slate-800 dark:text-slate-100">{initials(parts)}</dd></div>
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">полностью:</dt>
               <dd className="text-slate-600 dark:text-slate-300">{fullNameOf(parts)}</dd></div>
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">от кого:</dt>
