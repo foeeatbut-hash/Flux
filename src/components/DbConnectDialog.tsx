@@ -92,53 +92,45 @@ export default function DbConnectDialog({ current, currentType, onClose, onDone 
 
   const field = (label: string, value: string, on: (v: string) => void, extra: Record<string, unknown> = {}) => (
     <label className="block">
-      <span className="block text-2xs font-bold text-slate-400 mb-0.5">{label}</span>
+      <span className="fx-label block mb-1">{label}</span>
       <input
         value={value}
         onChange={(e) => on(e.target.value)}
         {...extra}
-        className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-950
-                   border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white
-                   focus:outline-none focus:border-emerald-500"
+        className="fx-input"
       />
     </label>
   );
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4"
+    <div className="fixed inset-0 z-[120] flex items-center justify-center fx-backdrop p-4"
       onMouseDown={onClose}>
       <div
         role="dialog"
         aria-label="Подключение к базе данных"
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-950 border border-slate-200
-                   dark:border-slate-800 shadow-2xl overflow-hidden"
+        className="w-full max-w-lg fx-dialog overflow-hidden"
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-          <Database className="w-4 h-4 text-emerald-600" />
-          <b className="text-sm font-bold text-slate-800 dark:text-white">Где лежат данные</b>
+          <b className="text-base font-semibold text-slate-800 dark:text-white">Где лежат данные</b>
           <span className="flex-1" />
           <button type="button" onClick={onClose} aria-label="Закрыть"
-            className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
-            <X className="w-4 h-4" />
+            className="fx-ibtn">
+            <X />
           </button>
         </div>
 
         <div className="p-4 space-y-3">
-          <p className="text-2xs text-slate-500 dark:text-slate-400 leading-snug">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Это не адрес сервера программы. Здесь — только база данных: на этом компьютере
             или общая, к которой подключены все сотрудники.
           </p>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          {/* Выбор варианта — переключатель, а не три зелёные плитки */}
+          <div className="fx-segctl w-full" role="group" aria-label="Где лежат данные">
             {(['LOCAL', 'POSTGRES', 'MARIADB'] as DbEngine[]).map((e) => (
-              <button key={e} type="button" onClick={() => pickEngine(e)}
-                className={`px-2 py-2 rounded-lg text-2xs font-bold cursor-pointer border transition-ui ${
-                  parts.engine === e
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'
-                }`}>
-                {e === 'LOCAL' ? <Laptop className="w-3.5 h-3.5 mx-auto mb-1" /> : <Database className="w-3.5 h-3.5 mx-auto mb-1" />}
+              <button key={e} type="button" onClick={() => pickEngine(e)} aria-pressed={parts.engine === e} className="flex-1 justify-center">
+                {e === 'LOCAL' ? <Laptop className="w-3.5 h-3.5" /> : <Database className="w-3.5 h-3.5" />}
                 {ENGINE_LABEL[e]}
               </button>
             ))}
@@ -157,15 +149,14 @@ export default function DbConnectDialog({ current, currentType, onClose, onDone 
               </div>
             </div>
           ) : (
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-snug bg-slate-50 dark:bg-slate-900
-                          rounded-lg p-3 border border-slate-200 dark:border-slate-800">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
               Данные будут храниться файлом на этом компьютере. Так работают в одиночку:
               другие сотрудники этих данных не увидят.
             </p>
           )}
 
           {!!said && (
-            <p className={`text-2xs leading-snug flex items-start gap-1.5 ${
+            <p className={`text-xs leading-snug flex items-start gap-1.5 ${
               state === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {state === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 mt-px shrink-0" />
                 : <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />}
@@ -174,23 +165,18 @@ export default function DbConnectDialog({ current, currentType, onClose, onDone 
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800
-                        bg-slate-50 dark:bg-slate-900">
+        <div className="fx-dialog-foot">
           <button type="button" onClick={check} disabled={state === 'checking' || state === 'saving'}
-            className="px-3 py-1.5 rounded-lg text-2xs font-bold border border-slate-200 dark:border-slate-800
-                       text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-850
-                       disabled:opacity-50 cursor-pointer flex items-center gap-1.5">
+            className="fx-btn fx-btn-lg mr-auto">
             {state === 'checking' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             Проверить
           </button>
           <button type="button" onClick={onClose}
-            className="px-3 py-1.5 rounded-lg text-2xs font-bold text-slate-500 hover:bg-white
-                       dark:hover:bg-slate-850 cursor-pointer">
+            className="fx-btn fx-btn-lg">
             Отмена
           </button>
           <button type="button" onClick={connect} disabled={state === 'saving'}
-            className="px-4 py-1.5 rounded-lg text-2xs font-bold bg-emerald-600 hover:bg-emerald-500
-                       text-white disabled:opacity-50 cursor-pointer flex items-center gap-1.5">
+            className="fx-btn fx-btn-lg fx-btn-primary">
             {state === 'saving' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
             Подключиться
           </button>

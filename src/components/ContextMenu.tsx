@@ -44,7 +44,7 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
         const hasSub = !!it.items?.length;
         return (
           <div key={i} className="relative">
-            {it.separated && <div className="my-1 h-px bg-slate-200 dark:bg-slate-700" aria-hidden />}
+            {it.separated && <div className="fx-menu-sep" aria-hidden />}
             <button
               type="button"
               disabled={it.disabled}
@@ -63,15 +63,11 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
                 onClose();
                 it.onClick?.();
               }}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-left text-xs font-semibold
-                          cursor-pointer disabled:opacity-40 disabled:cursor-default ${
-                it.danger
-                  ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              } ${open === i ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+              data-active={open === i}
+              className={`fx-menu-item ${it.danger ? 'is-danger' : ''}`}
             >
-              <span className="w-4 h-4 flex items-center justify-center shrink-0">
-                {it.checked ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : it.icon}
+              <span className="w-4 h-4 flex items-center justify-center shrink-0 text-slate-400 [&>svg]:w-4 [&>svg]:h-4">
+                {it.checked ? <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" /> : it.icon}
               </span>
               <span className="flex-1 truncate">{it.label}</span>
               {hasSub && <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-400" />}
@@ -80,8 +76,7 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
             {hasSub && open === i && (
               <div
                 onMouseEnter={() => clearTimeout(timer.current)}
-                className="absolute top-[-6px] left-full ml-0.5 min-w-52 py-1.5 rounded-xl select-none
-                           bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl"
+                className="fx-pop absolute top-[-5px] left-full ml-0.5 min-w-52 select-none"
                 style={{ zIndex: Z.modal + depth + 1 }}
               >
                 <Rows items={it.items!} onClose={onClose} depth={depth + 1} />
@@ -140,8 +135,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
          спотыкался: нажатие по пункту его меню сначала закрывало сам Пуск,
          пункт исчезал вместе с ним, и до срабатывания дело не доходило */
       data-context-menu
-      className="fixed min-w-56 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700
-                 rounded-xl shadow-2xl select-none"
+      className="fx-pop fixed min-w-56 select-none"
       style={style}
       onContextMenu={(e) => e.preventDefault()}
       /* Меню — портал в body, но события React пускает по дереву компонентов, а

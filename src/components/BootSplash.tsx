@@ -56,7 +56,7 @@ export function ServerGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-950 p-6">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-lg p-7 text-center space-y-4">
-          <div className="text-lg font-bold text-white">
+          <div className="text-base font-semibold text-white">
             {isRemote ? 'Сервер компании не отвечает' : 'Не удалось запустить встроенный сервер'}
           </div>
           <p className="text-sm text-slate-400 leading-relaxed">
@@ -68,7 +68,7 @@ export function ServerGate({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-center gap-3 pt-1">
             <button type="button"
               onClick={() => window.location.reload()}
-              className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors cursor-pointer"
+              className="h-9 px-4 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors cursor-pointer"
             >
               Повторить
             </button>

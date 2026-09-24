@@ -30,34 +30,34 @@ export default function NoProject({ what }: { what: string }) {
   const openProjects = () => { rememberSectionUse('/projects'); useWindowStore.getState().open('/projects'); };
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface p-6 text-center">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center">
-          <FolderKanban className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
-        </div>
-        <h3 className="text-base font-bold text-slate-800 dark:text-white">Сначала выберите проект</h3>
+    // Пустое состояние по методологии: слева сверху, заголовок, строка,
+    // одно действие. Карточка по центру со значком в зелёном квадратике
+    // была из тех примет, которые методология убирает
+    <div className="w-full h-full overflow-y-auto">
+      <div className="fx-empty max-w-md">
+        <h3 className="fx-empty-title">Сначала выберите проект</h3>
         {/* Название раздела уводим в кавычки после слова «Раздел»: фраза была
             написана в среднем роде и подставляла туда имя раздела, отчего
             получалось «Закупки привязано» и «Реестр тегов привязано» — из трёх
             мест верным было одно. Теперь род фразы не зависит от подстановки. */}
-        <p className="text-sm text-slate-500 dark:text-dark-text-muted mt-1">
+        <p className="fx-empty-text">
           Раздел «{what}» ведётся по проекту. Выберите проект здесь или в трее панели задач.
         </p>
 
         {projects === null && (
-          <p className="text-xs text-slate-400 mt-5">Загружаю список проектов…</p>
+          <p className="text-xs text-slate-400">Загружаю список проектов…</p>
         )}
 
         {projects !== null && projects.length > 0 && (
-          <div className="mt-5 flex flex-col gap-1 max-h-56 overflow-y-auto scrollbar-thin text-left">
+          <div className="w-full flex flex-col max-h-72 overflow-y-auto scrollbar-thin -mx-2">
             {projects.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => setActiveProject(p)}
-                className="w-full px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-dark-text-main bg-slate-50 dark:bg-dark-panel hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-800 dark:hover:text-emerald-300 transition-ui cursor-pointer truncate"
+                className="fx-li"
               >
-                {p.name}
+                <FolderKanban /><span className="truncate">{p.name}</span>
               </button>
             ))}
           </div>
@@ -67,7 +67,7 @@ export default function NoProject({ what }: { what: string }) {
           <button
             type="button"
             onClick={openProjects}
-            className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer"
+            className="fx-btn fx-btn-primary"
           >
             <Plus className="w-4 h-4" />
             Создать первый проект

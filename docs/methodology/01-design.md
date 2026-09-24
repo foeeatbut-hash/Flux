@@ -192,6 +192,35 @@ Flux — рабочая программа инженера. На экране �
 
 ## 5. Компоненты
 
+Всё ниже уже сделано и лежит в одном месте. Вид — классы `fx-*` в
+`src/index.css`, React-обёртки — `src/components/ui`. Новый экран берёт их
+отсюда, а не рисует свои. Классы нужны, чтобы старый экран в несколько тысяч
+строк переводился заменой класса на месте.
+
+| Что | Класс | Компонент |
+|---|---|---|
+| Кнопка: обычная / главная / тихая / опасная | `fx-btn`, `fx-btn-primary`, `fx-btn-quiet`, `fx-btn-danger`, `fx-btn-danger-fill`; размеры `fx-btn-sm` 24, по умолчанию 28, `fx-btn-lg` 32 | `Btn tone size` |
+| Кнопка-значок в строке | `fx-ibtn` (24) | `IconBtn label` |
+| Шапка раздела | `fx-head`, `fx-head-title`, `fx-head-count`, `fx-head-acts` | `SectionHead title count actions` |
+| Вкладки раздела | `fx-tabs`, `fx-tab` + `aria-selected` | `Tabs` |
+| Панель инструментов | `fx-tools`, разделитель `fx-vsep` | `Toolbar` |
+| Фильтр со счётчиками | `fx-seg` + `aria-pressed`, число `fx-n` | `FilterSeg` |
+| Переключатель вариантов | `fx-segctl` + `aria-pressed` | `Seg` |
+| Поле, подпись, пояснение, ошибка | `fx-input`, `fx-field`, `fx-label`, `fx-hint`, `fx-error` | `Input`, `Area`, `Select`, `Field` |
+| Таблица | `fx-table`; выбранная строка `is-sel` или `aria-selected`; действия строки `fx-row-acts` | — |
+| Пункт списка и дерева | `fx-li` + `aria-current`/`is-on`, число `fx-n`; заголовок группы `fx-gh`; боковая панель `fx-side` | — |
+| Группа и строка настройки | `fx-group-title`, `fx-set-row`, `fx-set-text`, `fx-set-desc` | `SettingRow` |
+| Переключатель | `fx-switch` + `aria-checked` | `Switch` |
+| Статус точкой | `fx-st` + `fx-st-ok / warn / bad / info` | `Status`, `Chip` |
+| Бейдж | `fx-badge`, `fx-badge-bad`, `fx-badge-accent` | `Badge` |
+| Аватар | `fx-av`, `fx-av-online` | `Avatar` |
+| Пустое состояние | `fx-empty`, `fx-empty-title`, `fx-empty-text` | `Empty` |
+| Всплывающее и меню | `fx-pop`, `fx-menu-item` (+ `is-danger`), `fx-menu-sep` | `ContextMenu`, `Popover`, `CustomSelect` |
+| Диалог | `fx-dialog`, `fx-dialog-head`, `fx-dialog-body`, `fx-dialog-foot`, подложка `fx-backdrop` | `ModalProvider` (`openConfirm`, `openPrompt`, `openSelect`) |
+
+Число, которое сверяют по разрядам, — `tabular-nums` (или `.data`). Код,
+который сверяют по символу, — `font-mono` (или `.code`).
+
 ### Шапка раздела — одна строка, 44 px
 
 ```

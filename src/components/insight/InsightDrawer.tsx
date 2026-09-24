@@ -57,39 +57,33 @@ export default function InsightDrawer() {
         <header className="shrink-0 flex items-center gap-2.5 px-3 py-3 border-b border-slate-200 dark:border-slate-800">
           {back && (
             <button type="button" onClick={goBack} title="Назад"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+              className="fx-ibtn">
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center shrink-0">
-            <Icon className="w-4 h-4 text-white" />
-          </div>
+          <Icon className="w-4 h-4 text-slate-400 shrink-0" />
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white truncate">
               {mode === 'where' ? 'Карточка связей' : title}
             </h2>
-            <p className="text-2xs text-slate-400 dark:text-slate-500 truncate">{hint}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{hint}</p>
           </div>
           <button type="button" onClick={close} title="Закрыть (Esc)"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+            className="fx-ibtn">
             <X className="w-4 h-4" />
           </button>
         </header>
 
         {/* Переход между режимами: вопросы соседние, и ходят между ними часто */}
-        <nav className="shrink-0 flex gap-1 px-3 py-2 border-b border-slate-100 dark:border-slate-850">
-          <button type="button" onClick={openCheck}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-              mode === 'check' ? 'bg-emerald-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+        <nav className="fx-tabs shrink-0 h-10 px-2 border-b border-slate-200 dark:border-slate-800" role="tablist">
+          <button type="button" role="tab" aria-selected={mode === 'check'} onClick={openCheck} className="fx-tab">
             Проверка проекта
           </button>
-          <button type="button" onClick={openChanges}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-              mode === 'changes' ? 'bg-emerald-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+          <button type="button" role="tab" aria-selected={mode === 'changes'} onClick={openChanges} className="fx-tab">
             Что изменилось
           </button>
           {mode === 'where' && (
-            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white">Связи объекта</span>
+            <span role="tab" aria-selected="true" className="fx-tab">Связи объекта</span>
           )}
         </nav>
 

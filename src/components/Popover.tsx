@@ -101,8 +101,7 @@ export default function Popover({ anchor, onClose, align = 'left', children, lab
       /* Та же метка, что у контекстного меню: те, кто закрывается «по нажатию
          мимо себя», должны узнавать наш портал как своё продолжение */
       data-popover
-      className={`fixed rounded-xl shadow-2xl select-none bg-white dark:bg-slate-900
-                  border border-slate-200 dark:border-slate-800 ${className || ''}`}
+      className={`fx-pop fixed select-none ${className || ''}`}
       style={{
         zIndex: Z.modal,
         left: pos?.left ?? -9999,

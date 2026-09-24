@@ -61,12 +61,11 @@ export function Row({ icon, title, subtitle, badge, onClick, onSide, sideTitle, 
       >
         <span className="shrink-0">{icon}</span>
         <span className="flex-1 min-w-0">
-          <span className="block text-sm font-semibold text-slate-800 dark:text-slate-150 truncate">{title}</span>
-          {subtitle && <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">{subtitle}</span>}
+          <span className="block text-sm text-slate-800 dark:text-slate-150 truncate">{title}</span>
+          {subtitle && <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{subtitle}</span>}
         </span>
         {badge && (
-          <span className="shrink-0 px-1.5 py-0.5 rounded-md text-2xs font-bold tabular-nums
-                           bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">{badge}</span>
+          <span className="fx-badge shrink-0 tabular-nums">{badge}</span>
         )}
         {onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-455 shrink-0" />}
       </button>
@@ -75,9 +74,9 @@ export function Row({ icon, title, subtitle, badge, onClick, onSide, sideTitle, 
           type="button"
           onClick={onSide}
           title={sideTitle || 'Связи объекта'}
-          className="shrink-0 px-2 rounded-[10px] text-slate-300 dark:text-slate-455
-                     hover:text-emerald-600 dark:hover:text-emerald-400
-                     hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer transition-colors"
+          className="shrink-0 px-2 rounded-md text-slate-300 dark:text-slate-455
+                     hover:text-slate-700 dark:hover:text-white
+                     hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
         >
           <Search className="w-3.5 h-3.5" />
         </button>
@@ -94,13 +93,12 @@ export function GroupHead({ title, hint, count, right }: {
     <div className="flex items-start justify-between gap-3 px-3 pt-3 pb-1">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400">{title}</h3>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           {count !== undefined && (
-            <span className="px-1.5 py-0.5 rounded-md text-2xs font-bold tabular-nums
-                             bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">{count}</span>
+            <span className="text-sm text-slate-400 tabular-nums">{count}</span>
           )}
         </div>
-        {hint && <p className="mt-0.5 text-2xs text-slate-400 dark:text-slate-500 leading-snug">{hint}</p>}
+        {hint && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 leading-snug">{hint}</p>}
       </div>
       {right}
     </div>
@@ -110,12 +108,12 @@ export function GroupHead({ title, hint, count, right }: {
 /** Пустое состояние: говорит, что это не ошибка, а нормальный ответ */
 export function Empty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-14 px-8 text-center">
-      <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-slate-400 dark:text-slate-500">
-        {icon}
-      </div>
-      <p className="text-sm font-semibold text-slate-700 dark:text-slate-150">{title}</p>
-      {hint && <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs leading-relaxed">{hint}</p>}
+    // По методологии: слева сверху, заголовок и строка. Значок в скруглённой
+    // плитке посередине пустоты убран; параметр icon оставлен, чтобы не
+    // перекраивать все места вызова
+    <div className="fx-empty" data-icon={icon ? 'yes' : undefined}>
+      <p className="fx-empty-title">{title}</p>
+      {hint && <p className="fx-empty-text">{hint}</p>}
     </div>
   );
 }

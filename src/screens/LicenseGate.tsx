@@ -56,7 +56,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
   if (state.kind === 'loading') {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-950">
-        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+        <div className="w-5 h-5 rounded-full border-2 border-slate-500 border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -88,7 +88,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
         <div className="flex items-center gap-3">
           <FluxLogo size={40} />
           <div>
-            <div className="text-lg font-bold text-white">
+            <div className="text-base font-semibold text-white">
               {state.kind === 'offline' ? 'Проверка лицензии' : 'Активация лицензии'}
             </div>
             <div className="text-xs text-slate-400">Программа защищена лицензией на один компьютер</div>
@@ -100,7 +100,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
         {state.kind === 'offline' ? (
           <>
             <div className="p-3 text-xs font-medium text-amber-200 bg-amber-950/30 border border-amber-900/50 rounded-lg space-y-1">
-              <p className="font-bold">{state.text}</p>
+              <p className="font-medium">{state.text}</p>
               <p className="text-amber-300/80">{state.detail}</p>
             </div>
             <p className="text-sm text-slate-300 leading-relaxed">
@@ -109,7 +109,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
               занимается сервером.
             </p>
             <button type="button" onClick={load} disabled={checking}
-              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold
+              className="w-full h-9 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium
                          cursor-pointer disabled:opacity-50">
               {checking ? 'Проверяем…' : 'Повторить'}
             </button>
@@ -151,7 +151,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
             <button type="button"
               onClick={submit}
               disabled={busy || !code.trim()}
-              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold cursor-pointer disabled:opacity-50"
+              className="w-full h-9 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium cursor-pointer disabled:opacity-50"
             >
               {busy ? 'Проверка…' : 'Активировать'}
             </button>

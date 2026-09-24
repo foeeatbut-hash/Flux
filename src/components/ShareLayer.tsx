@@ -115,25 +115,25 @@ export default function ShareLayer() {
     <>
       {/* Мини-меню «Поделиться» */}
       {menu && createPortal(
-        <div className="fixed z-[120] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border shadow-xl rounded-lg py-1 min-w-[180px] text-sm"
+        <div className="fx-pop fixed z-[120] min-w-[180px]"
           style={{ top: Math.min(menu.y, window.innerHeight - 90), left: Math.min(menu.x, window.innerWidth - 200) }}
           onClick={(e) => e.stopPropagation()}>
-          <div className="px-3 py-1.5 text-2xs text-slate-400 truncate max-w-[200px]">{menu.candidate.label}</div>
-          <button type="button" onClick={() => openPicker(menu.candidate)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-dark-text-main cursor-pointer">
-            <Share2 className="w-4 h-4 text-emerald-600" /> Поделиться в чате
+          <div className="px-2 py-1 text-xs text-slate-400 truncate max-w-[200px]">{menu.candidate.label}</div>
+          <button type="button" onClick={() => openPicker(menu.candidate)} className="fx-menu-item">
+            <Share2 /> Поделиться в чате
           </button>
         </div>, document.body)}
 
       {/* Выбор пользователя */}
       {pickerCandidate && createPortal(
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={closePicker}>
-          <div className="w-[min(94vw,380px)] bg-white dark:bg-dark-panel rounded-lg border border-slate-200 dark:border-dark-border shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 fx-backdrop" onClick={closePicker}>
+          <div className="w-[min(94vw,380px)] fx-dialog overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm"><Share2 className="w-4 h-4 text-emerald-600" /> Кому отправить</div>
-              <button type="button" title="Закрыть" onClick={closePicker} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
+              <div className="text-base font-semibold text-slate-900 dark:text-white">Кому отправить</div>
+              <button type="button" title="Закрыть" onClick={closePicker} aria-label="Закрыть" className="fx-ibtn"><X /></button>
             </div>
             <div className="p-2.5 flex items-center gap-2 border-b border-slate-100 dark:border-dark-border">
-              <div className="flex items-center gap-1.5 min-w-0 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold max-w-full overflow-hidden">
+              <div className="flex items-center gap-1.5 min-w-0 text-sm text-slate-600 dark:text-slate-300 max-w-full overflow-hidden">
                 <Link2 className="w-3.5 h-3.5 shrink-0" /> <span className="flex-1 min-w-0 truncate">{pickerCandidate.label}</span>
               </div>
             </div>
@@ -145,11 +145,11 @@ export default function ShareLayer() {
               {list.length === 0 ? (
                 <div className="text-center text-xs text-slate-400 py-8">Нет сотрудников</div>
               ) : list.map(u => (
-                <button type="button" key={u.id} onClick={() => share(u)} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface text-left cursor-pointer">
-                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">{(u.name || '?').charAt(0)}</div>
+                <button type="button" key={u.id} onClick={() => share(u)} className="fx-li !h-auto py-1.5">
+                  <span className="fx-av !w-7 !h-7 !text-xs">{(u.name || '?').charAt(0)}</span>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 dark:text-dark-text-main truncate">{u.name}</div>
-                    <div className="text-xs text-slate-400 truncate font-mono">{u.symbol}</div>
+                    <div className="text-sm text-slate-800 dark:text-dark-text-main truncate">{u.name}</div>
+                    <div className="text-xs text-slate-400 truncate">{u.symbol}</div>
                   </div>
                 </button>
               ))}

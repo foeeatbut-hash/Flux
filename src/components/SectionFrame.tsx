@@ -137,10 +137,10 @@ export default function SectionFrame({
     const key = def.feature || def.entitlement || '';
     const what = featureById(key)?.label || playEntitlementById(key)?.label || key;
     return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="max-w-sm text-center">
-          <div className="text-sm font-bold text-slate-800 dark:text-white mb-1">Раздел закрыт</div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+      <div className="h-full">
+        <div className="fx-empty">
+          <div className="fx-empty-title">Раздел закрыт</div>
+          <div className="fx-empty-text">
             «{def.title}» доступен по праву «{what}». Его выдаёт администратор — в разделе «Сотрудники».
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function SectionFrame({
             const id = paneId.startsWith('win:') ? paneId.slice(4) : '';
             if (id) useWindowStore.getState().close(id);
           }}>
-            <Suspense fallback={<div className="w-full h-full flex items-center justify-center py-24"><div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" /></div>}>
+            <Suspense fallback={<div className="w-full h-full flex items-center justify-center py-24"><div className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-transparent animate-spin" /></div>}>
               <Comp />
             </Suspense>
           </SectionErrorBoundary>

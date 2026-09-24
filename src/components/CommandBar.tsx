@@ -42,7 +42,7 @@ const GROUP_TITLE: Record<BarGroup, string> = {
 };
 
 function ItemIcon({ icon }: { icon: string }) {
-  const cls = 'w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400';
+  const cls = 'w-4 h-4 shrink-0 text-slate-400 dark:text-slate-500';
   switch (icon) {
     case 'open': return <AppWindow className={cls} />;
     case 'window': return <AppWindow className={cls} />;
@@ -228,8 +228,7 @@ export default function CommandBar() {
         className="absolute inset-0 bg-slate-950/30 dark:bg-slate-950/55 cursor-default" />
 
       <div role="dialog" aria-label="Спросить или найти"
-        className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200
-                   dark:border-slate-800 shadow-2xl overflow-hidden">
+        className="relative w-full max-w-xl fx-dialog overflow-hidden">
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100 dark:border-slate-850">
           {q.trim().startsWith('/')
             ? <Slash className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -263,7 +262,7 @@ export default function CommandBar() {
             return (
               <React.Fragment key={it.key}>
                 {head && (
-                  <div className="px-3 pt-2 pb-1 text-2xs font-bold text-slate-400 dark:text-slate-500">
+                  <div className="fx-gh">
                     {GROUP_TITLE[head]}
                   </div>
                 )}
@@ -272,14 +271,14 @@ export default function CommandBar() {
                   type="button"
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => run(it)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-left cursor-pointer ${
-                    i === cursor ? 'bg-emerald-50 dark:bg-emerald-950/30' : ''
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-left cursor-pointer ${
+                    i === cursor ? 'bg-slate-100 dark:bg-slate-800' : ''
                   }`}
                 >
                   <ItemIcon icon={it.icon} />
                   <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-semibold text-slate-800 dark:text-slate-150 truncate">{it.title}</span>
-                    <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">{it.subtitle}</span>
+                    <span className="block text-sm text-slate-800 dark:text-slate-150 truncate">{it.title}</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{it.subtitle}</span>
                   </span>
                 </button>
               </React.Fragment>

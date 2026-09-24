@@ -55,8 +55,8 @@ export default class SectionErrorBoundary extends Component<Props, State> {
     const { error, attempt } = this.state;
     if (error) {
       return (
-        <div className="w-full h-full flex items-start justify-center pt-16 px-4">
-          <div className="w-full max-w-lg rounded-lg border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-dark-surface p-6 ">
+        <div className="w-full h-full overflow-y-auto">
+          <div className="w-full max-w-lg p-4">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
               <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -68,14 +68,14 @@ export default class SectionErrorBoundary extends Component<Props, State> {
               перезапустить раздел; если сбой повторяется, пришлите текст ниже разработчику
               (он же записан в Журнал).
             </p>
-            <pre className="text-2xs font-mono text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-lg p-3 max-h-40 overflow-auto whitespace-pre-wrap">
+            <pre className="text-xs font-mono text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-md p-3 max-h-40 overflow-auto whitespace-pre-wrap">
               {String(error.message || error)}
             </pre>
             <div className="flex items-center gap-2 mt-4">
               <button
                 type="button"
                 onClick={this.retry}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors"
+                className="fx-btn fx-btn-primary"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Перезапустить раздел
@@ -84,7 +84,7 @@ export default class SectionErrorBoundary extends Component<Props, State> {
                 <button
                   type="button"
                   onClick={this.props.onClose}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-dark-bg text-xs font-medium transition-colors"
+                  className="fx-btn"
                 >
                   <X className="w-3.5 h-3.5" />
                   Закрыть

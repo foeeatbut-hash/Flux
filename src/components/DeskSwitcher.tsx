@@ -159,11 +159,11 @@ export default function DeskSwitcher() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         title={`${desks[desk] || 'Стол'} — рабочие столы (Ctrl+Alt+←/→)`}
-        className={`h-9 px-2.5 rounded-[10px] cursor-pointer flex items-center gap-1.5 text-2xs font-semibold
+        className={`h-9 px-2.5 rounded-lg cursor-pointer flex items-center gap-1.5 text-xs font-medium
                     transition-colors ${
           open
-            ? 'bg-emerald-600 text-white'
-            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'
+            ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
         }`}
       >
         <Monitor className="w-[17px] h-[17px]" />
@@ -175,8 +175,7 @@ export default function DeskSwitcher() {
           role="group"
           aria-label="Рабочие столы"
           onDragEnd={() => setDragging(null)}
-          className="absolute bottom-[46px] right-0 z-40 p-2.5 flex items-end gap-2.5 rounded-xl shadow-2xl
-                     bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+          className="fx-pop absolute bottom-[46px] right-0 z-40 !p-2.5 flex items-end gap-2.5"
         >
           {desks.map((_, i) => (
             <DeskCard key={i} index={i} dragging={dragging} onPick={setDragging} onDrop={drop} />
