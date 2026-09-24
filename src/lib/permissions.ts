@@ -54,6 +54,17 @@ export const FEATURES: FeatureDef[] = [
   { id: 'equipment.manage', group: 'Оборудование', label: 'Правка характеристик',
     desc: 'Менять параметры позиций и разрешать конфликты ревизий' },
 
+  // Каталог один на всю программу: его правка меняет подбор во всех проектах
+  // сразу, поэтому она отдельное право, а смотреть и подбирать может каждый
+  { id: 'catalog.manage', group: 'Каталог и Конструктор', label: 'Правка Каталога', risky: true,
+    desc: 'Менять семейства, коды, правила и комплектующие в Каталоге оборудования — для всех проектов' },
+  { id: 'blanks.manage', group: 'Каталог и Конструктор', label: 'Шаблоны бланков',
+    desc: 'Создавать и менять шаблоны выходных бланков Конструктора' },
+  { id: 'builder.edit', group: 'Каталог и Конструктор', label: 'Ведомости подбора',
+    desc: 'Заводить ведомости, импортировать MTO, подбирать и править позиции' },
+  { id: 'builder.issue', group: 'Каталог и Конструктор', label: 'Выпуск бланков',
+    desc: 'Выпускать ревизию комплекта бланков и записывать её в историю' },
+
   { id: 'files.upload', group: 'Проводник', label: 'Загрузка файлов',
     desc: 'Загружать файлы и создавать папки' },
   { id: 'files.delete', group: 'Проводник', label: 'Удаление файлов и папок', risky: true,
@@ -118,6 +129,26 @@ export const DEFAULT_DENIED = [
   // каждый: право feedback.create в списке отказов намеренно отсутствует
   'feedback.triage', 'feedback.diagnostics', 'feedback.manage',
 ];
+
+/**
+ * Права, открытые, пока про них ничего не сказано.
+ *
+ * Запись прав у роли и сотрудника хранит только то, что было в каталоге на
+ * момент настройки. Право, добавленное позже, в ней отсутствует — и читалось
+ * как запрет: после появления Каталога и Конструктора у всех, кроме
+ * администратора, кнопки пропали, а сервер отвечал «Недостаточно прав» на
+ * любую запись. Для этих прав отсутствие записи значит «как у нового
+ * сотрудника» — выдано; явный запрет в карточке по-прежнему запрещает.
+ */
+export const OPEN_BY_DEFAULT = ['catalog.manage', 'blanks.manage', 'builder.edit', 'builder.issue'];
+
+/** Запись права с учётом «открытых по умолчанию» — одна для окна и сервера */
+export function entryOf(map: PermMap, feature: string): PermEntry | undefined {
+  const e = map[feature];
+  if (e) return e;
+  if (OPEN_BY_DEFAULT.includes(feature) && !DEFAULT_DENIED.includes(feature)) return { enabled: true, until: null };
+  return undefined;
+}
 
 export function defaultPermissions(): PermMap {
   const map: PermMap = {};
@@ -190,7 +221,7 @@ export function can(user: PermUser | null | undefined, feature: string): boolean
   if (expired(typeof user.validUntil === 'string' ? user.validUntil
       : user.validUntil instanceof Date ? user.validUntil.toISOString() : null)) return false;
   const map = effectivePermissions(user);
-  let e = map[feature];
+  let e = entryOf(map, feature);
   // обратная совместимость: старое право project.create = управление проектом
   if ((!e || !e.enabled) && feature === 'project.manage' && map['project.create']) e = map['project.create'];
   if (!e || !e.enabled) return false;

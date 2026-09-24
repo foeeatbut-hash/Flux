@@ -10,7 +10,7 @@
  */
 import React, { lazy } from 'react';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2 } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks } from 'lucide-react';
 import { APP_PLAY } from '../../play/features';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
@@ -35,6 +35,8 @@ const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
 const CalendarScreen = lazy(() => import('../screens/CalendarScreen'));
 const PlayScreen = lazy(() => import('../play/PlayScreen'));
+const CatalogScreen = lazy(() => import('../screens/CatalogScreen'));
+const BuilderScreen = lazy(() => import('../screens/BuilderScreen'));
 
 /**
  * Область данных раздела — см. src/lib/projectScope.ts.
@@ -120,6 +122,12 @@ export const SECTIONS: SectionDef[] = [
   { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
+  // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
+  // «/constructor»: так назывался прежний редактор книг, и старые окна людей
+  // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)
+  { path: '/builder', title: 'Конструктор', icon: Blocks, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
+  // Каталог — справочник оборудования программы, а не проекта
+  { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
   // Flux Office — семья редакторов, устроенная как офисный пакет: у каждого
   // вида документа своя программа со своим значком и своим именем в одно

@@ -37,6 +37,9 @@ import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
+import { registerCatalogRoutes } from './server/routes/catalog.js';
+import { entryOf } from './src/lib/permissions.js';
+import { registerBuilderRoutes } from './server/routes/builder.js';
 import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
 import { registerImportJobRoutes } from './server/routes/importJobs.js';
 import { readEquipmentFile } from './server/equipmentFile.js';
@@ -1211,6 +1214,12 @@ const PERM_ROUTES: PermRule[] = [
     perm: 'vdr.standards', title: 'Стандарты документооборота' },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//,
     perm: 'vdr.manage', title: 'Реестр ВДР' },
+  // Каталог правят немногие, а учится он у всех: запомненный выбор подбора —
+  // побочный продукт работы в Конструкторе, а не правка справочника
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/catalog\/(?!learn)/, perm: 'catalog.manage', title: 'Правка Каталога' },
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },
+  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues/, perm: 'builder.issue', title: 'Выпуск бланков' },
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\//, perm: 'builder.edit', title: 'Ведомости Конструктора' },
 ];
 
 const rolePermCache = new Map<string, { perms: any; at: number }>();
@@ -1241,7 +1250,7 @@ async function effectivePermsOf(user: any): Promise<Record<string, any>> {
 }
 
 function permAllows(perms: Record<string, any>, feature: string): boolean {
-  const e = perms[feature] || (feature === 'project.manage' ? perms['project.create'] : null);
+  const e = entryOf(perms, feature) || (feature === 'project.manage' ? perms['project.create'] : null);
   if (!e || !e.enabled) return false;
   if (e.until && new Date(e.until).getTime() < Date.now()) return false;
   return true;
@@ -2914,6 +2923,8 @@ registerMailLinkRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
+registerCatalogRoutes(app);
+registerBuilderRoutes(app);
 registerEquipmentViewRoutes(app);
 registerImportJobRoutes(app);
 // Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно

@@ -1690,3 +1690,213 @@ model PlayBuild {
   @@unique([gameId, channel, version])
   @@index([gameId, channel, publishedAt])
 }
+
+// ── Каталог оборудования ────────────────────────────────────────────────────
+// Каталог живёт в программе, а не в проекте: projectId у этих таблиц нет
+// намеренно. Каждая запись — документ JSON (catalog/model.ts): семейство — это
+// позиции обозначения, коды и правила, и раскладывать их по колонкам значило
+// бы менять схему базы на каждое новое семейство
+
+model CatalogClass {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  /// JSON: EquipmentClass — подписи, язык признаков
+  dataJson  String   @default("{}")
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CatalogManufacturer {
+  id        String   @id @default(uuid())
+  name      String
+  dataJson  String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CatalogFamily {
+  id             String    @id @default(uuid())
+  classId        String
+  manufacturerId String
+  code           String
+  /// JSON: Family — позиции, коды, правила, профиль подбора, характеристики
+  dataJson       String    @default("{}")
+  /// full | partial | draft
+  status         String    @default("draft")
+  /// Версия затравки, из которой запись пришла; 0 — заведена человеком
+  seedVersion    Int       @default(0)
+  /// Правлено человеком: обновление затравки запись не перезаписывает
+  edited         Boolean   @default(false)
+  sort           Int       @default(0)
+  updatedById    String?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([classId])
+}
+
+model CatalogComponent {
+  id        String   @id @default(uuid())
+  classId   String
+  /// actuator | box | gland | heater | frame | other
+  kind      String   @default("other")
+  code      String
+  dataJson  String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId])
+}
+
+model CatalogTagRule {
+  id        String   @id @default(uuid())
+  classId   String
+  code      String
+  dataJson  String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId])
+}
+
+/// Выученный выбор: подпись описания (цифры замаскированы) → семейство и коды
+model CatalogLearn {
+  id          String   @id @default(uuid())
+  classId     String
+  signature   String
+  familyId    String
+  valuesJson  String   @default("{}")
+  count       Int      @default(1)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([classId, signature])
+}
+
+/// История правок Каталога и шаблонов бланков — снимок ДО правки, для отката
+model CatalogRevision {
+  id           String   @id @default(uuid())
+  /// family | component | tagRule | class | manufacturer | template
+  entity       String
+  entityId     String
+  /// update | delete | restore | seed
+  action       String   @default("update")
+  snapshotJson String   @default("{}")
+  userId       String?
+  createdAt    DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+/// Шаблон выходного бланка (catalog/blank/model.ts)
+model BlankTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  classId     String?
+  /// SHARED | PERSONAL
+  scope       String   @default("SHARED")
+  ownerId     String?
+  layoutJson  String   @default("{}")
+  isDefault   Boolean  @default(false)
+  version     Int      @default(1)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scope, ownerId])
+}
+
+/// Профиль формата таблицы заказчика: какие колонки что значат
+model ImportProfile {
+  id          String   @id @default(uuid())
+  name        String
+  signature   String
+  mappingJson String   @default("{}")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([signature])
+}
+
+// ── Конструктор: ведомости подбора проекта ──────────────────────────────────
+// Связи с Project нет, как у ImportBatch: ведомость проекта удаляется вместе с
+// проектом маршрутом удаления, а не каскадом, — иначе схема Project росла бы
+// на каждую новую ведомость
+
+model SelectionList {
+  id          String    @id @default(uuid())
+  projectId   String
+  classId     String
+  name        String    @default("Ведомость")
+  /// JSON: реквизиты документа (catalog/selection.ts HEADER_FIELDS)
+  headerJson  String    @default("{}")
+  /// JSON: номер бланк-заказа по листам (ключ группы → номер)
+  orderNosJson String   @default("{}")
+  templateId  String?
+  lang        String    @default("ru")
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId])
+}
+
+model SelectionItem {
+  id          String    @id @default(uuid())
+  listId      String
+  projectId   String
+  /// JSON: SelectionItemData без id
+  dataJson    String    @default("{}")
+  /// Теги строкой в нижнем регистре — для поиска
+  tagsText    String    @default("")
+  familyId    String?
+  status      String    @default("draft")
+  sort        Int       @default(0)
+  updatedById String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([listId])
+}
+
+/// Выпуск ревизии комплекта бланков: снимок того, что ушло заводу
+model SelectionIssue {
+  id           String   @id @default(uuid())
+  listId       String
+  projectId    String
+  rev          String
+  date         String   @default("")
+  reason       String   @default("")
+  prepared     String   @default("")
+  checked      String   @default("")
+  approved     String   @default("")
+  snapshotJson String   @default("{}")
+  diffText     String   @default("")
+  fileId       String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  @@index([listId])
+}
+
+/// Массовая запись в ведомость (импорт, групповая правка) — снимок для отмены
+model SelectionBatch {
+  id          String   @id @default(uuid())
+  listId      String
+  projectId   String
+  title       String
+  /// JSON: прежние строки изменённых позиций и id созданных
+  beforeJson  String   @default("{}")
+  undone      Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([listId])
+}

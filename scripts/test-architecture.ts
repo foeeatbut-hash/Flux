@@ -51,7 +51,7 @@ const ELECTRON = walk('electron');
 // Общий код в корне: договоры, которые читают и окно, и сервер, и оболочка.
 // Он лежит вне src/, server/ и electron/ — и потому раньше не попадал ни под
 // планку размера, ни под проверку на внешние сервисы
-const SHARED = [...walk('diagnostics'), ...walk('equipment'), ...walk('feedback'), ...walk('play')];
+const SHARED = [...walk('catalog'), ...walk('diagnostics'), ...walk('equipment'), ...walk('feedback'), ...walk('play')];
 
 console.log('1. Разделы рабочего стола независимы друг от друга');
 // Раздел — экран, зарегистрированный в SECTIONS. Файлы screens/, которых там

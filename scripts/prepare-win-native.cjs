@@ -22,8 +22,16 @@ const bsqDir = path.join(root, 'node_modules', 'better-sqlite3');
 const target = path.join(bsqDir, 'build', 'Release', 'better_sqlite3.node');
 const linuxBackup = path.join(bsqDir, 'build', 'Release', 'better_sqlite3.linux.node');
 
+// Вид файла по заголовку, а не командой `file`: её нет на Windows, и сборка
+// на машине сотрудника падала на проверке, а не на деле. «MZ» — Windows-DLL,
+// «\x7fELF» — Linux
 function fileKind(p) {
-  try { return execSync(`file -b "${p}"`).toString().trim(); } catch { return 'unknown'; }
+  try {
+    const head = fs.readFileSync(p).subarray(0, 4);
+    if (head[0] === 0x4d && head[1] === 0x5a) return 'PE32+ MS Windows DLL';
+    if (head[0] === 0x7f && head.toString('latin1', 1, 4) === 'ELF') return 'ELF Linux';
+    return 'unknown';
+  } catch { return 'unknown'; }
 }
 
 if (process.argv.includes('--restore')) {
@@ -63,7 +71,10 @@ function download(u, dest, redirects = 0) {
 (async () => {
   // Сохраняем Linux-бинарник один раз, чтобы потом восстановить
   if (fs.existsSync(target) && !fs.existsSync(linuxBackup)) {
-    if (fileKind(target).includes('ELF')) fs.copyFileSync(target, linuxBackup);
+    // Сохраняем исходный модуль всегда, а не только линуксовый: на Windows он
+    // тоже DLL, но собран под Node, а не под Electron, — без копии сервер
+    // разработки после сборки exe перестаёт запускаться
+    fs.copyFileSync(target, linuxBackup);
   }
   const tmpTar = path.join(require('os').tmpdir(), `bsq-win-${abi}.tar.gz`);
   await download(url, tmpTar);
