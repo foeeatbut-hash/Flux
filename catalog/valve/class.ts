@@ -135,7 +135,9 @@ export const VALVE_DETECTORS: Detector[] = [
 
   // Назначение
   // «НО» без точек не ловим: в русском тексте это ещё и союз «но»
-  { key: 'function', re: /normally\s*open|нормально[-\s]*открыт\w*|\bн\.\s?о\./, value: 'NO' },
+  // «НО» без точек — только когда за ним сразу знак препинания («НО,», «(НО)»):
+  // иначе это союз «но», а он в описаниях встречается чаще аббревиатуры
+  { key: 'function', re: /normally\s*open|нормально[-\s]*открыт\w*|\bн\.\s?о\.|\bно(?=\s*[,;/)]|\s*$)/, value: 'NO' },
   { key: 'function', re: /normally\s*closed|нормально[-\s]*закрыт\w*|\bн\.?\s?з\.?\b/, value: 'NC' },
   { key: 'function', re: /double[-\s]*acting|двойного\s+действия/, value: 'DA', priority: 3 },
   { key: 'function', re: /smoke\s*(?:exhaust|damper|extraction)|дымоудален\w*|дымов\w+\s+клапан/, value: 'SMOKE' },

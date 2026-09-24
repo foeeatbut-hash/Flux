@@ -37,6 +37,14 @@ interface BuilderState {
 
 const LAST_KEY = 'flux_builder_last_list';
 
+/**
+ * Число позиций и штук у открытой ведомости — в списке ведомостей. Список
+ * приходит один раз при входе, и без пересчёта после импорта в выборе
+ * ведомости так и стояло «0 поз.» над таблицей на полторы сотни строк
+ */
+const withCounts = (lists: SelectionList[], id: string, items: SelectionItemData[]): SelectionList[] =>
+  lists.map((l) => (l.id === id ? { ...l, items: items.length, qty: items.reduce((a, b) => a + (b.qty || 0), 0) } : l));
+
 export const useBuilderStore = create<BuilderState>((set, get) => ({
   projectId: '',
   lists: [],
@@ -69,7 +77,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     set({ loading: true, error: '', listId: id, undoStack: get().listId === id ? get().undoStack : [] });
     try {
       const { list, items } = await catalogService.list(id);
-      set({ list, items, loading: false });
+      set({ list, items, loading: false, lists: withCounts(get().lists, id, items) });
       try { localStorage.setItem(`${LAST_KEY}:${list.projectId}`, id); } catch { /* не страшно */ }
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Ведомость не открылась' });
@@ -92,7 +100,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       const { list, items } = await catalogService.list(id);
       if (get().listId !== id || get().saving) return;
       const sig = (xs: SelectionItemData[]) => xs.map((x) => `${x.id}@${x.updatedAt}`).join('|');
-      if (sig(items) !== sig(get().items) || list.updatedAt !== get().list?.updatedAt) set({ list, items });
+      if (sig(items) !== sig(get().items) || list.updatedAt !== get().list?.updatedAt) set({ list, items, lists: withCounts(get().lists, id, items) });
     } catch { /* сеть моргнула — перечитаем в следующий раз */ }
   },
 
@@ -137,7 +145,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       for (const rid of res.removed || []) byId.delete(rid);
       const items = [...byId.values()].sort((a, b) => a.sort - b.sort);
       set({
-        items, saving: false,
+        items, saving: false, lists: withCounts(get().lists, id, items),
         undoStack: res.batchId ? [{ batchId: res.batchId, title }, ...get().undoStack].slice(0, 50) : get().undoStack,
       });
       return res.items;

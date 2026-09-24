@@ -15,6 +15,7 @@ import { guessHeader, readRows, planSheetImport, textForMatch } from '../catalog
 import { describe } from '../catalog/describe';
 import { matchDescription, confidenceLevel } from '../catalog/match';
 import type { SelectionItemData } from '../catalog/selection';
+import { syntheticMto } from './fixtures/mto-synthetic';
 
 let ok = 0;
 let fail = 0;
@@ -73,9 +74,33 @@ eq('фрагмент документа ничего не снимает', planS
   eq('теги строки в двух позициях — конфликт', split.entries[2].action, 'conflict');
 }
 
+console.log('3. Синтетический MTO той же формы (150 строк)');
+{
+  const { rows: aoa, expect } = syntheticMto();
+  const g = guessHeader(aoa)!;
+  eq('шапка и колонки как у настоящего', [g.headerRow, g.columns.tag, g.columns.description, g.columns.code, g.columns.qty], [0, 0, 2, 4, 7]);
+  const all = readRows(aoa, g, cat.tagRules, { onlyTagged: true });
+  const valves = all.filter((r) => !r.skip);
+  eq('строк клапанов', valves.length, expect.valveRows);
+  eq('штук клапанов', valves.reduce((a, r) => a + r.qty, 0), expect.qty);
+  eq('решётки DA — в пропущенных', all.filter((r) => r.skip).length, expect.skipped);
+  const byFamily: Record<string, number> = {};
+  const levels = { high: 0, medium: 0, low: 0 } as Record<string, number>;
+  for (const r of valves) {
+    const top = matchDescription(cat, describe(textForMatch(r), det, { tags: r.tags }))[0];
+    const code = cat.families.find((f) => f.id === top.familyId)!.code;
+    byFamily[code] = (byFamily[code] || 0) + 1;
+    levels[confidenceLevel(top.confidence)]++;
+  }
+  eq('семейства по строкам — как задумано', Object.entries(byFamily).sort(), Object.entries(expect.byFamily).sort());
+  eq('сомнительных подборов нет', levels.low, 0);
+  const plan = planSheetImport([], valves, (r) => ({ tags: r.tags, qty: r.qty }));
+  eq('план: все новые, штук столько же', [plan.totals.new, plan.totals.qty], [expect.valveRows, expect.qty]);
+}
+
 const real = process.env.FLUX_MTO;
 if (real && existsSync(real)) {
-  console.log('3. Настоящий MTO');
+  console.log('4. Настоящий MTO');
   const wb = XLSX.read(readFileSync(real), { type: 'buffer' });
   const name = wb.SheetNames.find((n) => /specification|спецификац/i.test(n)) || wb.SheetNames[0];
   const aoa = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[name], { header: 1, raw: false, defval: '' }) as string[][];
@@ -102,7 +127,7 @@ if (real && existsSync(real)) {
   if (weak.length) console.log('     слабые:', weak.slice(0, 12).join('; '));
   yes('подобрано с уверенностью не ниже средней больше 80% строк', (levels.high + levels.medium) / valves.length > 0.8, levels);
 } else {
-  console.log('3. Настоящий MTO — пропущено (задайте FLUX_MTO)');
+  console.log('4. Настоящий MTO — пропущено (задайте FLUX_MTO)');
 }
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);

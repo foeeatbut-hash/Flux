@@ -249,5 +249,16 @@ console.log('Подпись описания помещается в ключ б
   eq('короткая подпись — как раньше', signatureOf('Клапан 900x400 EI 60'), 'клапан #x# ei #');
 }
 
+console.log('Короткие приметы и порядок уверенности');
+{
+  const f = (t: string) => describe(t, valveDetectors).facts.function;
+  eq('«НО,» — нормально открытый', f('Клапан противопожарный НО, EI 60, 900x400(h)'), 'NO');
+  eq('«(НО)» — тоже', f('Клапан огнезадерживающий (НО) 500x500'), 'NO');
+  eq('союз «но» — не примета', f('Клапан воздушный, но с ручным приводом'), undefined);
+  const list = matchDescription(cat, describe('Клапан противопожарный НО, EI 60, 900x400(h), взрывозащищённый, привод с возвратной пружиной 24 В', valveDetectors));
+  eq('эталон из инструкции: первым КПУ-1Н', cat.families.find((x) => x.id === list[0].familyId)!.code, 'КПУ-1Н');
+  yes('нижние кандидаты не увереннее первого', list.slice(1).every((c) => c.confidence <= list[0].confidence), list.map((c) => c.confidence));
+}
+
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

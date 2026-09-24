@@ -365,6 +365,12 @@ export function matchDescription(catalog: Catalog, d: Description, opts: MatchOp
   if (list.length > 1 && !list[0].rejected && !list[1].rejected && list[0].score - list[1].score < 2) {
     list[0].confidence = Math.round(list[0].confidence * 0.75 * 100) / 100;
   }
+  // Кандидат ниже по списку не может быть «увереннее» первого: иначе рядом
+  // стояли «КПУ-1Н — проверить 53%» и под ним «КПУ-2Н — уверенно 71%», и
+  // человек не понимал, почему программа предлагает первое
+  if (list[0] && !list[0].rejected) {
+    for (const c of list.slice(1)) c.confidence = Math.min(c.confidence, list[0].confidence);
+  }
   return list.slice(0, opts.limit ?? 5);
 }
 
