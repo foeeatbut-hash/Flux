@@ -52,7 +52,9 @@ const PROBE = String.raw`(() => {
     if (r.width < 1 || r.height < 1 || r.bottom < rr.top || r.top > rr.bottom) continue;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') continue;
-    if (el.tagName === 'TR' && el.parentElement && el.parentElement.tagName === 'TBODY') out.rows.push(Math.round(r.height));
+    // Строка данных, а не пустое состояние или прокладка виртуального списка:
+    // у тех одна ячейка на всю ширину
+    if (el.tagName === 'TR' && el.parentElement && el.parentElement.tagName === 'TBODY' && el.cells.length > 1) out.rows.push(Math.round(r.height));
     if (el.classList.contains('fx-li')) out.rows.push(Math.round(r.height));
     if (el.closest('.fx-badge, .fx-av, .stamp, .graf, svg, [data-art]')) continue;
     for (const n of el.childNodes) {
