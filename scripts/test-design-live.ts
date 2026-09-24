@@ -40,6 +40,8 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Настройки', '/settings', true],
   ['Журнал', '/logs', true],
   ['Сотрудники', '/users', true],
+  ['Мессенджер', '/chat', true],
+  ['Почта', '/mail', true],
 ];
 
 const PROBE = String.raw`(() => {

@@ -114,7 +114,7 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
   return (
     <div className="p-3 @[720px]:p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-bold text-slate-800 dark:text-white">
+        <span className="text-sm font-semibold text-slate-800 dark:text-white">
           {match.done ? 'Партия окончена' : solo ? 'Партия' : turnName}
         </span>
         {match.done && match.why && (
@@ -135,13 +135,13 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
         </button>
         {!match.done && (
           <button type="button" onClick={() => void giveUp()} disabled={busy}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-rose-600 disabled:opacity-40 cursor-pointer">
+            className="fx-btn fx-btn-danger fx-btn-sm">
             <Flag className="w-3.5 h-3.5" />{solo ? 'Бросить' : 'Сдаться'}
           </button>
         )}
         {match.done && (
           <button type="button" onClick={onLeave}
-            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
+            className="fx-btn fx-btn-primary fx-btn-sm">
             К подготовке
           </button>
         )}

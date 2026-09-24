@@ -437,7 +437,7 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
   }
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-6" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 fx-backdrop" onMouseDown={onClose}>
       <div className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal"
         onMouseDown={(e) => e.stopPropagation()}>
         {inner}

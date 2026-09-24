@@ -141,8 +141,13 @@ async function start(one: Who, two: Who, gameId: string): Promise<string> {
     const after = await call(one, 'GET', `/api/play/match/${sessionId}`);
     ok('версия доски выросла', after.data?.result?.revision === view.revision + 1,
       [view.revision, after.data?.result?.revision]);
-    ok('на доске стало три плитки',
-      (after.data?.result?.view?.board || []).filter(Boolean).length === 3, after.data?.result?.view?.board);
+    // Не «стало три плитки»: если первый ход сливает две двойки, плиток
+    // остаётся две, и проверка падала на верной игре. Слияние сумму не
+    // меняет, так что после хода сумма растёт ровно на новую плитку — 2 или 4
+    const sum = (b: number[]) => b.reduce((x, y) => x + (y || 0), 0);
+    const grown = sum(after.data?.result?.view?.board || []) - sum(view?.view?.board || []);
+    ok('появилась ровно одна новая плитка', grown === 2 || grown === 4,
+      { было: view?.view?.board, стало: after.data?.result?.view?.board });
 
     // Опоздавший не затирает: тот же expectedRevision второй раз
     const late = await call(one, 'POST', `/api/play/match/${sessionId}/move`, { move: { dir }, expectedRevision: view.revision }, newKey());

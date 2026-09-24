@@ -67,7 +67,7 @@ export default function AssistantScreen() {
           <PanelLeft className="w-4 h-4" />
         </button>
         <MessageCircleQuestion className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-        <span className="text-xs font-bold text-slate-800 dark:text-slate-150">Помощник</span>
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Помощник</span>
         <span className="text-2xs text-slate-400 dark:text-slate-500 truncate hidden @[560px]:inline">
           работает без сети: отвечает по данным этого проекта и по руководству
         </span>

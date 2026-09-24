@@ -649,7 +649,7 @@ export default function PdfEditor() {
             </div>
           </div>
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-950/70">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70 fx-backdrop">
               <div className="flex items-center gap-3 text-slate-500 text-sm">
                 <Loader2 className="w-5 h-5 animate-spin" /> Открываю чертёж…
               </div>

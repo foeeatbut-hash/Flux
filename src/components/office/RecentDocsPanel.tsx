@@ -35,7 +35,7 @@ export default function RecentDocsPanel({ projectId, onOpen, onClose }: {
   const list = visibleRecentDocs(docs, projectId);
 
   return createPortal(
-    <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center p-4"
+    <div className="fixed inset-0 flex items-center justify-center p-4 fx-backdrop"
       style={{ zIndex: Z.modal }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full max-w-lg max-h-[80vh] flex flex-col rounded-2xl border border-slate-200 dark:border-dark-border
                       bg-white dark:bg-dark-surface shadow-2xl overflow-hidden">

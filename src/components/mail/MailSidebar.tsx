@@ -61,7 +61,7 @@ export default function MailSidebar({
   onChooseAccount, onChooseFolder, onFilter, onSync, onCompose, onAddAccount, onSettings,
 }: Props) {
   return (
-    <aside className="shrink-0 w-14 @[900px]:w-56 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 overflow-hidden">
+    <aside className="fx-side shrink-0 w-14 @[900px]:w-56 flex flex-col overflow-hidden">
       {/* Написать — первое действие в почте, поэтому первая кнопка */}
       <div className="shrink-0 p-2 flex flex-col gap-1.5">
         <button
@@ -69,7 +69,7 @@ export default function MailSidebar({
           onClick={onCompose}
           disabled={!accountId}
           title="Написать письмо"
-          className="w-full flex items-center justify-center @[900px]:justify-start gap-2 px-2 @[900px]:px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm cursor-pointer disabled:opacity-60"
+          className="fx-btn fx-btn-primary w-full justify-center @[900px]:justify-start"
         >
           <PenSquare className="w-4 h-4 shrink-0" />
           <span className="hidden @[900px]:inline">Написать</span>
@@ -79,7 +79,7 @@ export default function MailSidebar({
           onClick={onSync}
           disabled={syncing || !accountId}
           title="Проверить почту"
-          className="w-full flex items-center justify-center @[900px]:justify-start gap-2 px-2 @[900px]:px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-850 text-xs font-semibold cursor-pointer disabled:opacity-60"
+          className="fx-btn w-full justify-center @[900px]:justify-start"
         >
           <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
           <span className="hidden @[900px]:inline">{syncing ? 'Проверяем…' : 'Проверить'}</span>
@@ -99,27 +99,24 @@ export default function MailSidebar({
                 onClick={() => onChooseAccount(a.id)}
                 title={`${accountTitle(a)} — ${a.email}`}
                 aria-current={open ? 'true' : undefined}
-                className={`group relative flex items-center justify-center @[900px]:justify-start gap-2 rounded-lg px-2 py-1.5 text-left cursor-pointer transition-colors
-                  ${open
-                    ? 'bg-slate-200/80 dark:bg-slate-800 text-slate-900 dark:text-white'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-850'}`}
+                className="fx-li group relative h-10 justify-center @[900px]:justify-start"
               >
                 <Icon className={`w-4 h-4 shrink-0 ${shared ? 'text-sky-600 dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'}`} />
                 <span className="hidden @[900px]:flex flex-1 min-w-0 flex-col leading-tight">
-                  <span className="truncate text-sm font-semibold">{accountTitle(a)}</span>
-                  <span className="truncate text-2xs text-slate-500 dark:text-slate-400">{a.email}</span>
+                  <span className="truncate font-medium">{accountTitle(a)}</span>
+                  <span className="truncate text-xs text-slate-500 dark:text-slate-400">{a.email}</span>
                 </span>
                 {a.lastError ? (
                   <AlertTriangle className="hidden @[900px]:block w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                 ) : unread > 0 ? (
-                  <span className="hidden @[900px]:block shrink-0 text-2xs font-bold tabular-nums rounded-full px-1.5 py-0.5 bg-emerald-700 text-white">
+                  <span className="hidden @[900px]:block fx-badge fx-badge-accent shrink-0">
                     {unread > 999 ? '999+' : unread}
                   </span>
                 ) : null}
                 {/* Узкая колонка: на 56 px подпись не влезает, счётчик садится
                     на угол значка — как в свёрнутом меню Gmail */}
                 {unread > 0 && (
-                  <span className="@[900px]:hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full flex items-center justify-center text-2xs font-bold tabular-nums bg-emerald-700 text-white">
+                  <span className="@[900px]:hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full flex items-center justify-center text-xs font-medium tabular-nums bg-emerald-700 text-white">
                     {unread > 99 ? '99' : unread}
                   </span>
                 )}
@@ -136,20 +133,16 @@ export default function MailSidebar({
                     onClick={() => onChooseFolder(f.id)}
                     title={f.name}
                     aria-current={active ? 'true' : undefined}
-                    className={`group relative flex items-center justify-center @[900px]:justify-start gap-2.5 rounded-lg py-1.5 pr-2 pl-2 @[900px]:pl-7 text-left cursor-pointer transition-colors
-                      ${active
-                        ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-semibold'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-850'}`}
+                    className="fx-li group relative justify-center @[900px]:justify-start @[900px]:pl-7"
                   >
                     <FIcon className="w-4 h-4 shrink-0" />
-                    <span className="hidden @[900px]:block flex-1 min-w-0 truncate text-sm">{f.name}</span>
+                    <span className="hidden @[900px]:block flex-1 min-w-0 truncate">{f.name}</span>
                     {f.unread > 0 && (
                       <>
-                        <span className={`hidden @[900px]:block shrink-0 text-2xs font-bold tabular-nums rounded-full px-1.5 py-0.5
-                          ${active ? 'bg-emerald-700 text-white' : 'bg-slate-300 text-slate-800 dark:bg-slate-700 dark:text-slate-100'}`}>
+                        <span className="hidden @[900px]:block fx-badge fx-badge-accent shrink-0">
                           {f.unread > 999 ? '999+' : f.unread}
                         </span>
-                        <span className={`@[900px]:hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full flex items-center justify-center text-2xs font-bold tabular-nums
+                        <span className={`@[900px]:hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full flex items-center justify-center text-2xs font-semibold tabular-nums
                           ${active ? 'bg-emerald-700 text-white' : 'bg-slate-400 text-white dark:bg-slate-600'}`}>
                           {f.unread > 99 ? '99' : f.unread}
                         </span>
@@ -166,7 +159,7 @@ export default function MailSidebar({
           type="button"
           onClick={onAddAccount}
           title="Добавить ящик"
-          className="mt-1 flex items-center justify-center @[900px]:justify-start gap-2 rounded-lg px-2 py-1.5 text-left text-xs cursor-pointer text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-850"
+          className="fx-li mt-1 justify-center @[900px]:justify-start text-slate-500 dark:text-slate-400"
         >
           <Plus className="w-4 h-4 shrink-0" />
           <span className="hidden @[900px]:block flex-1 min-w-0 truncate">Добавить ящик</span>
@@ -187,10 +180,8 @@ export default function MailSidebar({
               onClick={() => onFilter(key)}
               title={label}
               aria-pressed={filter === key}
-              className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs cursor-pointer transition-colors
-                ${filter === key
-                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-850'}`}
+              aria-current={filter === key || undefined}
+              className="fx-li"
             >
               <Icon className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden @[900px]:block flex-1 min-w-0 truncate">{label}</span>

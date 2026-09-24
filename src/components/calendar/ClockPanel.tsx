@@ -59,15 +59,14 @@ export default function ClockPanel({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-label="Календарь"
       style={{ right: 8, bottom: BAR_H + 6, zIndex: Z.tray, width: 300 }}
-      className="fixed rounded-2xl border border-slate-200 dark:border-dark-border
-                 bg-white dark:bg-dark-surface shadow-2xl overflow-hidden"
+      className="fx-dialog fixed dark:border-dark-border dark:bg-dark-surface overflow-hidden"
     >
       <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-200 dark:border-dark-border">
         <button type="button"
           onClick={() => { const d = new Date(month); d.setMonth(d.getMonth() - 1); setMonth(d.getTime()); }}
           aria-label="Прошлый месяц"
           className="w-6 h-6 rounded-lg cursor-pointer text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850">‹</button>
-        <span className="flex-1 text-center text-xs font-bold text-slate-800 dark:text-slate-100">{monthLabel(month)}</span>
+        <span className="flex-1 text-center text-xs font-medium text-slate-800 dark:text-slate-100">{monthLabel(month)}</span>
         <button type="button"
           onClick={() => { const d = new Date(month); d.setMonth(d.getMonth() + 1); setMonth(d.getTime()); }}
           aria-label="Следующий месяц"
@@ -88,7 +87,7 @@ export default function ClockPanel({ onClose }: { onClose: () => void }) {
             return (
               <button key={day} type="button" onClick={go}
                 className={`relative h-7 rounded-lg text-2xs cursor-pointer
-                            ${now ? 'bg-emerald-600 text-white font-bold'
+                            ${now ? 'bg-emerald-600 text-white font-semibold'
                               : other ? 'text-slate-300 dark:text-slate-500'
                                 : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'}`}>
                 {new Date(day).getDate()}
@@ -102,7 +101,7 @@ export default function ClockPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="px-3 py-2 border-t border-slate-200 dark:border-dark-border max-h-48 overflow-y-auto">
-        <p className="text-2xs font-bold text-slate-400 mb-1.5">Сегодня</p>
+        <p className="text-xs font-medium text-slate-400 mb-1.5">Сегодня</p>
         {today.length === 0 && <p className="text-2xs text-slate-400 pb-1">Ничего не назначено.</p>}
         {today.map((o) => (
           <div key={`${o.event.id}-${o.startsAt}`} className="flex items-center gap-2 py-1">

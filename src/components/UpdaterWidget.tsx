@@ -309,7 +309,7 @@ export default function UpdaterWidget() {
             {error}
             {phase === 'failed' && latest && (
               <button type="button" onClick={handleInstall}
-                className="block mt-1 font-bold underline cursor-pointer">Повторить</button>
+                className="fx-btn fx-btn-quiet block mt-1">Повторить</button>
             )}
           </div>
         )}
@@ -329,7 +329,7 @@ export default function UpdaterWidget() {
         {broken.map((b) => (
           <div key={b.version} className="text-xs leading-snug bg-amber-500/10 rounded p-2 text-amber-700 dark:text-amber-300">
             <div>
-              Релиз <span className="font-bold">v{b.version}</span> опубликован без файла: {b.why}.
+              Релиз <span className="font-medium">v{b.version}</span> опубликован без файла: {b.why}.
               {!isAdmin && ' Обновиться по нему нельзя — скажите администратору.'}
             </div>
             {isAdmin && (
@@ -338,7 +338,7 @@ export default function UpdaterWidget() {
                   const err = await revoke(b.version);
                   addToast(err || `Публикация v${b.version} отозвана`, err ? 'error' : 'success');
                 }}
-                className="mt-1 font-bold underline cursor-pointer"
+                className="fx-btn fx-btn-quiet mt-1"
               >
                 Отозвать публикацию
               </button>

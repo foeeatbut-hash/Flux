@@ -191,13 +191,13 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
 
   return (
     <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Подключение почтового ящика">
-      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !busy && onClose()} />
+      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className="@container relative w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin rounded-lg bg-white dark:bg-slate-900 p-6 shadow-xl border border-slate-200 dark:border-slate-800">
+        <div className="fx-dialog @container relative w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin p-6">
           <div className="flex items-center justify-between gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2 min-w-0 text-emerald-700 dark:text-emerald-400">
               <Mail className="w-5 h-5 shrink-0" />
-              <h3 className="flex-1 min-w-0 truncate text-lg font-bold text-slate-900 dark:text-white">
+              <h3 className="flex-1 min-w-0 truncate text-lg font-semibold text-slate-900 dark:text-white">
                 {editing ? 'Настройки ящика' : 'Подключить почту'}
               </h3>
             </div>

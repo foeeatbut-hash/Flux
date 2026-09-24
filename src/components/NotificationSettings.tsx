@@ -47,7 +47,7 @@ export default function NotificationSettings() {
 
       {/* По категориям */}
       <div>
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-1 mb-1 text-2xs font-bold text-slate-400">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-1 mb-1 text-xs font-medium text-slate-400">
           <span>Категория</span><span>Показ</span><span>Звук</span><span className="w-5" />
         </div>
         <div className="space-y-1.5">

@@ -48,11 +48,11 @@ export default function ImportOperations({ batches, loading, onRefresh, onCancel
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label="Центр операций">
-      <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden flex flex-col max-h-[80vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fx-backdrop" role="dialog" aria-modal="true" aria-label="Центр операций">
+      <div className="fx-dialog w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <div className="min-w-0">
-            <div className="text-sm font-bold truncate">Центр операций</div>
+            <div className="text-sm font-semibold truncate">Центр операций</div>
             <div className="text-2xs text-slate-500 dark:text-slate-400 truncate">
               ввоз идёт на сервере — это окно можно закрыть
             </div>

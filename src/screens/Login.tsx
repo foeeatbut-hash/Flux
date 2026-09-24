@@ -220,8 +220,9 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         <button
           type="button"
           onClick={toggleTheme}
-          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-ui cursor-pointer flex items-center justify-center font-bold"
+          className="fx-btn fx-btn-icon"
           title="Переключить тему"
+          aria-label="Переключить тему"
         >
           {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-500" /> : <Moon className="w-5 h-5 text-emerald-600" />}
         </button>
@@ -426,7 +427,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 type="button"
                 onClick={() => applyServerUrl(serverDraft.trim())}
                 disabled={!serverDraft.trim()}
-                className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-ui cursor-pointer flex items-center gap-1.5"
+                className="fx-btn fx-btn-primary"
               >
                 <Server className="w-3.5 h-3.5" /> Подключиться
               </button>

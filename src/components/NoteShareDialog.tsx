@@ -101,11 +101,11 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh]">
+      <div className="absolute inset-0 fx-backdrop" onClick={onClose} />
+      <div className="fx-dialog relative w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               <Users2 className="w-4.5 h-4.5 text-emerald-600" /> Поделиться заметкой
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
@@ -161,7 +161,7 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
                       <button key={String(val)} type="button"
                         onClick={() => setShares((prev) => ({ ...prev, [p.id]: val }))}
                         title={val ? 'Может править заметку' : 'Может только читать'}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-bold cursor-pointer transition-ui ${
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer transition-ui ${
                           canEdit === val
                             ? 'bg-emerald-600 text-white'
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200'}`}>

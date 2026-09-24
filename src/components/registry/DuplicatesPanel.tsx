@@ -41,11 +41,11 @@ export default function DuplicatesPanel({ code, items, activeIdx, panelRef, onGo
       <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30
                       border-b border-rose-100 dark:border-rose-900/60">
         <div className="min-w-0">
-          <div className="text-xs font-bold text-rose-700 dark:text-rose-300 truncate">Дубли: {code}</div>
+          <div className="text-xs font-medium text-rose-700 dark:text-rose-300 truncate">Дубли: {code}</div>
           <div className="text-2xs text-slate-400">колесо мыши — листать · Esc — закрыть</div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-2xs font-mono font-bold text-rose-600 dark:text-rose-400 tabular-nums">
+          <span className="text-xs font-mono font-medium text-rose-600 dark:text-rose-400 tabular-nums">
             {activeIdx + 1} / {items.length}
           </span>
           <button type="button" onClick={onClose}
@@ -68,7 +68,7 @@ export default function DuplicatesPanel({ code, items, activeIdx, panelRef, onGo
                   : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{i + 1}. {d.code}</span>
+                <span className="font-mono font-medium text-slate-800 dark:text-slate-100">{i + 1}. {d.code}</span>
                 {active && <Eye className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
               </div>
               <div className="text-2xs text-slate-400 truncate mt-0.5">

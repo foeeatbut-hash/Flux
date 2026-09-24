@@ -64,7 +64,7 @@ export default function TranslateEngineSection() {
       <div className="fx-set-group">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm font-bold">Программа переводит сама</span>
+          <span className="text-sm font-semibold">Программа переводит сама</span>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Наружу не уходит ничего. Перевод собирается из памяти проекта, словаря и узоров деловых писем.
@@ -77,7 +77,7 @@ export default function TranslateEngineSection() {
             { label: 'узоров писем', value: phraseCount() },
           ].map((x) => (
             <div key={x.label} className="rounded-md bg-slate-50 dark:bg-slate-900 px-3 py-2">
-              <div className="text-lg font-bold text-slate-800 dark:text-slate-150 tabular-nums">{x.value}</div>
+              <div className="text-lg font-semibold text-slate-800 dark:text-slate-150 tabular-nums">{x.value}</div>
               <div className="text-2xs text-slate-400 dark:text-slate-500 leading-tight">{x.label}</div>
             </div>
           ))}
@@ -91,7 +91,7 @@ export default function TranslateEngineSection() {
       <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Library className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-bold">Словарный пакет</span>
+          <span className="text-sm font-semibold">Словарный пакет</span>
           <span className="flex-1" />
           <button type="button" onClick={() => setPackOn(!packOn)}
             className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer ${packOn
@@ -156,7 +156,7 @@ export default function TranslateEngineSection() {
       <div className="fx-set-group space-y-3">
         <div className="flex items-center gap-2">
           <Link2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-bold">Свой движок перевода</span>
+          <span className="text-sm font-semibold">Свой движок перевода</span>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Если вы подняли у себя сервер перевода — на этой машине или в своей сети, — программа будет

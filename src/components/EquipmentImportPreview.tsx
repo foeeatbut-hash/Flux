@@ -279,13 +279,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   const t = plan?.totals;
 
   return (
-    <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-5xl h-[85vh] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
+      <div className="fx-dialog w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Шапка */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="font-bold text-slate-800 dark:text-white truncate">{fileName || 'Загрузка…'}</div>
+            <div className="font-medium text-slate-800 dark:text-white truncate">{fileName || 'Загрузка…'}</div>
             <div className="text-xs text-slate-500">
               Импорт в «{categoryLabel}»{fileIds.length > 1 ? ` · файл ${idx + 1} из ${fileIds.length}` : ''} · предпросмотр (БД не изменена)
             </div>
@@ -300,7 +300,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             <AlertTriangle className="w-8 h-8 text-rose-500" />
             <div className="text-sm text-slate-600 dark:text-slate-300 max-w-md">{error}</div>
             {fileIds.length > 1 && idx + 1 < fileIds.length && (
-              <button type="button" onClick={() => setIdx(idx + 1)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">Пропустить файл</button>
+              <button type="button" onClick={() => setIdx(idx + 1)} className="fx-btn fx-btn-sm">Пропустить файл</button>
             )}
           </div>
         ) : plan && (
@@ -319,7 +319,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                   type="button"
                   onClick={() => setShowTags(v => !v)}
                   title="Технологические позиции бланка: привязать к существующим тегам или завести новые"
-                  className="text-xs font-bold px-2 py-1 rounded-lg border border-emerald-300 text-emerald-700 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer"
+                  className="fx-btn fx-btn-sm"
                 >
                   {showTags ? '← к параметрам' : `Теги бланка: ${tagLinks.length} (создать ${tagLinks.filter(l => l.action === 'create').length})`}
                 </button>
@@ -344,19 +344,19 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                           {collapsed[sys] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 break-words line-clamp-2 flex-1 min-w-0"
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 break-words line-clamp-2 flex-1 min-w-0"
                           title={s?.nameFix ? `${s.title}\nОбозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»` : s?.title}>
                           {sys}
                         </span>
                         {s?.nameFix && (
-                          <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold whitespace-nowrap shrink-0"
+                          <span className="text-xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-medium whitespace-nowrap shrink-0"
                             title={`Обозначение исправлено: ${s.nameFix.what}. В файле: «${s.nameFix.from}»`}>
                             исправлено
                           </span>
                         )}
                         {s?.action === 'create'
-                          ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold whitespace-nowrap shrink-0">новая</span>
-                          : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold whitespace-nowrap shrink-0" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
+                          ? <span className="text-xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium whitespace-nowrap shrink-0">новая</span>
+                          : <span className="text-xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-medium whitespace-nowrap shrink-0" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
                       </div>
                       {!collapsed[sys] && rows.map(({ b, depth }) => {
                         const ba = actionBadge(b.action);
@@ -379,7 +379,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                               {(b.sourceKind === 'note' || got.length > 0 || trouble.length > 0) && (
                                 <div className="mt-0.5 flex flex-wrap items-center gap-1">
                                   {b.sourceKind === 'note' && (
-                                    <span className="text-2xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-bold whitespace-nowrap"
+                                    <span className="text-xs px-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-medium whitespace-nowrap"
                                       title="В расчёте такой позиции нет — её завёл тег из примечания. Снимите галочку, если прав расчёт">
                                       по примечанию
                                     </span>
@@ -398,7 +398,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                                 </div>
                               )}
                             </div>
-                            <span className={`text-2xs px-1 rounded font-bold whitespace-nowrap shrink-0 self-start mt-px ${ba.cls}`}>{ba.text}</span>
+                            <span className={`text-2xs px-1 rounded font-semibold whitespace-nowrap shrink-0 self-start mt-px ${ba.cls}`}>{ba.text}</span>
                           </div>
                         );
                       })}
@@ -411,7 +411,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               <div className="flex-1 min-w-0 overflow-auto p-4">
                 {active ? (
                   <>
-                    <div className="text-sm font-bold text-slate-800 dark:text-white mb-1 break-words">{active.itemCode === '__unit__' ? 'Параметры установки' : active.title}</div>
+                    <div className="text-sm font-semibold text-slate-800 dark:text-white mb-1 break-words">{active.itemCode === '__unit__' ? 'Параметры установки' : active.title}</div>
                     <div className="text-xs text-slate-400 mb-3">
                       {active.equipType} · {active.params.length} параметров
                       {active.instanceNo ? ` · экземпляр ${active.instanceNo} из ${active.instanceCount || active.instanceNo}` : ''}
@@ -427,12 +427,12 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                         {(active.tagNotes || []).map((e, i) => (
                           <div key={i} className="px-2.5 py-1.5 text-2xs">
                             <div className="flex flex-wrap items-center gap-x-1.5">
-                              <span className={`font-mono font-bold break-all ${e.verdict === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>{e.identifier}</span>
+                              <span className={`font-mono font-semibold break-all ${e.verdict === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>{e.identifier}</span>
                               {e.role && <span className="text-slate-400">{e.role}</span>}
                               {e.fix && <span className="text-slate-500">предлагается «{e.fix}»</span>}
                             </div>
                             <div className="text-slate-500 dark:text-slate-400">{e.why}</div>
-                            {e.phrase && <div className="text-slate-400 italic break-words" title={e.phrase}>из примечания: «{e.phrase}»</div>}
+                            {e.phrase && <div className="text-slate-400 break-words" title={e.phrase}>из примечания: «{e.phrase}»</div>}
                           </div>
                         ))}
                       </div>
@@ -505,7 +505,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                   </button>
                 )}
                 <button type="button" onClick={apply} disabled={applying || selectedCount === 0}
-                  className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
+                  className="fx-btn fx-btn-primary">
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Импортировать {selectedCount}{fileIds.length > 1 ? ` (файл ${idx + 1}/${fileIds.length})` : ''}
                 </button>
@@ -525,5 +525,5 @@ function Chip({ color, label }: { color: 'emerald' | 'amber' | 'slate' | 'rose';
     slate: 'bg-slate-100 dark:bg-slate-800 text-slate-500',
     rose: 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400',
   }[color];
-  return <span className={`px-2 py-0.5 rounded-full font-bold ${cls}`}>{label}</span>;
+  return <span className={`px-2 py-0.5 rounded-full font-semibold ${cls}`}>{label}</span>;
 }

@@ -160,7 +160,7 @@ export default function FeedbackDiagnostics({ bundles, onPackage }: {
     <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
       <div className="flex items-center gap-2">
         <Activity className="w-3.5 h-3.5 text-slate-400" />
-        <span className="text-xs font-bold text-slate-800 dark:text-slate-150">Что видно в записях</span>
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Что видно в записях</span>
         <span className="flex-1" />
         {onPackage && (
           <button type="button" onClick={onPackage}

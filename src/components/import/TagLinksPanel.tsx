@@ -70,7 +70,7 @@ export default function TagLinksPanel({ links, titleOf, onChange, onKeep }: Prop
               className="rounded-lg border border-slate-200 dark:border-slate-800 p-2.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <TagIcon className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="font-mono text-sm font-bold text-slate-800 dark:text-white">{writtenAs(l)}</span>
+                <span className="font-mono text-sm font-semibold text-slate-800 dark:text-white">{writtenAs(l)}</span>
                 <span className="text-xs text-slate-400 truncate">→ {titleOf(l.blockKey)}</span>
                 <span className="flex-1" />
                 {CHOICES.map(c => (
@@ -79,7 +79,7 @@ export default function TagLinksPanel({ links, titleOf, onChange, onKeep }: Prop
                     type="button"
                     title={c.hint}
                     onClick={() => onChange(i, c.value)}
-                    className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer ${
+                    className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg border cursor-pointer ${
                       l.action === c.value
                         ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
                         : 'border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white'
@@ -101,7 +101,7 @@ export default function TagLinksPanel({ links, titleOf, onChange, onKeep }: Prop
                       disabled={!l.keepAsWritten && !l.corrected.keepValid}
                       title={!l.corrected.keepValid ? 'В проекте кириллица запрещена — так тег не запишется' : undefined}
                       onClick={() => onKeep(i, !l.keepAsWritten)}
-                      className="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white font-bold cursor-pointer disabled:opacity-40 disabled:cursor-default">
+                      className="fx-btn fx-btn-sm">
                       {l.keepAsWritten ? 'Исправить' : 'Оставить как в файле'}
                     </button>
                   )}

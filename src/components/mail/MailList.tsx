@@ -187,7 +187,7 @@ export default function MailList({
             </button>
 
             {/* Кружок отправителя: в тесной панели убирается первым */}
-            <div className={`hidden @[620px]:flex shrink-0 w-6 h-6 rounded-full items-center justify-center text-2xs font-bold ${TONE_CLASS[toneOf(last)]}`}>
+            <div className={`hidden @[620px]:flex shrink-0 w-6 h-6 rounded-full items-center justify-center text-2xs font-semibold ${TONE_CLASS[toneOf(last)]}`}>
               {initialsOf(last)}
             </div>
 
@@ -199,7 +199,7 @@ export default function MailList({
                 и сам Gmail в раздельном виде. */}
             <div className="flex-1 min-w-0 py-1.5 flex flex-col @[720px]:flex-row @[720px]:items-baseline @[720px]:gap-2">
               <div className={`min-w-0 truncate text-xs @[900px]:text-sm @[720px]:shrink-0 @[720px]:w-28 @[900px]:w-44
-                ${t.unread ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
+                ${t.unread ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
                 {who}
                 {t.count > 1 && <span className="ml-1 text-slate-400 dark:text-slate-500 font-normal">{t.count}</span>}
               </div>
@@ -207,7 +207,7 @@ export default function MailList({
               <div className="min-w-0 flex items-baseline gap-1.5 @[720px]:flex-1">
                 {t.answered && <CornerUpLeft className="w-3 h-3 shrink-0 text-slate-400 dark:text-slate-500" />}
                 <span className={`min-w-0 truncate text-xs @[900px]:text-sm @[720px]:shrink-0 @[720px]:max-w-[45%]
-                  ${t.unread ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
+                  ${t.unread ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                   {t.subject || '(без темы)'}
                 </span>
                 <span className="hidden @[720px]:flex flex-1 min-w-0 items-baseline gap-1 truncate text-xs
@@ -256,7 +256,7 @@ export default function MailList({
             {/* Дата — и она же место для действий по наведению */}
             <div className="shrink-0 w-[4.5rem] text-right">
               <span className={`text-2xs font-mono tabular-nums group-hover:invisible
-                ${t.unread ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
+                ${t.unread ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                 {shortDate(t.sentAt)}
               </span>
             </div>

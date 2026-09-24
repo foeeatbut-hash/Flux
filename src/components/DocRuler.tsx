@@ -147,7 +147,7 @@ export default function DocRuler({ model, pxPerPt, leftPx, hasSelection, onMargi
       {/* Подсказка со значением — пока тянут, видно число в миллиметрах */}
       {drag && (
         <div
-          className="absolute -top-6 z-10 px-1.5 py-0.5 rounded bg-slate-900 text-white text-2xs font-bold whitespace-nowrap -translate-x-1/2"
+          className="absolute -top-6 z-10 px-1.5 py-0.5 rounded bg-slate-900 text-white text-xs font-medium whitespace-nowrap -translate-x-1/2"
           style={{ left: leftPx + posPx(drag.h) }}
         >
           {HANDLE_TITLE[drag.h].split(' ')[0]}: {fmtMm(valueOf(shown, drag.h))}

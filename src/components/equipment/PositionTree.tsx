@@ -225,7 +225,7 @@ export default function PositionTree({
     </div>
   );
 
-  const seg = (on: boolean) => `px-1.5 py-0.5 text-2xs font-bold rounded cursor-pointer ${on ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-emerald-600'}`;
+  const seg = (on: boolean) => `px-1.5 py-0.5 text-2xs font-semibold rounded cursor-pointer ${on ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-emerald-600'}`;
 
   return (
     <div ref={rootRef} style={width ? { width } : undefined}
@@ -234,10 +234,10 @@ export default function PositionTree({
         title="Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию"
         className="absolute top-0 right-0 bottom-0 w-1.5 z-10 cursor-col-resize hover:bg-emerald-400/40" />
       <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-        <span className="text-sm font-bold min-w-0 break-words line-clamp-2" title={title}>{title}</span>
+        <span className="text-sm font-semibold min-w-0 break-words line-clamp-2" title={title}>{title}</span>
         <div className="flex items-center gap-1.5">
           {conflicts > 0 && (
-            <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400">
+            <span className="flex items-center gap-1 text-xs font-medium text-rose-600 dark:text-rose-400">
               <AlertTriangle className="w-3 h-3" />{conflicts}
             </span>
           )}
@@ -290,7 +290,7 @@ export default function PositionTree({
               <button type="button" onClick={() => onPickUnit(unit)}
                 className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                 <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="text-xs font-bold truncate" title={unit.name}>{unit.name}</span>
+                <span className="text-xs font-medium truncate" title={unit.name}>{unit.name}</span>
               </button>
               <button type="button" onClick={() => onDeleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
@@ -326,7 +326,7 @@ export default function PositionTree({
       {menu && (
         <div role="menu" onMouseDown={(e) => e.stopPropagation()}
           style={{ left: menu.x, top: menu.y }}
-          className="fixed z-50 min-w-[200px] py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl text-xs">
+          className="fx-pop fixed z-50 min-w-[200px] py-1 text-xs">
           <div className="px-3 py-1 text-2xs text-slate-400 truncate max-w-[260px]">{blockLabel(menu.c)}{firstTag(menu.c) ? ` · ${firstTag(menu.c)}` : ''}</div>
           <button type="button" role="menuitem" onClick={() => { onPickBlock(menu.c); setMenu(null); }}
             className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">Открыть карточку</button>

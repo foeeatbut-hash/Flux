@@ -69,7 +69,7 @@ export default function ChangeListView() {
             key={p.days}
             type="button"
             onClick={() => setDays(p.days)}
-            className={`px-2 py-1 rounded-lg text-2xs font-bold cursor-pointer transition-colors ${
+            className={`px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer transition-colors ${
               days === p.days
                 ? 'bg-emerald-600 text-white'
                 : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -100,7 +100,7 @@ export default function ChangeListView() {
                 <button
                   type="button"
                   onClick={() => { if (e.route) { navigate(e.route); close(); } }}
-                  className="text-sm font-bold text-slate-800 dark:text-slate-150 hover:text-emerald-700 dark:hover:text-emerald-400 cursor-pointer"
+                  className="fx-btn fx-btn-quiet"
                 >
                   {e.itemCode}
                 </button>

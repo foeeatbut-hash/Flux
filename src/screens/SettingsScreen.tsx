@@ -363,7 +363,7 @@ function RuleListInput({ label, hint, values, onChange, disabled }: {
 }) {
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-bold text-slate-500">{label}</label>
+      <label className="fx-label block">{label}</label>
       <input
         disabled={disabled}
         defaultValue={values.join(', ')}
@@ -477,7 +477,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
             <div className="flex items-center gap-2 mt-3">
               <button type="button"
                 onClick={async () => { if (await openConfirm('Вернуть стандартные этапы?', 'Ваши изменения в списке этапов будут потеряны.', { confirmLabel: 'Вернуть' })) persistStages(DEFAULT_STAGES); }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold cursor-pointer"
+                className="fx-btn"
               >
                 <RotateCcw className="w-4 h-4" /> Стандартные этапы
               </button>
@@ -511,7 +511,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
 
           {/* Правила применения */}
           <div className="fx-set-group space-y-3">
-            <div className="text-xs font-bold text-slate-400">Когда применяется (автоматически)</div>
+            <div className="text-xs font-medium text-slate-400">Когда применяется (автоматически)</div>
             <div className="grid @[820px]:grid-cols-2 gap-3">
               <RuleListInput
                 label="Отделы / классы тегов"
@@ -637,7 +637,7 @@ function BackupSection({ isAdmin, addToast }: any) {
         <div className="fx-set-group space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <div className="text-xs font-bold text-slate-400">Папка архивов</div>
+              <div className="text-xs font-medium text-slate-400">Папка архивов</div>
               <div className="text-xs font-mono mt-1 text-slate-600 dark:text-slate-300 select-all break-all">{status?.dir || '—'}</div>
             </div>
             {isAdmin && (
@@ -661,7 +661,7 @@ function BackupSection({ isAdmin, addToast }: any) {
 
         {/* Настройки */}
         <div className="fx-set-group space-y-3">
-          <div className="text-xs font-bold text-slate-400">Расписание</div>
+          <div className="text-xs font-medium text-slate-400">Расписание</div>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -712,7 +712,7 @@ function BackupSection({ isAdmin, addToast }: any) {
                 <div key={b.name} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 text-xs">
                   <div className="flex items-center gap-2 min-w-0">
                     <Archive className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span className="font-mono font-bold truncate">{b.name}</span>
+                    <span className="font-mono font-medium truncate">{b.name}</span>
                   </div>
                   <div className="flex items-center gap-3 text-slate-400 shrink-0">
                     {b.manifest && <span title={`Файлов Проводника: ${b.manifest.explorerFiles}, книг данных: ${b.manifest.dataWorkbooks}`}>{countOf(b.manifest.explorerFiles, 'файл')}</span>}
@@ -815,7 +815,7 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
     >
       <div className="flex items-center gap-2 mb-1.5">
         <span aria-pressed={value === mode}>{icon}</span>
-        <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{title}</span>
+        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
         {value === mode && <Check className="w-4 h-4 text-emerald-600 ml-auto" />}
       </div>
       <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{desc}</p>
@@ -1023,7 +1023,7 @@ function DatabaseSection({ addToast }: any) {
               <button type="button" disabled={isTesting} onClick={handleTest} className="fx-btn">
                 {isTesting ? 'Проверка…' : 'Тестировать'}
               </button>
-              <button type="button" disabled={isSaving} onClick={() => handleSwitch('REMOTE', remoteUrl)} className="py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">
+              <button type="button" disabled={isSaving} onClick={() => handleSwitch('REMOTE', remoteUrl)} className="fx-btn fx-btn-primary">
                 {isSaving ? 'Загрузка…' : 'Сохранить и подключить'}
               </button>
             </div>
@@ -1031,7 +1031,7 @@ function DatabaseSection({ addToast }: any) {
         )}
 
         {statusMessage && (
-          <div className={`p-2 text-xs font-bold text-center rounded-lg ${statusMessage.success ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600'}`}>
+          <div className={`p-2 text-xs font-semibold text-center rounded-lg ${statusMessage.success ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600'}`}>
             {statusMessage.text}
           </div>
         )}
@@ -1071,7 +1071,7 @@ function FormulasSection() {
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Формулы документа</h2>
+        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Формулы документа</h2>
         {/* Чей это набор. Без подписи люди правили формулы, будучи уверены,
             что правят их для всей программы, а правили для одного проекта. */}
         <span className="text-2xs font-semibold px-2 py-0.5 rounded-full max-w-[220px] truncate
@@ -1178,11 +1178,11 @@ function DocflowSection({ isAdmin, addToast }: any) {
 
         {/* Коды рассмотрения */}
         <div>
-          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Коды рассмотрения заказчика (действие и срок новой ревизии)</div>
+          <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Коды рассмотрения заказчика (действие и срок новой ревизии)</div>
           <div className="space-y-1">
             {(cfg.reviewCodes || []).map((c: any, i: number) => (
               <div key={i} className="flex items-center gap-1.5">
-                <input value={c.code} onChange={e => upd('reviewCodes', i, 'code', e.target.value)} className={inp + ' w-12 text-center font-bold'} />
+                <input value={c.code} onChange={e => upd('reviewCodes', i, 'code', e.target.value)} className={inp + ' w-12 text-center font-semibold'} />
                 <input value={c.label} onChange={e => upd('reviewCodes', i, 'label', e.target.value)} className={inp + ' flex-1'} />
                 <select value={c.action} onChange={e => upd('reviewCodes', i, 'action', e.target.value)} className={inp + ' cursor-pointer'}>
                   <option value="accept">принят</option>
@@ -1194,16 +1194,16 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ код</button>
+          <button type="button" onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="fx-btn fx-btn-quiet mt-1.5">+ код</button>
         </div>
 
         {/* Причины выпуска */}
         <div>
-          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Причины выпуска (буквенные/цифровые ревизии)</div>
+          <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Причины выпуска (буквенные/цифровые ревизии)</div>
           <div className="space-y-1">
             {(cfg.reasons || []).map((r: any, i: number) => (
               <div key={i} className="flex items-center gap-1.5">
-                <input value={r.code} onChange={e => upd('reasons', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-bold'} />
+                <input value={r.code} onChange={e => upd('reasons', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-semibold'} />
                 <input value={r.label} onChange={e => upd('reasons', i, 'label', e.target.value)} className={inp + ' flex-1'} />
                 <select value={r.revKind} onChange={e => upd('reasons', i, 'revKind', e.target.value)} className={inp + ' cursor-pointer'}>
                   <option value="letter">A, B, C…</option>
@@ -1213,43 +1213,43 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ причина</button>
+          <button type="button" onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="fx-btn fx-btn-quiet mt-1.5">+ причина</button>
         </div>
 
         {/* Маски и спец-ревизии */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Маска имени файла</div>
+            <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Маска имени файла</div>
             <input value={cfg.fileNameMask || ''} onChange={e => setCfg((c: any) => ({ ...c, fileNameMask: e.target.value }))} className={inp + ' w-full'} placeholder="{docNo}_{rev}_{lang}" />
           </div>
           <div>
-            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Маска номера документа</div>
+            <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Маска номера документа</div>
             <input value={cfg.docNumberMask || ''} onChange={e => setCfg((c: any) => ({ ...c, docNumberMask: e.target.value }))} className={inp + ' w-full'} placeholder="{contract}-{wbs}-{po}-{type}-{seq}" />
           </div>
           <div>
-            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Ревизия «аннулирован»</div>
-            <input value={cfg.specialRevisions?.void || 'V'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, void: e.target.value } }))} className={inp + ' w-16 text-center font-bold'} />
+            <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Ревизия «аннулирован»</div>
+            <input value={cfg.specialRevisions?.void || 'V'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, void: e.target.value } }))} className={inp + ' w-16 text-center font-semibold'} />
           </div>
           <div>
-            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Ревизия «заменён»</div>
-            <input value={cfg.specialRevisions?.superseded || 'S'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, superseded: e.target.value } }))} className={inp + ' w-16 text-center font-bold'} />
+            <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Ревизия «заменён»</div>
+            <input value={cfg.specialRevisions?.superseded || 'S'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, superseded: e.target.value } }))} className={inp + ' w-16 text-center font-semibold'} />
           </div>
         </div>
 
         {/* Каталог типов */}
         <div>
-          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Каталог типов документов (VDR-коды)</div>
+          <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">Каталог типов документов (VDR-коды)</div>
           <div className="space-y-1 max-h-56 overflow-auto pr-1">
             {(cfg.vdrTypes || []).map((t: any, i: number) => (
               <div key={i} className="flex items-center gap-1.5">
-                <input value={t.code} onChange={e => upd('vdrTypes', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-bold'} />
+                <input value={t.code} onChange={e => upd('vdrTypes', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-semibold'} />
                 <input value={t.titleEn} onChange={e => upd('vdrTypes', i, 'titleEn', e.target.value)} className={inp + ' flex-1'} placeholder="English title" />
                 <input value={t.titleRu} onChange={e => upd('vdrTypes', i, 'titleRu', e.target.value)} className={inp + ' flex-1'} placeholder="Название" />
                 <button type="button" onClick={() => delRow('vdrTypes', i)} className="p-1 text-slate-300 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ тип</button>
+          <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="fx-btn fx-btn-quiet mt-1.5">+ тип</button>
         </div>
 
         <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
@@ -1371,7 +1371,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
       {top && draft && (
         <div className="mt-4 fx-set-group space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
               {editing ? `Роль «${editing.name}»` : 'Новая роль'}
             </h3>
             <button type="button" onClick={() => { setDraft(null); setEditing(null); }}
@@ -1471,7 +1471,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                           <span className="min-w-0">
                             <span className="block text-xs font-semibold text-slate-800 dark:text-slate-100">
                               {f.label}
-                              {f.risky && <span className="ml-1.5 text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
+                              {f.risky && <span className="ml-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">осторожно</span>}
                             </span>
                             <span className="block text-2xs text-slate-500 dark:text-slate-400 mt-0.5">{f.desc}</span>
                           </span>

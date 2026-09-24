@@ -51,7 +51,7 @@ function makeChip(token: string): HTMLElement {
   const chip = document.createElement('span');
   chip.contentEditable = 'false';
   chip.dataset.token = token;
-  chip.className = 'inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-bold text-emerald-700 dark:text-emerald-400 select-none align-baseline max-w-[220px]';
+  chip.className = 'inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-semibold text-emerald-700 dark:text-emerald-400 select-none align-baseline max-w-[220px]';
   const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   icon.setAttribute('viewBox', '0 0 24 24');
   icon.setAttribute('fill', 'none');

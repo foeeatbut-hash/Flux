@@ -56,7 +56,7 @@ export default function DiagnosticsCard() {
 
   return (
     <div className="fx-set-group space-y-2">
-      <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Подробная запись работы</div>
+      <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Подробная запись работы</div>
       <p className="text-xs text-slate-600 dark:text-slate-400">
         Запросы, работа базы, паузы отрисовки, мост оболочки и работа редакторов — со временем
         каждой операции. Содержимое документов, тела запросов и пароли не записываются.

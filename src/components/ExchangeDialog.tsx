@@ -92,18 +92,17 @@ export default function ExchangeDialog(p: ExchangeProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 fx-backdrop"
       onMouseDown={p.onClose}>
       <div
         role="dialog"
         aria-label={`Экспорт · ${p.section}`}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-950 border border-slate-200
-                   dark:border-slate-800 shadow-2xl overflow-hidden"
+        className="fx-dialog w-full max-w-lg overflow-hidden"
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <Download className="w-4 h-4 text-emerald-600" />
-          <b className="text-sm font-bold text-slate-800 dark:text-white">Экспорт · {p.section}</b>
+          <b className="text-sm font-semibold text-slate-800 dark:text-white">Экспорт · {p.section}</b>
           <span className="flex-1" />
           <button type="button" onClick={p.onClose} aria-label="Закрыть"
             className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
@@ -114,11 +113,11 @@ export default function ExchangeDialog(p: ExchangeProps) {
         <div className="p-4 space-y-3">
           {/* Что */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Что</span>
+            <span className="w-20 shrink-0 pt-1.5 text-xs font-medium text-slate-400">Что</span>
             <div className="flex-1 flex flex-wrap gap-1.5">
               {p.scopes.map((s) => (
                 <button key={s.id} type="button" onClick={() => setScope(s.id)}
-                  className={`px-2.5 py-1.5 rounded-lg text-2xs font-bold cursor-pointer border transition-ui ${
+                  className={`px-2.5 py-1.5 rounded-lg text-2xs font-semibold cursor-pointer border transition-ui ${
                     scope === s.id
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'
@@ -131,11 +130,11 @@ export default function ExchangeDialog(p: ExchangeProps) {
 
           {/* Куда */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Куда</span>
+            <span className="w-20 shrink-0 pt-1.5 text-xs font-medium text-slate-400">Куда</span>
             <div className="flex-1 flex flex-wrap gap-1.5">
               {(['xlsx', 'csv', 'clipboard'] as Target[]).map((t) => (
                 <button key={t} type="button" onClick={() => setTarget(t)}
-                  className={`px-2.5 py-1.5 rounded-lg text-2xs font-bold cursor-pointer border transition-ui ${
+                  className={`px-2.5 py-1.5 rounded-lg text-2xs font-semibold cursor-pointer border transition-ui ${
                     target === t
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'
@@ -148,7 +147,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
 
           {/* Столбцы — свёрнуты: их много, а меняют их редко */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Столбцы</span>
+            <span className="w-20 shrink-0 pt-1.5 text-xs font-medium text-slate-400">Столбцы</span>
             <div className="flex-1 min-w-0">
               <button type="button" onClick={() => setColsOpen((v) => !v)}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-2xs bg-slate-50 dark:bg-slate-900
@@ -185,22 +184,18 @@ export default function ExchangeDialog(p: ExchangeProps) {
           {p.onImport && (
             <button type="button" onClick={() => { p.onClose(); p.onImport?.(); }}
               title={p.importHint || 'Загрузить данные из файла'}
-              className="px-3 py-1.5 rounded-lg text-2xs font-bold border border-slate-200 dark:border-slate-800
-                         text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-850
-                         cursor-pointer flex items-center gap-1.5">
+              className="fx-btn fx-btn-sm">
               <Upload className="w-3.5 h-3.5" /> Загрузить из файла
             </button>
           )}
           <span className="flex-1" />
           <button type="button" onClick={p.onClose}
-            className="px-3 py-1.5 rounded-lg text-2xs font-bold text-slate-500 hover:bg-white
-                       dark:hover:bg-slate-850 cursor-pointer">
+            className="fx-btn fx-btn-sm">
             Отмена
           </button>
           <button type="button" onClick={run} disabled={!!stop || busy}
             title={stop || undefined}
-            className="px-4 py-1.5 rounded-lg text-2xs font-bold bg-emerald-600 hover:bg-emerald-500
-                       text-white disabled:opacity-50 cursor-pointer flex items-center gap-1.5">
+            className="fx-btn fx-btn-primary fx-btn-sm">
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
               : target === 'clipboard' ? <ClipboardCopy className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
             {target === 'clipboard' ? 'Скопировать' : 'Выгрузить'}

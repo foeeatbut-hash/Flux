@@ -50,7 +50,7 @@ export default function InsightDrawer() {
         type="button"
         aria-label="Закрыть панель"
         onClick={close}
-        className="absolute inset-0 bg-slate-950/25 dark:bg-slate-950/50 cursor-default"
+        className="absolute inset-0 cursor-default fx-backdrop"
       />
 
       <aside className="relative h-full w-full max-w-[660px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-[insight-in_180ms_ease-out]">

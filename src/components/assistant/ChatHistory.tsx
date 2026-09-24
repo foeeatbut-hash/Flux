@@ -39,8 +39,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
           type="button"
           onClick={() => { void startNew(); onPick?.(); }}
           title="Новый разговор (Ctrl+N). Прежний остаётся в списке"
-          className="w-full flex items-center justify-center gap-1.5 h-8 rounded-lg text-2xs font-bold
-                     bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+          className="fx-btn fx-btn-primary fx-btn-sm w-full justify-center"
         >
           <Plus className="w-3.5 h-3.5" /> Новый разговор
         </button>
@@ -70,7 +69,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
         )}
         {groups.map((g) => (
           <div key={g.label} className="mb-2">
-            <p className="px-1 py-1 text-2xs font-bold text-slate-400 dark:text-slate-500">
+            <p className="px-1 py-1 text-xs font-medium text-slate-400 dark:text-slate-500">
               {g.label}
             </p>
             {g.chats.map((c) => (

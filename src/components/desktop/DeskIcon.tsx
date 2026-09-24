@@ -130,8 +130,7 @@ export default function DeskIcon({
         )}
 
         {badge !== undefined && badge > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-slate-600 text-white
-                           text-2xs font-bold tabular-nums flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-slate-600 text-white text-xs font-medium tabular-nums flex items-center justify-center">
             {badge > 99 ? '99+' : badge}
           </span>
         )}

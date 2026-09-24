@@ -23,7 +23,7 @@ export default function TagVdrDocs({ identifier, projectId }: { identifier: stri
   const stLabel: Record<string, string> = { DRAFT: 'в работе', READY: 'готово', REMARKS: 'замечания', ACCEPTED: 'принят' };
   return (
     <div className="px-4 pb-3">
-      <div className="text-2xs font-bold text-emerald-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
+      <div className="text-xs font-medium text-emerald-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
         {docs.map((d: any) => (
           <button type="button" key={d.id}
@@ -32,9 +32,9 @@ export default function TagVdrDocs({ identifier, projectId }: { identifier: stri
             <span className="font-semibold text-slate-700 dark:text-slate-300 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
               {d.contractorNo || d.titleRu || d.titleEn}
             </span>
-            <span className="text-emerald-500 font-bold shrink-0">{d.vdrCode}</span>
+            <span className="text-emerald-500 font-medium shrink-0">{d.vdrCode}</span>
             <span className="text-slate-400 shrink-0">рев. {d.revision}</span>
-            <span className={`font-bold shrink-0 ${stCls[d.status] || ''}`}>{stLabel[d.status] || d.status}</span>
+            <span className={`font-semibold shrink-0 ${stCls[d.status] || ''}`}>{stLabel[d.status] || d.status}</span>
           </button>
         ))}
       </div>

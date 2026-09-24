@@ -95,7 +95,7 @@ export default function ProjectCheckView() {
       {/* Сводка: сколько и насколько важно */}
       <div className="flex items-center gap-2 px-3 py-2.5 flex-wrap">
         {counts.map(({ s, n }) => (
-          <span key={s} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold ${SEVERITY_STYLE[s].bg} ${SEVERITY_STYLE[s].text}`}>
+          <span key={s} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold ${SEVERITY_STYLE[s].bg} ${SEVERITY_STYLE[s].text}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${SEVERITY_STYLE[s].dot}`} />
             {SEVERITY_STYLE[s].label}: <span className="tabular-nums">{n}</span>
           </span>
@@ -124,8 +124,8 @@ export default function ProjectCheckView() {
               <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
               <span className="flex-1 min-w-0">
                 <span className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-800 dark:text-slate-150">{g.title}</span>
-                  <span className={`px-1.5 py-0.5 rounded-md text-2xs font-bold tabular-nums ${st.bg} ${st.text}`}>{g.count}</span>
+                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-150">{g.title}</span>
+                  <span className={`px-1.5 py-0.5 rounded-md text-2xs font-semibold tabular-nums ${st.bg} ${st.text}`}>{g.count}</span>
                 </span>
                 <span className="block mt-0.5 text-2xs text-slate-500 dark:text-slate-400 leading-snug">{g.why}</span>
               </span>
@@ -170,7 +170,7 @@ export default function ProjectCheckView() {
 
       {data.hidden.length > 0 && (
         <div className="mx-2 mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
-          <p className="text-2xs font-bold text-slate-400 dark:text-slate-500">Скрытые правила</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">Скрытые правила</p>
           <p className="mt-0.5 text-2xs text-slate-400 dark:text-slate-500 leading-snug">
             Их не показываем в списке, но продолжаем считать — чтобы было видно, от чего вы отказались.
           </p>

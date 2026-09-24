@@ -249,7 +249,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
             Открыть раздел и мне — доступ и все игры
           </label>
           <button type="button" onClick={() => void enableAll()} disabled={busy}
-            className="mt-2.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 cursor-pointer transition-colors">
+            className="fx-btn fx-btn-primary fx-btn-sm mt-2.5">
             Включить Flux Play
           </button>
         </div>
@@ -263,9 +263,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
             <button
               type="button"
               onClick={() => void loadDiagnostics()}
-              className="px-2 py-1 rounded-lg text-2xs font-bold bg-slate-100 dark:bg-slate-850
-                         text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800
-                         cursor-pointer transition-colors"
+              className="fx-btn fx-btn-sm"
             >
               Повторить проверку
             </button>
@@ -424,9 +422,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
           <button
             type="button"
             onClick={loadSessions}
-            className="px-2 py-1 rounded-lg text-2xs font-bold bg-slate-100 dark:bg-slate-850
-                       text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800
-                       cursor-pointer transition-colors"
+            className="fx-btn fx-btn-sm"
           >
             Обновить
           </button>
@@ -437,7 +433,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
         <ul className="mt-2 space-y-1.5">
           {sessions.map((s) => (
             <li key={s.id} className="flex items-center gap-2 flex-wrap text-xs">
-              <span className={`shrink-0 px-1.5 py-0.5 rounded font-bold text-2xs ${
+              <span className={`shrink-0 px-1.5 py-0.5 rounded font-semibold text-2xs ${
                 s.stuck
                   ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300'
                   : 'bg-slate-100 dark:bg-slate-850 text-slate-500 dark:text-slate-400'
@@ -450,9 +446,7 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
               <button
                 type="button"
                 onClick={() => dropSession(s.id)}
-                className="ml-auto px-2 py-0.5 rounded-lg text-2xs font-bold bg-slate-100 dark:bg-slate-850
-                           text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400
-                           cursor-pointer transition-colors"
+                className="fx-btn fx-btn-danger fx-btn-sm ml-auto"
               >
                 Снять
               </button>

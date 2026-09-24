@@ -208,30 +208,26 @@ export default function Mail() {
   if (!accounts.length) {
     return (
       <div ref={rootRef} className="h-full flex min-h-0 bg-white dark:bg-slate-900">
-        <aside className="w-48 shrink-0 flex flex-col gap-0.5 p-2 border-r border-slate-200 dark:border-slate-800">
+        <aside className="fx-side w-48 shrink-0 flex flex-col gap-0.5 p-2">
           {['Входящие', 'Отправленные', 'Черновики', 'Архив', 'Корзина'].map((f, i) => (
-            <span key={f}
-              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs
-                          ${i === 0 ? 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-300 font-semibold'
-                            : 'text-slate-400 dark:text-slate-500'}`}>
-              <MailIcon className="w-3.5 h-3.5 shrink-0" /> {f}
+            <span key={f} aria-current={i === 0 || undefined}
+              className={`fx-li cursor-default ${i === 0 ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+              <MailIcon /> {f}
             </span>
           ))}
-          <span className="mt-auto text-2xs text-slate-400 dark:text-slate-500 px-2 leading-relaxed">
+          <span className="mt-auto fx-note px-2">
             Ящики подключаются в параметрах — там же общая почта компании.
           </span>
         </aside>
 
         <div className="flex-1 min-w-0 flex flex-col">
-          <header className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-slate-100">Входящие</span>
-            <span className="flex-1" />
-            <span className="text-2xs text-slate-400">поиск, фильтры и перевод писем уже здесь</span>
+          <header className="fx-head shrink-0">
+            <h2 className="fx-head-title">Входящие</h2>
           </header>
 
           <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8 text-center">
-            <MailIcon className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Ящик не подключён</p>
+            <MailIcon className="w-8 h-8 text-slate-300 dark:text-slate-700" />
+            <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Ящик не подключён</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm leading-relaxed">
               Письма появятся здесь, как только вы добавите ящик. Всё остальное — папки, поиск,
               перевод писем, разбор сроков и встреч — уже работает и ждёт писем.
@@ -337,7 +333,7 @@ export default function Mail() {
           <div className="flex flex-wrap gap-x-5 gap-y-1">
             {HOTKEYS.map((h) => (
               <span key={h.keys} className="text-2xs text-slate-500 dark:text-slate-400">
-                <kbd className="font-mono font-bold text-slate-700 dark:text-slate-300">{h.keys}</kbd> — {h.what}
+                <kbd className="font-mono font-medium text-slate-700 dark:text-slate-300">{h.keys}</kbd> — {h.what}
               </span>
             ))}
           </div>
@@ -480,8 +476,8 @@ export default function Mail() {
               <MailOpen className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
               <p className="blank-title">Выберите письмо</p>
               <p className="blank-text">
-                Переписка откроется здесь. Клавиши <kbd className="font-mono font-bold">j</kbd> и{' '}
-                <kbd className="font-mono font-bold">k</kbd> листают список, <kbd className="font-mono font-bold">/</kbd> — поиск.
+                Переписка откроется здесь. Клавиши <kbd className="font-mono font-medium">j</kbd> и{' '}
+                <kbd className="font-mono font-medium">k</kbd> листают список, <kbd className="font-mono font-medium">/</kbd> — поиск.
               </p>
             </div>
           </div>

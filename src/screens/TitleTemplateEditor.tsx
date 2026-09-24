@@ -229,7 +229,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
             документа. Компонент тот же, что в Настройках, — второй карточки
             настройки нет намеренно. */}
         {fxOpen && projectId && (
-          <div className="absolute inset-0 z-30 bg-black/25 flex items-center justify-center p-6"
+          <div className="absolute inset-0 z-30 flex items-center justify-center p-6 fx-backdrop"
             onMouseDown={() => setFxOpen(false)}>
             <div className="w-full max-w-4xl h-[560px] sheet bg-white dark:bg-slate-950 shadow-modal"
               onMouseDown={(e) => e.stopPropagation()}>

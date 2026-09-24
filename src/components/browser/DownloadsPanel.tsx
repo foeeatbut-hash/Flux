@@ -38,7 +38,7 @@ export default function DownloadsPanel() {
   return (
     <div className="absolute inset-0 overflow-y-auto p-4">
       <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Загрузки</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Загрузки</h2>
         {items.length > 0 && (
           <button type="button" onClick={clear}
             title="Убрать список. Сами файлы останутся на месте"

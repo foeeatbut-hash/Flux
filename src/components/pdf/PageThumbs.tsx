@@ -87,7 +87,7 @@ export default function PageThumbs({ pdf, pages, page, onPick }: {
                 ? <img src={drawn[n]} alt="" className="block w-full" />
                 : <span className="block w-full" style={{ height: THUMB_W * 1.41 }} />}
             </span>
-            <span className={`block text-2xs mt-0.5 ${active ? 'text-emerald-700 dark:text-emerald-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <span className={`block text-2xs mt-0.5 ${active ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
               {n}
             </span>
           </button>

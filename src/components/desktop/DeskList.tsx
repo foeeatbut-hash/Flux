@@ -52,7 +52,7 @@ export default function DeskList({
               <th
                 key={c.title}
                 onClick={() => c.key && onSort(c.key)}
-                className={`${c.cls} px-2.5 py-1.5 text-2xs font-bold whitespace-nowrap
+                className={`${c.cls} px-2.5 py-1.5 text-2xs font-semibold whitespace-nowrap
                             bg-slate-100/95 dark:bg-dark-bg/95 backdrop-blur
                             border-b border-slate-200 dark:border-dark-border
                             ${c.key ? 'cursor-pointer text-slate-500 hover:text-slate-800 dark:hover:text-white' : 'text-slate-400'}`}

@@ -93,9 +93,9 @@ export default function CategoryViewDialog(p: Props) {
   const btn = 'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55" onMouseDown={p.onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onMouseDown={p.onClose}>
       <div role="dialog" aria-label="Вид категории" onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl h-[min(640px,90vh)] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+        className="fx-dialog w-full max-w-4xl h-[min(640px,90vh)] flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <Eye className="w-4 h-4 text-emerald-600" />
           <b className="text-sm">Вид категории · {p.categoryLabel}</b>

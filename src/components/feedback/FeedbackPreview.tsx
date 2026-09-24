@@ -51,7 +51,7 @@ export default function FeedbackPreview({ fields, attachments, appVersion }: {
       </div>
 
       <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
-        <div className="text-xs font-bold text-slate-800 dark:text-slate-150">Вложения</div>
+        <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Вложения</div>
         {attachments.length === 0 && (
           <p className="text-xs text-slate-500 dark:text-slate-400">Ничего не приложено.</p>
         )}

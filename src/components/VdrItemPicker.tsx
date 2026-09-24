@@ -35,10 +35,10 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
   }, [q, projectId]);
 
   return (
-    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[70vh]" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-6 fx-backdrop" onClick={onClose}>
+      <div className="fx-dialog w-full max-w-xl flex flex-col max-h-[70vh]" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-          <span className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+          <span className="font-semibold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4 text-emerald-500" /> {title || 'Выбор строки ВДР'}
           </span>
           <button type="button" title="Закрыть" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
@@ -55,7 +55,7 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
           {!busy && items.map(it => (
             <button type="button" key={it.id} onClick={() => onPick(it)}
               className="w-full text-left px-4 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
-              <div className="text-xs font-bold text-slate-800 dark:text-white">{it.contractorNo || '—'} <span className="ml-1 text-emerald-500 font-semibold">{it.vdrCode}</span> <span className="ml-1 text-slate-400">рев. {it.revision}</span>{it.docId && <span className="ml-1.5 text-2xs text-amber-600">уже связан с документом</span>}</div>
+              <div className="text-xs font-medium text-slate-800 dark:text-white">{it.contractorNo || '—'} <span className="ml-1 text-emerald-500 font-semibold">{it.vdrCode}</span> <span className="ml-1 text-slate-400">рев. {it.revision}</span>{it.docId && <span className="ml-1.5 text-2xs text-amber-600">уже связан с документом</span>}</div>
               <div className="text-xs text-slate-500 truncate">{it.titleRu || it.titleEn}</div>
               {it.registerName && <div className="text-2xs text-slate-400">{it.registerName}</div>}
             </button>

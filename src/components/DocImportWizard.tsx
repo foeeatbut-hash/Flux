@@ -417,9 +417,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // ── Рендер ──────────────────────────────────────────────────────────────────
 
   return createPortal(
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
       <div
-        className="w-full max-w-5xl h-[86vh] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+        className="fx-dialog w-full max-w-5xl h-[86vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
         onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
@@ -432,7 +432,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
               <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">Импорт из документов</h2>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Импорт из документов</h2>
               <p className="text-xs text-slate-400">PDF · Excel · Word · XML · вставка таблицы (Ctrl+V)</p>
             </div>
           </div>
@@ -502,7 +502,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                     <div className="mt-1 flex items-center gap-1 text-2xs">
                       {(j.status === 'parsing' || j.status === 'ocr') && <><Loader2 className="w-3 h-3 animate-spin text-emerald-500" /> <span className="text-slate-400 truncate">{j.statusText || 'Разбор…'}</span></>}
-                      {j.status === 'ready' && itemCount > 0 && <span className="text-emerald-600 dark:text-emerald-400 font-bold">{itemCount} позиц.</span>}
+                      {j.status === 'ready' && itemCount > 0 && <span className="text-emerald-600 dark:text-emerald-400 font-medium">{itemCount} позиц.</span>}
                       {j.status === 'ready' && itemCount === 0 && <span className="text-amber-500 font-semibold">нет данных</span>}
                       {j.status === 'imported' && <span className="text-emerald-600 flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> импортировано</span>}
                       {j.status === 'error' && <span className="text-rose-500 truncate">{j.error}</span>}
@@ -519,7 +519,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   </button>
                   {pickedJobs.length > 0 && (
                     <button type="button" onClick={commitPicked}
-                      className="w-full px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer flex items-center justify-center gap-1.5">
+                      className="fx-btn fx-btn-primary w-full justify-center">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       Ввезти выбранные: {pickedJobs.length}
                     </button>
@@ -630,7 +630,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-3">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                        <h3 className="text-sm font-bold text-slate-800 dark:text-white">Расчёт разобран</h3>
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Расчёт разобран</h3>
                       </div>
                       <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         Это выгрузка из расчётной программы. Здесь ничего не угадывалось:
@@ -669,14 +669,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                           <input
                             value={item.title}
                             onChange={e => patchItem(activeJob.id, item.id, { title: e.target.value })}
-                            className="flex-1 bg-transparent text-xs font-bold text-slate-900 dark:text-white outline-none border-b border-transparent focus:border-emerald-400"
+                            className="flex-1 bg-transparent text-xs font-medium text-slate-900 dark:text-white outline-none border-b border-transparent focus:border-emerald-400"
                             title="Название позиции (можно исправить)"
                           />
                           {item.brand && (
-                            <span className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{item.brand}</span>
+                            <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{item.brand}</span>
                           )}
                           {item.system && (
-                            <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">{item.system}</span>
+                            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">{item.system}</span>
                           )}
                           <button type="button"
                             onClick={() => removeItem(activeJob.id, item.id)}
@@ -696,7 +696,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                                 <button type="button"
                                   key={h}
                                   onClick={() => chooseMatrixColumn(activeJob.id, item.id, h)}
-                                  className="px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-950 font-mono font-bold text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 cursor-pointer"
+                                  className="fx-btn fx-btn-sm"
                                 >
                                   {h}
                                 </button>
@@ -762,7 +762,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                     <button type="button"
                       onClick={() => commitJob(activeJob)}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
+                      className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Проверить и импортировать в «{categories.find(c => c.id === category)?.label || category}»
@@ -778,7 +778,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                     <button type="button"
                       onClick={() => commitJob(activeJob)}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"
+                      className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Проверить и импортировать {activeJob.draft!.items.length} позиц. в «{categories.find(c => c.id === category)?.label || category}»

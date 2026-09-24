@@ -30,19 +30,19 @@ export default function RevisionDialog({
     + 'dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop" onClick={onClose}>
+      <div className="fx-dialog w-full max-w-md p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-bold text-slate-800 dark:text-white">
+        <h3 className="font-semibold text-slate-800 dark:text-white">
           Выпустить ревизию (текущая: {current || '—'})
         </h3>
         <div>
-          <label className="block text-xs font-bold text-slate-500">Место изменения</label>
+          <label className="fx-label block">Место изменения</label>
           <input value={place} onChange={(e) => onPlace(e.target.value)}
             placeholder="напр. Разд. 3, лист 2" className={field} />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-500">Описание изменения</label>
+          <label className="fx-label block">Описание изменения</label>
           <textarea value={desc} onChange={(e) => onDesc(e.target.value)} rows={2}
             placeholder="что изменено" className={field} />
         </div>
@@ -53,14 +53,12 @@ export default function RevisionDialog({
           </button>
           {lettered && (
             <button type="button" onClick={() => onIssue('certify')} disabled={busy}
-              className="px-3.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700
-                         dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30
-                         cursor-pointer disabled:opacity-50">
+              className="fx-btn">
               Утвердить (→0)
             </button>
           )}
           <button type="button" onClick={() => onIssue('next')} disabled={busy}
-            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+            className="fx-btn fx-btn-primary">
             Следующая ревизия
           </button>
         </div>

@@ -65,10 +65,7 @@ export function Failure({ text, onRetry, busy }: { text: string; onRetry?: () =>
               type="button"
               onClick={onRetry}
               disabled={busy}
-              className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-2xs font-bold
-                         bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/50
-                         text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60
-                         disabled:opacity-50 cursor-pointer transition-colors"
+              className="fx-btn fx-btn-danger fx-btn-sm mt-2"
             >
               {busy
                 ? <Loader2 className="w-3 h-3 animate-spin" />

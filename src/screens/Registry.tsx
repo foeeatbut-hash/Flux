@@ -67,6 +67,7 @@ import {
 import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
 import CardActions from '../components/registry/CardActions';
 import DuplicatesPanel from '../components/registry/DuplicatesPanel';
+import SegmentColumn from '../components/registry/SegmentColumn';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { SectionHead, Btn, IconBtn, Status, Empty, Dialog } from '../components/ui';
 import TagVdrDocs from '../components/registry/TagVdrDocs';
@@ -2669,9 +2670,9 @@ export default function Registry() {
               {/* Auto Suggestions list */}
               {newTagIdentifier && matchingSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
-                  <div className="text-xs font-mono font-bold text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
+                  <div className="text-xs font-mono font-medium text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
                     <span>Существующие теги</span>
-                    <span className="text-xs italic font-sans font-normal lowercase text-slate-500">выберите</span>
+                    <span className="text-xs font-sans font-normal lowercase text-slate-500">выберите</span>
                   </div>
                   <div className="space-y-0.5">
                     {matchingSuggestions.map((st) => (
@@ -2688,9 +2689,9 @@ export default function Registry() {
                         }}
                         className="w-full text-left px-2 py-1 text-xs text-slate-707 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between items-center transition-colors font-mono cursor-pointer"
                       >
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
                         <span className="text-xs text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
-                          {parseTagMetadata(st).mainName || <span className="italic opacity-40 text-xs">Без наименования</span>}
+                          {parseTagMetadata(st).mainName || <span className="opacity-40 text-xs">Без наименования</span>}
                         </span>
                       </button>
                     ))}
@@ -2783,7 +2784,7 @@ export default function Registry() {
 
                     return (
                       <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] @[760px]:min-w-[180px] @[1080px]:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-xs font-bold text-slate-450 dark:text-slate-500 leading-none truncate" title={cat.nameRu}>
+                        <span className="text-xs font-medium text-slate-450 dark:text-slate-500 leading-none truncate" title={cat.nameRu}>
                           {cat.nameRu}
                         </span>
                         <CustomSelect
@@ -2919,7 +2920,7 @@ export default function Registry() {
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
-                  <span ref={zoomLabelRef} className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center tabular-nums">
+                  <span ref={zoomLabelRef} className="px-2 py-0.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-400 self-center tabular-nums">
                     {Math.round(zoom * 100)}%
                   </span>
                   <button type="button"
@@ -2939,7 +2940,7 @@ export default function Registry() {
                 <button type="button"
                   onClick={fitCanvasToCenter}
                   title="Вписать весь холст (F)"
-                  className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                  className="fx-btn fx-btn-sm"
                 >
                   <Maximize2 className="w-3 h-3 text-emerald-600" />
                   По размеру
@@ -2949,7 +2950,7 @@ export default function Registry() {
                   <button type="button"
                     onClick={(e) => { e.stopPropagation(); setCenterPickerOpen((v) => !v); }}
                     title="Показать дерево выбранной установки целиком"
-                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    className="fx-btn fx-btn-sm"
                   >
                     <RefreshCw className="w-3 h-3 text-emerald-600" />
                     Центрировать
@@ -2962,7 +2963,7 @@ export default function Registry() {
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      <div className="px-3 py-2 text-xs font-bold text-slate-400 border-b border-slate-100 dark:border-slate-850">
+                      <div className="px-3 py-2 text-xs font-medium text-slate-400 border-b border-slate-100 dark:border-slate-850">
                         Главные родители ({rootTags.length})
                       </div>
                       <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5">
@@ -2974,7 +2975,7 @@ export default function Registry() {
                             onClick={() => centerTreeOfRoot(rt.id)}
                             className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-xs flex items-center justify-between gap-2 cursor-pointer"
                           >
-                            <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 truncate">{rt.identifier}</span>
+                            <span className="font-mono font-medium text-emerald-700 dark:text-emerald-400 truncate">{rt.identifier}</span>
                             <span className="text-slate-400 truncate max-w-[120px]">{parseTagMetadata(rt).mainName || ''}</span>
                           </button>
                         ))}
@@ -2993,7 +2994,7 @@ export default function Registry() {
                     title={axis === 'down'
                       ? 'Разложить: родитель сверху, дети под ним, следующее дерево правее'
                       : 'Разложить: родитель слева, дети правее, следующее дерево правее'}
-                    className="pl-2.5 pr-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-l-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    className="fx-btn fx-btn-primary fx-btn-sm"
                   >
                     <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
                     {isArranging ? 'Раскладка…' : 'Упорядочить'}
@@ -3030,7 +3031,7 @@ export default function Registry() {
                         >
                           <Check className={`w-3 h-3 shrink-0 ${axis === o.id ? '' : 'opacity-0'}`} />
                           <span className="min-w-0">
-                            <span className="block font-bold">{o.title}</span>
+                            <span className="block font-medium">{o.title}</span>
                             <span className="block text-2xs text-slate-400">{o.hint}</span>
                           </span>
                         </button>
@@ -3048,7 +3049,7 @@ export default function Registry() {
                   <button type="button"
                     onClick={() => { void undoArrangeLayout(); }}
                     title="Вернуть карточки туда, где они стояли до раскладки"
-                    className="px-2.5 py-1.5 bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-200 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    className="fx-btn fx-btn-quiet fx-btn-sm"
                   >
                     <Undo2 className="w-3 h-3" />
                     Отменить
@@ -3197,11 +3198,11 @@ export default function Registry() {
                                 title={`Актуальность: ${statusVal.label}`}
                               />
                               <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              <span className="font-mono font-bold tracking-tight text-xs text-slate-800 dark:text-slate-100 truncate select-all">
+                              <span className="font-mono font-medium tracking-tight text-xs text-slate-800 dark:text-slate-100 truncate select-all">
                                 {tag.identifier}
                               </span>
                               {dup && (
-                                <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">
+                                <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">
                                   дубль
                                 </span>
                               )}
@@ -3253,11 +3254,11 @@ export default function Registry() {
                           {/* Марка и актуальность */}
                           <div className="flex items-center gap-1.5 pl-5 mt-0.5 min-w-0">
                             {tag.brand && (
-                              <span className="font-mono text-2xs font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
+                              <span className="font-mono text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
                                 {tag.brand}
                               </span>
                             )}
-                            <span className={`text-2xs font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
+                            <span className={`text-2xs font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
                               {statusVal.label}
                             </span>
                           </div>
@@ -3280,7 +3281,7 @@ export default function Registry() {
                             {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
                             <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-2xs font-bold text-slate-400">Связи</span>
+                                <span className="text-xs font-medium text-slate-400">Связи</span>
                                 {/* Две кнопки, а не одна: чипы связей и раньше показывали
                                     и родителя (↑), и детей (↓), а завести можно было
                                     только ребёнка. Родителя приходилось искать на холсте
@@ -3288,13 +3289,13 @@ export default function Registry() {
                                 <span className="flex items-center gap-2 shrink-0">
                                   <button type="button"
                                     onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'parent') ? null : { tagId: tag.id, search: '', dir: 'parent' }); }}
-                                    className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                    className="fx-btn fx-btn-quiet fx-btn-sm"
                                   >
                                     {(incomingByTagId[tag.id] || []).length ? '↑ сменить родителя' : '+ родительский тег'}
                                   </button>
                                   <button type="button"
                                     onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'child') ? null : { tagId: tag.id, search: '', dir: 'child' }); }}
-                                    className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                    className="fx-btn fx-btn-quiet fx-btn-sm"
                                   >
                                     + дочерний тег
                                   </button>
@@ -3302,7 +3303,7 @@ export default function Registry() {
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
-                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-2xs font-bold text-emerald-700 dark:text-emerald-300" title={`Родитель: ${tagsById[pid].identifier}`}>
+                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs font-medium text-emerald-700 dark:text-emerald-300" title={`Родитель: ${tagsById[pid].identifier}`}>
                                     ↑ <span className="font-mono truncate max-w-[110px]">{tagsById[pid].identifier}</span>
                                     <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
                                       <X className="w-2.5 h-2.5" />
@@ -3310,7 +3311,7 @@ export default function Registry() {
                                   </span>
                                 ))}
                                 {(meta.connections || []).map(cid => tagsById[cid] && (
-                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-2xs font-bold text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
+                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs font-medium text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
                                     ↓ <span className="font-mono truncate max-w-[110px]">{tagsById[cid].identifier}</span>
                                     <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
                                       <X className="w-2.5 h-2.5" />
@@ -3363,7 +3364,7 @@ export default function Registry() {
                                           else await handleAddConnection(tag.id, t.id);
                                           setLinkPicker(null);
                                         }}
-                                        className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                                        className="fx-btn fx-btn-quiet fx-btn-sm w-full">
                                         {wantParent ? '↑' : '↓'} {t.identifier}
                                       </button>
                                     ))}
@@ -3375,7 +3376,7 @@ export default function Registry() {
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-2xs font-bold text-slate-400 dark:text-slate-500">
+                              <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
                                 Комментарии ({meta.descriptions.length})
                               </div>
 
@@ -3391,7 +3392,7 @@ export default function Registry() {
                                       <div className="space-y-2 pt-1">
                                         <div className="grid grid-cols-2 gap-1.5">
                                           <div className="space-y-0.5">
-                                            <span className="text-xs font-bold text-slate-400">Название</span>
+                                            <span className="text-xs font-medium text-slate-400">Название</span>
                                             <input
                                               type="text"
                                               value={editDescForm.text}
@@ -3400,7 +3401,7 @@ export default function Registry() {
                                             />
                                           </div>
                                           <div className="space-y-0.5">
-                                            <span className="text-xs font-bold text-slate-400">Актуальность</span>
+                                            <span className="text-xs font-medium text-slate-400">Актуальность</span>
                                             <CustomSelect
                                               value={editDescForm.status}
                                               onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
@@ -3410,7 +3411,7 @@ export default function Registry() {
                                         </div>
 
                                         <div className="space-y-0.5">
-                                          <span className="text-xs font-bold text-slate-400">Комментарий</span>
+                                          <span className="text-xs font-medium text-slate-400">Комментарий</span>
                                           <textarea
                                             value={editDescForm.comment}
                                             onChange={(e) => setEditDescForm(prev => ({ ...prev, comment: e.target.value }))}
@@ -3435,7 +3436,7 @@ export default function Registry() {
                                               });
                                               setEditingDescId(null);
                                             }}
-                                            className="px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded cursor-pointer"
+                                            className="fx-btn fx-btn-primary fx-btn-sm"
                                           >
                                             Записать
                                           </button>
@@ -3448,7 +3449,7 @@ export default function Registry() {
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
                                             <span
-                                              className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate"
+                                              className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
                                               title={`${desc.text}${desc.createdBy ? `\nСоздал: ${desc.createdBy}${desc.createdAt ? ` (${formatDateStr(desc.createdAt)})` : ''}` : ''}${desc.updatedBy ? `\nИзменил: ${desc.updatedBy}${desc.updatedAt ? ` (${formatDateStr(desc.updatedAt)})` : ''}` : ''}`}
                                             >{desc.text}</span>
                                           </div>
@@ -3484,7 +3485,7 @@ export default function Registry() {
                                         </div>
 
                                         {desc.comment && (
-                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 italic leading-snug">
+                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 leading-snug">
                                             {desc.comment}
                                           </p>
                                         )}
@@ -3496,7 +3497,7 @@ export default function Registry() {
                               })}
 
                               {meta.descriptions.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
+                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs">
                                   Описания отсутствуют.
                                 </div>
                               )}
@@ -3534,7 +3535,7 @@ export default function Registry() {
                                     quickCommentText[tag.id], 
                                     quickStatus[tag.id] || 'actual'
                                   )}
-                                  className="px-3.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded text-xs cursor-pointer"
+                                  className="fx-btn fx-btn-primary fx-btn-sm"
                                 >
                                   +
                                 </button>
@@ -3571,7 +3572,7 @@ export default function Registry() {
               {/* Панель выделения: сколько выбрано + быстрые действия */}
               {selectedTagIds.size > 0 && (
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
-                  <span className="font-bold text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
+                  <span className="font-medium text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
                   <button type="button"
                     onClick={() => fitToTags(tags.filter(t => selectedTagIds.has(t.id)))}
                     className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
@@ -3690,7 +3691,7 @@ export default function Registry() {
         {/* Панель выделения для вкладок «Дерево связей» и «Спецификация» */}
         {selectedTagIds.size > 0 && activeTab !== 'board' && createPortal(
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
-            <span className="font-bold text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
+            <span className="font-medium text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
             <button type="button"
               onClick={() => shareTagsInChat(Array.from(selectedTagIds))}
               className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
@@ -3771,567 +3772,22 @@ export default function Registry() {
             {/* SELECTION FILTERS BLOCK */}
             <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 text-left">
               
-              {/* LEFT COLUMN: TAG FILTERING ZONE */}
-              <div className="space-y-3 @[880px]:border-r border-slate-100 dark:border-slate-850 @[880px]:pr-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
-                      
-                      Отбор по сегментам тега
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">По частям кода тега: только латиница и цифры.</p>
-                  </div>
-                  <button type="button"
-                    onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
-                    className="fx-btn"
-                  >
-                    <Plus className="w-3 h-3" /> Добавить сегмент
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 @[720px]:grid-cols-2 gap-4">
-                  {Array.from({ length: getMaximumTagSegmentLength() + addedTagSegmentsCount }).map((_, idx) => {
-                    const uniqueList = getUniqueTagSegmentValuesForPos(idx);
-                    const currentVal = activeTagFilters[idx] || '';
-
-                    const boundDictId = tagDictBindings[idx] || '';
-                    const boundDict = dictionaries.find(d => d.id === boundDictId);
-
-                    const selection = tagHierarchySelections[idx] || {};
-
-                    const mainCategories = boundDict ? boundDict.items.filter((i: any) => !i.parentId) : [];
-                    const subCategories = boundDict && selection.mainId 
-                      ? boundDict.items.filter((i: any) => i.parentId === selection.mainId) 
-                      : [];
-                    const subSubCategories = boundDict && selection.subId 
-                      ? boundDict.items.filter((i: any) => i.parentId === selection.subId) 
-                      : [];
-
-                    const handleMainChange = (mainId: string) => {
-                      const mainItem = boundDict?.items.find((i: any) => i.id === mainId);
-                      setTagHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { mainId, subId: '', subSubId: '' }
-                      }));
-                      setActiveTagFilters(prev => ({
-                        ...prev,
-                        [idx]: mainItem ? mainItem.code : '*'
-                      }));
-                    };
-
-                    const handleSubChange = (subId: string) => {
-                      const subItem = boundDict?.items.find((i: any) => i.id === subId);
-                      setTagHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { ...prev[idx], subId, subSubId: '' }
-                      }));
-                      setActiveTagFilters(prev => ({
-                        ...prev,
-                        [idx]: subItem 
-                          ? subItem.code 
-                          : (boundDict?.items.find((i: any) => i.id === selection.mainId)?.code || '*')
-                      }));
-                    };
-
-                    const handleSubSubChange = (subSubId: string) => {
-                      const subSubItem = boundDict?.items.find((i: any) => i.id === subSubId);
-                      setTagHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { ...prev[idx], subSubId }
-                      }));
-                      setActiveTagFilters(prev => ({
-                        ...prev,
-                        [idx]: subSubItem 
-                          ? subSubItem.code 
-                          : (boundDict?.items.find((i: any) => i.id === selection.subId)?.code || '*')
-                      }));
-                    };
-
-                    return (
-                      <div key={`tag-seg-${idx}`} className="p-3 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-100">
-                              Сегмент тега {idx + 1}
-                            </span>
-                            {idx >= getMaximumTagSegmentLength() && (
-                              <button type="button"
-                                onClick={() => {
-                                  setAddedTagSegmentsCount(prev => Math.max(0, prev - 1));
-                                  setActiveTagFilters(prev => {
-                                    const clone = { ...prev };
-                                    delete clone[idx];
-                                    return clone;
-                                  });
-                                }}
-                                className="fx-ibtn" aria-label="Удалить сегмент"
-                                title="Удалить сегмент"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Unified Custom Input */}
-                          <div className="space-y-1">
-                            <span className="fx-label block">
-                              Поиск сегмента:
-                            </span>
-                            <input
-                              type="text"
-                              placeholder="Значение..."
-                              value={currentVal === '*' ? '' : currentVal}
-                              onChange={(e) =>
-                                setActiveTagFilters(prev => ({ ...prev, [idx]: e.target.value || '*' }))
-                              }
-                              className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs rounded-md text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/15"
-                            />
-                          </div>
-
-                          {/* Quick Select from Custom Preset Filter Categories */}
-                          {(() => {
-                            const presetDict = dictionaries.find(d => d.name === '__tag_presets_config__');
-                            const presetItems = presetDict?.items || [];
-                            const filterCategories = presetItems.filter((i: any) => !i.parentId);
-                            const activeCatId = selectedTagFilterCategoryIds[idx] || '';
-                            const categoryOptions = presetItems.filter((i: any) => i.parentId === activeCatId);
-
-                            if (filterCategories.length === 0) return null;
-
-                            return (
-                              <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="fx-label block">
-                                  Категория фильтра:
-                                </span>
-                                <CustomSelect
-                                  value={activeCatId}
-                                  onChange={(val) => setSelectedTagFilterCategoryIds(prev => ({ ...prev, [idx]: val }))}
-                                  placeholder="-- Категории справочника --"
-                                  options={filterCategories.map((cat: any) => ({
-                                    value: cat.id,
-                                    label: cat.nameRu
-                                  }))}
-                                />
-
-                                {activeCatId && (
-                                  <div className="pt-1 space-y-1">
-                                    <span className="fx-label block">
-                                      Каталог:
-                                    </span>
-                                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
-                                      {categoryOptions.map((opt: any) => {
-                                        const optVal = opt.code || opt.nameRu;
-                                        const isSel = currentVal === optVal;
-                                        return (
-                                          <button
-                                            key={opt.id}
-                                            type="button"
-                                            onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
-                                              isSel
-                                                ? 'bg-emerald-600 border-emerald-600 text-white'
-                                                : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
-                                            }`}
-                                          >
-                                            {opt.nameRu}
-                                          </button>
-                                        );
-                                      })}
-                                      {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">Вариантов нет</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          {/* Base database match list with max-h and scrollbar */}
-                          {uniqueList.length > 0 && (
-                            <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="fx-label block">
-                                В базе ({uniqueList.length}):
-                              </span>
-                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
-                                {uniqueList.map((val) => {
-                                  const isSelected = currentVal === val;
-                                  return (
-                                    <button
-                                      key={val}
-                                      type="button"
-                                      onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
-                                        isSelected
-                                          ? 'bg-emerald-600 text-white'
-                                          : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
-                                      }`}
-                                    >
-                                      {val}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Dictionary Integration Binding Section */}
-                        <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                          <div className="space-y-1">
-                            <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500">
-                              Справочник значений:
-                            </span>
-                            <CustomSelect
-                              value={boundDictId}
-                              onChange={(val) => {
-                                setTagDictBindings(prev => ({ ...prev, [idx]: val }));
-                                setTagHierarchySelections(prev => ({ ...prev, [idx]: {} }));
-                              }}
-                              placeholder="-- Без справочника --"
-                              options={dictionaries.map((dict) => ({
-                                value: dict.id,
-                                label: dict.name
-                              }))}
-                            />
-                          </div>
-
-                          {boundDict && (
-                            <div className="space-y-1 mt-1 text-xs">
-                              {/* Main Category */}
-                              <div className="space-y-0.5 animate-fadeIn">
-                                <span className="fx-label block">1. Главная</span>
-                                <CustomSelect
-                                  value={selection.mainId || ''}
-                                  onChange={(val) => handleMainChange(val)}
-                                  placeholder="Не выбрано"
-                                  options={mainCategories.map((cat: any) => ({
-                                    value: cat.id,
-                                    label: `${cat.code} — ${cat.nameRu}`
-                                  }))}
-                                />
-                              </div>
-
-                              {/* Subcategory */}
-                              {selection.mainId && subCategories.length > 0 && (
-                                <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="fx-label block">2. Подкатегория</span>
-                                  <CustomSelect
-                                    value={selection.subId || ''}
-                                    onChange={(val) => handleSubChange(val)}
-                                    placeholder="Не выбрано"
-                                    options={subCategories.map((sub: any) => ({
-                                      value: sub.id,
-                                      label: `${sub.code} — ${sub.nameRu}`
-                                    }))}
-                                  />
-                                </div>
-                              )}
-
-                              {/* Sub-subcategory */}
-                              {selection.subId && subSubCategories.length > 0 && (
-                                <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="fx-label block">3. Подподкатегория</span>
-                                  <CustomSelect
-                                    value={selection.subSubId || ''}
-                                    onChange={(val) => handleSubSubChange(val)}
-                                    placeholder="Не выбрано"
-                                    options={subSubCategories.map((s: any) => ({
-                                      value: s.id,
-                                      label: `${s.code} — ${s.nameRu}`
-                                    }))}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* RIGHT COLUMN: MARK FILTERING ZONE */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-                      Отбор по сегментам марки
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">По частям марки оборудования: любой язык.</p>
-                  </div>
-                  <button type="button"
-                    onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
-                    className="fx-btn"
-                  >
-                    <Plus className="w-3 h-3" /> Добавить сегмент
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 @[720px]:grid-cols-2 gap-4">
-                  {Array.from({ length: getMaximumMarkSegmentLength() + addedMarkSegmentsCount }).map((_, idx) => {
-                    const uniqueList = getUniqueMarkSegmentValuesForPos(idx);
-                    const currentVal = activeMarkFilters[idx] || '';
-
-                    const boundDictId = markDictBindings[idx] || '';
-                    const boundDict = dictionaries.find(d => d.id === boundDictId);
-
-                    const selection = markHierarchySelections[idx] || {};
-
-                    const mainCategories = boundDict ? boundDict.items.filter((i: any) => !i.parentId) : [];
-                    const subCategories = boundDict && selection.mainId 
-                      ? boundDict.items.filter((i: any) => i.parentId === selection.mainId) 
-                      : [];
-                    const subSubCategories = boundDict && selection.subId 
-                      ? boundDict.items.filter((i: any) => i.parentId === selection.subId) 
-                      : [];
-
-                    const handleMainChange = (mainId: string) => {
-                      const mainItem = boundDict?.items.find((i: any) => i.id === mainId);
-                      setMarkHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { mainId, subId: '', subSubId: '' }
-                      }));
-                      setActiveMarkFilters(prev => ({
-                        ...prev,
-                        [idx]: mainItem ? mainItem.code : '*'
-                      }));
-                    };
-
-                    const handleSubChange = (subId: string) => {
-                      const subItem = boundDict?.items.find((i: any) => i.id === subId);
-                      setMarkHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { ...prev[idx], subId, subSubId: '' }
-                      }));
-                      setActiveMarkFilters(prev => ({
-                        ...prev,
-                        [idx]: subItem 
-                          ? subItem.code 
-                          : (boundDict?.items.find((i: any) => i.id === selection.mainId)?.code || '*')
-                      }));
-                    };
-
-                    const handleSubSubChange = (subSubId: string) => {
-                      const subSubItem = boundDict?.items.find((i: any) => i.id === subSubId);
-                      setMarkHierarchySelections(prev => ({
-                        ...prev,
-                        [idx]: { ...prev[idx], subSubId }
-                      }));
-                      setActiveMarkFilters(prev => ({
-                        ...prev,
-                        [idx]: subSubItem 
-                          ? subSubItem.code 
-                          : (boundDict?.items.find((i: any) => i.id === selection.subId)?.code || '*')
-                      }));
-                    };
-
-                    return (
-                      <div key={`mark-seg-${idx}`} className="p-3 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-slate-700 dark:text-slate-100">
-                              Сегмент марки {idx + 1}
-                            </span>
-                            {idx >= getMaximumMarkSegmentLength() && (
-                              <button type="button"
-                                onClick={() => {
-                                  setAddedMarkSegmentsCount(prev => Math.max(0, prev - 1));
-                                  setActiveMarkFilters(prev => {
-                                    const clone = { ...prev };
-                                    delete clone[idx];
-                                    return clone;
-                                  });
-                                }}
-                                className="fx-ibtn" aria-label="Удалить сегмент"
-                                title="Удалить сегмент"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Unified Custom Input */}
-                          <div className="space-y-1">
-                            <span className="fx-label block">
-                              Поиск сегмента:
-                            </span>
-                            <input
-                              type="text"
-                              placeholder="Значение..."
-                              value={currentVal === '*' ? '' : currentVal}
-                              onChange={(e) =>
-                                setActiveMarkFilters(prev => ({ ...prev, [idx]: e.target.value || '*' }))
-                              }
-                              className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-80 style-scrollbar text-xs rounded-md text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/15"
-                            />
-                          </div>
-
-                          {/* Quick Select from Custom Preset Filter Categories */}
-                          {(() => {
-                            const presetDict = dictionaries.find(d => d.name === '__tag_presets_config__');
-                            const presetItems = presetDict?.items || [];
-                            const filterCategories = presetItems.filter((i: any) => !i.parentId);
-                            const activeCatId = selectedMarkFilterCategoryIds[idx] || '';
-                            const categoryOptions = presetItems.filter((i: any) => i.parentId === activeCatId);
-
-                            if (filterCategories.length === 0) return null;
-
-                            return (
-                              <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="fx-label block">
-                                  Категория фильтра:
-                                </span>
-                                <CustomSelect
-                                  value={activeCatId}
-                                  onChange={(val) => setSelectedMarkFilterCategoryIds(prev => ({ ...prev, [idx]: val }))}
-                                  placeholder="-- Категории справочника --"
-                                  options={filterCategories.map((cat: any) => ({
-                                    value: cat.id,
-                                    label: cat.nameRu
-                                  }))}
-                                />
-
-                                {activeCatId && (
-                                  <div className="pt-1 space-y-1">
-                                    <span className="fx-label block">
-                                      Каталог:
-                                    </span>
-                                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
-                                      {categoryOptions.map((opt: any) => {
-                                        const optVal = opt.code || opt.nameRu;
-                                        const isSel = currentVal === optVal;
-                                        return (
-                                          <button
-                                            key={opt.id}
-                                            type="button"
-                                            onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
-                                              isSel
-                                                ? 'bg-amber-600 border-amber-600 text-white'
-                                                : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
-                                            }`}
-                                          >
-                                            {opt.nameRu}
-                                          </button>
-                                        );
-                                      })}
-                                      {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">Вариантов нет</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          {/* Base database match list with max-h and scrollbar */}
-                          {uniqueList.length > 0 && (
-                            <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="fx-label block">
-                                В базе ({uniqueList.length}):
-                              </span>
-                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
-                                {uniqueList.map((val) => {
-                                  const isSelected = currentVal === val;
-                                  return (
-                                    <button
-                                      key={val}
-                                      type="button"
-                                      onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
-                                        isSelected
-                                          ? 'bg-amber-600 text-white'
-                                          : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
-                                      }`}
-                                    >
-                                      {val}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Dictionary Integration Binding Section */}
-                        <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                          <div className="space-y-1">
-                            <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500">
-                              Справочник значений:
-                            </span>
-                            <CustomSelect
-                              value={boundDictId}
-                              onChange={(val) => {
-                                setMarkDictBindings(prev => ({ ...prev, [idx]: val }));
-                                setMarkHierarchySelections(prev => ({ ...prev, [idx]: {} }));
-                              }}
-                              placeholder="-- Без справочника --"
-                              options={dictionaries.map((dict) => ({
-                                value: dict.id,
-                                label: dict.name
-                              }))}
-                            />
-                          </div>
-
-                          {boundDict && (
-                            <div className="space-y-1 mt-1 text-xs">
-                              {/* Main Category */}
-                              <div className="space-y-0.5 animate-fadeIn">
-                                <span className="fx-label block">1. Главная</span>
-                                <CustomSelect
-                                  value={selection.mainId || ''}
-                                  onChange={(val) => handleMainChange(val)}
-                                  placeholder="Не выбрано"
-                                  options={mainCategories.map((cat: any) => ({
-                                    value: cat.id,
-                                    label: `${cat.code} — ${cat.nameRu}`
-                                  }))}
-                                />
-                              </div>
-
-                              {/* Subcategory */}
-                              {selection.mainId && subCategories.length > 0 && (
-                                <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="fx-label block">2. Подкатегория</span>
-                                  <CustomSelect
-                                    value={selection.subId || ''}
-                                    onChange={(val) => handleSubChange(val)}
-                                    placeholder="Не выбрано"
-                                    options={subCategories.map((sub: any) => ({
-                                      value: sub.id,
-                                      label: `${sub.code} — ${sub.nameRu}`
-                                    }))}
-                                  />
-                                </div>
-                              )}
-
-                              {/* Sub-subcategory */}
-                              {selection.subId && subSubCategories.length > 0 && (
-                                <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="fx-label block">3. Подподкатегория</span>
-                                  <CustomSelect
-                                    value={selection.subSubId || ''}
-                                    onChange={(val) => handleSubSubChange(val)}
-                                    placeholder="Не выбрано"
-                                    options={subSubCategories.map((s: any) => ({
-                                      value: s.id,
-                                      label: `${s.code} — ${s.nameRu}`
-                                    }))}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <SegmentColumn kind="tag" title="Отбор по сегментам тега" hint="По частям кода тега: только латиница и цифры."
+                segmentLabel="Сегмент тега" className="@[880px]:border-r border-slate-100 dark:border-slate-850 @[880px]:pr-6"
+                baseCount={getMaximumTagSegmentLength()} added={addedTagSegmentsCount} setAdded={setAddedTagSegmentsCount}
+                uniqueValues={getUniqueTagSegmentValuesForPos} dictionaries={dictionaries}
+                filters={activeTagFilters} setFilters={setActiveTagFilters}
+                bindings={tagDictBindings} setBindings={setTagDictBindings}
+                hierarchy={tagHierarchySelections} setHierarchy={setTagHierarchySelections}
+                categoryIds={selectedTagFilterCategoryIds} setCategoryIds={setSelectedTagFilterCategoryIds} />
+              <SegmentColumn kind="mark" title="Отбор по сегментам марки" hint="По частям марки оборудования: любой язык."
+                segmentLabel="Сегмент марки"
+                baseCount={getMaximumMarkSegmentLength()} added={addedMarkSegmentsCount} setAdded={setAddedMarkSegmentsCount}
+                uniqueValues={getUniqueMarkSegmentValuesForPos} dictionaries={dictionaries}
+                filters={activeMarkFilters} setFilters={setActiveMarkFilters}
+                bindings={markDictBindings} setBindings={setMarkDictBindings}
+                hierarchy={markHierarchySelections} setHierarchy={setMarkHierarchySelections}
+                categoryIds={selectedMarkFilterCategoryIds} setCategoryIds={setSelectedMarkFilterCategoryIds} />
 
               {/* SEPARATOR AND SUPPLEMENTARY CONTROLS */}
               <div className="@[880px]:col-span-2 flex flex-wrap gap-6 pt-3 border-t border-slate-100 dark:border-slate-850 text-xs">
@@ -5138,7 +4594,7 @@ export default function Registry() {
                   onClick={() => setShowTreeDescriptions(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
                   title={isTreeDescVisible ? "Скрыть комментарии" : `Показать комментарии (${configList.length})`}
                   className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                    isTreeDescVisible ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 font-bold' : 'text-slate-400'
+                    isTreeDescVisible ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 font-semibold' : 'text-slate-400'
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />

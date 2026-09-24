@@ -56,7 +56,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
   return (
     <div className="space-y-2.5 text-left">
       <div className="flex items-baseline justify-between gap-2">
-        <label className="text-xs font-bold text-slate-500">Комментарии ({items.length})</label>
+        <label className="fx-label">Комментарии ({items.length})</label>
         <span className="text-2xs text-slate-400">Актуальность тега берётся из них</span>
       </div>
 
@@ -102,7 +102,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
                     className="px-2 py-0.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">Отмена</button>
                   <button type="button"
                     onClick={async () => { await onUpdate(item.id, form); setEditingId(null); }}
-                    className="px-3 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded cursor-pointer border-none">Сохранить</button>
+                    className="fx-btn fx-btn-primary fx-btn-sm">Сохранить</button>
                 </div>
               </div>
             );
@@ -113,7 +113,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
                 <div className="flex gap-2 min-w-0">
                   <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${look.text}`} />
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-850 dark:text-slate-100">{item.text}</p>
+                    <p className="text-xs font-medium text-slate-850 dark:text-slate-100">{item.text}</p>
                     {item.comment && (
                       <p className="text-xs text-slate-550 dark:text-slate-400 mt-0.5">{item.comment}</p>
                     )}
@@ -141,7 +141,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
           );
         })}
         {!items.length && (
-          <p className="text-center py-5 text-slate-400 text-xs italic">
+          <p className="text-center py-5 text-slate-400 text-xs">
             Комментариев нет. Пока их нет, тег числится устаревшим.
           </p>
         )}

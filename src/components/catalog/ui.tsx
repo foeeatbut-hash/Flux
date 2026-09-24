@@ -58,7 +58,7 @@ export function DesignationView({ family, values, onPick, active, sizeSep }: {
     const missing = res.missing.some((m) => m.position === sp.position);
     parts.push(
       <button key={sp.position + i} type="button" onClick={onPick ? () => onPick(sp.position) : undefined} title={pos ? textOf(pos.label) : sp.position}
-        className={`px-0.5 rounded ${onPick ? 'cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40' : 'cursor-default'} ${missing ? 'text-amber-600 dark:text-amber-400 font-bold' : ''} ${active === sp.position ? 'bg-emerald-100 dark:bg-emerald-950/50' : ''}`}>
+        className={`px-0.5 rounded ${onPick ? 'cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40' : 'cursor-default'} ${missing ? 'text-amber-600 dark:text-amber-400 font-semibold' : ''} ${active === sp.position ? 'bg-emerald-100 dark:bg-emerald-950/50' : ''}`}>
         {res.text.slice(sp.from, sp.to)}
       </button>,
     );

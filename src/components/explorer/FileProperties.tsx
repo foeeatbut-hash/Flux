@@ -25,12 +25,12 @@ export default function FileProperties({ item, isFile, icon, userId, onClose, on
   onSaved: () => void;
 }) {
   return (
-      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-50" onClick={() => onClose()}>
+      <div className="fixed inset-0 flex items-center justify-center z-50 fx-backdrop" onClick={() => onClose()}>
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="bg-white rounded-lg shadow-xl border border-slate-200 w-[420px] max-w-full overflow-hidden flex flex-col"
+          className="fx-dialog w-[420px] max-w-full overflow-hidden flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">

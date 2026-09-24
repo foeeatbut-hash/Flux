@@ -135,7 +135,7 @@ export default function CalendarScreen() {
           className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-850">
           <ChevronRight className="w-4 h-4" />
         </button>
-        <h1 className="text-sm font-bold text-slate-800 dark:text-slate-100 min-w-0 truncate">{title}</h1>
+        <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100 min-w-0 truncate">{title}</h1>
         <button type="button" onClick={() => setAnchor(Date.now())}
           className="px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-850">
           сегодня
@@ -190,7 +190,7 @@ export default function CalendarScreen() {
       <div className="flex-1 min-h-0 flex">
         {/* Какие календари показывать */}
         <aside className="hidden @[900px]:flex w-48 shrink-0 flex-col gap-1 p-3 border-r border-slate-200 dark:border-dark-border">
-          <p className="text-2xs font-bold text-slate-400 mb-1">Календари</p>
+          <p className="text-xs font-medium text-slate-400 mb-1">Календари</p>
           {CALENDARS.map((c) => (
             <button key={c.id} type="button" aria-pressed={!!st.shown[c.id]}
               onClick={() => st.setShown({ [c.id]: !st.shown[c.id] } as any)}
@@ -245,7 +245,7 @@ function MonthView({ anchor, list, onDay, onEvent }: {
     <div className="min-w-[640px]">
       <div className="grid grid-cols-7 border-b border-slate-200 dark:border-dark-border">
         {WEEKDAYS.map((d) => (
-          <div key={d} className="px-2 py-1 text-2xs font-bold text-slate-400 text-center">{d}</div>
+          <div key={d} className="px-2 py-1 text-xs font-medium text-slate-400 text-center">{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7">
@@ -301,7 +301,7 @@ function WeekView({ anchor, list, onDay, onEvent }: {
               className="shrink-0 px-2 py-1.5 text-left cursor-pointer border-b border-slate-200 dark:border-dark-border
                          hover:bg-slate-50 dark:hover:bg-slate-900/60">
               <span className="block text-2xs text-slate-400">{WEEKDAYS[weekday(day)]}</span>
-              <span className={`text-sm font-bold ${today ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-150'}`}>
+              <span className={`text-sm font-semibold ${today ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-150'}`}>
                 {new Date(day).getDate()}
               </span>
             </button>

@@ -153,10 +153,10 @@ export const SECTIONS: SectionDef[] = [
   // Календарь — общий: события живут по проектам, но человек смотрит в него
   // как в свой день целиком, а не как в часть проекта
   { path: '/calendar', title: 'Календарь', icon: CalendarDays, scope: 'global', scroll: 'fixed', pad: false, Component: CalendarScreen },
-  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, multi: true, Component: NotesManagement },
-  { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
+  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesManagement },
+  { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
-  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
+  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },
   // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
   // после переключения проекта не должно пропадать из списка
   { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },

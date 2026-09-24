@@ -730,7 +730,7 @@ export default function Equipment() {
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {historyData.map((h: any) => (
                 <div key={h.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-                  <div className="font-bold text-slate-500">v{h.version} · {new Date(h.changedAt).toLocaleString('ru-RU')}</div>
+                  <div className="font-medium text-slate-500">v{h.version} · {new Date(h.changedAt).toLocaleString('ru-RU')}</div>
                   <div className="text-slate-400 mt-0.5">{h.changeType}</div>
                 </div>
               ))}
@@ -822,10 +822,10 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold">Установка</span>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-medium">Установка</span>
             {unit.fileName && <span className="text-2xs text-slate-400 font-mono truncate max-w-[220px]" title={unit.fileName}>{unit.fileName}</span>}
           </div>
-          <h3 className="u-sel text-sm font-bold mt-1 min-w-0 flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" /><span className="flex-1 min-w-0 truncate">{unit.name}</span></h3>
+          <h3 className="u-sel text-sm font-semibold mt-1 min-w-0 flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" /><span className="flex-1 min-w-0 truncate">{unit.name}</span></h3>
           <p className="text-xs text-slate-400 mt-0.5">{totalSections} {totalSections === 1 ? 'секция' : totalSections >= 2 && totalSections <= 4 ? 'секции' : 'секций'} · нажмите на секцию, чтобы открыть её характеристики</p>
           {/* Тег на установку целиком (через компонент «Параметры установки») */}
           {generalComp && (
@@ -856,7 +856,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Общие характеристики установки */}
         {generalParams.length > 0 && (
           <div>
-            <div className="text-2xs font-bold text-slate-400 mb-1.5">Общие характеристики установки</div>
+            <div className="text-xs font-medium text-slate-400 mb-1.5">Общие характеристики установки</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 rounded-lg border border-slate-150 dark:border-slate-800 p-2.5">
               {generalParams.map((p, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
@@ -876,7 +876,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Чертёж: секции по ходу воздуха */}
         {flowSections.length > 0 && (
           <div>
-            <div className="text-2xs font-bold text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
+            <div className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
             <div className="flex items-stretch gap-1 overflow-x-auto pb-2 -mx-1 px-1">
               {flowSections.map((c, i) => {
                 const Icon = sectionIcon(c.equipType);
@@ -892,7 +892,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                       <span className={`w-9 h-9 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center ${tint} group-hover:scale-105 transition-transform`}>
                         <Icon className="w-5 h-5" />
                       </span>
-                      <span className="text-xs font-bold leading-tight line-clamp-2 text-slate-700 dark:text-slate-300">{blockLabel(c)}</span>
+                      <span className="text-xs font-medium leading-tight line-clamp-2 text-slate-700 dark:text-slate-300">{blockLabel(c)}</span>
                       {preview.length > 0 && (
                         <div className="w-full space-y-0.5">
                           {preview.map((p, k) => (
@@ -900,7 +900,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                           ))}
                         </div>
                       )}
-                      {c.hasConflict && <span className="text-2xs font-bold text-rose-500">изменилось</span>}
+                      {c.hasConflict && <span className="text-xs font-medium text-rose-500">изменилось</span>}
                     </button>
                   </React.Fragment>
                 );
@@ -911,7 +911,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 
         {/* Список составных частей (сохраняем привычный список) */}
         <div>
-          <div className="text-2xs font-bold text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
+          <div className="text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
           {monoSections.length === 0 && monoGenerals.length === 0 ? (
             <p className="text-xs text-slate-400">У этой установки нет составных частей.</p>
           ) : (

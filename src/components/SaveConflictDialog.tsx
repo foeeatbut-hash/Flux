@@ -19,12 +19,11 @@ export default function SaveConflictDialog({
   onChoose: (choice: ConflictChoice) => void;
 }) {
   return (
-    <div className="absolute inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4">
+    <div className="absolute inset-0 z-[80] flex items-center justify-center p-4 fx-backdrop">
       <div
         role="dialog"
         aria-label="Документ изменился"
-        className="w-[520px] max-w-full rounded-2xl overflow-hidden shadow-2xl
-                   border border-amber-300 dark:border-amber-800 bg-white dark:bg-dark-surface"
+        className="fx-dialog w-[520px] max-w-full overflow-hidden border-amber-300 dark:border-amber-800 dark:bg-dark-surface"
       >
         <div className="px-4 py-3 border-b border-slate-200 dark:border-dark-border">
           <b className="block text-sm font-semibold text-slate-800 dark:text-slate-150">

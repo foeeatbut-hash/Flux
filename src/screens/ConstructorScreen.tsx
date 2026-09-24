@@ -1520,7 +1520,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
       {/* Конфликты: ручная правка против изменившегося значения в проекте */}
       {conflicts && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop">
           <div className="w-full max-w-xl max-h-[75vh] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
             <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
               <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />
@@ -1558,7 +1558,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
       {/* Диалог именования при закрытии (часть III §3.3) */}
       {nameDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
             <h3 className="font-bold text-slate-800 dark:text-white">Как назвать документ?</h3>
             <input

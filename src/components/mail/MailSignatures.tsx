@@ -163,16 +163,16 @@ export default function MailSignatures({ accounts, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Подписи">
-      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !busy && onClose()} />
+      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.97, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.15 }}
-          className="@container relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-lg bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800"
+          className="fx-dialog @container relative w-full max-w-4xl max-h-[90vh] flex flex-col"
         >
           <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
-            <h3 className="flex-1 min-w-0 truncate text-base font-bold text-slate-900 dark:text-white">Подпись в письмах</h3>
+            <h3 className="flex-1 min-w-0 truncate text-base font-semibold text-slate-900 dark:text-white">Подпись в письмах</h3>
             <button
               type="button" title="Закрыть" aria-label="Закрыть" onClick={onClose} disabled={busy}
               className="p-1 shrink-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"

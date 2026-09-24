@@ -1,3 +1,4 @@
+import { IconBtn, Avatar, Btn } from '../components/ui';
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
@@ -85,7 +86,7 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
       parts.push(
         <button key={matchIndex} type="button"
           onClick={(e) => { e.stopPropagation(); onShareClick && onShareClick(token); }}
-          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer transition-ui font-sans select-none align-baseline max-w-[260px]"
+          className="fx-btn fx-btn-sm mx-0.5 max-w-[260px]"
           title={`Перейти: ${label}`}>
           <Link2 className="w-3 h-3 shrink-0" />
           <span className="truncate">{label}</span>
@@ -96,7 +97,7 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
       parts.push(
         <button key={matchIndex} type="button"
           onClick={(e) => { e.stopPropagation(); onTagClick(tagName); }}
-          className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-850 rounded text-xs font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline transition-ui font-sans select-none align-baseline shrink-0">
+          className="fx-btn fx-btn-sm mx-0.5 shrink-0">
           #{tagName}
         </button>
       );
@@ -112,9 +113,7 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
 /** Счётчик непрочитанного у строки диалога */
 function UnreadDot({ n }: { n: number }) {
   return (
-    <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white
-                     text-2xs font-extrabold grid place-items-center tabular-nums"
-          title={`Непрочитанных: ${n}`}>
+    <span className="fx-badge fx-badge-accent shrink-0" title={`Непрочитанных: ${n}`}>
       {n > 99 ? '99+' : n}
     </span>
   );
@@ -813,31 +812,35 @@ export default function ChatManagement() {
   };
 
   return (
-    <div className="h-full flex bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-800 transition-colors">
+    <div className="h-full flex overflow-hidden bg-[var(--flux-surface)] text-[13px] leading-5">
       
       {/* LEFT PANEL: Users List & Automated Project Rooms */}
-      <div className="w-44 @[700px]:w-56 @[900px]:w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 shrink-0 bg-slate-50/55 dark:bg-slate-900/40 select-none">
+      <div className="fx-side w-44 @[700px]:w-56 @[900px]:w-72 flex flex-col shrink-0 select-none">
         
         {/* Top Header & Fast Search bar */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-3">
-            <MessageSquare className="w-4 h-4 text-emerald-650 dark:text-emerald-400" />
-            Чат
-          </h2>
+        {/* Шапка списка: название и главное действие, под ней поиск */}
+        <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[15px] font-semibold text-slate-900 dark:text-white">Мессенджер</h2>
+            <IconBtn label="Создать группу или канал" onClick={() => setShowCreateGroup(true)}>
+              <Plus className="w-4 h-4" />
+            </IconBtn>
+          </div>
           <div className="relative">
             <input
               type="text"
               placeholder="Найти собеседника по ФИО"
+              aria-label="Найти собеседника"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs pl-8 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 transition-ui font-sans"
+              className="fx-input w-full pl-7"
             />
-            <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           </div>
         </div>
 
         {/* Categories channels scrolling container */}
-        <div data-tour="chat-peers" className="flex-1 overflow-y-auto p-2 space-y-4">
+        <div data-tour="chat-peers" className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
 
           {/* Помощник — закреплённый первым разговор, а не программа, в которую
               надо идти (components/chat/AssistantEntry) */}
@@ -845,24 +848,12 @@ export default function ChatManagement() {
 
           {/* Section 1: Groups & Channels */}
           <div className="space-y-1">
-            <div className="px-3 py-1 flex items-center justify-between">
-              <span className="text-xs font-extrabold text-slate-400 dark:text-slate-500">
-                Группы и каналы
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowCreateGroup(true)}
-                className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer transition-colors"
-                title="Создать группу или канал"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <div className="px-2 py-1 fx-label">Группы и каналы</div>
             {groups.length === 0 ? (
-              <p className="text-xs p-3 text-slate-400 italic">Групп пока нет. Нажмите «+», чтобы создать.</p>
+              <p className="text-xs px-2 py-1 text-slate-500 dark:text-slate-400">Групп пока нет — создайте кнопкой «+» вверху.</p>
             ) : filteredGroups.length === 0 ? (
               // Группы есть, но поиск их не нашёл — молча пустеть список не должен
-              <p className="text-xs p-3 text-slate-400 italic">По запросу групп не найдено.</p>
+              <p className="text-xs px-2 py-1 text-slate-500 dark:text-slate-400">По запросу групп не найдено.</p>
             ) : (
               filteredGroups.map((g) => {
                 const active = g.id === activeGroupId;
@@ -874,22 +865,13 @@ export default function ChatManagement() {
                   <button type="button"
                     key={g.id}
                     onClick={() => setActiveGroupId(g.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-ui ${
-                      active
-                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-emerald-900 dark:text-white'
-                        : 'hover:bg-slate-100/75 dark:hover:bg-slate-800/40 border border-transparent'
-                    }`}
+                    aria-current={active || undefined}
+                    className="fx-li h-10"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-850 text-emerald-700 dark:text-emerald-400">
-                      {isCh ? <Radio className="w-4 h-4" /> : <Users className="w-4 h-4" />}
-                    </div>
+                    {isCh ? <Radio /> : <Users />}
                     <div className="flex-1 min-w-0">
-                      <span className="text-xs font-bold text-slate-850 dark:text-white block truncate leading-tight">
-                        {g.name}
-                      </span>
-                      <span className="text-xs text-slate-400 font-semibold block truncate mt-0.5">
-                        {subtitle}
-                      </span>
+                      <span className="block truncate leading-5">{g.name}</span>
+                      <span className="block truncate text-xs leading-4 text-slate-500 dark:text-slate-400">{subtitle}</span>
                     </div>
                     {unread > 0 && !active && <UnreadDot n={unread} />}
                   </button>
@@ -900,11 +882,9 @@ export default function ChatManagement() {
 
           {/* Section 2: Direct Messages (Личные диалоги) */}
           <div className="space-y-1">
-            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500">
-              Личные диалоги
-            </div>
+            <div className="px-2 py-1 fx-label">Личные диалоги</div>
             {filteredUsers.length === 0 ? (
-              <div className="text-center py-6 text-xs text-slate-400">
+              <div className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400">
                 {searchQuery.trim() ? 'По запросу сотрудников не найдено' : 'Пока нет других сотрудников'}
               </div>
             ) : (
@@ -915,43 +895,19 @@ export default function ChatManagement() {
                   <button type="button"
                     key={u.id}
                     onClick={() => setActiveReceiverId(u.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-ui ${
-                      active 
-                        ? 'bg-emerald-50 dark:bg-emerald-950/25 border border-emerald-250 dark:border-emerald-900/50' 
-                        : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/50 border border-transparent'
-                    }`}
+                    aria-current={active || undefined}
+                    className="fx-li h-10"
                   >
-                    <div className="relative shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-emerald-750 dark:text-emerald-400 border border-slate-300 dark:border-slate-700">
-                        {u.name.charAt(0)}
-                      </div>
-                      {/* Точка «в сети» на самом значке, а не строкой рядом:
-                          её видно боковым зрением, не читая */}
-                      {onlineIds.includes(u.id) && (
-                        <span
-                          aria-label="В сети"
-                          title="В сети"
-                          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500
-                                     border-2 border-slate-50 dark:border-slate-900"
-                        />
-                      )}
-                    </div>
+                    {/* Точка «в сети» на самом кружке: её видно боковым
+                        зрением, не читая */}
+                    <Avatar name={u.name} online={onlineIds.includes(u.id)} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`text-xs truncate ${unread > 0 && !active
-                          ? 'font-extrabold text-slate-900 dark:text-white'
-                          : 'font-bold text-slate-850 dark:text-white'}`}>
-                          {u.name}
-                        </span>
-                        {unread > 0 && !active && <UnreadDot n={unread} />}
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-slate-400 leading-normal mt-0.5">
-                        <span className="truncate">Таб: {u.symbol}</span>
-                        <span className="shrink-0 text-slate-500 font-mono bg-slate-100 dark:bg-slate-950 px-1 rounded text-xs">
-                          {u.role.replace('ENGINEER_', '')}
-                        </span>
-                      </div>
+                      <span className={`block truncate leading-5 ${unread > 0 && !active ? 'font-semibold' : ''}`}>{u.name}</span>
+                      <span className="block truncate text-xs leading-4 text-slate-500 dark:text-slate-400">
+                        {u.symbol} · {u.role.replace('ENGINEER_', '')}
+                      </span>
                     </div>
+                    {unread > 0 && !active && <UnreadDot n={unread} />}
                   </button>
                 );
               })
@@ -966,12 +922,12 @@ export default function ChatManagement() {
         {(activePeer || activeGroup) ? (
           <>
             {/* Thread Header Info bar */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 select-none">
+            <div className="fx-head shrink-0 select-none justify-between">
               <div className="flex items-center gap-3">
                 {activeType === 'DIRECT' && activePeer ? (
                   <>
                     <div className="relative">
-                      <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900">
                         {activePeer.name.charAt(0)}
                       </div>
                       {peerOnline && (
@@ -983,7 +939,7 @@ export default function ChatManagement() {
                       )}
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
                         {activePeer.name}
                       </h3>
                       {/* «В сети» стоит первым: прежде чем писать, человек
@@ -1000,15 +956,13 @@ export default function ChatManagement() {
                   </>
                 ) : activeGroup ? (
                   <>
-                    <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-205 dark:border-emerald-855">
-                      👥
-                    </div>
+                    {activeGroup.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-slate-500 shrink-0" /> : <Users className="w-4 h-4 text-slate-500 shrink-0" />}
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
                         {activeGroup.name}
                       </h3>
                       <p className="text-xs text-slate-400 leading-snug mt-0.5 truncate max-w-lg">
-                        Тип: Комната Проекта • Сквозная синхронизация сотрудников
+                        Группа проекта · все участники проекта
                       </p>
                     </div>
                   </>
@@ -1018,13 +972,13 @@ export default function ChatManagement() {
               <div className="flex items-center gap-2">
                 {/* Поиск по сообщениям текущей переписки */}
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     value={conversationSearch}
                     onChange={(e) => setConversationSearch(e.target.value)}
                     placeholder="Поиск в переписке..."
-                    className="w-44 pl-8 pr-7 py-1.5 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 focus:border-emerald-500 transition-ui"
+                    aria-label="Поиск в переписке" className="fx-input w-44 pl-7 pr-7"
                   />
                   {conversationSearch && (
                     <button
@@ -1043,25 +997,25 @@ export default function ChatManagement() {
                   <button
                     type="button"
                     onClick={() => setShowChatMenu(!showChatMenu)}
-                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
-                    title="Действия"
+                    className="fx-ibtn"
+                    title="Действия" aria-label="Действия"
                   >
                     <MoreVertical className="w-5 h-5" />
                   </button>
                   {showChatMenu && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setShowChatMenu(false)} />
-                      <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1">
+                      <div className="fx-pop absolute right-0 top-full mt-1 z-50 w-56 py-1">
                         {activeGroup && activeGroup.type !== 'PROJECT' && (
-                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="fx-menu-item">
                             <Settings className="w-3.5 h-3.5" /> Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}
                           </button>
                         )}
-                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                        <button type="button" onClick={handleClearHistory} className="fx-menu-item">
                           <Trash2 className="w-3.5 h-3.5" /> Очистить историю
                         </button>
                         {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || user?.role === 'ADMIN') && (
-                          <button type="button" onClick={async () => { setShowChatMenu(false); if (await openConfirm(`Удалить ${activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'} «${activeGroup.name}»?`, 'Вся переписка и вложения будут удалены у всех участников. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' }) && user) { try { await deleteGroup(activeGroup.id, user.id); setActiveGroupId(null); addToast('Удалено', 'success'); } catch (e: any) { addToast(e.message, 'error'); } } }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">
+                          <button type="button" onClick={async () => { setShowChatMenu(false); if (await openConfirm(`Удалить ${activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'} «${activeGroup.name}»?`, 'Вся переписка и вложения будут удалены у всех участников. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' }) && user) { try { await deleteGroup(activeGroup.id, user.id); setActiveGroupId(null); addToast('Удалено', 'success'); } catch (e: any) { addToast(e.message, 'error'); } } }} className="fx-menu-item is-danger">
                             <Trash className="w-3.5 h-3.5" /> Удалить {activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'}
                           </button>
                         )}
@@ -1073,8 +1027,8 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
-                  title="Подробная информация"
+                  className="fx-ibtn"
+                  title="Подробная информация" aria-label="Подробная информация"
                 >
                   {isRightPanelOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
                 </button>
@@ -1086,7 +1040,7 @@ export default function ChatManagement() {
               <div className="px-4 py-2 border-b border-amber-200/60 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/15 shrink-0 flex items-start gap-2">
                 <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-2xs font-bold text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
+                  <div className="text-xs font-medium text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
                   <div className="text-xs text-slate-600 dark:text-slate-300 truncate">{pinnedMessages[pinnedMessages.length - 1].content || 'Вложение'}</div>
                 </div>
               </div>
@@ -1112,7 +1066,7 @@ export default function ChatManagement() {
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
                   <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    Напечатайте текст с инженерными тегами вида <span className="font-mono text-emerald-500 font-bold">#бл2.1</span> или привяжите спецификацию
+                    Напечатайте текст с инженерными тегами вида <span className="font-mono text-emerald-500 font-medium">#бл2.1</span> или привяжите спецификацию
                   </p>
                 </div>
               ) : (
@@ -1123,9 +1077,7 @@ export default function ChatManagement() {
                   <div className="flex justify-center py-2">
                     <button
                       onClick={handleLoadEarlier}
-                      className="text-2xs font-bold px-3 py-1.5 rounded-full border border-slate-200
-                                 dark:border-slate-700 text-slate-500 hover:text-emerald-600
-                                 hover:border-emerald-500 cursor-pointer bg-white dark:bg-slate-900"
+                      className="fx-btn fx-btn-sm"
                     >
                       Показать более ранние
                     </button>
@@ -1197,7 +1149,7 @@ export default function ChatManagement() {
                       <Reply className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="text-2xs font-bold text-emerald-600 dark:text-emerald-400">
+                      <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                         {editingMessage ? 'Редактирование сообщения' : `Ответ: ${replyTarget?.sender?.name || ''}`}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -1218,8 +1170,8 @@ export default function ChatManagement() {
               
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
-                <div id="tag-autocomplete-dropdown" className="absolute bottom-full left-3 right-3 mb-2 max-h-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-emerald-950 rounded-xl shadow-2xl overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-extrabold text-slate-400 dark:text-slate-500 flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
+                <div id="tag-autocomplete-dropdown" className="fx-dialog absolute bottom-full left-3 right-3 mb-2 max-h-56 dark:border-emerald-950 overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
                     <span>💡 Подходящие к вводу MAX/KKS теги</span>
                     <span className="font-mono text-xs opacity-80">Клавиши ↑ ↓ Enter для ввода</span>
                   </div>
@@ -1237,7 +1189,7 @@ export default function ChatManagement() {
                             : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900/10 text-slate-700 dark:text-slate-350'
                         }`}
                       >
-                        <span className="font-mono text-xs text-emerald-700 dark:text-emerald-400 font-extrabold flex items-center gap-0.5">
+                        <span className="font-mono text-xs text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-0.5">
                           #{sug.text}
                         </span>
                         <span className="text-xs text-slate-450 dark:text-slate-500 leading-normal truncate">
@@ -1253,7 +1205,7 @@ export default function ChatManagement() {
               {(stagedAttachments.length > 0 || selectedElementId) && (
                 <div className="flex flex-wrap gap-2 py-1 items-center select-none">
                   {selectedElementId && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-955/20 border border-emerald-250 dark:border-emerald-900 rounded-md text-xs text-emerald-800 dark:text-emerald-400 font-bold shrink-0">
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-955/20 border border-emerald-250 dark:border-emerald-900 rounded-md text-xs text-emerald-800 dark:text-emerald-400 font-medium shrink-0">
                       <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Связь: {selectedElementName}</span>
                       <button 
@@ -1298,7 +1250,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors cursor-pointer"
+                  className="fx-ibtn"
                   title="Прикрепить файл чертежа"
                 >
                   <Paperclip className="w-4 h-4" />
@@ -1308,7 +1260,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsEquipmentModalOpen(true)}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors cursor-pointer"
+                  className="fx-ibtn"
                   title="Привязать узел оборудования"
                 >
                   <LinkIcon className="w-4 h-4" />
@@ -1318,7 +1270,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={handleCaptureScreen}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-rose-500 hover:text-rose-700 dark:hover:text-rose-450 transition-colors cursor-pointer"
+                  className="fx-ibtn"
                   title="Инженерный снимок экрана с разметкой"
                 >
                   <Camera className="w-4 h-4" />
@@ -1329,13 +1281,13 @@ export default function ChatManagement() {
                   <button
                     type="button"
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                    className="fx-ibtn"
                     title="Эмодзи"
                   >
                     <Smile className="w-4 h-4" />
                   </button>
                   {showEmojiPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl grid grid-cols-7 gap-1 z-50 w-64">
+                    <div className="fx-pop absolute bottom-full left-0 mb-2 p-2 grid grid-cols-7 gap-1 z-50 w-64">
                       {EMOJIS.map(em => (
                         <button
                           key={em}
@@ -1398,7 +1350,7 @@ export default function ChatManagement() {
         ) : (
           <div className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 @[700px]:p-8 text-center bg-slate-50/20 select-none">
             <MessageSquare className="w-12 h-12 text-slate-200 dark:text-slate-800 mb-4 animate-pulse" />
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-1">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
               Выберите диалог
             </h3>
             <p className="text-xs text-slate-400 max-w-sm min-w-0 leading-relaxed text-pretty">
@@ -1416,7 +1368,7 @@ export default function ChatManagement() {
             /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */
             <div className="flex-1 flex flex-col h-full select-none">
               <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-emerald-50/55 dark:bg-emerald-950/25">
-                <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-sans">
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-sans">
                   ⚙️ Карточка тега
                 </span>
                 <button type="button" 
@@ -1430,7 +1382,7 @@ export default function ChatManagement() {
 
               <div className="p-5 space-y-4 text-left">
                 <div className="space-y-1">
-                  <h4 className="text-xs font-black text-slate-800 dark:text-white leading-snug">
+                  <h4 className="text-xs font-semibold text-slate-800 dark:text-white leading-snug">
                     {selectedTagElement.name}
                   </h4>
                   <p className="text-xs font-mono text-slate-400">
@@ -1440,7 +1392,7 @@ export default function ChatManagement() {
 
                 <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
                   <div>
-                    <span className="text-xs text-slate-400 block font-extrabold">Тип оборудования</span>
+                    <span className="fx-label block">Тип оборудования</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                       {selectedTagElement.type || 'Спецификация MAX'}
                     </span>
@@ -1448,7 +1400,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock && (
                     <div>
-                      <span className="text-xs text-slate-400 block font-extrabold">Моноблок</span>
+                      <span className="fx-label block">Моноблок</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         📦 {selectedTagElement.monoblock.name}
                       </span>
@@ -1457,7 +1409,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock?.system && (
                     <div>
-                      <span className="text-xs text-slate-400 block font-extrabold">Система</span>
+                      <span className="fx-label block">Система</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         🌐 {selectedTagElement.monoblock.system.name}
                       </span>
@@ -1467,7 +1419,7 @@ export default function ChatManagement() {
 
                 {/* Technical specifications */}
                 <div className="space-y-1.5">
-                  <h5 className="text-xs font-extrabold text-slate-400">
+                  <h5 className="text-xs font-semibold text-slate-400">
                     Технические параметры
                   </h5>
                   <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-900 overflow-hidden text-xs shadow-3xs">
@@ -1481,13 +1433,13 @@ export default function ChatManagement() {
                           return Object.entries(specs).map(([k, v]: [string, any]) => (
                             <div key={k} className="flex justify-between p-2">
                               <span className="text-slate-400">{k}:</span>
-                              <span className="font-mono font-bold text-slate-705 dark:text-slate-300 text-xs">{String(v)}</span>
+                              <span className="font-mono font-medium text-slate-705 dark:text-slate-300 text-xs">{String(v)}</span>
                             </div>
                           ));
                         }
                       } catch (e) {}
                       return (
-                        <div className="p-3 text-center text-slate-400 text-xs italic">
+                        <div className="p-3 text-center text-slate-400 text-xs">
                           Спецификации загружены из файла Excel
                         </div>
                       );
@@ -1501,7 +1453,7 @@ export default function ChatManagement() {
                     addToast('Перенаправление в Проводник...', 'success');
                     navigate(`/equipment?elementId=${selectedTagElement.id}`);
                   }}
-                  className="w-full py-2 bg-emerald-650 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                  className="fx-btn fx-btn-primary w-full justify-center"
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                   Открыть в Проводнике
@@ -1513,62 +1465,46 @@ export default function ChatManagement() {
             <>
               {activeType === 'DIRECT' && activePeer ? (
                 <div className="p-5 text-center border-b border-slate-200 dark:border-slate-800">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center text-xl font-bold text-emerald-800 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-850/50 mx-auto mb-3">
-                    {activePeer.name.charAt(0)}
-                  </div>
-                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
+                  <div className="flex justify-center mb-2"><Avatar name={activePeer.name} className="!w-10 !h-10 !text-sm" /></div>
+                  <h4 className="text-[13px] font-semibold text-slate-900 dark:text-white leading-5 truncate">
                     {activePeer.name}
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {activePeer.role}
                   </p>
                   
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-xs">
-                    <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Табель</p>
-                      <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">{activePeer.symbol}</p>
-                    </div>
-                    <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Переписка</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Личная</p>
-                    </div>
-                  </div>
+                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
+                    <dt className="text-slate-500 dark:text-slate-400">Табель</dt><dd className="text-slate-700 dark:text-slate-300 truncate">{activePeer.symbol}</dd>
+                    <dt className="text-slate-500 dark:text-slate-400">Переписка</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Личная</dd>
+                  </dl>
                 </div>
               ) : activeGroup ? (
                 <div className="p-5 text-center border-b border-slate-200 dark:border-slate-800">
-                  <div className="w-16 h-16 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center text-xl border border-emerald-250 dark:border-emerald-850/50 mx-auto mb-3">
-                    👥
-                  </div>
-                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
+                  <Users className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+                  <h4 className="text-[13px] font-semibold text-slate-900 dark:text-white leading-5 truncate">
                     {activeGroup.name}
                   </h4>
-                  <p className="text-xs text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
-                    Проектная комната
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Группа проекта
                   </p>
                   
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-xs">
-                    <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Участники</p>
-                      <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">Все сотрудники</p>
-                    </div>
-                    <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Переписка</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Групповая</p>
-                    </div>
-                  </div>
+                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
+                    <dt className="text-slate-500 dark:text-slate-400">Участники</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Все сотрудники</dd>
+                    <dt className="text-slate-500 dark:text-slate-400">Переписка</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Групповая</dd>
+                  </dl>
                 </div>
               ) : null}
 
               {/* Shared Files attachment listings */}
               <div className="flex-1 p-4 text-left">
-                <h5 className="text-xs font-extrabold text-slate-400 mb-2.5 flex items-center gap-1.5">
+                <h5 className="text-xs font-semibold text-slate-400 mb-2.5 flex items-center gap-1.5">
                   <Paperclip className="w-3.5 h-3.5 text-slate-400" />
                   История вложений ({allHistoryAttachments.length})
                 </h5>
 
                 {allHistoryAttachments.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 text-xs italic">
-                    Вложения отсутствуют
+                  <div className="py-2 text-slate-500 dark:text-slate-400 text-xs">
+                    Вложений пока нет
                   </div>
                 ) : (
                   <div className="space-y-1 max-h-[350px] overflow-y-auto pr-1">
@@ -1582,7 +1518,7 @@ export default function ChatManagement() {
                         <div className="flex items-center gap-2 min-w-0">
                           <File className="w-3.5 h-3.5 text-slate-450 shrink-0 group-hover:text-emerald-600" />
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-emerald-400">
+                            <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-emerald-400">
                               {f.fileName}
                             </p>
                             <p className="text-xs text-slate-400 font-mono">
@@ -1605,16 +1541,16 @@ export default function ChatManagement() {
       {/* EQUIPMENT SELECTION PIE SYSTEM ATTACH DIALOG */}
       <AnimatePresence>
         {isEquipmentModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md select-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none fx-backdrop">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 shadow-2xl rounded-lg w-full max-w-lg overflow-hidden flex flex-col"
+              className="fx-dialog w-full max-w-lg overflow-hidden flex flex-col"
             >
               <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5 font-sans">
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-1.5 font-sans">
                     <Settings className="w-4 h-4 text-emerald-600 animate-spin" style={{ animationDuration: '6s' }} />
                     Привязка узла к сообщению
                   </h3>
@@ -1646,7 +1582,7 @@ export default function ChatManagement() {
 
               <div className="flex-1 max-h-80 overflow-y-auto p-2 space-y-1 bg-slate-50/25">
                 {filteredComps.length === 0 ? (
-                  <div className="text-center py-10 text-xs text-slate-400 italic">
+                  <div className="text-center py-10 text-xs text-slate-400">
                     Оборудование по спецификации не найдено.
                   </div>
                 ) : (
@@ -1663,14 +1599,14 @@ export default function ChatManagement() {
                       className="w-full text-left p-2 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer transition-ui flex items-center justify-between"
                     >
                       <div>
-                        <p className="text-xs font-bold text-slate-805 dark:text-slate-300">
+                        <p className="text-xs font-medium text-slate-805 dark:text-slate-300">
                           ⚙️ {c.name}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Код: <span className="font-mono text-emerald-500 font-bold">{c.itemCode}</span> • Моноблок: {c.monoblockName}
+                          Код: <span className="font-mono text-emerald-500 font-medium">{c.itemCode}</span> • Моноблок: {c.monoblockName}
                         </p>
                       </div>
-                      <span className="text-xs bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-bold text-slate-500 shadow-3xs">
+                      <span className="text-xs bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-medium text-slate-500 shadow-3xs">
                         {c.systemName}
                       </span>
                     </button>
@@ -1682,7 +1618,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsEquipmentModalOpen(false)}
-                  className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
+                  className="fx-btn fx-btn-sm"
                 >
                   Закрыть
                 </button>
@@ -1695,7 +1631,7 @@ export default function ChatManagement() {
       {/* SCREENSHOT ANNOTATION CANVAS DIALOG (ФИЧА 3) */}
       <AnimatePresence>
         {isAnnotating && screenshotData && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fx-backdrop">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -1705,7 +1641,7 @@ export default function ChatManagement() {
               {/* Head */}
               <div className="p-4 bg-slate-950 border-b border-slate-850 flex items-center justify-between text-left shrink-0">
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-1.5 font-sans">
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-1.5 font-sans">
                     <Brush className="w-4 h-4 text-rose-500 animate-pulse" />
                     Инженерные аннотации снимка экрана
                   </h3>
@@ -1742,7 +1678,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={handleClearDrawing}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-lg cursor-pointer transition-ui flex items-center gap-1.5"
+                  className="fx-btn"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                   Сбросить рисунок
@@ -1755,14 +1691,14 @@ export default function ChatManagement() {
                       setIsAnnotating(false);
                       setScreenshotData(null);
                     }}
-                    className="px-4 py-2 bg-slate-900 text-slate-400 hover:text-slate-200 text-xs font-bold rounded-lg cursor-pointer transition-ui"
+                    className="fx-btn"
                   >
                     Отмена
                   </button>
                   <button
                     type="button"
                     onClick={handleSendDrawing}
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-ui flex items-center gap-1.5 shadow-sm"
+                    className="fx-btn fx-btn-primary"
                   >
                     <Send className="w-3.5 h-3.5" />
                     Прикрепить к чату
@@ -1776,10 +1712,10 @@ export default function ChatManagement() {
 
       {/* ── Модалка: создание группы/канала ── */}
       {showCreateGroup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => !ngBusy && setShowCreateGroup(false)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => !ngBusy && setShowCreateGroup(false)}>
+          <div className="fx-dialog w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">Создать {ngType === 'CHANNEL' ? 'канал' : 'группу'}</h3>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">Создать {ngType === 'CHANNEL' ? 'канал' : 'группу'}</h3>
               <button type="button" onClick={() => setShowCreateGroup(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -1818,7 +1754,7 @@ export default function ChatManagement() {
                 } catch (e: any) { addToast(e.message || 'Не удалось создать', 'error'); }
                 finally { setNgBusy(false); }
               }}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+              className="fx-btn fx-btn-primary w-full"
             >
               {ngBusy ? 'Создание…' : 'Создать'}
             </button>
@@ -1828,21 +1764,21 @@ export default function ChatManagement() {
 
       {/* ── Модалка: пересылка сообщения ── */}
       {forwardFor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setForwardFor(null)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => setForwardFor(null)}>
+          <div className="fx-dialog w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">Переслать сообщение</h3>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">Переслать сообщение</h3>
               <button type="button" onClick={() => setForwardFor(null)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 p-2 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 truncate">{forwardFor.content || 'Вложение'}</div>
             <div className="max-h-72 overflow-y-auto space-y-1">
-              <div className="text-2xs font-bold text-slate-400 px-1 py-1">Группы и каналы</div>
+              <div className="text-xs font-medium text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
                 <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
-              <div className="text-2xs font-bold text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
+              <div className="text-xs font-medium text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
               {users.filter(u => u.id !== user?.id).map(u => (
                 <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   <User className="w-4 h-4 text-emerald-500" /> {u.name}
@@ -1855,10 +1791,10 @@ export default function ChatManagement() {
 
       {/* ── Модалка: настройки группы/канала ── */}
       {showGroupSettings && activeGroup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setShowGroupSettings(false)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={() => setShowGroupSettings(false)}>
+          <div className="fx-dialog w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}</h3>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}</h3>
               <button type="button" onClick={() => setShowGroupSettings(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Название</label>
@@ -1892,7 +1828,7 @@ export default function ChatManagement() {
                   setShowGroupSettings(false); setGsName(''); setGsMembers([]);
                 } catch (e: any) { addToast(e.message || 'Не удалось сохранить', 'error'); }
               }}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+              className="fx-btn fx-btn-primary w-full"
             >
               Сохранить
             </button>

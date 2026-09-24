@@ -16,7 +16,7 @@ interface Props {
 }
 
 const Head = ({ id, icon: Icon, children }: { id: string; icon: any; children: React.ReactNode }) => (
-  <h2 id={`hb-${id}`} className="scroll-mt-4 flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+  <h2 id={`hb-${id}`} className="scroll-mt-4 flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
     <Icon className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
     <span className="flex-1 min-w-0">{children}</span>
   </h2>
@@ -38,7 +38,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
     <article className="@container flex flex-col gap-7 pb-16">
       <header className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{a.title}</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-white tracking-tight">{a.title}</h1>
           {a.route && onGoToSection && (
             <button
               type="button" onClick={() => onGoToSection(a.route!)}
@@ -88,7 +88,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
           <div className="grid grid-cols-1 @[820px]:grid-cols-2 gap-3">
             {a.tasks.map((t) => (
               <div key={t.title} className="sheet p-4 flex flex-col gap-2 min-w-0">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">{t.title}</h3>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{t.title}</h3>
                 <ol className="flex flex-col gap-1.5 list-decimal pl-4 text-sm text-slate-650 dark:text-slate-400">
                   {t.steps.map((s, i) => <li key={i} className="leading-relaxed">{s}</li>)}
                 </ol>
@@ -171,7 +171,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
           <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-x-6 gap-y-1.5">
             {a.keys.map(([k, does]) => (
               <div key={k} className="flex items-baseline gap-2.5 text-sm min-w-0">
-                <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 border-b-2 bg-white dark:bg-slate-900 font-mono text-2xs font-bold text-slate-900 dark:text-white">
+                <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 border-b-2 bg-white dark:bg-slate-900 font-mono text-xs font-medium text-slate-900 dark:text-white">
                   {k}
                 </kbd>
                 <span className="flex-1 min-w-0 text-slate-650 dark:text-slate-400">{does}</span>
