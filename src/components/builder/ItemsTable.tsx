@@ -86,7 +86,10 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
   const qty = items.reduce((a, b) => a + (b.qty || 0), 0);
 
   return (
-    <div className="flex flex-col min-h-0 h-full"
+    // Свой контейнер: колонки прячутся по ширине самой таблицы, а не окна —
+    // с открытой карточкой позиции таблице достаётся половина, и колонка
+    // «Подбор» уходила за край
+    <div className="flex flex-col min-h-0 h-full @container"
       onPaste={(e) => {
         // Вставка из Excel: строки с табуляцией — новые позиции. В поле ввода
         // вставка своя, её не перехватываем
@@ -154,9 +157,9 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
                 <th className="px-2 py-1.5 font-bold">Теги</th>
                 <th className="px-2 py-1.5 font-bold text-right">Кол.</th>
                 <th className="px-2 py-1.5 font-bold">Изделие</th>
-                <th className="px-2 py-1.5 font-bold hidden @[900px]:table-cell">Размер</th>
-                <th className="px-2 py-1.5 font-bold hidden @[700px]:table-cell">Подбор</th>
-                <th className="px-2 py-1.5 font-bold hidden @[1100px]:table-cell">Источник</th>
+                <th className="px-2 py-1.5 font-bold hidden @[640px]:table-cell">Размер</th>
+                <th className="px-2 py-1.5 font-bold hidden @[520px]:table-cell">Подбор</th>
+                <th className="px-2 py-1.5 font-bold hidden @[900px]:table-cell">Источник</th>
               </tr>
             </thead>
             {groups.map((g) => (
@@ -196,11 +199,11 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
                           <div key={i} className={`text-2xs ${p.level === 'error' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-700 dark:text-amber-400'}`}>{p.text}</div>
                         ))}
                       </td>
-                      <td className="px-2 py-1.5 align-top whitespace-nowrap tabular-nums hidden @[900px]:table-cell">
+                      <td className="px-2 py-1.5 align-top whitespace-nowrap tabular-nums hidden @[640px]:table-cell">
                         {num(v.D) ? `Ø${num(v.D)}` : num(v.W) || num(v.H) ? `${num(v.W)}×${num(v.H)}` : '—'}
                       </td>
-                      <td className="px-2 py-1.5 align-top hidden @[700px]:table-cell"><Confidence value={it.match?.confidence} /></td>
-                      <td className="px-2 py-1.5 align-top hidden @[1100px]:table-cell max-w-[260px]">
+                      <td className="px-2 py-1.5 align-top hidden @[520px]:table-cell"><Confidence value={it.match?.confidence} /></td>
+                      <td className="px-2 py-1.5 align-top hidden @[900px]:table-cell max-w-[260px]">
                         <div className="text-2xs text-slate-500 dark:text-slate-400 line-clamp-2" title={it.sourceText}>{it.sourceText || '—'}</div>
                         {it.sourceRef?.row ? <Chip>стр. {it.sourceRef.row}{it.sourceRef.file ? ` · ${it.sourceRef.file}` : ''}</Chip> : null}
                       </td>

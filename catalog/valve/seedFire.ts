@@ -343,7 +343,9 @@ const germikDU: Family = {
     pos('theft', 'Защита', 'Anti-theft', '{theft}'),
   ],
   rules: [
-    ...fireRules({ drives: DU_DRIVES, page: 'стр. 91', exExecs: [] }).filter((r) => r.id !== 'round-series' && r.id !== 'round-duct'),
+    // Исполнения у ГЕРМИК-ДУ в обозначении нет — правило «электромагнит только
+    // в исполнениях Н и К» ссылалось бы на несуществующий параметр
+    ...fireRules({ drives: DU_DRIVES, page: 'стр. 91', exExecs: [] }).filter((r) => r.id !== 'round-series' && r.id !== 'round-duct' && r.id !== 'em-exec'),
     range('duct-w', 'W', { param: 'type', in: ['2*ф'] }, 100, undefined, 'Канальный: от 100 мм', 'стр. 91'),
     range('duct-h', 'H', { param: 'type', in: ['2*ф'] }, 100, undefined, 'Канальный: от 100 мм', 'стр. 91'),
     range('wall-w', 'W', { param: 'type', in: ['1*ф'] }, 300, undefined, 'Стеновой: от 300 мм', 'стр. 91'),
@@ -394,7 +396,7 @@ const ked: Family = {
     pos('install', 'Установка', 'Installation', '{install}'),
   ],
   rules: [
-    ...fireRules({ drives: KED_DRIVES, page: 'КЭД, стр. 6', exExecs: [] }).filter((r) => !r.id.startsWith('round') && r.id !== 'theft-drive'),
+    ...fireRules({ drives: KED_DRIVES, page: 'КЭД, стр. 6', exExecs: [] }).filter((r) => !r.id.startsWith('round') && r.id !== 'theft-drive' && r.id !== 'em-exec'),
     { id: 'theft', when: { param: 'theft', in: ['К', 'З'] }, then: { allow: { param: 'drive', values: ['MV220', 'MV24', 'MB220', 'MB24', 'МН220', 'МН24'] } }, message: 'Защита от кражи — для приводов MV, MB и МН', source: 'КЭД, стр. 6' },
     { id: 'duct-mod', when: { param: 'type', in: ['2*ф'] }, then: { allow: { param: 'mod', values: ['1', '3'] } }, message: 'Канальный (2*ф) — только модификации 1 и 3', source: 'стр. 113' },
     { id: 'horiz-mod', when: { param: 'install', in: ['Г'] }, then: { allow: { param: 'mod', values: ['1'] } }, message: 'Горизонтальная установка — только модификация 1', source: 'стр. 113' },

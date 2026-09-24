@@ -10,7 +10,7 @@
  */
 import { seedCatalog, detectorsFor } from '../catalog/seed';
 import { buildDesignation, parseDesignation, parseWithFamily, sameDesignation } from '../catalog/designation';
-import { checkConfig, optionsFor, sizeLimits } from '../catalog/rules';
+import { checkConfig, optionsFor, sizeLimits, settleDefaults } from '../catalog/rules';
 import { describe, findSizes, findTags, tagTypeOf } from '../catalog/describe';
 import { matchDescription } from '../catalog/match';
 import { splitTagCell, derivedTag, duplicateTags } from '../catalog/tags';
@@ -258,6 +258,29 @@ console.log('Короткие приметы и порядок уверенно�
   const list = matchDescription(cat, describe('Клапан противопожарный НО, EI 60, 900x400(h), взрывозащищённый, привод с возвратной пружиной 24 В', valveDetectors));
   eq('эталон из инструкции: первым КПУ-1Н', cat.families.find((x) => x.id === list[0].familyId)!.code, 'КПУ-1Н');
   yes('нижние кандидаты не увереннее первого', list.slice(1).every((c) => c.confidence <= list[0].confidence), list.map((c) => c.confidence));
+}
+
+console.log('Затравка без ссылок в пустоту');
+{
+  const bad: string[] = [];
+  for (const f of cat.families) {
+    const keys = new Set(f.params.map((p) => p.key));
+    for (const r of f.rules) {
+      const t = r.then as any;
+      const p = t.allow?.param || t.forbid?.param || t.require?.param;
+      // W/H/D — размеры: у ряда семейств они не параметры, а часть сечения
+      if (p && !keys.has(p) && !['W', 'H', 'D'].includes(p)) bad.push(`${f.code}: ${r.id} → ${p}`);
+    }
+  }
+  eq('правила затравки ссылаются только на параметры своего семейства', bad, []);
+}
+
+console.log('Умолчание уступает правилу, выбранное — нет');
+{
+  const kpu = cat.families.find((f) => f.code === 'КПУ-1Н')!;
+  eq('стеновой клапан: размещение по умолчанию становится ВН', settleDefaults(kpu, { type: '1*ф' }).placement, 'ВН');
+  eq('выбранное руками СН остаётся — противоречие видно', settleDefaults(kpu, { type: '1*ф', placement: 'СН' }).placement, 'СН');
+  eq('канальный клапан: умолчание не трогается', settleDefaults(kpu, { type: '2*ф' }).placement, undefined);
 }
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);

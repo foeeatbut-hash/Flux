@@ -10,7 +10,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CircleCheck, Info, RotateCcw, Wand2 } from 'lucide-react';
 import type { Family, ParamDef, ValveValues, WizardStep } from '../../../catalog/model';
 import { WIZARD_STEPS, textOf, withDefaults, num } from '../../../catalog/model';
-import { optionsFor, checkConfig, sizeLimits, nearestSize } from '../../../catalog/rules';
+import { optionsFor, checkConfig, sizeLimits, nearestSize, settleDefaults } from '../../../catalog/rules';
 import { buildDesignation, parseWithFamily } from '../../../catalog/designation';
 import { DesignationView, Input, Chip, Btn, SectionTitle } from './ui';
 
@@ -48,7 +48,7 @@ export default function Configurator({ family, values, onChange, sources = {}, s
   const set = (key: string, v: string | number | undefined) => {
     const next = { ...values };
     if (v === undefined || v === '') delete next[key]; else next[key] = v;
-    onChange(next);
+    onChange(settleDefaults(family, next));
   };
 
   const setShape = (s: 'rect' | 'round') => {

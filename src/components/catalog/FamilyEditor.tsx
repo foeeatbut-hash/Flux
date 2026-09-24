@@ -113,7 +113,9 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
           <Btn tone="ghost" onClick={remove} title="Убрать из Каталога"><Trash2 className="w-3.5 h-3.5" /></Btn>
         </>)}
       </div>
-      <div className="flex gap-1 border-b border-slate-100 dark:border-slate-800 overflow-x-auto">
+      {/* Вкладки переносятся, а не прокручиваются: полосы прокрутки не видно, и
+          на узком окне «История» и «JSON» просто пропадали за краем */}
+      <div className="flex flex-wrap gap-x-1 border-b border-slate-100 dark:border-slate-800">
         {TABS.map((t) => (
           <button key={t.id} type="button" onClick={() => (t.id === 'history' ? openHistory() : setTab(t.id))} aria-pressed={tab === t.id}
             className={`px-2.5 py-1.5 text-xs font-semibold border-b-2 -mb-px whitespace-nowrap cursor-pointer ${tab === t.id ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-emerald-700'}`}>

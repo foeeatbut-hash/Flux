@@ -132,6 +132,32 @@ export function optionsFor(f: Family, key: string, rawValues: ValveValues): Opti
   });
 }
 
+/**
+ * Довести значения «по умолчанию» до допустимых после выбора человека.
+ *
+ * Выбрал стеновой клапан (1*ф) — размещение привода «СН», стоявшее по
+ * умолчанию, стало нельзя: мастер красил его красным, хотя человек его не
+ * выбирал. Параметр, которого нет в заданных значениях, берётся первым
+ * допустимым кодом; выбранное руками не трогаем — его противоречие каталогу
+ * человек должен увидеть сам. То же делает подбор (match.ts, settleByRules).
+ */
+export function settleDefaults(f: Family, values: ValveValues): ValveValues {
+  const out: ValveValues = { ...values };
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    for (const p of f.params) {
+      if (p.kind !== 'choice' || values[p.key] !== undefined) continue;
+      const opts = optionsFor(f, p.key, out);
+      const cur = opts.find((o) => o.value.code === String(out[p.key] ?? p.default ?? ''));
+      if (!cur || cur.allowed) continue;
+      const alt = opts.find((o) => o.allowed);
+      if (alt && out[p.key] !== alt.value.code) { out[p.key] = alt.value.code; changed = true; }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
 /** Пределы размера при текущих значениях: пересечение всех сработавших правил */
 export function sizeLimits(f: Family, rawValues: ValveValues): Record<'W' | 'H' | 'D', { min?: number; max?: number; step?: number; series?: number[] }> {
   const values = withDefaults(f, rawValues);

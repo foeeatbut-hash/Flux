@@ -18,7 +18,8 @@ import { VALVE_COMPONENTS } from './valve/components';
 import type { Detector } from './describe';
 
 /** Версия затравки. Поднимается, когда семейства в коде изменились */
-export const SEED_VERSION = 1;
+// 2 — у ГЕРМИК-ДУ и КЭД снято правило про несуществующий параметр «exec»
+export const SEED_VERSION = 2;
 
 export const SEED_MANUFACTURERS: Manufacturer[] = [
   {
