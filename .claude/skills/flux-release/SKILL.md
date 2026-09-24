@@ -87,10 +87,11 @@ cd /tmp/fresh && git am /tmp/patches/*.patch && git push origin HEAD:<ветка
 npm ci --no-audit --no-fund
 npx prisma generate --schema=prisma/schema.prisma
 npx prisma generate --schema=prisma/schema.postgresql.prisma
+npx prisma generate --schema=prisma/schema.mariadb.prisma
 ```
 
-`playwright-core` в зависимостях нет — для снимков экрана ставить отдельно
-(`npm i --no-save playwright-core`), браузер уже лежит в `/opt/pw-browsers`.
+`playwright-core` стоит в зависимостях проекта; браузер уже лежит в
+`/opt/pw-browsers` — `playwright install` не запускать.
 
 **Файлы в рабочей копии побились** (`EIO`, нечитаемые `public/ocr/*`):
 

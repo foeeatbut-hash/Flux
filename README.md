@@ -91,7 +91,8 @@ npm run dev      # сервер + Vite на http://localhost:3000
 ```bash
 npx tsc --noEmit            # ноль ошибок
 npx tsx scripts/test-architecture.ts   # границы слоёв, палитра, размер файлов
-npx tsx scripts/test-<имя>.ts          # наборы правил, см. scripts/
+npx tsx scripts/test-<имя>.ts          # один набор, см. scripts/
+npm run check                          # все наборы, в выводе только провалы
 npx vite build && npm run build:electron
 ```
 
