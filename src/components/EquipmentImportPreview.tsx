@@ -432,7 +432,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                               {e.fix && <span className="text-slate-500">предлагается «{e.fix}»</span>}
                             </div>
                             <div className="text-slate-500 dark:text-slate-400">{e.why}</div>
-                            {e.phrase && <div className="text-slate-400 italic break-words" title={e.phrase}>из примечания: «{e.phrase}»</div>}
+                            {e.phrase && <div className="text-slate-400 break-words" title={e.phrase}>из примечания: «{e.phrase}»</div>}
                           </div>
                         ))}
                       </div>

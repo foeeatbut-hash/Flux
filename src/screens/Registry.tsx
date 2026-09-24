@@ -2672,7 +2672,7 @@ export default function Registry() {
                 <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
                   <div className="text-xs font-mono font-medium text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
                     <span>Существующие теги</span>
-                    <span className="text-xs italic font-sans font-normal lowercase text-slate-500">выберите</span>
+                    <span className="text-xs font-sans font-normal lowercase text-slate-500">выберите</span>
                   </div>
                   <div className="space-y-0.5">
                     {matchingSuggestions.map((st) => (
@@ -2691,7 +2691,7 @@ export default function Registry() {
                       >
                         <span className="font-medium text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
                         <span className="text-xs text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
-                          {parseTagMetadata(st).mainName || <span className="italic opacity-40 text-xs">Без наименования</span>}
+                          {parseTagMetadata(st).mainName || <span className="opacity-40 text-xs">Без наименования</span>}
                         </span>
                       </button>
                     ))}
@@ -3485,7 +3485,7 @@ export default function Registry() {
                                         </div>
 
                                         {desc.comment && (
-                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 italic leading-snug">
+                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 leading-snug">
                                             {desc.comment}
                                           </p>
                                         )}
@@ -3497,7 +3497,7 @@ export default function Registry() {
                               })}
 
                               {meta.descriptions.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
+                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs">
                                   Описания отсутствуют.
                                 </div>
                               )}

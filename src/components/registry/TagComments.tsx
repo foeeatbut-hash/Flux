@@ -141,7 +141,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
           );
         })}
         {!items.length && (
-          <p className="text-center py-5 text-slate-400 text-xs italic">
+          <p className="text-center py-5 text-slate-400 text-xs">
             Комментариев нет. Пока их нет, тег числится устаревшим.
           </p>
         )}

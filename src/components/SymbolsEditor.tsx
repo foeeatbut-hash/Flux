@@ -139,7 +139,7 @@ export default function SymbolsEditor() {
         </div>
 
         {rules.length === 0 ? (
-          <div className="text-xs text-slate-400 italic border border-dashed border-slate-200 dark:border-slate-800 rounded-lg p-6 text-center">
+          <div className="text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg p-6 text-center">
             Своих правил нет — работает набор, поставляемый с программой.
           </div>
         ) : (

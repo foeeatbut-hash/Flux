@@ -260,7 +260,7 @@ export default function MessageBubble({
               строке, у длинных время просто съезжает вниз. */}
           <span className="float-right ml-2 mt-1 flex items-center gap-1 select-none translate-y-0.5">
             {msg.editedAt && (
-              <span className={`text-2xs italic ${isMe ? 'text-emerald-50/70' : 'text-slate-400'}`}
+              <span className={`text-2xs ${isMe ? 'text-emerald-50/70' : 'text-slate-400'}`}
                 title={`Изменено ${new Date(msg.editedAt).toLocaleString('ru-RU')}`}>изм.</span>
             )}
             {msg.pinned && <Pin className={`w-2.5 h-2.5 ${isMe ? 'text-emerald-50/80' : 'text-amber-500'}`} />}

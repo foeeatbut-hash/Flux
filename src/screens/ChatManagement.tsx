@@ -1439,7 +1439,7 @@ export default function ChatManagement() {
                         }
                       } catch (e) {}
                       return (
-                        <div className="p-3 text-center text-slate-400 text-xs italic">
+                        <div className="p-3 text-center text-slate-400 text-xs">
                           Спецификации загружены из файла Excel
                         </div>
                       );
@@ -1582,7 +1582,7 @@ export default function ChatManagement() {
 
               <div className="flex-1 max-h-80 overflow-y-auto p-2 space-y-1 bg-slate-50/25">
                 {filteredComps.length === 0 ? (
-                  <div className="text-center py-10 text-xs text-slate-400 italic">
+                  <div className="text-center py-10 text-xs text-slate-400">
                     Оборудование по спецификации не найдено.
                   </div>
                 ) : (

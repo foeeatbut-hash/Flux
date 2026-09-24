@@ -1276,7 +1276,7 @@ export default function DictionaryEditor() {
                               );
                             })
                           ) : (
-                            <div className="text-center py-8 text-xs text-slate-400 italic">
+                            <div className="text-center py-8 text-xs text-slate-400">
                               Список категорий пуст. Создайте первую выше!
                             </div>
                           )}
@@ -1382,7 +1382,7 @@ export default function DictionaryEditor() {
                                       );
                                     })
                                   ) : (
-                                    <div className="text-center py-8 text-xs text-slate-400 italic">
+                                    <div className="text-center py-8 text-xs text-slate-400">
                                       Список вариантов пуст. Добавьте первый выше!
                                     </div>
                                   )}
@@ -1538,7 +1538,7 @@ export default function DictionaryEditor() {
                               );
                             })
                           ) : (
-                            <div className="text-center py-12 text-xs text-slate-400 italic">
+                            <div className="text-center py-12 text-xs text-slate-400">
                                Список категорий пуст. Создайте первую!
                             </div>
                           )}
@@ -1644,7 +1644,7 @@ export default function DictionaryEditor() {
                                       );
                                     })
                                   ) : (
-                                    <div className="text-center py-8 text-xs text-slate-400 italic">
+                                    <div className="text-center py-8 text-xs text-slate-400">
                                       Список вариантов пуст. Добавьте первый выше!
                                     </div>
                                   )}
@@ -1794,7 +1794,7 @@ export default function DictionaryEditor() {
                             );
                           })
                         ) : (
-                          <div className="text-center py-8 text-xs text-slate-400 italic">
+                          <div className="text-center py-8 text-xs text-slate-400">
                             Категории не созданы. Добавьте первую выше!
                           </div>
                         )}
@@ -1924,7 +1924,7 @@ export default function DictionaryEditor() {
                                     );
                                   })
                                 ) : (
-                                  <div className="text-center py-6 text-xs text-slate-405 italic">
+                                  <div className="text-center py-6 text-xs text-slate-405">
                                     Нет добавленных вариантов. Добавьте первый выше!
                                   </div>
                                 )}
@@ -2150,7 +2150,7 @@ export default function DictionaryEditor() {
                                 {parentItem.code} ({parentItem.nameRu})
                               </span>
                             ) : (
-                              <span className="text-xs text-slate-400 italic">
+                              <span className="text-xs text-slate-400">
                                 Главная категория
                               </span>
                             )}

@@ -450,7 +450,7 @@ console.log('\n9. Храповик дизайна (docs/methodology/01-design.md
     'жирный 700 (font-bold/extrabold/black)': 88,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
-    'курсив (italic)': 40,
+    'курсив (italic)': 19,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
     'крупная тень (shadow-lg/xl/2xl)': 56,

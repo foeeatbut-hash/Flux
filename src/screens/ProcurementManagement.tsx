@@ -740,7 +740,7 @@ function ProcurementTab() {
               className="text-xs text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-text w-full min-h-[24px]"
               title="Нажмите, чтобы изменить примечание"
             >
-              {row.proc.note || <span className="italic opacity-50">добавить примечание…</span>}
+              {row.proc.note || <span className="opacity-50">добавить примечание…</span>}
             </button>
           )}
         </td>
