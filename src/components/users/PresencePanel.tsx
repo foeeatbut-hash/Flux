@@ -35,7 +35,7 @@ function Column({ icon: Icon, tone, title, count, empty, children }: {
     <div className="min-w-0">
       <div className="flex items-center gap-1.5 mb-1.5">
         <Icon className={`w-3.5 h-3.5 shrink-0 ${tone}`} />
-        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">{title}</span>
+        <span className="text-2xs font-bold text-slate-400">{title}</span>
         <span className="text-2xs font-semibold text-slate-400">· {count}</span>
       </div>
       {count === 0

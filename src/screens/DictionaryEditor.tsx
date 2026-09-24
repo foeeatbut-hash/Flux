@@ -1129,7 +1129,7 @@ export default function DictionaryEditor() {
               onClick={() => setShowTagCreationSidebar(!showTagCreationSidebar)}
               /* py-1.5: заголовок-переключатель был высотой в 16 точек — по
                  такому промахиваются мышью чаще, чем попадают */
-              className="w-full flex items-center justify-between py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 uppercase tracking-widest cursor-pointer select-none"
+              className="w-full flex items-center justify-between py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer select-none"
             >
               <span className="flex items-center gap-1.5">
                 <Settings className="w-3.5 h-3.5 text-emerald-500" />
@@ -1142,13 +1142,13 @@ export default function DictionaryEditor() {
                 <button
                   type="button"
                   onClick={() => setActiveDictId('tag-creation-config')}
-                  className={`px-4 py-3 text-left text-xs font-semibold tracking-wide transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'tag-creation-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
+                  className={`px-4 py-3 text-left text-xs font-semibold transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'tag-creation-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
                 >
                   <span className="flex items-center gap-2">
                     <Sliders className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     <span>Доп. параметры</span>
                   </span>
-                  <span className="text-xs uppercase font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
                     сист
                   </span>
                 </button>
@@ -1156,13 +1156,13 @@ export default function DictionaryEditor() {
                 <button
                   type="button"
                   onClick={() => setActiveDictId('tag-marking-config')}
-                  className={`px-4 py-3 text-left text-xs font-semibold tracking-wide transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'tag-marking-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
+                  className={`px-4 py-3 text-left text-xs font-semibold transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'tag-marking-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
                 >
                   <span className="flex items-center gap-2">
                     <Sliders className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     <span>Маркировка</span>
                   </span>
-                  <span className="text-xs uppercase font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
                     сист
                   </span>
                 </button>
@@ -1171,13 +1171,13 @@ export default function DictionaryEditor() {
                   type="button"
                   onClick={() => setActiveDictId('symbols-config')}
                   title="Условные обозначения бланков: «L, м³/ч» — расход, «N» — мощность, «n» — обороты"
-                  className={`px-4 py-3 text-left text-xs font-semibold tracking-wide transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'symbols-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
+                  className={`px-4 py-3 text-left text-xs font-semibold transition-colors flex items-center justify-between gap-1.5 ${activeDictId === 'symbols-config' ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-bold border-l-2 border-emerald-500" : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-350"}`}
                 >
                   <span className="flex items-center gap-2">
                     <Sliders className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     <span>Обозначения</span>
                   </span>
-                  <span className="text-xs uppercase font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded leading-none shrink-0">
                     сист
                   </span>
                 </button>
@@ -1187,7 +1187,7 @@ export default function DictionaryEditor() {
 
           {/* SECTION: STANDARD EXCEL DICTIONARIES */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
+            <label className="block text-xs font-bold text-slate-500">
               Справочники проекта
             </label>
             <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col transition-colors">
@@ -1247,7 +1247,7 @@ export default function DictionaryEditor() {
                     {/* Categories Column */}
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории параметров
                         </h3>
@@ -1385,7 +1385,7 @@ export default function DictionaryEditor() {
                           return (
                             <>
                               <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 min-w-0 max-w-[240px]">
+                                <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 flex items-center gap-1.5 min-w-0 max-w-[240px]">
                                   <Sliders className="w-4 h-4 text-emerald-500 shrink-0" />
                                   Варианты: <span className="text-emerald-600 dark:text-emerald-400 font-bold flex-1 min-w-0 truncate">«{activeCategory?.nameRu}»</span>
                                 </h3>
@@ -1518,7 +1518,7 @@ export default function DictionaryEditor() {
                     {/* Categories Column */}
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
-                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории маркировки
                         </h3>
@@ -1649,7 +1649,7 @@ export default function DictionaryEditor() {
                           return (
                             <>
                               <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 min-w-0">
+                                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                                   <Layers className="w-4 h-4 text-emerald-550 shrink-0" />
                                   <span className="truncate">Варианты для: "{activeCategory?.nameRu}"</span>
                                 </h3>
@@ -1779,7 +1779,7 @@ export default function DictionaryEditor() {
                   <div className="grid grid-cols-1 @[900px]:grid-cols-12 divide-y @[900px]:divide-y-0 @[900px]:divide-x divide-slate-100 dark:divide-slate-800 min-h-[500px]">
                     {/* LEFTSIDE: CATEGORIES LIST & ADD */}
                     <div className="col-span-1 @[900px]:col-span-5 p-4 flex flex-col bg-slate-50/10 dark:bg-slate-950/10">
-                      <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">
+                      <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-3">
                         Категории фильтров
                       </h3>
 
@@ -1787,7 +1787,7 @@ export default function DictionaryEditor() {
                       <form onSubmit={handleAddPreset} className="space-y-2 mb-4">
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-xs uppercase font-bold text-slate-400 mb-1">Название категории</label>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Название категории</label>
                             <input
                               type="text"
                               value={newPresetName}
@@ -1797,7 +1797,7 @@ export default function DictionaryEditor() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs uppercase font-bold text-slate-400 mb-1">Код/Сокращение</label>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Код/Сокращение</label>
                             <input
                               type="text"
                               value={newPresetProjectNo}
@@ -1915,7 +1915,7 @@ export default function DictionaryEditor() {
                               {/* Form to add a sub-option value */}
                               <form onSubmit={(e) => handleCreateSubOption(e, presetDict!.id)} className="grid grid-cols-12 gap-2 bg-white dark:bg-slate-900 duration-150 p-3 rounded-lg border border-slate-100 dark:border-slate-850">
                                 <div className="col-span-5">
-                                  <label className="block text-xs uppercase font-bold text-slate-400">Значение варианта</label>
+                                  <label className="block text-xs font-bold text-slate-400">Значение варианта</label>
                                   <input
                                     type="text"
                                     required
@@ -1926,7 +1926,7 @@ export default function DictionaryEditor() {
                                   />
                                 </div>
                                 <div className="col-span-5">
-                                  <label className="block text-xs uppercase font-bold text-slate-400">Код (для вставки)</label>
+                                  <label className="block text-xs font-bold text-slate-400">Код (для вставки)</label>
                                   <input
                                     type="text"
                                     value={newSubOptionCode}

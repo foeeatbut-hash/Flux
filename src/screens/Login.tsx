@@ -261,7 +261,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1.5 label-login">
+              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-login">
                 Логин
               </label>
               <div className="relative group">
@@ -283,7 +283,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1.5 label-password">
+              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-password">
                 Пароль
               </label>
               <div className="relative group">

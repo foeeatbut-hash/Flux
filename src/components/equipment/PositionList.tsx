@@ -116,7 +116,7 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
         ) : (
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
-              <tr className="text-left text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="text-left text-2xs text-slate-400">
                 <th className="px-3 py-1.5 font-bold">Тег</th>
                 <th className="px-2 py-1.5 font-bold">Тип</th>
                 <th className="px-2 py-1.5 font-bold hidden @[640px]:table-cell">Вид</th>
@@ -129,7 +129,7 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
             {groups.map((g) => (
               <tbody key={g.key || 'all'}>
                 {g.title && (
-                  <tr><td colSpan={7} className="px-3 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                  <tr><td colSpan={7} className="px-3 pt-3 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
                     {g.title} <span className="text-slate-400 font-semibold tabular-nums">· {g.rows.length}</span>
                   </td></tr>
                 )}

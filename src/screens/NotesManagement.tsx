@@ -838,7 +838,7 @@ export default function NotesManagement() {
 
               {/* Color Preset Palette */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-450 dark:text-slate-400 uppercase tracking-wider mr-1">Палитра:</span>
+                <span className="text-xs font-semibold text-slate-450 dark:text-slate-400 mr-1">Палитра:</span>
                 {COLORS.map(colorPreset => {
                   const isCurrent = presetOf(selectedNote.color).name === colorPreset.name;
                   return (

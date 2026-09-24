@@ -102,7 +102,7 @@ export default function ClockPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="px-3 py-2 border-t border-slate-200 dark:border-dark-border max-h-48 overflow-y-auto">
-        <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Сегодня</p>
+        <p className="text-2xs font-bold text-slate-400 mb-1.5">Сегодня</p>
         {today.length === 0 && <p className="text-2xs text-slate-400 pb-1">Ничего не назначено.</p>}
         {today.map((o) => (
           <div key={`${o.event.id}-${o.startsAt}`} className="flex items-center gap-2 py-1">

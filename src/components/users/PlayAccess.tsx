@@ -127,7 +127,7 @@ export default function PlayAccess({ perms, rolePerms, disabled, onSet, platform
   const allGames = () => { for (const entry of PLAY_PLAYER_ENTITLEMENTS) onSet(entry.id, 'ALLOW', null); };
   return (
     <div>
-      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-2">
+      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-2">
         Встроенные программы
       </label>
       {platformOn === false && (
@@ -155,7 +155,7 @@ export default function PlayAccess({ perms, rolePerms, disabled, onSet, platform
           if (!items.length) return null;
           return (
             <section key={group}>
-              <h4 className="text-2xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">{group}</h4>
+              <h4 className="text-2xs font-bold text-slate-400 dark:text-slate-500 mb-1">{group}</h4>
               <div className="space-y-1.5">
                 {items.map((def) => (
                   <Row

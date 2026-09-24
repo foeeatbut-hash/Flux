@@ -233,7 +233,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 </div>
 
                 <div>
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Таблицы в Проводнике ({excelFiles.length})</div>
+                  <div className="text-xs font-bold text-slate-400 mb-2">Таблицы в Проводнике ({excelFiles.length})</div>
                   {loadingFiles ? (
                     <div className="flex items-center gap-2 text-slate-400 text-sm py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Загрузка списка…</div>
                   ) : excelFiles.length === 0 ? (

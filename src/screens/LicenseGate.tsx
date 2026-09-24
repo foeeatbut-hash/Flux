@@ -124,7 +124,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-400">Код этого компьютера</label>
               <div className="flex items-stretch gap-2">
-                <div className="flex-1 font-mono text-sm text-emerald-300 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 select-all tracking-wide">
+                <div className="flex-1 font-mono text-sm text-emerald-300 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 select-all">
                   {status?.machineId || '—'}
                 </div>
                 <button type="button" onClick={copyId} className="px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer">

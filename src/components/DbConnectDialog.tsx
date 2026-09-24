@@ -92,7 +92,7 @@ export default function DbConnectDialog({ current, currentType, onClose, onDone 
 
   const field = (label: string, value: string, on: (v: string) => void, extra: Record<string, unknown> = {}) => (
     <label className="block">
-      <span className="block text-2xs font-bold uppercase tracking-wide text-slate-400 mb-0.5">{label}</span>
+      <span className="block text-2xs font-bold text-slate-400 mb-0.5">{label}</span>
       <input
         value={value}
         onChange={(e) => on(e.target.value)}

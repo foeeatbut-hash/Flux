@@ -170,7 +170,7 @@ export default function ProjectCheckView() {
 
       {data.hidden.length > 0 && (
         <div className="mx-2 mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
-          <p className="text-2xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">Скрытые правила</p>
+          <p className="text-2xs font-bold text-slate-400 dark:text-slate-500">Скрытые правила</p>
           <p className="mt-0.5 text-2xs text-slate-400 dark:text-slate-500 leading-snug">
             Их не показываем в списке, но продолжаем считать — чтобы было видно, от чего вы отказались.
           </p>

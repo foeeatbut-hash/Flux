@@ -273,7 +273,7 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
           {!shown.length ? <Empty title="В файле нет подходящих строк" text="Проверьте колонки и отбор «только с тегом»." /> : (
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
-                <tr className="text-left text-2xs uppercase tracking-wide text-slate-400">
+                <tr className="text-left text-2xs text-slate-400">
                   <th className="px-2 py-1.5 w-7"></th><th className="px-2 py-1.5">Стр.</th><th className="px-2 py-1.5">Действие</th><th className="px-2 py-1.5">Теги</th>
                   <th className="px-2 py-1.5 text-right">Кол.</th><th className="px-2 py-1.5">Изделие</th><th className="px-2 py-1.5 hidden @[900px]:table-cell">Подбор</th>
                 </tr>

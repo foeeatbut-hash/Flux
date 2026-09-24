@@ -51,7 +51,7 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
           </div>
           <Input value={edit.title.ru} placeholder="Название" onChange={(e) => setEdit({ ...edit, title: { ...edit.title, ru: e.target.value } })} disabled={!canEdit} />
           <Input value={factsToText(edit.facts)} placeholder="Признаки: voltage=24; ex=true" onChange={(e) => setEdit({ ...edit, facts: textToFacts(e.target.value) })} className="font-mono" disabled={!canEdit} />
-          <div className="text-2xs font-bold uppercase tracking-wide text-slate-400 mt-1">Характеристики</div>
+          <div className="text-2xs font-bold text-slate-400 mt-1">Характеристики</div>
           {(edit.specs || []).map((s, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_auto] gap-1">
               <Input value={s.label.ru} onChange={(e) => setEdit({ ...edit, specs: edit.specs!.map((x, j) => (j === i ? { ...x, label: { ...x.label, ru: e.target.value } } : x)) })} disabled={!canEdit} />
@@ -95,7 +95,7 @@ export function TagRulesPanel({ catalog, classId, canEdit }: { catalog: Catalog;
     <div className="flex flex-col gap-1.5">
       <div className="text-2xs text-slate-400">Код типа — буквы перед номером в теге: 3700-B01-<b>DF</b>-001. Правило говорит, что это за изделие (признаки для подбора), как получить тег привода (DF → DFD) и не пропустить ли строку при импорте (решётки DA — не клапаны).</div>
       <table className="w-full text-xs">
-        <thead><tr className="text-left text-2xs uppercase tracking-wide text-slate-400"><th className="p-1">Код</th><th className="p-1">Что это</th><th className="p-1">Признаки</th><th className="p-1">Тег привода</th><th className="p-1">Пропускать</th><th /></tr></thead>
+        <thead><tr className="text-left text-2xs text-slate-400"><th className="p-1">Код</th><th className="p-1">Что это</th><th className="p-1">Признаки</th><th className="p-1">Тег привода</th><th className="p-1">Пропускать</th><th /></tr></thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.id} className="border-t border-slate-100 dark:border-slate-850">

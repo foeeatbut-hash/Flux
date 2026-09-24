@@ -56,7 +56,7 @@ export default function TagComments({ items, statusConfig, statusOptions, format
   return (
     <div className="space-y-2.5 text-left">
       <div className="flex items-baseline justify-between gap-2">
-        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Комментарии ({items.length})</label>
+        <label className="text-xs font-bold text-slate-500">Комментарии ({items.length})</label>
         <span className="text-2xs text-slate-400">Актуальность тега берётся из них</span>
       </div>
 

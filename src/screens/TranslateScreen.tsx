@@ -280,7 +280,7 @@ export default function TranslateScreen() {
           <div className="h-full min-h-0 grid grid-cols-1 @[720px]:grid-cols-2">
             <div className="min-h-0 flex flex-col border-b @[720px]:border-b-0 @[720px]:border-r
                             border-slate-200 dark:border-slate-800">
-              <div className="shrink-0 px-3 py-1.5 text-2xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="shrink-0 px-3 py-1.5 text-2xs text-slate-400 dark:text-slate-500">
                 Исходник {guessed !== 'und' && `· ${LANG_NAME[guessed]}`}
               </div>
               <textarea value={src} onChange={(e) => setSrc(e.target.value)}
@@ -290,7 +290,7 @@ export default function TranslateScreen() {
                            text-slate-800 dark:text-slate-150 outline-none scrollbar-thin" />
             </div>
             <div className="min-h-0 flex flex-col">
-              <div className="shrink-0 px-3 py-1.5 flex items-center gap-2 text-2xs uppercase tracking-wide
+              <div className="shrink-0 px-3 py-1.5 flex items-center gap-2 text-2xs
                               text-slate-400 dark:text-slate-500">
                 Перевод · {LANG_NAME[target]}
                 {ready.total > 0 && (

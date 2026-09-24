@@ -216,7 +216,7 @@ export default function Handbook() {
 
         {anchors.length > 1 && (
           <nav className="hidden @[1180px]:flex shrink-0 w-48 flex-col gap-1 pt-1" aria-label="На этой странице">
-            <span className="px-2 pb-1 text-2xs uppercase tracking-wider font-semibold text-slate-400 dark:text-slate-500">
+            <span className="px-2 pb-1 text-2xs font-semibold text-slate-400 dark:text-slate-500">
               На этой странице
             </span>
             {anchors.map((x) => (

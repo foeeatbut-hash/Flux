@@ -60,7 +60,7 @@ function Card({ tone, icon, title, hint, action, onClick, tour }: {
       <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${box}`}>{icon}</span>
       <b className="text-sm font-bold text-slate-900 dark:text-white">{title}</b>
       <span className="text-xs text-slate-500 leading-snug flex-1">{hint}</span>
-      <span className={`text-2xs font-bold uppercase tracking-wide ${label}`}>{action} →</span>
+      <span className={`text-2xs font-bold ${label}`}>{action} →</span>
     </button>
   );
 }

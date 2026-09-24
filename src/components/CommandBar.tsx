@@ -263,7 +263,7 @@ export default function CommandBar() {
             return (
               <React.Fragment key={it.key}>
                 {head && (
-                  <div className="px-3 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  <div className="px-3 pt-2 pb-1 text-2xs font-bold text-slate-400 dark:text-slate-500">
                     {GROUP_TITLE[head]}
                   </div>
                 )}

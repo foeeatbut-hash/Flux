@@ -114,7 +114,7 @@ export default function EnglishVersion({ snapshot, docName, onClose, onCreate }:
           </div>
 
           <div className="shrink-0 px-5 py-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
-            <p className="text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <p className="text-2xs font-semibold text-slate-400 dark:text-slate-500">
               Как отдаём заказчику
             </p>
             <div className="flex flex-wrap gap-1.5">

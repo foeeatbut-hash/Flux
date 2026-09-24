@@ -204,7 +204,7 @@ export default function LogsManagement() {
             <History className="w-5 h-5 text-emerald-650 dark:text-emerald-400" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Всего изменений</h4>
+            <h4 className="text-xs font-bold text-slate-400">Всего изменений</h4>
             <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{logs.length}</p>
           </div>
         </div>
@@ -214,7 +214,7 @@ export default function LogsManagement() {
             <User className="w-5 h-5 text-emerald-650 dark:text-emerald-400" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Активных инженеров</h4>
+            <h4 className="text-xs font-bold text-slate-400">Активных инженеров</h4>
             <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{uniqueUsers.length}</p>
           </div>
         </div>
@@ -224,7 +224,7 @@ export default function LogsManagement() {
             <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Последняя запись</h4>
+            <h4 className="text-xs font-bold text-slate-400">Последняя запись</h4>
             <p className="text-sm font-bold text-slate-905 dark:text-slate-100 mt-1 truncate max-w-[200px]" title={logs[0] ? formatAbsoluteDate(logs[0].createdAt) : '-'}>
               {logs[0] ? formatRelativeTime(logs[0].createdAt) : 'Записей нет'}
             </p>
@@ -235,7 +235,7 @@ export default function LogsManagement() {
       {/* FILTER AND SEARCH CONTROLS */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 shadow-2xs space-y-3.5">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 flex items-center gap-1.5">
             <Filter className="w-3.5 h-3.5" />
             <span>Параметры фильтрации логов</span>
           </h3>
@@ -342,7 +342,7 @@ export default function LogsManagement() {
                 >
                   <div className="flex items-start gap-4">
                     {/* User identifier rounded bubble */}
-                    <div className="shrink-0 w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-xs uppercase text-slate-650 dark:text-slate-300">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-xs text-slate-650 dark:text-slate-300">
                       {log.userSymbol.slice(0, 2)}
                     </div>
 

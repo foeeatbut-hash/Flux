@@ -86,7 +86,7 @@ export default function SymbolsEditor() {
 
       {/* Проверка на месте */}
       <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Проверить</div>
+        <div className="text-xs font-bold text-slate-500 mb-2">Проверить</div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <input
             value={probe.symbol}
@@ -125,7 +125,7 @@ export default function SymbolsEditor() {
       {/* Правила отдела */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Правила отдела</div>
+          <div className="text-xs font-bold text-slate-500">Правила отдела</div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setRules(l => [...l, emptyRule()])}
               className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">
@@ -196,7 +196,7 @@ export default function SymbolsEditor() {
       {/* Что поставляется с программой */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Поставляется с программой</div>
+          <div className="text-xs font-bold text-slate-500">Поставляется с программой</div>
           <button type="button"
             onClick={() => setRules(l => [...l, { ...BASE_SYMBOLS[0], label: BASE_SYMBOLS[0].label }])}
             title="Скопировать первое правило как заготовку"

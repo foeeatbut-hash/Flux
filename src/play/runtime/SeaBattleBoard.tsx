@@ -40,7 +40,7 @@ function busyOf(fleet: Ship[]): { taken: Set<number>; near: Set<number> } {
 function Grid({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-2xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="text-2xs font-bold text-slate-500 dark:text-slate-400">{label}</div>
       <div className="grid gap-px p-px rounded-lg bg-sky-800 dark:bg-sky-950"
         style={{ gridTemplateColumns: `repeat(${SIDE}, minmax(0, 1fr))`, width: 'min(92vw, 20rem)' }}
         role="grid" aria-label={label}>

@@ -242,7 +242,7 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
               {signature?.html && (
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 overflow-hidden">
                   <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800">
-                    <span className="flex-1 min-w-0 truncate text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <span className="flex-1 min-w-0 truncate text-2xs font-semibold text-slate-500 dark:text-slate-400">
                       Подпись: {signature.name}
                     </span>
                     <button
@@ -264,7 +264,7 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
 
               {quote && (
                 <details className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-                  <summary className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 cursor-pointer">
+                  <summary className="px-3 py-1.5 text-2xs font-semibold text-slate-500 dark:text-slate-400 cursor-pointer">
                     Цитата исходного письма
                   </summary>
                   <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" dangerouslySetInnerHTML={{ __html: quote }} />

@@ -216,7 +216,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
 
   return (
     <div ref={boxRef} className="@[1080px]:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left relative">
-      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
+      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none mb-1">
         Поиск по разделу:
       </label>
       <div className="relative flex-1 flex items-end">
@@ -233,7 +233,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
       {open && (query.trim() || onlyDuplicates) && (
         <div className="absolute top-full right-0 mt-1 w-[min(94vw,420px)] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[60] overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-400">
               Найдено: {results.length}
             </span>
             <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
@@ -277,7 +277,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
                   <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.text} bg-current`} title={`Актуальность: ${st.label}`} />
                   <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
                   {dup && (
-                    <span className="shrink-0 text-2xs font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase">дубль</span>
+                    <span className="shrink-0 text-2xs font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">дубль</span>
                   )}
                   <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{meta.mainName || ''}</span>
                   {t.brand && <span className="font-mono text-2xs text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
@@ -3070,14 +3070,14 @@ export default function Registry() {
       <div className="grid grid-cols-1 @[1080px]:grid-cols-12 gap-3 items-stretch">
         {/* Manual quick adding with active validation */}
         <form onSubmit={handleCreateTag} className="@[1080px]:col-span-10 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-855 rounded-xl shadow-xs text-left flex flex-col justify-between">
-          <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block pl-1 mb-1.5">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-500 block pl-1 mb-1.5">
             Создать новый тег и оборудование:
           </div>
           
           <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[760px]:grid-cols-3 @[1080px]:grid-cols-12 gap-2.5 items-end">
             {/* Tag identifier code */}
             <div className="relative flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none min-w-0 gap-2">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 flex justify-between leading-none min-w-0 gap-2">
                 <span className="truncate">Код тега (EN) *</span>
                 {newTagIdentifier && !isIdentifierUnique && (
                   <span className="text-xs text-rose-550 lowercase font-semibold">Занят</span>
@@ -3113,7 +3113,7 @@ export default function Registry() {
               {/* Auto Suggestions list */}
               {newTagIdentifier && matchingSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
-                  <div className="text-xs uppercase font-mono font-bold text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
+                  <div className="text-xs font-mono font-bold text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
                     <span>Существующие теги</span>
                     <span className="text-xs italic font-sans font-normal lowercase text-slate-500">выберите</span>
                   </div>
@@ -3145,7 +3145,7 @@ export default function Registry() {
 
             {/* Required Mark input field */}
             <div className="flex flex-col gap-1 animate-fadeIn @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
                 Марка оборудования *
               </label>
               <input
@@ -3160,7 +3160,7 @@ export default function Registry() {
 
             {/* Main Name string input */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
                 Главное наименование
               </label>
               <input
@@ -3174,7 +3174,7 @@ export default function Registry() {
 
             {/* Actuality Selector */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
                 Актуальность
               </label>
               <CustomSelect
@@ -3244,7 +3244,7 @@ export default function Registry() {
 
                     return (
                       <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] @[760px]:min-w-[180px] @[1080px]:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-xs font-bold text-slate-450 dark:text-slate-500 uppercase leading-none truncate" title={cat.nameRu}>
+                        <span className="text-xs font-bold text-slate-450 dark:text-slate-500 leading-none truncate" title={cat.nameRu}>
                           {cat.nameRu}
                         </span>
                         <CustomSelect
@@ -3419,7 +3419,7 @@ export default function Registry() {
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-850">
+                      <div className="px-3 py-2 text-xs font-bold text-slate-400 border-b border-slate-100 dark:border-slate-850">
                         Главные родители ({rootTags.length})
                       </div>
                       <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5">
@@ -3654,11 +3654,11 @@ export default function Registry() {
                                 title={`Актуальность: ${statusVal.label}`}
                               />
                               <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              <span className="font-mono font-bold tracking-tight text-xs text-slate-800 dark:text-slate-100 uppercase truncate select-all">
+                              <span className="font-mono font-bold tracking-tight text-xs text-slate-800 dark:text-slate-100 truncate select-all">
                                 {tag.identifier}
                               </span>
                               {dup && (
-                                <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide" title="Дубликат кода тега">
+                                <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">
                                   дубль
                                 </span>
                               )}
@@ -3737,7 +3737,7 @@ export default function Registry() {
                             {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
                             <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">Связи</span>
+                                <span className="text-2xs font-bold text-slate-400">Связи</span>
                                 {/* Две кнопки, а не одна: чипы связей и раньше показывали
                                     и родителя (↑), и детей (↓), а завести можно было
                                     только ребёнка. Родителя приходилось искать на холсте
@@ -3832,7 +3832,7 @@ export default function Registry() {
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                              <div className="text-2xs font-bold text-slate-400 dark:text-slate-500">
                                 Комментарии ({meta.descriptions.length})
                               </div>
 
@@ -4312,7 +4312,7 @@ export default function Registry() {
                       <div key={`tag-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                               Сегмент тега {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
@@ -4335,7 +4335,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
                               Поиск сегмента:
                             </span>
                             <input
@@ -4361,7 +4361,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -4376,7 +4376,7 @@ export default function Registry() {
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">
+                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -4411,7 +4411,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
+                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -4422,7 +4422,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
                                         isSelected
                                           ? 'bg-emerald-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -4440,7 +4440,7 @@ export default function Registry() {
                         {/* Dictionary Integration Binding Section */}
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
-                            <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
+                            <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500">
                               Справочник значений:
                             </span>
                             <CustomSelect
@@ -4461,7 +4461,7 @@ export default function Registry() {
                             <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-xs font-bold text-slate-400 uppercase">1. Главная</span>
+                                <span className="block text-xs font-bold text-slate-400">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -4476,7 +4476,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400 uppercase">2. Подкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -4492,7 +4492,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400 uppercase">3. Подподкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -4593,7 +4593,7 @@ export default function Registry() {
                       <div key={`mark-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
+                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
                               Сегмент марки {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
@@ -4616,7 +4616,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
+                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-550">
                               Поиск сегмента:
                             </span>
                             <input
@@ -4642,7 +4642,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
+                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-550">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -4657,7 +4657,7 @@ export default function Registry() {
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">
+                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -4692,7 +4692,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
+                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -4703,7 +4703,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
                                         isSelected
                                           ? 'bg-amber-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -4721,7 +4721,7 @@ export default function Registry() {
                         {/* Dictionary Integration Binding Section */}
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
-                            <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
+                            <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500">
                               Справочник значений:
                             </span>
                             <CustomSelect
@@ -4742,7 +4742,7 @@ export default function Registry() {
                             <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-xs font-bold text-slate-400 uppercase">1. Главная</span>
+                                <span className="block text-xs font-bold text-slate-400">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -4757,7 +4757,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400 uppercase">2. Подкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -4773,7 +4773,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400 uppercase">3. Подподкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -4937,7 +4937,7 @@ export default function Registry() {
             {/* MATCHED RESULTS PREVIEW TABLE */}
             <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-150 dark:border-slate-855 flex justify-between items-center bg-slate-50/40 dark:bg-slate-900/40 border-none">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">
+                <span className="text-xs font-bold text-slate-500 block">
                   3. Выходные данные ({countOf(matchedTagsList.length, 'запись')} подобрано)
                 </span>
               </div>
@@ -4947,7 +4947,7 @@ export default function Registry() {
                 className="overflow-auto max-h-[600px] style-scrollbar"
               >
                 <table className="w-full text-sm text-left border-collapse">
-                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
+                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold z-10 shadow-xs">
                     <tr>
                       <th className="flux-cell">Сегменты тега</th>
                       <th className="flux-cell">Сегменты марки</th>
@@ -4994,7 +4994,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`tag-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-ui ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-ui ${
                                       isMatched 
                                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/40'
@@ -5015,7 +5015,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`mark-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-ui ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-ui ${
                                       isMatched 
                                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
                                         : 'bg-amber-50 dark:bg-slate-900 text-amber-800 dark:text-amber-400 border border-amber-200/40 dark:border-amber-900/45'
@@ -5049,7 +5049,7 @@ export default function Registry() {
                           {/* COLUMN 4: STATUS / RELEVANCE */}
                           <td className="flux-cell">
                             <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border uppercase tracking-wider ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
                                 {statusCfg.label}
                               </span>
                               {tMeta.descriptions.length > 0 && (
@@ -5095,7 +5095,7 @@ export default function Registry() {
             <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden border-none flex-1 flex flex-col min-h-0">
               {/* Optional view controls bar */}
               <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 flex justify-between items-center flex-wrap gap-2 border-none shrink-0">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Спецификация и Актуальность систем ({countOf(sortedTagsList.length, 'запись')})</span>
+                <span className="text-xs font-bold text-slate-500 block">Спецификация и Актуальность систем ({countOf(sortedTagsList.length, 'запись')})</span>
                 
                 <button
                   type="button"
@@ -5116,7 +5116,7 @@ export default function Registry() {
                 className="overflow-auto flex-1 min-h-0 style-scrollbar"
               >
                 <table className="w-full text-sm text-left border-collapse">
-                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
+                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850 text-xs font-semibold z-10 shadow-xs">
                     <tr>
                       <th className="flux-cell cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('identifier')}>
                         Тег / Главное наименование {sortConfig.key === 'identifier' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
@@ -5343,7 +5343,7 @@ export default function Registry() {
                       />
                       <Edit2 className="w-3.5 h-3.5 text-slate-500 group-focus-within/rename:text-emerald-400 shrink-0" />
                     </div>
-                    <p className="text-2xs text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
+                    <p className="text-2xs text-slate-400 font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -5366,7 +5366,7 @@ export default function Registry() {
                 {/* Наименование и актуальность — то, ради чего карточку открыли */}
                 <div className="space-y-1 text-left">
                   <div className="flex items-baseline justify-between gap-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Наименование</label>
+                    <label className="text-xs font-bold text-slate-500">Наименование</label>
                     {/* Актуальность тега не задаётся отдельно: она складывается
                         из комментариев ниже. Показываем её тем же значком, что
                         и в списке, — иначе человек ищет переключатель, которого
@@ -5402,7 +5402,7 @@ export default function Registry() {
                     марка, а подсказка берётся из марок этого же проекта */}
                 <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
                   <div className="space-y-1 text-left">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Марка</label>
+                    <label className="block text-xs font-bold text-slate-500">Марка</label>
                     <input
                       type="text"
                       list="tag-brands"
@@ -5422,7 +5422,7 @@ export default function Registry() {
                     </datalist>
                   </div>
                   <div className="space-y-1 text-left">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">WBS</label>
+                    <label className="block text-xs font-bold text-slate-500">WBS</label>
                     <input
                       key={`wbs-${editingTag.id}`}
                       type="text"
@@ -5464,7 +5464,7 @@ export default function Registry() {
 
                     return (
                       <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Дополнительные поля</label>
+                        <label className="block text-xs font-bold text-slate-500">Дополнительные поля</label>
                         <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
                           {cats.map((cat: any) => {
                             const options = (configDict?.items || [])
@@ -5569,7 +5569,7 @@ export default function Registry() {
 
               {/* SEARCH INPUT */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase">Поиск тега в проекте</label>
+                <label className="text-xs font-bold text-slate-400">Поиск тега в проекте</label>
                 <input
                   type="text"
                   placeholder="Введите код или наименование..."
@@ -5581,7 +5581,7 @@ export default function Registry() {
 
               {/* ACTIVE BINDINGS */}
               <div className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-400 uppercase">Текущие привязки:</span>
+                <span className="text-xs font-bold text-slate-400">Текущие привязки:</span>
                 <div className="flex flex-wrap gap-1.5 min-h-[30px] p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850">
                   {bindingBlock.tags.length === 0 ? (
                     <span className="text-xs text-slate-400 italic">Нет привязанного оборудования</span>
@@ -5785,7 +5785,7 @@ export default function Registry() {
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-sm select-all">{node.identifier}</span>
                 {duplicateCodes.has((node.identifier || '').trim()) && (
-                  <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide shrink-0" title="Дубликат кода тега">дубль</span>
+                  <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shrink-0" title="Дубликат кода тега">дубль</span>
                 )}
                 <span className="text-xs bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
                   {node.department || 'Комплексный'}
@@ -5911,7 +5911,7 @@ function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: 
   const stLabel: Record<string, string> = { DRAFT: 'в работе', READY: 'готово', REMARKS: 'замечания', ACCEPTED: 'принят' };
   return (
     <div className="px-4 pb-3">
-      <div className="text-2xs font-bold uppercase tracking-wide text-emerald-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
+      <div className="text-2xs font-bold text-emerald-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
         {docs.map((d: any) => (
           <button type="button" key={d.id}

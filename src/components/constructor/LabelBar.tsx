@@ -43,7 +43,7 @@ export default function LabelBar({ preview, unfilled, onInsert, onFill, onClose 
       <div className="flex-1 min-h-0 overflow-auto px-3 py-2 flex flex-col gap-3">
         {GROUPS.map((group) => (
           <div key={group} className="min-w-0">
-            <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{group}</div>
+            <div className="text-2xs font-mono text-slate-400 mb-1">{group}</div>
             <div className="flex items-center gap-1 flex-wrap">
               {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => {
                 const value = preview[ph.key] || '';

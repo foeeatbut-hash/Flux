@@ -855,7 +855,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold uppercase tracking-wider">Установка</span>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold">Установка</span>
             {unit.fileName && <span className="text-2xs text-slate-400 font-mono truncate max-w-[220px]" title={unit.fileName}>{unit.fileName}</span>}
           </div>
           <h3 className="u-sel text-sm font-bold mt-1 min-w-0 flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" /><span className="flex-1 min-w-0 truncate">{unit.name}</span></h3>
@@ -889,7 +889,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Общие характеристики установки */}
         {generalParams.length > 0 && (
           <div>
-            <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Общие характеристики установки</div>
+            <div className="text-2xs font-bold text-slate-400 mb-1.5">Общие характеристики установки</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 rounded-lg border border-slate-150 dark:border-slate-800 p-2.5">
               {generalParams.map((p, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
@@ -909,7 +909,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Чертёж: секции по ходу воздуха */}
         {flowSections.length > 0 && (
           <div>
-            <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
+            <div className="text-2xs font-bold text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
             <div className="flex items-stretch gap-1 overflow-x-auto pb-2 -mx-1 px-1">
               {flowSections.map((c, i) => {
                 const Icon = sectionIcon(c.equipType);
@@ -944,7 +944,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 
         {/* Список составных частей (сохраняем привычный список) */}
         <div>
-          <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
+          <div className="text-2xs font-bold text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
           {monoSections.length === 0 && monoGenerals.length === 0 ? (
             <p className="text-xs text-slate-400">У этой установки нет составных частей.</p>
           ) : (
@@ -1037,7 +1037,7 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
     <Modal title="Настройки оборудования" onClose={onClose}>
       <div className="space-y-5">
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Профиль видимости параметров</div>
+          <div className="text-xs font-bold text-slate-400 mb-2">Профиль видимости параметров</div>
           <div className="flex gap-2">
             <button type="button" disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
             <button type="button" onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
@@ -1046,7 +1046,7 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
         </div>
 
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">При новой ревизии</div>
+          <div className="text-xs font-bold text-slate-400 mb-2">При новой ревизии</div>
           <div className="flex gap-2">
             <button type="button" onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
             <button type="button" onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
@@ -1055,7 +1055,7 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
 
         {isAdmin && (
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Категории оборудования</div>
+            <div className="text-xs font-bold text-slate-400 mb-2">Категории оборудования</div>
             <div className="space-y-1 mb-2 max-h-40 overflow-y-auto">
               {categories.map((c: Category) => (
                 <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs">

@@ -67,7 +67,7 @@ export default function SegmentRows({
             </span>
             {showOrigin && (
               <span className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-2xs text-slate-400 dark:text-slate-500">
-                <span className="font-semibold uppercase tracking-wide">
+                <span className="font-semibold">
                   {ORIGIN_LABEL[r.origin]}
                   {r.score !== undefined && r.origin === 'tm-fuzzy' && ` · ${Math.round(r.score * 100)} %`}
                 </span>

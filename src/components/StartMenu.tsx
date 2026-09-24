@@ -318,7 +318,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
         {suggested.length > 0 && (
           <section>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Рекомендуем</h3>
+            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold text-slate-400">Рекомендуем</h3>
             <div className="px-2 pb-2">
               {suggested.map((d) => (
                 <button
@@ -342,7 +342,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
         {pinnedList.length > 0 && (
           <section className={suggested.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Закреплено</h3>
+            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold text-slate-400">Закреплено</h3>
             <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {pinnedList.map((s, i) => <Tile key={s.path} path={s.path} title={s.title} at={i} />)}
             </div>
@@ -355,7 +355,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
             программ — то, ради чего Пуск и открывают */}
         {groups.map((g) => (
           <section key={g.id} className={g.id === groups[0].id && (suggested.length > 0 || pinnedList.length > 0) ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
+            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold text-slate-400">{g.title}</h3>
             <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}
             </div>

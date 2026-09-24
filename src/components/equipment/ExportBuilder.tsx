@@ -206,7 +206,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
     .filter((sec) => sec.params.length);
   const addSection = (sec: typeof sections[number]) =>
     set({ columns: [...spec.columns, ...sec.params.filter((x) => !hasCol(x.key)).map((x) => ({ key: x.key, label: x.label, unit: x.unit }))] });
-  const label = 'text-2xs font-bold uppercase tracking-wide text-slate-400';
+  const label = 'text-2xs font-bold text-slate-400';
   const chip = (on: boolean) => `px-2 py-0.5 rounded-full text-2xs font-semibold border cursor-pointer ${on
     ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`;
 
@@ -376,7 +376,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                 <tbody>
                   {table.rows.slice(0, 20).map((r, i) => (
                     table.groupRows.includes(i)
-                      ? <tr key={i}><td colSpan={Math.max(1, table.headers.length)} className="px-2 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">{r[0]}</td></tr>
+                      ? <tr key={i}><td colSpan={Math.max(1, table.headers.length)} className="px-2 pt-2 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">{r[0]}</td></tr>
                       : <tr key={i} className="border-b border-slate-100 dark:border-slate-850">{r.map((v, j) => <td key={j} className="px-2 py-1 whitespace-nowrap max-w-[240px] truncate">{v}</td>)}</tr>
                   ))}
                 </tbody>

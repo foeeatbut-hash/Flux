@@ -57,11 +57,11 @@ export default function CardActions(p: CardActionsProps) {
           style={{ top: Math.min(m.y, window.innerHeight - 230), left: Math.min(m.x, window.innerWidth - 260) }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400 truncate font-mono">
+          <div className="px-3 py-1 text-2xs text-slate-400 truncate font-mono">
             {p.codeOf(m.tagId) || 'Тег'}
             {p.selectedCount > 1 && <span className="ml-1 text-emerald-500">+{p.selectedCount - 1}</span>}
           </div>
-          <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400">Связи</div>
+          <div className="px-3 py-1 text-2xs text-slate-400">Связи</div>
           <button type="button" onClick={() => { p.onSelectAncestors(m.tagId); p.onCloseMenu(); }}
             className={`${ROW} hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300`}>
             <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> Выделить вверх по ступеньке (родители)

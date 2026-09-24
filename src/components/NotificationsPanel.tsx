@@ -160,7 +160,7 @@ export default function NotificationsPanel() {
           {days.length === 0 && <Empty text={filter === 'personal' ? 'Личных уведомлений нет' : 'Пока ничего не приходило'} />}
           {days.map((day) => (
             <div key={day.title}>
-              <div className="px-2 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 sticky top-0 bg-white dark:bg-slate-900">
+              <div className="px-2 pt-2 pb-1 text-2xs font-bold text-slate-400 sticky top-0 bg-white dark:bg-slate-900">
                 {day.title}
               </div>
               {day.items.map((n) => (

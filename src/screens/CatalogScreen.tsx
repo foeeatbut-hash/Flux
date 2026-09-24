@@ -153,7 +153,7 @@ export default function CatalogScreen() {
                     <div className="flex-1 min-h-0 overflow-auto pr-1">
                       {grouped.map(([kind, list]) => (
                         <div key={kind} className="mb-2">
-                          <div className="text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 px-1 py-1">{kindLabel(kind)} <span className="text-slate-400 tabular-nums">· {list.length}</span></div>
+                          <div className="text-2xs font-bold text-emerald-700 dark:text-emerald-400 px-1 py-1">{kindLabel(kind)} <span className="text-slate-400 tabular-nums">· {list.length}</span></div>
                           {list.map((f) => (
                             <button key={f.id} type="button" onClick={() => setOpenId(f.id)} aria-pressed={openId === f.id}
                               className={`w-full text-left rounded-md px-2 py-1 cursor-pointer flex items-center gap-1.5 ${openId === f.id ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}>

@@ -82,7 +82,7 @@ export default function Configurator({ family, values, onChange, sources = {}, s
     <div className="flex flex-col gap-2 min-w-0">
       <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 px-3 py-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-2xs font-bold uppercase tracking-wide text-slate-400">Обозначение</span>
+          <span className="text-2xs font-bold text-slate-400">Обозначение</span>
           <span className="flex-1" />
           {violations.some((v) => v.level === 'error')
             ? <Chip tone="rose"><AlertTriangle className="w-3 h-3" /> {violations.filter((v) => v.level === 'error').length} ошиб.</Chip>
@@ -148,7 +148,7 @@ function SizeStep({ family, full, shape, limits, readOnly, set, setShape, source
     const off = !!v && near !== v;
     return (
       <label className="flex flex-col gap-1 min-w-0">
-        <span className="text-2xs font-bold uppercase tracking-wide text-slate-400">{label}{sources[k] ? <span className="normal-case font-semibold text-sky-600 dark:text-sky-400"> · {SOURCE_LABEL[sources[k]] || sources[k]}</span> : null}</span>
+        <span className="text-2xs font-bold text-slate-400">{label}{sources[k] ? <span className="normal-case font-semibold text-sky-600 dark:text-sky-400"> · {SOURCE_LABEL[sources[k]] || sources[k]}</span> : null}</span>
         <Input type="number" min={0} value={v || ''} disabled={readOnly} onChange={(e) => set(k, e.target.value ? Number(e.target.value) : undefined)} className="tabular-nums" />
         <span className="text-2xs text-slate-400">{hint(k)}</span>
         {off && !readOnly && (
@@ -180,7 +180,7 @@ function ParamField({ family, p, values, full, set, readOnly, source, highlight 
   readOnly?: boolean; source?: string; highlight?: string;
 }) {
   const head = (
-    <span className="text-2xs font-bold uppercase tracking-wide text-slate-400">
+    <span className="text-2xs font-bold text-slate-400">
       {textOf(p.label)}
       {source ? <span className="normal-case font-semibold text-sky-600 dark:text-sky-400"> · {SOURCE_LABEL[source] || source}</span> : null}
     </span>

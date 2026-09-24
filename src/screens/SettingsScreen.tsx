@@ -175,7 +175,7 @@ export default function SettingsScreen() {
               остаётся черта: подпись там всё равно не поместилась бы, а разрыв
               между группами нужен. */}
           <div className="pt-1.5 first:pt-0" title={g.hint}>
-            <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
+            <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
             <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
           </div>
           {SECTIONS.filter(s => s.scope === g.scope && allows(s)).map(s => {
@@ -383,7 +383,7 @@ function RuleListInput({ label, hint, values, onChange, disabled }: {
 }) {
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-bold text-slate-500">{label}</label>
       <input
         disabled={disabled}
         defaultValue={values.join(', ')}
@@ -529,7 +529,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
 
           {/* Правила применения */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Когда применяется (автоматически)</div>
+            <div className="text-xs font-bold text-slate-400">Когда применяется (автоматически)</div>
             <div className="grid @[820px]:grid-cols-2 gap-3">
               <RuleListInput
                 label="Отделы / классы тегов"
@@ -569,7 +569,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
 
           {/* Этапы шаблона */}
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Этапы шаблона</div>
+            <div className="text-xs font-bold text-slate-400 mb-2">Этапы шаблона</div>
             <StageListEditor
               stages={activeTemplate.stages}
               onChange={(next) => updateTemplate(activeTemplate.id, { stages: next })}
@@ -655,7 +655,7 @@ function BackupSection({ isAdmin, addToast }: any) {
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Папка архивов</div>
+              <div className="text-xs font-bold text-slate-400">Папка архивов</div>
               <div className="text-xs font-mono mt-1 text-slate-600 dark:text-slate-300 select-all break-all">{status?.dir || '—'}</div>
             </div>
             {isAdmin && (
@@ -679,7 +679,7 @@ function BackupSection({ isAdmin, addToast }: any) {
 
         {/* Настройки */}
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Расписание</div>
+          <div className="text-xs font-bold text-slate-400">Расписание</div>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -719,7 +719,7 @@ function BackupSection({ isAdmin, addToast }: any) {
 
         {/* Список архивов */}
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+          <div className="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5">
             <FolderOpen className="w-3.5 h-3.5" /> Существующие архивы ({backups.length})
           </div>
           {backups.length === 0 ? (
@@ -775,7 +775,7 @@ function EquipmentSection({ isAdmin, addToast }: any) {
     <SectionShell title="Оборудование" desc="Поведение при импорте новых ревизий и категории оборудования.">
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">При новой ревизии</div>
+          <div className="text-xs font-bold text-slate-400 mb-2">При новой ревизии</div>
           <div className="flex gap-2 max-w-md">
             <button type="button" onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
             <button type="button" onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
@@ -783,7 +783,7 @@ function EquipmentSection({ isAdmin, addToast }: any) {
         </div>
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Категории оборудования</div>
+          <div className="text-xs font-bold text-slate-400 mb-2">Категории оборудования</div>
           <div className="space-y-1 mb-2 max-h-52 overflow-y-auto max-w-md">
             {categories.map(c => (
               <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 text-xs">
@@ -874,7 +874,7 @@ function TagsSection({ addToast }: any) {
     <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Схема · подключение связей</div>
+          <div className="text-xs font-bold text-slate-400 mb-1">Схема · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
           <LinkModeChooser
             value={canvasMode}
@@ -885,7 +885,7 @@ function TagsSection({ addToast }: any) {
         </div>
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Дерево · подключение связей</div>
+          <div className="text-xs font-bold text-slate-400 mb-1">Дерево · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги во вкладке «Дерево связей».</p>
           <LinkModeChooser
             value={treeMode}
@@ -1410,14 +1410,14 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
 
           <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-3">
             <div>
-              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Название</label>
+              <label className="block text-2xs font-semibold text-slate-500 mb-1">Название</label>
               <input type="text" value={draft.name || ''} autoFocus
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 placeholder="Инженер-конструктор"
                 className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
             </div>
             <div>
-              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Код</label>
+              <label className="block text-2xs font-semibold text-slate-500 mb-1">Код</label>
               <input type="text" value={draft.code || ''} disabled={!!editing}
                 onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
                 placeholder="ENGINEER_CAD"
@@ -1427,7 +1427,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
           </div>
 
           <div>
-            <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Описание</label>
+            <label className="block text-2xs font-semibold text-slate-500 mb-1">Описание</label>
             <input type="text" value={draft.description || ''}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               placeholder="Чем занимается: разделы, зона ответственности"
@@ -1436,7 +1436,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
 
           <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-3">
             <div>
-              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Цвет значка</label>
+              <label className="block text-2xs font-semibold text-slate-500 mb-1.5">Цвет значка</label>
               <div className="flex flex-wrap gap-1.5">
                 {ROLE_COLORS.map((c) => (
                   <button key={c.id} type="button" title={c.label}
@@ -1447,7 +1447,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
               </div>
             </div>
             <div>
-              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Значок</label>
+              <label className="block text-2xs font-semibold text-slate-500 mb-1.5">Значок</label>
               <div className="flex flex-wrap gap-1.5">
                 {ROLE_ICONS.map((ic) => (
                   <button key={ic} type="button"
@@ -1467,13 +1467,13 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
               сотрудника накладываются поверх и сильнее — так можно забрать
               доступ у одного человека, не трогая всю роль. */}
           <div>
-            <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">
+            <label className="block text-2xs font-semibold text-slate-500 mb-1.5">
               Что разрешено этой роли
             </label>
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {FEATURE_GROUPS.map((g) => (
                 <div key={g}>
-                  <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{g}</div>
+                  <div className="text-2xs font-mono text-slate-400 mb-1">{g}</div>
                   <div className="space-y-1">
                     {FEATURES.filter((f) => f.group === g).map((f) => {
                       const perms = parsePermissions(draft.permissions as any);

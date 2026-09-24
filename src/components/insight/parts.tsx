@@ -94,7 +94,7 @@ export function GroupHead({ title, hint, count, right }: {
     <div className="flex items-start justify-between gap-3 px-3 pt-3 pb-1">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</h3>
+          <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400">{title}</h3>
           {count !== undefined && (
             <span className="px-1.5 py-0.5 rounded-md text-2xs font-bold tabular-nums
                              bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">{count}</span>

@@ -17,7 +17,7 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div className="space-y-4">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Тема интерфейса</div>
+          <div className="text-xs font-bold text-slate-400 mb-3">Тема интерфейса</div>
           {/* Переключатель, а не две залитые кнопки: выбранное состояние
               показывается плашкой, а не полным фирменным цветом. */}
           <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
@@ -45,7 +45,7 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
         </div>
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Плотность</div>
+          <div className="text-xs font-bold text-slate-400 mb-1">Плотность</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
             Сколько строк помещается на экране. Влияет на таблицы и списки во всех разделах.
           </p>
@@ -76,7 +76,7 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
         </div>
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Главный экран и помощник</div>
+          <div className="text-xs font-bold text-slate-400 mb-1">Главный экран и помощник</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
             Живой фон по времени года и картины в шапке помощника. Если отвлекают — выключите.
           </p>
@@ -103,7 +103,7 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
         <StartupSection />
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">О программе</div>
+          <div className="text-xs font-bold text-slate-400 mb-3">О программе</div>
           <div className="flex items-center gap-3.5">
             <FluxLogo size={46} radius={13} />
             <div className="min-w-0">
@@ -182,7 +182,7 @@ function StartupSection() {
 
   return (
     <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-      <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Запуск</div>
+      <div className="text-xs font-bold text-slate-400 mb-3">Запуск</div>
       <div className="space-y-2">
         <Row
           on={state.enabled}

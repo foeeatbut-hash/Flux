@@ -55,7 +55,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
             (assistant/tours), а не переписаны рядом */}
         {tours.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-2xs uppercase tracking-wider font-semibold text-slate-400 dark:text-slate-500 mr-0.5">
+            <span className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mr-0.5">
               Показать в программе
             </span>
             {tours.map((t) => (
@@ -123,7 +123,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
             <div className="sheet overflow-x-auto scrollbar-thin">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-2xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  <tr className="text-2xs text-slate-400 dark:text-slate-500">
                     <th className="text-left font-semibold px-3 py-2">Что</th>
                     <th className="text-left font-semibold px-3 py-2">Опирается на</th>
                     <th className="text-left font-semibold px-3 py-2">Как связаны</th>
@@ -197,7 +197,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
 
       {a.see?.length ? (
         <footer className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-          <span className="text-2xs uppercase tracking-wider font-semibold text-slate-400 dark:text-slate-500">Смотрите также</span>
+          <span className="text-2xs font-semibold text-slate-400 dark:text-slate-500">Смотрите также</span>
           {a.see.map((id) => (
             <button
               key={id} type="button" onClick={() => onOpen(id)}

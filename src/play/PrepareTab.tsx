@@ -127,7 +127,7 @@ export default function PrepareTab({
               const mates = lobby.slots.filter((s) => s.team === team);
               return (
                 <div key={team} className="rounded-lg bg-slate-50 dark:bg-slate-950 p-2">
-                  <h3 className="text-2xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  <h3 className="text-2xs font-bold text-slate-400 dark:text-slate-500">
                     Команда {team}
                   </h3>
                   <ul className="mt-1 space-y-1">

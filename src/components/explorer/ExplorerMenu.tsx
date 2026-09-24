@@ -97,7 +97,7 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
       ) : menu.isContainer ? (
         <>
           {/* «Создать» — как в Windows: правый клик по пустому месту */}
-          <div className="px-6 py-1 text-2xs font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
+          <div className="px-6 py-1 text-2xs font-bold text-slate-400 select-none">Создать</div>
           <Item icon={<FolderPlus />} label="Папку" onClick={() => { p.createFolder(); p.onClose(); }} />
           <Item icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { p.createDoc('DOC'); p.onClose(); }} />
           <Item icon={<FileText />} label="Документ (Word)" onClick={() => { p.createDoc('TEXT'); p.onClose(); }} />

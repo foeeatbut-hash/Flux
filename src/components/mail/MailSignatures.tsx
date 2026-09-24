@@ -285,7 +285,7 @@ export default function MailSignatures({ accounts, onClose }: Props) {
 
                   {images.length > 0 && (
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <span className="text-2xs font-semibold text-slate-500 dark:text-slate-400">
                         Картинки — нажмите, чтобы вставить
                       </span>
                       <div className="flex flex-wrap gap-2">

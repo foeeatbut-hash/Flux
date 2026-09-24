@@ -384,7 +384,7 @@ export default function BrowserScreen() {
             </div>
             {st.bookmarks.length > 0 && (
               <div className="w-full max-w-xl">
-                <p className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-2">Закладки проекта</p>
+                <p className="text-2xs font-bold text-slate-400 mb-2">Закладки проекта</p>
                 <div className="grid grid-cols-2 @[720px]:grid-cols-3 gap-1.5">
                   {st.bookmarks.slice(0, 12).map((b) => (
                     <button key={b.id} type="button" onClick={() => void st.open(b.url)}

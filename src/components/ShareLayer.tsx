@@ -118,7 +118,7 @@ export default function ShareLayer() {
         <div className="fixed z-[120] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border shadow-xl rounded-lg py-1 min-w-[180px] text-sm"
           style={{ top: Math.min(menu.y, window.innerHeight - 90), left: Math.min(menu.x, window.innerWidth - 200) }}
           onClick={(e) => e.stopPropagation()}>
-          <div className="px-3 py-1.5 text-2xs uppercase tracking-wider text-slate-400 truncate max-w-[200px]">{menu.candidate.label}</div>
+          <div className="px-3 py-1.5 text-2xs text-slate-400 truncate max-w-[200px]">{menu.candidate.label}</div>
           <button type="button" onClick={() => openPicker(menu.candidate)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-dark-text-main cursor-pointer">
             <Share2 className="w-4 h-4 text-emerald-600" /> Поделиться в чате
           </button>

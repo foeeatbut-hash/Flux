@@ -93,7 +93,7 @@ export default function SaveViewDialog({ role, params, preselected, onClose, onS
             )}
             {groups.map(([title, list]) => (
               <div key={title} className="px-3 py-2">
-                <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1">{title}</div>
+                <div className="text-2xs font-bold text-slate-400 mb-1">{title}</div>
                 {list.map((p) => (
                   <label key={idOf(p)} className="flex items-center gap-2 py-0.5 text-xs cursor-pointer">
                     <input type="checkbox" checked={picked.has(idOf(p))} onChange={() => toggle(idOf(p))}

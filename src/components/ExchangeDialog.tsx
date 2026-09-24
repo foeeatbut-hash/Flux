@@ -114,7 +114,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
         <div className="p-4 space-y-3">
           {/* Что */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold uppercase tracking-wide text-slate-400">Что</span>
+            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Что</span>
             <div className="flex-1 flex flex-wrap gap-1.5">
               {p.scopes.map((s) => (
                 <button key={s.id} type="button" onClick={() => setScope(s.id)}
@@ -131,7 +131,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
 
           {/* Куда */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold uppercase tracking-wide text-slate-400">Куда</span>
+            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Куда</span>
             <div className="flex-1 flex flex-wrap gap-1.5">
               {(['xlsx', 'csv', 'clipboard'] as Target[]).map((t) => (
                 <button key={t} type="button" onClick={() => setTarget(t)}
@@ -148,7 +148,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
 
           {/* Столбцы — свёрнуты: их много, а меняют их редко */}
           <div className="flex items-start gap-3">
-            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold uppercase tracking-wide text-slate-400">Столбцы</span>
+            <span className="w-20 shrink-0 pt-1.5 text-2xs font-bold text-slate-400">Столбцы</span>
             <div className="flex-1 min-w-0">
               <button type="button" onClick={() => setColsOpen((v) => !v)}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-2xs bg-slate-50 dark:bg-slate-900

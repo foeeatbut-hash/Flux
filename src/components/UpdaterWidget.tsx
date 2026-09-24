@@ -227,7 +227,7 @@ export default function UpdaterWidget() {
   return (
     <div className="bg-slate-100 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/40 text-left font-sans">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Автообновления</span>
+        <span className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500">Автообновления</span>
         {status !== 'idle' && (
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         )}
@@ -240,7 +240,7 @@ export default function UpdaterWidget() {
         </div>
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono pb-1 border-b border-slate-200/50 dark:border-slate-800/50">
           <span>Источник обновлений:</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold uppercase text-xs tracking-wider">
+          <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs">
             {getServerBaseUrl() && !getServerBaseUrl().includes('localhost') ? 'Сервер компании' : 'Встроенный сервер'}
           </span>
         </div>
@@ -366,7 +366,7 @@ export default function UpdaterWidget() {
             <div className="bg-slate-50 dark:bg-slate-990 p-4 border-b border-slate-200 dark:border-slate-850 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ArrowUpCircle className="w-5 h-5 text-emerald-500" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans uppercase tracking-wide">Доступно обновление Flux</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">Доступно обновление Flux</h3>
               </div>
               <span className="bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-400 px-2 py-0.5 rounded text-xs font-bold font-mono">
                 v{latest.version}
@@ -375,7 +375,7 @@ export default function UpdaterWidget() {
 
             <div className="p-5 flex-1 overflow-y-auto text-left">
               <div className="bg-slate-50 dark:bg-slate-900 p-3.5 rounded-lg border border-slate-200 dark:border-slate-800/80 mb-4">
-                <h4 className="text-xs font-extrabold text-slate-500 dark:text-slate-450 uppercase mb-2 tracking-wider font-mono">Список изменений релиза:</h4>
+                <h4 className="text-xs font-extrabold text-slate-500 dark:text-slate-450 mb-2 font-mono">Список изменений релиза:</h4>
                 <div className="whitespace-pre-line text-slate-700 dark:text-slate-300 text-xs font-sans leading-relaxed space-y-1">
                   {latest.changelog || 'Описание изменений не указано.'}
                 </div>
@@ -415,7 +415,7 @@ export default function UpdaterWidget() {
             <div className="bg-slate-50 dark:bg-slate-990 p-4 border-b border-slate-200 dark:border-slate-850 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-emerald-500 animate-spin-slow" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans uppercase tracking-wide">Публикация обновления (ADMIN)</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">Публикация обновления (ADMIN)</h3>
               </div>
             </div>
 
@@ -430,7 +430,7 @@ export default function UpdaterWidget() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 uppercase">Номер релиза (версия):</label>
+                <label className="text-xs font-mono font-bold text-slate-400">Номер релиза (версия):</label>
                 <input
                   type="text"
                   value={pubVersion}
@@ -447,7 +447,7 @@ export default function UpdaterWidget() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 uppercase flex items-center gap-1">
+                <label className="text-xs font-mono font-bold text-slate-400 flex items-center gap-1">
                   <FileUp className="w-3.5 h-3.5" /> Файл обновления (exe):
                 </label>
                 <input
@@ -465,7 +465,7 @@ export default function UpdaterWidget() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 uppercase flex items-center gap-1">
+                <label className="text-xs font-mono font-bold text-slate-400 flex items-center gap-1">
                   <Link2 className="w-3.5 h-3.5" /> Или прямая ссылка (если файл не загружаете):
                 </label>
                 <input
@@ -478,7 +478,7 @@ export default function UpdaterWidget() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-mono font-bold text-slate-400 uppercase">Список изменений (Changelog):</label>
+                <label className="text-xs font-mono font-bold text-slate-400">Список изменений (Changelog):</label>
                 <textarea
                   rows={4}
                   value={pubChangelog}
