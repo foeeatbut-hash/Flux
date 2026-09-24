@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Новый вид Flux — стенды</title>
+<link rel="stylesheet" href="flux.css">
+<style>
+  body { overflow: auto; background: var(--surface); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 24px 48px; }
+  h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0; }
+  p { color: var(--text-2); margin: 4px 0 0; }
+  .pages { margin-top: 24px; border-top: 1px solid var(--line); }
+  .pages a { display: flex; gap: 16px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; }
+  .pages a:hover b { color: var(--accent-text); }
+  .pages b { font-weight: 500; flex: 0 0 180px; }
+  .pages span { color: var(--text-2); }
+  .themes { margin-top: 16px; font-size: 12px; color: var(--text-2); }
+  .themes a { color: var(--accent-text); }
+</style>
+<body>
+<div class="wrap">
+  <h1>Новый вид Flux</h1>
+  <p>Образцы экранов по методологии <code>docs/methodology/01-design.md</code>. Программу они не меняют; данные синтетические.</p>
+  <div class="pages">
+    <a href="equipment.html"><b>Оборудование</b><span>категории → состав → карточка установки: схема, параметры, расхождения с расчётом</span></a>
+    <a href="tags.html"><b>Теги · Спецификация</b><span>таблица по 32 px, строка создания первой строкой, фильтр со счётчиками</span></a>
+    <a href="tags-scheme.html"><b>Теги · Схема</b><span>холст на всё окно, форма создания по кнопке</span></a>
+    <a href="settings.html"><b>Настройки</b><span>меню в одну строку, группы без вложенных карточек</span></a>
+    <a href="users.html"><b>Сотрудники</b><span>плитки-сводки → фильтр, «был в программе» — столбцом</span></a>
+    <a href="logs.html"><b>Журнал</b><span>запись 32 px вместо 78, фильтры одной полосой</span></a>
+    <a href="projects.html"><b>Проекты</b><span>список по 32 px, карточка-форма с подписями слева</span></a>
+  </div>
+  <p class="themes">Тёмная тема — добавьте к адресу <a href="equipment.html?theme=dark">?theme=dark</a>.</p>
+</div>
+</body>

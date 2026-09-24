@@ -1,0 +1,307 @@
+/* Стенд нового вида Flux — по docs/methodology/01-design.md.
+   Значения — те же ступени, что в src/index.css (тон 163°), только применены
+   по методологии: нейтральная основа, акцент в четырёх местах, одна
+   поверхность на раздел. Стенд в программу не входит. */
+
+@font-face { font-family: 'Inter'; font-weight: 300 700; font-display: swap;
+  src: url('/src/fonts/inter-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Inter'; font-weight: 300 700; font-display: swap;
+  src: url('/src/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215; }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400 700; font-display: swap;
+  src: url('/src/fonts/jbmono-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400 700; font-display: swap;
+  src: url('/src/fonts/jbmono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+2000-206F; }
+
+:root {
+  --surface: #ffffff;
+  --side: oklch(97.8% 0.004 163);      /* slate-50: боковые панели, шапка таблицы */
+  --hover: oklch(97.8% 0.004 163);
+  --sel: oklch(95.5% 0.005 163);       /* slate-100: выбранная строка */
+  --line: oklch(91.2% 0.006 163);      /* slate-200 */
+  --line-2: oklch(85.5% 0.008 163);    /* slate-300: рамка поля */
+  --text: oklch(28.5% 0.014 163);      /* slate-800 */
+  --text-2: oklch(53.0% 0.012 163);    /* slate-500 */
+  --text-3: oklch(66% 0.010 163);      /* выключенное, прочерк */
+  --accent: oklch(54.0% 0.115 163);    /* emerald-600 */
+  --accent-hover: oklch(50.0% 0.112 163);
+  --accent-on: #ffffff;
+  --accent-text: oklch(46.0% 0.105 163);
+  --amber: oklch(70% 0.15 75);
+  --rose: oklch(60% 0.19 18);
+  --rose-soft: oklch(96% 0.025 18);
+  --rose-text: oklch(50% 0.17 18);
+  --sky: oklch(62% 0.13 235);
+  --green: oklch(62% 0.13 163);
+  --desk: oklch(93.5% 0.006 163);
+  --shadow-pop: 0 4px 16px oklch(16% 0.009 163 / 0.12);
+  --shadow-win: 0 12px 40px oklch(16% 0.009 163 / 0.16), 0 0 0 1px oklch(16% 0.009 163 / 0.08);
+  --row: 32px;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+html.dark {
+  --surface: oklch(18.5% 0.006 163);
+  --side: oklch(16.5% 0.006 163);
+  --hover: oklch(21.5% 0.007 163);
+  --sel: oklch(24% 0.008 163);
+  --line: oklch(26% 0.008 163);
+  --line-2: oklch(32% 0.010 163);
+  --text: oklch(92.5% 0.005 163);
+  --text-2: oklch(70% 0.010 163);
+  --text-3: oklch(55% 0.010 163);
+  --accent: oklch(76% 0.130 163);
+  --accent-hover: oklch(80% 0.130 163);
+  --accent-on: oklch(16% 0.009 163);
+  --accent-text: oklch(78% 0.120 163);
+  --amber: oklch(78% 0.14 75);
+  --rose: oklch(70% 0.17 18);
+  --rose-soft: oklch(26% 0.05 18);
+  --rose-text: oklch(78% 0.13 18);
+  --sky: oklch(72% 0.12 235);
+  --green: oklch(72% 0.13 163);
+  --desk: oklch(13% 0.006 163);
+  --shadow-pop: 0 4px 16px oklch(0% 0 0 / 0.5);
+  --shadow-win: 0 12px 40px oklch(0% 0 0 / 0.55), 0 0 0 1px oklch(100% 0 0 / 0.08);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--desk); color: var(--text);
+  font: 400 13px/20px Inter, system-ui, sans-serif; letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+.ic { flex: none; display: block; }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-2); }
+.faint { color: var(--text-3); }
+.small { font-size: 12px; line-height: 16px; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.right { text-align: right; }
+
+/* ── Окно и панель задач ─────────────────────────────────────── */
+.desk { position: fixed; inset: 0 0 44px 0; }
+.win {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 0; overflow: hidden;
+}
+.win-title {
+  height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.win-title .t { flex: 1; font-weight: 500; font-size: 12px; }
+.win-title .ic { color: var(--text-2); }
+.win-btn { width: 32px; height: 26px; border: 0; background: none; border-radius: 6px; color: var(--text-2);
+  display: grid; place-items: center; }
+.win-btn:hover { background: var(--hover); }
+.win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.taskbar {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 44px; display: flex; align-items: center;
+  gap: 2px; padding: 0 8px; background: var(--side); border-top: 1px solid var(--line);
+}
+.tb-app { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px;
+  color: var(--text-2); font-size: 12px; position: relative; }
+.tb-app.on { background: var(--sel); color: var(--text); font-weight: 500; }
+.tb-app.on::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 2px; height: 2px;
+  border-radius: 2px; background: var(--accent); }
+.tb-start { width: 36px; height: 34px; border-radius: 6px; display: grid; place-items: center; color: var(--text); }
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--text-2); font-size: 12px; }
+.tb-proj { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--line); color: var(--text); background: var(--surface); }
+.clock { text-align: right; line-height: 15px; }
+.clock b { display: block; color: var(--text); font-weight: 500; }
+
+/* ── Шапка раздела, панель инструментов ───────────────────────── */
+.head {
+  height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.head h1 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: -0.012em; white-space: nowrap; }
+.head .count { color: var(--text-2); white-space: nowrap; }
+.tabs { display: flex; align-items: stretch; height: 44px; margin-left: 12px; gap: 2px; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; color: var(--text-2); position: relative; white-space: nowrap; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); font-weight: 500; }
+.tab.on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+.tab .n { color: var(--text-2); font-weight: 400; }
+.head .acts { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+.tools {
+  height: 40px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.search { position: relative; width: 320px; flex: none; }
+.search .ic { position: absolute; left: 8px; top: 6px; color: var(--text-2); }
+.search input { width: 100%; height: 28px; padding: 0 8px 0 30px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface); outline: none; }
+.search input::placeholder, .field input::placeholder { color: var(--text-3); }
+.seg { display: flex; align-items: center; gap: 2px; }
+.seg a { height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; color: var(--text-2); white-space: nowrap; }
+.seg a:hover { background: var(--hover); color: var(--text); }
+.seg a.on { background: var(--sel); color: var(--text); font-weight: 500; }
+.seg a .n { color: var(--text-2); font-weight: 400; }
+.vsep { width: 1px; height: 20px; background: var(--line); flex: none; }
+.chip { height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px;
+  color: var(--text-2); white-space: nowrap; }
+.chip:hover { background: var(--hover); color: var(--text); }
+.chip b { color: var(--text); font-weight: 500; }
+
+/* ── Кнопки ────────────────────────────────────────────────────── */
+.btn { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font-weight: 500; white-space: nowrap; cursor: default; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.quiet { border-color: transparent; background: none; color: var(--text-2); }
+.btn.quiet:hover { background: var(--hover); color: var(--text); }
+.btn.icon { width: 28px; padding: 0; justify-content: center; }
+.btn.lg { height: 32px; }
+.ibtn { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--text-2); }
+.ibtn:hover { background: var(--sel); color: var(--text); }
+
+/* ── Таблица ───────────────────────────────────────────────────── */
+.tbl-wrap { flex: 1; min-height: 0; overflow: auto; }
+table.t { width: 100%; border-collapse: separate; border-spacing: 0; }
+.t th {
+  position: sticky; top: 0; z-index: 1; height: 28px; padding: 0 10px; text-align: left; white-space: nowrap;
+  font-size: 12px; font-weight: 500; color: var(--text-2); background: var(--side); border-bottom: 1px solid var(--line);
+}
+.t th.sorted { color: var(--text); }
+.t td { height: var(--row); padding: 0 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.t tr:hover td { background: var(--hover); }
+.t tr.sel td { background: var(--sel); }
+.t td:first-child, .t th:first-child { padding-left: 16px; }
+.t td:last-child, .t th:last-child { padding-right: 12px; }
+.t .row-acts { display: flex; gap: 2px; justify-content: flex-end; visibility: hidden; }
+.t tr:hover .row-acts, .t tr.sel .row-acts { visibility: visible; }
+.cb { width: 14px; height: 14px; border: 1px solid var(--line-2); border-radius: 4px; display: inline-block; vertical-align: -2px; background: var(--surface); }
+.cb.on { background: var(--accent); border-color: var(--accent); position: relative; }
+.cb.on::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--accent-on); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+
+/* Статус — точка и слово */
+.st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.st::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
+.st.ok::before { background: var(--green); }
+.st.warn::before { background: var(--amber); }
+.st.bad::before { background: var(--rose); }
+.st.info::before { background: var(--sky); }
+
+.badge { height: 18px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 4px;
+  font-size: 11px; line-height: 14px; font-weight: 500; background: var(--sel); color: var(--text-2); white-space: nowrap; }
+.badge.bad { background: var(--rose-soft); color: var(--rose-text); }
+
+.av { width: 22px; height: 22px; border-radius: 50%; background: var(--sel); color: var(--text-2);
+  display: grid; place-items: center; font-size: 10px; font-weight: 500; flex: none; position: relative; }
+.av.online::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); border: 1.5px solid var(--surface); }
+
+/* ── Боковые панели, списки, дерево ────────────────────────────── */
+.split { flex: 1; min-height: 0; display: flex; }
+.side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; flex: none; }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); flex: none; }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.list { padding: 6px; overflow: auto; }
+.li { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: var(--text); white-space: nowrap; }
+.li:hover { background: var(--hover); }
+.side .li:hover { background: var(--sel); }
+.li.on { background: var(--sel); font-weight: 500; }
+.side .li.on { background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.li .ic { color: var(--text-2); }
+.li.on .ic { color: var(--accent-text); }
+.li .n { margin-left: auto; color: var(--text-2); font-weight: 400; font-size: 12px; }
+.gh { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 16px; margin-top: 8px;
+  font-size: 12px; font-weight: 500; color: var(--text-2); }
+.side-foot { margin-top: auto; padding: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.tree .li { gap: 6px; }
+.tree .tw { width: 16px; color: var(--text-3); display: grid; place-items: center; flex: none; }
+.lvl1 { padding-left: 24px !important; }
+.lvl2 { padding-left: 40px !important; }
+
+/* ── Карточка объекта (правая часть) ───────────────────────────── */
+.obj-head { padding: 12px 16px 0; }
+.obj-head h2 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; }
+.obj-head .sub { color: var(--text-2); margin-top: 2px; display: flex; gap: 12px; align-items: center; }
+.obj-tabs { display: flex; gap: 2px; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--line); margin-top: 8px; }
+.obj-tabs .tab { height: 36px; }
+.obj-tabs .tab.on::after { bottom: -1px; }
+.obj-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 16px; }
+.group { margin-top: 16px; }
+.group h3 { margin: 0 0 4px; font-size: 13px; line-height: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.group h3 .muted { font-weight: 400; }
+.kv { display: grid; grid-template-columns: 240px minmax(96px, max-content) 1fr; column-gap: 12px; max-width: 860px; }
+.kv > div { height: 30px; display: flex; align-items: center; border-bottom: 1px solid var(--line); min-width: 0; }
+.kv .k { color: var(--text-2); }
+.kv .u { color: var(--text-2); font-size: 12px; }
+
+/* Схема установки: блоки по порядку воздуха */
+.scheme { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-top: 8px; }
+.blk { flex: 1; min-width: 0; padding: 8px 10px; border-right: 1px solid var(--line); }
+.blk:last-child { border-right: 0; }
+.blk.on { background: var(--sel); }
+.blk .ty { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.blk .nm { font-weight: 500; margin-top: 2px; }
+.blk .pr { font-size: 12px; color: var(--text-2); }
+
+/* ── Формы и настройки ─────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--text-2); }
+.field input, .field select, .inp {
+  height: 32px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); outline: none; min-width: 0; }
+.inp.sm, .field.sm input, .field.sm select { height: 28px; }
+.field textarea { padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); resize: none; outline: none; }
+.sel-fake { height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface);
+  display: flex; align-items: center; gap: 8px; }
+.sel-fake.sm { height: 28px; }
+.sel-fake .ic:last-child { margin-left: auto; color: var(--text-2); }
+
+.set { max-width: 760px; padding: 8px 24px 24px; }
+.set h2 { font-size: 15px; font-weight: 600; margin: 16px 0 0; line-height: 20px; }
+.set .lead { color: var(--text-2); margin: 2px 0 0; }
+.set-group { margin-top: 24px; }
+.set-group h3 { margin: 0; font-size: 13px; font-weight: 600; line-height: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.set-row { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.set-row .txt { flex: 1; min-width: 0; }
+.set-row .txt .d { color: var(--text-2); font-size: 12px; line-height: 16px; }
+.switch { width: 32px; height: 18px; border-radius: 9px; background: var(--line-2); position: relative; flex: none; }
+.switch::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px oklch(0% 0 0 / .2); }
+.switch.on { background: var(--accent); }
+.switch.on::after { left: 16px; }
+html.dark .switch::after { background: oklch(95% 0 0); }
+.segctl { display: inline-flex; padding: 2px; border-radius: 6px; background: var(--sel); gap: 2px; }
+.segctl a { height: 24px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border-radius: 4px; color: var(--text-2); white-space: nowrap; }
+.segctl a.on { background: var(--surface); color: var(--text); font-weight: 500; box-shadow: 0 1px 2px oklch(0% 0 0 / .08), 0 0 0 1px var(--line); }
+
+/* Пустое состояние */
+.empty { padding: 16px; max-width: 480px; }
+.empty b { font-weight: 600; display: block; }
+.empty p { margin: 2px 0 10px; color: var(--text-2); font-size: 12px; line-height: 16px; }
+
+/* Холст тегов */
+.canvas { flex: 1; min-height: 0; position: relative; background-color: var(--surface);
+  background-image: radial-gradient(circle, var(--line-2) 1px, transparent 1.2px); background-size: 20px 20px; }
+html.dark .canvas { background-image: radial-gradient(circle, oklch(28% 0.008 163) 1px, transparent 1.2px); }
+.node { position: absolute; width: 176px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 6px 10px; box-shadow: 0 1px 2px oklch(0% 0 0 / .05); }
+.node .c { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.node .n { font-size: 12px; color: var(--text-2); line-height: 16px; }
+.node.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.canvas-tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 4px; padding: 3px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-pop); }
+.canvas svg.links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.canvas svg.links path { stroke: var(--line-2); stroke-width: 1.5; fill: none; }
+
+/* Сравнение «было → стало» на обзорной странице */
+.cmp { background: var(--desk); }
+/* Строка создания — первая строка таблицы, а не отдельная карточка-форма */
+.t tr.add td { height: 40px; background: var(--side); }
+.t tr.add:hover td { background: var(--side); }
+.t th .ic, .inl { display: inline-block; vertical-align: -2px; margin-left: 2px; }

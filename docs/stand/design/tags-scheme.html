@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Теги, схема — новый вид</title>
+<link rel="stylesheet" href="flux.css">
+<script src="icons.js"></script>
+<body>
+<!-- Теги, вкладка «Схема». Шапка — одна строка; форма создания не висит над холстом постоянно, а открывается кнопкой «Новый тег» (или двойным щелчком по холсту). Холсту отдано всё окно, точечная сетка в тёмной теме тише. Данные синтетические. -->
+<div class="win-body" data-title="Теги" data-ic="tag">
+  <div class="head">
+    <h1>Теги</h1><span class="count">48 тегов</span>
+    <div class="tabs">
+      <span class="tab on"><i data-ic="network" data-s="14"></i>Схема</span>
+      <span class="tab"><i data-ic="list-tree" data-s="14"></i>Дерево связей</span>
+      <span class="tab"><i data-ic="search" data-s="14"></i>Подбор</span>
+      <span class="tab"><i data-ic="list" data-s="14"></i>Спецификация</span>
+      <span class="tab"><i data-ic="arrow-up-down" data-s="14"></i>Экспорт и импорт</span>
+    </div>
+    <div class="acts"><span class="btn primary"><i data-ic="plus"></i>Новый тег</span></div>
+  </div>
+    <div class="tools">
+    <div class="search"><i data-ic="search"></i><input placeholder="Найти на схеме"></div>
+    <div class="seg"><a class="on">Все <span class="n">48</span></a><a>Без связей <span class="n">9</span></a></div>
+    <span class="grow"></span>
+    <span class="muted small">колесо — масштаб · правая кнопка — двигать · от карточки к карточке — связать</span>
+  </div>
+  <div class="canvas">
+    <svg class="links"><path d="M608,104 C608,150 338,154 338,200"/><path d="M608,104 C608,150 608,154 608,200"/><path d="M608,104 C608,150 878,154 878,200"/><path d="M608,104 C608,150 338,294 338,340"/><path d="M608,104 C608,150 608,294 608,340"/><path d="M338,384 C338,430 338,424 338,470"/><path d="M1128,104 C1128,150 1128,154 1128,200"/><path d="M1128,104 C1128,150 1128,294 1128,340"/></svg>
+    <div class="node on" style="left:520px;top:60px"><div class="c">9900-AHU-01</div><div class="n">Приточно-вытяжная установка</div></div><div class="node" style="left:250px;top:200px"><div class="c">9900-TE-011</div><div class="n">Датчик температуры</div></div><div class="node" style="left:520px;top:200px"><div class="c">9900-PDS-013</div><div class="n">Реле перепада давления</div></div><div class="node" style="left:790px;top:200px"><div class="c">9900-M-012</div><div class="n">Привод клапана</div></div><div class="node" style="left:250px;top:340px"><div class="c">9900-HE-501</div><div class="n">Нагреватель водяной</div></div><div class="node" style="left:250px;top:470px"><div class="c">9900-P-401</div><div class="n">Насос смесительного узла</div></div><div class="node" style="left:520px;top:340px"><div class="c">9900-CC-502</div><div class="n">Охладитель фреоновый</div></div><div class="node" style="left:1040px;top:60px"><div class="c">9900-EF-101</div><div class="n">Вентилятор вытяжной</div></div><div class="node" style="left:1040px;top:200px"><div class="c">9900-DF-201</div><div class="n">Клапан противопожарный</div></div><div class="node" style="left:1040px;top:340px"><div class="c">9900-DF-202</div><div class="n">Клапан противопожарный</div></div>
+    <div class="canvas-tools">
+      <span class="btn quiet icon"><i data-ic="zoom-out"></i></span><span class="btn quiet" style="padding:0 6px">90%</span><span class="btn quiet icon"><i data-ic="zoom-in"></i></span>
+      <span class="vsep" style="align-self:center"></span>
+      <span class="btn quiet"><i data-ic="maximize"></i>По размеру</span><span class="btn quiet">Упорядочить</span>
+    </div>
+  </div>
+</div>
+<script src="shell.js"></script>
+</body>
