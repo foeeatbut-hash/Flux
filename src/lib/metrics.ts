@@ -98,14 +98,15 @@ export interface DeskMetric {
 }
 
 /**
- * Три размера, как в системе. «Обычные» 76×84 — то, что даёт Windows при 100 %;
+ * Три размера, как в системе. «Обычные» 76×90 — ширина Windows при 100 % и
+ * высота под две строки подписи 12 px и строку ревизии;
  * прежние 96×100 были ближе к «крупным», и три столбца на ноутбуке вместо пяти
  * брались именно отсюда.
  */
 export const DESK: Record<DeskScale, DeskMetric> = {
-  small: { w: 60, h: 68, icon: 24, label: 10 },
-  normal: { w: 76, h: 84, icon: 32, label: 11 },
-  large: { w: 96, h: 104, icon: 40, label: 11 },
+  small: { w: 60, h: 72, icon: 24, label: 12 },
+  normal: { w: 76, h: 90, icon: 32, label: 12 },
+  large: { w: 96, h: 110, icon: 40, label: 12 },
 };
 
 export const DESK_DEFAULT: DeskScale = 'normal';

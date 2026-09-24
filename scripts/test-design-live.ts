@@ -31,7 +31,7 @@ const ok = (n: string, c: boolean, d?: any) =>
  * docs/methodology/03-programs/ пишется тогда же.
  */
 const SECTIONS: Array<[string, string, boolean]> = [
-  ['Главная', '/', false],
+  ['Главная', '/', true],
   ['Проекты', '/projects', true],
   ['Теги', '/registry', false],
   ['Оборудование', '/equipment', false],
@@ -102,7 +102,14 @@ const PROBE = String.raw`(() => {
     console.log('\n2. Разделы');
     for (const [name, path, done] of SECTIONS) {
       if (ONLY.length && !ONLY.includes(path)) continue;
-      await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
+      if (path === '/') {
+        // Адрес «/» — это рабочий стол; Главная открывается из подвала Пуска
+        await page.click('button[aria-label="Пуск"]');
+        await page.waitForTimeout(700);
+        await page.click('[role="dialog"][aria-label="Пуск"] button[title="Главная — сводка по проекту"]');
+      } else {
+        await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
+      }
       await page.waitForTimeout(3500);
       const p: any = await page.evaluate(PROBE);
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}.png` });
