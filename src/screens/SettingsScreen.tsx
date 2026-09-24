@@ -25,7 +25,7 @@ import FormulaManager from '../components/FormulaManager';
 import {
   Role, ROLE_COLORS, ROLE_ICONS, roleColorClass, loadRoles, invalidateRoles, isTopAdmin,
 } from '../lib/roles';
-import { FEATURES, FEATURE_GROUPS, PermMap, parsePermissions } from '../lib/permissions';
+import { FEATURES, FEATURE_GROUPS, PermMap, parsePermissions, entryOf, offEntry } from '../lib/permissions';
 import { getAuthToken } from '../config/env';
 import { motion } from 'motion/react';
 import {
@@ -1477,12 +1477,15 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                   <div className="space-y-1">
                     {FEATURES.filter((f) => f.group === g).map((f) => {
                       const perms = parsePermissions(draft.permissions as any);
-                      const on = !!perms[f.id]?.enabled;
+                      // Открытое по умолчанию право у роли запрещается явной
+                      // записью: удалённая запись вернула бы его само (offEntry)
+                      const on = !!entryOf(perms, f.id)?.enabled;
                       return (
                         <button key={f.id} type="button"
                           onClick={() => {
                             const next: PermMap = { ...perms };
-                            if (on) delete next[f.id];
+                            const off = offEntry(f.id);
+                            if (on) { if (off) next[f.id] = off; else delete next[f.id]; }
                             else next[f.id] = { enabled: true, until: null };
                             setDraft({ ...draft, permissions: JSON.stringify(next) });
                           }}

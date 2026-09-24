@@ -128,6 +128,10 @@ export const DEFAULT_DENIED = [
   // это работа одного-двух человек, а не всех. Писать обращения при этом может
   // каждый: право feedback.create в списке отказов намеренно отсутствует
   'feedback.triage', 'feedback.diagnostics', 'feedback.manage',
+  // Каталог и шаблоны бланков общие для всех проектов: одна правка меняет подбор
+  // и бланки у всего отдела сразу. Это работа того, кому её поручили, — решение
+  // владельца; вести ведомости и выпускать бланки по-прежнему может каждый
+  'catalog.manage', 'blanks.manage',
 ];
 
 /**
@@ -135,12 +139,15 @@ export const DEFAULT_DENIED = [
  *
  * Запись прав у роли и сотрудника хранит только то, что было в каталоге на
  * момент настройки. Право, добавленное позже, в ней отсутствует — и читалось
- * как запрет: после появления Каталога и Конструктора у всех, кроме
- * администратора, кнопки пропали, а сервер отвечал «Недостаточно прав» на
- * любую запись. Для этих прав отсутствие записи значит «как у нового
- * сотрудника» — выдано; явный запрет в карточке по-прежнему запрещает.
+ * как запрет: после появления Конструктора у всех, кроме администратора,
+ * кнопки пропали, а сервер отвечал «Недостаточно прав» на любую запись. Для
+ * этих прав отсутствие записи значит «как у нового сотрудника» — выдано.
+ *
+ * Запрет поэтому хранится явной записью `{enabled:false}`, а не отсутствием:
+ * снятая галочка, которая просто удаляла запись, у такого права ничего не
+ * запрещала (см. isExplicitDeny и cleanUserPermissions).
  */
-export const OPEN_BY_DEFAULT = ['catalog.manage', 'blanks.manage', 'builder.edit', 'builder.issue'];
+export const OPEN_BY_DEFAULT = ['builder.edit', 'builder.issue'];
 
 /** Запись права с учётом «открытых по умолчанию» — одна для окна и сервера */
 export function entryOf(map: PermMap, feature: string): PermEntry | undefined {
@@ -148,6 +155,15 @@ export function entryOf(map: PermMap, feature: string): PermEntry | undefined {
   if (e) return e;
   if (OPEN_BY_DEFAULT.includes(feature) && !DEFAULT_DENIED.includes(feature)) return { enabled: true, until: null };
   return undefined;
+}
+
+/**
+ * Что записать, когда в карточке или роли сняли галочку. У обычного права
+ * достаточно убрать запись, у открытого по умолчанию — нужен явный запрет,
+ * иначе право вернётся само.
+ */
+export function offEntry(feature: string): PermEntry | null {
+  return OPEN_BY_DEFAULT.includes(feature) ? { enabled: false, until: null } : null;
 }
 
 export function defaultPermissions(): PermMap {
@@ -201,7 +217,7 @@ export function effectivePermissions(user: PermUser | null | undefined): PermMap
 
 /** Запись права для отображения статуса в UI. */
 export function permEntry(user: PermUser | null | undefined, feature: string): PermEntry {
-  const e = effectivePermissions(user)[feature];
+  const e = entryOf(effectivePermissions(user), feature);
   return { enabled: !!e?.enabled, until: e?.until ?? null };
 }
 
