@@ -79,7 +79,7 @@ interface Props {
   children: React.ReactNode;
 }
 
-const AVATAR = 'w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-2xs font-bold select-none';
+const AVATAR = 'w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-2xs font-semibold select-none';
 
 /** Кнопка во всплывающей панели действий. */
 function Act({ icon: Icon, title, onClick, tone = '' }: {
@@ -129,7 +129,7 @@ export default function MessageBubble({
       <div className={`relative max-w-[min(68%,560px)] min-w-0 flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
         {/* Имя — один раз на кучку и только в групповой переписке */}
         {mark.first && !hideNames && !isMe && (
-          <span className="px-2 pb-0.5 text-2xs font-bold text-emerald-700 dark:text-emerald-400 select-none">
+          <span className="px-2 pb-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 select-none">
             {name}
           </span>
         )}
@@ -196,7 +196,7 @@ export default function MessageBubble({
               }`}
               title="Перейти к сообщению"
             >
-              <span className={`block text-2xs font-bold truncate ${isMe ? 'text-white' : 'text-emerald-700 dark:text-emerald-400'}`}>
+              <span className={`block text-2xs font-semibold truncate ${isMe ? 'text-white' : 'text-emerald-700 dark:text-emerald-400'}`}>
                 <CornerDownRight className="w-3 h-3 inline mr-1 -mt-0.5" />
                 {msg.replyTo.sender?.name || 'Сообщение'}
               </span>
@@ -216,11 +216,11 @@ export default function MessageBubble({
                 isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60'
               }`}
             >
-              <span className={`block text-2xs font-bold mb-0.5 ${
+              <span className={`block text-2xs font-semibold mb-0.5 ${
                 isMe ? 'text-emerald-50' : 'text-emerald-800 dark:text-emerald-400'}`}>
                 Оборудование
               </span>
-              <span className={`block text-xs font-bold ${isMe ? 'text-white' : 'text-slate-800 dark:text-slate-150'}`}>
+              <span className={`block text-xs font-semibold ${isMe ? 'text-white' : 'text-slate-800 dark:text-slate-150'}`}>
                 {msg.linkedElement.name}
               </span>
               <span className={`block text-2xs ${isMe ? 'text-emerald-50/80' : 'text-slate-500 dark:text-slate-400'}`}>
@@ -241,7 +241,7 @@ export default function MessageBubble({
                   <span className="flex items-center gap-2 min-w-0">
                     <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isMe ? 'text-white' : 'text-emerald-650 dark:text-emerald-400'}`} />
                     <span className="min-w-0">
-                      <span className={`block text-2xs font-bold truncate ${isMe ? 'text-white' : 'text-slate-850 dark:text-slate-150'}`}>
+                      <span className={`block text-2xs font-semibold truncate ${isMe ? 'text-white' : 'text-slate-850 dark:text-slate-150'}`}>
                         {f.fileName}
                       </span>
                       <span className={`block text-2xs ${isMe ? 'text-emerald-50/80' : 'text-slate-400'}`}>
@@ -286,7 +286,7 @@ export default function MessageBubble({
                 }`}
               >
                 <span className="text-xs leading-none">{r.emoji}</span>
-                <span className="font-bold">{r.count}</span>
+                <span className="font-medium">{r.count}</span>
               </button>
             ))}
           </div>
@@ -300,8 +300,7 @@ export default function MessageBubble({
 export function DayDivider({ label }: { label: string }) {
   return (
     <div className="sticky top-1 z-10 flex justify-center py-2 pointer-events-none select-none">
-      <span className="px-3 py-1 rounded-full text-2xs font-bold
-                       bg-slate-900/70 dark:bg-slate-100/15 text-white backdrop-blur-sm shadow-sm">
+      <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/70 dark:bg-slate-100/15 text-white backdrop-blur-sm shadow-sm">
         {label}
       </span>
     </div>
