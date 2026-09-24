@@ -185,9 +185,11 @@ export const SECTIONS: Section[] = [
       const marks = await c.page.evaluate(`(() => {
         let выбрано = 0, активно = 0;
         for (const e of document.querySelectorAll('[data-win] *')) {
-          const cl = typeof e.className === 'string' ? e.className : '';
-          if (/ring-2|border-emerald-5/.test(cl)) выбрано++;
-          if (e.children.length === 0 && /Активн/.test(e.textContent || '')) активно++;
+          // Выбранный в списке проект отмечен aria-current, а тот, что в работе, —
+          // словами «Выбран для работы». Раньше здесь искали классы ring-2 и
+          // border-emerald-5, и проверка держалась на рамке фокуса полей ввода
+          if (e.getAttribute('aria-current') === 'true') выбрано++;
+          if (e.children.length === 0 && /Активн|Выбран для работы/.test(e.textContent || '')) активно++;
         }
         return { выбрано, активно };
       })()`);

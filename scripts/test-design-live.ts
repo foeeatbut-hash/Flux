@@ -32,7 +32,7 @@ const ok = (n: string, c: boolean, d?: any) =>
  */
 const SECTIONS: Array<[string, string, boolean]> = [
   ['Главная', '/', false],
-  ['Проекты', '/projects', false],
+  ['Проекты', '/projects', true],
   ['Теги', '/registry', false],
   ['Оборудование', '/equipment', false],
   ['Справочник', '/directory', false],
