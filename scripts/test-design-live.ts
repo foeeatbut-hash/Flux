@@ -34,7 +34,7 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Главная', '/', true],
   ['Проекты', '/projects', true],
   ['Теги', '/registry', false],
-  ['Оборудование', '/equipment', false],
+  ['Оборудование', '/equipment', true],
   ['Справочник', '/directory', true],
   ['Менеджмент', '/management', true],
   ['Настройки', '/settings', true],

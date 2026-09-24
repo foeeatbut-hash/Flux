@@ -257,21 +257,23 @@ export default function PositionTree({
         </div>
       </div>
       {onMode && (
-        <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1" role="group" aria-label="Вид дерева">
-          <button type="button" className={seg(mode === 'composition')} onClick={() => onMode('composition')}>по составу</button>
-          <button type="button" className={seg(mode === 'type')} onClick={() => onMode('type')}>по типу</button>
+        <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800">
+          <div className="fx-segctl" role="group" aria-label="Вид дерева">
+            <button type="button" aria-pressed={mode === 'composition'} onClick={() => onMode('composition')}>по составу</button>
+            <button type="button" aria-pressed={mode === 'type'} onClick={() => onMode('type')}>по типу</button>
+          </div>
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {units.length === 0 ? (
           <div className="blank">
             <div className="blank-title">Категория пуста</div>
-            <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Импорт из документов» — внизу списка категорий.</div>
+            <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Импорт из документов» — справа в шапке раздела.</div>
           </div>
         ) : mode === 'type' && types ? byType(units, types).map((g) => (
           <div key={g.cls} className="pb-1">
-            <div className="px-2 pt-2 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
-              {classById(g.cls).plural} <span className="text-slate-400 font-semibold tabular-nums">· {g.rows.length}</span>
+            <div className="fx-gh">
+              {classById(g.cls).plural} <span className="text-slate-400 font-normal tabular-nums">· {g.rows.length}</span>
             </div>
             {/* Установку в этом виде называет её имя: «Параметры установки» у
                 каждой из них читались бы одинаково */}

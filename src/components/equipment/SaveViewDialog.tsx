@@ -121,9 +121,9 @@ export default function SaveViewDialog({ role, params, preselected, onClose, onS
         <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <span className="text-2xs text-slate-400">отмечено: {picked.size}</span>
           <span className="flex-1" />
-          <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">Отмена</button>
+          <button type="button" onClick={onClose} className="fx-btn">Отмена</button>
           <button type="button" onClick={submit} disabled={busy}
-            className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50 cursor-pointer">
+            className="fx-btn fx-btn-primary">
             {busy ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>

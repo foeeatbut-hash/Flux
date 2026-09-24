@@ -119,7 +119,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
   { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
   { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, pinned: true, Component: Registry },
-  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
+  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
