@@ -270,7 +270,7 @@ export default function PositionTree({
           </div>
         ) : mode === 'type' && types ? byType(units, types).map((g) => (
           <div key={g.cls} className="pb-1">
-            <div className="px-2 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+            <div className="px-2 pt-2 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
               {classById(g.cls).plural} <span className="text-slate-400 font-semibold tabular-nums">· {g.rows.length}</span>
             </div>
             {/* Установку в этом виде называет её имя: «Параметры установки» у

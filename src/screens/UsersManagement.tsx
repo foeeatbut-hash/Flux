@@ -695,7 +695,7 @@ export default function UsersManagement() {
                   <NameFields value={nameValue} onChange={setNameValue} disabled={isSubmitting} />
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1 font-mono">
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1 font-mono">
                       Табельный номер (ID)
                     </label>
                     <input
@@ -713,7 +713,7 @@ export default function UsersManagement() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
                       Пароль доступа в систему
                     </label>
                     <input
@@ -728,7 +728,7 @@ export default function UsersManagement() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
                       Роль в системе
                     </label>
                     <select
@@ -744,7 +744,7 @@ export default function UsersManagement() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
                       Срок действия профиля (опционально)
                     </label>
                     <input
@@ -835,7 +835,7 @@ export default function UsersManagement() {
                   <NameFields value={editNameValue} onChange={setEditNameValue} disabled={isEditSubmitting} />
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1 font-mono">Табельный номер (логин)</label>
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1 font-mono">Табельный номер (логин)</label>
                     <input
                       type="text"
                       value={editSymbol}
@@ -848,7 +848,7 @@ export default function UsersManagement() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">Роль</label>
+                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">Роль</label>
                       <select
                         value={editRole}
                         onChange={(e) => setEditRole(e.target.value)}
@@ -861,7 +861,7 @@ export default function UsersManagement() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">Новый пароль</label>
+                      <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">Новый пароль</label>
                       <input
                         type="text"
                         value={editPassword}
@@ -874,7 +874,7 @@ export default function UsersManagement() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1">
                       Доступ действует до
                     </label>
                     <input
@@ -906,7 +906,7 @@ export default function UsersManagement() {
 
                   {/* Права доступа по функциям */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-2">Права доступа</label>
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-2">Права доступа</label>
                     {editRole === 'ADMIN' ? (
                       <div className="flex items-center gap-2 p-3 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 text-sm font-semibold">
                         <ShieldCheck className="w-4 h-4" /> Полный доступ (администратор)

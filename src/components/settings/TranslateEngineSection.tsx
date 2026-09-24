@@ -131,7 +131,7 @@ export default function TranslateEngineSection() {
         </div>
 
         <div className="rounded-md bg-slate-50 dark:bg-slate-900 p-3">
-          <p className="text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+          <p className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mb-2">
             Откуда взяты слова
           </p>
           <ul className="space-y-1.5 text-2xs text-slate-500 dark:text-slate-400">

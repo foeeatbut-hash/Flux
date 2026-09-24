@@ -641,7 +641,7 @@ export default function CaptureReview() {
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-50 dark:bg-slate-800">
                       {['', 'Код', 'Класс', 'Что делаем', 'Почему', ''].map((h, i) => (
-                        <th key={i} className="text-left text-2xs uppercase tracking-wide font-bold text-slate-400
+                        <th key={i} className="text-left text-2xs font-bold text-slate-400
                                                px-3 py-2 border-b border-slate-200 dark:border-slate-700">{h}</th>
                       ))}
                     </tr>
@@ -772,7 +772,7 @@ export default function CaptureReview() {
                 </div>
                 {(result.skipped ?? []).length > 0 && (
                   <div className="mt-3">
-                    <div className="text-2xs font-bold text-slate-400 uppercase tracking-wide mb-1">Пропущено</div>
+                    <div className="text-2xs font-bold text-slate-400 mb-1">Пропущено</div>
                     <div className="flex flex-wrap gap-1.5">
                       {(result.skipped ?? []).map((c: string, i: number) => (
                         <span key={i} className="text-2xs font-mono px-2 py-0.5 rounded-full

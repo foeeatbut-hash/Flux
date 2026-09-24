@@ -88,10 +88,10 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
         )}
         {tab === 'tag' && (
           <>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Обозначение тега</label>
+            <label className="block text-xs font-bold text-slate-500">Обозначение тега</label>
             <input value={tagId} onChange={e => setTagId(e.target.value)} placeholder="напр. AHU-01"
               className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
-            <label className="block text-xs font-bold text-slate-500 uppercase mt-2">Поле тега</label>
+            <label className="block text-xs font-bold text-slate-500 mt-2">Поле тега</label>
             <div className="flex gap-2">
               <select value={tagField} onChange={e => setTagField(e.target.value)}
                 className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
@@ -104,7 +104,7 @@ export default function DataFieldsPanel({ projectId, projectName, userName, labe
                 className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
             </div>
             <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850">
-              <label className="block text-xs font-bold text-slate-500 uppercase">Параметр оборудования по тегу</label>
+              <label className="block text-xs font-bold text-slate-500">Параметр оборудования по тегу</label>
               <input value={paramGroup} onChange={e => setParamGroup(e.target.value)} placeholder="группа (напр. Габариты)"
                 className="w-full mt-1 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
               <div className="flex gap-2 mt-1.5">

@@ -70,7 +70,7 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
         )}
         {groups.map((g) => (
           <div key={g.label} className="mb-2">
-            <p className="px-1 py-1 text-2xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            <p className="px-1 py-1 text-2xs font-bold text-slate-400 dark:text-slate-500">
               {g.label}
             </p>
             {g.chats.map((c) => (

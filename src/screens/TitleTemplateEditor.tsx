@@ -202,7 +202,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
           <div className="w-60 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-y-auto p-3 space-y-3">
             {Object.entries(grouped).map(([group, fields]) => (
               <div key={group}>
-                <div className="text-2xs font-bold uppercase tracking-wide text-slate-400 mb-1">{group}</div>
+                <div className="text-2xs font-bold text-slate-400 mb-1">{group}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {fields.map((f) => (
                     <button key={f.key} onMouseDown={(e) => { e.preventDefault(); insertHtmlAtCaret(fieldChipHtml(f.key)); }}

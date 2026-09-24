@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Настройки — новый вид</title>
+<link rel="stylesheet" href="flux.css">
+<script src="icons.js"></script>
+<body>
+<!-- Настройки. Меню — пункт в одну строку (было два: название и подзаголовок,
+     59 px на пункт). Справа — одна поверхность: группа это заголовок и
+     линии, а не карточка с карточками внутри. Пояснение — одна строка под
+     названием настройки, контрол справа. -->
+<div class="win-body" data-title="Настройки" data-ic="settings">
+  <div class="split">
+    <div class="side" style="width:232px">
+      <div class="list" style="padding-top:8px">
+        <div class="gh" style="margin-top:0;padding:0 8px">Общее</div>
+        <div class="li on"><i data-ic="settings"></i>Общие</div>
+        <div class="li"><i data-ic="pen-line"></i>Моя подпись</div>
+        <div class="li"><i data-ic="shield-check"></i>Роли сотрудников</div>
+        <div class="li"><i data-ic="briefcase"></i>Менеджмент</div>
+        <div class="li"><i data-ic="file-spreadsheet"></i>Документооборот</div>
+        <div class="li"><i data-ic="fan"></i>Оборудование</div>
+        <div class="li"><i data-ic="tag"></i>Теги</div>
+        <div class="li"><i data-ic="bell"></i>Уведомления</div>
+        <div class="li"><i data-ic="languages"></i>Переводчик</div>
+        <div class="li"><i data-ic="globe"></i>Браузер</div>
+        <div class="li"><i data-ic="database"></i>База данных</div>
+        <div class="li"><i data-ic="archive"></i>Резервные копии</div>
+        <div class="li"><i data-ic="terminal"></i>Ошибки и сбои</div>
+        <div class="li"><i data-ic="cloud-download"></i>Обновления</div>
+        <div class="gh" style="padding:0 8px">Проект 9900</div>
+        <div class="li"><i data-ic="sigma"></i>Формулы документа</div>
+        <div class="li"><i data-ic="tag"></i>Правила тегов</div>
+      </div>
+    </div>
+    <div class="main" style="overflow:auto">
+      <div class="set">
+        <h2>Общие</h2>
+        <p class="lead">Одинаково во всей программе и для всех проектов.</p>
+
+        <div class="set-group">
+          <h3>Вид</h3>
+          <div class="set-row"><div class="txt">Тема</div>
+            <div class="segctl"><a class="on"><i data-ic="sun" data-s="14"></i>Светлая</a><a><i data-ic="moon" data-s="14"></i>Тёмная</a></div></div>
+          <div class="set-row"><div class="txt">Плотность<div class="d">Сколько строк помещается в таблицах и списках всех разделов</div></div>
+            <div class="segctl"><a>Компактно</a><a class="on">Стандарт</a><a>Просторно</a></div></div>
+        </div>
+
+        <div class="set-group">
+          <h3>Главный экран и помощник</h3>
+          <div class="set-row"><div class="txt">Фон главного экрана<div class="d">Снег зимой, листья осенью, солнце и луна по времени суток</div></div><span class="switch on"></span></div>
+          <div class="set-row"><div class="txt">Картины в шапке помощника<div class="d">Ван Гог, Хокусай, Моне — нажатие на полке меняет картину</div></div><span class="switch on"></span></div>
+        </div>
+
+        <div class="set-group">
+          <h3>Присутствие</h3>
+          <div class="set-row"><div class="txt">Показывать, что я в сети<div class="d">Сотрудники видят точку в чате и в списке, а после выхода — когда вы были</div></div><span class="switch on"></span></div>
+        </div>
+
+        <div class="set-group">
+          <h3>О программе</h3>
+          <div class="set-row"><div class="txt">Flux 1.12.0<div class="d">Обновления проверяются при запуске</div></div><span class="btn">Проверить обновления</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shell.js"></script>
+</body>

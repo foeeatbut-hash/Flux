@@ -67,7 +67,7 @@ export default function OnlineVisibility({ addToast }: { addToast?: (m: string, 
 
   return (
     <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-      <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Присутствие</div>
+      <div className="text-xs font-bold text-slate-400 mb-1">Присутствие</div>
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
         Видно ли сотрудникам, что вы в программе. Доступно только вам как главному администратору.
       </p>

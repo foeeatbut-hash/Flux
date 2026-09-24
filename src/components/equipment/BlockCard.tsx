@@ -132,7 +132,7 @@ export default function BlockCard(props: any) {
             его двигатель. Тег каждой позиции виден сразу, строка открывает её */}
         {(props.composition?.children?.length || 0) > 0 && (
           <div className="mb-4" data-composition>
-            <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            <div className="text-2xs font-bold text-slate-400 mb-1.5">
               Состав · {props.composition.children.length}
             </div>
             <div className="rounded-lg border border-slate-150 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-850">
@@ -171,7 +171,7 @@ export default function BlockCard(props: any) {
           return (
             <div key={g.title} className="break-inside-avoid mb-4">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
+                <span className="text-2xs font-bold text-slate-400">{g.title}</span>
                 {showAllParams && (
                   <button type="button" onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
                     {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}

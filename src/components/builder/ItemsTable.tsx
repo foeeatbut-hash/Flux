@@ -148,7 +148,7 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
         ) : (
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
-              <tr className="text-left text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="text-left text-2xs text-slate-400">
                 <th className="px-2 py-1.5 w-7">
                   <button type="button" aria-label="Выделить все" onClick={() => setSel(allOn ? new Set() : new Set(shown.map((i) => i.id)))} className="cursor-pointer">
                     {allOn ? <CheckSquare className="w-3.5 h-3.5 text-emerald-600" /> : <Square className="w-3.5 h-3.5" />}
@@ -165,7 +165,7 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
             {groups.map((g) => (
               <tbody key={g.key || 'all'}>
                 {g.title && (
-                  <tr><td colSpan={7} className="px-2 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                  <tr><td colSpan={7} className="px-2 pt-3 pb-1 text-2xs font-bold text-emerald-700 dark:text-emerald-400">
                     {g.title} <span className="text-slate-400 font-semibold tabular-nums">· {g.rows.length} поз. · {g.rows.reduce((a, b) => a + (b.qty || 0), 0)} шт.</span>
                   </td></tr>
                 )}

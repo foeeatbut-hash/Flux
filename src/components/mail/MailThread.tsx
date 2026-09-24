@@ -329,7 +329,7 @@ function Letter({
 
           {visible.length > 0 && (
             <div className="border-t border-slate-100 dark:border-slate-850 p-3">
-              <p className="text-2xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+              <p className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mb-2">
                 Вложения: {visible.length}
               </p>
               <div className="flex flex-wrap gap-2">
@@ -507,7 +507,7 @@ export default function MailThread({
         {shared && (
           <section className="rounded-lg border border-sky-200 dark:border-sky-900 bg-sky-50/70 dark:bg-sky-950/25 overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-sky-200 dark:border-sky-900">
-              <span className="text-2xs font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300">
+              <span className="text-2xs font-bold text-sky-800 dark:text-sky-300">
                 Общая почта
               </span>
               {state?.repliedByName && (

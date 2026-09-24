@@ -68,7 +68,7 @@ function Group({ group, state, disabled, attention, onCommand }: {
       {/* Подпись группы — 11 точек, нижняя ступень шкалы из `index.css`. Было
           девять: ниже объявленного предела, и на экране с масштабом 125 % это
           читалось уже с трудом */}
-      <div className="text-2xs uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
+      <div className="text-2xs text-slate-400 dark:text-slate-455 text-center font-mono">
         {group.name}
       </div>
     </div>
@@ -95,7 +95,7 @@ function Collapsed({ group, ...rest }: {
                    hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer transition-ui">
         ⋯
       </button>
-      <div className="text-2xs uppercase tracking-[0.07em] text-slate-400 dark:text-slate-455 text-center font-mono">
+      <div className="text-2xs text-slate-400 dark:text-slate-455 text-center font-mono">
         {group.name}
       </div>
       {/* Порталом, а не `absolute`: полоса ленты обрезает по высоте, и раньше

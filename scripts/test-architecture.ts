@@ -436,5 +436,60 @@ console.log('\n8. Область данных раздела');
   ok('смешанных разделов немного (Главная и Настройки)', orphan.length <= 2, orphan);
 }
 
+// ── Храповик дизайна ──
+//
+// Разбор сентября 2026 нашёл, что старые экраны выглядят «сгенерированными»
+// по одним и тем же приметам: жирное на полэкрана, ЗАГЛАВНЫЕ с разрядкой,
+// значок в зелёном квадратике, полоса слева, половинные оттенки вроде
+// slate-503. Правила — docs/methodology/01-design.md. Экраны переводятся по
+// этапам, поэтому здесь не запрет, а храповик: число примет может только
+// убывать. Планку держим вплотную к найденному — иначе перевод одного экрана
+// тихо освободит место для новых примет на другом.
+console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
+{
+  const DESIGN_CAP: Record<string, number> = {
+    'жирный 700 (font-bold/extrabold/black)': 825,
+    'ЗАГЛАВНЫЕ (uppercase)': 0,
+    'разрядка (tracking-wide/wider/widest)': 0,
+    'курсив (italic)': 55,
+    'цветная полоса слева (border-l-2/4)': 11,
+    'значок в зелёном квадратике': 12,
+    'крупная тень (shadow-lg/xl/2xl)': 115,
+    'половинные оттенки (slate-503, emerald-995…)': 809,
+  };
+  const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
+  const PATTERNS: Record<string, RegExp> = {
+    'жирный 700 (font-bold/extrabold/black)': /\bfont-(?:bold|extrabold|black)\b/g,
+    // first-letter:uppercase — заглавная первая буква предложения, это не ЗАГЛАВНЫЕ
+    'ЗАГЛАВНЫЕ (uppercase)': /(?<![:\w-])uppercase(?![\w-])/g,
+    // отрицательная разрядка крупных заголовков законна: сужается, а не разрежается
+    'разрядка (tracking-wide/wider/widest)': /(?<![:\w-])tracking-(?:wide|wider|widest|\[0?\.\d+em\])(?![\w-])/g,
+    'курсив (italic)': /\bitalic\b/g,
+    'цветная полоса слева (border-l-2/4)': /\bborder-l-(?:2|4|\[\d+px\])\b/g,
+    'значок в зелёном квадратике': /className=["'`][^"'`]*\bw-(?:7|8|9|10|11|12) h-(?:7|8|9|10|11|12)\b[^"'`]*\brounded-(?:md|lg|xl|2xl)\b[^"'`]*\bbg-emerald-[^"'`]*["'`]/g,
+    'крупная тень (shadow-lg/xl/2xl)': /\bshadow-(?:lg|xl|2xl)\b/g,
+    'половинные оттенки (slate-503, emerald-995…)': /\b(?:bg|text|border|ring|from|to|via|divide|outline|fill|stroke|accent|placeholder)-(?:slate|emerald|amber|rose|sky)-(\d{2,3})\b/g,
+  };
+  // Планка не должна отставать от найденного больше чем на столько: иначе
+  // после перевода экрана её забудут опустить
+  const LAG = 10;
+  const tsx = SRC.filter((f) => f.endsWith('.tsx'));
+  for (const [name, re] of Object.entries(PATTERNS)) {
+    const where: Record<string, number> = {};
+    let n = 0;
+    for (const file of tsx) {
+      for (const m of read(file).matchAll(re)) {
+        if (m[1] && STD.has(Number(m[1]))) continue;
+        n++;
+        where[file] = (where[file] || 0) + 1;
+      }
+    }
+    const cap = DESIGN_CAP[name];
+    const top = Object.entries(where).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k} ${v}`);
+    ok(`${name}: ${n} ≤ ${cap}`, n <= cap, top);
+    ok(`${name}: планка опущена вслед за переводом (${cap} − ${n} ≤ ${LAG})`, cap - n <= LAG, { найдено: n, планка: cap });
+  }
+}
+
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

@@ -30,7 +30,7 @@ const inputCls =
   'focus:border-emerald-500 transition-ui';
 
 const labelCls =
-  'block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1';
+  'block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1';
 
 export default function NameFields({
   value, onChange, disabled, compact,
@@ -110,7 +110,7 @@ export default function NameFields({
 
       {filled && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 px-3 py-2">
-          <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+          <div className="text-2xs font-mono text-slate-400 mb-1 flex items-center gap-1">
             <User2 className="w-3 h-3" /> как программа применит это имя
           </div>
           {/* Одна колонка: формы ФИО длинные, а обрезанное многоточием имя

@@ -124,11 +124,55 @@
 
   /* Нижняя ступень размера текста. В разметке встречались
      произвольные 9, 10 и 11 пикселей — теперь есть одна законная
-     мелкая ступень, ниже которой опускаться нельзя. Ступени
-     12/14/16 остаются как были: их пересматриваем вместе с
-     настройкой плотности, а не вслепую. */
-  --text-2xs: 0.6875rem;      /* 11px — только ярлыки и подписи значков */
-  --text-2xs--line-height: 1.3;
+     мелкая ступень, ниже которой опускаться нельзя. Остальные ступени
+     пересмотрены по методологии — ниже. */
+  /* Была 11 px и стала основным текстом половины экранов (Переводчик,
+     Календарь, Помощник — до 97 % текста мельче 12). По методологии мельче
+     12 текста нет; 11 px оставлены только счётчикам в fx-badge */
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: 1rem;
+
+  /* Ступени кегля и веса — по docs/methodology/01-design.md, раздел 2.
+     Основной текст программы — 13 px: на 14 рабочие таблицы не влезали и
+     экраны уходили на 11–12, а там читать тяжело. Ступени переопределены
+     здесь, а не в разметке, чтобы все 200 с лишним экранов сдвинулись разом.
+     Жирный 700 отменён: им было набрано до 61 % текста экрана, и выделение
+     перестало что-либо выделять. `font-bold` теперь значит 600 — тот же
+     полужирный, что и заголовки; где полужирный лишний, экраны переводятся
+     на 400/500 по этапам (см. храповик в scripts/test-architecture.ts). */
+  --text-xs: 0.75rem;         /* 12 — подписи, шапки таблиц, пояснения */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;       /* 13 — основной текст */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;     /* 15 — заголовок раздела */
+  --text-base--line-height: 1.25rem;
+  --font-weight-bold: 600;
+  --font-weight-semibold: 550;
+  --font-weight-extrabold: 600;
+  --font-weight-black: 600;
+
+  /* Разрядка ЗАГЛАВНЫХ ушла вместе с ними: подписи набираются обычным
+     регистром, и разредить там нечего */
+  --tracking-wide: 0em;
+  --tracking-wider: 0em;
+  --tracking-widest: 0em;
+
+  /* Скругления: 4 — бейдж, 6 — кнопка и поле, 8 — меню и всплывающее,
+     12 — окно и диалог. 16 и 24 не используются: при таких углах рабочий
+     экран превращается в набор «карточек-леденцов» */
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.75rem;
+
+  /* Тени — только у того, что лежит поверх (меню, диалог, окно). У
+     содержимого их нет: разделяет линия. Мелкие тени обнулены, крупные
+     смягчены до двух ступеней «всплывающее» и «диалог» */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-lg: 0 4px 16px oklch(16% 0.009 163 / 0.12);
+  --shadow-xl: 0 8px 28px oklch(16% 0.009 163 / 0.16);
+  --shadow-2xl: 0 16px 48px oklch(16% 0.009 163 / 0.22);
+  --shadow-inner: 0 0 #0000;
 
   /* Нестандартные оттенки, встречающиеся в разметке: без явного
      определения Tailwind молча не выдаёт цвет. Ссылаются на
@@ -214,6 +258,18 @@
   --flux-accent-soft: var(--color-emerald-100);
   --flux-accent-on: #ffffff;
   --flux-focus: var(--color-emerald-600);
+  /* Роли для общих элементов fx-* (docs/methodology/01-design.md, раздел 3) */
+  --flux-line-strong: var(--color-slate-300);  /* рамка поля и обычной кнопки */
+  --flux-hover: var(--color-slate-50);         /* наведение на строку */
+  --flux-sel: var(--color-slate-100);          /* выбранная строка и пункт */
+  --flux-text-faint: oklch(66% 0.010 163);     /* прочерк, выключенное */
+  --flux-accent-text: var(--color-emerald-700);/* ссылка, значок выбранного */
+  --flux-ok: oklch(62% 0.13 163);
+  --flux-warn: oklch(72% 0.15 75);
+  --flux-bad: oklch(60% 0.19 18);
+  --flux-bad-soft: oklch(96% 0.025 18);
+  --flux-bad-text: oklch(50% 0.17 18);
+  --flux-info: oklch(62% 0.13 235);
 
   /* Длительности: отклик / появление / панель.
      Было семь разных значений от 100 до 500 мс. */
@@ -223,9 +279,10 @@
   --flux-ease: cubic-bezier(0.2, 0, 0.13, 1);
 
   /* Радиусы: три ступени вместо шести */
+  --flux-radius-xs: 4px;
   --flux-radius-sm: 6px;
-  --flux-radius-md: 10px;
-  --flux-radius-lg: 16px;
+  --flux-radius-md: 8px;
+  --flux-radius-lg: 12px;
 
   /* Тени привязаны к слою, а не выбираются на глаз */
   --flux-shadow-card: 0 1px 2px oklch(16% 0.009 163 / 0.06);
@@ -266,6 +323,17 @@
   --flux-accent-soft: oklch(24% 0.030 163);
   --flux-accent-on: var(--color-dark-bg);
   --flux-focus: oklch(76% 0.130 163);
+  --flux-line-strong: oklch(34% 0.012 163);
+  --flux-hover: oklch(22% 0.010 163);
+  --flux-sel: oklch(25.5% 0.012 163);
+  --flux-text-faint: oklch(56% 0.012 163);
+  --flux-accent-text: oklch(78% 0.120 163);
+  --flux-ok: oklch(72% 0.13 163);
+  --flux-warn: oklch(78% 0.14 75);
+  --flux-bad: oklch(70% 0.17 18);
+  --flux-bad-soft: oklch(26% 0.05 18);
+  --flux-bad-text: oklch(80% 0.12 18);
+  --flux-info: oklch(72% 0.12 235);
 
   --flux-shadow-card: 0 1px 2px oklch(0% 0 0 / 0.4);
   --flux-shadow-pop: 0 4px 16px oklch(0% 0 0 / 0.5);
@@ -299,6 +367,11 @@
      но заметно тише обычного текста, как slate-400 на белом в светлой теме. */
   --color-slate-455: oklch(58.0% 0.014 163);
 }
+
+/* Браузер сам набирает <b>, <strong> и <th> весом 700 — в обход ступеней
+   выше. Шапка таблицы по методологии 500, выделение в тексте — 600 */
+b, strong { font-weight: 600; }
+th { font-weight: 500; }
 
 html, body {
   font-family: var(--font-sans);
@@ -353,22 +426,22 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
    разом, а не по одному экрану.
    ───────────────────────────────────────────────────────────── */
 :root, .density-standard {
-  --flux-row-h: 34px;
+  --flux-row-h: 32px;
   --flux-cell-py: 6px;
   --flux-cell-px: 10px;
-  --flux-control-h: 32px;
+  --flux-control-h: 28px;
 }
 .density-compact {
   --flux-row-h: 28px;
-  --flux-cell-py: 3px;
+  --flux-cell-py: 4px;
   --flux-cell-px: 8px;
-  --flux-control-h: 28px;
+  --flux-control-h: 26px;
 }
 .density-comfortable {
-  --flux-row-h: 42px;
-  --flux-cell-py: 10px;
-  --flux-cell-px: 14px;
-  --flux-control-h: 38px;
+  --flux-row-h: 36px;
+  --flux-cell-py: 8px;
+  --flux-cell-px: 12px;
+  --flux-control-h: 32px;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -925,22 +998,21 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 14px;
-  height: 38px;
+  padding: 0 16px;
+  height: 44px;
   border-bottom: 1px solid var(--flux-line);
   background: var(--flux-surface);
   flex: none;
 }
 .stamp-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--flux-text);
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .stamp-sub {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   color: var(--flux-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -948,19 +1020,22 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 }
 .stamp-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
-/* Подпись графы — как в штампе: мелко, вразрядку, прописными */
+/* Подпись графы. Была мелко, вразрядку и прописными — как в штампе
+   чертежа; но это интерфейс, а не штамп: подпись набрана обычным регистром
+   и читается как слово, а не как прямоугольник (01-design.md, раздел 2) */
 .graf {
-  font-size: 11px;
-  line-height: 1.3;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--flux-text-muted);
   font-weight: 500;
 }
 
-/* Данные: шифры, номера, количества, даты — моноширинным и
-   с табличными цифрами, чтобы столбцы совпадали по разрядам */
-.data { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Данные: номера, количества, даты — табличными цифрами, чтобы столбцы
+   совпадали по разрядам. Моноширинным набираются только коды, которые
+   сверяют по символу (класс .code): даты и логины моноширинным читались
+   как код и спорили с настоящими кодами тегов рядом */
+.data { font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-size: 0.92em; letter-spacing: 0; }
 
 /* Волосяные линии */
 .rule-t { border-top: 1px solid var(--flux-line); }
@@ -991,8 +1066,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   background: var(--flux-accent-soft);
   box-shadow: inset 2px 0 0 var(--flux-accent);
 }
-.tally-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; color: var(--flux-text); line-height: 1.1; }
-.tally-lab { font-size: 11px; letter-spacing: 0.02em; color: var(--flux-text-muted); }
+.tally-num { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; color: var(--flux-text); line-height: 1.1; }
+.tally-lab { font-size: 12px; color: var(--flux-text-muted); }
 
 /* Пустая зона — приглашение к действию, а не серая надпись
    посреди пустоты. Заголовок, одна поясняющая строка, кнопка. */
@@ -1205,3 +1280,204 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
    Ставим их ниже наших окон, но выше листа: над документом они по-прежнему
    всплывают и работают. */
 .univer-popup { z-index: 45 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   Общие элементы интерфейса — fx-*
+   Словарь и правила: docs/methodology/01-design.md, раздел 5.
+   Классы, а не только React-компоненты: экраны в несколько тысяч
+   строк переводятся заменой класса на месте, без перестройки
+   разметки. Слой components — чтобы утилита в разметке могла
+   точечно перебить (ширину, отступ), не споря с каскадом.
+   ═══════════════════════════════════════════════════════════ */
+@layer components {
+  /* ── Кнопки: главная одна на панель, остальные нейтральные ── */
+  .fx-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: var(--flux-control-h); padding: 0 10px; border-radius: var(--flux-radius-sm);
+    border: 1px solid var(--flux-line-strong); background: var(--flux-surface); color: var(--flux-text);
+    font-size: 13px; line-height: 20px; font-weight: 500; white-space: nowrap; cursor: pointer;
+    transition: background-color var(--flux-dur-fast) var(--flux-ease), border-color var(--flux-dur-fast) var(--flux-ease), color var(--flux-dur-fast) var(--flux-ease);
+  }
+  .fx-btn:hover { background: var(--flux-hover); }
+  .fx-btn:active { background: var(--flux-sel); }
+  .fx-btn:disabled, .fx-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+  .fx-btn > svg { width: 16px; height: 16px; flex: none; }
+  .fx-btn-lg { height: 32px; }
+  .fx-btn-sm { height: 24px; padding: 0 8px; font-size: 12px; }
+  .fx-btn-primary { background: var(--flux-accent); border-color: var(--flux-accent); color: var(--flux-accent-on); }
+  .fx-btn-primary:hover { background: var(--flux-accent-hover); border-color: var(--flux-accent-hover); }
+  .fx-btn-primary:active { background: var(--flux-accent-press); }
+  .fx-btn-quiet { border-color: transparent; background: transparent; color: var(--flux-text-muted); }
+  .fx-btn-quiet:hover { background: var(--flux-hover); color: var(--flux-text); }
+  .fx-btn-danger { color: var(--flux-bad-text); }
+  .fx-btn-danger:hover { background: var(--flux-bad-soft); }
+  .fx-btn-danger-fill { background: var(--flux-bad); border-color: var(--flux-bad); color: #fff; }
+  .fx-btn-icon { width: var(--flux-control-h); padding: 0; }
+  /* Кнопка-значок в строке таблицы: 24 px, видна при наведении на строку */
+  .fx-ibtn {
+    display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--flux-radius-sm);
+    color: var(--flux-text-muted); cursor: pointer; background: transparent; border: 0;
+  }
+  .fx-ibtn:hover { background: var(--flux-sel); color: var(--flux-text); }
+  .fx-ibtn > svg { width: 14px; height: 14px; }
+
+  /* ── Шапка раздела 44 и панель инструментов 40 ── */
+  .fx-head {
+    display: flex; align-items: center; gap: 12px; height: 44px; flex: none; padding: 0 16px;
+    border-bottom: 1px solid var(--flux-line); background: var(--flux-surface); min-width: 0;
+  }
+  .fx-head-title { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--flux-text); white-space: nowrap; letter-spacing: -0.012em; }
+  .fx-head-count { font-size: 13px; color: var(--flux-text-muted); white-space: nowrap; }
+  .fx-head-acts { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .fx-tools {
+    display: flex; align-items: center; gap: 8px; min-height: 40px; flex: none; padding: 6px 16px;
+    border-bottom: 1px solid var(--flux-line); background: var(--flux-surface); min-width: 0; flex-wrap: wrap;
+  }
+  .fx-vsep { width: 1px; height: 20px; background: var(--flux-line); flex: none; }
+
+  /* Вкладки раздела: выбранная — линия 2 px снизу, а не зелёная заливка */
+  .fx-tabs { display: flex; align-items: stretch; align-self: stretch; gap: 2px; min-width: 0; }
+  .fx-tab {
+    display: flex; align-items: center; gap: 6px; padding: 0 10px; position: relative; white-space: nowrap;
+    font-size: 13px; color: var(--flux-text-muted); cursor: pointer; background: none; border: 0;
+  }
+  .fx-tab:hover { color: var(--flux-text); }
+  .fx-tab[aria-selected="true"], .fx-tab.is-on { color: var(--flux-text); font-weight: 500; }
+  .fx-tab[aria-selected="true"]::after, .fx-tab.is-on::after {
+    content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--flux-accent);
+  }
+  .fx-tab > svg { width: 14px; height: 14px; }
+
+  /* Фильтр со счётчиками — он же сводка вместо плиток «всего 112» */
+  .fx-seg { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+  .fx-seg > button, .fx-seg > a {
+    height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: var(--flux-radius-sm);
+    font-size: 13px; color: var(--flux-text-muted); white-space: nowrap; cursor: pointer; background: none; border: 0;
+  }
+  .fx-seg > *:hover { background: var(--flux-hover); color: var(--flux-text); }
+  .fx-seg > [aria-pressed="true"], .fx-seg > .is-on { background: var(--flux-sel); color: var(--flux-text); font-weight: 500; }
+  .fx-seg .fx-n { color: var(--flux-text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+  /* Переключатель вариантов (тема, вид): утопленная дорожка, выбранное — белое */
+  .fx-segctl { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--flux-radius-sm); background: var(--flux-sel); }
+  .fx-segctl > button {
+    height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border-radius: 4px;
+    font-size: 13px; color: var(--flux-text-muted); white-space: nowrap; cursor: pointer; background: none; border: 0;
+  }
+  .fx-segctl > button:hover { color: var(--flux-text); }
+  .fx-segctl > button[aria-pressed="true"], .fx-segctl > button.is-on {
+    background: var(--flux-surface); color: var(--flux-text); font-weight: 500; box-shadow: 0 0 0 1px var(--flux-line);
+  }
+
+  /* ── Поля ── */
+  .fx-input {
+    height: var(--flux-control-h); width: 100%; min-width: 0; padding: 0 10px; border-radius: var(--flux-radius-sm);
+    border: 1px solid var(--flux-line-strong); background: var(--flux-surface); color: var(--flux-text);
+    font-size: 13px; outline: none;
+  }
+  textarea.fx-input { height: auto; padding: 6px 10px; line-height: 20px; }
+  .fx-input::placeholder { color: var(--flux-text-faint); }
+  .fx-input:focus { border-color: var(--flux-accent); }
+  .fx-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .fx-label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--flux-text-muted); }
+  .fx-hint { font-size: 12px; line-height: 16px; color: var(--flux-text-muted); }
+  .fx-error { font-size: 12px; line-height: 16px; color: var(--flux-bad-text); }
+
+  /* ── Таблица: шапка 28, строка — плотность из настроек ── */
+  .fx-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .fx-table th {
+    position: sticky; top: 0; z-index: 1; height: 28px; padding: 0 var(--flux-cell-px); text-align: left; white-space: nowrap;
+    font-size: 12px; font-weight: 500; color: var(--flux-text-muted); background: var(--flux-bg); border-bottom: 1px solid var(--flux-line);
+  }
+  .fx-table td { height: var(--flux-row-h); padding: 0 var(--flux-cell-px); border-bottom: 1px solid var(--flux-line); color: var(--flux-text); }
+  .fx-table tbody tr:hover td { background: var(--flux-hover); }
+  .fx-table tbody tr[aria-selected="true"] td, .fx-table tbody tr.is-sel td { background: var(--flux-sel); }
+  .fx-table .fx-row-acts { display: flex; gap: 2px; justify-content: flex-end; visibility: hidden; }
+  .fx-table tr:hover .fx-row-acts, .fx-table tr.is-sel .fx-row-acts, .fx-table tr[aria-selected="true"] .fx-row-acts { visibility: visible; }
+
+  /* ── Список и дерево: пункт 32, одна строка ── */
+  .fx-li {
+    display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: var(--flux-radius-sm);
+    font-size: 13px; color: var(--flux-text); white-space: nowrap; cursor: pointer; min-width: 0; width: 100%; text-align: left;
+    background: none; border: 0;
+  }
+  .fx-li:hover { background: var(--flux-hover); }
+  .fx-li[aria-current="true"], .fx-li[aria-selected="true"], .fx-li.is-on { background: var(--flux-sel); font-weight: 500; }
+  .fx-li > svg { width: 16px; height: 16px; flex: none; color: var(--flux-text-muted); }
+  .fx-li[aria-current="true"] > svg, .fx-li[aria-selected="true"] > svg, .fx-li.is-on > svg { color: var(--flux-accent-text); }
+  .fx-li .fx-n { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--flux-text-muted); font-variant-numeric: tabular-nums; }
+  .fx-gh { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--flux-text-muted); }
+  .fx-side { background: var(--flux-bg); border-right: 1px solid var(--flux-line); }
+
+  /* ── Группа и строка настройки: заголовок и линии, а не карточки ── */
+  .fx-group-title { font-size: 13px; line-height: 20px; font-weight: 600; color: var(--flux-text); padding-bottom: 8px; border-bottom: 1px solid var(--flux-line); }
+  .fx-set-row { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 8px 0; border-bottom: 1px solid var(--flux-line); }
+  .fx-set-row > .fx-set-text { flex: 1; min-width: 0; font-size: 13px; color: var(--flux-text); }
+  .fx-set-row .fx-set-desc { font-size: 12px; line-height: 16px; color: var(--flux-text-muted); }
+  .fx-switch {
+    position: relative; width: 32px; height: 18px; flex: none; border-radius: 9px; background: var(--flux-line-strong);
+    border: 0; cursor: pointer; transition: background-color var(--flux-dur-fast) var(--flux-ease);
+  }
+  .fx-switch::after {
+    content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 2px oklch(0% 0 0 / .2); transition: transform var(--flux-dur-fast) var(--flux-ease);
+  }
+  .fx-switch[aria-checked="true"] { background: var(--flux-accent); }
+  .fx-switch[aria-checked="true"]::after { transform: translateX(14px); }
+  .fx-switch:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Статус — точка и слово; бейдж — только счётчик или «требует действия» ── */
+  .fx-st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .fx-st::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--flux-text-faint); }
+  .fx-st-ok::before { background: var(--flux-ok); }
+  .fx-st-warn::before { background: var(--flux-warn); }
+  .fx-st-bad::before { background: var(--flux-bad); }
+  .fx-st-info::before { background: var(--flux-info); }
+  .fx-badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--flux-radius-xs);
+    font-size: 11px; line-height: 14px; font-weight: 500; white-space: nowrap; background: var(--flux-sel); color: var(--flux-text-muted);
+  }
+  .fx-badge-bad { background: var(--flux-bad-soft); color: var(--flux-bad-text); }
+  .fx-badge-accent { background: var(--flux-accent); color: var(--flux-accent-on); }
+
+  /* ── Аватар: нейтральный круг с инициалами ── */
+  .fx-av {
+    position: relative; display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%;
+    background: var(--flux-sel); color: var(--flux-text-muted); font-size: 10px; font-weight: 500;
+  }
+  .fx-av-online::after {
+    content: ''; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--flux-ok); border: 1.5px solid var(--flux-surface);
+  }
+
+  /* ── Пустое состояние: слева сверху, заголовок, строка, кнопка ── */
+  .fx-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 16px; max-width: min(480px, 100%); }
+  .fx-empty-title { font-size: 13px; line-height: 20px; font-weight: 600; color: var(--flux-text); }
+  .fx-empty-text { font-size: 12px; line-height: 16px; color: var(--flux-text-muted); margin-bottom: 8px; }
+
+  /* ── Всплывающее: меню, список выбора, подсказка ── */
+  .fx-pop {
+    background: var(--flux-surface); border: 1px solid var(--flux-line); border-radius: var(--flux-radius-md);
+    box-shadow: var(--flux-shadow-pop); padding: 4px;
+  }
+  .fx-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border-radius: 4px;
+    font-size: 13px; color: var(--flux-text); text-align: left; white-space: nowrap; cursor: pointer; background: none; border: 0;
+  }
+  .fx-menu-item:hover, .fx-menu-item[data-active="true"] { background: var(--flux-sel); }
+  .fx-menu-item > svg { width: 16px; height: 16px; flex: none; color: var(--flux-text-muted); }
+  .fx-menu-item.is-danger { color: var(--flux-bad-text); }
+  .fx-menu-item.is-danger > svg { color: currentColor; }
+  .fx-menu-item:disabled { opacity: .45; cursor: not-allowed; }
+  .fx-menu-sep { height: 1px; margin: 4px 0; background: var(--flux-line); }
+
+  /* ── Диалог ── */
+  .fx-dialog {
+    background: var(--flux-surface); border: 1px solid var(--flux-line); border-radius: var(--flux-radius-lg);
+    box-shadow: var(--flux-shadow-modal); color: var(--flux-text);
+  }
+  .fx-dialog-head { display: flex; align-items: center; gap: 8px; padding: 16px 16px 4px; font-size: 15px; line-height: 20px; font-weight: 600; }
+  .fx-dialog-body { padding: 4px 16px 16px; font-size: 13px; line-height: 20px; color: var(--flux-text-muted); }
+  .fx-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--flux-line); }
+  .fx-backdrop { background: oklch(16% 0.009 163 / 0.35); }
+}

@@ -165,7 +165,7 @@ export default function FieldsPanel({
         )}
         {found.map((group) => (
           <div key={group.section}>
-            <div className="px-3 py-1.5 text-2xs font-bold uppercase tracking-wide text-slate-400
+            <div className="px-3 py-1.5 text-2xs font-bold text-slate-400
                             dark:text-slate-500 bg-slate-50 dark:bg-slate-900 border-y border-slate-100
                             dark:border-slate-850 sticky top-0 z-10">
               {group.section}

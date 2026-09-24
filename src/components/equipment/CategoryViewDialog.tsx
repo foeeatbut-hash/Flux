@@ -141,7 +141,7 @@ export default function CategoryViewDialog(p: Props) {
                       className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-50 dark:bg-slate-850/60 rounded-t-xl">
                       <GripVertical className="w-3.5 h-3.5 text-slate-300 cursor-grab shrink-0" aria-hidden />
                       <input type="checkbox" checked={!gHidden} onChange={() => toggle(groupToken(g.title))} aria-label={`Показывать раздел ${g.title}`} className="accent-emerald-600" />
-                      <b className="text-2xs uppercase tracking-wider text-slate-500 dark:text-slate-400 flex-1 truncate">{g.title}</b>
+                      <b className="text-2xs text-slate-500 dark:text-slate-400 flex-1 truncate">{g.title}</b>
                       <button type="button" onClick={() => stepGroup(g.title, -1)} aria-label="Раздел выше" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowUp className="w-3 h-3" /></button>
                       <button type="button" onClick={() => stepGroup(g.title, 1)} aria-label="Раздел ниже" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowDown className="w-3 h-3" /></button>
                     </div>

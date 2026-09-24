@@ -41,8 +41,7 @@ export default function TaskbarPeek({ path, left, onClose }: {
 
   return (
     <div
-      className="absolute bottom-[56px] z-40 min-w-56 max-w-80 py-1.5 rounded-xl shadow-2xl
-                 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+      className="fx-pop absolute bottom-[56px] z-40 min-w-56 max-w-80"
       style={{ left }}
       onMouseLeave={onClose}
     >
@@ -51,14 +50,14 @@ export default function TaskbarPeek({ path, left, onClose }: {
           onMouseEnter={() => setPeeked(w.id)}
           onClick={() => { focus(w.id); onClose(); }}
           onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); close(w.id); } }}
-          className="group flex items-center gap-2 px-3 py-1.5 cursor-pointer
+          className="group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
                      hover:bg-slate-100 dark:hover:bg-slate-850"
         >
           <span className="flex-1 min-w-0">
-            <span className="block text-2xs font-semibold text-slate-700 dark:text-slate-300 truncate">
+            <span className="block text-sm text-slate-700 dark:text-slate-100 truncate">
               {titles[w.id] || def.title}
             </span>
-            {w.minimized && <span className="block text-2xs text-slate-400 dark:text-slate-455">свёрнуто</span>}
+            {w.minimized && <span className="block text-xs text-slate-400 dark:text-slate-455">свёрнуто</span>}
           </span>
           <button type="button" aria-label="Закрыть окно"
             onClick={(e) => { e.stopPropagation(); close(w.id); }}
@@ -71,9 +70,7 @@ export default function TaskbarPeek({ path, left, onClose }: {
       {def.multi && (
         <button type="button"
           onClick={() => { openAnother(mine[0].href); onClose(); }}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-2xs font-semibold
-                     text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40
-                     cursor-pointer border-t border-slate-100 dark:border-slate-850 mt-1 pt-2">
+          className="fx-menu-item border-t border-slate-100 dark:border-slate-850 mt-1 rounded-t-none">
           <Plus className="w-3 h-3" /> Ещё одно окно
         </button>
       )}

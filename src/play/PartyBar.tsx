@@ -54,7 +54,7 @@ export default function PartyBar({
     >
       <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
         <Users className="w-4 h-4 shrink-0 text-slate-400 dark:text-slate-500" />
-        <span className="text-2xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">
+        <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
           Группа
         </span>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, KeyboardEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 export interface CustomSelectOption {
   value: string;
@@ -119,7 +119,7 @@ export default function CustomSelect({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         onClick={handleToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-slate-850 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-850/50 transition-ui cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-left min-h-8 font-medium"
+        className="fx-input flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-ui"
       >
         <span className="truncate">
           {selectedOption ? selectedOption.label : placeholder}
@@ -138,7 +138,7 @@ export default function CustomSelect({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute left-0 z-[999] mt-1 w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1 max-h-60 overflow-y-auto style-scrollbar"
+            className="fx-pop absolute left-0 z-[999] mt-1 w-full max-h-60 overflow-y-auto scrollbar-thin"
             role="listbox"
           >
             {options.map((opt, idx) => {
@@ -155,20 +155,16 @@ export default function CustomSelect({
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => handleSelectOption(opt.value)}
-                  className={`w-full text-left px-3 py-1.5 my-0.5 text-sm rounded-lg transition-ui duration-100 flex items-center justify-between border-none cursor-pointer ${
-                    isSelected
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold"
-                      : isFocused
-                      ? "bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
-                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60 font-medium"
-                  }`}
+                  data-active={isFocused}
+                  className={`fx-menu-item justify-between ${isSelected ? "font-medium" : ""}`}
                 >
                   <span className="truncate">{opt.label}</span>
+                  {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />}
                 </button>
               );
             })}
             {options.length === 0 && (
-              <div className="px-3 py-2 text-xs text-slate-450 dark:text-slate-500 italic text-center">
+              <div className="px-2 py-1.5 text-xs text-slate-400">
                 Нет доступных вариантов
               </div>
             )}

@@ -846,7 +846,7 @@ export default function ChatManagement() {
           {/* Section 1: Groups & Channels */}
           <div className="space-y-1">
             <div className="px-3 py-1 flex items-center justify-between">
-              <span className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+              <span className="text-xs font-extrabold text-slate-400 dark:text-slate-500">
                 Группы и каналы
               </span>
               <button
@@ -900,7 +900,7 @@ export default function ChatManagement() {
 
           {/* Section 2: Direct Messages (Личные диалоги) */}
           <div className="space-y-1">
-            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500">
               Личные диалоги
             </div>
             {filteredUsers.length === 0 ? (
@@ -1086,7 +1086,7 @@ export default function ChatManagement() {
               <div className="px-4 py-2 border-b border-amber-200/60 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/15 shrink-0 flex items-start gap-2">
                 <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-2xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
+                  <div className="text-2xs font-bold text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
                   <div className="text-xs text-slate-600 dark:text-slate-300 truncate">{pinnedMessages[pinnedMessages.length - 1].content || 'Вложение'}</div>
                 </div>
               </div>
@@ -1197,7 +1197,7 @@ export default function ChatManagement() {
                       <Reply className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="text-2xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                      <div className="text-2xs font-bold text-emerald-600 dark:text-emerald-400">
                         {editingMessage ? 'Редактирование сообщения' : `Ответ: ${replyTarget?.sender?.name || ''}`}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -1219,7 +1219,7 @@ export default function ChatManagement() {
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
                 <div id="tag-autocomplete-dropdown" className="absolute bottom-full left-3 right-3 mb-2 max-h-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-emerald-950 rounded-xl shadow-2xl overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
+                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-extrabold text-slate-400 dark:text-slate-500 flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
                     <span>💡 Подходящие к вводу MAX/KKS теги</span>
                     <span className="font-mono text-xs opacity-80">Клавиши ↑ ↓ Enter для ввода</span>
                   </div>
@@ -1416,7 +1416,7 @@ export default function ChatManagement() {
             /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */
             <div className="flex-1 flex flex-col h-full select-none">
               <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-emerald-50/55 dark:bg-emerald-950/25">
-                <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-sans">
                   ⚙️ Карточка тега
                 </span>
                 <button type="button" 
@@ -1440,7 +1440,7 @@ export default function ChatManagement() {
 
                 <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
                   <div>
-                    <span className="text-xs text-slate-400 uppercase block font-extrabold">Тип оборудования</span>
+                    <span className="text-xs text-slate-400 block font-extrabold">Тип оборудования</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                       {selectedTagElement.type || 'Спецификация MAX'}
                     </span>
@@ -1448,7 +1448,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock && (
                     <div>
-                      <span className="text-xs text-slate-400 uppercase block font-extrabold">Моноблок</span>
+                      <span className="text-xs text-slate-400 block font-extrabold">Моноблок</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         📦 {selectedTagElement.monoblock.name}
                       </span>
@@ -1457,7 +1457,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock?.system && (
                     <div>
-                      <span className="text-xs text-slate-400 uppercase block font-extrabold">Система</span>
+                      <span className="text-xs text-slate-400 block font-extrabold">Система</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         🌐 {selectedTagElement.monoblock.system.name}
                       </span>
@@ -1467,7 +1467,7 @@ export default function ChatManagement() {
 
                 {/* Technical specifications */}
                 <div className="space-y-1.5">
-                  <h5 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
+                  <h5 className="text-xs font-extrabold text-slate-400">
                     Технические параметры
                   </h5>
                   <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-900 overflow-hidden text-xs shadow-3xs">
@@ -1561,7 +1561,7 @@ export default function ChatManagement() {
 
               {/* Shared Files attachment listings */}
               <div className="flex-1 p-4 text-left">
-                <h5 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <h5 className="text-xs font-extrabold text-slate-400 mb-2.5 flex items-center gap-1.5">
                   <Paperclip className="w-3.5 h-3.5 text-slate-400" />
                   История вложений ({allHistoryAttachments.length})
                 </h5>
@@ -1836,13 +1836,13 @@ export default function ChatManagement() {
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 p-2 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 truncate">{forwardFor.content || 'Вложение'}</div>
             <div className="max-h-72 overflow-y-auto space-y-1">
-              <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
+              <div className="text-2xs font-bold text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
                 <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
-              <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
+              <div className="text-2xs font-bold text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
               {users.filter(u => u.id !== user?.id).map(u => (
                 <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   <User className="w-4 h-4 text-emerald-500" /> {u.name}

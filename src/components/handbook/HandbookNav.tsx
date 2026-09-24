@@ -81,7 +81,7 @@ export default function HandbookNav({ articles, openId, query, hits, onQuery, on
             if (!list.length) return null;
             return (
               <section key={g.id} className="px-1.5 pb-3">
-                <h3 className="px-2.5 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <h3 className="px-2.5 pt-2 pb-1 text-2xs font-bold text-slate-400 dark:text-slate-500">
                   {g.title}
                 </h3>
                 <ul className="flex flex-col gap-0.5">

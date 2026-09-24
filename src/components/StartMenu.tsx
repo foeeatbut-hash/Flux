@@ -244,16 +244,18 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
            смотрелись стеной. Воздух теперь МЕЖДУ плитками, а не внутри них */
         className={`flex flex-col items-center gap-1.5 px-1 py-1.5 rounded-lg cursor-pointer min-w-0
                    text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850
-                   transition-colors ${active ? 'bg-slate-100 dark:bg-slate-850 ring-1 ring-emerald-500' : ''}`}
+                   transition-colors ${active ? 'bg-slate-100 dark:bg-slate-850' : ''}`}
       >
         <span
           style={{ width: TILE_BOX, height: TILE_BOX }}
-          className="rounded-lg bg-slate-100 dark:bg-slate-850 flex items-center justify-center
-                     text-emerald-700 dark:text-emerald-400 shrink-0"
+          /* Значок без плитки-подложки: ряд одинаковых серых квадратов со
+             значком внутри и был «сеткой карточек». Узнаётся программа по
+             рисунку значка, а не по его рамке */
+          className="flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
         >
           {Icon && <Icon size={TILE_ICON} />}
         </span>
-        <span className="text-2xs leading-tight text-center w-full line-clamp-2 break-words">{title}</span>
+        <span className="text-xs leading-tight text-center w-full line-clamp-2 break-words">{title}</span>
       </button>
     );
   };
@@ -318,7 +320,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
         {suggested.length > 0 && (
           <section>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Рекомендуем</h3>
+            <h3 className="px-4 pt-3 pb-1 text-xs font-medium text-slate-500 dark:text-slate-400">Рекомендуем</h3>
             <div className="px-2 pb-2">
               {suggested.map((d) => (
                 <button
@@ -329,7 +331,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-left
                              hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
                 >
-                  <FileClock className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <FileClock className="w-4 h-4 shrink-0 text-slate-400" />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-slate-700 dark:text-slate-300 truncate">{d.title}</span>
                     <span className="block text-2xs text-slate-400">{kindName(d.kind)} · {whenLabel(d.at)}</span>
@@ -342,7 +344,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
         {pinnedList.length > 0 && (
           <section className={suggested.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Закреплено</h3>
+            <h3 className="px-4 pt-3 pb-1 text-xs font-medium text-slate-500 dark:text-slate-400">Закреплено</h3>
             <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {pinnedList.map((s, i) => <Tile key={s.path} path={s.path} title={s.title} at={i} />)}
             </div>
@@ -355,7 +357,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
             программ — то, ради чего Пуск и открывают */}
         {groups.map((g) => (
           <section key={g.id} className={g.id === groups[0].id && (suggested.length > 0 || pinnedList.length > 0) ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
+            <h3 className="px-4 pt-3 pb-1 text-xs font-medium text-slate-500 dark:text-slate-400">{g.title}</h3>
             <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}
             </div>
@@ -369,13 +371,13 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
                       bg-slate-50 dark:bg-dark-bg">
         <span
           style={{ width: TILE_BOX, height: TILE_BOX }}
-          className="rounded-full shrink-0 flex items-center justify-center text-2xs font-bold
-                     bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
+          className="rounded-full shrink-0 flex items-center justify-center text-2xs font-medium
+                     bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
         >
           {(user?.name || '').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?'}
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-sm font-semibold text-slate-800 dark:text-slate-150 truncate">{user?.name || 'Профиль'}</b>
+          <b className="block text-sm font-medium text-slate-800 dark:text-slate-150 truncate">{user?.name || 'Профиль'}</b>
           <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
             {isAdmin ? 'Администратор' : 'Сотрудник'}
           </span>

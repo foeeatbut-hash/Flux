@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Проекты — новый вид</title>
+<link rel="stylesheet" href="flux.css">
+<script src="icons.js"></script>
+<body>
+<!-- Проекты. Список — строка 32 px (было 80: карточка с галочкой, датой моноширинным и плашкой «ВЫБРАН»). Карточка проекта — форма с подписями слева обычным регистром, без ЗАГЛАВНЫХ и без второй плашки «Выбран для работы»: выбранность видна по пункту списка и строке под названием. Данные синтетические. -->
+<div class="win-body" data-title="Проекты" data-ic="folder-kanban">
+  <div class="head">
+    <h1>Проекты</h1><span class="count">13 · в работе 9</span>
+    <div class="acts"><span class="btn primary"><i data-ic="plus"></i>Создать проект</span></div>
+  </div>
+  <div class="split">
+    <div class="side" style="width:320px">
+      <div style="padding:8px 8px 0"><div class="search" style="width:100%"><i data-ic="search"></i><input placeholder="Название или код"></div></div>
+      <div class="list"><div class="li on"><span class="mono muted" style="width:36px">9900</span><span class="trunc">Приточно-вытяжная система</span><span class="n">24 сен</span></div><div class="li"><span class="mono muted" style="width:36px">7310</span><span class="trunc">Технологический проект Альфа</span><span class="n">02 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8120</span><span class="trunc">Котельная блочно-модульная</span><span class="n">07 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8125</span><span class="trunc">Реконструкция ЦТП-4</span><span class="n">07 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8201</span><span class="trunc">Вентиляция цеха № 3</span><span class="n">08 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8340</span><span class="trunc">Холодоснабжение склада</span><span class="n">19 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8412</span><span class="trunc">АБК, 2-я очередь</span><span class="n">22 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8455</span><span class="trunc">Насосная станция НС-2</span><span class="n">22 сен</span></div><div class="li"><span class="mono muted" style="width:36px">8501</span><span class="trunc">Чистые помещения, корпус Б</span><span class="n">23 сен</span></div></div>
+    </div>
+    <div class="main" style="overflow:auto">
+      <div class="obj-head" style="display:flex;align-items:flex-start;gap:12px;padding:12px 24px">
+        <div class="grow"><h2>Приточно-вытяжная система</h2>
+          <div class="sub"><span class="st ok">Выбран для работы</span><span>код 9900</span><span>заведён 24 сен</span></div></div>
+        <span class="btn">Снять с работы</span><span class="btn icon"><i data-ic="ellipsis"></i></span>
+      </div>
+      <div class="set" style="padding-top:0">
+        <div class="set-group" style="margin-top:8px">
+          <h3>Карточка проекта</h3>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Наименование</div><input class="inp grow" value="Приточно-вытяжная система"></div>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Код проекта</div><input class="inp mono" style="width:160px" value="9900"></div>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Заказчик</div><input class="inp grow" placeholder="ООО «Заказчик»"></div>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Подрядчик</div><input class="inp grow" placeholder="Не указан"></div>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Краткое описание<div class="d">Видно в списке проектов</div></div><input class="inp grow" placeholder="Одной строкой"></div>
+          <div class="set-row" style="align-items:flex-start"><div class="txt" style="flex:0 0 180px">Подробное описание</div><div class="field grow"><textarea rows="4" placeholder="Адрес площадки, ведущие инженеры, особенности"></textarea></div></div>
+          <div class="set-row"><div class="txt" style="flex:0 0 180px">Статус</div><span class="sel-fake" style="width:200px"><span class="st ok">В работе</span><i data-ic="chevron-down" data-s="14"></i></span></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><span class="btn lg">Сбросить</span><span class="btn lg primary">Сохранить</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shell.js"></script>
+</body>

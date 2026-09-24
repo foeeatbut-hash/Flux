@@ -115,11 +115,15 @@ function WindowFrame({
         left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z,
         display: win.minimized || hidden ? 'none' : undefined,
       }}
+      /* Активное окно отличает тень и тёмное название, а не зелёная рамка и
+         зелёный заголовок: акцент по методологии — только у главной кнопки,
+         фокуса и «включено» (01-design.md, раздел 3). Подсветка при
+         подглядывании с панели задач осталась — это указание, а не украшение */
       className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow ${
         peeked
           ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
           : isTop
-            ? 'border-emerald-500/70 shadow-2xl'
+            ? 'border-slate-300 dark:border-slate-600 shadow-2xl'
             : 'border-slate-200 dark:border-dark-border shadow-lg'
       }`}
     >
@@ -128,12 +132,10 @@ function WindowFrame({
         onDoubleClick={() => st.getState().maximize(win.id)}
         /* 34 точки: попасть можно, и не жалко экрана при четырёх окнах */
         className={`h-[34px] shrink-0 flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing
-                    border-b border-slate-200 dark:border-dark-border ${
-          isTop ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-slate-50 dark:bg-dark-surface'
-        }`}
+                    border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg`}
       >
-        {Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`} />}
-        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-150"
+        {Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-slate-500 dark:text-slate-300' : 'text-slate-300 dark:text-slate-500'}`} />}
+        <span className={`flex-1 min-w-0 truncate text-xs font-medium ${isTop ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}
           title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>
         <button type="button" title="Свернуть" aria-label="Свернуть"
           onPointerDown={(e) => e.stopPropagation()}

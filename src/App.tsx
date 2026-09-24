@@ -199,7 +199,7 @@ function ElectronTitleBar() {
             остальное в панельке помечено `no-drag`. Сколько её останется,
             считает FRAME_DRAG в общей мере, и проверка следит за этим числом:
             иначе новая кнопка тихо съела бы область снова */}
-        <span style={{ width: FRAME_LABEL }} className="text-2xs font-bold text-slate-400 text-center tracking-wide">Flux</span>
+        <span style={{ width: FRAME_LABEL }} className="text-2xs font-bold text-slate-400 text-center">Flux</span>
         <span className="flex-1" />
 
         <div className="flex items-center" style={noDrag}>

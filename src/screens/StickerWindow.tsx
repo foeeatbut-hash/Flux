@@ -142,7 +142,7 @@ export default function StickerWindow() {
         {/* Status icon / indication */}
         <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-          <span className="text-xs font-mono tracking-wide max-w-[100px] truncate opacity-70 font-bold">
+          <span className="text-xs font-mono max-w-[100px] truncate opacity-70 font-bold">
             {note.title || 'Стикер'}
           </span>
           {saveStatus === 'saving' && (

@@ -216,7 +216,7 @@ export default function MessageBubble({
                 isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60'
               }`}
             >
-              <span className={`block text-2xs font-bold uppercase tracking-wider mb-0.5 ${
+              <span className={`block text-2xs font-bold mb-0.5 ${
                 isMe ? 'text-emerald-50' : 'text-emerald-800 dark:text-emerald-400'}`}>
                 Оборудование
               </span>

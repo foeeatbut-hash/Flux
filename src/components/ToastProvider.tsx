@@ -15,29 +15,29 @@ export default function ToastProvider() {
         {toasts.map((toast) => (
           <motion.div
             key={toast.id}
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.14 } }}
             onClick={() => {
               if (toast.onClick) {
                 toast.onClick();
                 removeToast(toast.id);
               }
             }}
-            className={`flex items-start gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[280px] max-w-[400px] text-sm font-medium border transition-ui duration-200 select-none
-              ${toast.onClick ? 'cursor-pointer hover:shadow-xl hover:scale-[1.02] active:scale-95' : ''}
-              ${toast.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-900/50 hover:border-emerald-450' : 
-                toast.type === 'error' ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-900/50 hover:border-rose-400' : 
-                'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-900/50 hover:border-emerald-450'}`}
+            /* Тост — нейтральная карточка поверх, смысл несёт значок. Зелёная
+               заливка на каждом сообщении делала акцентом всё подряд */
+            className={`fx-pop flex items-start gap-2.5 px-3 py-2.5 min-w-[280px] max-w-[400px] text-sm text-slate-800 dark:text-slate-100 select-none
+              ${toast.onClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900' : ''}
+              ${toast.type === 'error' ? 'border-rose-200 dark:border-rose-900/60' : ''}`}
           >
             <div className="mt-0.5 shrink-0">
-                {toast.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-500" />}
-                {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-500" />}
-                {toast.type === 'info' && <Info className="w-5 h-5 text-emerald-500" />}
+                {toast.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
+                {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
+                {toast.type === 'info' && <Info className="w-4 h-4 text-slate-400" />}
             </div>
-            <p className="flex-1 whitespace-pre-wrap leading-relaxed">{toast.message}</p>
-            <button type="button" onClick={(e) => { e.stopPropagation(); removeToast(toast.id); }} className="opacity-50 hover:opacity-100 flex-shrink-0 mt-0.5 text-slate-500 cursor-pointer">
-              <X className="w-4 h-4" />
+            <p className="flex-1 whitespace-pre-wrap">{toast.message}</p>
+            <button type="button" onClick={(e) => { e.stopPropagation(); removeToast(toast.id); }} className="fx-ibtn -mr-1 -mt-0.5 shrink-0" aria-label="Закрыть уведомление">
+              <X />
             </button>
           </motion.div>
         ))}

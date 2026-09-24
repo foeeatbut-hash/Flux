@@ -1477,7 +1477,7 @@ export default function Explorer() {
 
         {/* Фильтр по статусу документа */}
         <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
-          <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 mr-1">Статус</span>
+          <span className="text-2xs font-mono text-slate-400 mr-1">Статус</span>
           <button
             type="button"
             onClick={() => setStatusFilter(null)}
@@ -1566,7 +1566,7 @@ export default function Explorer() {
             ))}
 
             {/* Подборки: срезы по всем файлам, а не папки */}
-            <div className="mt-3 mb-1 px-4 text-2xs font-mono uppercase tracking-wider text-slate-400">Подборки</div>
+            <div className="mt-3 mb-1 px-4 text-2xs font-mono text-slate-400">Подборки</div>
             {[
               { id: SMART_RECENT, label: 'Недавние', icon: Clock, hint: 'Сто последних изменённых файлов проекта' },
               { id: SMART_UNTAGGED, label: 'Без тегов', icon: Tag, hint: 'Файлы, не привязанные ни к одному тегу оборудования' },
@@ -2150,7 +2150,7 @@ export default function Explorer() {
               <p className="text-sm text-slate-600 mb-2">Выберите основные и дополнительные теги для файла из реестра тегов проекта.</p>
               
               <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Сортировка</span>
+                <span className="text-xs font-medium text-slate-500">Сортировка</span>
                 <div className="flex bg-slate-100 rounded p-0.5">
                   <button type="button" onClick={() => setTagSortConfig({ key: 'createdAt', direction: tagSortConfig.key === 'createdAt' && tagSortConfig.direction === 'desc' ? 'asc' : 'desc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'createdAt' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По дате {tagSortConfig.key === 'createdAt' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}

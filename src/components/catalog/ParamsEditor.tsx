@@ -93,7 +93,7 @@ function ParamBlock({ p, onChange, onDelete, readOnly }: { p: ParamDef; onChange
           {p.kind === 'choice' && (
             <div className="overflow-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-left text-2xs uppercase tracking-wide text-slate-400">
+                <thead><tr className="text-left text-2xs text-slate-400">
                   <th className="p-1">Код</th><th className="p-1">Подпись</th><th className="p-1 hidden @[900px]:table-cell">EN</th><th className="p-1">Синонимы</th><th className="p-1 hidden @[1100px]:table-cell">Признаки</th><th className="p-1"></th>
                 </tr></thead>
                 <tbody>

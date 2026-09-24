@@ -84,7 +84,7 @@ export default function MailMentions({ found, loading }: Props) {
 
   return (
     <div className="border-t border-slate-100 dark:border-slate-850 p-3">
-      <p className="text-2xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+      <p className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mb-2">
         В письме упомянуто: {total}
       </p>
       <div className="flex flex-wrap gap-1.5">

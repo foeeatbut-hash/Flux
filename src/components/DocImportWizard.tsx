@@ -722,7 +722,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                                   placeholder="ед."
                                   className="w-14 shrink-0 px-1.5 py-0.5 bg-white/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded outline-none focus:border-emerald-400 text-slate-500 dark:text-slate-400"
                                 />
-                                <span className="w-20 shrink-0 text-2xs uppercase tracking-wider opacity-70 text-right">{CONF_LABEL[f.confidence]}</span>
+                                <span className="w-20 shrink-0 text-2xs opacity-70 text-right">{CONF_LABEL[f.confidence]}</span>
                                 <button type="button"
                                   onClick={() => removeField(activeJob.id, item.id, fi)}
                                   className="p-0.5 rounded hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-300 hover:text-rose-500 cursor-pointer shrink-0"

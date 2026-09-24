@@ -37,12 +37,12 @@ export default function RevisionDialog({
           Выпустить ревизию (текущая: {current || '—'})
         </h3>
         <div>
-          <label className="block text-xs font-bold text-slate-500 uppercase">Место изменения</label>
+          <label className="block text-xs font-bold text-slate-500">Место изменения</label>
           <input value={place} onChange={(e) => onPlace(e.target.value)}
             placeholder="напр. Разд. 3, лист 2" className={field} />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-500 uppercase">Описание изменения</label>
+          <label className="block text-xs font-bold text-slate-500">Описание изменения</label>
           <textarea value={desc} onChange={(e) => onDesc(e.target.value)} rows={2}
             placeholder="что изменено" className={field} />
         </div>

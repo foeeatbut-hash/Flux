@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Оборудование — новый вид</title>
+<link rel="stylesheet" href="flux.css">
+<script src="icons.js"></script>
+<body>
+<!-- Три колонки как сейчас: категории → состав → карточка. Убрано: кнопки
+     импорта внизу категорий (ушли в шапку раздела), зелёная заливка выбранной
+     категории, двойная карточка «Ничего не выбрано». Данные синтетические. -->
+<div class="win-body" data-title="Оборудование" data-ic="fan">
+  <div class="head">
+    <h1>Оборудование</h1><span class="count">12 установок · 46 позиций</span>
+    <div class="acts">
+      <span class="btn quiet"><i data-ic="list"></i>Центр операций</span>
+      <span class="btn"><i data-ic="download"></i>Выгрузить в Excel</span>
+      <span class="btn primary"><i data-ic="upload"></i>Импорт из документов</span>
+    </div>
+  </div>
+  <div class="split">
+    <div class="side" style="width:248px">
+      <div class="list">
+        <div class="li on"><i data-ic="air-vent"></i><span class="trunc">Центральные кондиционеры</span><span class="n">6</span></div>
+        <div class="li"><i data-ic="fan"></i><span class="trunc">Радиальные вентиляторы</span><span class="n">4</span></div>
+        <div class="li"><i data-ic="layers"></i><span class="trunc">Клапаны</span><span class="n">34</span></div>
+        <div class="li"><i data-ic="wind"></i><span class="trunc">Воздушные завесы</span><span class="n">2</span></div>
+        <div class="li muted"><i data-ic="plus"></i>Категория</div>
+      </div>
+      <div class="side-foot small muted" style="padding:8px 14px">PDF, Excel, Word, XML расчёта — или перетащите файл сюда</div>
+    </div>
+
+    <div class="pane" style="width:320px">
+      <div class="tools" style="padding:0 8px 0 12px">
+        <div class="segctl"><a class="on">По составу</a><a>По типу</a></div>
+        <span class="grow"></span>
+        <span class="ibtn" title="Профиль видимости"><i data-ic="eye"></i></span>
+        <span class="ibtn" title="Обновить"><i data-ic="refresh-cw"></i></span>
+      </div>
+      <div class="list tree">
+        <div class="li on"><span class="tw"><i data-ic="chevron-down" data-s="14"></i></span><span class="trunc">ПВ-1</span><span class="n mono">9900-AHU-01</span></div>
+        <div class="li lvl1"><span class="tw"><i data-ic="chevron-down" data-s="14"></i></span><span class="trunc">Моноблок 1</span><span class="n">6 блоков</span></div>
+        <div class="li lvl2"><span class="trunc">Клапан воздушный</span><span class="n">КВУ</span></div>
+        <div class="li lvl2"><span class="trunc">Фильтр карманный</span><span class="n">F7</span></div>
+        <div class="li lvl2"><span class="trunc">Нагреватель водяной</span><span class="n">ВНВ</span></div>
+        <div class="li lvl2"><span class="trunc">Охладитель фреоновый</span><span class="n">ВОФ</span></div>
+        <div class="li lvl2"><span class="trunc">Вентилятор</span><span class="n">ВР 80-75</span></div>
+        <div class="li lvl2"><span class="trunc">Шумоглушитель</span><span class="n">ШГ</span></div>
+        <div class="li"><span class="tw"><i data-ic="chevron-right" data-s="14"></i></span><span class="trunc">ПВ-2</span><span class="n mono">9900-AHU-02</span></div>
+        <div class="li"><span class="tw"><i data-ic="chevron-right" data-s="14"></i></span><span class="trunc">ПВ-3</span><span class="n mono">9900-AHU-03</span></div>
+        <div class="li"><span class="tw"><i data-ic="chevron-right" data-s="14"></i></span><span class="trunc">П-4</span><span class="n mono">9900-AHU-04</span></div>
+        <div class="li"><span class="tw"><i data-ic="chevron-right" data-s="14"></i></span><span class="trunc">П-5</span><span class="n mono">9900-AHU-05</span></div>
+        <div class="li"><span class="tw"><i data-ic="chevron-right" data-s="14"></i></span><span class="trunc">ПВ-6 <span class="st warn small" style="margin-left:6px">сверить</span></span><span class="n mono">9900-AHU-06</span></div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="obj-head" style="display:flex;align-items:flex-start;gap:12px">
+        <div class="grow">
+          <h2>ПВ-1 · Приточно-вытяжная установка</h2>
+          <div class="sub"><span class="mono">9900-AHU-01</span><span>ВЕЗА КЦКП-6,3</span><span class="st ok">В работе</span><span>расчёт от 18 сен</span></div>
+        </div>
+        <span class="btn"><i data-ic="link"></i>Привязать тег</span>
+        <span class="btn icon"><i data-ic="ellipsis"></i></span>
+      </div>
+      <div class="obj-tabs"><span class="tab on">Параметры</span><span class="tab">Состав</span><span class="tab">Теги <span class="n">3</span></span><span class="tab">История</span></div>
+      <div class="obj-body">
+        <div class="group">
+          <h3>Схема установки <span class="muted small">по ходу воздуха</span></h3>
+          <div class="scheme">
+            <div class="blk"><div class="ty"><i data-ic="layers" data-s="14"></i>Клапан</div><div class="nm">КВУ 1000×600</div><div class="pr">привод 230 В</div></div>
+            <div class="blk"><div class="ty"><i data-ic="filter" data-s="14"></i>Фильтр</div><div class="nm">Карманный F7</div><div class="pr">120 Па конечн.</div></div>
+            <div class="blk on"><div class="ty"><i data-ic="thermometer" data-s="14"></i>Нагреватель</div><div class="nm">ВНВ 243.2</div><div class="pr">68 кВт · 95/70 °C</div></div>
+            <div class="blk"><div class="ty"><i data-ic="snowflake" data-s="14"></i>Охладитель</div><div class="nm">ВОФ 243.2</div><div class="pr">42 кВт · R410A</div></div>
+            <div class="blk"><div class="ty"><i data-ic="fan" data-s="14"></i>Вентилятор</div><div class="nm">ВР 80-75-6,3</div><div class="pr">5,5 кВт · 1450 об/м</div></div>
+            <div class="blk"><div class="ty"><i data-ic="box" data-s="14"></i>Шумоглушитель</div><div class="nm">ШГ 1000</div><div class="pr">L = 1000 мм</div></div>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Общие характеристики установки</h3>
+          <div class="kv">
+            <div class="k">Расход воздуха</div><div class="num">6 300</div><div class="u">м³/ч</div>
+            <div class="k">Полное давление</div><div class="num">450</div><div class="u">Па</div>
+            <div class="k">Свободный напор</div><div class="num">300</div><div class="u">Па</div>
+            <div class="k">Напряжение питания</div><div class="num">380 В / 3 ф / 50 Гц</div><div class="u"></div>
+            <div class="k">Масса</div><div><span class="num">1 240</span><span class="st info small" style="margin-left:10px">изменено вручную · было 1 215</span></div><div class="u">кг</div>
+            <div class="k">Габариты Д × Ш × В</div><div class="num">4 870 × 1 120 × 1 350</div><div class="u">мм</div>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Нагреватель <span class="muted small">ВНВ 243.2</span></h3>
+          <div class="kv">
+            <div class="k">Тепловая мощность</div><div class="num">68,4</div><div class="u">кВт</div>
+            <div class="k">Теплоноситель</div><div>вода 95 / 70 °C</div><div class="u"></div>
+            <div class="k">Расход теплоносителя</div><div><span class="num">2,38</span><span class="st warn small" style="margin-left:10px">в новом расчёте 2,41</span><span class="btn quiet" style="height:24px;margin-left:6px;font-size:12px">Принять</span></div><div class="u">м³/ч</div>
+            <div class="k">Потеря давления по воде</div><div class="num">14,2</div><div class="u">кПа</div>
+            <div class="k">Температура воздуха на выходе</div><div class="num">+18</div><div class="u">°C</div>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Связанные теги <span class="muted">3</span></h3>
+          <div class="kv" style="grid-template-columns:240px minmax(0,1fr) auto">
+            <div class="mono">9900-AHU-01</div><div>Установка целиком</div><div class="u"><span class="st ok">в работе</span></div>
+            <div class="mono">9900-TE-011</div><div>Датчик температуры приточного воздуха</div><div class="u"><span class="st ok">в работе</span></div>
+            <div class="mono">9900-M-012</div><div>Привод воздушного клапана</div><div class="u"><span class="st">резерв</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="shell.js"></script>
+</body>

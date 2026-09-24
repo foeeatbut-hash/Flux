@@ -255,10 +255,10 @@ export default function Taskbar() {
   };
 
   const trayBtn = (active: boolean) =>
-    `relative rounded-[10px] cursor-pointer flex items-center justify-center transition-colors ${
+    `relative rounded-lg cursor-pointer flex items-center justify-center transition-colors ${
       active
-        ? 'bg-emerald-600 text-white'
-        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'
+        ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white'
+        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
     }`;
 
   return (
@@ -274,15 +274,16 @@ export default function Taskbar() {
          доходить до самого края окна, иначе угол экрана перестаёт быть целью */
       style={{ height: BAR_H, zIndex: Z.taskbar }}
       className="relative shrink-0 flex items-center gap-1 pl-2
-                 bg-white dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
+                 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
       {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
 
-      {/* Пуск — единственная кнопка с заливкой на всей панели, чтобы её
-          находили не глядя. Слова на ней нет: в ряду значков подпись — это
-          единственная надпись на всей панели, и она же занимает место кнопки
-          программы. Имя остаётся там, где его читают не глазами: в подсказке
-          и в aria-label */}
+      {/* Пуск — единственный цветной значок на панели, чтобы его находили не
+          глядя. Заливки у кнопки больше нет: зелёная плитка была самым ярким
+          пятном экрана и спорила с главной кнопкой открытой программы, а
+          акцент по методологии принадлежит действию (01-design.md, раздел 3).
+          Слова на ней нет: имя остаётся там, где его читают не глазами, — в
+          подсказке и в aria-label */}
       <button
         type="button"
         ref={startRef}
@@ -291,8 +292,8 @@ export default function Taskbar() {
         aria-label="Пуск"
         title="Пуск — все программы и поиск"
         style={{ width: BAR_BTN + 8, height: BAR_BTN }}
-        className="flex items-center justify-center rounded-[10px] shrink-0 cursor-pointer
-                   bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+        className={`flex items-center justify-center rounded-lg shrink-0 cursor-pointer transition-colors
+                   text-emerald-700 dark:text-emerald-400 ${startOpen ? 'bg-slate-200/70 dark:bg-slate-800' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
       >
         <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
       </button>
@@ -352,13 +353,16 @@ export default function Taskbar() {
               data-tour={`nav-${b.path}`}
               aria-current={b.active ? 'true' : undefined}
               style={{ height: BAR_BTN }}
-              className={`relative px-2.5 rounded-[10px] shrink-0 cursor-pointer flex items-center gap-2
-                          text-xs whitespace-nowrap transition-colors border ${
+              /* Запущенная — метка снизу, активная — ещё и светлая подложка, как в
+                 системной панели. Рамка вокруг каждой запущенной кнопки
+                 превращала ряд значков в ряд карточек */
+              className={`relative px-2.5 rounded-lg shrink-0 cursor-pointer flex items-center gap-2
+                          text-xs whitespace-nowrap transition-colors ${
                 b.active
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-semibold border-transparent'
+                  ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium'
                   : b.running
-                    ? 'bg-white dark:bg-dark-bg border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-150'
-                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'
+                    ? 'text-slate-700 dark:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
             >
               {Icon && <Icon size={BAR_ICON} className="shrink-0" />}
@@ -366,8 +370,8 @@ export default function Taskbar() {
               {countOfWindows(b.path) > 1 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
-                  className="shrink-0 px-1 rounded bg-slate-100 dark:bg-slate-850
-                             text-2xs font-mono text-slate-500 dark:text-slate-400 tabular-nums
+                  className="shrink-0 px-1 rounded bg-slate-200/70 dark:bg-slate-700
+                             text-2xs text-slate-500 dark:text-slate-300 tabular-nums
                              flex items-center justify-center" title="Окон этой программы">
                   {countOfWindows(b.path)}
                 </span>
@@ -403,16 +407,15 @@ export default function Taskbar() {
           title={`Ещё ${view.hidden.length}: не поместились на панель`}
           aria-label={`Ещё ${view.hidden.length} программ`}
           style={{ height: BAR_BTN }}
-          className="shrink-0 px-2 rounded-[10px] cursor-pointer text-xs font-bold tabular-nums
-                     text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-dark-border
-                     hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+          className="shrink-0 px-2 rounded-lg cursor-pointer text-xs font-medium tabular-nums
+                     text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
         >
           »{view.hidden.length}
         </button>
       )}
 
       {view.tidy && fit.hint && (
-        <span className="shrink-0 flex items-center gap-1.5 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
+        <span className="shrink-0 flex items-center gap-1.5 text-2xs text-slate-500 dark:text-slate-400 px-2 whitespace-nowrap">
           открыто много —
           {/* Настоящая кнопка, а не подчёркнутая строчка: в текст высотой в
               четырнадцать точек надо целиться, и мимо попадают чаще, чем в него */}
@@ -420,9 +423,9 @@ export default function Taskbar() {
             type="button"
             onClick={tileAll}
             style={{ height: BAR_BTN - 6 }}
-            className="px-2 rounded-lg cursor-pointer font-semibold
-                       border border-amber-300 dark:border-amber-800
-                       hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
+            className="px-2 rounded-md cursor-pointer font-medium text-slate-700 dark:text-slate-100
+                       border border-slate-300 dark:border-slate-600
+                       hover:bg-white dark:hover:bg-slate-800 transition-colors"
           >
             разложить
           </button>
@@ -452,12 +455,12 @@ export default function Taskbar() {
           onClick={() => { setNotifOpen(false); setClockOpen((v) => !v); }}
           aria-expanded={clockOpen}
           title="Календарь: что сегодня и что впереди"
-          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-[10px]
+          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-lg
                       cursor-pointer transition-colors ${clockOpen
-            ? 'bg-emerald-50 dark:bg-emerald-950/40'
-            : 'hover:bg-slate-100 dark:hover:bg-slate-850'}`}
+            ? 'bg-slate-200/70 dark:bg-slate-800'
+            : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
         >
-          <b className="text-sm font-semibold text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
+          <b className="text-sm font-medium text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
           <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
         </button>
 

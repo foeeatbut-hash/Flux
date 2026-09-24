@@ -295,7 +295,7 @@ export default function ProjectsManagement() {
                       </span>
                     </div>
                     {isActive && (
-                      <span className="text-xs uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 tracking-wider">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400">
                         выбран
                       </span>
                     )}
@@ -416,7 +416,7 @@ export default function ProjectsManagement() {
                 <div className="max-w-2xl bg-white dark:bg-slate-900 duration-200 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
                   {/* Status Block */}
                   <div className="flex items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <span className="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
                       <Calendar className="w-4 h-4 text-emerald-600" />
                       Дата регистрации проекта:
                     </span>

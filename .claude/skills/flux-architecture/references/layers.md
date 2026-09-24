@@ -18,15 +18,13 @@
 | `import/` | импорт документов: `recognize`, `extractors`, `ocr`, `valueGrammar`, `dictionary`, `learn`, воркер |
 | `assistant/` | встроенный помощник: `knowledge`, `nlp`, `sections`, `tours` — локально, без сети |
 | `lib/` | мелкие независимые утилиты: права, роли, склонения, лицензия, ссылки |
-| `robot/` | маскот: `rig`, `poses`, `player`, `scenes`. Файлы с `__` — черновики, в сборку не входят |
 | `config/env.ts` | адрес сервера и прочее окружение |
 
-## Разделы (из `SECTIONS`)
+## Разделы
 
-`/` Главная · `/projects` Проекты · `/registry` Теги · `/equipment` Оборудование ·
-`/directory` Справочник · `/management` Менеджмент · `/explorer` Проводник ·
-`/constructor` Конструктор · `/notes` Блокнот · `/chat` Чат · `/generator` Генератор ·
-`/settings` Настройки · `/logs` Журнал · `/users` Сотрудники (только админ).
+Список разделов здесь не повторяется: он один — `SECTIONS` в
+`src/workspace/sections.tsx` (путь, название, область, экран, права).
+Страница каждой программы — `docs/methodology/03-programs/`.
 
 Отдельно от рабочего стола живут `Login`, `LicenseGate`, `StickerWindow`,
 `CapturePult` — у них свои окна или свой этап входа.

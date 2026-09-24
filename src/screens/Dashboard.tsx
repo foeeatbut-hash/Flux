@@ -445,7 +445,7 @@ export default function Dashboard() {
                   i === cursor ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''
                 }`}
               >
-                <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 w-14 shrink-0">{KIND_LABEL[h.kind]}</span>
+                <span className="text-2xs font-mono text-slate-400 w-14 shrink-0">{KIND_LABEL[h.kind]}</span>
                 <span className="text-sm font-medium truncate flex-1">{h.title}</span>
                 {h.hint && <span className="text-xs text-slate-400 truncate max-w-[30%]">{h.hint}</span>}
                 {i === cursor && <CornerDownLeft className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
@@ -508,7 +508,7 @@ export default function Dashboard() {
         };
         return (
           <section aria-label="Требует внимания">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Требует внимания</h2>
+            <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Требует внимания</h2>
             <div className="flex flex-col gap-1.5">
               {rows.map((r) => {
                 const Icon = r.icon;
@@ -552,7 +552,7 @@ export default function Dashboard() {
       {/* ── Продолжить: где человек был в прошлый раз ── */}
       {recent.length > 0 && (
         <section>
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Продолжить</h2>
+          <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Продолжить</h2>
           <div className="grid grid-cols-2 @[700px]:grid-cols-4 gap-2.5">
             {recent.map((s) => {
               const Icon = s.icon as any;
@@ -580,7 +580,7 @@ export default function Dashboard() {
 
       {/* ── Разделы: часто используемые впереди ── */}
       <section>
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Разделы</h2>
+        <h2 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-2 select-none">Разделы</h2>
         {/* Ровная сетка вместо переносящихся пилюль: раньше последний раздел
             уезжал на вторую строку в одиночестве и блок выглядел обрывком. */}
         <div className="grid grid-cols-2 @[560px]:grid-cols-3 @[760px]:grid-cols-4 @[1000px]:grid-cols-6 gap-2">
@@ -700,7 +700,7 @@ export default function Dashboard() {
                 >
                   <Check className={`w-4 h-4 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-0'}`} />
                   <span className={`text-[13px] truncate flex-1 ${active ? 'font-bold text-emerald-900 dark:text-emerald-200' : 'font-medium'}`}>{p.name}</span>
-                  {active && <span className="text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
+                  {active && <span className="text-2xs font-bold text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
                 </button>
               );
             })}

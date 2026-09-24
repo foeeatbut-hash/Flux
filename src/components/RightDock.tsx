@@ -98,18 +98,16 @@ export default function RightDock() {
       {/* Вкладки — только на узком экране: на широком обе панели видны сразу,
           и вкладка была бы лишним нажатием ни за чем */}
       {plan.tabs && (
-        <div className="shrink-0 flex border-b border-slate-200 dark:border-slate-800">
+        <div className="fx-tabs shrink-0 h-10 px-2 border-b border-slate-200 dark:border-slate-800" role="tablist">
           {plan.order.map((id) => (
             <button
               key={id}
               type="button"
+              role="tab"
+              aria-selected={shown[0] === id}
               data-dock-tab
               onClick={() => setTab(id)}
-              className={`flex-1 py-2 text-xs font-bold cursor-pointer transition-ui ${
-                shown[0] === id
-                  ? 'text-emerald-700 dark:text-emerald-400 border-b-2 border-emerald-600'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
-              }`}
+              className="fx-tab flex-1 justify-center"
             >
               {panelTitle(id)}
             </button>

@@ -78,7 +78,7 @@ function InteractiveList({ items }: { items: NonNullable<AssistantMessage['list'
             <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
             {it.badge && (
               <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50
-                               text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>
+                               text-rose-600 dark:text-rose-300">{it.badge}</span>
             )}
           </div>
           {it.subtitle && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
@@ -313,7 +313,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
       {section && demoMode && (
         <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-850 shrink-0">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <Info className="w-3 h-3" /> {section.emoji} Раздел: {section.title}
             </span>
             <button type="button" onClick={() => describeCurrentSection()}

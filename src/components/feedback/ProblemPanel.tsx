@@ -101,8 +101,7 @@ function SignInFirst({ anchor }: { anchor: { top: number; right: number } | null
         position: 'fixed', top: anchor ? anchor.top : 40, right: anchor ? anchor.right : GUTTER,
         zIndex: Z.tray, width: `min(${MAX_WIDTH}px, calc(100vw - ${GUTTER * 2}px))`,
       }}
-      className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface
-                 shadow-xl p-3 flex items-center gap-2">
+      className="fx-pop !p-3 flex items-center gap-2">
       <Bug className="w-4 h-4 text-rose-500 shrink-0" />
       <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">Войдите, чтобы отправить</span>
       <button type="button" onClick={closeProblemPanel} aria-label="Закрыть"
@@ -238,12 +237,11 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
         transform: shown ? 'translateY(0)' : 'translateY(-6px)',
         transition: 'opacity 150ms ease-out, transform 150ms ease-out',
       }}
-      className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface
-                 shadow-xl overflow-hidden"
+      className="fx-pop !p-0 overflow-hidden"
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-dark-border">
         <Bug className="w-4 h-4 text-rose-500" />
-        <span className="text-sm font-bold text-slate-800 dark:text-slate-100">Сообщить о проблеме</span>
+        <span className="text-base font-semibold text-slate-800 dark:text-slate-100">Сообщить о проблеме</span>
         <span className="flex-1" />
         <button type="button" onClick={dismiss} aria-label="Закрыть"
           className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer text-slate-400
@@ -297,8 +295,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
               Открыть
             </a>
             <button type="button" onClick={closeProblemPanel}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-emerald-600
-                         text-white hover:bg-emerald-700">
+              className="fx-btn fx-btn-primary">
               Готово
             </button>
           </>
@@ -306,15 +303,12 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
           <>
             {noStorage && (
               <button type="button" onClick={saveToFile} title="Сохранить написанное файлом"
-                className="px-2.5 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold cursor-pointer
-                           bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800
-                           text-slate-700 dark:text-slate-300">
+                className="fx-btn">
                 <FileDown className="w-3.5 h-3.5" /> Сохранить текст
               </button>
             )}
             <button type="button" onClick={() => void send()} disabled={busy}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-emerald-600 text-white
-                         hover:bg-emerald-700 disabled:opacity-50">
+              className="fx-btn fx-btn-primary">
               Отправить
             </button>
           </>

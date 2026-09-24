@@ -622,7 +622,7 @@ function ProcurementTab() {
             )}
             <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
             {row.isDup && (
-              <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
+              <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">дубль</span>
             )}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
@@ -953,7 +953,7 @@ function ProcurementTab() {
       {/* Таблица позиций */}
       <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
         <table ref={tableRef} className="w-full text-left border-collapse">
-          <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-850">
+          <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850">
             <tr>
               <th className="flux-cell w-8">
                 <input

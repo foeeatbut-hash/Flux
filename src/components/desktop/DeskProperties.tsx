@@ -27,7 +27,7 @@ const KIND_NAME: Record<string, string> = {
 
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div className="flex items-start gap-3 py-1.5 border-b border-slate-100 dark:border-dark-border/60 last:border-0">
-    <span className="w-32 shrink-0 text-2xs uppercase tracking-wider text-slate-400 pt-0.5">{label}</span>
+    <span className="w-32 shrink-0 text-2xs text-slate-400 pt-0.5">{label}</span>
     <span className="flex-1 min-w-0 text-sm text-slate-800 dark:text-slate-150 break-words">{children}</span>
   </div>
 );
