@@ -13,12 +13,17 @@ import { ENV_CONFIG, getAuthToken } from '../../config/env';
 
 export interface OfficeRoster {
   fileId: string;
+  /** Файл в общем доступе: правят все сразу, держатель только записывает */
+  collab?: boolean;
   holder: { socketId: string; clientId: string; userId: string; name: string; color: string; lost: boolean } | null;
-  peers: Array<{ socketId: string; clientId: string; userId: string; name: string; color: string }>;
+  peers: Array<{ socketId: string; clientId: string; userId: string; name: string; color: string; mayWrite?: boolean }>;
 }
 
-/** edit — правлю я; view — смотрю; alone — связи нет, правлю под сверкой хеша */
-export type OfficeMode = 'pending' | 'edit' | 'view' | 'alone';
+/**
+ * edit — правлю я (один); view — смотрю; alone — связи нет, правлю под
+ * сверкой хеша; together — общий файл, правим все вместе
+ */
+export type OfficeMode = 'pending' | 'edit' | 'view' | 'alone' | 'together';
 
 /** Сколько ждать сокет, прежде чем править без комнаты */
 const NO_LINK_MS = 6000;
@@ -34,8 +39,16 @@ export function officeMode(roster: OfficeRoster | null, clientId: string, linked
   const holder = roster?.holder || null;
   if (linked) {
     if (!roster) return 'pending';
+    if (roster.collab) {
+      const me = roster.peers.find((p) => p.clientId === clientId);
+      if (!me) return 'pending';
+      return me.mayWrite ? 'together' : 'view';
+    }
     return holder && holder.clientId === clientId ? 'edit' : 'view';
   }
+  // Без связи общий файл не правится: правки не дошли бы до соавторов, а
+  // сохранение шло бы мимо общего документа
+  if (roster?.collab) return 'view';
   if (holder && holder.clientId !== clientId) return 'view';
   if (holder) return 'edit';
   return gaveUp ? 'alone' : 'pending';
@@ -52,6 +65,8 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
   const clientId = useRef(Math.random().toString(36).slice(2, 12) + Date.now().toString(36));
   const savedRef = useRef(onPeerSaved);
   savedRef.current = onPeerSaved;
+  /** Подписчики событий сокета (совместная правка): событие → обработчики */
+  const subs = useRef(new Map<string, Set<(m: any) => void>>());
 
   useEffect(() => {
     if (!fileId) return undefined;
@@ -73,6 +88,11 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     sock.on('office:saved', (m: { fileId: string; sha256: string }) => {
       if (m?.fileId === fileId) savedRef.current(String(m.sha256 || ''));
     });
+    // Совместная правка: всё остальное окно разбирает само (OfficeHost)
+    for (const ev of ['office:y', 'office:y-state', 'office:y-aware', 'office:save-request', 'office:saved']) {
+      sock.on(ev, (m: any) => { if (m?.fileId === fileId) subs.current.get(ev)?.forEach((fn) => fn(m)); });
+    }
+    sock.io.on('reconnect', () => subs.current.get('reconnect')?.forEach((fn) => fn(null)));
     return () => {
       clearTimeout(giveUp);
       sock.emit('office:leave', { fileId });
@@ -97,5 +117,21 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     sockRef.current?.emit('office:saved', { fileId, sha256 });
   }, [fileId]);
 
-  return { roster, socketId, clientId: clientId.current, mode: officeMode(roster, clientId.current, linked, gaveUp), take, saved };
+  /** Сказать серверу (совместная правка) */
+  const emit = useCallback((event: string, payload: object) => {
+    sockRef.current?.emit(event, { fileId, ...payload });
+  }, [fileId]);
+
+  /** Слушать событие сервера; возвращает отписку */
+  const listen = useCallback((event: string, fn: (m: any) => void) => {
+    const set = subs.current.get(event) || new Set();
+    set.add(fn);
+    subs.current.set(event, set);
+    return () => { set.delete(fn); };
+  }, []);
+
+  const mode = officeMode(roster, clientId.current, linked, gaveUp);
+  /** Я записываю файл: держатель — тот, кто сохраняет за всех */
+  const holding = !!roster?.holder && roster.holder.clientId === clientId.current && !roster.holder.lost;
+  return { roster, socketId, clientId: clientId.current, mode, holding, linked, take, saved, emit, listen };
 }

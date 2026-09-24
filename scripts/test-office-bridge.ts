@@ -101,7 +101,13 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   const { PATCHES } = await import('../tools/genoffice/patches.mjs' as any);
   ok('правки GenOffice: режим просмотра встроен в защиту документа',
     PATCHES.some((p: any) => /fluxReadOnly \|\|/.test(p.replace)) && PATCHES.some((p: any) => /onFluxReadOnly/.test(p.replace)));
-  ok('у каждой правки одно место и своё имя', PATCHES.every((p: any) => p.id && p.file && p.find && p.replace.includes(p.find.trim().split('\n')[0].trim())));
+  ok('у каждой правки своё имя, файл и настоящая замена',
+    PATCHES.every((p: any) => p.id && p.file && p.find && p.replace && p.replace !== p.find)
+    && new Set(PATCHES.map((p: any) => p.id)).size === PATCHES.length);
+  ok('чужая правка не повторяется у каждого участника',
+    PATCHES.filter((p: any) => /isChangeOrigin/.test(p.replace)).length >= 5);
+  ok('после записи в сеансе файл не перечитывается',
+    PATCHES.some((p: any) => p.id === 'flux-no-reparse' && /__fluxCollab\?\.active/.test(p.replace)));
 
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
   process.exit(f ? 1 : 0);

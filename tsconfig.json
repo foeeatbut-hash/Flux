@@ -26,6 +26,8 @@
   "exclude": [
     "node_modules",
     "dist",
-    "electron"
+    "electron",
+    "tools/genoffice/inject",
+    ".cache"
   ]
 }

@@ -128,6 +128,10 @@
     onOpenDocx: on('open', false, asOpened),
     // Файл правит другой — только просмотр (правка GenOffice, patches.mjs)
     onFluxReadOnly: on('readOnly', true),
+    // Совместная правка (inject/docs-collab.ts): события окна Flux и ответы
+    // ему. «collab» — состояние (запоминается), обновления — происшествия
+    onFluxEvent: function (event, fn) { return on(event, event === 'collab')(fn); },
+    fluxTell: function (op, payload) { tell(op, payload); },
   };
 
   function stub(name) {
@@ -156,6 +160,14 @@
   css.textContent =
     '.ai-dock{display:none!important}' +
     '.ribbon-group:has(.ai-entry){display:none!important}' +
-    '.ribbon-group:has(.ai-entry)+.ribbon-sep{display:none!important}';
+    '.ribbon-group:has(.ai-entry)+.ribbon-sep{display:none!important}' +
+    // Курсор соавтора (y-prosemirror): тонкая черта его цвета и имя над
+    // строкой. Без этого подпись вставала блоком во всю ширину, ломала
+    // строку, и Home/End вели не туда
+    '.ProseMirror-yjs-cursor{position:relative;margin-left:-1px;margin-right:-1px;border-left:1px solid;border-right:1px solid;' +
+      'word-break:normal;pointer-events:none;display:inline;height:1.2em}' +
+    '.ProseMirror-yjs-cursor>div{position:absolute;top:-1.15em;left:-1px;font:500 11px/1.3 system-ui,sans-serif;white-space:nowrap;' +
+      'color:#fff;padding:0 4px;border-radius:3px 3px 3px 0;user-select:none;pointer-events:none;opacity:.92}' +
+    '.ProseMirror-yjs-selection{border-radius:2px}';
   (document.head || document.documentElement).appendChild(css);
 })();

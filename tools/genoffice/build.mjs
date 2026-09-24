@@ -36,6 +36,9 @@ const root = resolve(here, '../..');
 const COMMIT = '89b11083d89ab2b5c89c9a0a014886552a7a9f91';
 const REPO = 'https://github.com/genspark-ai/genoffice.git';
 
+/** Совместная правка внутри редактора: те же версии, что проверены */
+const COLLAB_DEPS = ['yjs@13.6.33', 'y-prosemirror@1.3.7', 'y-protocols@1.0.7'];
+
 /** Редакторы, которые умеет собирать этот скрипт */
 const APPS = { docs: 'apps/docs' };
 
@@ -88,6 +91,15 @@ function main() {
   if (!app) throw new Error(`неизвестный редактор «${which}»; есть: ${Object.keys(APPS).join(', ')}`);
   const src = source();
   if (!existsSync(join(src, 'node_modules'))) run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], src);
+
+  // Одновременная правка: Yjs внутри редактора — закреплёнными версиями,
+  // без записи в lock-файл исходника (он у GenOffice свой)
+  if (!existsSync(join(src, 'node_modules', 'y-prosemirror'))) {
+    run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...COLLAB_DEPS], src);
+  }
+  // Наш код внутри редактора — рядом с его исходниками (tools/genoffice/inject)
+  const injectDir = join(here, 'inject');
+  if (which === 'docs') cpSync(join(injectDir, 'docs-collab.ts'), join(src, app, 'src', 'renderer', 'flux', 'docs-collab.ts'));
 
   // Правки Flux — до сборки (tools/genoffice/patches.mjs)
   for (const line of applyPatches(src)) console.log(`  правка ${line}`);

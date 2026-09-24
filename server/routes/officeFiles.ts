@@ -23,6 +23,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
 import { ensureTables as ensureDbTables } from '../ddl.js';
 import { fileBytes } from './fileChunks.js';
+import { collab } from '../officeCollab.js';
 
 export interface OfficeFileDeps {
   chunkBytes: () => Promise<number>;
@@ -31,6 +32,12 @@ export interface OfficeFileDeps {
   /** Кто сейчас держит правку файла (server/officeRooms.ts); null — никто */
   holderOf?: (fileId: string) => { userId: string; name: string } | null;
 }
+
+/** Автосохранение пишет часто: версию отката — не чаще, чем раз в это время */
+const AUTOSAVE_VERSION_MS = 10 * 60_000;
+
+/** Файл в общем доступе — правят вместе; личный правит только хозяин */
+export const isSharedFile = (file: { scope?: string | null }): boolean => file.scope !== 'PERSONAL';
 
 /** Сколько прежних версий файла держим для отката */
 const KEEP = 20;
@@ -101,6 +108,31 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
     } catch (err: any) { sendError(res, err); }
   });
 
+  /**
+   * Что открыть в редакторе. Общий файл — исходник сеанса совместной правки
+   * (server/officeCollab.ts): у всех участников один и тот же, даже если
+   * держатель уже записал в файл свежее — свежее придёт из общего документа.
+   * Личный — текущее содержимое.
+   */
+  app.get('/api/office/files/:id/open', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
+      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      const current = await fileBytes(file);
+      const shared = isSharedFile(file as any);
+      const session = shared ? await collab.ensure(file.id, async () => current) : null;
+      const body = session ? session.baseBytes : current;
+      if (session) res.setHeader('X-Collab-Session', session.key);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('X-Collab', shared ? '1' : '0');
+      res.setHeader('X-Base-Sha256', sha256(body));
+      res.setHeader('X-Current-Sha256', sha256(current));
+      res.setHeader('X-File-Name', encodeURIComponent(file.name || ''));
+      res.end(body);
+    } catch (err: any) { sendError(res, err); }
+  });
+
   /** Сохранение целиком. Заголовок X-Base-Sha256 — с чего начиналась правка */
   app.put('/api/office/files/:id/content',
     express.raw({ type: () => true, limit: LIMIT }),
@@ -146,10 +178,19 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
           where: { fileId }, orderBy: { version: 'desc' }, select: { version: true },
         });
         const version = (last?.version ?? 0) + 1;
+        // Автосохранение совместной правки пишет раз в несколько секунд:
+        // версия на каждое — и двадцать версий отката сгорели бы за минуту
+        let keepVersion = true;
+        if (String(req.header('x-autosave') || '') === '1' && last) {
+          const lastAt = await (prisma as any).fileVersion.findFirst({
+            where: { fileId }, orderBy: { version: 'desc' }, select: { createdAt: true },
+          });
+          keepVersion = !lastAt || Date.now() - new Date(lastAt.createdAt).getTime() >= AUTOSAVE_VERSION_MS;
+        }
 
         await prisma.$transaction(async (tx: any) => {
           // Прежнее — в откат, до того как его не станет
-          await tx.fileVersion.create({
+          if (keepVersion) await tx.fileVersion.create({
             data: {
               id: randomUUID(), fileId, version, size: before.length, sha256: beforeSha,
               data: before, createdById: user.id,
@@ -171,7 +212,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         });
         if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
 
-        res.json({ sha256: afterSha, size: body.length, version });
+        res.json({ sha256: afterSha, size: body.length, version: keepVersion ? version : last?.version ?? 0 });
       } catch (err: any) { sendError(res, err); }
     });
 

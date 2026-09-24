@@ -32,7 +32,8 @@ import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
-import { setupOfficeRooms, officeRooms } from './server/officeRooms.js';
+import { officeRooms } from './server/officeRooms.js';
+import { setupOfficeSockets } from './server/officeSockets.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
@@ -1137,16 +1138,13 @@ io.on('connection', (socket) => {
 
   // Комната документа: присутствие, выделения, операции движка (server/collab.ts)
   const docRooms = setupDocRooms(io, socket, async (id) => (await getAuthUser(id))?.name || '');
-  // Комната файла Flux Office: кто открыл и кто правит (server/officeRooms.ts)
-  const officeConn = setupOfficeRooms(io, socket, {
-    nameOf: async (id) => (await getAuthUser(id))?.name || '',
-    mayWrite: async (id, fileId) => mayWriteFile({ authUser: await getAuthUser(id) }, fileId),
-  });
+  // Flux Office: комната файла, совместная правка, редакторы на сервере (server/officeSockets.ts)
+  const office = setupOfficeSockets(io, socket, { getAuthUser, mayWriteFile });
 
   socket.on('disconnect', (reason) => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
     docRooms.leaveAll();
-    officeConn.gone(String(reason || ''));
+    office.gone(String(reason || ''));
     if (uid) {
       const set = online.get(uid);
       set?.delete(socket.id);
