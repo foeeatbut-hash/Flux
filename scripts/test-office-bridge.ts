@@ -54,9 +54,11 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   const posted: any[] = [];
   const store: Record<string, string> = {};
   const parent = { postMessage: (m: any, to: string) => posted.push({ m, to }) };
+  let onMsg: (e: any) => void = () => {};
   const win: any = {
     location: { origin: 'http://localhost:3000' }, parent,
-    addEventListener: () => {}, localStorage: { setItem: (k: string, v: string) => { store[k] = v; } },
+    addEventListener: (t: string, fn: any) => { if (t === 'message') onMsg = fn; },
+    localStorage: { setItem: (k: string, v: string) => { store[k] = v; } },
   };
   win.window = win;
   const ctx = vm.createContext({
@@ -78,6 +80,16 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   const save = posted.find((p) => p.m.op === 'save');
   ok('сохранение несёт путь файла', save?.m?.payload?.path === 'flux://file/abc' && save?.m?.payload?.auto === true, save?.m);
 
+  // Окно сказало «только просмотр» раньше, чем редактор подписался
+  onMsg({ source: parent, origin: 'http://localhost:3000', data: { flux: 'office', event: 'readOnly', payload: true } });
+  let ro: unknown = null;
+  d.onFluxReadOnly((v: unknown) => { ro = v; });
+  ok('«только просмотр» доходит и до позднего подписчика', ro === true);
+  onMsg({ source: {}, origin: 'http://localhost:3000', data: { flux: 'office', event: 'readOnly', payload: false } });
+  ok('чужое окно режим не меняет', ro === true);
+  onMsg({ source: parent, origin: 'http://localhost:3000', data: { flux: 'office', event: 'readOnly', payload: false } });
+  ok('своё окно — меняет', ro === false);
+
   console.log('\n5. Сборка');
   const build = readFileSync('tools/genoffice/build.mjs', 'utf8');
   const csp = (build.match(/const CSP = ([\s\S]*?);\n/) || [])[1] || '';
@@ -86,6 +98,10 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   ok('мост ставится в <head> до скриптов редактора', /replace\(\/<head>\/i/.test(build) && /flux-bridge\.js/.test(build));
   ok('LICENSE и NOTICE едут с редактором', /'LICENSE', 'NOTICE'/.test(build));
   ok('каталог ee/ не берётся', !/['"`]ee\//.test(build));
+  const { PATCHES } = await import('../tools/genoffice/patches.mjs' as any);
+  ok('правки GenOffice: режим просмотра встроен в защиту документа',
+    PATCHES.some((p: any) => /fluxReadOnly \|\|/.test(p.replace)) && PATCHES.some((p: any) => /onFluxReadOnly/.test(p.replace)));
+  ok('у каждой правки одно место и своё имя', PATCHES.every((p: any) => p.id && p.file && p.find && p.replace.includes(p.find.trim().split('\n')[0].trim())));
 
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
   process.exit(f ? 1 : 0);

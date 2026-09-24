@@ -9,13 +9,18 @@
  *   - «сохранить» — запись целиком со сверкой: если файл поменял кто-то
  *     другой, запись не идёт, и человек сам решает, что делать;
  *   - «сохранить как» — копия в той же папке;
- *   - закрытие окна — спросить редактор, есть ли несохранённое, и сохранить.
+ *   - закрытие окна — спросить редактор, есть ли несохранённое, и сохранить;
+ *   - комната файла: правит один (держатель), остальные смотрят и после
+ *     каждого его сохранения получают свежую версию на месте
+ *     (components/collab/useOfficeRoom.ts, server/officeRooms.ts).
  *
  * Правила переписки — lib/officeBridge.ts. Сервер — server/routes/officeFiles.ts.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Btn, Dialog, Empty } from '../components/ui';
+import { useOfficeRoom } from '../components/collab/useOfficeRoom';
+import OfficePresence from '../components/collab/OfficePresence';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -30,7 +35,8 @@ const EDITOR_URL = 'genoffice/docs/index.html';
 const HELLO_MS = 15_000;
 
 type Phase = 'loading' | 'ready' | 'missing';
-interface Conflict { fileId: string; bytes: ArrayBuffer }
+/** stale — файл сохранил другой; locked — правку держит другой */
+interface Conflict { fileId: string; bytes: ArrayBuffer; why: 'stale' | 'locked'; holder?: string }
 
 export default function OfficeHost() {
   const [params, setParams] = useSearchParams();
@@ -54,6 +60,19 @@ export default function OfficeHost() {
   phaseRef.current = phase;
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  /** Правлю ли я сейчас. До ответа комнаты — нет: сначала узнать, не правит ли другой */
+  const [editable, setEditable] = useState(false);
+  const editableRef = useRef(false);
+  editableRef.current = editable;
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const room = useOfficeRoom(fileId, () => {
+    // Держатель сохранил — зрителю показать свежее. Правящему не нужно:
+    // сохранял либо он сам, либо (после обрыва) он уже не держатель
+    if (!editableRef.current) void refreshRef.current();
+  });
+  const holderName = room.roster?.holder && room.roster.holder.clientId !== room.clientId ? room.roster.holder.name : '';
+  const holderRef = useRef('');
+  holderRef.current = holderName;
 
   useWindowTitle(name);
 
@@ -89,6 +108,21 @@ export default function OfficeHost() {
     const id = fileIdOf(p?.path) || fileId;
     const from = base.current.get(id);
     if (!id || !from) return { ok: false, error: 'Файл не открыт — сохранять некуда' };
+    // Правку держит другой. Сюда попадают правки, сделанные до того, как её
+    // забрали (обрыв связи дольше паузы): их не выбрасываем, а предлагаем
+    // сохранить рядом
+    if (id === fileId && !editableRef.current) {
+      if (p.auto) return { ok: false, reason: 'external-modified' };
+      // Ctrl+S у зрителя без правок — не повод для окна выбора: редактор
+      // сохраняет и нетронутый документ
+      const st = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 2000);
+      if (!st?.dirty) {
+        addToast(holderRef.current ? `Только просмотр: файл правит ${holderRef.current}` : 'Только просмотр', 'info');
+        return { ok: false, reason: 'external-modified' };
+      }
+      setConflict((c) => c || { fileId: id, bytes: p.bytes.slice(0), why: 'locked', holder: holderRef.current });
+      return { ok: false, reason: 'external-modified' };
+    }
     const res = await fetch(`/api/office/files/${encodeURIComponent(id)}/content`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream', 'X-Base-Sha256': from },
@@ -97,15 +131,19 @@ export default function OfficeHost() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       base.current.set(id, data.sha256);
+      if (id === fileId && !data.unchanged) room.saved(data.sha256);
       return { ok: true };
     }
-    if (res.status === 409) {
+    if (res.status === 409 || res.status === 423) {
       // Правка человека не пропадает: байты держим до его решения
-      setConflict((c) => c || { fileId: id, bytes: p.bytes.slice(0) });
+      setConflict((c) => c || {
+        fileId: id, bytes: p.bytes.slice(0),
+        why: res.status === 423 ? 'locked' : 'stale', holder: String(data?.holder || ''),
+      });
       return { ok: false, reason: 'external-modified' };
     }
     return { ok: false, error: String(data?.error || `сервер ответил ${res.status}`) };
-  }, [fileId]);
+  }, [fileId, room.saved, askFrame, addToast]);
 
   const saveCopy = useCallback(async (fromId: string, wanted: string, bytes: ArrayBuffer) => {
     const res = await fetch(`/api/office/files/${encodeURIComponent(fromId)}/copy?name=${encodeURIComponent(wanted)}`, {
@@ -152,6 +190,39 @@ export default function OfficeHost() {
 
   // Тема Flux — тема редактора
   useEffect(() => { if (phase === 'ready') send({ event: 'theme', payload: theme }); }, [theme, phase, send]);
+
+  /** Свежая версия файла — в редактор на месте, без перезагрузки окна */
+  const refresh = useCallback(async () => {
+    const r = await open().catch(() => null);
+    if (r) send({ event: 'open', payload: r });
+  }, [open, send]);
+  refreshRef.current = refresh;
+
+  // Правлю или смотрю — по комнате. Перед тем как дать правку, показать то,
+  // что сейчас в файле: зритель мог смотреть на версию до последнего
+  // сохранения, и правка поверх неё ушла бы в отказ сверки
+  useEffect(() => {
+    if (phase !== 'ready') return;
+    const mine = room.mode === 'edit' || room.mode === 'alone';
+    if (!mine) { setEditable(false); return; }
+    if (editableRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const meta = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`).then((r) => r.json());
+        if (!cancelled && meta?.sha256 && meta.sha256 !== base.current.get(fileId)) await refresh();
+      } catch (_) { /* без сверки: сохранение всё равно сверит хеш */ }
+      if (!cancelled) setEditable(true);
+    })();
+    return () => { cancelled = true; };
+  }, [room.mode, phase, fileId, refresh]);
+
+  useEffect(() => { if (phase === 'ready') send({ event: 'readOnly', payload: !editable }); }, [editable, phase, send]);
+
+  const takeEdit = async () => {
+    const why = await room.take();
+    if (why) addToast(why, 'error');
+  };
 
   // Мост молчит — значит, редактора нет (не собран) или вместо него отдали
   // чужую страницу. Белый фрейм без объяснений хуже честного «нет»
@@ -208,7 +279,9 @@ export default function OfficeHost() {
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div className="flex h-full w-full flex-col">
+      <OfficePresence roster={room.roster} clientId={room.clientId} mode={room.mode} editable={editable} onTake={takeEdit} />
+      <div className="relative min-h-0 flex-1">
       <iframe
         key={`${fileId}:${frameKey}`}
         ref={frame}
@@ -222,14 +295,18 @@ export default function OfficeHost() {
           Открывается…
         </div>
       )}
+      </div>
       {conflict && (
-        <Dialog title="Файл изменили, пока он был открыт" onClose={() => setConflict(null)} busy={busy} width="max-w-lg"
+        <Dialog title={conflict.why === 'locked' ? 'Файл сейчас правит другой сотрудник' : 'Файл изменили, пока он был открыт'}
+          onClose={() => setConflict(null)} busy={busy} width="max-w-lg"
           footer={<>
             <Btn tone="ghost" disabled={busy} onClick={() => setConflict(null)}>Отмена</Btn>
             <Btn tone="danger" disabled={busy} onClick={() => reopen(conflict.fileId)}>Открыть свежую версию</Btn>
             <Btn tone="primary" disabled={busy} onClick={keepMine}>Сохранить мои правки рядом</Btn>
           </>}>
-          <p>Кто-то сохранил этот документ после того, как вы его открыли. Ваши правки не записаны поверх — чужая работа не пропала.</p>
+          {conflict.why === 'locked'
+            ? <p>{conflict.holder ? `Правку файла держит ${conflict.holder}` : 'Правку файла держит другой сотрудник'}: пока не было связи, её отдали ему. Ваши правки не записаны поверх — его работа не пропала.</p>
+            : <p>Кто-то сохранил этот документ после того, как вы его открыли. Ваши правки не записаны поверх — чужая работа не пропала.</p>}
           <p className="mt-2">«Сохранить мои правки рядом» положит ваш вариант отдельным файлом в ту же папку. «Открыть свежую версию» покажет сохранённое другим, а ваши несохранённые правки будут потеряны.</p>
         </Dialog>
       )}

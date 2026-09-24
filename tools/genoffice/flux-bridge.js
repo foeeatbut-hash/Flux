@@ -30,6 +30,8 @@
   var seq = 0;
   var waiting = {};
   var listeners = {};
+  /** Последнее значение события: подписавшийся позже узнаёт его сразу */
+  var last = {};
 
   /** Запрос окну Flux; ответ приходит сообщением с тем же номером */
   function ask(op, payload, transfer) {
@@ -51,7 +53,9 @@
       if (m.error) w.reject(new Error(m.error)); else w.resolve(m.result);
       return;
     }
-    if (m.event && listeners[m.event]) listeners[m.event].forEach(function (fn) { try { fn(m.payload); } catch (_) {} });
+    if (!m.event) return;
+    last[m.event] = m.payload;
+    (listeners[m.event] || []).forEach(function (fn) { try { fn(m.payload); } catch (_) {} });
   });
 
   /** Сообщение без ответа: окну Flux достаточно узнать */
@@ -59,23 +63,29 @@
     parentWin.postMessage({ flux: 'office', op: op, payload: payload }, target);
   }
 
-  function on(event) {
+  /**
+   * Подписка на событие окна Flux. sticky — состояние, а не происшествие:
+   * «только просмотр» окно могло сказать до того, как редактор подписался,
+   * и такой подписчик получает последнее значение сразу
+   */
+  function on(event, sticky, map) {
     return function (fn) {
-      (listeners[event] = listeners[event] || []).push(fn);
-      return function () { listeners[event] = (listeners[event] || []).filter(function (x) { return x !== fn; }); };
+      var call = map ? function (p) { map(p).then(fn); } : fn;
+      (listeners[event] = listeners[event] || []).push(call);
+      if (sticky && Object.prototype.hasOwnProperty.call(last, event)) { try { call(last[event]); } catch (_) {} }
+      return function () { listeners[event] = (listeners[event] || []).filter(function (x) { return x !== call; }); };
     };
   }
 
   var OFF = { ok: false, error: 'Во Flux Office это отключено: программа работает без внешних сервисов' };
 
-  /** Открытый файл: байты уходят редактору одноразовой ссылкой, как в его оболочке */
-  function openFile() {
-    return ask('open').then(function (r) {
-      if (!r) return null;
-      var url = URL.createObjectURL(new Blob([r.bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
-      return { path: 'flux://file/' + r.fileId, name: r.name, dataUrl: url, hash: r.sha256, encrypted: false };
-    });
+  /** Файл для редактора: байты — одноразовой ссылкой, как в его оболочке */
+  function asOpened(r) {
+    if (!r) return Promise.resolve(null);
+    var url = URL.createObjectURL(new Blob([r.bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    return Promise.resolve({ path: 'flux://file/' + r.fileId, name: r.name, dataUrl: url, hash: r.sha256, encrypted: false });
   }
+  function openFile() { return ask('open').then(asOpened); }
 
   function save(path, data, auto) {
     // Путь нужен: после «Сохранить как» редактор пишет уже в копию, а не в
@@ -114,7 +124,10 @@
     reportCloseSaveResult: function (ok) { tell('closeSaveResult', ok === true); },
     onCloseSaveRequest: on('closeSave'),
     onTeardown: on('teardown'),
-    onOpenDocx: on('open'),
+    // Свежая версия, пока окно только смотрит: редактор открывает её на месте
+    onOpenDocx: on('open', false, asOpened),
+    // Файл правит другой — только просмотр (правка GenOffice, patches.mjs)
+    onFluxReadOnly: on('readOnly', true),
   };
 
   function stub(name) {
