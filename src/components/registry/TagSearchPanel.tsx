@@ -73,25 +73,23 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
   }, [tags, query, onlyDuplicates, duplicateCodes]);
 
   return (
-    <div ref={boxRef} className="@[1080px]:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left relative">
-      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none mb-1">
-        Поиск по разделу:
-      </label>
-      <div className="relative flex-1 flex items-end">
+    <div ref={boxRef} className="text-left relative">
+      <div className="relative">
         <input
           type="search"
-          placeholder="Тег, название, марка…"
+          placeholder="Поиск: тег, название, марка…"
+          aria-label="Поиск по разделу"
           value={query}
           onChange={(e) => handleInput(e.target.value)}
           onFocus={() => setOpen(true)}
-          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 text-slate-800 dark:text-slate-100 font-medium h-8"
+          className="fx-input"
         />
       </div>
 
       {open && (query.trim() || onlyDuplicates) && (
-        <div className="absolute top-full right-0 mt-1 w-[min(94vw,420px)] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[60] overflow-hidden">
+        <div className="fx-pop absolute top-full right-0 mt-1 w-[min(94vw,420px)] z-[60] overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-400">
+            <span className="text-xs text-slate-400">
               Найдено: {results.length}
             </span>
             <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">

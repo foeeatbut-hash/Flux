@@ -45,7 +45,7 @@
 | Сотрудники | [users.md](users.md) | 1.14 |
 | Проекты | [projects.md](projects.md) | 1.14 |
 | Настройки | [settings.md](settings.md) | 1.14 |
-| Теги | — | план 1.14 |
+| Теги | [registry.md](registry.md) | 1.14 |
 | Оборудование | [equipment.md](equipment.md) | 1.14 |
 | Справочник | [directory.md](directory.md) | 1.14 |
 | Менеджмент | [management.md](management.md) | 1.14 |

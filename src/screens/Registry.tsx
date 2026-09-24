@@ -68,6 +68,7 @@ import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
 import CardActions from '../components/registry/CardActions';
 import DuplicatesPanel from '../components/registry/DuplicatesPanel';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
+import { SectionHead, Btn, IconBtn, Status, Empty, Dialog } from '../components/ui';
 import TagVdrDocs from '../components/registry/TagVdrDocs';
 import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
 
@@ -2582,6 +2583,11 @@ export default function Registry() {
 
   const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
 
+  const startNewTag = () => {
+    if (activeTab !== 'board' && activeTab !== 'table') setActiveTab('table');
+    setTimeout(() => (document.querySelector('#registry-screen-root [data-tour="tag-code-input"]') as HTMLInputElement | null)?.focus(), 60);
+  };
+
   if (!activeProject) {
     return (
       <NoProject what="Реестр тегов" />
@@ -2589,155 +2595,73 @@ export default function Registry() {
   }
 
   return (
-    <div id="registry-screen-root" className="h-full flex flex-col min-h-0 text-slate-800 dark:text-slate-100 transition-colors duration-250 animate-fadeIn gap-3">
-      
-      {/* MODULE HEADER AND TAB SWITCHER */}
-      <div className="flex flex-col @[1080px]:flex-row @[1080px]:items-center @[1080px]:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-inner shrink-0">
-            <Network className="w-5.5 h-5.5" />
-          </div>
-          <div className="text-left min-w-0">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-2 min-w-0">
-              Реестр технологических тегов
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
-                {countOf(tags.length, 'тег')}
-              </span>
-              {/* Что принёс последний захват. Вспышка гаснет за секунды, а это
-                  остаётся, пока инженер сам не закроет */}
-              {lastCapture && (
-                <span className="inline-flex items-center gap-2 text-xs font-bold pl-2.5 pr-1 py-0.5 rounded-full
-                                 bg-emerald-600 text-white">
-                  последний захват: {lastCapture.created.length + lastCapture.filled.length}
-                  <button
-                    onClick={() => {
-                      captureUntilRef.current = Date.now() + 3600;
-                      const ids = [...lastCapture.created, ...lastCapture.filled];
-                      const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
-                      if (cards.length && activeTab === 'board') fitToTags(cards as any[]);
-                      flashCapture(lastCapture);
-                    }}
-                    className="px-1.5 py-0.5 rounded-full hover:bg-white/20 cursor-pointer font-semibold"
-                  >
-                    показать
-                  </button>
-                  <button onClick={() => setLastCapture(null)}
-                          className="px-1.5 rounded-full hover:bg-white/20 cursor-pointer">✕</button>
-                </span>
-              )}
-            </h1>
-          </div>
+    <div id="registry-screen-root" className="fx-page @container animate-fadeIn">
+      {/* Шапка: название, число, вкладки в порядке работы, главное действие.
+          Было: значок в зелёном квадрате, «Реестр технологических тегов» и
+          вкладки ручным переключателем справа */}
+      <SectionHead title="Теги" count={countOf(tags.length, 'тег')}
+        actions={<Btn tone="primary" onClick={startNewTag} title="Новый тег: строка создания над списком"><Plus />Новый тег</Btn>}>
+        <div className="fx-tabs min-w-0 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Вкладки Тегов">
+          <button type="button" role="tab" aria-selected={activeTab === 'board'} onClick={() => setActiveTab('board')} title="Схема связей между тегами" className="fx-tab">
+            <Network className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Схема</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === 'tree'} onClick={() => setActiveTab('tree')} title="Дерево связей" className="fx-tab">
+            <FolderTree className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Дерево связей</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === 'segments'} onClick={() => setActiveTab('segments')} title="Подбор по сегментам кода" className="fx-tab">
+            <List className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Подбор</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === 'table'} data-tour="tag-table-tab" onClick={() => setActiveTab('table')} title="Спецификация" className="fx-tab">
+            <List className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Спецификация</span>
+          </button>
+          {/* Обмен с внешним миром — последним: сначала работа, потом выгрузка */}
+          <button type="button" role="tab" aria-selected={activeTab === 'exchange'} data-tour="tag-exchange-tab" onClick={() => setActiveTab('exchange')} title="Импорт тегов, выгрузка и захват с экрана" className="fx-tab">
+            <FileSpreadsheet className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Экспорт и импорт</span>
+          </button>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
-            <button type="button"
-              onClick={() => setActiveTab('board')}
-              title="Схема связей между тегами"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-                activeTab === 'board' 
-                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Network className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Схема</span>
-            </button>
-            <button type="button"
-              onClick={() => setActiveTab('tree')}
-              title="Дерево связей"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-                activeTab === 'tree' 
-                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <FolderTree className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Дерево связей</span>
-            </button>
-            <button type="button"
-              onClick={() => setActiveTab('segments')}
-              title="Подбор по сегментам кода и разбор загруженного файла"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-                activeTab === 'segments' 
-                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Подбор</span>
-            </button>
-            <button type="button" data-tour="tag-table-tab"
-              onClick={() => setActiveTab('table')}
-              title="Спецификация"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-                activeTab === 'table' 
-                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Спецификация</span>
-            </button>
-            {/* Обмен с внешним миром — последним: сначала работа, потом
-                выгрузка. Импорт и захват экрана лежали внутри «Подбора», где
-                их никто не искал, а выгрузка была кнопкой в ряду вкладок */}
-            <button type="button" data-tour="tag-exchange-tab"
-              onClick={() => setActiveTab('exchange')}
-              title="Импорт тегов, выгрузка и захват с экрана"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-                activeTab === 'exchange'
-                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Экспорт и импорт</span>
-            </button>
-          </div>
-        </div>
-      </div>
+        {/* Что принёс последний захват. Вспышка гаснет за секунды, а это
+            остаётся, пока инженер сам не закроет */}
+        {lastCapture && (
+          <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <Status tone="emerald">последний захват: {lastCapture.created.length + lastCapture.filled.length}</Status>
+            <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm"
+              onClick={() => {
+                captureUntilRef.current = Date.now() + 3600;
+                const ids = [...lastCapture.created, ...lastCapture.filled];
+                const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
+                if (cards.length && activeTab === 'board') fitToTags(cards as any[]);
+                flashCapture(lastCapture);
+              }}>показать</button>
+            <IconBtn label="Убрать отметку захвата" onClick={() => setLastCapture(null)}><X /></IconBtn>
+          </span>
+        )}
+      </SectionHead>
 
       {/* QUICK PANEL, REAL-TIME VALIDATION & SEARCH */}
-      <div className="grid grid-cols-1 @[1080px]:grid-cols-12 gap-3 items-stretch">
-        {/* Manual quick adding with active validation */}
-        <form onSubmit={handleCreateTag} className="@[1080px]:col-span-10 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-855 rounded-xl shadow-xs text-left flex flex-col justify-between">
-          <div className="text-xs font-bold text-slate-400 dark:text-slate-500 block pl-1 mb-1.5">
-            Создать новый тег и оборудование:
-          </div>
-          
-          <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[760px]:grid-cols-3 @[1080px]:grid-cols-12 gap-2.5 items-end">
+      {/* Панель инструментов: найти → создать. Строка создания — только там,
+          где новый тег сразу виден (схема и спецификация); на Подборе и в
+          Экспорте её не было смысла держать на экране */}
+      {(activeTab === 'board' || activeTab === 'table' || activeTab === 'tree') && (
+      <div className="fx-tools items-start">
+        {(activeTab === 'board' || activeTab === 'table') && (
+        <form onSubmit={handleCreateTag} className="flex flex-col gap-1.5 min-w-0 flex-1 text-left" aria-label="Новый тег">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Tag identifier code */}
-            <div className="relative flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 flex justify-between leading-none min-w-0 gap-2">
-                <span className="truncate">Код тега (EN) *</span>
-                {newTagIdentifier && !isIdentifierUnique && (
-                  <span className="text-xs text-rose-550 lowercase font-semibold">Занят</span>
-                )}
-              </label>
+            <div className="relative w-44">
               <div className="relative animate-fadeIn">
                 <input
                   type="text"
                   required
                   data-tour="tag-code-input"
-                  placeholder="Код тега"
+                  placeholder="Код тега *"
+                  aria-label="Код тега (EN)"
                   value={newTagIdentifier}
                   onChange={handleTagIdentifierChange}
-                  className={`w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border text-xs rounded-lg focus:outline-none focus:bg-white dark:focus:bg-slate-950 ${
-                    newTagIdentifier 
-                      ? isIdentifierUnique 
-                        ? 'border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20' 
-                        : 'border-rose-500/50 focus:ring-2 focus:ring-rose-550/20'
-                      : 'border-slate-200 dark:border-slate-800'
-                  } dark:text-slate-100 font-mono`}
+                  className={`fx-input code pr-16 ${newTagIdentifier && !isIdentifierUnique ? 'border-rose-400 dark:border-rose-700' : ''}`}
                 />
                 {newTagIdentifier && (
-                  <div className="absolute right-2 top-1.5 z-10">
-                    {isIdentifierUnique ? (
-                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-1 py-0.5 rounded border border-emerald-200/40">Свободен</span>
-                    ) : (
-                      <span className="text-xs text-rose-605 dark:text-rose-400 font-semibold bg-rose-50 dark:bg-rose-950/60 px-1 py-0.5 rounded border border-rose-200/40">Занят</span>
-                    )}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-xs">
+                    {isIdentifierUnique ? <Status tone="emerald">свободен</Status> : <Status tone="rose">занят</Status>}
                   </div>
                 )}
               </div>
@@ -2776,39 +2700,30 @@ export default function Registry() {
             </div>
 
             {/* Required Mark input field */}
-            <div className="flex flex-col gap-1 animate-fadeIn @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
-                Марка оборудования *
-              </label>
+            <div className="w-40">
               <input
                 type="text"
                 required
-                placeholder="ВИР800-340"
+                placeholder="Марка *" aria-label="Марка оборудования"
                 value={newTagBrand}
                 onChange={(e) => setNewTagBrand(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs rounded-lg text-slate-850 dark:text-slate-100 focus:outline-none focus:bg-white dark:focus:bg-slate-950 focus:ring-2 focus:ring-emerald-500/20 font-medium"
+                className="fx-input"
               />
             </div>
 
             {/* Main Name string input */}
-            <div className="flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
-                Главное наименование
-              </label>
+            <div className="w-56">
               <input
                 type="text"
-                placeholder="Приточный вентилятор"
+                placeholder="Наименование" aria-label="Главное наименование"
                 value={newTagMainName}
                 onChange={(e) => setNewTagMainName(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:bg-white dark:focus:bg-slate-950 text-slate-805 dark:text-slate-100 font-medium"
+                className="fx-input"
               />
             </div>
 
             {/* Actuality Selector */}
-            <div className="flex flex-col gap-1 @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 leading-none truncate">
-                Актуальность
-              </label>
+            <div className="w-40" title="Актуальность">
               <CustomSelect
                 value={newTagActuality}
                 onChange={(val) => setNewTagActuality(val as any)}
@@ -2817,20 +2732,17 @@ export default function Registry() {
             </div>
 
             {/* Actions (Buttons) */}
-            <div className="flex items-center gap-1.5 min-w-0 @[1080px]:col-span-2">
+            <div className="flex items-center gap-1.5">
               {/* Advanced Toggle button */}
               <button
                 type="button"
                 onClick={() => setShowAdvancedCreation(!showAdvancedCreation)}
-                className={`p-1.5 rounded-lg text-xs font-semibold border transition-ui flex items-center justify-center gap-1 cursor-pointer min-w-0 h-8 flex-1 ${
-                  showAdvancedCreation 
-                    ? 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-350 border-slate-300 dark:border-slate-750' 
-                    : 'bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-450 border-slate-200 dark:border-slate-850 hover:bg-slate-50'
-                }`}
+                aria-pressed={showAdvancedCreation}
+                className="fx-btn fx-btn-quiet"
                 title="Дополнительные поля спецификации"
               >
                 <Sliders className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden @[1080px]:inline text-xs">Доп</span>
+                <span>Доп</span>
                 <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 ${showAdvancedCreation ? 'rotate-180' : ''}`} />
               </button>
 
@@ -2839,14 +2751,9 @@ export default function Registry() {
                 type="submit"
                 data-tour="tag-create-btn"
                 disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
-                className={`p-1.5 rounded-lg text-xs font-bold shadow-xs transition-ui flex items-center justify-center gap-1 cursor-pointer min-w-0 h-8 flex-1 border-none ${
-                  isIdentifierUnique && newTagIdentifier && newTagBrand.trim()
-                    ? 'bg-emerald-700 hover:bg-emerald-600 text-white font-semibold'
-                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                }`}
+                className="fx-btn fx-btn-primary"
               >
-                <Plus className="w-3.5 h-3.5 text-white shrink-0" />
-                <span className="truncate">Создать</span>
+                <Plus />Создать
               </button>
             </div>
           </div>
@@ -2897,8 +2804,10 @@ export default function Registry() {
             </motion.div>
           )}
         </form>
+        )}
 
         {/* Универсальный поиск по разделу: тег, наименование, марка, дубли */}
+        <div className="w-64 shrink-0 ml-auto">
         <TagSearchPanel
           tags={tags}
           selectedTagIds={selectedTagIds}
@@ -2921,10 +2830,12 @@ export default function Registry() {
           }}
           onClearSelection={() => setSelectedTagIds(new Set())}
         />
+        </div>
       </div>
+      )}
 
-      {/* TABS INTERFACE */}
-      <div className="flex-1 min-h-0 w-full relative">
+      {/* TABS INTERFACE — схема и спецификация во всю ширину окна, остальные с отступом */}
+      <div className={`flex-1 min-h-0 w-full relative ${activeTab === 'segments' || activeTab === 'exchange' || activeTab === 'tree' ? 'p-3' : ''}`}>
         <AnimatePresence mode="wait">
           
           {/* INTERACTIVE BOARD (GRAPH CANVAS) */}
@@ -3808,26 +3719,22 @@ export default function Registry() {
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
             {/* Подсказка по способу связывания в дереве */}
-            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1.5">
-                <Link2 className="w-3.5 h-3.5 text-sky-500" />
+                <Link2 className="w-3.5 h-3.5" />
                 {treeLinkMode === 'click'
-                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
-                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним).</>}
+                  ? <>Связи кликом: кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
+                  : <>Связи перетаскиванием: тяните строку тега на другую (перетащенный станет дочерним).</>}
               </span>
               {treeLinkingFrom && (
-                <button type="button" onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
+                <button type="button" onClick={() => setTreeLinkingFrom(null)} className="fx-btn shrink-0">Отменить связь (Esc)</button>
               )}
             </div>
-            <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
+            <div>
               {buildTree().length === 0 ? (
-                <div className="text-center py-16 text-slate-400">
-                  <Database className="w-12 h-12 mx-auto text-slate-200 dark:text-slate-800 mb-3" />
-                  <p className="text-base text-slate-600 font-bold">Теги не найдены</p>
-                  <p className="text-xs mt-1">Добавьте хотя бы один тег с кодом или восстановите демонстрационное дерево!</p>
-                </div>
+                <Empty title="Тегов пока нет" text="Дерево строится из связей «родитель — потомок». Создайте тег — кнопкой «Новый тег» справа в шапке." />
               ) : (
-                <div className="space-y-3">
+                <div>
                   {buildTree().map((node) => renderTreeNode(node, 0))}
                 </div>
               )}
@@ -3862,21 +3769,21 @@ export default function Registry() {
           >
 
             {/* SELECTION FILTERS BLOCK */}
-            <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl  text-left">
+            <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 text-left">
               
               {/* LEFT COLUMN: TAG FILTERING ZONE */}
-              <div className="space-y-4 border-r border-slate-100 dark:border-slate-850 pr-0 @[880px]:pr-6">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-850">
+              <div className="space-y-3 @[880px]:border-r border-slate-100 dark:border-slate-850 @[880px]:pr-6">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                    <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
+                      
                       Отбор по сегментам тега
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">По частям кода тега: только латиница и цифры.</p>
                   </div>
                   <button type="button"
                     onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer border-none"
+                    className="fx-btn"
                   >
                     <Plus className="w-3 h-3" /> Добавить сегмент
                   </button>
@@ -3941,10 +3848,10 @@ export default function Registry() {
                     };
 
                     return (
-                      <div key={`tag-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
+                      <div key={`tag-seg-${idx}`} className="p-3 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-100">
                               Сегмент тега {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
@@ -3957,7 +3864,7 @@ export default function Registry() {
                                     return clone;
                                   });
                                 }}
-                                className="p-0.5 text-slate-400 hover:text-rose-500 rounded transition-colors border-none bg-transparent cursor-pointer"
+                                className="fx-ibtn" aria-label="Удалить сегмент"
                                 title="Удалить сегмент"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -3967,7 +3874,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
+                            <span className="fx-label block">
                               Поиск сегмента:
                             </span>
                             <input
@@ -3993,7 +3900,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
+                                <span className="fx-label block">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -4007,8 +3914,8 @@ export default function Registry() {
                                 />
 
                                 {activeCatId && (
-                                  <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
+                                  <div className="pt-1 space-y-1">
+                                    <span className="fx-label block">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -4022,7 +3929,7 @@ export default function Registry() {
                                             onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: optVal }))}
                                             className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
                                               isSel
-                                                ? 'bg-emerald-600 border-emerald-600 text-white font-bold'
+                                                ? 'bg-emerald-600 border-emerald-600 text-white'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
                                             }`}
                                           >
@@ -4031,7 +3938,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">Вариантов нет</span>
                                       )}
                                     </div>
                                   </div>
@@ -4043,7 +3950,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500">
+                              <span className="fx-label block">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -4056,7 +3963,7 @@ export default function Registry() {
                                       onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: val }))}
                                       className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
                                         isSelected
-                                          ? 'bg-emerald-600 text-white font-bold'
+                                          ? 'bg-emerald-600 text-white'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
                                       }`}
                                     >
@@ -4090,10 +3997,10 @@ export default function Registry() {
                           </div>
 
                           {boundDict && (
-                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
+                            <div className="space-y-1 mt-1 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-xs font-bold text-slate-400">1. Главная</span>
+                                <span className="fx-label block">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -4108,7 +4015,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400">2. Подкатегория</span>
+                                  <span className="fx-label block">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -4124,7 +4031,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400">3. Подподкатегория</span>
+                                  <span className="fx-label block">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -4147,9 +4054,9 @@ export default function Registry() {
 
               {/* RIGHT COLUMN: MARK FILTERING ZONE */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-850">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
                       <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
                       Отбор по сегментам марки
                     </h3>
@@ -4157,7 +4064,7 @@ export default function Registry() {
                   </div>
                   <button type="button"
                     onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer border-none"
+                    className="fx-btn"
                   >
                     <Plus className="w-3 h-3" /> Добавить сегмент
                   </button>
@@ -4222,10 +4129,10 @@ export default function Registry() {
                     };
 
                     return (
-                      <div key={`mark-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
+                      <div key={`mark-seg-${idx}`} className="p-3 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-100">
                               Сегмент марки {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
@@ -4238,7 +4145,7 @@ export default function Registry() {
                                     return clone;
                                   });
                                 }}
-                                className="p-0.5 text-slate-400 hover:text-rose-500 rounded transition-colors border-none bg-transparent cursor-pointer"
+                                className="fx-ibtn" aria-label="Удалить сегмент"
                                 title="Удалить сегмент"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -4248,7 +4155,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-550">
+                            <span className="fx-label block">
                               Поиск сегмента:
                             </span>
                             <input
@@ -4274,7 +4181,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-550">
+                                <span className="fx-label block">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -4288,8 +4195,8 @@ export default function Registry() {
                                 />
 
                                 {activeCatId && (
-                                  <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500">
+                                  <div className="pt-1 space-y-1">
+                                    <span className="fx-label block">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -4303,7 +4210,7 @@ export default function Registry() {
                                             onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: optVal }))}
                                             className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
                                               isSel
-                                                ? 'bg-amber-600 border-amber-600 text-white font-bold'
+                                                ? 'bg-amber-600 border-amber-600 text-white'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
                                             }`}
                                           >
@@ -4312,7 +4219,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">Вариантов нет</span>
                                       )}
                                     </div>
                                   </div>
@@ -4324,7 +4231,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500">
+                              <span className="fx-label block">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -4337,7 +4244,7 @@ export default function Registry() {
                                       onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: val }))}
                                       className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none ${
                                         isSelected
-                                          ? 'bg-amber-600 text-white font-bold'
+                                          ? 'bg-amber-600 text-white'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
                                       }`}
                                     >
@@ -4371,10 +4278,10 @@ export default function Registry() {
                           </div>
 
                           {boundDict && (
-                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
+                            <div className="space-y-1 mt-1 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-xs font-bold text-slate-400">1. Главная</span>
+                                <span className="fx-label block">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -4389,7 +4296,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400">2. Подкатегория</span>
+                                  <span className="fx-label block">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -4405,7 +4312,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-xs font-bold text-slate-400">3. Подподкатегория</span>
+                                  <span className="fx-label block">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -4462,36 +4369,36 @@ export default function Registry() {
                     setAddedTagSegmentsCount(0);
                     setAddedMarkSegmentsCount(0);
                   }}
-                  className="text-xs text-rose-500 hover:text-rose-600 ml-auto font-bold cursor-pointer border-none bg-transparent"
+                  className="fx-btn fx-btn-quiet ml-auto"
                 >
-                  Сбросить все настройки сегментов
+                  Сбросить сегменты
                 </button>
               </div>
             </div>
 
             {/* EXPORT COLUMNS SETTINGS */}
-            <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs space-y-4">
+            <div className="border-t border-slate-200 dark:border-slate-850 pt-3 space-y-3">
               <div className="flex flex-col @[880px]:flex-row @[880px]:items-center @[880px]:justify-between gap-4">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
-                    2. Выберите колонки для Экспорта в Excel (.CSV)
+                  <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
+                    Колонки для выгрузки
                   </h3>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={handleCopySelectedAsTable} title="Те же колонки — сразу в буфер обмена, без файла"
-                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-150 rounded-xl text-xs font-bold flex items-center gap-2 transition-ui cursor-pointer">
+                    className="fx-btn">
                     <Copy className="w-4 h-4" /><span>Скопировать таблицей</span>
                   </button>
                   <button type="button" onClick={handleExportSelectedToExcel}
-                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer">
+                    className="fx-btn fx-btn-primary">
                     <FileSpreadsheet className="w-4 h-4" /><span>Экспортировать подборку в Excel</span>
                   </button>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-4 pt-1 text-xs">
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.identifier}
@@ -4500,7 +4407,7 @@ export default function Registry() {
                   />
                   <span>Код тега (Identifier)</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.parts}
@@ -4509,7 +4416,7 @@ export default function Registry() {
                   />
                   <span>Сегменты отдельными колонками</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.department}
@@ -4518,7 +4425,7 @@ export default function Registry() {
                   />
                   <span>Технологическая зона / Дисциплина</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.fluid}
@@ -4527,7 +4434,7 @@ export default function Registry() {
                   />
                   <span>Рабочая среда (Fluid)</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.chain}
@@ -4536,7 +4443,7 @@ export default function Registry() {
                   />
                   <span>Связи по иерархической цепочке родителей</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.brand}
@@ -4545,7 +4452,7 @@ export default function Registry() {
                   />
                   <span>Марка оборудования</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.brandParts}
@@ -4554,7 +4461,7 @@ export default function Registry() {
                   />
                   <span>Сегменты марки отдельно</span>
                 </label>
-                <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={exportColumns.descriptions}
@@ -4567,10 +4474,10 @@ export default function Registry() {
             </div>
 
             {/* MATCHED RESULTS PREVIEW TABLE */}
-            <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-150 dark:border-slate-855 flex justify-between items-center bg-slate-50/40 dark:bg-slate-900/40 border-none">
-                <span className="text-xs font-bold text-slate-500 block">
-                  3. Выходные данные ({countOf(matchedTagsList.length, 'запись')} подобрано)
+            <div className="border-t border-slate-200 dark:border-slate-850">
+              <div className="py-2 flex justify-between items-center gap-3 flex-wrap">
+                <span className="text-[13px] font-semibold text-slate-900 dark:text-white block">
+                  Результат подбора · {countOf(matchedTagsList.length, 'запись')}
                 </span>
               </div>
 
@@ -4578,22 +4485,22 @@ export default function Registry() {
                 ref={parentRefSegments}
                 className="overflow-auto max-h-[600px] style-scrollbar"
               >
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold z-10 shadow-xs">
+                <table className="fx-table text-left">
+                  <thead className="sticky top-0 z-10">
                     <tr>
-                      <th className="flux-cell">Сегменты тега</th>
-                      <th className="flux-cell">Сегменты марки</th>
-                      <th className="flux-cell">Наименование тега</th>
+                      <th>Сегменты тега</th>
+                      <th>Сегменты марки</th>
+                      <th>Наименование тега</th>
                       {/* Кнопка «добавить колонку» отсюда убрана: она только
                           сообщала, что возможность не готова. Кнопка, которая
                           ничего не делает, хуже отсутствующей — она обещает */}
-                      <th className="flux-cell">Статус / Актуальность</th>
+                      <th>Статус / Актуальность</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
                     {segmentsVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${segmentsVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={4} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={4} style={{ padding: 0, border: 'none', height: 0 }} />
                       </tr>
                     )}
                     {segmentsVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -4616,17 +4523,17 @@ export default function Registry() {
                           key={t.id} 
                           ref={segmentsVirtualizer.measureElement}
                           data-index={virtualRow.index}
-                          className="hover:bg-slate-50/60 dark:hover:bg-slate-950/40 transition-colors"
+                          
                         >
                           {/* COLUMN 1: TAG SEGMENTS (KKS) */}
-                          <td className="flux-cell">
+                          <td>
                             <div className="flex flex-wrap gap-1">
                               {tagParts.map((part, idx) => {
                                 const isMatched = activeTagFilters[idx] && activeTagFilters[idx] !== '*' && activeTagFilters[idx] === part;
                                 return (
                                   <span 
                                     key={`tag-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-ui ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono transition-ui ${
                                       isMatched 
                                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/40'
@@ -4640,14 +4547,14 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 2: MARK SEGMENTS */}
-                          <td className="flux-cell">
+                          <td>
                             <div className="flex flex-wrap gap-1">
                               {markParts.map((part, idx) => {
                                 const isMatched = activeMarkFilters[idx] && activeMarkFilters[idx] !== '*' && activeMarkFilters[idx] === part;
                                 return (
                                   <span 
                                     key={`mark-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-ui ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono transition-ui ${
                                       isMatched 
                                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
                                         : 'bg-amber-50 dark:bg-slate-900 text-amber-800 dark:text-amber-400 border border-amber-200/40 dark:border-amber-900/45'
@@ -4658,7 +4565,7 @@ export default function Registry() {
                                 );
                               })}
                               {markParts.length === 0 && (
-                                <span className="text-xs text-slate-400 italic">—</span>
+                                <span className="text-slate-400">—</span>
                               )}
                             </div>
                             {t.brand && (
@@ -4669,9 +4576,9 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 3: NAME */}
-                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-300 text-xs">
-                            <p className="font-bold text-slate-900 dark:text-white select-all">
-                              {tMeta.mainName || <span className="italic opacity-50">Без наименования</span>}
+                          <td>
+                            <p className="text-slate-900 dark:text-white select-all">
+                              {tMeta.mainName || 'Без наименования'}
                             </p>
                             <span className="text-xs text-slate-400 font-sans block mt-0.5 font-medium leading-relaxed font-mono">
                               {t.identifier}
@@ -4679,14 +4586,12 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 4: STATUS / RELEVANCE */}
-                          <td className="flux-cell">
+                          <td>
                             <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
-                                {statusCfg.label}
-                              </span>
+                              <Status tone={statusCfg.tone}>{statusCfg.label}</Status>
                               {tMeta.descriptions.length > 0 && (
-                                <span className="text-xs text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded border border-rose-100 dark:border-rose-900/30">
-                                  Замечаний ({tMeta.descriptions.length})
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                  замечаний: {tMeta.descriptions.length}
                                 </span>
                               )}
                             </div>
@@ -4696,13 +4601,13 @@ export default function Registry() {
                     })}
                     {segmentsVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${segmentsVirtualizer.getTotalSize() - segmentsVirtualizer.getVirtualItems()[segmentsVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={4} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={4} style={{ padding: 0, border: 'none', height: 0 }} />
                       </tr>
                     )}
 
                     {matchedTagsList.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="text-center py-16 text-slate-400">
+                        <td colSpan={4} className="py-6 text-slate-500 dark:text-slate-400">
                           Под запрашиваемые критерии Tag или Mark сегментов не подходит ни один тег. Пожалуйста, поменяйте конфигурацию фильтров.
                         </td>
                       </tr>
@@ -4724,22 +4629,17 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full flex flex-col min-h-0 text-left pr-1"
           >
-            <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden border-none flex-1 flex flex-col min-h-0">
-              {/* Optional view controls bar */}
-              <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 flex justify-between items-center flex-wrap gap-2 border-none shrink-0">
-                <span className="text-xs font-bold text-slate-500 block">Спецификация и Актуальность систем ({countOf(sortedTagsList.length, 'запись')})</span>
-                
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Счётчик записей — в шапке раздела; здесь только вид таблицы */}
+              <div className="fx-tools shrink-0 justify-end">
                 <button
                   type="button"
+                  aria-pressed={showOptionalTableColumns}
                   onClick={() => setShowOptionalTableColumns(!showOptionalTableColumns)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-ui cursor-pointer ${
-                    showOptionalTableColumns
-                      ? 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 shadow-xs'
-                      : 'bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
-                  }`}
+                  className="fx-btn"
                 >
                   <Sliders className="w-3.5 h-3.5" />
-                  <span>{showOptionalTableColumns ? 'Скрыть поля Отдел/Среда' : 'Показать поля Отдел/Среда'}</span>
+                  Колонки «Отдел» и «Среда»
                 </button>
               </div>
 
@@ -4747,37 +4647,37 @@ export default function Registry() {
                 ref={parentRefTable}
                 className="overflow-auto flex-1 min-h-0 style-scrollbar"
               >
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850 text-xs font-semibold z-10 shadow-xs">
+                <table className="fx-table text-left">
+                  <thead className="sticky top-0 z-10">
                     <tr>
-                      <th className="flux-cell cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('identifier')}>
+                      <th className="cursor-pointer" onClick={() => handleSort('identifier')}>
                         Тег / Главное наименование {sortConfig.key === 'identifier' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('brand')}>
+                      <th className="cursor-pointer" onClick={() => handleSort('brand')}>
                         Марка {sortConfig.key === 'brand' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
                       {showOptionalTableColumns && (
                         <>
-                          <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('department')}>
+                          <th className="cursor-pointer" onClick={() => handleSort('department')}>
                             Зона / Отдел {sortConfig.key === 'department' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                           </th>
-                          <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('fluid')}>
+                          <th className="cursor-pointer" onClick={() => handleSort('fluid')}>
                             Тех. Среда {sortConfig.key === 'fluid' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                           </th>
                         </>
                       )}
-                      <th className="flux-cell font-bold">Актуальность</th>
-                      <th className="flux-cell font-bold">Комментарии</th>
-                      <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('createdAt')}>
+                      <th>Актуальность</th>
+                      <th>Комментарии</th>
+                      <th className="cursor-pointer" onClick={() => handleSort('createdAt')}>
                         Регистрация {sortConfig.key === 'createdAt' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="flux-cell font-bold text-right">Управление</th>
+                      <th className="w-20"><span className="sr-only">Действия</span></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none', height: 0 }} />
                       </tr>
                     )}
                     {tableVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -4808,44 +4708,27 @@ export default function Registry() {
                             if (!selectedTagIds.has(t.id)) setSelectedTagIds(new Set([t.id]));
                             setCardMenu({ x: e.clientX, y: e.clientY, tagId: t.id });
                           }}
-                          className={`transition-colors ${selectedTagIds.has(t.id) ? 'bg-emerald-50 dark:bg-emerald-950/30 ring-1 ring-inset ring-emerald-300 dark:ring-emerald-800' : 'hover:bg-slate-50/60 dark:hover:bg-slate-950/40'}`}
+                          aria-selected={selectedTagIds.has(t.id)}
                         >
-                          <td className="flux-cell">
-                            <div className="font-mono font-bold text-slate-900 dark:text-white text-xs select-all">
+                          <td>
+                            <div className="font-mono text-slate-900 dark:text-white select-all leading-5">
                               {t.identifier}
                             </div>
-                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              {meta.mainName || <span className="italic opacity-50">Без наименования</span>}
+                            {/* Вторая строка: наименование, а при скрытых колонках — отдел и среда */}
+                            <div className="text-xs text-slate-500 dark:text-slate-400 leading-4 truncate max-w-[36rem]">
+                              {meta.mainName || 'Без наименования'}
+                              {!showOptionalTableColumns && ` · ${t.department || 'Комплексный'} · среда ${t.fluid || '—'}`}
                             </div>
-                            
-                            {/* Optional visual pills shown when separate columns are closed */}
-                            {!showOptionalTableColumns && (
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-xs text-slate-450 dark:text-slate-500 font-medium">
-                                <span className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 px-1.5 py-0.5 rounded text-xs" title="Инженерная Дисциплина">
-                                  {t.department || 'Комплексный'}
-                                </span>
-                                <span>•</span>
-                                <span className="font-mono bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 px-1.5 py-0.5 rounded" title="Технологическая Среда">
-                                  среда: {t.fluid || '-'}
-                                </span>
-                              </div>
-                            )}
                           </td>
-                          <td className="flux-cell">
-                            {t.brand ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] min-w-0" title={t.brand}>
-                                <span className="flex-1 min-w-0 truncate">{t.brand}</span>
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-500 italic text-xs">—</span>
-                            )}
+                          <td className="max-w-[160px] truncate" title={t.brand || undefined}>
+                            {t.brand || <span className="text-slate-400 dark:text-slate-500">—</span>}
                           </td>
                           {showOptionalTableColumns && (
                             <>
-                              <td className="flux-cell text-slate-605 dark:text-slate-300 text-xs font-medium">
+                              <td className="text-slate-600 dark:text-slate-300">
                                 {t.department || '-'}
                               </td>
-                              <td className="flux-cell text-slate-605 dark:text-slate-300 text-xs font-mono">
+                              <td className="text-slate-600 dark:text-slate-300">
                                 {t.fluid || '-'}
                               </td>
                             </>
@@ -4853,17 +4736,13 @@ export default function Registry() {
                           {/* Актуальность тега — отдельной колонкой: за ней и
                               приходят в спецификацию, а раньше её приходилось
                               выискивать среди комментариев */}
-                          <td className="flux-cell">
+                          <td>
                             {(() => {
                               const look = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
-                              return (
-                                <span className={`inline-block px-1.5 py-0.5 rounded text-2xs font-semibold border ${look.bg} ${look.text} ${look.border}`}>
-                                  {look.label}
-                                </span>
-                              );
+                              return <Status tone={look.tone}>{look.label}</Status>;
                             })()}
                           </td>
-                          <td className="flux-cell">
+                          <td>
                             {meta.descriptions.length > 0 ? (
                               <div className="space-y-1">
                                 <button
@@ -4872,10 +4751,11 @@ export default function Registry() {
                                     setShowTableDescriptions(p => ({ ...p, [t.id]: !p[t.id] }));
                                     setTimeout(() => tableVirtualizer.measure(), 20);
                                   }}
-                                  className="text-xs inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer text-slate-650 dark:text-slate-300 border border-slate-200 dark:border-slate-805"
+                                  aria-expanded={!!showTableDescriptions[t.id]}
+                                  className="fx-btn fx-btn-quiet"
                                 >
-                                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>{showTableDescriptions[t.id] ? 'Скрыть' : 'Показать'} комментарии ({meta.descriptions.length})</span>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>{showTableDescriptions[t.id] ? 'Скрыть' : 'Показать'} · {meta.descriptions.length}</span>
                                 </button>
                                 
                                 {showTableDescriptions[t.id] && (
@@ -4884,10 +4764,10 @@ export default function Registry() {
                                       const config = statusConfig[d.status] || statusConfig.draft;
                                       const Icon = config.icon;
                                       return (
-                                        <div key={d.id} className="flex items-start gap-1 p-1 px-2 bg-slate-50 dark:bg-slate-900 rounded text-xs text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-850 text-left">
+                                        <div key={d.id} className="flex items-start gap-1.5 text-xs text-slate-700 dark:text-slate-300 text-left">
                                           <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${config.text}`} />
                                           <div className="text-left">
-                                            <strong className="text-slate-905 dark:text-slate-105">{d.text}: </strong>
+                                            <span className="font-medium text-slate-900 dark:text-slate-100">{d.text}: </span>
                                             <span className="text-slate-500 dark:text-slate-400">{d.comment}</span>
                                           </div>
                                         </div>
@@ -4897,28 +4777,20 @@ export default function Registry() {
                                 )}
                               </div>
                             ) : (
-                              <span className="text-slate-400 italic text-xs">Комментариев нет</span>
+                              <span className="text-slate-400 dark:text-slate-500">—</span>
                             )}
                           </td>
-                          <td className="flux-cell text-slate-500 font-mono text-xs">
+                          <td className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
                             {t.createdAt ? format(new Date(t.createdAt), 'dd.MM.yyyy HH:mm') : '-'}
                           </td>
-                          <td className="flux-cell text-right">
-                            <div className="flex justify-end gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setEditingTag(t)}
-                                className="p-1 hover:text-emerald-600 dark:hover:text-emerald-400 text-slate-500 rounded transition-colors cursor-pointer"
-                              >
+                          <td>
+                            <div className="fx-row-acts">
+                              <IconBtn label="Изменить тег" onClick={() => setEditingTag(t)}>
                                 <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTag(t.id)}
-                                className="p-1 hover:text-rose-600 text-slate-500 rounded transition-colors cursor-pointer"
-                              >
+                              </IconBtn>
+                              <IconBtn label="Удалить тег" onClick={() => handleDeleteTag(t.id)}>
                                 <Trash2 className="w-4 h-4" />
-                              </button>
+                              </IconBtn>
                             </div>
                           </td>
                         </tr>
@@ -4926,14 +4798,14 @@ export default function Registry() {
                     })}
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none', height: 0 }} />
                       </tr>
                     )}
 
                     {tags.length === 0 && (
                       <tr>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} className="text-center py-20 text-slate-400">
-                          В данном проекте отсутствуют теги. Создайте первый тег выше!
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} className="py-6 text-slate-500 dark:text-slate-400">
+                          В проекте пока нет тегов. Заполните строку выше или нажмите «Новый тег».
                         </td>
                       </tr>
                     )}
@@ -4947,58 +4819,48 @@ export default function Registry() {
       </AnimatePresence>
       </div>
 
-      {/* DETAIL MODAL DESCRIPTIONS CONTROL DIALOG */}
-      <AnimatePresence>
-        {editingTag && (
-          <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.96, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.96, opacity: 0 }}
-              className="bg-white dark:bg-slate-950 rounded-lg shadow-2xl border border-slate-205 dark:border-slate-850 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
+      {/* Карточка тега. Код правится прямо в заголовке, остальное — ниже;
+          всё сохраняется само, поэтому в подвале нет «Сохранить» */}
+      {editingTag && (
+        <Dialog
+          label={`Тег ${editingTag.identifier}`}
+          width="max-w-lg"
+          onClose={() => { setEditingTag(null); loadTags(); }}
+          title={
+            <span className="flex items-center gap-2 min-w-0">
+              <input
+                          value={modalCode}
+                          onChange={(e) => setModalCode(e.target.value)}
+                          onBlur={() => handleRenameTag(editingTag.id, modalCode)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          spellCheck={false}
+                          aria-label="Код тега"
+                          className="fx-input min-w-0 flex-1 font-mono"
+                          title="Код тега можно изменить прямо здесь — связи сохранятся"
+                        />
+              <span className={`fx-note shrink-0 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>Сохранено</span>
+            </span>
+          }
+          footer={<>
+            <button type="button"
+              onClick={async () => { const id = editingTag.id; setEditingTag(null); await handleDeleteTag(id); }}
+              className="fx-btn fx-btn-danger mr-auto"
+              title="Удалить тег со всеми связями"
             >
-              <div className="p-4 bg-slate-900 dark:bg-slate-900 text-white flex items-center justify-between border-b dark:border-slate-800 gap-3">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <Database className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <div className="text-left min-w-0 flex-1">
-                    {/* Код тега редактируется прямо здесь — автосохранение на blur/Enter.
-                        Видимая рамка и карандаш — чтобы редактируемость была очевидна */}
-                    <div className="flex items-center gap-1.5 group/rename">
-                      <input
-                        value={modalCode}
-                        onChange={(e) => setModalCode(e.target.value)}
-                        onBlur={() => handleRenameTag(editingTag.id, modalCode)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                        spellCheck={false}
-                        className="min-w-0 flex-1 bg-slate-800/60 px-2 py-0.5 rounded-md text-base font-bold font-mono tracking-tight text-white outline-none border border-dashed border-slate-600 hover:border-slate-400 focus:border-emerald-500 focus:border-solid transition-colors"
-                        title="Код тега можно изменить прямо здесь — связи сохранятся"
-                      />
-                      <Edit2 className="w-3.5 h-3.5 text-slate-500 group-focus-within/rename:text-emerald-400 shrink-0" />
-                    </div>
-                    <p className="text-2xs text-slate-400 font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className={`flex items-center gap-1 text-xs font-semibold text-emerald-400 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>
-                    <Check className="w-3.5 h-3.5" /> Сохранено
-                  </span>
-                  <button type="button"
-                    onClick={() => { setEditingTag(null); loadTags(); }}
-                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
+              <Trash2 className="w-3.5 h-3.5" /> Удалить тег
+            </button>
+            <span className="fx-note">Изменения сохраняются сами</span>
+            <Btn tone="primary" onClick={() => { setEditingTag(null); loadTags(); }}>Готово</Btn>
+          </>}
+        >
               {/* Плотнее, чем было: карточку открывают ради одной правки, а
                   она требовала прокрутки из-за крупных блоков с отступами */}
-              <div className="p-4 overflow-y-auto space-y-3 text-left">
+              <div className="space-y-3 text-left">
 
                 {/* Наименование и актуальность — то, ради чего карточку открыли */}
                 <div className="space-y-1 text-left">
                   <div className="flex items-baseline justify-between gap-2">
-                    <label className="text-xs font-bold text-slate-500">Наименование</label>
+                    <label className="fx-label">Наименование</label>
                     {/* Актуальность тега не задаётся отдельно: она складывается
                         из комментариев ниже. Показываем её тем же значком, что
                         и в списке, — иначе человек ищет переключатель, которого
@@ -5006,10 +4868,7 @@ export default function Registry() {
                     {(() => {
                       const look = statusConfig[getTagOverallStatus(editingTag)] || statusConfig.draft;
                       return (
-                        <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold border ${look.bg} ${look.text} ${look.border}`}
-                          title="Актуальность тега складывается из его комментариев">
-                          {look.label}
-                        </span>
+                        <Status tone={look.tone} title="Актуальность тега складывается из его комментариев">{look.label}</Status>
                       );
                     })()}
                   </div>
@@ -5034,7 +4893,7 @@ export default function Registry() {
                     марка, а подсказка берётся из марок этого же проекта */}
                 <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
                   <div className="space-y-1 text-left">
-                    <label className="block text-xs font-bold text-slate-500">Марка</label>
+                    <label className="fx-label block">Марка</label>
                     <input
                       type="text"
                       list="tag-brands"
@@ -5054,7 +4913,7 @@ export default function Registry() {
                     </datalist>
                   </div>
                   <div className="space-y-1 text-left">
-                    <label className="block text-xs font-bold text-slate-500">WBS</label>
+                    <label className="fx-label block">WBS</label>
                     <input
                       key={`wbs-${editingTag.id}`}
                       type="text"
@@ -5096,7 +4955,7 @@ export default function Registry() {
 
                     return (
                       <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-500">Дополнительные поля</label>
+                        <label className="fx-label block">Дополнительные поля</label>
                         <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
                           {cats.map((cat: any) => {
                             const options = (configDict?.items || [])
@@ -5105,7 +4964,7 @@ export default function Registry() {
 
                             return (
                               <div key={cat.id} className="space-y-1">
-                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{cat.nameRu}</span>
+                                <span className="fx-label">{cat.nameRu}</span>
                                 <CustomSelect
                                   value={tagDFields[cat.nameRu] || ''}
                                   onChange={(val) => { handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val }); flashSaved(); }}
@@ -5146,28 +5005,8 @@ export default function Registry() {
 
               </div>
 
-              <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-                <button type="button"
-                  onClick={async () => { const id = editingTag.id; setEditingTag(null); await handleDeleteTag(id); }}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer flex items-center gap-1.5 transition-colors"
-                  title="Удалить тег со всеми связями"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Удалить тег
-                </button>
-                <div className="flex items-center gap-3">
-                  <span className="text-2xs text-slate-400">Изменения сохраняются автоматически</span>
-                  <button type="button"
-                    onClick={() => { setEditingTag(null); loadTags(); }}
-                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer border-none"
-                  >
-                    Готово
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+        </Dialog>
+      )}
 
       {exchangeOpen && (
         <ExchangeDialog
@@ -5206,7 +5045,7 @@ export default function Registry() {
     const configList = node.meta.descriptions || [];
 
     return (
-      <div key={node.id} className="space-y-1">
+      <div key={node.id}>
         <div
           id={`tree-node-${node.id}`}
           draggable={treeLinkMode === 'drag'}
@@ -5256,44 +5095,38 @@ export default function Registry() {
             if (!selectedTagIds.has(node.id)) setSelectedTagIds(new Set([node.id]));
             setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
           }}
-          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
-            treeLinkingFrom === node.id
-              ? 'border-sky-400 dark:border-sky-600 bg-sky-50 dark:bg-sky-950/30 ring-2 ring-sky-400'
-              : treeDragOverId === node.id
-                ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 ring-2 ring-emerald-400'
-                : treeLinkingFrom
-                  ? 'border-sky-200/60 dark:border-sky-900/40 hover:ring-2 hover:ring-sky-300 cursor-pointer'
-                  : selectedTagIds.has(node.id)
-                    ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 ring-1 ring-emerald-300 dark:ring-emerald-800'
-                    : duplicateCodes.has((node.identifier || '').trim())
-                      ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                      : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+          aria-current={selectedTagIds.has(node.id) || treeLinkingFrom === node.id || undefined}
+          className={`fx-li group/tr justify-between ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
+            treeDragOverId === node.id || treeLinkingFrom === node.id
+              ? 'ring-1 ring-inset ring-sky-400'
+              : treeLinkingFrom ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-sky-300' : ''
           }`}
           style={{ marginLeft: `${level * 24}px` }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
             <button type="button"
               onClick={() => toggleTagExpand(node.id)}
-              className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-ui shrink-0 ${!hasChildren ? 'opacity-20 cursor-default' : ''}`}
+              aria-label={isExpanded ? 'Свернуть' : 'Развернуть'}
+              className={`fx-ibtn shrink-0 ${!hasChildren ? 'invisible' : ''}`}
               disabled={!hasChildren}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-600 dark:text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-400" />}
             </button>
 
-            <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <Database className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
             
-            <div className="min-w-0 flex flex-col @[720px]:flex-row @[720px]:items-center gap-1 @[720px]:gap-2.5">
+            <div className="min-w-0 flex items-center gap-2.5">
               <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-sm select-all">{node.identifier}</span>
+                <span className="font-mono text-slate-900 dark:text-slate-100 select-all">{node.identifier}</span>
                 {duplicateCodes.has((node.identifier || '').trim()) && (
-                  <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shrink-0" title="Дубликат кода тега">дубль</span>
+                  <span className="fx-badge fx-badge-bad shrink-0" title="Дубликат кода тега">дубль</span>
                 )}
-                <span className="text-xs bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
+                <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
                   {node.department || 'Комплексный'}
                 </span>
               </div>
               <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[280px]" title={node.meta.mainName || 'Наименование отсутствует'}>
-                {node.meta.mainName ? `— ${node.meta.mainName}` : <span className="italic opacity-60">— (Наименование отсутствует)</span>}
+                {node.meta.mainName ? `— ${node.meta.mainName}` : '— без наименования'}
               </span>
             </div>
           </div>
@@ -5322,17 +5155,19 @@ export default function Registry() {
                       />
                     );
                   })}
-                  {configList.length > 3 && <span className="text-xs font-bold text-slate-400">+{configList.length - 3}</span>}
+                  {configList.length > 3 && <span className="text-xs text-slate-400">+{configList.length - 3}</span>}
                 </div>
               </div>
             )}
 
-            <div className="flex bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
+            <div className={`flex gap-0.5 ${treeLinkingFrom === node.id ? '' : 'invisible group-hover/tr:visible group-focus-within/tr:visible'}`}>
               {treeLinkMode === 'click' && (
                 <button type="button"
                   onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
                   title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}
-                  className={`p-1 rounded transition-colors cursor-pointer ${treeLinkingFrom === node.id ? 'bg-sky-500 text-white' : 'hover:text-sky-600 text-slate-500'}`}
+                  aria-label="Связать с дочерним"
+                  aria-pressed={treeLinkingFrom === node.id}
+                  className="fx-ibtn"
                 >
                   <Link2 className="w-3.5 h-3.5" />
                 </button>
@@ -5340,14 +5175,16 @@ export default function Registry() {
               <button type="button"
                 onClick={() => setEditingTag(node)}
                 title="Редактировать описания и комментарии тега"
-                className="p-1 hover:text-emerald-600 dark:hover:text-emerald-400 rounded text-slate-500 transition-colors cursor-pointer"
+                aria-label="Изменить тег"
+                className="fx-ibtn"
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
               <button type="button"
                 onClick={() => handleDeleteTag(node.id)}
                 title="Удалить тег"
-                className="p-1 hover:text-rose-500 rounded text-slate-550 transition-colors cursor-pointer"
+                aria-label="Удалить тег"
+                className="fx-ibtn"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -5361,15 +5198,13 @@ export default function Registry() {
               const s = statusConfig[desc.status] || statusConfig.draft;
               const Icon = s.icon;
               return (
-                <div key={desc.id} className="p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-lg flex items-start gap-2 max-w-2xl">
+                <div key={desc.id} className="py-1 flex items-start gap-2 max-w-2xl">
                   <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${s.text}`} />
                   <div>
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{desc.text}</span>
-                    <span className={`inline-block px-1.5 py-0.2 rounded text-xs font-semibold ml-2 ${s.bg} ${s.text} ${s.border}`}>
-                      {s.label}
-                    </span>
+                    <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{desc.text}</span>
+                    <span className="ml-2"><Status tone={s.tone}>{s.label}</Status></span>
                     {desc.comment && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic pl-1.5 border-l border-slate-200 dark:border-slate-800 leading-normal">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-normal">
                         {desc.comment}
                       </p>
                     )}

@@ -93,10 +93,10 @@ export function getTagOverallStatus(tag: any): 'actual' | 'warning' | 'critical'
 }
 
 export const statusConfig = {
-  actual: { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-500 dark:text-emerald-400', border: 'border-emerald-500/20', icon: CheckCircle2, label: 'Актуально' },
-  warning: { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-500 dark:text-amber-400', border: 'border-amber-500/20', icon: AlertTriangle, label: 'Проверить' },
-  critical: { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-500 dark:text-rose-400', border: 'border-rose-500/20', icon: XCircle, label: 'Критично' },
-  info: { bg: 'bg-sky-500/10 dark:bg-sky-500/20', text: 'text-sky-500 dark:text-sky-400', border: 'border-sky-500/20', icon: Info, label: 'В работе' },
-  draft: { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', icon: HelpCircle, label: 'Устарело' }
+  actual: { tone: 'emerald' as const, bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-500 dark:text-emerald-400', border: 'border-emerald-500/20', icon: CheckCircle2, label: 'Актуально' },
+  warning: { tone: 'amber' as const, bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-500 dark:text-amber-400', border: 'border-amber-500/20', icon: AlertTriangle, label: 'Проверить' },
+  critical: { tone: 'rose' as const, bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-500 dark:text-rose-400', border: 'border-rose-500/20', icon: XCircle, label: 'Критично' },
+  info: { tone: 'sky' as const, bg: 'bg-sky-500/10 dark:bg-sky-500/20', text: 'text-sky-500 dark:text-sky-400', border: 'border-sky-500/20', icon: Info, label: 'В работе' },
+  draft: { tone: 'slate' as const, bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', icon: HelpCircle, label: 'Устарело' }
 };
 
