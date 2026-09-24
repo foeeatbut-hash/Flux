@@ -4,6 +4,8 @@ import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { seedCatalog, SEED_VERSION } from '../../catalog/seed.js';
 import { defaultBlankTemplate } from '../../catalog/blank/defaults.js';
 import type { Catalog, Family } from '../../catalog/model.js';
+import { SIGNATURE_MAX } from '../../catalog/text.js';
+import { templateProblem } from '../../catalog/blank/safe.js';
 
 /**
  * Каталог оборудования: справочник программы, а не проекта.
@@ -280,6 +282,14 @@ export function registerCatalogRoutes(app: Express): void {
       if (!snap?.id) return res.status(400).json({ error: 'Снимок испорчен' });
       const cur = await model.findUnique({ where: { id: snap.id } });
       if (cur) await snapshot(prisma, rev.entity, snap.id, 'restore', cur, me(req)?.id);
+      // Снимок «создано» (загрузка каталога из файла): вернуть к нему — значит
+      // снять запись. Семейство — мягко: на него могут ссылаться ведомости
+      if (rev.action === 'create') {
+        if (cur && rev.entity === 'family') await model.update({ where: { id: snap.id }, data: { deletedAt: new Date(), edited: true } });
+        else if (cur) await model.delete({ where: { id: snap.id } });
+        broadcast('catalog:changed', { entity: rev.entity, id: snap.id });
+        return res.json({ ok: true, removed: true });
+      }
       const { id, createdAt, updatedAt, ...fields } = snap;
       if (rev.entity === 'family') fields.edited = true;
       if (cur) await model.update({ where: { id }, data: fields });
@@ -333,22 +343,32 @@ export function registerCatalogRoutes(app: Express): void {
       const apply = body.mode === 'apply';
       const plan: Array<{ entity: string; id: string; code: string; action: 'new' | 'update' | 'same' }> = [];
       const lists: Array<[string, any[]]> = [['class', body.classes], ['manufacturer', body.manufacturers], ['family', body.families], ['component', body.components], ['tagRule', body.tagRules]];
-      for (const [entity, list] of lists) {
-        const spec = ENTITY[entity];
-        for (const d of Array.isArray(list) ? list : []) {
-          if (!d?.id || whyNot(entity, d)) continue;
-          const model = prisma[spec.model];
-          const before = await model.findUnique({ where: { id: String(d.id) } });
-          const json = JSON.stringify(d);
-          const action = !before ? 'new' : before.dataJson === json ? 'same' : 'update';
-          plan.push({ entity, id: d.id, code: d.code || d.name || d.id, action });
-          if (!apply || action === 'same') continue;
-          const data: any = { ...spec.fields(d), dataJson: json };
-          if (entity === 'family') data.edited = true;
-          if (before) { await snapshot(prisma, entity, d.id, 'update', before, me(req)?.id); await model.update({ where: { id: d.id }, data }); }
-          else await model.create({ data: { id: d.id, ...data } });
+      /**
+       * Загрузка — одна транзакция: половина чужого каталога хуже, чем ни
+       * одной записи. У каждой записи остаётся снимок, у новой — снимок
+       * «создано», по которому история её и снимет: загрузку можно отменить
+       * запись за записью, а не только поправленные
+       */
+      const run = async (db: any) => {
+        for (const [entity, list] of lists) {
+          const spec = ENTITY[entity];
+          for (const d of Array.isArray(list) ? list : []) {
+            if (!d?.id || whyNot(entity, d)) continue;
+            const model = db[spec.model];
+            const before = await model.findUnique({ where: { id: String(d.id) } });
+            const json = JSON.stringify(d);
+            const action = !before ? 'new' : before.dataJson === json ? 'same' : 'update';
+            plan.push({ entity, id: d.id, code: d.code || d.name || d.id, action });
+            if (!apply || action === 'same') continue;
+            const data: any = { ...spec.fields(d), dataJson: json };
+            if (entity === 'family') data.edited = true;
+            if (before) { await snapshot(db, entity, d.id, 'update', before, me(req)?.id); await model.update({ where: { id: d.id }, data }); }
+            else { await model.create({ data: { id: d.id, ...data } }); await snapshot(db, entity, d.id, 'create', { id: d.id }, me(req)?.id); }
+          }
         }
-      }
+      };
+      if (apply) await prisma.$transaction(run, { maxWait: 20_000, timeout: 120_000 });
+      else await run(prisma);
       if (apply) broadcast('catalog:changed', { entity: 'all' });
       res.json({ plan, applied: apply });
     } catch (err: any) { sendError(res, err); }
@@ -378,8 +398,11 @@ export function registerCatalogRoutes(app: Express): void {
       const prisma = getPrisma();
       await ensure(prisma);
       const b = (req.body || {}) as any;
-      const signature = String(b.signature || '').slice(0, 600);
+      const signature = String(b.signature || '');
       if (!signature || !b.familyId || !b.classId) return res.status(400).json({ error: 'Нечего запоминать' });
+      // Подпись собирает signatureOf, и длиннее она не бывает; длиннее — значит
+      // прислал не он, а на MariaDB такая строка всё равно не запишется
+      if (signature.length > SIGNATURE_MAX + 1) return res.status(400).json({ error: 'Подпись описания длиннее допустимого' });
       const values: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(b.values || {})) if (!['W', 'H', 'D'].includes(k)) values[k] = v;
       const row = await prisma.catalogLearn.findFirst({ where: { classId: String(b.classId), signature } });
@@ -428,6 +451,8 @@ export function registerCatalogRoutes(app: Express): void {
       const name = String(b.name || b.layout?.name || '').trim().slice(0, 200);
       if (!name) return res.status(400).json({ error: 'У шаблона нет имени' });
       if (!b.layout || !Array.isArray(b.layout.sheets) || !Array.isArray(b.layout.columns)) return res.status(400).json({ error: 'Шаблон испорчен: нет листов или колонок' });
+      const unsafe = templateProblem(b.layout);
+      if (unsafe) return res.status(400).json({ error: unsafe });
       const id = String(req.params.id);
       const user = me(req);
       const before = await prisma.blankTemplate.findUnique({ where: { id } });

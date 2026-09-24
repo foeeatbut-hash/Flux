@@ -39,7 +39,7 @@ import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
 import { entryOf } from './src/lib/permissions.js';
-import { registerBuilderRoutes } from './server/routes/builder.js';
+import { registerBuilderRoutes, forgetProjectSelections } from './server/routes/builder.js';
 import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
 import { registerImportJobRoutes } from './server/routes/importJobs.js';
 import { readEquipmentFile } from './server/equipmentFile.js';
@@ -1219,6 +1219,8 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/catalog\/(?!learn)/, perm: 'catalog.manage', title: 'Правка Каталога' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },
   { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues/, perm: 'builder.issue', title: 'Выпуск бланков' },
+  // Связь с тегами проекта заводит теги — это право на теги, а не на ведомость
+  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/tag-apply/, perm: 'tags.manage', title: 'Создание и правка тегов' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\//, perm: 'builder.edit', title: 'Ведомости Конструктора' },
 ];
 
@@ -2094,6 +2096,7 @@ app.delete('/api/projects/:id', async (req: Request, res: Response) => {
     await prisma.project.delete({
       where: { id }
     });
+    await forgetProjectSelections(id);
     if (doomed) {
       await notifyAll('ПРОЕКТЫ', `Проект удалён: ${doomed.name}`,
         'Все его теги, файлы и документы удалены вместе с ним.', '/projects',

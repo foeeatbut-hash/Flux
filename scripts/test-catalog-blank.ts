@@ -14,6 +14,8 @@ import { renderBlank, fitSpans } from '../catalog/blank/render';
 import { defaultBlankTemplate } from '../catalog/blank/defaults';
 import type { SelectionItemData } from '../catalog/selection';
 import type { SheetGrid } from '../catalog/blank/model';
+import { sheetHtml, documentHtml } from '../src/lib/blankHtml';
+import { templateProblem } from '../catalog/blank/safe';
 
 let ok = 0;
 let fail = 0;
@@ -112,6 +114,25 @@ yes('английские подписи', en[2].cells.some((c) => c.v === 'Orde
 const both = renderBlank(t, data, 'ru+en');
 yes('двуязычные подписи', both[2].cells.some((c) => c.v === 'Номер б/з / Order line'));
 eq('обозначение не переводится', en[2].cells.find((c) => String(c.v).startsWith('КПУ-1Н-О-В-2800'))?.v, 'КПУ-1Н-О-В-2800х1800-2*ф-ЭПВ24-СН-КК-0-0-0-0-0');
+
+console.log('Шаблон не вносит разметку в чужое окно');
+{
+  const evil = {
+    ...t,
+    style: { ...t.style, headFill: 'fff;"><img src=x onerror=alert(1)>', titleSize: '12pt;}</style><script>' as any },
+    page: { ...t.page, margins: { top: '1mm;} body{display:none' as any, bottom: 15, left: 15, right: 10 } },
+    assets: { logo: 'x" onerror="alert(1)' },
+    sheets: t.sheets.map((sh) => ({ ...sh, blocks: sh.blocks.map((b) => (b.type === 'title' ? { ...b, logo: 'logo' } : b)) })),
+  } as any;
+  const g = renderBlank(evil, data, 'ru');
+  const html = g.map((x) => sheetHtml(x)).join('') + documentHtml(g, 'x');
+  yes('вредный цвет не выходит из атрибута', !html.includes('onerror') && !html.includes('<script'), html.slice(0, 200));
+  yes('поля страницы — только числа', !html.includes('display:none'));
+  yes('сервер не сохранит такой шаблон', templateProblem(evil) !== '', templateProblem(evil));
+  eq('шаблон по умолчанию проходит', templateProblem(t), '');
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  yes('встроенная PNG рисуется', sheetHtml(renderBlank({ ...evil, style: t.style, assets: { logo: png } }, data, 'ru')[0]).includes(png));
+}
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

@@ -237,5 +237,17 @@ console.log('8. Обозначение в тексте и обучение');
   eq('размер при этом берётся из текста', [withLearn.values.W, withLearn.values.H], [500, 400]);
 }
 
+console.log('Подпись описания помещается в ключ базы');
+{
+  const long = 'Fire damper, rectangular cross-section;2800x1800(h); Fire resistance - EI 60. Function - normally open. Design - explosion proof; spring return actuator. Rated voltage - 24 V (DC). Junction box with a terminal strip - ';
+  const a = signatureOf(long + 'yes / Клапан противопожарный, коробка — да');
+  const b = signatureOf(long + 'no / Клапан противопожарный, коробка — нет');
+  yes('длинная подпись не длиннее 191 знака (VARCHAR MariaDB)', a.length <= 191, a.length);
+  eq('одно описание — одна подпись', signatureOf(long + 'yes / Клапан противопожарный, коробка — да'), a);
+  yes('описания, различные только в хвосте, различаются и подписью', a !== b, [a, b]);
+  eq('размеры по-прежнему не различают подпись', signatureOf(long.replace('2800x1800', '1000x500') + 'yes / Клапан противопожарный, коробка — да'), a);
+  eq('короткая подпись — как раньше', signatureOf('Клапан 900x400 EI 60'), 'клапан #x# ei #');
+}
+
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

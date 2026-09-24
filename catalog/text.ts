@@ -81,10 +81,27 @@ export function parseNum(s: string): number | null {
  * этом не запоминается: он у каждой строки свой и берётся из самого описания.
  */
 export function signatureOf(s: string): string {
-  return foldText(s)
+  const full = foldText(s)
     .replace(/\d+([.,]\d+)?/g, '#')
     .replace(/[^\p{L}#]+/gu, ' ')
     .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 600);
+    .replace(/\s+/g, ' ');
+  // Подпись — ключ в базе, а на MariaDB такой ключ — VARCHAR(191): длинное
+  // двуязычное описание из MTO туда не лезло, и обучение молча не сохранялось.
+  // Обрезать нельзя — описания MTO различаются как раз в хвосте («коробка —
+  // да / нет»), — поэтому хвост заменяется отпечатком всей строки
+  return full.length <= SIGNATURE_MAX ? full : `${full.slice(0, 150)} ~${hash32(full)}`;
+}
+
+/** Предел длины подписи — столько вмещает ключ во всех трёх базах */
+export const SIGNATURE_MAX = 190;
+
+/** FNV-1a: короткий отпечаток строки, одинаковый в окне и на сервере */
+function hash32(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
 }
