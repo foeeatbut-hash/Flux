@@ -14,7 +14,9 @@
  *   3. в index.html добавляет запрет внешних соединений (CSP) и мост Flux
  *      (flux-bridge.js) — ДО скриптов редактора: мост должен стоять раньше,
  *      чем редактор спросит window.desktop;
- *   4. кладёт LICENSE и NOTICE исходного проекта — этого требует Apache-2.0.
+ *   4. кладёт LICENSE и NOTICE исходного проекта — этого требует Apache-2.0;
+ *   5. вносит в исходники немногие правки Flux (patches.mjs) — например,
+ *      режим «только просмотр», пока файл правит другой.
  *
  * Итог — public/genoffice/<редактор>/, в репозиторий не идёт (.gitignore).
  *
@@ -25,6 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyPatches } from './patches.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -85,6 +88,9 @@ function main() {
   if (!app) throw new Error(`неизвестный редактор «${which}»; есть: ${Object.keys(APPS).join(', ')}`);
   const src = source();
   if (!existsSync(join(src, 'node_modules'))) run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], src);
+
+  // Правки Flux — до сборки (tools/genoffice/patches.mjs)
+  for (const line of applyPatches(src)) console.log(`  правка ${line}`);
 
   const out = join(root, 'public', 'genoffice', which);
   rmSync(out, { recursive: true, force: true });

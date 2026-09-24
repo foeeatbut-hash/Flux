@@ -14,7 +14,9 @@
  *     происходит — ответ 409 и нынешний хеш, человек решает сам;
  *   - откат: прежнее содержимое кладётся в FileVersion ДО записи нового;
  *     хранятся последние KEEP версий файла;
- *   - кто сохранил — из сессии (authUser), а не из запроса.
+ *   - кто сохранил — из сессии (authUser), а не из запроса;
+ *   - пока файл правит другой (держатель в server/officeRooms.ts), запись
+ *     не идёт — ответ 423 и его имя.
  */
 import express, { type Express, type Request, type Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
@@ -26,6 +28,8 @@ export interface OfficeFileDeps {
   chunkBytes: () => Promise<number>;
   /** '' — можно писать; иначе причина отказа для человека */
   mayWrite: (req: Request, fileId: string) => Promise<string>;
+  /** Кто сейчас держит правку файла (server/officeRooms.ts); null — никто */
+  holderOf?: (fileId: string) => { userId: string; name: string } | null;
 }
 
 /** Сколько прежних версий файла держим для отката */
@@ -108,6 +112,12 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         if (!user?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
         const denied = await deps.mayWrite(req, fileId);
         if (denied) return res.status(403).json({ error: denied });
+        // Файл открыт и правится другим — его сохранение и есть правда;
+        // запись в обход держателя затёрла бы то, что он видит у себя
+        const holder = deps.holderOf?.(fileId);
+        if (holder && holder.userId !== user.id) {
+          return res.status(423).json({ error: `Файл сейчас правит ${holder.name}. Ваши правки не записаны.`, holder: holder.name });
+        }
 
         const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
         if (!body.length) return res.status(400).json({ error: 'Пустое содержимое: сохранять нечего' });

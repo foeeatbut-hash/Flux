@@ -32,6 +32,7 @@ import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
+import { setupOfficeRooms, officeRooms } from './server/officeRooms.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
@@ -1136,10 +1137,16 @@ io.on('connection', (socket) => {
 
   // Комната документа: присутствие, выделения, операции движка (server/collab.ts)
   const docRooms = setupDocRooms(io, socket, async (id) => (await getAuthUser(id))?.name || '');
+  // Комната файла Flux Office: кто открыл и кто правит (server/officeRooms.ts)
+  const officeConn = setupOfficeRooms(io, socket, {
+    nameOf: async (id) => (await getAuthUser(id))?.name || '',
+    mayWrite: async (id, fileId) => mayWriteFile({ authUser: await getAuthUser(id) }, fileId),
+  });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
     docRooms.leaveAll();
+    officeConn.gone(String(reason || ''));
     if (uid) {
       const set = online.get(uid);
       set?.delete(socket.id);
@@ -1968,7 +1975,11 @@ async function mayWriteFile(req: any, fileId: string): Promise<string> {
 }
 registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
 // Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
-registerOfficeFileRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
+registerOfficeFileRoutes(app, {
+  chunkBytes: limits.chunkBytes,
+  mayWrite: mayWriteFile,
+  holderOf: (fileId) => officeRooms.holder(fileId, Date.now()),
+});
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»
