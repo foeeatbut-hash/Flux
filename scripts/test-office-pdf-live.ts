@@ -76,7 +76,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
 
     console.log('1. Открытие');
     await page.goto(`${BASE}/#/pdf?file=${id}`, { waitUntil: 'domcontentloaded' });
-    const fr = page.frameLocator('iframe[title="PDF Flux Office"]');
+    const fr = page.frameLocator('iframe[title="Flux Office — PDF"]');
     const line = fr.locator('.textLayer span', { hasText: 'Flux PDF proba' }).first();
     ok('текст PDF виден', await line.waitFor({ timeout: 30000 }).then(() => true).catch(() => false));
     ok('«Открывается…» ушло', await until(async () => !(await page.getByText('Открывается…').isVisible().catch(() => false)), 10000));
@@ -119,11 +119,11 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
 
     console.log('\n4. Закрытие');
     // Все окна PDF по очереди (прежнее окно рабочий стол мог восстановить)
-    for (let i = 0; i < 3 && await page.locator('iframe[title="PDF Flux Office"]').count(); i++) {
+    for (let i = 0; i < 3 && await page.locator('iframe[title="Flux Office — PDF"]').count(); i++) {
       await page.getByRole('button', { name: 'Закрыть' }).last().click();
       await page.waitForTimeout(1500);
     }
-    ok('окно закрылось, ничего не потеряв', await until(async () => !(await page.locator('iframe[title="PDF Flux Office"]').count()), 10000));
+    ok('окно закрылось, ничего не потеряв', await until(async () => !(await page.locator('iframe[title="Flux Office — PDF"]').count()), 10000));
     ok('ни одного запроса за пределы сервера Flux', outside.length === 0, outside.slice(0, 5));
     await page.screenshot({ path: process.env.OUT || '/tmp/office-pdf.png' }).catch(() => {});
   } catch (e: any) {

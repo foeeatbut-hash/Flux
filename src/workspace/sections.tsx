@@ -9,9 +9,11 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, FileType, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks } from 'lucide-react';
 import { APP_PLAY } from '../../play/features';
+import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -33,6 +35,21 @@ const OfficeHost = lazy(() => import('../screens/OfficeHost'));
 // PDF и Таблица Flux Office: один экран, редактор выбирается параметром
 const OfficePdf = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="pdf" /> })));
 const OfficeSheet = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="sheets" /> })));
+// Окно программы без файла — стартовое окно (создать, недавние, файлы
+// проекта); с файлом — редактор. Старые документы Конструктора (?doc=) до их
+// удаления открываются прежним экраном
+const OfficeHome = lazy(() => import('../screens/OfficeHome'));
+const officeEntry = (kind: 'doc' | 'sheet' | 'pdf', Editor: React.ComponentType) => function OfficeEntry() {
+  const [params] = useSearchParams();
+  if (params.get('file')) return <Editor />;
+  if (kind !== 'pdf' && (params.get('doc') || params.get('fromFile'))) {
+    return <div className="h-full overflow-auto p-4"><ConstructorScreen /></div>;
+  }
+  return <OfficeHome kind={kind} />;
+};
+const DocEntry = officeEntry('doc', OfficeHost);
+const SheetEntry = officeEntry('sheet', OfficeSheet);
+const PdfEntry = officeEntry('pdf', OfficePdf);
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
@@ -109,18 +126,7 @@ export interface SectionDef {
    * непрочитанного, — а объяснять человеку, почему их два, нечем.
    */
   multi?: boolean;
-  /**
-   * Какой вид документа раздел показывает по умолчанию — для семьи Flux Office.
-   *
-   * «Таблица» и «Документ» — разные программы с разными значками и разными
-   * кнопками на панели задач, но экран у них один: и книга, и текст лежат в
-   * одной таблице базы, и открывает их один и тот же редактор по виду
-   * документа. Поле говорит библиотеке, ЧТО показывать и что заводить кнопкой
-   * «Создать»; открыть чужой вид из этого окна по-прежнему можно — это
-   * умолчание, а не запрет.
-   */
-  docKind?: 'DOC' | 'TEXT';
-  Component: React.LazyExoticComponent<React.ComponentType<any>>;
+  Component: React.LazyExoticComponent<React.ComponentType<any>> | React.FunctionComponent;
 }
 
 export const SECTIONS: SectionDef[] = [
@@ -141,18 +147,18 @@ export const SECTIONS: SectionDef[] = [
   // вида документа своя программа со своим значком и своим именем в одно
   // слово. Раньше и книга, и текст, и шаблон титула звались «Конструктором» —
   // словом из инженерной жизни, которое не говорит, что программа делает.
-  { path: '/sheet', title: 'Таблица', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, docKind: 'DOC', Component: ConstructorScreen },
-  { path: '/doc', title: 'Документ', icon: FileType, scope: 'project', scroll: 'auto', pad: true, multi: true, docKind: 'TEXT', Component: ConstructorScreen },
+  { path: '/sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: SheetEntry },
+  { path: '/doc', title: 'Документ', icon: DocAppIcon, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: DocEntry },
   // PDF — редактор Flux Office (GenOffice), открывается из Проводника своим
   // окном; пометки пишутся в сам файл. Прежние замечания Просмотра
   // переносятся из окна (components/collab/LegacyMarkupBar.tsx)
-  { path: '/pdf', title: 'PDF', icon: FileText, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: OfficePdf },
+  { path: '/pdf', title: 'PDF', icon: PdfAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: PdfEntry },
   // Файлы Word и Excel — в редакторах Flux Office (GenOffice): правка идёт в
   // сам файл, а не в копию в базе. Документы Конструктора (/sheet, /doc)
   // открываются по-прежнему — их перевод в файлы отдельным этапом
   // (docs/office-genoffice-plan.md)
-  { path: '/office-sheet', title: 'Книга Excel', icon: Table2, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeSheet },
-  { path: '/office-doc', title: 'Документ Word', icon: FileType, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeHost },
+  { path: '/office-sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeSheet },
+  { path: '/office-doc', title: 'Документ', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeHost },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но
   // разговаривать про открытую ведомость удобнее рядом с ней, а не поверх
@@ -168,7 +174,7 @@ export const SECTIONS: SectionDef[] = [
   // Календарь — общий: события живут по проектам, но человек смотрит в него
   // как в свой день целиком, а не как в часть проекта
   { path: '/calendar', title: 'Календарь', icon: CalendarDays, scope: 'global', scroll: 'fixed', pad: false, Component: CalendarScreen },
-  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesManagement },
+  { path: '/notes', title: 'Блокнот', icon: NotesAppIcon, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesManagement },
   { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },

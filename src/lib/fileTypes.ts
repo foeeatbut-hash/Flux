@@ -181,19 +181,19 @@ export const FILE_APPS: Record<string, FileApp> = {
     href: (f) => `${officePathOf(f)}?doc=${q(f.refId || f.id)}`,
   },
   pdf: {
-    id: 'pdf', name: 'PDF Flux Office',
+    id: 'pdf', name: 'Flux Office — PDF',
     path: () => '/pdf',
     href: (f) => `/pdf?file=${q(f.id)}`,
   },
   // Файл Word и книга Excel правятся сами по себе, в редакторах Flux Office:
   // сохраняется тот же файл, со всем, что в нём было (docs/office-engine-choice.md)
   word: {
-    id: 'word', name: 'Документ Flux Office',
+    id: 'word', name: 'Flux Office — Документ',
     path: () => '/office-doc',
     href: (f) => `/office-doc?file=${q(f.id)}`,
   },
   excel: {
-    id: 'excel', name: 'Таблица Flux Office',
+    id: 'excel', name: 'Flux Office — Таблица',
     path: () => '/office-sheet',
     href: (f) => `/office-sheet?file=${q(f.id)}`,
   },

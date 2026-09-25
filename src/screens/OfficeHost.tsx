@@ -23,6 +23,8 @@ import { Btn, Dialog, Empty } from '../components/ui';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import { useDocCollab } from '../components/collab/useDocCollab';
 import OfficePresence from '../components/collab/OfficePresence';
+import { rememberDoc } from '../store/recentStore';
+import { editorHref } from '../lib/officeFiles';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -86,6 +88,10 @@ export default function OfficeHost() {
   holderRef.current = holderName;
 
   useWindowTitle(name);
+  // Недавние: открытый файл попадает в Пуск тем же адресом, что у двойного щелчка
+  useEffect(() => {
+    if (fileId && name) rememberDoc({ href: editorHref({ id: fileId, name }), title: name, kind: 'text', at: Date.now() });
+  }, [fileId, name]);
 
   const send = useCallback((msg: object) => {
     frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin));
@@ -354,7 +360,7 @@ export default function OfficeHost() {
         key={`${fileId}:${frameKey}`}
         ref={frame}
         src={EDITOR_URL}
-        title="Документ Flux Office"
+        title="Flux Office — Документ"
         onLoad={onFrameLoad}
         className="absolute inset-0 h-full w-full border-0 bg-white"
       />

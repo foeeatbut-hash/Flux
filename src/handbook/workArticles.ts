@@ -437,7 +437,7 @@ export const WORK_ARTICLES: HandbookArticle[] = [
 
   {
     id: 'office-doc',
-    title: 'Документ Word',
+    title: 'Документ',
     route: '/office-doc',
     group: 'sections',
     lead: 'Редактор Word в Flux Office. Открывает сам файл .docx из Проводника и сохраняет в него же — без перевода в копию.',
@@ -479,7 +479,7 @@ export const WORK_ARTICLES: HandbookArticle[] = [
     ],
     pitfalls: [
       'Без связи с сервером общий файл не правится: правка останавливается, пока связь не вернётся, чтобы работа коллег не разошлась.',
-      'Данные проекта (поля, теги, подписи) в этот редактор ещё не перенесены — для бланков с ними есть «Открыть в: Конструктор Flux Office».',
+      'Данные проекта (поля, теги, подписи) в этот редактор ещё не перенесены — для бланков с ними пока есть «Открыть в: Конструктор Flux Office»; панель «Данные проекта» появится в самом редакторе.',
       'Старый формат .doc этим редактором не открывается.',
     ],
     see: ['explorer', 'office-sheet', 'doc'],
@@ -488,7 +488,7 @@ export const WORK_ARTICLES: HandbookArticle[] = [
 
   {
     id: 'office-sheet',
-    title: 'Книга Excel',
+    title: 'Таблица',
     route: '/office-sheet',
     group: 'sections',
     lead: 'Редактор Excel в Flux Office. Открывает сам файл .xlsx или .xlsm из Проводника и сохраняет в него же.',

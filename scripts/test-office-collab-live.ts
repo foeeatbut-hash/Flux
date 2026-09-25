@@ -100,7 +100,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     });
     await loginPage(page, BASE, who);
     await page.goto(`${BASE}/#/office-doc?file=${id}`, { waitUntil: 'domcontentloaded' });
-    const fr = page.frameLocator('iframe[title="Документ Flux Office"]');
+    const fr = page.frameLocator('iframe[title="Flux Office — Документ"]');
     await fr.locator('.ProseMirror').first().waitFor({ timeout: 30000 }).catch(() => {});
     return { ctx, page, fr };
   };

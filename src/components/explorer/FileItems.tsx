@@ -8,9 +8,15 @@
  */
 import React from 'react';
 import { format } from 'date-fns';
-import { Folder, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Boxes, HardDrive } from 'lucide-react';
+import { Folder, Boxes, HardDrive } from 'lucide-react';
 import { SEC_SHARED, SEC_DISK } from '../../lib/explorerSections';
-import { faceOf } from '../../lib/fileTypes';
+import FileBadge from '../ui/FileBadge';
+
+/** Размер значка из классов Tailwind: w-4 → 16, w-5 → 20, w-12 → 48 */
+const sizeOf = (cls: string): number => {
+  const m = /\bw-(\d+)\b/.exec(cls);
+  return m ? Number(m[1]) * 4 : 20;
+};
 
 export const getFileIcon = (item: any, classNameStr: string) => {
   if (item.isSection) {
@@ -23,18 +29,9 @@ export const getFileIcon = (item: any, classNameStr: string) => {
   }
   if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
   if (item.isFolder) return <Folder className={`${classNameStr} text-amber-500 fill-amber-200`} />;
-  if (item.type === 'CONSTRUCTOR') return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
-  // Вид файла считает общая таблица расширений: свой список здесь был пятым по
-  // счёту, и они расходились — .xls показывался безымянным значком, хотя
-  // открывается «Таблицей»
-  switch (faceOf(item.name || '')) {
-    case 'image': return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
-    case 'pdf': return <FileText className={`${classNameStr} text-rose-500`} />;
-    case 'sheet': return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
-    case 'text': return <FileText className={`${classNameStr} text-sky-600`} />;
-    case 'plain': return <FileText className={`${classNameStr} text-slate-500`} />;
-    default: return <FileIcon className={`${classNameStr} text-slate-400`} />;
-  }
+  // Вид файла — значок Flux Office (lib/fileBadge.ts), один на всю программу:
+  // стол, Проводник, Пуск и окно показывают файл одинаково
+  return <FileBadge file={{ id: item.id, name: item.name, type: item.type }} size={sizeOf(classNameStr)} className={classNameStr.replace(/\b[wh]-\d+\b/g, '')} />;
 };
 
 export const formatSize = (bytes: number) => {

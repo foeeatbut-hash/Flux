@@ -12,16 +12,14 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { X, Table2, FileText, StickyNote, FileType2, Trash2 } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
+import FileBadge from '../ui/FileBadge';
+import { recentBadge } from '../../lib/fileBadge';
 import { useRecentStore } from '../../store/recentStore';
-import { visibleRecentDocs, whenLabel, kindName, type DocKind } from '../../lib/recentDocs';
+import { visibleRecentDocs, whenLabel, kindName } from '../../lib/recentDocs';
 import { useOverlay } from '../../store/overlayStore';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { Z } from '../../lib/layers';
-
-const ICONS: Record<DocKind, any> = {
-  sheet: Table2, text: FileText, note: StickyNote, pdf: FileType2,
-};
 
 export default function RecentDocsPanel({ projectId, onOpen, onClose }: {
   projectId: string | null;
@@ -54,13 +52,12 @@ export default function RecentDocsPanel({ projectId, onOpen, onClose }: {
             </p>
           )}
           {list.map((d) => {
-            const Icon = ICONS[d.kind] || FileText;
             return (
               <div key={d.href}
                 className="group flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors">
                 <button type="button" onClick={() => { onOpen(d.href); onClose(); }}
                   className="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer">
-                  <Icon className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <FileBadge file={d.title} kind={recentBadge(d)} size={18} />
                   <span className="min-w-0">
                     <span className="block text-sm text-slate-800 dark:text-slate-150 truncate">{d.title}</span>
                     <span className="block text-2xs text-slate-400">{kindName(d.kind)} · {whenLabel(d.at)}</span>

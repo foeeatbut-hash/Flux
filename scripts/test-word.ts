@@ -172,14 +172,14 @@ const api = async (method: string, url: string, body?: any) => {
     // «Таблица» показывает книги. Кнопки на панели задач у неё нет — она не
     // закреплена по умолчанию, — поэтому идём адресом: оболочка сама заводит
     // окно, увидев новый адрес
-    await page.evaluate(() => { window.location.hash = '#/doc'; });
-    await page.waitForTimeout(3500);
-    // Открываем по точному имени, но только внутри окна: с тех пор как
-    // документы Flux Office зеркалятся на рабочий стол, то же имя лежит ещё и
-    // значком на столе — первым в разметке идёт он, и сценарий открывал стол
-    const openDoc = () => page.locator('[data-window-body]')
-      .getByText(DOC_NAME, { exact: true }).first()
-      .dblclick({ timeout: 8000 }).then(() => true).catch(() => false);
+    // Библиотеки документов больше нет: без файла «Документ» открывает своё
+    // стартовое окно. Документ Конструктора открывается прямой ссылкой ?doc=
+    // (до удаления прежнего редактора)
+    const openDoc = async () => {
+      await page.evaluate((id: string) => { window.location.hash = `#/doc?doc=${id}`; }, docId);
+      await page.waitForTimeout(5000);
+      return (await page.locator('[data-window-body]').count()) > 0;
+    };
     ok('документ открыт из списка Flux Office', await openDoc());
     await page.waitForTimeout(9000);   // движок Univer грузится лениво
 

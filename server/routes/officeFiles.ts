@@ -24,6 +24,7 @@ import { getPrisma, sendError } from '../context.js';
 import { ensureTables as ensureDbTables } from '../ddl.js';
 import { fileBytes } from './fileChunks.js';
 import { collab } from '../officeCollab.js';
+import { cleanName, createFileFromBytes, deskHome, exportsHome, homeOfFile, homeOfFolder, type FileHome } from '../officeStore.js';
 
 export interface OfficeFileDeps {
   chunkBytes: () => Promise<number>;
@@ -31,6 +32,8 @@ export interface OfficeFileDeps {
   mayWrite: (req: Request, fileId: string) => Promise<string>;
   /** Кто сейчас держит правку файла (server/officeRooms.ts); null — никто */
   holderOf?: (fileId: string) => { userId: string; name: string } | null;
+  /** Право сотрудника (userCan): класть на общий диск — по праву «Общий диск» */
+  can?: (user: any, perm: string) => boolean;
 }
 
 /** Автосохранение пишет часто: версию отката — не чаще, чем раз в это время */
@@ -45,25 +48,6 @@ const KEEP = 20;
 const LIMIT = '256mb';
 
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
-
-/** Имя копии: без пути и запрещённых в Windows знаков, с расширением исходника */
-function cleanName(raw: string, fallback: string): string {
-  const ext = (fallback.match(/\.[^.]+$/) || [''])[0];
-  let n = raw.split(/[\\/]/).pop()!.replace(/[<>:"|?*\u0000-\u001f]/g, '').trim().slice(0, 200);
-  if (!n) n = fallback.replace(/(\.[^.]+)?$/, ' (копия)$1');
-  if (ext && !n.toLowerCase().endsWith(ext.toLowerCase())) n += ext;
-  return n;
-}
-
-/** Свободное имя в папке: «Отчёт.docx», «Отчёт (2).docx», … */
-function freeName(name: string, taken: Set<string>): string {
-  if (!taken.has(name.toLowerCase())) return name;
-  const m = name.match(/^(.*?)(\.[^.]+)?$/)!;
-  for (let i = 2; ; i++) {
-    const n = `${m[1]} (${i})${m[2] || ''}`;
-    if (!taken.has(n.toLowerCase())) return n;
-  }
-}
 
 let ensured = false;
 async function ensureVersionTable(): Promise<string> {
@@ -263,29 +247,59 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         const from = await prisma.fileNode.findUnique({ where: { id: fromId } });
         if (!from) return res.status(404).json({ error: 'Файл не найден' });
 
-        const wanted = cleanName(String(req.query.name || ''), from.name);
-        const siblings = await prisma.fileNode.findMany({
-          where: { folderId: from.folderId, deletedAt: null, scope: from.scope, ownerId: from.ownerId },
-          select: { name: true },
+        const home = await homeOfFile(fromId);
+        if (!home) return res.status(404).json({ error: 'Файл не найден' });
+        const file = await createFileFromBytes({
+          name: cleanName(String(req.query.name || ''), from.name), body, home, userId: user.id,
+          chunkBytes: await deps.chunkBytes(), type: from.type,
         });
-        const name = freeName(wanted, new Set(siblings.map((f: { name: string }) => f.name.toLowerCase())));
-        const dir = String(from.filePath || '').replace(/[^/]*$/, '') || '/shared/';
-        const step = Math.max(64 * 1024, await deps.chunkBytes());
+        res.json(file);
+      } catch (err: any) { sendError(res, err); }
+    });
 
-        const file = await prisma.$transaction(async (tx: any) => {
-          const made = await tx.fileNode.create({
-            data: {
-              name, filePath: dir + name, size: body.length, type: from.type,
-              department: from.department, scope: from.scope, ownerId: from.ownerId,
-              folderId: from.folderId, createdById: user.id, updatedById: user.id,
-            },
-          });
-          for (let i = 0, idx = 0; i < body.length; i += step, idx++) {
-            await tx.fileChunk.create({ data: { fileId: made.id, idx, data: body.subarray(i, i + step) } });
+  /**
+   * Новый файл из байтов: выгрузка, пустой документ, английская версия.
+   * where: exports — «Выгрузки» на личном столе (по умолчанию); desk — личный
+   * стол; shared — общий стол; folder — папка folderId. Отвечает тем же, что
+   * копия: id, имя (свободное в папке), хеш и размер
+   */
+  app.post('/api/office/files/new',
+    express.raw({ type: () => true, limit: LIMIT }),
+    async (req: Request, res: Response) => {
+      const prisma = getPrisma();
+      try {
+        const user = (req as any).authUser;
+        if (!user?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
+        const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        const name = String(req.query.name || '').trim();
+        if (!name) return res.status(400).json({ error: 'Нет имени файла' });
+        const where = String(req.query.where || 'exports');
+        const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : null;
+        let home: FileHome | null = null;
+        if (where === 'folder') {
+          const folderId = String(req.query.folderId || '');
+          const folder = folderId ? await prisma.folder.findUnique({ where: { id: folderId }, include: { project: true } }) : null;
+          if (!folder || folder.deletedAt) return res.status(404).json({ error: 'Папка не найдена' });
+          // Чужая личная папка и общий диск — не место для выгрузки: на диск
+          // кладут по праву «Общий диск», через Проводник
+          if (folder.scope === 'PERSONAL' && folder.ownerId !== user.id) return res.status(403).json({ error: 'Это чужая личная папка' });
+          if ((folder as any).project?.system && !deps.can?.(user, 'disk.write')) {
+            return res.status(403).json({ error: 'Класть файлы на общий диск можно по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».' });
           }
-          return made;
-        }, { timeout: 120_000 });
-        res.json({ id: file.id, name: file.name, sha256: sha256(body), size: body.length });
+          home = await homeOfFolder(folderId);
+        } else if (where === 'section') {
+          // Корень раздела Проводника: у его файлов нет папки. Личный раздел —
+          // только свой, чужой личный не место для нового файла
+          const shared = req.query.scope !== 'PERSONAL';
+          home = { folderId: null, scope: shared ? 'SHARED' : 'PERSONAL', ownerId: shared ? null : user.id, dir: shared ? '/shared/' : '/personal/' };
+        } else if (where === 'desk' || where === 'shared') {
+          home = await deskHome(user.id, where === 'shared', projectId);
+        } else {
+          home = await exportsHome(user.id, projectId);
+        }
+        if (!home) return res.status(404).json({ error: 'Папка не найдена' });
+        const file = await createFileFromBytes({ name: cleanName(name, name), body, home, userId: user.id, chunkBytes: await deps.chunkBytes() });
+        res.json(file);
       } catch (err: any) { sendError(res, err); }
     });
 
