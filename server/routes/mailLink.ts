@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { htmlToMarkdown } from '../../src/lib/htmlToMarkdown.js';
 import fs from 'fs';
 import path from 'path';
 import { getPrisma, sendError, resolveProjectId } from '../context.js';
@@ -168,7 +169,9 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
         data: {
           ownerId: me.id,
           title: (msg.subject || 'Письмо без темы').slice(0, 120),
-          content: head + body,
+          // Блокнот хранит Markdown (редактор Flux Office): письмо переводится
+          // сразу, чтобы заметка открывалась без перевода и искалась по тексту
+          content: htmlToMarkdown(head + body),
           groupName: str(req.body?.groupName, 80) || 'Из почты',
           ...(str(req.body?.equipmentId, 60) ? { equipmentId: str(req.body?.equipmentId, 60) } : {}),
         },

@@ -291,14 +291,16 @@ const api = async (method: string, url: string, body?: any) => {
     const note = notesAfter.find((n: any) => !((n.content || '').trim()) || /Новая заметка/.test(n.title || ''));
     if (note) createdNotes.push(note.id);
 
-    // Текст печатаем в редакторе и ждём автосохранения
-    const editor = await firstVisible('[contenteditable="true"]');
+    // Текст печатаем в редакторе Markdown Flux Office (он во фрейме) и ждём
+    // автосохранения: Блокнот пишет сам через 3 с после правки
+    const noteFrame = page.frameLocator('iframe[title="Flux Office — Блокнот"]');
+    const editor = await noteFrame.locator('.ProseMirror').first().waitFor({ timeout: 20000 }).then(() => noteFrame.locator('.ProseMirror').first()).catch(() => null);
     ok('поле заметки доступно для ввода', !!editor);
     if (editor) {
       const MARK = `запись проверки ${stamp}`;
       await editor.click();
       await page.keyboard.type(MARK, { delay: 12 });
-      await page.waitForTimeout(4000);       // автосохранение
+      await page.waitForTimeout(6000);       // автосохранение
       const saved = (await api('GET', '/api/notes')).json?.notes || [];
       ok('текст заметки сохранён на сервере', saved.some((n: any) => (n.content || '').includes(MARK)),
          saved.map((n: any) => (n.content || '').slice(0, 40)).slice(0, 3));

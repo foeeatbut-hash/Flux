@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, UserNote } from '../services/dataService';
-import RichTextEditor from '../components/RichTextEditor';
+import NoteEditorHost, { type NoteEditorHandle, type NoteSaveState } from './NoteEditorHost';
+import { htmlToMarkdown, looksLikeHtml, noteText } from '../lib/htmlToMarkdown';
+import { saveNewFile } from '../lib/officeFiles';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -30,6 +32,10 @@ const COLORS = [
  * amber, хранят в базе жёлтый: у них не загорался кружок в списке и ни один
  * образец не отмечался выбранным. Незнакомый цвет считаем первым из набора.
  */
+/** Текст заметки для редактора: прежний HTML переводится в Markdown при открытии */
+const markdownOf = (content: string | null | undefined): string =>
+  looksLikeHtml(content || '') ? htmlToMarkdown(content || '') : String(content || '');
+
 export const presetOf = (color: string) =>
   COLORS.find(c => color.includes(c.class.split(' ')[0])) || COLORS[0];
 
@@ -117,8 +123,15 @@ export default function NotesManagement() {
     });
   };
 
+  // Редактор заметки (Markdown Flux Office): текст он пишет сам, окно — только
+  // заголовок, группу и цвет. Действие над ещё не открытой заметкой ждёт,
+  // пока её редактор откроется
+  const editorRef = useRef<NoteEditorHandle | null>(null);
+  const afterOpen = useRef<null | ((ed: NoteEditorHandle) => void)>(null);
+
   // Немедленно сохраняет накопленные изменения (при переключении заметки, Ctrl+S, размонтировании)
   const flushPendingSave = async () => {
+    await editorRef.current?.flush();
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
@@ -243,6 +256,12 @@ export default function NotesManagement() {
     }
   };
 
+  /** Текст из редактора: ошибка доходит до редактора, он оставит заметку несохранённой */
+  const saveNoteText = async (noteId: string, content: string) => {
+    await dataService.updateNote(noteId, { content });
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content, updatedAt: new Date().toISOString() } : n));
+  };
+
   // Triggered when anything is updated in the selected note
   const handleNoteChange = (fields: Partial<UserNote>) => {
     if (!selectedNote) return;
@@ -270,10 +289,17 @@ export default function NotesManagement() {
   };
 
   // Переключение заметки: сначала сохраняем несохраненное в предыдущей
-  const handleSelectNote = (note: UserNote) => {
+  const handleSelectNote = async (note: UserNote) => {
     if (selectedNote?.id === note.id) return;
-    flushPendingSave();
+    await flushPendingSave();
     setSelectedNote(note);
+  };
+
+  /** Выполнить над заметкой действие редактора: у открытой — сразу, иначе после открытия */
+  const withEditor = (note: UserNote, act: (ed: NoteEditorHandle) => void) => {
+    if (selectedNote?.id === note.id && editorRef.current) { act(editorRef.current); return; }
+    afterOpen.current = act;
+    void handleSelectNote(note);
   };
 
   // Дублировать заметку
@@ -293,65 +319,33 @@ export default function NotesManagement() {
     }
   };
 
-  // Экспорт заметки в текстовый файл
-  const handleExportNote = (e: React.MouseEvent, note: UserNote) => {
+  // Заметка → файл Markdown в «Выгрузках»: настоящий файл Flux, его видно в
+  // Проводнике и на столе, оттуда — «Сохранить в Windows»
+  const handleExportNote = async (e: React.MouseEvent, note: UserNote) => {
     e.stopPropagation();
     try {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = note.content || '';
-      const text = `${note.title}\n${'='.repeat(Math.max(8, note.title.length))}\n\n${tmp.innerText}`;
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${(note.title || 'заметка').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      addToast('Заметка экспортирована в TXT', 'success');
+      await flushPendingSave();
+      const fresh = notes.find((n) => n.id === note.id) || note;
+      const body = markdownOf(fresh.content);
+      const text = `# ${fresh.title || 'Заметка'}\n\n${body}`;
+      const made = await saveNewFile(new TextEncoder().encode(text), `${(fresh.title || 'Заметка').replace(/[\\/:*?"<>|]/g, '_')}.md`, 'exports');
+      addToast(`Выгружено в «Выгрузки»: ${made.name}`, 'success');
     } catch (err: any) {
-      addToast('Не удалось экспортировать заметку', 'error');
+      addToast(`Не удалось выгрузить: ${err.message || err}`, 'error');
     }
   };
 
-  // Экспорт заметки в Word (.doc открывается Word'ом как HTML-документ)
+  // В Word — настоящий .docx: его собирает сам редактор (как «Экспорт → Word»
+  // в GenOffice), файл ложится в «Выгрузки» и открывается Документом. Раньше
+  // здесь был HTML под именем .doc — Word открывал его с предупреждением
   const handleExportWord = (e: React.MouseEvent, note: UserNote) => {
     e.stopPropagation();
-    try {
-      // Инлайновые стили таблиц: Word не знает tailwind-классов, без них таблицы шли без рамок
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title>` +
-        `<style>body{font-family:Calibri,Arial,sans-serif;color:#0f172a} table{border-collapse:collapse;width:100%} td,th{border:1px solid #94a3b8;padding:6px} th{background:#f1f5f9}</style>` +
-        `</head><body><h1>${note.title}</h1>${note.content || ''}</body></html>`;
-      const blob = new Blob(['﻿', html], { type: 'application/msword' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${(note.title || 'заметка').replace(/[\\/:*?"<>|]/g, '_')}.doc`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      addToast('Заметка экспортирована в Word (.doc)', 'success');
-    } catch (err: any) {
-      addToast('Не удалось экспортировать заметку', 'error');
-    }
+    withEditor(note, (ed) => ed.exportDocx());
   };
 
-  // Печать заметки (скрытый iframe, чтобы не печатать весь интерфейс)
   const handlePrintNote = (e: React.MouseEvent, note: UserNote) => {
     e.stopPropagation();
-    try {
-      const frame = document.createElement('iframe');
-      frame.style.position = 'fixed';
-      frame.style.right = '-10000px';
-      document.body.appendChild(frame);
-      const doc = frame.contentDocument!;
-      doc.open();
-      doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title>` +
-        `<style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a} table{border-collapse:collapse} td,th{border:1px solid #94a3b8;padding:6px}</style>` +
-        `</head><body><h1>${note.title}</h1>${note.content || ''}</body></html>`);
-      doc.close();
-      frame.contentWindow!.focus();
-      frame.contentWindow!.print();
-      setTimeout(() => document.body.removeChild(frame), 2000);
-    } catch (err: any) {
-      addToast('Не удалось открыть печать', 'error');
-    }
+    withEditor(note, (ed) => ed.print());
   };
 
   /**
@@ -366,7 +360,7 @@ export default function NotesManagement() {
   useWindowHotkeys((e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
-    if (k === 's') { e.preventDefault(); flushPendingSave(); }
+    if (k === 's') { e.preventDefault(); void flushPendingSave(); }
     else if (k === 'n') { e.preventDefault(); handleCreateNote(); }
     else if (k === 'f') { e.preventDefault(); searchInputRef.current?.focus(); }
   });
@@ -549,8 +543,8 @@ export default function NotesManagement() {
           ) : (() => {
             const renderNote = (note: UserNote) => {
               const isSelected = selectedNote?.id === note.id;
-              // strip HTML for text previews
-              const cleanContent = note.content ? note.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ') : '';
+              // Текст для превью — без разметки Markdown и прежнего HTML
+              const cleanContent = noteText(note.content || '');
 
               return (
                 <div
@@ -642,14 +636,14 @@ export default function NotesManagement() {
                       <button type="button"
                         onClick={(e) => handleExportNote(e, note)}
                         className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
-                        title="Экспорт в TXT"
+                        title="Выгрузить в Markdown (.md)"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
                       <button type="button"
                         onClick={(e) => handleExportWord(e, note)}
                         className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
-                        title="Экспорт в Word (.doc)"
+                        title="Выгрузить в Word (.docx)"
                       >
                         <FileType2 className="w-3.5 h-3.5" />
                       </button>
@@ -856,16 +850,18 @@ export default function NotesManagement() {
               <div className="w-full h-[1px] bg-slate-200 dark:bg-slate-800 mt-2" />
             </div>
 
-            {/* WYSIWYG Editor wrapper */}
-            <div className="flex-1 min-w-0 px-6 pb-6 overflow-y-auto">
-              <RichTextEditor
-                value={selectedNote.content}
-                onChange={(html) => handleNoteChange({ content: html })}
-                className="h-full border-none shadow-none bg-transparent"
-                projectTags={projectTags}
-                projectId={activeProject?.id}
-                userName={user?.name || user?.symbol || ''}
-                onTagNavigate={(tagId) => { if (tagId) navigate(`/registry?focus=${encodeURIComponent(tagId)}`); }}
+            {/* Текст заметки — редактор Markdown Flux Office */}
+            <div className="flex-1 min-h-0 min-w-0">
+              <NoteEditorHost
+                key={selectedNote.id}
+                ref={editorRef}
+                path={`flux://note/${selectedNote.id}`}
+                name={selectedNote.title}
+                readOnly={selectedNote.canEdit === false}
+                load={async () => markdownOf((notes.find((n) => n.id === selectedNote.id) || selectedNote).content)}
+                save={(text) => saveNoteText(selectedNote.id, text)}
+                onState={(st: NoteSaveState) => setSaveStatus(st === 'saving' || st === 'dirty' ? 'saving' : st === 'saved' ? 'saved' : st === 'error' ? 'error' : 'idle')}
+                onReady={(ed) => { const act = afterOpen.current; afterOpen.current = null; act?.(ed); }}
               />
             </div>
           </div>

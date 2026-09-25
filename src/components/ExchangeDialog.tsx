@@ -17,7 +17,9 @@
 import React from 'react';
 import { Download, Upload, ClipboardCopy, X, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useNavigate } from 'react-router-dom';
 import { useToastStore } from '../store/toastStore';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
 import {
   summary, blocker, toCsv, toClipboard, fileName, pickColumns,
   TARGET_LABEL, type Target, type Scope, type Column,
@@ -41,7 +43,8 @@ export interface ExchangeProps {
 export default function ExchangeDialog(p: ExchangeProps) {
   const { addToast } = useToastStore();
   const [scope, setScope] = React.useState(p.scopes[0]?.id || '');
-  const [target, setTarget] = React.useState<Target>('xlsx');
+  const [target, setTarget] = React.useState<Target>('office');
+  const navigate = useNavigate();
   const [chosen, setChosen] = React.useState<string[]>(
     p.defaultColumns?.length ? p.defaultColumns : p.columns.map((c) => c.key),
   );
@@ -80,6 +83,13 @@ export default function ExchangeDialog(p: ExchangeProps) {
         const book = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(book, sheet, p.section.slice(0, 28) || 'Данные');
         const out = XLSX.write(book, { bookType: 'xlsx', type: 'array' });
+        if (target === 'office') {
+          const made = await saveNewFile(out, name, 'exports');
+          addToast(`Выгружено в «Выгрузки»: ${made.name}`, 'success');
+          p.onClose();
+          navigate(editorHref(made));
+          return;
+        }
         download(new Blob([out], { type: 'application/octet-stream' }), name);
       }
       addToast(`Выгружено: ${name}`, 'success');
@@ -132,7 +142,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
           <div className="flex items-start gap-3">
             <span className="w-20 shrink-0 pt-1.5 text-xs font-medium text-slate-400">Куда</span>
             <div className="flex-1 flex flex-wrap gap-1.5">
-              {(['xlsx', 'csv', 'clipboard'] as Target[]).map((t) => (
+              {(['office', 'xlsx', 'csv', 'clipboard'] as Target[]).map((t) => (
                 <button key={t} type="button" onClick={() => setTarget(t)}
                   className={`px-2.5 py-1.5 rounded-lg text-2xs font-semibold cursor-pointer border transition-ui ${
                     target === t

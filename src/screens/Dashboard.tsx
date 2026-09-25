@@ -11,6 +11,7 @@
  * действительно пользуется (счётчик открытий хранится локально).
  */
 import { Status } from '../components/ui';
+import { noteText } from '../lib/htmlToMarkdown';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -649,7 +650,7 @@ export default function Dashboard() {
                 <button type="button" onClick={() => open('/notes')} className="w-full text-left cursor-pointer">
                   <p className="text-[13px] font-medium truncate">{note.title || 'Без названия'}</p>
                   <p className="text-xs leading-snug text-slate-500 dark:text-dark-text-muted line-clamp-2 mt-0.5">
-                    {(note.content || '').replace(/<[^>]*>/g, ' ').trim() || 'Заметка не заполнена'}
+                    {noteText(note.content || '') || 'Заметка не заполнена'}
                   </p>
                 </button>
                 <button

@@ -22,6 +22,8 @@
  *
  *   node tools/genoffice/build.mjs            # Документ
  *   node tools/genoffice/build.mjs docs       # то же явно
+ *   node tools/genoffice/build.mjs markdown   # Блокнот
+ *   node tools/genoffice/build.mjs all        # все редакторы
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -48,6 +50,8 @@ const COLLAB_DEPS = ['yjs@13.6.33', 'y-prosemirror@1.3.7', 'y-protocols@1.0.7'];
  */
 const APPS = {
   docs: { dir: 'apps/docs', kind: 'bridge' },
+  // Блокнот: редактор Markdown, мост свой (md-bridge.js) — markdownApi
+  markdown: { dir: 'apps/markdown', kind: 'bridge', bridge: 'md-bridge.js' },
   pdf: {
     dir: 'apps/pdf', kind: 'ipc', preload: 'src/preload/index.ts', host: 'pdf-host.ts',
     // pdf.js собирает кодеки картинок в wasm — без этого сканы не открылись бы
@@ -105,7 +109,7 @@ function inject(html, spec) {
   const csp = spec.script ? CSP.replace("script-src 'self' file:", `script-src 'self' file: ${spec.script}`) : CSP;
   // Мост — раньше скриптов редактора: он должен стоять до того, как редактор
   // спросит свою оболочку
-  const bridge = spec.kind === 'bridge' ? '../flux-bridge.js' : './flux-preload.js';
+  const bridge = spec.kind === 'bridge' ? `../${spec.bridge || 'flux-bridge.js'}` : './flux-preload.js';
   const head = `<meta http-equiv="Content-Security-Policy" content="${csp}">\n` +
     `<title>Flux Office</title>\n<script src="${bridge}"></script>\n`;
   // Свой CSP редактора убираем, а не дописываем второй рядом: браузер
@@ -148,7 +152,7 @@ async function buildOne(which, src) {
   if (spec.kind === 'ipc') await buildIpc(which, spec, src, out);
 
   const base = join(root, 'public', 'genoffice');
-  cpSync(join(here, 'flux-bridge.js'), join(base, 'flux-bridge.js'));
+  for (const b of ['flux-bridge.js', 'md-bridge.js']) cpSync(join(here, b), join(base, b));
   for (const f of ['LICENSE', 'NOTICE']) if (existsSync(join(src, f))) cpSync(join(src, f), join(base, f));
   writeFileSync(join(base, 'SOURCE.txt'), `GenOffice ${REPO}\nкоммит ${COMMIT}\nлицензия Apache-2.0 (LICENSE, NOTICE)\n`);
   console.log(`Flux Office: «${which}» собран в ${out}`);

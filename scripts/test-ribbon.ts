@@ -14,7 +14,6 @@ import {
   collapseGroups, collapsedWidth, fitTabs, groupWidth, organsOf,
   type RibbonGroup, type RibbonTab,
 } from '../src/lib/ribbon';
-import { notesRibbon } from '../src/lib/ribbonNotes';
 import { docRibbon } from '../src/lib/ribbonDoc';
 import { sheetRibbon } from '../src/lib/ribbonSheet';
 import { pdfRibbon } from '../src/lib/ribbonPdf';
@@ -28,7 +27,6 @@ const ICONS = new Set(RIBBON_ICON_NAMES);
 
 /** Ленты всех редакторов: имя → вкладки. Пополняется по мере переезда */
 const RIBBONS: Record<string, RibbonTab[]> = {
-  'Блокнот': notesRibbon({ tags: true, project: true }),
   'Документ': docRibbon(),
   'Таблица': sheetRibbon(),
   'ПДФ': pdfRibbon(),

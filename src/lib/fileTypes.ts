@@ -197,6 +197,12 @@ export const FILE_APPS: Record<string, FileApp> = {
     path: () => '/office-sheet',
     href: (f) => `/office-sheet?file=${q(f.id)}`,
   },
+  // Заметка Markdown из Проводника — в редакторе Блокнота, прямо в файле
+  notes: {
+    id: 'notes', name: 'Flux Office — Блокнот',
+    path: () => '/notes',
+    href: (f) => `/notes?file=${q(f.id)}`,
+  },
   // Офисный файл, ещё не ставший документом: Flux Office разберёт его при
   // открытии и запомнит связь, чтобы второе открытие вело в тот же документ,
   // а не в новую копию
@@ -245,6 +251,9 @@ export const isWordFile = (f: FileLike): boolean => /\.docx$/i.test(String(f.nam
 /** Книга, которую правит Таблица Flux Office: .xlsx и .xlsm (макросы сохраняются как есть) */
 export const isExcelFile = (f: FileLike): boolean => /\.xls[xm]$/i.test(String(f.name || ''));
 
+/** Заметка Markdown: её правит Блокнот Flux Office */
+export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test(String(f.name || ''));
+
 /** Документ Flux Office — это ссылка на документ, а не файл на диске */
 export const isConstructorDoc = (f: FileLike): boolean =>
   !!f.refId || f.type === 'CONSTRUCTOR';
@@ -263,6 +272,7 @@ export function appsFor(f: FileLike): FileApp[] {
   if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.office, FILE_APPS.explorer];
   if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.office, FILE_APPS.explorer];
   if (isOffice(f)) return [FILE_APPS.office, FILE_APPS.explorer];
+  if (isMarkdownFile(f)) return [FILE_APPS.notes, FILE_APPS.explorer];
   // Картинку и текст показывает предпросмотр, и этого достаточно. Всё
   // остальное — чертёж САПР, архив, модель — отдаём Windows: у неё для этого
   // программа есть, а у нас нет

@@ -22,6 +22,12 @@ const DictionaryEditor = lazy(() => import('../screens/DictionaryEditor'));
 const Equipment = lazy(() => import('../screens/Equipment'));
 const UsersManagement = lazy(() => import('../screens/UsersManagement'));
 const NotesManagement = lazy(() => import('../screens/NotesManagement'));
+const MdFileHost = lazy(() => import('../screens/MdFileHost'));
+// Блокнот: без файла — заметки, с ?file= — файл Markdown из Проводника
+function NotesEntry() {
+  const [params] = useSearchParams();
+  return params.get('file') ? <MdFileHost /> : <NotesManagement />;
+}
 const ProjectsManagement = lazy(() => import('../screens/ProjectsManagement'));
 const ChatManagement = lazy(() => import('../screens/ChatManagement'));
 const MailScreen = lazy(() => import('../screens/Mail'));
@@ -174,7 +180,7 @@ export const SECTIONS: SectionDef[] = [
   // Календарь — общий: события живут по проектам, но человек смотрит в него
   // как в свой день целиком, а не как в часть проекта
   { path: '/calendar', title: 'Календарь', icon: CalendarDays, scope: 'global', scroll: 'fixed', pad: false, Component: CalendarScreen },
-  { path: '/notes', title: 'Блокнот', icon: NotesAppIcon, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesManagement },
+  { path: '/notes', title: 'Блокнот', icon: NotesAppIcon, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesEntry },
   { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },
