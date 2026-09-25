@@ -214,7 +214,15 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
     const own = await upload(`__проба личной книги ${stamp}.xlsx`, { scope: 'PERSONAL', filePath: `/personal/__проба личной книги ${stamp}.xlsx` });
     created.push(own);
     const p = await openAs(ADMIN, own);
-    ok('личную книгу правит один — «вместе» не пишется', await until(async () => !!(await strip(p)), 8000) && !/Правите вместе/.test(await strip(p)), await strip(p));
+    // Один в своём файле — полосе сказать нечего; признаков общей правки нет
+    await p.page.waitForTimeout(1500);
+    ok('личная книга — не общая', !/Правите вместе|Подключение к общему/.test(await strip(p)), await strip(p));
+    await enter(p, 'B2', '21');
+    await p.page.keyboard.press('Control+s');
+    ok('и записывается своим Ctrl+S', await until(async () => {
+      const w = XLSX.read((await api('GET', `/api/files/${own}/raw`, admin)).buf, { type: 'buffer' }).Sheets['Перечень'] || {};
+      return fileCell(w, 'B2') === '21';
+    }, 15000));
     await p.ctx.close();
 
     ok('ни одного запроса за пределы сервера Flux', outside.length === 0, outside.slice(0, 5));
