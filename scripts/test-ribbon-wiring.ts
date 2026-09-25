@@ -87,7 +87,7 @@ const KEY_SOURCES = [
 /** Все ленты — сочетания объявляются и там, где пары «лента ↔ экран» нет */
 const RIBBON_FILES = [
   'src/lib/ribbonDoc.ts', 'src/lib/ribbonSheet.ts', 'src/lib/ribbonPdf.ts',
-  'src/lib/ribbonNotes.ts', 'src/lib/ribbonTranslate.ts',
+  'src/lib/ribbonTranslate.ts',
 ];
 
 {

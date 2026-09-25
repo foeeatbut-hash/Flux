@@ -89,7 +89,7 @@ export default function WhereUsedView({ kind, id }: { kind: UsageKind; id: strin
             {g.links.map(l => (
               <Row
                 key={`${l.kind}-${l.id}`}
-                icon={<KindIcon kind={l.kind} />}
+                icon={<KindIcon kind={l.kind} name={l.title} />}
                 title={l.title}
                 subtitle={l.subtitle}
                 badge={l.badge}

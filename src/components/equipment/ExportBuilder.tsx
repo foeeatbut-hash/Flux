@@ -7,9 +7,9 @@ import {
 import { classById, classOrder } from '../../../equipment/classes';
 import { equipmentColumns, type ExchangeComponent } from '../../lib/equipmentExchange';
 import { toCsv, toClipboard, fileName } from '../../lib/exchange';
-import { sheetSnapshot } from '../../lib/officeOpen';
+import { saveNewFile, editorHref } from '../../lib/officeFiles';
 import {
-  SERVICE_COLUMNS, ORDER_TITLE, PRESETS, applyPreset, paramSections, defaultSpec, exportTable, selectItems, specOf, toLayout,
+  SERVICE_COLUMNS, ORDER_TITLE, PRESETS, applyPreset, paramSections, defaultSpec, exportTable, selectItems, specOf,
   type ExportColumn, type ExportOrder, type ExportSpec,
 } from '../../lib/exportSpec';
 
@@ -176,23 +176,13 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
         say(`Выгружено строк: ${flat.count}`, 'success');
         return;
       }
-      const name = `Оборудование — ${saveName.trim() || 'выгрузка'}`;
-      const snap = sheetSnapshot(out, name);
-      if (snap.why) { say(snap.why, 'error'); return; }
-      const res = await fetch('/api/constructor/docs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId, name, workbook: snap.workbook,
-          // Связь с проектом: та же разметка, что у шаблона, — «Собрать» на
-          // листе обновит значения, не теряя отбора и порядка
-          bindings: JSON.stringify({ schemaVersion: 1, blocks: [], layout: toLayout(spec) }),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.doc?.id) { say(data?.error || 'Не удалось завести таблицу', 'error'); return; }
-      say('Таблица заведена и связана с проектом — «Собрать» обновит значения', 'success');
+      // В Таблицу Flux Office — настоящий .xlsx в «Выгрузках» на своём столе:
+      // тот же файл откроет и Excel. Раньше здесь заводилась запись
+      // Конструктора, которую вне Flux открыть было нечем
+      const made = await saveNewFile(out, fileName(saveName.trim() || 'Оборудование', 'xlsx'), 'exports');
+      say(`Выгружено строк: ${flat.count} — файл «${made.name}» в «Выгрузках»`, 'success');
       onClose();
-      navigate(`/sheet?doc=${data.doc.id}`);
+      navigate(editorHref(made));
     } catch (e: any) {
       say(`Не удалось выгрузить: ${e?.message || e}`, 'error');
     } finally { setBusy(false); }
@@ -403,7 +393,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
           <span className="flex-1" />
           <button type="button" disabled={busy} onClick={() => run('clipboard')} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"><ClipboardCopy className="w-3.5 h-3.5" />В буфер</button>
           <button type="button" disabled={busy} onClick={() => run('csv')} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"><FileSpreadsheet className="w-3.5 h-3.5" />CSV</button>
-          <button type="button" disabled={busy} onClick={() => run('office')} title="Таблица Flux Office, связанная с проектом: «Собрать» потом обновит значения"
+          <button type="button" disabled={busy} onClick={() => run('office')} title="Файл .xlsx в «Выгрузках» на вашем столе — сразу откроется Таблицей Flux Office"
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 cursor-pointer disabled:opacity-50"><Table2 className="w-3.5 h-3.5" />В таблицу Flux Office</button>
           <button type="button" disabled={busy} onClick={() => run('xlsx')} className="fx-btn fx-btn-primary fx-btn-sm"><Download className="w-3.5 h-3.5" />Excel</button>
         </div>

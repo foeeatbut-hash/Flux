@@ -20,7 +20,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  FolderPlus, Table, Type, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
+  FolderPlus, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
   Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2, ArrowDownToLine,
 } from 'lucide-react';
 import { useStore } from '../store/store';
@@ -36,7 +36,10 @@ import {
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
 import { hiddenIds, groupIdOf, groupById, folderItems } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
-import { appsFor, openHref, officePathForKind } from '../lib/fileTypes';
+import { appsFor, openHref } from '../lib/fileTypes';
+import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
+import FileBadge from './ui/FileBadge';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
 import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
@@ -58,7 +61,7 @@ export default function Desktop() {
   const navigate = useNavigate();
   const {
     items, apps, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
-    load, select, setCell, arrangeBy, setScale, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
+    load, select, setCell, arrangeBy, setScale, unpinApp, createFolder, rename, remove, share, setStatus,
     acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
@@ -290,13 +293,16 @@ export default function Desktop() {
     } catch (e: any) { addToast(e?.message || 'Не удалось перенести', 'error'); }
   };
 
-  const create = async (what: 'folder' | 'DOC' | 'TEXT' | 'NOTE', scope: 'SHARED' | 'PERSONAL') => {
+  const create = async (what: 'folder' | BlankKind | 'NOTE', scope: 'SHARED' | 'PERSONAL') => {
     try {
       if (what === 'folder') { await createFolder(projectId, scope); return; }
-      const id = await createDoc(projectId, what, scope);
-      // Вид документа известен здесь и нигде больше: заводили-то мы его
-      // сами. Дальше по адресу видно, какая программа открылась
-      if (id) go(`${officePathForKind(what)}?doc=${encodeURIComponent(id)}`);
+      // Заметка — в Блокнот: он заведёт её и сразу откроет
+      if (what === 'NOTE') { go('/notes?new='); return; }
+      // Документ и таблица — настоящие .docx/.xlsx на столе: их открывает
+      // Flux Office, а «Сохранить в Windows» отдаёт тот же файл Word и Excel
+      const made = await saveNewFile(await blankBytes(what), BLANK_NAME[what], scope === 'SHARED' ? 'shared' : 'desk');
+      await load(projectId);
+      go(editorHref(made));
     } catch (e: any) { addToast(e?.message || 'Не удалось создать', 'error'); }
   };
 
@@ -372,10 +378,10 @@ export default function Desktop() {
       icon: <FolderPlus className="w-3.5 h-3.5" />,
       items: [
         { label: 'Папку', icon: <FolderPlus className="w-3.5 h-3.5" />, onClick: () => create('folder', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Таблицу', icon: <Table className="w-3.5 h-3.5" />, onClick: () => create('DOC', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Текстовый документ', icon: <Type className="w-3.5 h-3.5" />, onClick: () => create('TEXT', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Документ', icon: <FileBadge file="Документ.docx" size={14} />, onClick: () => create('doc', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Таблицу', icon: <FileBadge file="Таблица.xlsx" size={14} />, onClick: () => create('sheet', canPersonal ? 'PERSONAL' : 'SHARED') },
         { label: 'Заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
-        { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('DOC', 'SHARED') },
+        { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('sheet', 'SHARED') },
       ],
     },
     {

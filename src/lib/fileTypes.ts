@@ -181,21 +181,27 @@ export const FILE_APPS: Record<string, FileApp> = {
     href: (f) => `${officePathOf(f)}?doc=${q(f.refId || f.id)}`,
   },
   pdf: {
-    id: 'pdf', name: 'PDF Flux Office',
+    id: 'pdf', name: 'Flux Office — PDF',
     path: () => '/pdf',
     href: (f) => `/pdf?file=${q(f.id)}`,
   },
   // Файл Word и книга Excel правятся сами по себе, в редакторах Flux Office:
   // сохраняется тот же файл, со всем, что в нём было (docs/office-engine-choice.md)
   word: {
-    id: 'word', name: 'Документ Flux Office',
+    id: 'word', name: 'Flux Office — Документ',
     path: () => '/office-doc',
     href: (f) => `/office-doc?file=${q(f.id)}`,
   },
   excel: {
-    id: 'excel', name: 'Таблица Flux Office',
+    id: 'excel', name: 'Flux Office — Таблица',
     path: () => '/office-sheet',
     href: (f) => `/office-sheet?file=${q(f.id)}`,
+  },
+  // Заметка Markdown из Проводника — в редакторе Блокнота, прямо в файле
+  notes: {
+    id: 'notes', name: 'Flux Office — Блокнот',
+    path: () => '/notes',
+    href: (f) => `/notes?file=${q(f.id)}`,
   },
   // Офисный файл, ещё не ставший документом: Flux Office разберёт его при
   // открытии и запомнит связь, чтобы второе открытие вело в тот же документ,
@@ -245,6 +251,9 @@ export const isWordFile = (f: FileLike): boolean => /\.docx$/i.test(String(f.nam
 /** Книга, которую правит Таблица Flux Office: .xlsx и .xlsm (макросы сохраняются как есть) */
 export const isExcelFile = (f: FileLike): boolean => /\.xls[xm]$/i.test(String(f.name || ''));
 
+/** Заметка Markdown: её правит Блокнот Flux Office */
+export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test(String(f.name || ''));
+
 /** Документ Flux Office — это ссылка на документ, а не файл на диске */
 export const isConstructorDoc = (f: FileLike): boolean =>
   !!f.refId || f.type === 'CONSTRUCTOR';
@@ -263,6 +272,7 @@ export function appsFor(f: FileLike): FileApp[] {
   if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.office, FILE_APPS.explorer];
   if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.office, FILE_APPS.explorer];
   if (isOffice(f)) return [FILE_APPS.office, FILE_APPS.explorer];
+  if (isMarkdownFile(f)) return [FILE_APPS.notes, FILE_APPS.explorer];
   // Картинку и текст показывает предпросмотр, и этого достаточно. Всё
   // остальное — чертёж САПР, архив, модель — отдаём Windows: у неё для этого
   // программа есть, а у нас нет

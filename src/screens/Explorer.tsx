@@ -7,6 +7,8 @@ import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
 import { officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
+import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
+import { saveNewFile, editorHref, type FileTarget } from '../lib/officeFiles';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
 import { ROOT_NAME } from '../lib/explorerTabs';
@@ -714,23 +716,34 @@ export default function Explorer() {
      fetchData();
   };
 
-  // «Создать → Таблицу/Документ»: новый документ Flux Office нужного типа
-  // и сразу в его редактор. Зеркало в Проводнике появится после именования.
-  const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
+  // «Создать → Таблицу/Документ»: настоящий .xlsx/.docx в открытой папке —
+  // как в Windows — и сразу в его редактор. Тот же файл откроется и в Excel/Word
+  const createOfficeFile = async (kind: BlankKind) => {
+    if (!currentFolderId || isSmartId(currentFolderId) || currentFolderId === TRASH_ID) {
+      addToast('Откройте папку или раздел «Общий» / «Личный», чтобы создать файл.', 'error');
+      return;
+    }
+    let target: FileTarget;
+    if (isSectionId(currentFolderId) && currentFolderId !== SEC_DISK) {
+      const sec = parseSection(currentFolderId);
+      if (sec.scope === 'PERSONAL' && sec.ownerId && sec.ownerId !== user?.id) {
+        addToast('Это личный раздел другого сотрудника: создать в нём файл нельзя.', 'error');
+        return;
+      }
+      target = { section: sec.scope };
+    } else {
+      const folderId = asFolderId(currentFolderId);
+      if (!folderId) { addToast('Общий диск ещё не готов — обновите Проводник.', 'error'); return; }
+      target = { folderId };
+    }
     try {
-      const res = await fetch('/api/constructor/docs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: activeProject?.id || '', ...(kind !== 'DOC' ? { kind } : {}) }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
-      navigate(`${officePathForKind(kind)}?doc=${data.doc.id}`);
+      const made = await saveNewFile(await blankBytes(kind), BLANK_NAME[kind], target);
+      fetchData();
+      navigate(editorHref(made));
     } catch (e: any) {
-      addToast(`Не удалось создать документ: ${e.message}`, 'error');
+      addToast(`Не удалось создать файл: ${e.message}`, 'error');
     }
   };
-  const createConstructorSheet = () => createConstructorDoc('DOC');
 
   // «Редактировать копию»: xlsx/csv → Таблица, txt/md/docx → Документ.
   // Исходный файл не меняется — правится копия-документ Flux Office.
@@ -2069,7 +2082,7 @@ export default function Explorer() {
           openFolder={navigateTo}
           refresh={fetchData}
           createFolder={createFolder}
-          createDoc={createConstructorDoc}
+          createDoc={createOfficeFile}
           createTxt={() => createEmptyFile('Новый документ.txt', 'TXT', '')}
           upload={() => fileInputRef.current?.click()}
           paste={handlePaste}

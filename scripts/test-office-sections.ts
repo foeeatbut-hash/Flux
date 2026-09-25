@@ -36,8 +36,8 @@ console.log('1. Семья Flux Office собрана из четырёх про
 
   const sheet = sectionForPath('/sheet');
   const doc = sectionForPath('/doc');
-  check('«Таблица» заводит книги', sheet.docKind === 'DOC', sheet.docKind);
-  check('«Документ» заводит тексты', doc.docKind === 'TEXT', doc.docKind);
+  // Без файла программа открывает своё стартовое окно, с файлом — редактор
+  check('«Таблица» и «Документ» — свои окна, не общий экран', sheet.Component !== doc.Component);
   check('у программ разные значки', sheet.icon !== doc.icon);
   check('обе открываются несколькими окнами', !!sheet.multi && !!doc.multi);
   check('обе — про данные проекта', scopeForPath('/sheet') === 'project' && scopeForPath('/doc') === 'project');
@@ -49,7 +49,7 @@ console.log('1. Семья Flux Office собрана из четырёх про
   // этим именем не спрятан редактор книг
   check('старого пути /constructor не осталось', !SECTIONS.some((s) => s.path === '/constructor'), SECTIONS.map((s) => s.path));
   check('«Конструктор» — не редактор книг семьи Office',
-    !SECTIONS.some((s) => s.title === 'Конструктор' && (s.docKind || OFFICE_PATHS.includes(s.path))),
+    !SECTIONS.some((s) => s.title === 'Конструктор' && OFFICE_PATHS.includes(s.path)),
     SECTIONS.filter((s) => s.title === 'Конструктор').map((s) => s.path));
 }
 

@@ -14,6 +14,7 @@
  */
 
 import { overrideKey } from './specUtils.js';
+import { noteText } from '../src/lib/htmlToMarkdown.js';
 
 // ── Что такое «слово» при поиске обозначений ────────────────────────────────
 // В JS \b и \w не считают кириллицу словом, поэтому границы задаются явно.
@@ -311,7 +312,7 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
       updatedAt: f.updatedAt ? new Date(f.updatedAt).toISOString() : null,
     })),
     vdr,
-    notes: (notes || []).map((n: any) => ({ id: n.id, title: String(n.title || ''), text: plainText(n.content) })),
+    notes: (notes || []).map((n: any) => ({ id: n.id, title: String(n.title || ''), text: noteText(n.content || '') })),
     mail: (mail || []).map((m: any) => ({
       id: m.id, accountId: m.accountId, folderId: m.folderId, threadKey: String(m.threadKey || ''),
       subject: String(m.subject || ''),

@@ -1975,8 +1975,7 @@ async function mayWriteFile(req: any, fileId: string): Promise<string> {
 registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
 // Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
 registerOfficeFileRoutes(app, {
-  chunkBytes: limits.chunkBytes,
-  mayWrite: mayWriteFile,
+  chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, can: userCan,
   holderOf: (fileId) => officeRooms.holder(fileId, Date.now()),
 });
 registerPdfMarkupTransferRoutes(app, { mayWrite: mayWriteFile }); // прежние замечания Просмотра → в сам PDF

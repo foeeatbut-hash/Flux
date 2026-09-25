@@ -21,6 +21,8 @@ import { Empty } from '../components/ui';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import OfficePresence from '../components/collab/OfficePresence';
 import LegacyMarkupBar from '../components/collab/LegacyMarkupBar';
+import { rememberDoc } from '../store/recentStore';
+import { editorHref } from '../lib/officeFiles';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -30,7 +32,7 @@ import { dueToSave } from '../components/collab/useDocCollab';
 
 export type HostedApp = 'pdf' | 'sheets';
 
-const TITLES: Record<HostedApp, string> = { pdf: 'PDF Flux Office', sheets: 'Таблица Flux Office' };
+const TITLES: Record<HostedApp, string> = { pdf: 'Flux Office — PDF', sheets: 'Flux Office — Таблица' };
 const HELLO_MS = 15_000;
 
 /** На что окно отвечает само: язык, тема, ИИ (отключён) */
@@ -85,6 +87,10 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
     unsaved.current = { first: unsaved.current.first ?? now, last: now };
   };
   useWindowTitle(name);
+  // Недавние: открытый файл попадает в Пуск тем же адресом, что у двойного щелчка
+  useEffect(() => {
+    if (fileId && name) rememberDoc({ href: editorHref({ id: fileId, name }), title: name, kind: app === 'pdf' ? 'pdf' : 'sheet', at: Date.now() });
+  }, [fileId, name]);
 
   const send = useCallback((msg: object) => {
     frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin));

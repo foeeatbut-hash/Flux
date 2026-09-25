@@ -87,7 +87,7 @@ console.log('Чем открывается');
   check('таблица', kindName('sheet') === 'Таблица');
   check('текст', kindName('text') === 'Документ');
   check('заметка', kindName('note') === 'Заметка');
-  check('пдф', kindName('pdf') === 'Просмотр');
+  check('пдф', kindName('pdf') === 'PDF');
 }
 
 if (failed) {

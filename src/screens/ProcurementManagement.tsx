@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
 import VdrPanel from './VdrPanel';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -534,8 +535,16 @@ function ProcurementTab() {
     XLSX.utils.book_append_sheet(book, sheet, 'Закупки');
     const stamp = new Date().toISOString().slice(0, 10);
     const projectPart = String(activeProject?.name || 'проект').replace(/[\\/:*?"<>|]/g, '-').slice(0, 40);
-    XLSX.writeFile(book, `Закупки — ${projectPart} — ${stamp}.xlsx`);
-    addToast(`Выгружено строк: ${filtered.length}`, 'success');
+    // Файлом во Flux — в «Выгрузки» на своём столе — и сразу Таблицей: отчёт
+    // остаётся рядом с проектом, а в Windows его отдаёт «Сохранить в Windows»
+    const bytes = new Uint8Array(XLSX.write(book, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer);
+    try {
+      const made = await saveNewFile(bytes, `Закупки — ${projectPart} — ${stamp}.xlsx`, 'exports');
+      addToast(`Выгружено строк: ${filtered.length} — файл «${made.name}» в «Выгрузках»`, 'success');
+      navigate(editorHref(made));
+    } catch (e: any) {
+      addToast(`Не удалось выгрузить: ${e?.message || e}`, 'error');
+    }
   };
 
   const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.tag.id));

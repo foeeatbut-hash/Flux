@@ -54,7 +54,8 @@ import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
 import ExchangeTab from '../components/registry/ExchangeTab';
 import TagComments from '../components/registry/TagComments';
-import { toCsv, fileName, type Column } from '../lib/exchange';
+import { toXlsx, fileName, type Column } from '../lib/exchange';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
 import {
   linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
@@ -2548,23 +2549,21 @@ export default function Registry() {
     });
   };
 
-  const handleExportSelectedToExcel = () => {
+  // Раньше здесь был CSV под видом Excel: без форматов и с вопросом про
+  // кодировку. Теперь — книга .xlsx в «Выгрузках», сразу открытая Таблицей
+  const handleExportSelectedToExcel = async () => {
     const table = buildExportTable();
     if (!table) {
       void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
       return;
     }
-
-    // Сборка CSV — общая (lib/exchange): BOM, точка с запятой и удвоение
-    // кавычек одинаковы для всех разделов и проверяются скриптом
-    const blob = new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName('Теги — подбор', 'csv');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    try {
+      const made = await saveNewFile(await toXlsx(table.headers, table.rows, 'Подбор'), fileName('Теги — подбор', 'xlsx'), 'exports');
+      addToast(`Выгружено в «Выгрузки»: ${made.name}`, 'success');
+      navigate(editorHref(made));
+    } catch (e: any) {
+      addToast(`Не удалось выгрузить: ${e?.message || e}`, 'error');
+    }
   };
 
   /** Та же подборка — сразу в буфер, чтобы вставить в письмо или протокол */
