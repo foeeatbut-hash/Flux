@@ -88,8 +88,8 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     sock.on('office:saved', (m: { fileId: string; sha256: string }) => {
       if (m?.fileId === fileId) savedRef.current(String(m.sha256 || ''));
     });
-    // Совместная правка: всё остальное окно разбирает само (OfficeHost)
-    for (const ev of ['office:y', 'office:y-state', 'office:y-aware', 'office:save-request', 'office:saved', 'office:saved-self']) {
+    // Совместная правка: всё остальное окно разбирает само (OfficeHost, OfficeAppHost)
+    for (const ev of ['office:y', 'office:y-state', 'office:y-aware', 'office:x-op', 'office:save-request', 'office:saved', 'office:saved-self']) {
       sock.on(ev, (m: any) => { if (m?.fileId === fileId) subs.current.get(ev)?.forEach((fn) => fn(m)); });
     }
     // Сообщения главного процесса редактору (PDF, Таблица) — по номеру окна

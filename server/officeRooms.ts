@@ -202,10 +202,10 @@ export function setupOfficeRooms(io: Server, socket: Socket, deps: OfficeRoomDep
     try { name = (await deps.nameOf(userId)) || name; } catch (_) { /* без имени участник всё равно виден */ }
     let mayWrite = false;
     try { mayWrite = !(await deps.mayWrite(userId, fileId)); } catch (_) { mayWrite = false; }
-    // Правят вместе пока только Документ: у PDF и Таблицы правит один, как
-    // раньше, — их сведение правок следующим шагом
+    // Правят вместе Документ и Таблица; в PDF правит один (держатель), как
+    // раньше, — остальные смотрят и получают свежую версию после записи
     let shared = false;
-    try { shared = (app || 'docs') === 'docs' && await deps.isShared(fileId); } catch (_) { shared = false; }
+    try { shared = ['docs', 'sheets'].includes(app || 'docs') && await deps.isShared(fileId); } catch (_) { shared = false; }
     socket.join(roomOf(fileId));
     officeRooms.join(fileId, {
       socketId: socket.id, clientId, userId, name, color: presenceColor(userId), mayWrite, since: Date.now(),

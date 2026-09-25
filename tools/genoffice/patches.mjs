@@ -110,6 +110,24 @@ export const PATCHES = [
       "          if (!trs.some((tr) => tr.docChanged || tr.storedMarksSet)) return null\n" +
       "          if (trs.some((tr) => (tr.getMeta('y-sync$') as any)?.isChangeOrigin)) return null\n",
   },
+  // ── Таблица: одновременная правка (tools/genoffice/inject/sheets-collab.ts) ──
+  {
+    id: 'flux-sheets-collab-import',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "import { focusWorksheet } from './sheet-focus'\n",
+    replace: "import { focusWorksheet } from './sheet-focus'\n" +
+      "import './flux/sheets-collab'\n",
+  },
+  {
+    // Модулю совместной правки нужны Univer (мутации) и состояние книги
+    // (загружена ли целиком, перестраивается ли после записи)
+    id: 'flux-sheets-expose',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "    univerRef.current = runtime\n    // a throwing construction",
+    replace: "    univerRef.current = runtime\n" +
+      "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
+      "    // a throwing construction",
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */

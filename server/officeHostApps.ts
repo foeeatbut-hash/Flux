@@ -26,7 +26,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getPrisma } from './context.js';
 import { fileBytes } from './routes/fileChunks.js';
-import { writeOfficeFile } from './routes/officeFiles.js';
+import { writeOfficeFile, isSharedFile } from './routes/officeFiles.js';
+import { sheetBook } from './officeSheetCollab.js';
 
 export type HostApp = 'pdf' | 'sheets';
 
@@ -42,6 +43,8 @@ interface Host {
 interface Session {
   app: HostApp; fileId: string; socketId: string; userId: string;
   dir: string; path: string; sha: string;
+  /** Общая книга: правят все сразу (server/officeSheetCollab.ts) */
+  collab: boolean;
 }
 
 /** Вызовы, которые окно может сделать. Остальное — отказ */
@@ -124,36 +127,46 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
       const file = await getPrisma().fileNode.findUnique({ where: { id: String(fileId || '') } });
       if (!file) return reply({ error: 'Файл не найден' });
       const h = host(app);
-      const bytes = await fileBytes(file);
+      // Общая книга открывается с исходника сеанса: у всех участников одно и
+      // то же начало, свежее — в журнале правок сеанса
+      const collab = app === 'sheets' && isSharedFile(file as any);
+      const book = collab ? await sheetBook.ensure(file.id, () => fileBytes(file)) : null;
+      const bytes = book ? book.baseBytes : await fileBytes(file);
       const dir = await mkdtemp(join(tmpdir(), 'flux-office-'));
       const path = join(dir, safeName(file.name));
       await writeFile(path, bytes);
       const id = h.open(path);
-      sessions.set(id, { app, fileId: file.id, socketId: socket.id, userId: userId(), dir, path, sha: sha256(bytes) });
+      sessions.set(id, { app, fileId: file.id, socketId: socket.id, userId: userId(), dir, path, sha: sha256(bytes), collab });
       mine.add(id);
-      reply({ session: id, name: file.name, path });
+      reply({ session: id, name: file.name, path, ...(book ? { collab: { key: book.key } } : {}) });
     } catch (err: any) {
       reply({ error: String(err?.message || err) });
     }
   });
 
-  socket.on('office:ipc', async ({ session, channel, args }: { session: number; channel: string; args: unknown[] }, ack?: (r: any) => void) => {
+  socket.on('office:ipc', async ({ session, channel, args, auto }: { session: number; channel: string; args: unknown[]; auto?: boolean }, ack?: (r: any) => void) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const s = sessions.get(Number(session));
     if (!s || s.socketId !== socket.id) return reply({ error: 'Окно редактора не открыто' });
     const ch = String(channel || '');
     if (!ALLOWED[s.app](ch)) return reply({ error: 'Во Flux Office это отключено' });
     try {
+      // Что из журнала общей книги окно уже включило в эту запись
+      const seqAtSave = s.collab && SAVES[s.app](ch) ? (() => { const b = sheetBook.get(s.fileId); return b ? sheetBook.lastSeq(b) : 0; })() : 0;
       const result = await host(s.app).invoke(Number(session), ch, Array.isArray(args) ? args : []);
       if (SAVES[s.app](ch) && result && result.ok !== false && !result.canceled) {
         // Записано во временный файл — теперь в файл Flux, с его правилами
         const bytes = await readFile(s.path);
         const user = await deps.getAuthUser(s.userId);
-        const w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: s.sha, user });
+        // Общая книга: в файле уже записанное другими держателями — сверка с
+        // последней записью сеанса, а не с тем, что было у этого окна при открытии
+        const book = s.collab ? sheetBook.get(s.fileId) : null;
+        const w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: book ? book.savedSha : s.sha, user, autosave: auto });
         if (w.status !== 200) {
           return reply({ result: { ...(typeof result === 'object' ? result : {}), ok: false, error: String(w.json?.error || `сервер ответил ${w.status}`) } });
         }
         s.sha = w.json.sha256;
+        if (book) sheetBook.markSaved(book, s.sha, seqAtSave);
         if (!w.json.unchanged) socket.to(`office:${s.fileId}`).emit('office:saved', { fileId: s.fileId, sha256: s.sha });
         socket.emit('office:saved-self', { fileId: s.fileId, sha256: s.sha });
       }

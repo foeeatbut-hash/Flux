@@ -8,9 +8,12 @@
  * главного процесса возвращаются во фрейм. Язык и тему отвечает само окно —
  * они принадлежат Flux, а не серверу.
  *
- * Правит один (держатель, server/officeRooms.ts), остальные смотрят; после
- * его сохранения у них открывается свежая версия. Одновременная правка PDF и
- * Таблицы — следующим шагом.
+ * PDF правит один (держатель, server/officeRooms.ts), остальные смотрят;
+ * после его сохранения у них открывается свежая версия.
+ *
+ * Общую книгу Таблицы правят все сразу: правки идут через сервер
+ * (server/officeSheetCollab.ts ↔ tools/genoffice/inject/sheets-collab.ts),
+ * а записывает держатель — сам, после паузы, и по Ctrl+S любого соавтора.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -22,6 +25,7 @@ import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { isOfficeMsg, targetOrigin, fromOwnFrame } from '../lib/officeBridge';
+import { dueToSave } from '../components/collab/useDocCollab';
 
 export type HostedApp = 'pdf' | 'sheets';
 
@@ -61,10 +65,24 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
   phaseRef.current = phase;
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  /** Общая книга: опознаватель сеанса правок на сервере; '' — правит один */
+  const collabKey = useRef('');
+  const [together, setTogether] = useState(false);
+  /** Незаписанное в общей книге: когда появилось и когда менялось последний раз */
+  const unsaved = useRef<{ first: number | null; last: number | null }>({ first: null, last: null });
+  const autoSave = useRef(false);
+  const savingNow = useRef(0);
   const room = useOfficeRoom(fileId, () => {
-    // Держатель записал — у смотрящего открыть свежее
-    if (!room.holding) reopen();
+    // Держатель записал — у смотрящего открыть свежее. В общей книге свежее
+    // и так уже на экране: правки пришли по одной
+    if (!room.holding && !collabKey.current) reopen();
   }, app);
+  const holdingRef = useRef(room.holding);
+  holdingRef.current = room.holding;
+  const touched = () => {
+    const now = Date.now();
+    unsaved.current = { first: unsaved.current.first ?? now, last: now };
+  };
   useWindowTitle(name);
 
   const send = useCallback((msg: object) => {
@@ -78,6 +96,7 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
         .then((r) => {
           if (!r?.session) throw new Error(r?.error || 'Редактор на сервере не ответил');
           sessionId.current = r.session;
+          collabKey.current = String((r as any).collab?.key || '');
           setName(String(r.name || ''));
           return r.session;
         })
@@ -90,6 +109,9 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
     if (sessionId.current) room.emit('office:host-close', { session: sessionId.current });
     session.current = null;
     sessionId.current = 0;
+    collabKey.current = '';
+    setTogether(false);
+    unsaved.current = { first: null, last: null };
     dirty.current = false;
     setPhase('loading');
     setFrameKey((k) => k + 1);
@@ -106,6 +128,23 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
       if (m.op === 'hello') { setPhase('ready'); return; }
       const channel = String(m.payload?.channel || '');
       const args = Array.isArray(m.payload?.args) ? m.payload.args : [];
+      if (m.op === 'ipc-send' && channel.startsWith('flux:')) {
+        // Общая книга: свои правки — на сервер, номер — обратно редактору
+        if (channel === 'flux:x-op' && collabKey.current) {
+          touched();
+          const [local, op] = args;
+          room.request<{ seq?: number; error?: string }>('office:x-op', { key: collabKey.current, op }, 30_000).then((r) => {
+            if (typeof r?.seq === 'number') send({ event: 'ipc', payload: { channel: 'flux:x-ack', args: [local, r.seq] } });
+            else if (r?.error === 'session') {
+              addToast('Связь с общей книгой прервалась: сервер перезапускался. Книга открыта заново', 'error');
+              reopenRef.current();
+            } else if (r?.error) setFailure(r.error);
+          }).catch(() => setFailure('Правка не дошла до сервера: нет связи. Соавторы её не видят'));
+        }
+        if (channel === 'flux:x-applied') touched();
+        if (channel === 'flux:x-ready') setTogether(true);
+        return;
+      }
       if (m.op === 'ipc-send') {
         // Признак «изменено» и ответ на «сохрани перед закрытием» — окну
         if (/dirty-changed$/.test(channel)) dirty.current = args[0] === true;
@@ -119,7 +158,30 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
       if (local.hit) { send(local.error ? { reply: m.id, error: local.error } : { reply: m.id, result: local.value }); return; }
       try {
         const id = await ensureSession();
-        const r = await room.request<{ result?: unknown; error?: string }>('office:ipc', { session: id, channel, args });
+        // Общая книга: сеанс правок и журнал с начала сеанса
+        if (channel === 'flux:x-config') { send({ reply: m.id, result: { collab: !!collabKey.current, key: collabKey.current } }); return; }
+        if (channel === 'flux:x-want') {
+          const r = await room.request<{ key?: string; ops?: unknown[]; error?: string }>('office:x-want', { from: Number(args[0]) || 0 });
+          if (r?.error) send({ reply: m.id, error: r.error }); else send({ reply: m.id, result: r });
+          return;
+        }
+        // Записывает держатель: Ctrl+S соавтора — просьба к нему. Редактору —
+        // «отменено», чтобы он не счёл правки записанными и не забыл их
+        if (channel === 'workbook:save' && collabKey.current && !holdingRef.current) {
+          room.emit('office:save-request', {});
+          send({ reply: m.id, result: { canceled: true } });
+          return;
+        }
+        const auto = channel === 'workbook:save' && autoSave.current;
+        if (channel === 'workbook:save') { autoSave.current = false; savingNow.current = Date.now(); }
+        const r = await room.request<{ result?: unknown; error?: string }>('office:ipc', { session: id, channel, args, auto });
+        if (channel === 'workbook:save') {
+          const done = r && !r.error && (r.result as any)?.canceled === false;
+          // Записано всё, что было до начала записи; пришедшее позже ждёт следующей
+          if (done && (unsaved.current.last ?? 0) <= savingNow.current) unsaved.current = { first: null, last: null };
+          else if (done) unsaved.current = { first: unsaved.current.last, last: unsaved.current.last };
+          savingNow.current = 0;
+        }
         if (r?.error) send({ reply: m.id, error: r.error });
         else send({ reply: m.id, result: r?.result });
       } catch (err: any) {
@@ -137,6 +199,27 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
   useEffect(() => room.listen('office:ipc-event', (m) => {
     if (m?.session && m.session === sessionId.current) send({ event: 'ipc', payload: { channel: m.channel, args: m.args || [] } });
   }), [room.listen, send]);
+
+  // Общая книга: чужие правки — редактору по одной, в порядке сервера
+  useEffect(() => room.listen('office:x-op', (m) => {
+    if (collabKey.current) send({ event: 'ipc', payload: { channel: 'flux:x-op', args: [{ seq: m.seq, op: m.op }] } });
+  }), [room.listen, send]);
+
+  // Держатель общей книги записывает сам: после паузы и не реже раза в 15 с,
+  // и сразу — по Ctrl+S соавтора. Запись — тем же путём, что Ctrl+S в Таблице
+  useEffect(() => {
+    if (app !== 'sheets') return;
+    const saveNow = () => {
+      if (!collabKey.current || !holdingRef.current || savingNow.current) return;
+      autoSave.current = true;
+      send({ event: 'ipc', payload: { channel: 'menu:action', args: ['save'] } });
+    };
+    const timer = setInterval(() => {
+      if (dueToSave(Date.now(), unsaved.current.first, unsaved.current.last)) saveNow();
+    }, 1000);
+    const off = room.listen('office:save-request', () => { touched(); saveNow(); });
+    return () => { clearInterval(timer); off(); };
+  }, [app, room.listen, send]);
 
   // Тема Flux — тема редактора
   useEffect(() => { if (phase === 'ready') send({ event: 'ipc', payload: { channel: 'app:theme-changed', args: [theme] } }); }, [theme, phase, send]);
@@ -157,6 +240,8 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
     if (!paneId.startsWith('win:')) return;
     return guardClose(paneId.slice(4), async () => {
       if (phaseRef.current !== 'ready' || !dirty.current) return true;
+      // Общую книгу записывает держатель: у соавтора всё уже у него
+      if (collabKey.current && !holdingRef.current) return true;
       const ok = await new Promise<boolean>((resolve) => {
         closeWait.current = resolve;
         send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
@@ -174,7 +259,8 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
   }
   return (
     <div className="flex h-full w-full flex-col">
-      <OfficePresence roster={room.roster} clientId={room.clientId} mode={room.mode} editable={room.mode === 'edit' || room.mode === 'alone'} onTake={async () => {
+      <OfficePresence roster={room.roster} clientId={room.clientId} mode={room.mode}
+        editable={room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together)} onTake={async () => {
         const why = await room.take();
         if (why) addToast(why, 'error'); else reopenRef.current();
       }} />

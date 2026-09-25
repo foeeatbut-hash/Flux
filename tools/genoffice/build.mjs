@@ -129,9 +129,11 @@ async function buildOne(which, src) {
   }
   // Наш код внутри редактора — рядом с его исходниками (tools/genoffice/inject)
   const injectDir = join(here, 'inject');
-  if (which === 'docs') {
-    mkdirSync(join(src, app, 'src', 'renderer', 'flux'), { recursive: true });
-    cpSync(join(injectDir, 'docs-collab.ts'), join(src, app, 'src', 'renderer', 'flux', 'docs-collab.ts'));
+  // Правки patches.mjs вносятся во все редакторы разом — и модули совместной
+  // правки кладутся во все, чтобы подключённый правкой импорт всегда находился
+  for (const [dir, file] of [['apps/docs', 'docs-collab.ts'], ['apps/sheets', 'sheets-collab.ts']]) {
+    mkdirSync(join(src, dir, 'src', 'renderer', 'flux'), { recursive: true });
+    cpSync(join(injectDir, file), join(src, dir, 'src', 'renderer', 'flux', file));
   }
 
   // Правки Flux — до сборки (tools/genoffice/patches.mjs)

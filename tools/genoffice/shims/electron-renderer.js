@@ -44,11 +44,19 @@ function post(msg) {
 
 export const ipcRenderer = {
   invoke(channel, ...args) {
-    return new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       const id = ++seq;
       waiting.set(id, { resolve, reject });
       post({ id, op: 'ipc', payload: { channel, args } });
     });
+    // Запись Таблицы: после неё книга перестраивается из файла, и модуль
+    // совместной правки придерживает чужие правки (inject/sheets-collab.ts)
+    if (channel === 'workbook:save') {
+      const tell = (detail) => { try { window.dispatchEvent(new CustomEvent('flux-sheets-save', { detail })); } catch (_) {} };
+      tell({ phase: 'start' });
+      p.then((r) => tell({ phase: 'end', ok: !!r && !r.canceled && r.ok !== false }), () => tell({ phase: 'end', ok: false }));
+    }
+    return p;
   },
   send(channel, ...args) { post({ op: 'ipc-send', payload: { channel, args } }); },
   sendSync() { return undefined; },
@@ -65,6 +73,9 @@ export const ipcRenderer = {
   off(channel, fn) { return ipcRenderer.removeListener(channel, fn); },
   removeAllListeners(channel) { if (channel) listeners.delete(channel); else listeners.clear(); return ipcRenderer; },
 };
+
+// Модули Flux внутри редактора (совместная правка) говорят с окном тем же путём
+window.__fluxIpc = ipcRenderer;
 
 export const contextBridge = {
   exposeInMainWorld(name, api) { window[name] = api; },
