@@ -49,13 +49,15 @@ const ALLOWED: Record<HostApp, (channel: string) => boolean> = {
   pdf: (c) => c.startsWith('pdf:') && ![
     'pdf:generate-image', 'pdf:ocr-page', 'pdf:create-document', 'pdf:convert-office', 'pdf:request-redaction-copy',
   ].includes(c),
-  sheets: (c) => /^(sheets|workbook|xlsx):/.test(c) || c === 'app:get-language',
+  // Книга — да; ИИ, MCP, захват экрана, чужие файлы, печать через Electron — нет
+  sheets: (c) => (c.startsWith('workbook:') && !['workbook:create-document', 'workbook:export-pdf', 'workbook:print'].includes(c))
+    || ['sheets:consume-new-blank', 'sheets:has-queued-workbook', 'sheets:consume-headless-export'].includes(c),
 };
 
 /** Какой вызов записывает файл — после него байты уходят в Flux */
 const SAVES: Record<HostApp, (channel: string) => boolean> = {
   pdf: (c) => c === 'pdf:save',
-  sheets: (c) => /save/i.test(c) && !/transfer|chunk|abort|recovery/i.test(c),
+  sheets: (c) => c === 'workbook:save',
 };
 
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');

@@ -33,6 +33,7 @@ const PdfEditor = lazy(() => import('../screens/PdfEditor'));
 const OfficeHost = lazy(() => import('../screens/OfficeHost'));
 // PDF и Таблица Flux Office: один экран, редактор выбирается параметром
 const OfficePdf = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="pdf" /> })));
+const OfficeSheet = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="sheets" /> })));
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
@@ -145,6 +146,7 @@ export const SECTIONS: SectionDef[] = [
   // настоящий файл Word из Проводника, а не копию в базе. Старый «Документ»
   // живёт рядом до приёмки (docs/office-genoffice-plan.md)
   { path: '/office-pdf', title: 'PDF', icon: FileText, scope: 'global', scroll: 'fixed', pad: false, multi: true, feature: 'office.next', Component: OfficePdf },
+  { path: '/office-sheet', title: 'Таблица (проба)', icon: Table2, scope: 'global', scroll: 'fixed', pad: false, multi: true, feature: 'office.next', Component: OfficeSheet },
   { path: '/office-doc', title: 'Документ (проба)', icon: FileType, scope: 'global', scroll: 'fixed', pad: false, multi: true, feature: 'office.next', Component: OfficeHost },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но

@@ -61,6 +61,13 @@ const APPS = {
       ['harfbuzzjs/dist/harfbuzz.wasm', 'harfbuzz.wasm'],
     ],
   },
+  sheets: {
+    dir: 'apps/sheets', kind: 'ipc', preload: 'src/preload/index.ts', host: 'sheets-host.ts',
+    // Движок Excel на Rust: открывает книгу и пишет её по месту, не трогая
+    // того, что не правили (docs/office-engine-choice.md: 141 из 146 частей
+    // бланка ПДХ — байт в байт)
+    sidecar: 'native/xlsx-engine',
+  },
 };
 
 // На Windows npm и npx — это .cmd, и без оболочки их не запустить: сборка
@@ -173,6 +180,13 @@ async function buildIpc(which, spec, src, out) {
     banner: { js: 'const __flux_import_meta_url = require("url").pathToFileURL(__filename).href;' },
     external: ['electron-updater'],
   });
+  if (spec.sidecar) {
+    const crate = join(appDir, spec.sidecar);
+    const exe = process.platform === 'win32' ? 'xlsx-sidecar.exe' : 'xlsx-sidecar';
+    const built = join(crate, 'target', 'release', exe);
+    if (!existsSync(built) || process.env.GENOFFICE_REBUILD_SIDECAR) run('cargo', ['build', '--release'], crate);
+    cpSync(built, join(server, exe));
+  }
   for (const [from, to] of spec.wasm || []) {
     const hit = [join(appDir, 'node_modules', from), join(src, 'node_modules', from)].find((p) => existsSync(p));
     if (!hit) throw new Error(`нет ${from}: без него ${which} на сервере не заработает`);

@@ -79,15 +79,32 @@ export default { ipcRenderer, contextBridge, webUtils, webFrame };
 // ── Как во всех редакторах Flux Office: без ИИ и без имени Genspark ──
 try {
   localStorage.setItem('genoffice-pdf-show-ai', '0');
-  localStorage.setItem('genoffice-sheets-show-ai', '0');
+  // Таблица читает свой ключ (ExcelShell.tsx), не «genoffice-…», как PDF
+  localStorage.setItem('ai-sheets-show-ai', '0');
 } catch (_) {}
 const css = document.createElement('style');
 css.textContent =
   '.ai-dock{display:none!important}' +
+  // Свёрнутая панель ИИ Таблицы — полоска со значком Genspark слева от листа
+  '.copilot{display:none!important}' +
   '.ribbon-group:has(.ai-entry){display:none!important}' +
   '.ribbon-group:has(.ai-entry)+.ribbon-sep{display:none!important}' +
   'button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon){display:none!important}';
 (document.head || document.documentElement).appendChild(css);
+
+// Меню Electron: там Ctrl+S — клавиша меню главного процесса, и окно получает
+// команду «menu:action». В браузере меню нет — клавишу ловим здесь и отдаём
+// ту же команду тем, кто её слушает (Таблица; у PDF своя клавиша в окне)
+const MENU_KEYS = { s: 'save', S: 'save-as' };
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const action = MENU_KEYS[e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase()];
+  const set = listeners.get('menu:action');
+  if (!action || !set || !set.size) return;
+  e.preventDefault();
+  e.stopPropagation();
+  for (const fn of Array.from(set)) { try { fn({ sender: null }, action); } catch (_) {} }
+}, true);
 
 // Окно Flux ждёт этого слова: молчание значит «редактора нет»
 post({ op: 'hello' });

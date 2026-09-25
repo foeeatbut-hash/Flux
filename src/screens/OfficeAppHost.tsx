@@ -34,6 +34,8 @@ export function localAnswer(channel: string, theme: string): { hit: boolean; val
   if (channel === 'app:get-theme') return { hit: true, value: theme };
   if (channel === 'app:get-ai-panel-prefs') return { hit: true, value: { side: 'right', fontSize: 'medium', customFontSize: 14, spellcheck: false } };
   if (channel === 'app:set-ai-panel-prefs') return { hit: true, value: null };
+  // Автосохранение Таблицы по умолчанию — выключено, как в Excel без облака
+  if (channel === 'app:get-auto-save-default') return { hit: true, value: false };
   if (/^(ai|gsk|project|mcp):/.test(channel) || /generate-image|image-search|fetch-image/.test(channel)) {
     return { hit: true, error: 'Во Flux Office это отключено: программа работает без внешних сервисов' };
   }
@@ -107,6 +109,7 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
       if (m.op === 'ipc-send') {
         // Признак «изменено» и ответ на «сохрани перед закрытием» — окну
         if (/dirty-changed$/.test(channel)) dirty.current = args[0] === true;
+        if (channel === 'workbook:pending-edits') dirty.current = Number(args[0]) > 0;
         if (/close-save-result$/.test(channel) && closeWait.current) { closeWait.current(args[0] === true); closeWait.current = null; }
         try { room.emit('office:ipc-send', { session: await ensureSession(), channel, args }); } catch (_) {}
         return;
@@ -156,7 +159,7 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
       if (phaseRef.current !== 'ready' || !dirty.current) return true;
       const ok = await new Promise<boolean>((resolve) => {
         closeWait.current = resolve;
-        send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'sheets:close-save-request', args: [] } });
+        send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
         setTimeout(() => { if (closeWait.current === resolve) { closeWait.current = null; resolve(false); } }, 120_000);
       });
       if (ok) return true;
