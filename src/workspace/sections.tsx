@@ -29,8 +29,10 @@ const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
 const FeedbackScreen = lazy(() => import('../screens/FeedbackScreen'));
-const PdfEditor = lazy(() => import('../screens/PdfEditor'));
 const OfficeHost = lazy(() => import('../screens/OfficeHost'));
+// PDF и Таблица Flux Office: один экран, редактор выбирается параметром
+const OfficePdf = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="pdf" /> })));
+const OfficeSheet = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="sheets" /> })));
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
@@ -92,6 +94,11 @@ export interface SectionDef {
   icon?: React.ComponentType<{ className?: string }>;
   /** Стоит на нижней панели всегда, даже когда не запущен */
   pinned?: boolean;
+  /**
+   * Открывается только с файлом (?file=): редактор Word или Excel без файла —
+   * пустое окно, поэтому в Пуске его нет. Файл открывают из Проводника
+   */
+  fileOnly?: boolean;
   badge?: SectionBadge;
   /**
    * Можно открыть несколькими окнами.
@@ -136,13 +143,16 @@ export const SECTIONS: SectionDef[] = [
   // словом из инженерной жизни, которое не говорит, что программа делает.
   { path: '/sheet', title: 'Таблица', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, docKind: 'DOC', Component: ConstructorScreen },
   { path: '/doc', title: 'Документ', icon: FileType, scope: 'project', scroll: 'auto', pad: true, multi: true, docKind: 'TEXT', Component: ConstructorScreen },
-  // «Просмотр» открывается из Проводника и живёт своим окном: у него своя лента и
-  // свои пометки, и возвращаться из него надо туда, откуда пришли
-  { path: '/pdf', title: 'Просмотр', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
-  // Новый Документ Flux Office — пока по праву «Проба нового офиса»: открывает
-  // настоящий файл Word из Проводника, а не копию в базе. Старый «Документ»
-  // живёт рядом до приёмки (docs/office-genoffice-plan.md)
-  { path: '/office-doc', title: 'Документ (проба)', icon: FileType, scope: 'global', scroll: 'fixed', pad: false, multi: true, feature: 'office.next', Component: OfficeHost },
+  // PDF — редактор Flux Office (GenOffice), открывается из Проводника своим
+  // окном; пометки пишутся в сам файл. Прежние замечания Просмотра
+  // переносятся из окна (components/collab/LegacyMarkupBar.tsx)
+  { path: '/pdf', title: 'PDF', icon: FileText, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: OfficePdf },
+  // Файлы Word и Excel — в редакторах Flux Office (GenOffice): правка идёт в
+  // сам файл, а не в копию в базе. Документы Конструктора (/sheet, /doc)
+  // открываются по-прежнему — их перевод в файлы отдельным этапом
+  // (docs/office-genoffice-plan.md)
+  { path: '/office-sheet', title: 'Книга Excel', icon: Table2, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeSheet },
+  { path: '/office-doc', title: 'Документ Word', icon: FileType, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeHost },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но
   // разговаривать про открытую ведомость удобнее рядом с ней, а не поверх

@@ -1,22 +1,25 @@
 /**
- * Два сотрудника в одном документе Flux Office — в двух браузерах.
+ * Два сотрудника правят один документ Word одновременно — в двух браузерах.
  *
- * Что стережёт (server/officeRooms.ts, src/screens/OfficeHost.tsx,
- * правка «только просмотр» в tools/genoffice/patches.mjs):
- *   - первый правит, второй видит «только просмотр: файл правит …», и его
- *     редактор правда закрыт для правки;
- *   - первый видит, что в файле есть зритель;
- *   - первый сохранил — у второго свежая версия появилась сама, без
- *     перезагрузки окна;
- *   - запись в обход держателя сервер не принимает (423);
- *   - первый закрыл окно — у второго сразу «правка свободна» и кнопка;
- *     взял — правит и сохраняет, в файле его правка поверх правки первого;
- *   - держатель пропал (связь оборвалась) — правка ждёт его, потом свободна.
+ * Что стережёт (server/officeCollab.ts, components/collab/useDocCollab.ts,
+ * tools/genoffice/inject/docs-collab.ts и правки patches.mjs):
+ *   - файл в общем доступе правят оба сразу: у обоих редактор открыт;
+ *   - буквы одного появляются у другого по ходу ввода, до всякой записи;
+ *   - одновременный ввод в разные абзацы сводится без потерь у обоих;
+ *   - курсор соавтора виден;
+ *   - файл записывает держатель сам, без Ctrl+S: в файле правки обоих, а
+ *     колонтитул со штампом — байт в байт;
+ *   - новый нумерованный список у соавтора сохраняется с нумерацией (она
+ *     живёт вне тела документа);
+ *   - держатель закрыл окно — записывает второй;
+ *   - опоздавший сразу видит ещё не записанное;
+ *   - личный файл совместно не правится.
  *
  * Нужны поднятый сервер и собранный редактор (node tools/genoffice/build.mjs).
  * Запуск: npx tsx scripts/test-office-collab-live.ts
  */
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { FEATURES } from '../src/lib/permissions';
 import { makeDocx, loginPage } from './officeHarness';
@@ -43,11 +46,19 @@ const api = async (method: string, url: string, token: string, body?: any, heade
   const buf = Buffer.from(await res.arrayBuffer());
   let json: any = null;
   try { json = JSON.parse(buf.toString('utf8')); } catch { /* байты */ }
-  return { status: res.status, json, buf };
+  return { status: res.status, json, buf, headers: res.headers };
 };
-const docXml = async (buf: Buffer) => (await JSZip.loadAsync(buf)).file('word/document.xml')!.async('string').catch(() => '');
+const part = async (buf: Buffer, name: string) => {
+  try { return await (await JSZip.loadAsync(buf)).file(name)?.async('string') || ''; } catch { return ''; }
+};
+const partSha = async (buf: Buffer, name: string) => {
+  try {
+    const u = await (await JSZip.loadAsync(buf)).file(name)?.async('uint8array');
+    return u ? createHash('sha256').update(u).digest('hex') : '';
+  } catch { return ''; }
+};
 const until = async (probe: () => Promise<boolean>, ms: number) => {
-  for (let t = 0; t < ms; t += 500) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 500)); }
+  for (let t = 0; t < ms; t += 200) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 200)); }
   return probe();
 };
 
@@ -59,94 +70,137 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
   const login = await api('POST', '/api/login', '', ADMIN);
   const admin = login.json?.token || '';
   if (!admin) { console.error('вход администратора не удался'); process.exit(2); }
-  const adminName = String(login.json?.user?.name || '');
   const stamp = Date.now().toString(36);
   const mate = { symbol: `ofc${stamp}`, password: `Пр${stamp}!7` };
-  const mk = await api('POST', '/api/users', admin, { ...mate, name: 'Проба Зритель', role: 'USER' });
+  const mk = await api('POST', '/api/users', admin, { ...mate, name: 'Проба Соавтор', role: 'USER' });
   const mateId = mk.json?.user?.id || mk.json?.id;
   await api('PUT', `/api/users/${mateId}`, admin, {
     permissions: JSON.stringify(Object.fromEntries(FEATURES.map((x) => [x.id, { enabled: true, until: null }]))),
   });
-  const mateToken = (await api('POST', '/api/login', '', mate)).json?.token || '';
 
-  const name = `__проба совместной ${stamp}.docx`;
-  const made = await api('POST', '/api/files', admin, { name, filePath: `/shared/${name}`, type: 'DOCX' });
-  const id = made.json?.file?.id;
-  const original = await makeDocx();
-  await api('POST', `/api/files/${id}/chunk`, admin, { idx: 0, data: original.toString('base64') });
-  await api('POST', `/api/files/${id}/done`, admin, { count: 1 });
+  const upload = async (name: string, extra: object = {}) => {
+    const made = await api('POST', '/api/files', admin, { name, filePath: `/shared/${name}`, type: 'DOCX', ...extra });
+    const id = made.json?.file?.id;
+    const bytes = await makeDocx();
+    await api('POST', `/api/files/${id}/chunk`, admin, { idx: 0, data: bytes.toString('base64') });
+    await api('POST', `/api/files/${id}/done`, admin, { count: 1 });
+    return { id, bytes };
+  };
+  const { id, bytes: original } = await upload(`__проба совместной ${stamp}.docx`);
+  const created = [id];
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
-  const openAs = async (login: typeof ADMIN) => {
+  const outside: string[] = [];
+  const openAs = async (who: typeof ADMIN) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     const page = await ctx.newPage();
-    await loginPage(page, BASE, login);
+    page.on('request', (r: any) => {
+      const u = String(r.url());
+      if (!u.startsWith(BASE) && !u.startsWith('blob:') && !u.startsWith('data:') && !u.startsWith('ws://localhost')) outside.push(u);
+    });
+    await loginPage(page, BASE, who);
     await page.goto(`${BASE}/#/office-doc?file=${id}`, { waitUntil: 'domcontentloaded' });
     const fr = page.frameLocator('iframe[title="Документ Flux Office"]');
     await fr.locator('.ProseMirror').first().waitFor({ timeout: 30000 }).catch(() => {});
     return { ctx, page, fr };
   };
-  const strip = (page: any) => page.getByRole('status', { name: 'Кто в файле' }).innerText().catch(() => '');
   const editable = (fr: any) => fr.locator('.ProseMirror').first().getAttribute('contenteditable').catch(() => '');
-  const text = (fr: any) => fr.locator('.ProseMirror').first().innerText().catch(() => '');
+  // Текст документа без подписей курсоров соавторов: у каждого видны чужие
+  const text = (fr: any) => fr.locator('.ProseMirror').first().evaluate((el: any) => {
+    const c = el.cloneNode(true);
+    c.querySelectorAll('.ProseMirror-yjs-cursor, .ProseMirror-yjs-selection').forEach((n: any) => n.remove());
+    return c.textContent || '';
+  }).catch(() => '');
+  const strip = (page: any) => page.getByRole('status', { name: 'Кто в файле' }).innerText().catch(() => '');
+  const typeAt = async (x: { page: any; fr: any }, anchor: string, s: string, delay = 40) => {
+    await x.fr.getByText(anchor).first().click();
+    await x.page.keyboard.press('End');
+    await x.page.keyboard.type(s, { delay });
+  };
+  const fileXml = async () => part((await api('GET', `/api/files/${id}/raw`, admin)).buf, 'word/document.xml');
 
   try {
-    console.log('1. Первый правит, второй смотрит');
+    console.log('1. Оба правят');
     const a = await openAs(ADMIN);
-    await until(async () => (await editable(a.fr)) === 'true', 15000);
-    ok('первый может править', (await editable(a.fr)) === 'true');
+    ok('первый может править', await until(async () => (await editable(a.fr)) === 'true', 20000));
     const b = await openAs(mate);
-    await until(async () => /Только просмотр/.test(await strip(b.page)), 15000);
-    const bStrip = await strip(b.page);
-    ok('второй видит «только просмотр» и кто правит', /Только просмотр/.test(bStrip) && (!adminName || bStrip.includes(adminName)), bStrip);
-    ok('редактор второго закрыт для правки', (await editable(b.fr)) === 'false');
-    ok('первый видит, что в файле есть зритель', await until(async () => /Вы правите/.test(await strip(a.page)), 10000), await strip(a.page));
-    await b.page.screenshot({ path: process.env.OUT_VIEW || '/tmp/office-collab-view.png' }).catch(() => {});
+    ok('второй тоже может править', await until(async () => (await editable(b.fr)) === 'true', 20000));
+    ok('первый видит, что правят вместе', await until(async () => /Правите вместе/.test(await strip(a.page)), 10000), await strip(a.page));
 
-    console.log('\n2. Первый сохранил — второй видит свежее');
-    const MARK = `ПЕРВЫЙ${stamp.slice(-4).toUpperCase()}`;
-    await a.fr.getByText('Проба Flux Office').first().click();
-    await a.page.keyboard.press('End');
-    await a.page.keyboard.type(' ' + MARK, { delay: 25 });
-    await a.page.keyboard.press('Control+s');
-    ok('сохранилось в файл', await until(async () => (await docXml((await api('GET', `/api/files/${id}/raw`, admin)).buf)).includes(MARK), 15000));
-    ok('у второго правка первого появилась сама', await until(async () => (await text(b.fr)).includes(MARK), 15000), (await text(b.fr)).slice(0, 120));
-    ok('и он по-прежнему только смотрит', (await editable(b.fr)) === 'false');
+    console.log('\n2. Буквы по ходу ввода');
+    const M1 = `АЛЬФА${stamp.slice(-3).toUpperCase()}`;
+    const t0 = Date.now();
+    await typeAt(a, 'Проба Flux Office', ' ' + M1, 60);
+    const firstLetterSeen = await until(async () => (await text(b.fr)).includes(' ' + M1.slice(0, 3)), 3000);
+    ok('первые буквы у второго — ещё во время ввода', firstLetterSeen);
+    ok('слово целиком у второго', await until(async () => (await text(b.fr)).includes(M1), 4000));
+    ok('и стоит там, где его печатали, — после текста', (await text(b.fr)).includes('Проба Flux Office ' + M1), (await text(b.fr)).slice(0, 120));
+    ok('раньше, чем сработало бы любое сохранение', Date.now() - t0 < 2500 + M1.length * 60, Date.now() - t0);
 
-    console.log('\n3. В обход держателя сервер не пишет');
-    const cur = await api('GET', `/api/office/files/${id}/meta`, mateToken);
-    const sneak = await api('PUT', `/api/office/files/${id}/content`, mateToken, original, { 'X-Base-Sha256': cur.json?.sha256 || '' });
-    ok('запись зрителя — 423 и имя держателя', sneak.status === 423 && (!adminName || String(sneak.json?.holder || '').includes(adminName)), [sneak.status, sneak.json]);
+    console.log('\n3. Одновременно в разных абзацах');
+    const MA = `ГАММА${stamp.slice(-2).toUpperCase()}`;
+    const MB = `БЕТА${stamp.slice(-2).toUpperCase()}`;
+    await Promise.all([typeAt(a, 'Проба Flux Office', ' ' + MA, 50), typeAt(b, 'Вторая строка бланка', ' ' + MB, 50)]);
+    const both = async (x: any) => { const t = await text(x.fr); return t.includes(MA) && t.includes(MB) && t.includes(M1); };
+    ok('у первого — обе правки', await until(() => both(a), 6000), (await text(a.fr)).slice(0, 200));
+    ok('у второго — обе правки', await until(() => both(b), 6000), (await text(b.fr)).slice(0, 200));
+    ok('у обоих текст один и тот же', (await text(a.fr)) === (await text(b.fr)));
+    ok('курсор соавтора виден', await a.fr.locator('.ProseMirror-yjs-cursor').count().catch(() => 0) > 0);
 
-    console.log('\n4. Первый закрыл окно — второй берёт правку');
-    await a.page.getByRole('button', { name: 'Закрыть' }).last().click();
-    ok('у второго «правка свободна» сразу', await until(async () => /Правка свободна/.test(await strip(b.page)), 6000), await strip(b.page));
-    await a.ctx.close();
-    await b.page.getByRole('button', { name: 'Взять правку' }).click();
-    ok('взял — может править', await until(async () => (await editable(b.fr)) === 'true', 15000));
-    const MARK2 = `ВТОРОЙ${stamp.slice(-4).toUpperCase()}`;
-    await b.fr.getByText('Вторая строка').first().click();
+    console.log('\n4. Файл записывается сам');
+    ok('без Ctrl+S — в файле правки обоих', await until(async () => {
+      const x = await fileXml();
+      return x.includes(M1) && x.includes(MA) && x.includes(MB);
+    }, 25000));
+    const saved = (await api('GET', `/api/files/${id}/raw`, admin)).buf;
+    ok('колонтитул со штампом — байт в байт', await partSha(saved, 'word/footer1.xml') === await partSha(original, 'word/footer1.xml'));
+    ok('стили не тронуты', await partSha(saved, 'word/styles.xml') === await partSha(original, 'word/styles.xml'));
+
+    console.log('\n5. Список у соавтора');
+    await b.fr.getByText('Вторая строка бланка').first().click();
     await b.page.keyboard.press('End');
-    await b.page.keyboard.type(' ' + MARK2, { delay: 25 });
-    await b.page.keyboard.press('Control+s');
-    ok('его правка в файле, правка первого на месте', await until(async () => {
-      const x = await docXml((await api('GET', `/api/files/${id}/raw`, admin)).buf);
-      return x.includes(MARK2) && x.includes(MARK);
-    }, 15000));
-    await b.page.screenshot({ path: process.env.OUT || '/tmp/office-collab.png' }).catch(() => {});
+    await b.page.keyboard.press('Enter');
+    await b.page.keyboard.type('Пункт списка', { delay: 40 });
+    await b.fr.getByRole('button', { name: 'Нумерация' }).first().click();
+    ok('у первого появился пункт', await until(async () => (await text(a.fr)).includes('Пункт списка'), 5000));
+    ok('в файле пункт — с нумерацией списка', await until(async () => {
+      const buf = (await api('GET', `/api/files/${id}/raw`, admin)).buf;
+      const doc = await part(buf, 'word/document.xml');
+      const i = doc.indexOf('Пункт списка');
+      if (i < 0) return false;
+      const para = doc.slice(doc.lastIndexOf('<w:p', i), i);
+      return /<w:numPr>/.test(para) && (await part(buf, 'word/numbering.xml')).includes('<w:abstractNum');
+    }, 25000));
 
-    console.log('\n5. Обрыв связи у держателя');
+    console.log('\n6. Держатель ушёл');
+    await a.page.getByRole('button', { name: 'Закрыть' }).last().click();
+    await a.ctx.close();
+    const MD = `ДЕЛЬТА${stamp.slice(-2).toUpperCase()}`;
+    await typeAt(b, 'Проба Flux Office', ' ' + MD);
+    ok('правка второго записывается в файл', await until(async () => (await fileXml()).includes(MD), 25000));
+
+    console.log('\n7. Опоздавший видит незаписанное');
+    const ME = `ЭПСИЛОН${stamp.slice(-2).toUpperCase()}`;
+    await typeAt(b, 'Вторая строка бланка', ' ' + ME);
     const c = await openAs(ADMIN);
-    await until(async () => /Только просмотр/.test(await strip(c.page)), 15000);
-    await b.ctx.close(); // держатель пропал без закрытия окна
-    ok('правка ждёт пропавшего — «потерял связь»', await until(async () => /потерял связь/.test(await strip(c.page)), 8000), await strip(c.page));
-    ok('через паузу — свободна', await until(async () => /Правка свободна/.test(await strip(c.page)), 35000), await strip(c.page));
+    ok('сразу видит ещё не записанную правку', await until(async () => (await text(c.fr)).includes(ME), 8000), (await text(c.fr)).slice(0, 160));
+    ok('и может править', await until(async () => (await editable(c.fr)) === 'true', 10000));
+    await b.page.screenshot({ path: process.env.OUT || '/tmp/office-cowrite.png' }).catch(() => {});
     await c.ctx.close();
+    await b.ctx.close();
+
+    console.log('\n8. Личный файл');
+    const own = await upload(`__личная проба ${stamp}.docx`, { scope: 'PERSONAL', filePath: '/personal/x.docx' });
+    created.push(own.id);
+    const opened = await api('GET', `/api/office/files/${own.id}/open`, admin);
+    ok('личный файл открывается без совместной правки', opened.headers.get('x-collab') === '0');
+
+    ok('ни одного запроса за пределы сервера Flux', outside.length === 0, outside.slice(0, 5));
   } catch (e: any) {
     ok('проба оборвалась', false, String(e?.message || e));
   } finally {
     await browser.close();
-    await api('DELETE', `/api/files/${id}`, admin).catch(() => {});
+    for (const x of created) await api('DELETE', `/api/files/${x}`, admin).catch(() => {});
     if (mateId) await api('DELETE', `/api/users/${mateId}`, admin).catch(() => {});
   }
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

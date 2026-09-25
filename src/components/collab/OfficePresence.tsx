@@ -15,6 +15,17 @@ export function presenceLine(roster: OfficeRoster | null, clientId: string, mode
   const h = roster?.holder || null;
   const others = (roster?.peers || []).filter((p) => p.clientId !== clientId);
   if (mode === 'pending') return { text: 'Подключение к серверу…', canTake: false };
+  // Общий файл: правят все сразу
+  if (roster?.collab) {
+    const names = Array.from(new Set(others.map((p) => p.name)));
+    if (mode === 'together') {
+      if (!editable) return { text: 'Подключение к общему документу…', canTake: false };
+      return { text: names.length ? `Правите вместе: ${names.join(', ')}` : '', canTake: false };
+    }
+    const me = roster.peers.find((p) => p.clientId === clientId);
+    if (me && !me.mayWrite) return { text: 'Только просмотр: этот файл вам можно только смотреть. Правки остальных видны сразу', canTake: false };
+    return { text: 'Нет связи с сервером: правка остановлена, пока связь не вернётся', canTake: false };
+  }
   if (mode === 'alone') return { text: 'Нет связи с сервером: сохранение сверит версию файла', canTake: false };
   if (mode === 'edit') {
     if (!editable) return { text: 'Открываю свежую версию…', canTake: false };
@@ -40,7 +51,7 @@ export default function OfficePresence({ roster, clientId, mode, editable, onTak
       {people.length > 0 && (
         <div className="flex items-center gap-1" aria-label="Сейчас в файле">
           {people.map((p) => (
-            <span key={p.userId} title={p.userId === holderId ? `${p.name} — правит` : `${p.name} — смотрит`} className="inline-flex">
+            <span key={p.userId} title={roster?.collab ? p.name : p.userId === holderId ? `${p.name} — правит` : `${p.name} — смотрит`} className="inline-flex">
               <Avatar name={p.name} online />
             </span>
           ))}

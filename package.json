@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.15.0",
+  "version": "1.16.0",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -46,6 +46,8 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "xlsx": "^0.18.5",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
@@ -85,6 +87,10 @@
       {
         "from": "prisma",
         "to": "prisma"
+      },
+      {
+        "from": "genoffice-server",
+        "to": "genoffice-server"
       }
     ],
     "directories": {

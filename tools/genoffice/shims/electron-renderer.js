@@ -1,0 +1,121 @@
+/*
+ * Модуль «electron» для preload-скриптов GenOffice в браузере (Flux Office).
+ *
+ * У Таблицы и PDF свой preload: он собирает window.pdfApi / window.desktopApi
+ * из вызовов ipcRenderer. Мы собираем этот же preload для страницы, подменив
+ * «electron» этим файлом (tools/genoffice/build.mjs): ipcRenderer.invoke
+ * уходит окну Flux сообщением, окно — на сервер, а там отвечает родной главный
+ * процесс редактора (tools/genoffice/shims/electron-main.ts). Так у редактора
+ * тот же API, что в его собственной оболочке, без переписывания руками.
+ *
+ * Сообщения — тот же конверт, что у flux-bridge.js: {flux:'office', …},
+ * только от своего окна и своего адреса (с диска — только от своего окна).
+ */
+const parentWin = window.parent;
+const origin = window.location.origin;
+const target = origin === 'null' ? '*' : origin;
+const sameOrigin = (o) => (origin === 'null' ? o === 'null' || o === 'file://' : o === origin);
+
+let seq = 0;
+const waiting = new Map();
+const listeners = new Map();
+
+if (parentWin && parentWin !== window) {
+  window.addEventListener('message', (e) => {
+    if (e.source !== parentWin || !sameOrigin(e.origin)) return;
+    const m = e.data;
+    if (!m || m.flux !== 'office') return;
+    if (m.reply && waiting.has(m.reply)) {
+      const w = waiting.get(m.reply);
+      waiting.delete(m.reply);
+      if (m.error) w.reject(new Error(m.error)); else w.resolve(m.result);
+      return;
+    }
+    if (m.event === 'ipc' && m.payload) {
+      const set = listeners.get(m.payload.channel);
+      if (set) for (const fn of Array.from(set)) { try { fn({ sender: null }, ...(m.payload.args || [])); } catch (_) {} }
+    }
+  });
+}
+
+function post(msg) {
+  if (parentWin && parentWin !== window) parentWin.postMessage({ flux: 'office', ...msg }, target);
+}
+
+export const ipcRenderer = {
+  invoke(channel, ...args) {
+    const p = new Promise((resolve, reject) => {
+      const id = ++seq;
+      waiting.set(id, { resolve, reject });
+      post({ id, op: 'ipc', payload: { channel, args } });
+    });
+    // Запись Таблицы: после неё книга перестраивается из файла, и модуль
+    // совместной правки придерживает чужие правки (inject/sheets-collab.ts)
+    if (channel === 'workbook:save') {
+      const tell = (detail) => { try { window.dispatchEvent(new CustomEvent('flux-sheets-save', { detail })); } catch (_) {} };
+      tell({ phase: 'start' });
+      p.then((r) => tell({ phase: 'end', ok: !!r && !r.canceled && r.ok !== false }), () => tell({ phase: 'end', ok: false }));
+    }
+    return p;
+  },
+  send(channel, ...args) { post({ op: 'ipc-send', payload: { channel, args } }); },
+  sendSync() { return undefined; },
+  on(channel, fn) {
+    if (!listeners.has(channel)) listeners.set(channel, new Set());
+    listeners.get(channel).add(fn);
+    return ipcRenderer;
+  },
+  once(channel, fn) {
+    const wrap = (...a) => { ipcRenderer.removeListener(channel, wrap); fn(...a); };
+    return ipcRenderer.on(channel, wrap);
+  },
+  removeListener(channel, fn) { listeners.get(channel)?.delete(fn); return ipcRenderer; },
+  off(channel, fn) { return ipcRenderer.removeListener(channel, fn); },
+  removeAllListeners(channel) { if (channel) listeners.delete(channel); else listeners.clear(); return ipcRenderer; },
+};
+
+// Модули Flux внутри редактора (совместная правка) говорят с окном тем же путём
+window.__fluxIpc = ipcRenderer;
+
+export const contextBridge = {
+  exposeInMainWorld(name, api) { window[name] = api; },
+};
+
+// Файлы Windows во фрейм не бросают: файлы открываются из Проводника Flux
+export const webUtils = { getPathForFile: () => '' };
+export const webFrame = { setZoomFactor() {}, getZoomFactor: () => 1 };
+
+export default { ipcRenderer, contextBridge, webUtils, webFrame };
+
+// ── Как во всех редакторах Flux Office: без ИИ и без имени Genspark ──
+try {
+  localStorage.setItem('genoffice-pdf-show-ai', '0');
+  // Таблица читает свой ключ (ExcelShell.tsx), не «genoffice-…», как PDF
+  localStorage.setItem('ai-sheets-show-ai', '0');
+} catch (_) {}
+const css = document.createElement('style');
+css.textContent =
+  '.ai-dock{display:none!important}' +
+  // Свёрнутая панель ИИ Таблицы — полоска со значком Genspark слева от листа
+  '.copilot{display:none!important}' +
+  '.ribbon-group:has(.ai-entry){display:none!important}' +
+  '.ribbon-group:has(.ai-entry)+.ribbon-sep{display:none!important}' +
+  'button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon){display:none!important}';
+(document.head || document.documentElement).appendChild(css);
+
+// Меню Electron: там Ctrl+S — клавиша меню главного процесса, и окно получает
+// команду «menu:action». В браузере меню нет — клавишу ловим здесь и отдаём
+// ту же команду тем, кто её слушает (Таблица; у PDF своя клавиша в окне)
+const MENU_KEYS = { s: 'save', S: 'save-as' };
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const action = MENU_KEYS[e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase()];
+  const set = listeners.get('menu:action');
+  if (!action || !set || !set.size) return;
+  e.preventDefault();
+  e.stopPropagation();
+  for (const fn of Array.from(set)) { try { fn({ sender: null }, action); } catch (_) {} }
+}, true);
+
+// Окно Flux ждёт этого слова: молчание значит «редактора нет»
+post({ op: 'hello' });

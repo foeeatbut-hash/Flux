@@ -16,6 +16,9 @@
 import { OfficeRoomBook, GRACE_MS, type OfficePeer } from '../server/officeRooms';
 import { officeMode, type OfficeRoster } from '../src/components/collab/useOfficeRoom';
 import { presenceLine } from '../src/components/collab/OfficePresence';
+import { CollabBook } from '../server/officeCollab';
+import { dueToSave, QUIET_MS, MAX_UNSAVED_MS } from '../src/components/collab/useDocCollab';
+import * as Y from 'yjs';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>
@@ -108,5 +111,61 @@ ok('держатель без связи — сказано, и взять не�
 ok('свободна — кнопка «Взять правку»', presenceLine(roster(null), 'me', 'view', false).canTake);
 ok('без связи — сказано про сверку', /сверит/.test(presenceLine(null, 'me', 'alone', true).text));
 
+(async () => {
+console.log('\n6. Общий файл: держатель передаётся сам');
+{
+  const b = new OfficeRoomBook();
+  b.join('F', peer('s1', 'c1', 'A'), 0, true);
+  b.join('F', peer('s2', 'c2', 'R', false), 1, true);
+  b.join('F', peer('s3', 'c3', 'B'), 2, true);
+  ok('первый записывает', b.holds('F', 's1'));
+  ok('в списке — совместная правка и права каждого', b.roster('F').collab && b.roster('F').peers.some((p) => p.mayWrite === false));
+  b.leave('s1');
+  ok('ушёл — записывает следующий, кому можно писать (не зритель)', b.holds('F', 's3'));
+  b.lost('s3', 100);
+  ok('обрыв — ждём', b.holder('F', 100 + GRACE_MS - 1)?.userId === 'B');
+  b.join('F', peer('s4', 'c4', 'C'), 200, true);
+  b.expire(100 + GRACE_MS);
+  ok('не вернулся — записывает следующий', b.holds('F', 's4'));
+  ok('окно: общий файл — правим вместе', officeMode(b.roster('F'), 'c4', true, false) === 'together');
+  ok('без права записи — смотрю', officeMode(b.roster('F'), 'c2', true, false) === 'view');
+  ok('общий файл без связи не правится', officeMode(b.roster('F'), 'c4', false, true) === 'view');
+}
+
+console.log('\n7. Сеанс общего документа');
+{
+  const book = new CollabBook();
+  const base = Buffer.from('исходник');
+  const s = await book.ensure('F', async () => base);
+  const again = await book.ensure('F', async () => Buffer.from('другое'));
+  ok('сеанс один, исходник — первый', again === s && s.baseBytes.equals(base));
+  ok('первый, кому можно писать, засевает', book.want(s, 's1', true) === 'seed');
+  ok('второй ждёт, а не засевает вторым', book.want(s, 's2', true) === 'wait');
+  ok('зритель без права тоже только ждёт', book.want(s, 's3', false) === 'wait');
+  // Засевающий ушёл, не засеяв, — поручить следующему
+  const next = book.gone(s, 's1', 0);
+  ok('засевающий ушёл — поручено следующему', next === 's2' && s.seeder === 's2');
+  const a = new Y.Doc();
+  a.getXmlFragment('prosemirror').insert(0, [new Y.XmlText('Проба')]);
+  ok('засеял — сеанс готов', book.update(s, 's2', Y.encodeStateAsUpdate(a)) === true && s.seeded);
+  ok('засеянное не считается незаписанным', !book.unsaved(s));
+  ok('теперь приходящий получает содержимое', book.want(s, 's4', true) === 'state');
+  const late = new Y.Doc();
+  Y.applyUpdate(late, Y.encodeStateAsUpdate(s.ydoc));
+  ok('опоздавший видит то же', late.getXmlFragment('prosemirror').toString() === a.getXmlFragment('prosemirror').toString());
+  a.getXmlFragment('prosemirror').insert(1, [new Y.XmlText('!')]);
+  book.update(s, 's2', Y.encodeStateAsUpdate(a));
+  ok('правка после засева — незаписанная', book.unsaved(s));
+  book.markSaved(s);
+  ok('держатель записал — записано', !book.unsaved(s));
+}
+
+console.log('\n8. Когда держатель записывает');
+ok('правок нет — не пишет', !dueToSave(10_000, null, null));
+ok('печатают — ждёт тишины', !dueToSave(1000 + QUIET_MS - 1, 0, 1000));
+ok('тишина — пишет', dueToSave(1000 + QUIET_MS, 0, 1000));
+ok('печатают без остановки — всё равно пишет', dueToSave(MAX_UNSAVED_MS, 0, MAX_UNSAVED_MS - 100));
+
 console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
 process.exit(f ? 1 : 0);
+})();

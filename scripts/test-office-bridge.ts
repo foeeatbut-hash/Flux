@@ -101,7 +101,26 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   const { PATCHES } = await import('../tools/genoffice/patches.mjs' as any);
   ok('правки GenOffice: режим просмотра встроен в защиту документа',
     PATCHES.some((p: any) => /fluxReadOnly \|\|/.test(p.replace)) && PATCHES.some((p: any) => /onFluxReadOnly/.test(p.replace)));
-  ok('у каждой правки одно место и своё имя', PATCHES.every((p: any) => p.id && p.file && p.find && p.replace.includes(p.find.trim().split('\n')[0].trim())));
+  ok('у каждой правки своё имя, файл и настоящая замена',
+    PATCHES.every((p: any) => p.id && p.file && p.find && p.replace && p.replace !== p.find)
+    && new Set(PATCHES.map((p: any) => p.id)).size === PATCHES.length);
+  ok('чужая правка не повторяется у каждого участника',
+    PATCHES.filter((p: any) => /isChangeOrigin/.test(p.replace)).length >= 5);
+  ok('после записи в сеансе файл не перечитывается',
+    PATCHES.some((p: any) => p.id === 'flux-no-reparse' && /__fluxCollab\?\.active/.test(p.replace)));
+
+  console.log('\n6. PDF и Таблица: preload в браузере, главный процесс на сервере');
+  const shim = readFileSync('tools/genoffice/shims/electron-renderer.js', 'utf8');
+  // Таблица читает свой ключ, не «genoffice-…»: с чужим ключом панель ИИ открывалась
+  ok('панель ИИ Таблицы свёрнута её собственным ключом', /'ai-sheets-show-ai', '0'/.test(shim));
+  ok('свёрнутая панель ИИ Таблицы скрыта', /\.copilot\{display:none!important\}/.test(shim));
+  // В Electron Ctrl+S — клавиша меню главного процесса; без меню книга не сохранялась
+  ok('Ctrl+S отдаётся Таблице командой меню', /MENU_KEYS = \{ s: 'save'/.test(shim) && /listeners\.get\('menu:action'\)/.test(shim));
+  const hostApps = readFileSync('server/officeHostApps.ts', 'utf8');
+  ok('белый список Таблицы без ИИ, печати и экспорта через Electron',
+    /workbook:create-document', 'workbook:export-pdf', 'workbook:print'/.test(hostApps) && !/'ai:/.test(hostApps));
+  const sheetsHost = readFileSync('tools/genoffice/inject/sheets-host.ts', 'utf8');
+  ok('окну — имя файла Flux, а не случайное имя снимка', /f\.name = basename\(f\.path\)/.test(sheetsHost));
 
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
   process.exit(f ? 1 : 0);

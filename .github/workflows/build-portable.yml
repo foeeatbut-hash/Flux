@@ -34,17 +34,25 @@ jobs:
       - name: Зависимости
         run: npm ci
 
-      # Редактор Документа Flux Office — из GenOffice по закреплённому коммиту
-      # (tools/genoffice/build.mjs). До сборки фронтенда: Vite кладёт public/
-      # в dist, и редактор едет в портативную сборку вместе с ним
-      - name: Кэш исходников редактора
+      # Редакторы Flux Office — Документ, Таблица, PDF — из GenOffice по
+      # закреплённому коммиту (tools/genoffice/build.mjs). До сборки фронтенда:
+      # Vite кладёт public/ в dist, и окна редакторов едут в сборку с ним.
+      # Их главные процессы и движок Excel (Rust, xlsx-sidecar.exe) — в
+      # genoffice-server/, а он уходит в ресурсы программы (package.json).
+      # В кэше — исходники с правками и собранный движок: ключ меняется с
+      # коммитом, правками или модулями Flux внутри редакторов
+      - name: Кэш исходников редакторов
         uses: actions/cache@v4
         with:
           path: .cache/genoffice
-          key: genoffice-${{ hashFiles('tools/genoffice/build.mjs') }}
+          key: genoffice-${{ hashFiles('tools/genoffice/build.mjs', 'tools/genoffice/patches.mjs', 'tools/genoffice/inject/**', 'tools/genoffice/shims/**') }}
 
-      - name: Редактор Flux Office
-        run: node tools/genoffice/build.mjs docs
+      # Движок Excel собирается cargo; на windows-latest Rust уже стоит
+      - name: Rust
+        run: rustup default stable
+
+      - name: Редакторы Flux Office
+        run: node tools/genoffice/build.mjs all
 
       - name: Сборка фронтенда и сервера
         run: npm run build

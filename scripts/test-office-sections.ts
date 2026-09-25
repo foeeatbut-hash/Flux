@@ -30,7 +30,8 @@ console.log('1. Семья Flux Office собрана из четырёх про
   const titles = OFFICE_PATHS.map((p) => sectionForPath(p).title);
   check('в семье четыре программы', OFFICE_PATHS.length === 4, OFFICE_PATHS);
   check('и все они существуют', OFFICE_PATHS.every((p) => isKnownSection(p)), titles);
-  check('имена в одно слово', titles.join(', ') === 'Таблица, Документ, Блокнот, Просмотр', titles);
+  // Просмотр стал редактором PDF (GenOffice): теперь он называется по формату
+  check('имена в одно слово', titles.join(', ') === 'Таблица, Документ, Блокнот, PDF', titles);
   check('семья названа латиницей', OFFICE_TITLE === 'Flux Office', OFFICE_TITLE);
 
   const sheet = sectionForPath('/sheet');

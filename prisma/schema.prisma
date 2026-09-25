@@ -1014,6 +1014,20 @@ model FileVersion {
   @@index([fileId, version])
 }
 
+/// Прежнее замечание Просмотра перенесено в сам PDF (Flux Office). Строка
+/// PdfMarkup при этом остаётся — для отката и истории; эта отметка только
+/// говорит «второй раз не переносить»
+model PdfMarkupTransfer {
+  markupId      String   @id
+  fileId        String
+  /// Хеш файла после записи, в которую ушло замечание
+  sha256        String   @default("")
+  transferredById String?
+  transferredAt DateTime @default(now())
+
+  @@index([fileId])
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Обращения сотрудников: «Замечания и предложения»
 //

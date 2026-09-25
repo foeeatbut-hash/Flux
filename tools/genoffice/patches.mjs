@@ -32,6 +32,102 @@ export const PATCHES = [
     find: "  const isProtected =\n    writeLocked ||\n",
     replace: "  const isProtected =\n    fluxReadOnly ||\n    writeLocked ||\n",
   },
+  // ── Одновременная правка (tools/genoffice/inject/docs-collab.ts) ──
+  {
+    // Модулю совместной правки нужен контекст файла: значения и сеттеры
+    // состояния вне тела документа
+    id: 'flux-ctx-expose',
+    file: 'apps/docs/src/renderer/App.tsx',
+    find: "  const fileCtxRef = useRef<FileActionContext>(null as unknown as FileActionContext)\n",
+    replace: "  const fileCtxRef = useRef<FileActionContext>(null as unknown as FileActionContext)\n" +
+      "  ;(window as any).__fluxCtxRef = fileCtxRef\n",
+  },
+  {
+    id: 'flux-undo-import',
+    file: 'apps/docs/src/renderer/editor/extensions.ts',
+    find: "import { Gapcursor, UndoRedo } from '@tiptap/extensions'\n",
+    replace: "import { Gapcursor, UndoRedo } from '@tiptap/extensions'\n" +
+      "import { FluxUndoRedo } from '../flux/docs-collab'\n",
+  },
+  {
+    // Отмена в сеансе — своя у каждого (Yjs), а не общая история документа
+    id: 'flux-undo-main',
+    file: 'apps/docs/src/renderer/editor/extensions.ts',
+    find: "  UndoRedo,\n  SearchHighlightExtension,",
+    replace: "  FluxUndoRedo,\n  SearchHighlightExtension,",
+  },
+  {
+    // В сеансе файл после записи не перечитывается: перечитывание заменило
+    // бы документ у всех участников и сменило исходник сеанса
+    id: 'flux-no-reparse',
+    file: 'apps/docs/src/renderer/file-actions.ts',
+    find: "    // parse before the identity check: a document opened during this await must not be rewritten\n",
+    replace: "    // Flux Office: в сеансе совместной правки файл не перечитывается (tools/genoffice/patches.mjs)\n" +
+      "    if ((globalThis as any).__fluxCollab?.active) {\n" +
+      "      ctx.setStatus(auto ? t('appAutoSavedAt', { time: new Date().toLocaleTimeString() }) : t('appSaved'))\n" +
+      "      return true\n" +
+      "    }\n" +
+      "    // parse before the identity check: a document opened during this await must not be rewritten\n",
+  },
+  // Правка соавтора — не своя: не записывается исправлением и не вызывает
+  // у каждого участника одну и ту же доправку (иначе абзац после таблицы
+  // появился бы столько раз, сколько людей в файле)
+  {
+    id: 'flux-remote-no-track',
+    file: 'apps/docs/src/renderer/editor/revisions.ts',
+    find: "            (t) => t.docChanged && !t.getMeta(TRACK_IGNORE) && !t.getMeta('history$'),\n",
+    replace: "            (t) => t.docChanged && !t.getMeta(TRACK_IGNORE) && !t.getMeta('history$') && !(t.getMeta('y-sync$') as any)?.isChangeOrigin,\n",
+  },
+  {
+    id: 'flux-remote-table-trailing',
+    file: 'apps/docs/src/renderer/editor/extensions.ts',
+    find: "          if (!transactions.some((tr) => tr.docChanged)) return null\n          // undo/redo restore what the user had; appending would also wipe the redo stack\n",
+    replace: "          if (!transactions.some((tr) => tr.docChanged)) return null\n" +
+      "          if (transactions.some((tr) => (tr.getMeta('y-sync$') as any)?.isChangeOrigin)) return null\n" +
+      "          // undo/redo restore what the user had; appending would also wipe the redo stack\n",
+  },
+  {
+    id: 'flux-remote-direction',
+    file: 'apps/docs/src/renderer/editor/direction.ts',
+    find: "          if (!transactions.some((tr) => tr.docChanged)) return null\n          // rewriting the paragraph DOM mid-composition would break the IME\n",
+    replace: "          if (!transactions.some((tr) => tr.docChanged)) return null\n" +
+      "          if (transactions.some((tr) => (tr.getMeta('y-sync$') as any)?.isChangeOrigin)) return null\n" +
+      "          // rewriting the paragraph DOM mid-composition would break the IME\n",
+  },
+  {
+    id: 'flux-remote-caret-marks',
+    file: 'apps/docs/src/renderer/editor/caret-marks.ts',
+    find: "        appendTransaction: (transactions, oldState, newState) => {\n          const { selection, storedMarks, schema } = newState\n",
+    replace: "        appendTransaction: (transactions, oldState, newState) => {\n" +
+      "          if (transactions.some((tr) => (tr.getMeta('y-sync$') as any)?.isChangeOrigin)) return null\n" +
+      "          const { selection, storedMarks, schema } = newState\n",
+  },
+  {
+    id: 'flux-remote-format-off',
+    file: 'apps/docs/src/renderer/editor/marks.ts',
+    find: "        appendTransaction: (trs, oldState, state) => {\n          if (!trs.some((tr) => tr.docChanged || tr.storedMarksSet)) return null\n",
+    replace: "        appendTransaction: (trs, oldState, state) => {\n" +
+      "          if (!trs.some((tr) => tr.docChanged || tr.storedMarksSet)) return null\n" +
+      "          if (trs.some((tr) => (tr.getMeta('y-sync$') as any)?.isChangeOrigin)) return null\n",
+  },
+  // ── Таблица: одновременная правка (tools/genoffice/inject/sheets-collab.ts) ──
+  {
+    id: 'flux-sheets-collab-import',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "import { focusWorksheet } from './sheet-focus'\n",
+    replace: "import { focusWorksheet } from './sheet-focus'\n" +
+      "import './flux/sheets-collab'\n",
+  },
+  {
+    // Модулю совместной правки нужны Univer (мутации) и состояние книги
+    // (загружена ли целиком, перестраивается ли после записи)
+    id: 'flux-sheets-expose',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "    univerRef.current = runtime\n    // a throwing construction",
+    replace: "    univerRef.current = runtime\n" +
+      "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
+      "    // a throwing construction",
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */

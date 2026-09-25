@@ -26,6 +26,10 @@
   "exclude": [
     "node_modules",
     "dist",
-    "electron"
+    "electron",
+    "tools/genoffice/inject",
+    "tools/genoffice/shims",
+    "genoffice-server",
+    ".cache"
   ]
 }
