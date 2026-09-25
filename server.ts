@@ -29,6 +29,7 @@ import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
+import { registerPdfMarkupTransferRoutes } from './server/routes/pdfMarkupTransfer.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
@@ -1978,6 +1979,7 @@ registerOfficeFileRoutes(app, {
   mayWrite: mayWriteFile,
   holderOf: (fileId) => officeRooms.holder(fileId, Date.now()),
 });
+registerPdfMarkupTransferRoutes(app, { mayWrite: mayWriteFile }); // прежние замечания Просмотра → в сам PDF
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»

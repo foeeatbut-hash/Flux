@@ -87,6 +87,10 @@
       {
         "from": "prisma",
         "to": "prisma"
+      },
+      {
+        "from": "genoffice-server",
+        "to": "genoffice-server"
       }
     ],
     "directories": {

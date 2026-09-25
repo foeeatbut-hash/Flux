@@ -46,8 +46,6 @@ export interface ExplorerMenuProps {
   upload: () => void;
   paste: () => void;
   editCopy: (id: string) => void;
-  /** Новый Документ Flux Office — только тем, у кого право «Проба нового офиса» */
-  openNext?: (id: string) => void;
   toEquipment: (id: string) => void;
   attachVdr: (id: string) => void;
   download: (id: string) => void;
@@ -123,10 +121,6 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
                 <Item key={app.id} icon={<FolderOpen />} label={`Открыть в: ${app.name}`}
                   onClick={() => { p.openWith(app.href({ ...(target || {}), id }), app.id); p.onClose(); }} />
               ))}
-              {p.openNext && /\.docx$/i.test(target?.name || '') && (
-                <Item icon={<FileText />} label="Открыть в: Документ (проба)"
-                  onClick={() => { p.openNext!(id); p.onClose(); }} />
-              )}
               <Sep />
               {p.canEditInConstructor && (
                 <Item icon={<Grid3X3 />} label="Редактировать копию в Flux Office"

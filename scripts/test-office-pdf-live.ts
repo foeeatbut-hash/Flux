@@ -8,6 +8,9 @@
  *   - выделение и Ctrl+S пишут пометку в сам файл Flux (главный процесс
  *     GenOffice работает на сервере);
  *   - прежнее содержимое лежит в откате;
+ *   - прежние замечания Просмотра (PdfMarkup) предлагаются к переносу и
+ *     переносятся в сам файл одной кнопкой; строки в базе остаются, второй
+ *     раз не предлагаются (server/routes/pdfMarkupTransfer.ts);
  *   - закрытие окна убирает окно редактора на сервере;
  *   - ни одного запроса за пределы сервера Flux.
  *
@@ -54,6 +57,12 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
   const original = makePdf(['Flux PDF proba', 'Second line of the blank']);
   await call('POST', `/api/files/${id}/chunk`, { idx: 0, data: original.toString('base64') });
   await call('POST', `/api/files/${id}/done`, { count: 1 });
+  // Прежние замечания — так, как их ставил старый Просмотр: в базу, рядом с файлом
+  for (const m of [
+    { page: 1, kind: 'CLOUD', x: 0.1, y: 0.1, w: 0.3, h: 0.1, text: 'Нет отметки уровня' },
+    { page: 1, kind: 'ARROW', x: 0.5, y: 0.5, w: 0.2, h: 0.1 },
+    { page: 1, kind: 'NOTE', x: 0.6, y: 0.2, w: 0.05, h: 0.05, text: 'Уточнить у поставщика' },
+  ]) await call('POST', `/api/files/${id}/markups`, m);
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   try {
@@ -66,7 +75,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     await loginPage(page, BASE, LOGIN, process.env.THEME === 'dark');
 
     console.log('1. Открытие');
-    await page.goto(`${BASE}/#/office-pdf?file=${id}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${BASE}/#/pdf?file=${id}`, { waitUntil: 'domcontentloaded' });
     const fr = page.frameLocator('iframe[title="PDF Flux Office"]');
     const line = fr.locator('.textLayer span', { hasText: 'Flux PDF proba' }).first();
     ok('текст PDF виден', await line.waitFor({ timeout: 30000 }).then(() => true).catch(() => false));
@@ -85,8 +94,35 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     const versions = await call('GET', `/api/office/files/${id}/versions`);
     ok('прежнее содержимое — в откате', versions.json?.versions?.[0]?.sha256 === sha(original), versions.json);
 
-    console.log('\n3. Закрытие');
-    await page.getByRole('button', { name: 'Закрыть' }).last().click();
+    console.log('\n3. Прежние замечания Просмотра');
+    const bar = page.getByRole('status', { name: 'Прежние замечания' }).last();
+    ok('полоса о прежних замечаниях видна', await bar.waitFor({ timeout: 30000 }).then(() => true).catch(() => false));
+    ok('в ней их число', /3 прежних замечания/.test(await bar.innerText().catch(() => '')), await bar.innerText().catch(() => ''));
+    const shaBefore = sha((await call('GET', `/api/files/${id}/raw`)).buf);
+    const move = bar.getByRole('button', { name: 'Перенести в файл' });
+    ok('перенести может тот, кто правит', await until(() => move.isEnabled().catch(() => false), 20000));
+    await move.click();
+    const moved = await until(async () => {
+      const b = (await call('GET', `/api/files/${id}/raw`)).buf;
+      return sha(b) !== shaBefore && b.includes('/Square') && b.includes('/Text');
+    }, 30000);
+    ok('рамка, стрелка и записки — в самом файле', moved);
+    const raw = (await call('GET', `/api/files/${id}/raw`)).buf;
+    ok('стрелка — линией со стрелкой', raw.includes('/Line') || raw.includes('/LE'));
+    ok('пометка из шага 2 не пропала', raw.includes('/Highlight'));
+    const v2 = await call('GET', `/api/office/files/${id}/versions`);
+    ok('до переноса — в откате', (v2.json?.versions || []).some((v: any) => v.sha256 === shaBefore), v2.json);
+    ok('полоса ушла', await until(async () => !(await bar.isVisible().catch(() => false)), 15000));
+    ok('второй раз не предлагается', ((await call('GET', `/api/office/files/${id}/legacy-markups`)).json?.markups || []).length === 0);
+    ok('строки в базе остались', ((await call('GET', `/api/files/${id}/markups`)).json?.markups || []).length === 3);
+    await fr.locator('.textLayer span', { hasText: 'Flux PDF proba' }).first().waitFor({ timeout: 30000 }).catch(() => {});
+
+    console.log('\n4. Закрытие');
+    // Все окна PDF по очереди (прежнее окно рабочий стол мог восстановить)
+    for (let i = 0; i < 3 && await page.locator('iframe[title="PDF Flux Office"]').count(); i++) {
+      await page.getByRole('button', { name: 'Закрыть' }).last().click();
+      await page.waitForTimeout(1500);
+    }
     ok('окно закрылось, ничего не потеряв', await until(async () => !(await page.locator('iframe[title="PDF Flux Office"]').count()), 10000));
     ok('ни одного запроса за пределы сервера Flux', outside.length === 0, outside.slice(0, 5));
     await page.screenshot({ path: process.env.OUT || '/tmp/office-pdf.png' }).catch(() => {});

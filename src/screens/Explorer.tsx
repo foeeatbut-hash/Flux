@@ -2074,7 +2074,6 @@ export default function Explorer() {
           upload={() => fileInputRef.current?.click()}
           paste={handlePaste}
           editCopy={editCopyInConstructor}
-          openNext={can(user, 'office.next') ? (id) => navigate(`/office-doc?file=${encodeURIComponent(id)}`) : undefined}
           toEquipment={openImportPicker}
           attachVdr={setVdrAttachFileId}
           download={(id) => handleDownload(id, false)}

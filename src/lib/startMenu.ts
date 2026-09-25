@@ -13,6 +13,8 @@ export interface StartSource {
   adminOnly?: boolean;
   /** Раздел выдаётся по праву: без него его не видно нигде */
   feature?: string;
+  /** Открывается только с файлом (редакторы Word и Excel): в Пуске ему не место */
+  fileOnly?: boolean;
 }
 
 export interface StartGroup {
@@ -83,7 +85,7 @@ export function groupSections(
   query = '',
   can: (feature: string) => boolean = () => true,
 ): StartGroup[] {
-  const list = allowed(sections, isAdmin, can).filter((s) => matches(s.title, query));
+  const list = allowed(sections, isAdmin, can).filter((s) => !s.fileOnly && matches(s.title, query));
   const office = new Set(OFFICE_PATHS);
   // Порядок внутри семьи — тот, что записан в OFFICE_PATHS, а не тот, в каком
   // разделы объявлены: человек привыкает к месту значка

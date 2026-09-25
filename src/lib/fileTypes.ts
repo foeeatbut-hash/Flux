@@ -181,15 +181,27 @@ export const FILE_APPS: Record<string, FileApp> = {
     href: (f) => `${officePathOf(f)}?doc=${q(f.refId || f.id)}`,
   },
   pdf: {
-    id: 'pdf', name: 'Просмотр',
+    id: 'pdf', name: 'PDF Flux Office',
     path: () => '/pdf',
     href: (f) => `/pdf?file=${q(f.id)}`,
+  },
+  // Файл Word и книга Excel правятся сами по себе, в редакторах Flux Office:
+  // сохраняется тот же файл, со всем, что в нём было (docs/office-engine-choice.md)
+  word: {
+    id: 'word', name: 'Документ Flux Office',
+    path: () => '/office-doc',
+    href: (f) => `/office-doc?file=${q(f.id)}`,
+  },
+  excel: {
+    id: 'excel', name: 'Таблица Flux Office',
+    path: () => '/office-sheet',
+    href: (f) => `/office-sheet?file=${q(f.id)}`,
   },
   // Офисный файл, ещё не ставший документом: Flux Office разберёт его при
   // открытии и запомнит связь, чтобы второе открытие вело в тот же документ,
   // а не в новую копию
   office: {
-    id: 'office', name: 'Flux Office',
+    id: 'office', name: 'Конструктор Flux Office',
     path: (f) => officePathForName(f.name || ''),
     href: (f) => `${officePathForName(f.name || '')}?fromFile=${q(f.id)}`,
   },
@@ -228,6 +240,11 @@ export const isOffice = (f: FileLike): boolean => {
   return !!d && d.open && (d.face === 'sheet' || d.face === 'text');
 };
 
+/** Файл, который правит Документ Flux Office (GenOffice): только .docx */
+export const isWordFile = (f: FileLike): boolean => /\.docx$/i.test(String(f.name || ''));
+/** Книга, которую правит Таблица Flux Office: .xlsx и .xlsm (макросы сохраняются как есть) */
+export const isExcelFile = (f: FileLike): boolean => /\.xls[xm]$/i.test(String(f.name || ''));
+
 /** Документ Flux Office — это ссылка на документ, а не файл на диске */
 export const isConstructorDoc = (f: FileLike): boolean =>
   !!f.refId || f.type === 'CONSTRUCTOR';
@@ -241,6 +258,10 @@ export function appsFor(f: FileLike): FileApp[] {
   if (isPdf(f)) return [FILE_APPS.pdf, FILE_APPS.explorer];
   // Офисный файл открывается редактором, а не предпросмотром. Предпросмотр
   // остаётся вторым пунктом: иногда человеку нужно просто посмотреть
+  // Word и Excel — в своих редакторах, прямо в файле. Конструктор остаётся
+  // вторым пунктом: в нём данные проекта и умные блоки
+  if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.office, FILE_APPS.explorer];
+  if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.office, FILE_APPS.explorer];
   if (isOffice(f)) return [FILE_APPS.office, FILE_APPS.explorer];
   // Картинку и текст показывает предпросмотр, и этого достаточно. Всё
   // остальное — чертёж САПР, архив, модель — отдаём Windows: у неё для этого

@@ -20,6 +20,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Empty } from '../components/ui';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import OfficePresence from '../components/collab/OfficePresence';
+import LegacyMarkupBar from '../components/collab/LegacyMarkupBar';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -268,6 +269,10 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
         <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
           {failure}
         </div>
+      )}
+      {app === 'pdf' && phase === 'ready' && (
+        <LegacyMarkupBar fileId={fileId} canWrite={room.mode === 'edit' || room.mode === 'alone'} unsaved={() => dirty.current}
+          onDone={(message, ok) => { addToast(message, ok ? 'success' : 'error'); if (ok) reopenRef.current(); }} />
       )}
       <div className="relative min-h-0 flex-1">
         <iframe key={`${fileId}:${frameKey}`} ref={frame} src={`genoffice/${app}/index.html`} title={TITLES[app]}

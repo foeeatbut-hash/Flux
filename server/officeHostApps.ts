@@ -196,3 +196,27 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
 
 /** Проверкам: сколько окон открыто сейчас */
 export const openSessions = (): number => sessions.size;
+
+/**
+ * Одна правка файла родным главным процессом, без окна редактора: файл — во
+ * временный каталог, вызов, байты обратно. Так прежние замечания Просмотра
+ * переносятся в PDF тем же кодом, каким редактор пишет свои пометки
+ */
+export async function transformWithHost(app: HostApp, bytes: Buffer, name: string, channel: string, args: (path: string) => unknown[]): Promise<Buffer> {
+  const h = host(app);
+  const dir = await mkdtemp(join(tmpdir(), 'flux-office-'));
+  const path = join(dir, safeName(name));
+  let id = 0;
+  try {
+    await writeFile(path, bytes);
+    id = h.open(path);
+    const result = await h.invoke(id, channel, args(path));
+    if (result && typeof result === 'object' && (result.ok === false || result.canceled)) {
+      throw new Error(String(result.error || 'Редактор не записал файл'));
+    }
+    return await readFile(path);
+  } finally {
+    if (id) { try { h.close(id); } catch (_) {} }
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

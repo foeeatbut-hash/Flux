@@ -75,12 +75,19 @@ console.log('Адреса');
   check('текстовый документ открывает «Документ», а не «Таблицу»',
     openHref({ id: 'f4', refId: 'doc-9', filePath: '/doc/doc-9' }) === '/doc?doc=doc-9',
     openHref({ id: 'f4', refId: 'doc-9', filePath: '/doc/doc-9' }));
-  check('принесённая книга открывается Таблицей',
-    openHref({ id: 'f9', name: 'Смета.xlsx' }) === '/sheet?fromFile=f9',
+  // Книга и ворд правятся сами по себе, в редакторах Flux Office (GenOffice)
+  check('принесённая книга открывается Таблицей Flux Office, прямо в файле',
+    openHref({ id: 'f9', name: 'Смета.xlsx' }) === '/office-sheet?file=f9',
     openHref({ id: 'f9', name: 'Смета.xlsx' }));
-  check('принесённый ворд — Документом',
-    openHref({ id: 'f9', name: 'Записка.docx' }) === '/doc?fromFile=f9',
+  check('книга с макросами — тоже',
+    openHref({ id: 'f9', name: 'Расчёт.xlsm' }) === '/office-sheet?file=f9',
+    openHref({ id: 'f9', name: 'Расчёт.xlsm' }));
+  check('принесённый ворд — Документом Flux Office',
+    openHref({ id: 'f9', name: 'Записка.docx' }) === '/office-doc?file=f9',
     openHref({ id: 'f9', name: 'Записка.docx' }));
+  check('старая книга .xls — Конструктором, как прежде',
+    openHref({ id: 'f9', name: 'Старая.xls' }) === '/sheet?fromFile=f9',
+    openHref({ id: 'f9', name: 'Старая.xls' }));
   check('в Проводнике открывается вместе с папкой',
     openHref({ id: 'f6', folderId: 'd2' }) === '/explorer?file=f6&folder=d2');
   check('без папки — просто файлом',
@@ -101,8 +108,10 @@ console.log('Двойное нажатие всегда что-то делает
   }
   // А у того, что открывается своей программой, чужой в списке быть не должно
   check('книга открывается своей программой, а не Windows',
-    appsFor({ id: 'x', name: 'Смета.xlsx' })[0].id === 'office');
-  check('чертёж ПДФ — «Просмотром»', appsFor({ id: 'x', name: 'АР.pdf' })[0].id === 'pdf');
+    appsFor({ id: 'x', name: 'Смета.xlsx' })[0].id === 'excel');
+  check('Конструктор остаётся в «Открыть с помощью»',
+    appsFor({ id: 'x', name: 'Смета.xlsx' }).some((a) => a.id === 'office'));
+  check('чертёж ПДФ — редактором PDF', appsFor({ id: 'x', name: 'АР.pdf' })[0].id === 'pdf');
 }
 
 console.log('Список программ опрятен');
