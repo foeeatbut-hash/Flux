@@ -35,18 +35,29 @@ export function fileIdOf(path: unknown): string {
 }
 
 /**
+ * Страница открыта с диска.
+ *
+ * Своего адреса у неё нет, но записывают это по-разному: Chromium — строкой
+ * 'null', Electron (портативная сборка) — 'file://'. Проверка знала только
+ * 'null', и в exe окно слало редактору письма «на адрес file://», которые
+ * браузер молча не доставляет: редактор не получал ни одного ответа, окно не
+ * слышало его приветствия и через 15 секунд писало «Редактор не установлен».
+ * То же правило — в мостах внутри фрейма (tools/genoffice/*.js).
+ */
+export const diskOrigin = (origin: string): boolean => !origin || origin === 'null' || origin === 'file://';
+
+/**
  * Кому отправлять.
  *
- * С сервера — только своему адресу. Портативная сборка открывается с диска, у
- * такой страницы адреса нет (origin — 'null'), и тогда адресат задаётся самим
- * окном фрейма, а '*' — единственное, что браузер принимает.
+ * С сервера — только своему адресу. С диска адреса нет, и тогда адресат
+ * задаётся самим окном фрейма, а '*' — единственное, что браузер принимает.
  */
-export const targetOrigin = (origin: string): string => (origin === 'null' || !origin ? '*' : origin);
+export const targetOrigin = (origin: string): string => (diskOrigin(origin) ? '*' : origin);
 
 /** Пришло ли сообщение от своего: то же окно и тот же адрес */
 export function fromOwnFrame(source: unknown, frame: unknown, origin: string, own: string): boolean {
   if (!frame || source !== frame) return false;
-  if (own === 'null' || !own) return origin === 'null' || origin === 'file://';
+  if (diskOrigin(own)) return origin === 'null' || origin === 'file://';
   return origin === own;
 }
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { usePresenceStore } from '../store/presenceStore';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
@@ -43,7 +43,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const { addToast } = useToastStore();
   const userId = useStore((s) => s.user?.id);
+  /**
+   * Переход — через ссылку, а не зависимостью эффекта.
+   *
+   * useNavigate отдаёт новую функцию при каждой смене адреса, а адрес
+   * меняется при каждом открытом окне. Пока navigate стоял в зависимостях,
+   * сокет пересоздавался на любое открытие файла или раздела: в журнале
+   * обращения — 16 разрывов за три минуты, и на каждом «кто в сети» гас и
+   * события, пришедшие в разрыв, терялись
+   */
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   /**
    * Токен в зависимостях, а не только идентификатор человека.
    *
@@ -225,7 +236,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         () => {
           localStorage.setItem('focusedConflictId', data.componentId);
           localStorage.setItem('focusedConflictSystemId', data.systemId);
-          navigate('/equipment');
+          navigateRef.current('/equipment');
         }
       );
     };
@@ -311,7 +322,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       useChatStore.getState().unbindSocket(activeSocket);
       activeSocket.disconnect();
     };
-  }, [addToast, navigate, userId, token]);
+  }, [addToast, userId, token]);
 
   const emitTagChange = (type: 'linked' | 'updated', tagId: string, details?: any) => {
     if (!socket) return;

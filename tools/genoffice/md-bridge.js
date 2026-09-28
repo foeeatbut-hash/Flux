@@ -24,8 +24,11 @@
   var parentWin = window.parent;
   var origin = window.location.origin;
   if (!parentWin || parentWin === window) return;
-  var target = origin === 'null' ? '*' : origin;
-  var sameOrigin = function (o) { return origin === 'null' ? o === 'null' || o === 'file://' : o === origin; };
+  // С диска Chromium пишет origin строкой 'null', а Electron — 'file://':
+  // оба значат «адреса нет» (src/lib/officeBridge.ts, diskOrigin)
+  var disk = origin === 'null' || origin === 'file://';
+  var target = disk ? '*' : origin;
+  var sameOrigin = function (o) { return disk ? o === 'null' || o === 'file://' : o === origin; };
 
   var seq = 0;
   var waiting = {};
