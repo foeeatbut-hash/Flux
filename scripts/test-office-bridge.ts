@@ -40,6 +40,15 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   ok('с диска: адрес сайта — нет', !fromOwnFrame(frame, frame, 'https://example.com', 'null'));
   ok('адресат: с сервера — свой адрес', targetOrigin('http://localhost:3000') === 'http://localhost:3000');
   ok('адресат: с диска — «*»', targetOrigin('null') === '*');
+  // Electron (портативная сборка) пишет адрес страницы с диска как 'file://',
+  // а не 'null': письмо «на адрес file://» не доставляется, и редактор молчал
+  ok('адресат: с диска в Electron — «*»', targetOrigin('file://') === '*');
+  ok('с диска в Electron: свой фрейм', fromOwnFrame(frame, frame, 'file://', 'file://'));
+  ok('с диска в Electron: адрес сайта — нет', !fromOwnFrame(frame, frame, 'https://example.com', 'file://'));
+  for (const f of ['tools/genoffice/flux-bridge.js', 'tools/genoffice/md-bridge.js', 'tools/genoffice/shims/electron-renderer.js']) {
+    const src = readFileSync(f, 'utf8');
+    ok(`${f.split('/').pop()}: 'file://' считается диском`, /disk = origin === 'null' \|\| origin === 'file:\/\/'/.test(src) && /disk \? '\*'/.test(src));
+  }
   ok('сообщение узнаётся', isOfficeMsg({ flux: 'office', op: 'save' }) && !isOfficeMsg({ op: 'save' }) && !isOfficeMsg(null));
 
   console.log('\n3. Хеш и имя копии');

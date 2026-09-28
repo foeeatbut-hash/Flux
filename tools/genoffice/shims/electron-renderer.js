@@ -13,8 +13,12 @@
  */
 const parentWin = window.parent;
 const origin = window.location.origin;
-const target = origin === 'null' ? '*' : origin;
-const sameOrigin = (o) => (origin === 'null' ? o === 'null' || o === 'file://' : o === origin);
+// С диска Chromium пишет origin строкой 'null', а Electron — 'file://': оба
+// значат «адреса нет». Письма «на адрес file://» браузер не доставляет, и в
+// exe окно не слышало редактора вовсе (src/lib/officeBridge.ts, diskOrigin)
+const disk = origin === 'null' || origin === 'file://';
+const target = disk ? '*' : origin;
+const sameOrigin = (o) => (disk ? o === 'null' || o === 'file://' : o === origin);
 
 let seq = 0;
 const waiting = new Map();
