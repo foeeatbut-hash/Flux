@@ -204,7 +204,7 @@ export default function VdrPanel() {
 
   const exportXlsx = async () => {
     if (!register) return;
-    const r = await fetch(`/api/vdr/registers/${register.id}/export`);
+    const r = await fetch(`/api/vdr/registers/${register.id}/export`, { method: 'POST' });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d?.id) { addToast(d?.error || 'Ошибка экспорта', 'error'); return; }
     // Книгу собирает сервер и сам кладёт её файлом во Flux (officeStore) —

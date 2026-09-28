@@ -883,7 +883,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   });
 
   // ── Экспорт ВДР в Excel (формат заказчика: Titular + Accounting + Register) ──
-  app.get('/api/vdr/registers/:id/export', async (req: Request, res: Response) => {
+  app.post('/api/vdr/registers/:id/export', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
       const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
