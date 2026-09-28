@@ -206,10 +206,6 @@ const LEGACY: Record<string, number> = {
   'src/screens/DictionaryEditor.tsx': 2208,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
-  // Приветствие уехало туда же (assistant/greeting), но файл всё равно чуть
-  // выше планки: поднимать её не за что, живём в допуске
-  'src/store/assistantStore.ts': 1246,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
 const all = [...SRC, ...ELECTRON, ...SHARED, ...walk('server'), ...walk('scripts'), 'server.ts'];
