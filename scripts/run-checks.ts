@@ -45,8 +45,11 @@ const shared = (f: string) => f.includes('live') || SHARED.test(readFileSync(`sc
 const chain = files.filter(shared);
 const free = files.filter((f) => !chain.includes(f));
 
-const serverUp = spawnSync('curl', ['-s', '-o', '/dev/null', '-m', '2', 'localhost:3000/api/health']).status === 0;
-if (chain.length && !serverUp) console.log('Сервер на :3000 не отвечает — наборы, которым он нужен, упадут.\n');
+// Наборы берут адрес сервера из FLUX_API — второй сервер (своя рабочая копия,
+// порт 3101) проверяется так же, как основной
+const BASE = process.env.FLUX_API || 'http://localhost:3000';
+const serverUp = spawnSync('curl', ['-s', '-o', '/dev/null', '-m', '2', `${BASE}/api/health`]).status === 0;
+if (chain.length && !serverUp) console.log(`Сервер на ${BASE} не отвечает — наборы, которым он нужен, упадут.\n`);
 
 const TSX = 'node_modules/.bin/tsx';
 const TIMEOUT = 15 * 60_000;
