@@ -1,0 +1,10 @@
+# Что поиск (ripgrep, а с ним Grep и Glob в Claude Code) пропускает, хотя оно
+# лежит в репозитории. Зачем: одна строка минифицированного tesseract — это
+# 3,8 МБ, и случайное совпадение в ней съедает контекст целиком. В git эти
+# файлы остаются; искать в них нарочно — `rg -uu` или прямой путь.
+public/ocr/
+public/dict/
+package-lock.json
+data/*.db
+prisma/prisma/*.sqlite
+docs/stand/**/shots/
