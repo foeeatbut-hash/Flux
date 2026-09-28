@@ -27,7 +27,7 @@ import {
   blockFingerprint, cleanQuery, projectFingerprint, resolveValue, runQuery, saveProjectAliases, type ProjectQuery,
 } from '../projectSlice.js';
 import { projectOfFile, resolveKeys, searchProject, signersOf, setSigner } from '../projectFields.js';
-import { listDocxFields, listXlsxAnchors, updateDocxFields, updateXlsxFields, writeXlsxBlock, type FieldValue } from '../officeFields.js';
+import { fillDocxMarkers, listDocxMarkers, listDocxFields, listXlsxAnchors, updateDocxFields, updateXlsxFields, writeXlsxBlock, type FieldValue } from '../officeFields.js';
 
 export interface ProjectDataDeps {
   /** Можно ли этому человеку писать в файл: '' — да, иначе — почему нет */
@@ -546,8 +546,16 @@ export function registerProjectDataRoutes(app: Express, deps: ProjectDataDeps): 
       const prisma = getPrisma();
       const file = await prisma.fileNode.findUnique({ where: { id: fileId } });
       if (!file || !(await seesFile(req, fileId))) return res.status(404).json({ error: 'Файл не найден' });
-      if (officeRooms.roster(fileId).peers.length) {
-        return res.status(423).json({ error: 'Файл открыт в редакторе — обновите поля в его окне: «Данные проекта» → «Обновить поля»' });
+      // Открытый файл обновляется только из его же окна и только если в нём
+      // никого, кроме этого человека: окно перед запросом записывает свои
+      // правки, а после — открывает файл заново. Запись в обход чужого окна
+      // спорила бы с тем, что видит другой
+      const me = String((req as any).authUser?.id || '');
+      const peers = officeRooms.roster(fileId).peers;
+      if (peers.length && !(req.body?.fromEditor === true && peers.every((p) => p.userId === me))) {
+        return res.status(423).json({ error: peers.some((p) => p.userId !== me)
+          ? 'Файл сейчас открыт у других — поля обновятся, когда они закроют его'
+          : 'Файл открыт в редакторе — обновите поля в его окне: «Данные проекта» → «Обновить поля»' });
       }
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
@@ -559,6 +567,12 @@ export function registerProjectDataRoutes(app: Express, deps: ProjectDataDeps): 
       const report: { changed: any[]; skipped: any[]; blocks: string[] } = { changed: [], skipped: [], blocks: [] };
       const built: { id: string; fingerprint: string }[] = [];
       if (kind === 'docx') {
+        // Метки {{ключ}}, вставленные панелью или набранные руками, — сначала в поля
+        const marks = await listDocxMarkers(bytes);
+        if (marks.length) {
+          const m = await fillDocxMarkers(bytes, await resolveKeys(marks, { projectId, fileId }));
+          bytes = m.bytes; report.changed.push(...m.changed); report.skipped.push(...m.skipped);
+        }
         const keys = (await listDocxFields(bytes)).map((f) => f.key);
         const r = await updateDocxFields(bytes, await resolveKeys(keys, { projectId, fileId }));
         bytes = r.bytes; report.changed.push(...r.changed); report.skipped.push(...r.skipped);

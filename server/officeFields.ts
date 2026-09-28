@@ -186,6 +186,21 @@ export async function updateDocxFields(bytes: Buffer, values: Record<string, Fie
   return report;
 }
 
+/** Ключи меток {{ключ}}, набранных в тексте: их «Обновить поля» превращает в поля */
+export async function listDocxMarkers(bytes: Buffer): Promise<string[]> {
+  const zip = await loadZip(bytes);
+  const keys = new Set<string>();
+  for (const name of Object.keys(zip.files)) {
+    if (!DOCX_PART.test(name)) continue;
+    const xml = await zip.file(name)!.async('string');
+    if (!xml.includes('{{')) continue;
+    for (const t of xml.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)) {
+      for (const m of unesc(t[1]).matchAll(/\{\{\s*([^{}"\\]+?)\s*\}\}/g)) keys.add(m[1]);
+    }
+  }
+  return [...keys];
+}
+
 /**
  * Метки {{ключ}} в тексте — в поля. Так шаблон, набранный в Word, получает
  * поля Flux без ручной вставки каждого: «Шифр {{project.code}}».

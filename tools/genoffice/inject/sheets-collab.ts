@@ -184,4 +184,38 @@ async function start(): Promise<void> {
   link.send('flux:x-ready', key)
 }
 
+/** «B3» → «$B$3»: имя поля держится за ячейку, а не сдвигается с формулой */
+const absolute = (a1: string): string => a1.replace(/^([A-Z]+)(\d+)$/i, (_m, c, r) => `$${c.toUpperCase()}$${r}`)
+
+/**
+ * Панель «Данные проекта»: значение — в выделенную ячейку, и на ней имя
+ * FLUX_<ключ>. По имени «Обновить поля» потом находит ячейку в файле
+ * (server/officeFields.ts), сколько бы строк ни вставили выше. Работает и в
+ * личной книге, где совместной правки нет, — поэтому отдельно от start()
+ */
+async function fields(): Promise<void> {
+  const link = ipc()
+  if (!link) return
+  while (!workbook()) await new Promise((r) => setTimeout(r, 300))
+  link.on('flux:insert-field', (_e, m: { name?: string; value?: unknown }) => {
+    const wb = workbook()
+    let result: { ok: boolean; cell?: string; error?: string } = { ok: false, error: 'Книга не готова' }
+    try {
+      const cell = wb?.getActiveCell?.() || wb?.getActiveRange?.()
+      const sheet = wb?.getActiveSheet?.()
+      if (!wb || !cell || !sheet || !m?.name) result = { ok: false, error: 'Выделите ячейку, куда поставить значение' }
+      else {
+        const a1 = String(cell.getA1Notation()).split(':')[0]
+        cell.setValue(m.value ?? '')
+        const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
+        try { wb.deleteDefinedName?.(m.name) } catch { /* имени не было */ }
+        wb.insertDefinedName(m.name, ref)
+        result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
+      }
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    link.send('flux:field-inserted', result)
+  })
+}
+
 void start()
+void fields()
