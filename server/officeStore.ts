@@ -97,6 +97,8 @@ export interface NewFile { id: string; name: string; sha256: string; size: numbe
  */
 export async function createFileFromBytes(a: {
   name: string; body: Buffer; home: FileHome; userId: string; chunkBytes: number; type?: string; refId?: string | null;
+  /** Ревизия бланка/книги — в карточку файла, чтобы её было видно в Проводнике без открытия */
+  revision?: string;
 }): Promise<NewFile> {
   const prisma = getPrisma();
   const siblings = await prisma.fileNode.findMany({
@@ -112,6 +114,7 @@ export async function createFileFromBytes(a: {
         department: a.home.department || 'Unassigned', scope: a.home.scope, ownerId: a.home.ownerId,
         folderId: a.home.folderId, createdById: a.userId, updatedById: a.userId,
         ...(a.refId ? { refId: a.refId } : {}),
+        ...(a.revision ? { revision: a.revision } : {}),
       },
     });
     for (let i = 0, idx = 0; i < a.body.length; i += step, idx++) {

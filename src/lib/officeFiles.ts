@@ -27,14 +27,21 @@ const activeProjectId = (): string => {
   try { return String((useStore.getState() as any).activeProject?.id || ''); } catch { return ''; }
 };
 
-/** Положить байты новым файлом. Имя — желаемое: занятое сервер дополнит «(2)» */
-export async function saveNewFile(bytes: ArrayBuffer | Uint8Array | Blob, name: string, target: FileTarget = 'exports'): Promise<SavedFile> {
+/**
+ * Положить байты новым файлом. Имя — желаемое: занятое сервер дополнит «(2)».
+ * `revision` — необязательная ревизия в карточку файла (бланки заказа, ВДР):
+ * по ней в Проводнике видно выпуск, не открывая книгу
+ */
+export async function saveNewFile(
+  bytes: ArrayBuffer | Uint8Array | Blob, name: string, target: FileTarget = 'exports', revision?: string,
+): Promise<SavedFile> {
   const q = new URLSearchParams({ name });
   if (typeof target === 'string') q.set('where', target);
   else if ('section' in target) { q.set('where', 'section'); q.set('scope', target.section); }
   else { q.set('where', 'folder'); q.set('folderId', target.folderId); }
   const project = activeProjectId();
   if (project) q.set('projectId', project);
+  if (revision) q.set('revision', revision);
   const body = bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart]);
   const res = await fetch(`/api/office/files/new?${q}`, {
     method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body,

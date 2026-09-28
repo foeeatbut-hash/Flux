@@ -8,22 +8,17 @@
  * колонтитулы. Грузится лениво: он нужен только в момент выгрузки.
  */
 import type { SheetGrid, CellStyle } from '../../catalog/blank/model';
-import { toBase64 } from './saveToWindows';
-import { ENV_CONFIG } from '../config/env';
+import { saveNewFile, type SavedFile } from './officeFiles';
 
 /**
- * Готовый файл → Проводник. Ревизия пишется в карточку файла: по ней в
- * Проводнике видно, какой выпуск комплекта лежит, не открывая книгу.
+ * Готовый файл → общий Проводник (корень раздела «Общий», как и раньше).
+ * Ревизия пишется в карточку файла: по ней видно, какой выпуск комплекта
+ * лежит, не открывая книгу. Раньше содержимое уходило одним JSON-полем на
+ * старый эндпоинт `/files` (предел 50 МБ, без кусков) — теперь тем же общим
+ * путём, что и остальные выгрузки Flux
  */
-export async function bytesToExplorer(name: string, bytes: Uint8Array, type: 'XLSX' | 'PDF', revision?: string, userId?: string | null): Promise<string | null> {
-  const res = await fetch(`${ENV_CONFIG.apiUrl}/files`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, filePath: `/shared/${name}`, size: bytes.length, type, content: toBase64(bytes), createdById: userId || null, ...(revision ? { revision } : {}) }),
-  });
-  if (!res.ok) throw new Error(`Сервер ответил ${res.status}`);
-  const d = await res.json().catch(() => ({}));
-  return d?.id || d?.file?.id || null;
+export async function bytesToExplorer(name: string, bytes: Uint8Array, _type: 'XLSX' | 'PDF', revision?: string): Promise<SavedFile> {
+  return saveNewFile(bytes, name, { section: 'SHARED' }, revision);
 }
 
 const PAPER: Record<string, number> = { A4: 9, A3: 8 };
