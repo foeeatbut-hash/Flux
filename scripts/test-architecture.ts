@@ -205,8 +205,6 @@ const LEGACY: Record<string, number> = {
   'src/screens/DictionaryEditor.tsx': 2208,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  // Выбор оболочки ушёл вместе с панелями и левым меню — планка ниже
-  'src/screens/SettingsScreen.tsx': 1494,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
   // Приветствие уехало туда же (assistant/greeting), но файл всё равно чуть
   // выше планки: поднимать её не за что, живём в допуске
