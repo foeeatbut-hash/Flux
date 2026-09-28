@@ -205,9 +205,6 @@ const LEGACY: Record<string, number> = {
   'src/screens/DictionaryEditor.tsx': 2208,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  // Библиотека уехала в components/office/DocLibrary, тип и дата документа —
-  // в lib/officeDocs: планка ниже
-  'src/screens/ConstructorScreen.tsx': 1789,
   // Выбор оболочки ушёл вместе с панелями и левым меню — планка ниже
   'src/screens/SettingsScreen.tsx': 1494,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
@@ -228,6 +225,26 @@ for (const file of all) {
 }
 const gone = Object.keys(LEGACY).filter((p) => !all.includes(p));
 ok('в списке крупных файлов нет исчезнувших путей', gone.length === 0, gone);
+
+console.log('7а. Старые редакторы не возвращаются');
+// С 1.17 документы — настоящие файлы, их правят редакторы Flux Office
+// (GenOffice во фрейме). Старые Таблица/Документ/Просмотр на Univer, записи
+// ConstructorDoc и адреса «?doc=» удалены целиком; вернуть их по ошибке —
+// значит снова получить две правды об одном документе
+const BANNED: Array<[string, RegExp]> = [
+  ['импорт движка Univer', /from\s+['"]@univerjs\//],
+  ['маршрут старого Конструктора', /['"`]\/api\/constructor\//],
+  ['адрес записи Конструктора ?doc=', /[?&]doc=\$\{/],
+  ['разбор файла в запись Конструктора ?fromFile=', /[?&]fromFile=\$\{/],
+  ['экран старого редактора', /\b(ConstructorScreen|TextDocEditor|PdfEditor|TitleTemplateEditor)\b/],
+  ['чтение записей ConstructorDoc', /prisma\.constructorDoc\b|\.constructorDoc\./],
+];
+const banHits: string[] = [];
+for (const file of [...SRC, ...ELECTRON, ...SHARED, ...walk('server'), 'server.ts']) {
+  const body = read(file);
+  for (const [what, re] of BANNED) if (re.test(body)) banHits.push(`${file}: ${what}`);
+}
+ok('в коде нет старых редакторов и их адресов', banHits.length === 0, banHits);
 
 // ── Палитра ────────────────────────────────────────────────────────────────
 // В программе объявлены зелёный акцент и три смысловых цвета: янтарный —
@@ -447,14 +464,14 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 88,
+    'жирный 700 (font-bold/extrabold/black)': 34,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
-    'курсив (italic)': 19,
+    'курсив (italic)': 2,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
-    'крупная тень (shadow-lg/xl/2xl)': 56,
-    'половинные оттенки (slate-503, emerald-995…)': 553,
+    'крупная тень (shadow-lg/xl/2xl)': 38,
+    'половинные оттенки (slate-503, emerald-995…)': 470,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   const PATTERNS: Record<string, RegExp> = {

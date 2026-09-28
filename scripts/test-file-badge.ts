@@ -52,7 +52,7 @@ console.log('Один значок во всех местах');
   // снова разойдутся, как разошлись пять прежних
   const places = [
     'src/components/desktop/DeskIcon.tsx', 'src/components/explorer/FileItems.tsx',
-    'src/components/StartMenu.tsx', 'src/components/office/RecentDocsPanel.tsx',
+    'src/components/StartMenu.tsx', 'src/screens/OfficeHome.tsx',
     'src/components/insight/parts.tsx', 'src/components/explorer/ExplorerMenu.tsx',
   ];
   for (const p of places) check(`${p} берёт FileBadge`, /import FileBadge from/.test(readFileSync(p, 'utf8')));

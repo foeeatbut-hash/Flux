@@ -8,7 +8,6 @@ import {
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
-import { officePathForKind } from '../lib/fileTypes';
 import { editorHref } from '../lib/officeFiles';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
@@ -176,13 +175,6 @@ export default function VdrPanel() {
     );
     addToast(`Заполнено английских названий: ${done.length} из ${empty.length}. Прочитайте их перед выпуском`, 'success');
     await refresh();
-  };
-
-  const createDoc = async (it: Item) => {
-    const r = await fetch(`/api/vdr/items/${it.id}/create-doc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    if (!r.ok) { addToast('Не удалось создать документ', 'error'); return; }
-    const made = (await r.json()).doc;
-    navigate(`${officePathForKind(made.kind)}?doc=${made.id}`);
   };
 
   const importXlsx = async (file: File) => {
@@ -371,13 +363,6 @@ export default function VdrPanel() {
                       <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
                         <div className="fx-row-acts">
-                          {it.docId ? (
-                            <button type="button" title="Открыть документ" onClick={() => navigate(`/sheet?doc=${it.docId}`)}
-                              aria-label="Открыть документ" className="fx-ibtn"><FileText className="w-3.5 h-3.5" /></button>
-                          ) : (
-                            <button type="button" title="Сформировать документ" onClick={() => createDoc(it)}
-                              aria-label="Сформировать документ" className="fx-ibtn"><Plus className="w-3.5 h-3.5" /></button>
-                          )}
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
                             <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
                               aria-label="Готово — уведомить менеджера" className="fx-ibtn"><Send className="w-3.5 h-3.5" /></button>
@@ -408,8 +393,6 @@ export default function VdrPanel() {
           projectTags={projectTags}
           onClose={() => setCardItem(null)}
           onChanged={refresh}
-          onOpenDoc={(id) => navigate(`/sheet?doc=${id}`)}
-          onCreateDoc={() => createDoc(cardItem)}
         />
       )}
       {regSettingsOpen && register && (
@@ -421,10 +404,10 @@ export default function VdrPanel() {
 }
 
 // ═════════ Карточка строки: все поля по группам, теги, ревизии ═════════
-function ItemCard({ item, register, standard, users, projectTags, onClose, onChanged, onOpenDoc, onCreateDoc }: {
+function ItemCard({ item, register, standard, users, projectTags, onClose, onChanged }: {
   item: Item; register: Register; standard: Standard | null; users: UserLite[];
   projectTags: { id: string; identifier: string }[];
-  onClose: () => void; onChanged: () => void; onOpenDoc: (docId: string) => void; onCreateDoc: () => void;
+  onClose: () => void; onChanged: () => void;
 }) {
   const { addToast } = useToastStore();
   const isNew = !item.id;
@@ -511,18 +494,9 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-          {/* Документ */}
+          {/* Ревизия */}
           {!isNew && (
             <div className="flex items-center gap-2">
-              {f.docId ? (
-                <button type="button" onClick={() => onOpenDoc(f.docId!)} className="fx-btn fx-btn-primary flex-1 justify-center">
-                  <FileText className="w-3.5 h-3.5" /> Открыть документ
-                </button>
-              ) : (
-                <button type="button" onClick={onCreateDoc} className="fx-btn flex-1 justify-center">
-                  <Plus className="w-3.5 h-3.5" /> Сформировать документ
-                </button>
-              )}
               <button type="button" onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>

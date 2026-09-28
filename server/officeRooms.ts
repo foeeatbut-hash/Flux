@@ -23,7 +23,7 @@
  * не имеет.
  */
 import type { Server, Socket } from 'socket.io';
-import { presenceColor } from './collab.js';
+import { presenceColor } from './presenceColor.js';
 
 /** Сколько правка ждёт пропавшего держателя */
 export const GRACE_MS = 20_000;

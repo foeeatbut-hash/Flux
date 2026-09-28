@@ -81,6 +81,14 @@ export class CollabBook {
 
   get(fileId: string): CollabSession | null { return this.sessions.get(fileId) || null; }
 
+  /**
+   * Забыть сеанс: файл записал сервер в обход окна (восстановление версии,
+   * «Обновить поля»). Иначе следующий вошедший получил бы старый исходник и
+   * старое содержимое из памяти, а автосохранение держателя записало бы его
+   * поверх только что записанного.
+   */
+  drop(fileId: string): void { this.sessions.delete(fileId); }
+
   /** Есть ли правки, которых нет в файле */
   unsaved(s: CollabSession): boolean {
     if (!s.seeded) return false;

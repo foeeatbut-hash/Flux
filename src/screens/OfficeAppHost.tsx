@@ -19,10 +19,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Btn, Empty } from '../components/ui';
 import ProjectDataPanel from '../components/office/ProjectDataPanel';
+import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { sheetName, cellValue } from '../../office/fieldKeys';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import OfficePresence from '../components/collab/OfficePresence';
-import LegacyMarkupBar from '../components/collab/LegacyMarkupBar';
 import { rememberDoc } from '../store/recentStore';
 import { editorHref } from '../lib/officeFiles';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
@@ -268,6 +268,7 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
   // Данные проекта (только Таблица): значение — в выделенную ячейку, на ней
   // имя FLUX_<ключ>; «Обновить поля» — записать книгу, дать серверу подставить
   // значения по именам (server/routes/projectData.ts) и открыть её заново
+  const [englishOpen, setEnglishOpen] = useState(false);
   const saveNow = () => new Promise<boolean>((resolve) => {
     if (!dirty.current) { resolve(true); return; }
     closeWait.current = resolve;
@@ -311,14 +312,12 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
           {failure}
         </div>
       )}
-      {app === 'pdf' && phase === 'ready' && (
-        <LegacyMarkupBar fileId={fileId} canWrite={room.mode === 'edit' || room.mode === 'alone'} unsaved={() => dirty.current}
-          onDone={(message, ok) => { addToast(message, ok ? 'success' : 'error'); if (ok) reopenRef.current(); }} />
-      )}
       {app === 'sheets' && (
         <div className="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-2 dark:border-slate-800">
           <Btn size="sm" tone={dataOpen ? 'primary' : 'ghost'} aria-pressed={dataOpen} onClick={() => setDataOpen((v) => !v)}
             title="Поля проекта, тегов, оборудования и ВДР — вставить в выделенную ячейку">Данные проекта</Btn>
+          <Btn size="sm" tone="ghost" onClick={() => setEnglishOpen(true)}
+            title="Сверка перевода и копия «(EN)» рядом с этой книгой">Английская версия</Btn>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -334,6 +333,10 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
           readOnly={!(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} />
       )}
       </div>
+      {app === 'sheets' && englishOpen && (
+        <FileEnglishVersion fileId={fileId} name={name} onClose={() => setEnglishOpen(false)}
+          beforeIssue={async () => { if (!(await saveNow())) throw new Error('Книга не записана — сверять нечего'); }} />
+      )}
     </div>
   );
 }

@@ -41,7 +41,7 @@ const el = (over: Partial<ElementLite> = {}): ElementLite => ({
 
 const snap = (over: Partial<ProjectSnapshot> = {}): ProjectSnapshot => ({
   projectId: 'p1', projectName: 'Азот', projects: [{ id: 'p1', name: 'Азот' }],
-  tags: [tag()], elements: [el()], docs: [], files: [], vdr: [], notes: [], chat: [], mail: [],
+  tags: [tag()], elements: [el()], files: [], vdr: [], notes: [], chat: [], mail: [],
   stages: [{ id: 'added', label: 'Добавлен' }, { id: 'ordered', label: 'Заказан' }, { id: 'purchased', label: 'Куплен' }],
   ...over,
 });
@@ -85,10 +85,6 @@ ok('разметка из заметки убирается', plainText('<p>Пр
 
 console.log('3. Где используется');
 const rich = snap({
-  docs: [
-    { id: 'd1', name: 'Спецификация', kind: 'DOC', scope: 'SHARED', text: '=ТЕГ("AHU-2","brand") и ещё раз AHU-2' },
-    { id: 'd2', name: 'Записка', kind: 'TEXT', scope: 'SHARED', text: 'Про AHU-21 ни слова о нужном' },
-  ],
   files: [{ id: 'f1', name: 'План.dwg', folderId: 'fold1', folderName: 'Чертежи', revision: '2', statusCode: 'D', tagIds: ['t1'], refId: null, updatedAt: null }],
   vdr: [{
     id: 'v1', registerId: 'r1', registerName: 'ВДР Азот', contractorNo: 'C-01', titleRu: 'Опросный лист',
@@ -116,10 +112,8 @@ ok('файл по метке', gid('files')?.links[0].title === 'План.dwg');
 // Проводник не держит все файлы разом — без папки ссылка никуда не приведёт
 ok('ссылка на файл несёт папку', gid('files')?.links[0].route === '/explorer?file=f1&folder=fold1',
   gid('files')?.links[0].route);
-ok('документ с формулой найден', gid('docs')?.links.length === 1, gid('docs')?.links.map(l => l.title));
-ok('и посчитаны упоминания', gid('docs')?.links[0].badge === '2×', gid('docs')?.links[0].badge);
-ok('чужой документ не приплетён', !gid('docs')?.links.some(l => l.title === 'Записка'));
 ok('строка ВДР найдена', gid('vdr')?.links.length === 1);
+ok('записей старого Конструктора в связях нет', !u.groups.some(g => g.id === 'docs'));
 ok('заметка найдена', gid('notes')?.links[0].title === 'Созвон');
 ok('сообщение найдено', gid('chat')?.links.length === 1);
 ok('письмо найдено', gid('mail')?.links.length === 1, gid('mail')?.links.map(l => l.title));
@@ -133,9 +127,6 @@ ok('несуществующий тег — не найдено', whereUsed(rich
 
 const ue = whereUsed(rich, 'element', 'e1');
 ok('у элемента виден его тег', ue.groups.find(g => g.id === 'tags')?.links[0].title === 'AHU-2');
-const ud = whereUsed(rich, 'doc', 'd1');
-ok('у документа видны теги', ud.groups.find(g => g.id === 'tags')?.links[0].title === 'AHU-2');
-ok('у документа видна строка ВДР', ud.groups.find(g => g.id === 'vdr')?.links.length === 1);
 
 // ── 4. Проверка проекта ─────────────────────────────────────────────────────
 
@@ -236,7 +227,6 @@ console.log('9. Общий поиск');
 const hits = searchAll(rich, 'ahu');
 ok('тег находится по части кода', hits[0].kind === 'tag' && hits[0].title === 'AHU-2', hits.slice(0, 2));
 ok('однобуквенный запрос ничего не ищет', searchAll(rich, 'a').length === 0);
-ok('документ находится по названию', searchAll(rich, 'специф').some(h => h.kind === 'doc'));
 ok('файл находится по названию', searchAll(rich, 'план').some(h => h.kind === 'file'));
 ok('заметка находится по содержимому', searchAll(rich, 'уточнить').some(h => h.kind === 'note'));
 ok('точное совпадение выше частичного',

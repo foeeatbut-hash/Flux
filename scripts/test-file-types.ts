@@ -8,7 +8,7 @@
  * Запуск: npx tsx scripts/test-file-types.ts
  */
 import {
-  appsFor, openHref, hasChoice, isPdf, isOffice, isConstructorDoc, FILE_APPS,
+  appsFor, openHref, hasChoice, isPdf, isOffice, FILE_APPS,
   faceOf, dbTypeOf, typeLabel, legacyAdvice,
 } from '../src/lib/fileTypes';
 
@@ -30,10 +30,10 @@ console.log('Кого чем открываем');
   check('чертёж без типа узнаётся по имени', isPdf(oldPdf) && appsFor(oldPdf)[0].id === 'pdf');
   check('«pdf» посреди имени не делает файл чертежом', !isPdf({ id: 'f3', name: 'pdf-инструкция.docx' }));
 
-  const doc = { id: 'f4', name: 'Ведомость', type: 'CONSTRUCTOR', refId: 'doc-9' };
-  check('документ Flux Office открывает Flux Office', appsFor(doc)[0].id === 'docs');
-  check('и выбора для него нет', !hasChoice(doc), appsFor(doc).map((a) => a.id));
-  check('документ узнаётся и по одной ссылке', isConstructorDoc({ id: 'f5', refId: 'doc-1' }));
+  // Документов-записей Конструктора больше нет: ссылка refId не уводит файл
+  // в старый редактор — открывается сам файл
+  const linked = { id: 'f4', name: 'Ведомость.xlsx', refId: 'xlsx-of:f3' };
+  check('копия .xlsx из .xls открывается как обычная книга', appsFor(linked)[0].id === 'excel', appsFor(linked).map((a) => a.id));
 
   const any = { id: 'f6', name: 'Фото.jpg', folderId: 'd2' };
   check('картинку показывает Проводник', appsFor(any)[0].id === 'explorer');
@@ -67,14 +67,6 @@ console.log('Адреса');
 {
   check('чертёж открывается по своему файлу',
     openHref({ id: 'f1', type: 'PDF' }) === '/pdf?file=f1', openHref({ id: 'f1', type: 'PDF' }));
-  check('документ — по ссылке на документ, а не по файлу',
-    openHref({ id: 'f4', refId: 'doc-9' }) === '/sheet?doc=doc-9',
-    openHref({ id: 'f4', refId: 'doc-9' }));
-  // Зеркало помнит, чем документ открывается: иначе окно текста показывало бы
-  // значок таблицы, и человек искал бы на панели задач не ту кнопку
-  check('текстовый документ открывает «Документ», а не «Таблицу»',
-    openHref({ id: 'f4', refId: 'doc-9', filePath: '/doc/doc-9' }) === '/doc?doc=doc-9',
-    openHref({ id: 'f4', refId: 'doc-9', filePath: '/doc/doc-9' }));
   // Книга и ворд правятся сами по себе, в редакторах Flux Office (GenOffice)
   check('принесённая книга открывается Таблицей Flux Office, прямо в файле',
     openHref({ id: 'f9', name: 'Смета.xlsx' }) === '/office-sheet?file=f9',
@@ -85,9 +77,15 @@ console.log('Адреса');
   check('принесённый ворд — Документом Flux Office',
     openHref({ id: 'f9', name: 'Записка.docx' }) === '/office-doc?file=f9',
     openHref({ id: 'f9', name: 'Записка.docx' }));
-  check('старая книга .xls — Конструктором, как прежде',
-    openHref({ id: 'f9', name: 'Старая.xls' }) === '/sheet?fromFile=f9',
+  // Таблица правит только .xlsx: старая книга и CSV открываются копией .xlsx рядом
+  check('старая книга .xls — Таблицей, через копию .xlsx',
+    openHref({ id: 'f9', name: 'Старая.xls' }) === '/sheet?convert=f9',
     openHref({ id: 'f9', name: 'Старая.xls' }));
+  check('таблица .csv — так же',
+    openHref({ id: 'f9', name: 'Выгрузка.csv' }) === '/sheet?convert=f9',
+    openHref({ id: 'f9', name: 'Выгрузка.csv' }));
+  check('старый .doc не открывается редактором (совет пересохранить)',
+    !openHref({ id: 'f9', name: 'Старый.doc' }).startsWith('/doc'), openHref({ id: 'f9', name: 'Старый.doc' }));
   check('в Проводнике открывается вместе с папкой',
     openHref({ id: 'f6', folderId: 'd2' }) === '/explorer?file=f6&folder=d2');
   check('без папки — просто файлом',
@@ -109,8 +107,8 @@ console.log('Двойное нажатие всегда что-то делает
   // А у того, что открывается своей программой, чужой в списке быть не должно
   check('книга открывается своей программой, а не Windows',
     appsFor({ id: 'x', name: 'Смета.xlsx' })[0].id === 'excel');
-  check('Конструктор остаётся в «Открыть с помощью»',
-    appsFor({ id: 'x', name: 'Смета.xlsx' }).some((a) => a.id === 'office'));
+  check('старого Конструктора в «Открыть с помощью» нет',
+    !appsFor({ id: 'x', name: 'Смета.xlsx' }).some((a) => a.id === 'office' || a.id === 'docs'));
   check('чертёж ПДФ — редактором PDF', appsFor({ id: 'x', name: 'АР.pdf' })[0].id === 'pdf');
 }
 

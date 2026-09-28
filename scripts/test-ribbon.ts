@@ -5,8 +5,7 @@
  * которой нет у разметки: состав можно проверить скриптом. Проверяем то, что
  * глазом не удержишь, — что органы не повторяются, что у каждой группы задан
  * вес, что в группе не больше семи органов, что имя значка существует, что
- * «Данные проекта» есть у всех четверых и что схлопывание в узком окне идёт по
- * весу, а не по случайности.
+ * схлопывание в узком окне идёт по весу, а не по случайности.
  *
  * Запуск: npx tsx scripts/test-ribbon.ts
  */
@@ -14,9 +13,7 @@ import {
   collapseGroups, collapsedWidth, fitTabs, groupWidth, organsOf,
   type RibbonGroup, type RibbonTab,
 } from '../src/lib/ribbon';
-import { docRibbon } from '../src/lib/ribbonDoc';
-import { sheetRibbon } from '../src/lib/ribbonSheet';
-import { pdfRibbon } from '../src/lib/ribbonPdf';
+import { translateRibbon } from '../src/lib/ribbonTranslate';
 import { RIBBON_ICON_NAMES } from '../src/components/ribbon/icons';
 
 let f = 0;
@@ -25,11 +22,13 @@ const ok = (n: string, c: boolean, d?: any) =>
 
 const ICONS = new Set(RIBBON_ICON_NAMES);
 
-/** Ленты всех редакторов: имя → вкладки. Пополняется по мере переезда */
+/**
+ * Ленты программы: имя → вкладки. Ленты Документа, Таблицы и Просмотра ушли
+ * вместе со старыми редакторами — у Flux Office лента своя, внутри фрейма
+ */
 const RIBBONS: Record<string, RibbonTab[]> = {
-  'Документ': docRibbon(),
-  'Таблица': sheetRibbon(),
-  'ПДФ': pdfRibbon(),
+  'Переводчик': translateRibbon({ model: false }),
+  'Переводчик с движком': translateRibbon({ model: true }),
 };
 
 console.log('1. Общие правила состава');
@@ -71,8 +70,6 @@ for (const [editor, tabs] of Object.entries(RIBBONS)) {
       labels.set(key, o.id);
     }
   }
-  ok(`${editor}: вкладка «Данные проекта» на месте`, tabs.some((t) => t.name === 'Данные проекта'));
-  ok(`${editor}: первая вкладка — «Главная»`, tabs[0]?.name === 'Главная', tabs[0]?.name);
 }
 
 console.log('2. Узкое окно: схлопывание идёт по весу');

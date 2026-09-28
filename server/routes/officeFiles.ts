@@ -24,6 +24,7 @@ import { getPrisma, sendError } from '../context.js';
 import { ensureTables as ensureDbTables } from '../ddl.js';
 import { fileBytes } from './fileChunks.js';
 import { collab } from '../officeCollab.js';
+import { sheetBook } from '../officeSheetCollab.js';
 import { cleanName, createFileFromBytes, deskHome, exportsHome, homeOfFile, homeOfFolder, type FileHome } from '../officeStore.js';
 
 export interface OfficeFileDeps {
@@ -85,6 +86,12 @@ async function ensureVersionTable(): Promise<string> {
  */
 export async function writeOfficeFile(a: {
   fileId: string; body: Buffer; baseSha: string; user: { id: string } | null; autosave?: boolean;
+  /**
+   * Пишет сервер, а не окно держателя: восстановление версии, «Обновить поля»,
+   * английская версия. Сеанс совместной правки после такой записи забывается —
+   * в нём старое содержимое (CollabBook.drop)
+   */
+  server?: boolean;
 }): Promise<{ status: number; json: any }> {
   const deps = routeDeps;
   if (!deps) return { status: 500, json: { error: 'Хранилище файлов Flux Office не подключено' } };
@@ -161,6 +168,7 @@ export async function writeOfficeFile(a: {
     where: { fileId }, orderBy: { version: 'desc' }, skip: KEEP, select: { id: true },
   });
   if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
+  if (a.server) { collab.drop(fileId); sheetBook.drop(fileId); }
 
   return reply(200, { sha256: afterSha, size: body.length, version: keepVersion ? version : last?.version ?? 0 });
 }

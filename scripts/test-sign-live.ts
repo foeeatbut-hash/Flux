@@ -1,10 +1,7 @@
 /**
  * Подпись доходит до документа: от профиля до листа ПДФ.
  *
- * Правила штампа считает scripts/test-sign-stamp.ts, но правила можно посчитать
- * верно и всё равно не подписать ни одного листа: подпись хранится в профиле,
- * пометка — в базе, а рисуется она в родном слое просмотрщика. Ошибиться можно
- * в любом из трёх мест.
+ * Подпись хранится в профиле сотрудника — отсюда её берут документы.
  *
  * Отдельно проверяется то, чего глазом не видно вовсе: пометки должны доезжать
  * до ОБЩЕЙ базы. Таблицы PdfMarkup в схемах общей базы не было — замечания и
@@ -73,96 +70,19 @@ console.log('0. Пометки доезжают до общей базы');
     ok('и вернулась с сервера', !!saved.has, saved);
     ok('высота в миллиметрах сохранена', saved.mm === 9, saved);
 
-    console.log('2. Подписанный лист живёт в базе, а не в окне');
-    const signed = await page.evaluate(async () => {
-      // Файл-носитель: подпись ставится на файл, а не в воздух
-      const folders = await (await fetch('/api/folders')).json();
-      const list = Array.isArray(folders) ? folders : (folders.folders || []);
-      const folderId = list[0]?.id || null;
-      const mk = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Проба подписи.pdf', folderId, type: 'FILE', content: '' }),
-      });
-      const file = (await mk.json())?.file || (await mk.json());
-      const fileId = file?.id;
-      if (!fileId) return { ok: false };
-      const put = await fetch(`/api/files/${fileId}/markups`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'SIGN', page: 1, x: 0.62, y: 0.86, w: 0.3, h: 0.05, text: 'Раупов Х.Х. · 03.09.2026' }),
-      });
-      if (!put.ok) return { ok: false, status: put.status, fileId };
-      const back = await (await fetch(`/api/files/${fileId}/markups`)).json();
-      const marks = back?.markups || [];
-      return {
-        ok: true, fileId,
-        kinds: marks.map((m: any) => m.kind),
-        author: marks[0]?.createdBy?.id || '',
-        text: marks[0]?.text || '',
-      };
-    });
-    ok('пометка-подпись создалась', signed.ok, signed);
-    ok('вид сохранён именно как подпись', (signed.kinds || []).includes('SIGN'), signed.kinds);
-    ok('автор проставлен сервером, а не телом запроса', !!signed.author, signed);
-    ok('строка под подписью сохранена', String(signed.text || '').includes('Раупов'), signed.text);
-
-    console.log('3. Подпись из реестра ВДР доходит до титула документа');
-    const vdr = await page.evaluate(async () => {
-      const me = JSON.parse(localStorage.getItem('pdm_session_user') || '{}');
-      const pj = await (await fetch('/api/projects')).json();
-      const list = Array.isArray(pj) ? pj : (pj.projects || []);
-      const projectId = list[0]?.id;
-      // Реестр, в котором проверяющий — это я
-      const mk = await fetch('/api/vdr/registers', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, name: 'Проба подписей' }),
-      });
-      const reg = (await mk.json())?.register;
-      await fetch(`/api/vdr/registers/${reg.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkedBy: 'Проверяющий', checkedById: me.id }),
-      });
-      // Строка реестра и документ, привязанный к ней
-      const it = await fetch('/api/vdr/items', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ registerId: reg.id, projectId, titleRu: 'Записка' }),
-      });
-      const item = (await it.json())?.item;
-      const dk = await fetch('/api/constructor/docs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Записка с титулом', kind: 'TEXT', projectId }),
-      });
-      const doc = (await dk.json())?.doc;
-      await fetch(`/api/constructor/docs/${doc.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: JSON.stringify({ vdrItemId: item.id, docMeta: {} }) }),
-      });
-      const ctx = await (await fetch(`/api/constructor/title/context?docId=${doc.id}`)).json();
-      return {
-        regId: reg.id, docId: doc.id,
-        hasChecked: !!ctx?.context?.['person.checked.signature'],
-        checkedName: ctx?.context?.['person.checked.name'] || '',
-        hasApproved: !!ctx?.context?.['person.approved.signature'],
-      };
-    });
-    ok('подпись «Проверил» доехала до титула', vdr.hasChecked, vdr);
-    ok('и это тот, кто указан в реестре', !!vdr.checkedName, vdr);
-    // Не назначенная роль не должна брать чью-то чужую подпись
-    ok('«Утвердил» без сотрудника остаётся пустым', !vdr.hasApproved, vdr);
-
-    await page.evaluate(async (args: any) => {
-      if (args.docId) await fetch(`/api/constructor/docs/${args.docId}`, { method: 'DELETE' });
-      if (args.regId) await fetch(`/api/vdr/registers/${args.regId}`, { method: 'DELETE' });
-    }, vdr);
+    // Подписанный лист старого Просмотра (пометки PdfMarkup) и подпись в
+    // титуле документа Конструктора ушли вместе со старыми редакторами.
+    // Подписи «Разработал / Проверил / Утвердил» в файлах Flux Office —
+    // поля sign.* (scripts/test-project-data-live.ts)
 
     // Прибираем: проба не должна оставлять мусор ни в файлах, ни в профиле
-    await page.evaluate(async (args: any) => {
-      if (args.fileId) await fetch(`/api/files/${args.fileId}`, { method: 'DELETE' });
+    await page.evaluate(async () => {
       const me = JSON.parse(localStorage.getItem('pdm_session_user') || '{}');
       await fetch(`/api/users/${me.id}/signature`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signatureImage: null, signatureHeightMm: 8 }),
       });
-    }, { fileId: signed.fileId });
+    });
   } catch (e: any) {
     f++;
     console.error('  ✗ проба оборвалась:', e?.message || e);

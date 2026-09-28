@@ -10,7 +10,6 @@
  * откуда файл когда-то принесли, предлагается та же папка. В браузере окна
  * сохранения нет — там это обычное скачивание.
  */
-import { buildDocx, partsFromText } from './docxWrite';
 import { fileBytes } from './fileBytes';
 
 export interface SaveResult {
@@ -96,12 +95,6 @@ export async function saveFileNode(fileId: string): Promise<SaveResult> {
     };
   }
   return saveBytes(String(file?.name || 'Файл'), bytes, folderOf(String(file?.origin || '')));
-}
-
-/** Текстовый документ Flux → настоящий .docx на диске */
-export async function saveTextDocAsWord(name: string, text: string, dir = ''): Promise<SaveResult> {
-  const clean = name.replace(/\.[^.]+$/, '');
-  return saveBytes(`${clean}.docx`, buildDocx(partsFromText(text)), dir);
 }
 
 /**

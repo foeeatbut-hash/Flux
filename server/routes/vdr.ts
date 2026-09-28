@@ -586,44 +586,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
     } catch (err: any) { sendError(res, err); }
   });
 
-  // ── Привязка/отвязка документа Конструктора к строке (обе стороны сразу) ──
-  app.post('/api/vdr/items/:id/link-doc', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
-      const docId = req.body?.docId ? String(req.body.docId) : null;
-
-      // Отвязать старый документ строки
-      if (item.docId && item.docId !== docId) {
-        try {
-          const old = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-          if (old) {
-            const st = parseJson(old.settings, {});
-            delete st.vdrItemId;
-            await prisma.constructorDoc.update({ where: { id: old.id }, data: { settings: JSON.stringify(st) } });
-          }
-        } catch (_) {}
-      }
-
-      if (docId) {
-        const doc = await prisma.constructorDoc.findUnique({ where: { id: docId } });
-        if (!doc) return res.status(404).json({ error: 'Документ не найден' });
-        const st = parseJson(doc.settings, {});
-        st.vdrItemId = item.id;
-        st.docMeta = {
-          ...st.docMeta,
-          code: item.contractorNo || item.ownerNo,
-          revision: item.revision,
-          title: item.titleRu || item.titleEn || st.docMeta?.title,
-        };
-        await prisma.constructorDoc.update({ where: { id: doc.id }, data: { settings: JSON.stringify(st) } });
-      }
-      const updated = await prisma.docRegisterItem.update({ where: { id: item.id }, data: { docId } });
-      res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
-    } catch (err: any) { sendError(res, err); }
-  });
-
   // ── История ревизий строки (лист «Учёт ревизий» документа) ──
   app.get('/api/vdr/items/:id/revisions', async (req: Request, res: Response) => {
     try {
@@ -679,17 +641,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
         },
       });
 
-      // Титул привязанного документа получает новую ревизию
-      if (item.docId) {
-        try {
-          const doc = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-          if (doc) {
-            const settings = parseJson(doc.settings, {});
-            settings.docMeta = { ...settings.docMeta, revision };
-            await prisma.constructorDoc.update({ where: { id: doc.id }, data: { settings: JSON.stringify(settings) } });
-          }
-        } catch (_) {}
-      }
       res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -700,38 +651,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
     return (app._router.handle as any)
       ? res.redirect(307, `/api/vdr/items/${req.params.id}/issue-revision`)
       : res.status(400).json({ error: 'unsupported' });
-  });
-
-  // ── Формирование документа по строке ──
-  app.post('/api/vdr/items/:id/create-doc', async (req: Request, res: Response) => {
-    try {
-      const me = authUserOf(req);
-      const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
-      if (item.docId) {
-        const existing = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-        if (existing && !existing.deletedAt) return res.json({ doc: existing, existed: true });
-      }
-      const title = item.titleRu || item.titleEn || '';
-      const name = [item.contractorNo, title].filter(Boolean).join(' — ') || 'Документ по ВДР';
-      const doc = await prisma.constructorDoc.create({
-        data: {
-          projectId: item.projectId,
-          name, named: true,
-          kind: String(req.body?.kind) === 'DOC' ? 'DOC' : 'TEXT',
-          scope: 'SHARED',
-          ownerId: me?.id || null, createdById: me?.id || null, updatedById: me?.id || null,
-          workbook: '',
-          settings: JSON.stringify({
-            docMeta: { code: item.contractorNo || item.ownerNo, revision: item.revision, title },
-            vdrItemId: item.id,
-          }),
-        },
-      });
-      await prisma.docRegisterItem.update({ where: { id: item.id }, data: { docId: doc.id, assigneeId: item.assigneeId || me?.id || null } });
-      res.json({ doc });
-    } catch (err: any) { sendError(res, err); }
   });
 
   // ── Импорт Excel-ВДР 2.0 ──

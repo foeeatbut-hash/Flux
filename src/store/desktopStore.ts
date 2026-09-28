@@ -55,11 +55,8 @@ const write = (key: string, value: unknown) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* приватный режим */ }
 };
 
-/** Значок открывает документ Конструктора, папку или раздел — по виду файла */
-const kindOf = (file: any): DeskKind => {
-  if (file.type !== 'CONSTRUCTOR') return 'file';
-  return 'doc';
-};
+/** Файл на столе — всегда файл: документы-записи Конструктора ушли вместе с ним */
+const kindOf = (_file: any): DeskKind => 'file';
 
 interface DesktopState {
   items: DeskItem[];

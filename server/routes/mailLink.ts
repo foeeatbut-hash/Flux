@@ -6,7 +6,7 @@ import { getPrisma, sendError, resolveProjectId } from '../context.js';
 import { readableAccount, readableAccounts } from '../mail/access.js';
 import * as imap from '../mail/imap.js';
 import { credsOf, loadBody } from '../mail/sync.js';
-import { codeCandidates, fileCandidates, caseVariants, namesInText } from '../mail/mentions.js';
+import { codeCandidates, fileCandidates, caseVariants } from '../mail/mentions.js';
 
 /**
  * Письмо становится частью проекта.
@@ -266,16 +266,6 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
           })
         : [];
 
-      // ── Документы Flux Office ──
-      // У них нет ни расширения, ни дефисов, поэтому ищем наоборот: берём
-      // список имён и смотрим, встречается ли имя в письме целиком.
-      const allDocs = await prisma.constructorDoc.findMany({
-        where: { deletedAt: null, OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: me.id }] },
-        select: { id: true, name: true, kind: true, projectId: true },
-        take: 800,
-      }).catch(() => [] as any[]);
-      const docs = namesInText(text, allDocs as any).slice(0, 30);
-
       const withProject = (projectId: string | null | undefined) => ({
         projectId: projectId || null,
         projectName: projectId ? (projectName.get(projectId) || '') : '',
@@ -288,9 +278,6 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
         files: rawFiles.map((f: any) => ({
           id: f.id, name: f.name, folderId: f.folderId, ...withProject(f.folder?.projectId),
         })),
-        // Вид документа нужен письму затем, чтобы ссылка открыла ту программу,
-        // которой документ и правится: книгу — Таблицей, записку — Документом
-        docs: (docs as any[]).map((d) => ({ id: d.id, name: d.name, kind: d.kind, ...withProject(d.projectId) })),
       });
     } catch (err) { sendError(res, err); }
   });

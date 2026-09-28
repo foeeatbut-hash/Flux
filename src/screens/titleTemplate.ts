@@ -15,7 +15,7 @@ export interface TitleContext {
 export type FormulaCatalog = Record<string, Formula>;
 
 // Каталог полей титула: что можно вставить как «ссылку». dotted-имена совпадают
-// с ключами контекста, который отдаёт /api/constructor/title/context.
+// с ключами полей данных проекта (office/fieldKeys.ts).
 export const TITLE_FIELDS: { key: string; title: string; group: string }[] = [
   { key: 'doc.name', title: 'Название документа', group: 'Документ' },
   { key: 'doc.code', title: 'Номер / шифр', group: 'Документ' },

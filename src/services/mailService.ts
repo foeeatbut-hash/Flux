@@ -71,7 +71,6 @@ export interface MailMention {
 export interface MailMentions {
   tags: Array<MailMention & { identifier: string }>;
   files: Array<MailMention & { name: string; folderId: string | null }>;
-  docs: Array<MailMention & { name: string; kind?: string }>;
 }
 
 export interface MailSignature {

@@ -15,6 +15,8 @@
  *   npx tsx server.ts > /tmp/srv.log 2>&1 &
  *   npx tsx scripts/test-walkthrough.ts
  */
+import * as XLSX from 'xlsx';
+
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 
@@ -98,13 +100,21 @@ const NAME = `Проба сквозного пути ${stamp}`;
     const foreign = await api('GET', '/api/equipment');
     ok('общей выдачи оборудования всех проектов больше нет', foreign.status === 404, foreign.status);
 
-    console.log('6. Документ Flux Office');
-    const doc = await api('POST', '/api/constructor/docs', { projectId, name: `Ведомость ${stamp}`, kind: 'DOC' });
-    ok('документ создан', doc.status === 200 && !!doc.json?.doc?.id, doc.json?.error || doc.status);
-    docId = String(doc.json?.doc?.id || '');
-    const docs = await api('GET', `/api/constructor/docs?projectId=${projectId}`);
-    ok('документ виден в списке проекта',
-      (docs.json?.docs || []).some((d: any) => d.id === docId), (docs.json?.docs || []).length);
+    console.log('6. Документ Flux Office — настоящий файл');
+    {
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Ведомость'], ['AHU-1']]), 'Лист1');
+      const bytes = new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+      const res = await fetch(`${BASE}/api/office/files/new?${new URLSearchParams({ name: `Ведомость ${stamp}.xlsx`, where: 'section', scope: 'SHARED', projectId })}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${token}` }, body: bytes,
+      });
+      const made = await res.json().catch(() => ({}));
+      ok('книга создана файлом', res.status === 200 && !!made?.id, made?.error || res.status);
+      docId = String(made?.id || '');
+      const back = await fetch(`${BASE}/api/files/${docId}/raw`, { headers: { Authorization: `Bearer ${token}` } });
+      const wb = XLSX.read(new Uint8Array(await back.arrayBuffer()), { type: 'array' });
+      ok('и читается обратно книгой', wb.Sheets[wb.SheetNames[0]]?.A2?.v === 'AHU-1', wb.SheetNames);
+    }
 
     console.log('7. Общий доступ: файл в общем разделе Проводника');
     const file = await api('POST', '/api/files', {
@@ -129,7 +139,7 @@ const NAME = `Проба сквозного пути ${stamp}`;
   } finally {
     console.log('9. Убираем за собой');
     if (fileId) await api('DELETE', `/api/files/${fileId}`);
-    if (docId) await api('DELETE', `/api/constructor/docs/${docId}`);
+    if (docId) await api('DELETE', `/api/files/${docId}`);
     if (tagId) await api('DELETE', `/api/tags/${tagId}`);
     if (projectId) await api('DELETE', `/api/projects/${projectId}`);
   }

@@ -91,7 +91,7 @@ export default function OfficeHome({ kind }: { kind: OfficeHomeKind }) {
       <SectionHead
         title={<span className="flex items-center gap-2"><FileBadge file={SAMPLE[kind]} kind={kind} size={20} />{TITLE[kind]}</span>}
         actions={kind !== 'pdf' && (
-          <Btn tone="primary" onClick={create} disabled={busy}>
+          <Btn tone="primary" onClick={create} disabled={busy} data-tour="office-new-btn">
             {kind === 'doc' ? 'Новый документ' : 'Новая таблица'}
           </Btn>
         )}

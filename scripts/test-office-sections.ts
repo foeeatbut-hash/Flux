@@ -16,7 +16,7 @@
 import { resolveSectionPath, resolveSectionHref } from '../src/lib/sectionAliases';
 import { SECTIONS, sectionForPath, isKnownSection, scopeForPath } from '../src/workspace/sections';
 import { OFFICE_PATHS, OFFICE_TITLE, groupSections } from '../src/lib/startMenu';
-import { officePathForKind, officeKindForPath, officePathOf, officePathForName } from '../src/lib/fileTypes';
+import { openHref } from '../src/lib/fileTypes';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -74,27 +74,14 @@ console.log('2. Старый путь переводится, а не выбра
   check('и считается известным разделом', isKnownSection('/constructor'));
 }
 
-console.log('3. Документ открывается СВОЕЙ программой');
+console.log('3. Файл открывается СВОЕЙ программой');
 {
-  check('книга — Таблицей', officePathForKind('DOC') === '/sheet');
-  check('шаблон книги — тоже Таблицей', officePathForKind('TEMPLATE') === '/sheet');
-  check('текст — Документом', officePathForKind('TEXT') === '/doc');
-  check('заметка — Документом', officePathForKind('NOTE') === '/doc');
-  check('вид неизвестен — открываем Таблицей', officePathForKind(undefined) === '/sheet');
-
-  check('зеркало текста ведёт в «Документ»',
-    officePathOf({ id: '1', filePath: '/doc/abc' }) === '/doc');
-  check('зеркало книги ведёт в «Таблицу»',
-    officePathOf({ id: '1', filePath: '/sheet/abc' }) === '/sheet');
-  check('зеркало прежних версий ведёт в «Таблицу»',
-    officePathOf({ id: '1', filePath: '/constructor/abc' }) === '/sheet');
-
-  check('принесённый xlsx открывает Таблица', officePathForName('Смета.xlsx') === '/sheet');
-  check('принесённый docx открывает Документ', officePathForName('Записка.docx') === '/doc');
-
-  check('программа знает, что заводит', officeKindForPath('/sheet') === 'DOC');
-  check('и вторая тоже', officeKindForPath('/doc') === 'TEXT');
-  check('с параметрами в адресе — так же', officeKindForPath('/doc?doc=7') === 'TEXT');
+  check('книга — Таблицей', openHref({ id: '1', name: 'Смета.xlsx' }).startsWith('/office-sheet?file='));
+  check('документ Word — Документом', openHref({ id: '1', name: 'Записка.docx' }).startsWith('/office-doc?file='));
+  check('PDF — PDF', openHref({ id: '1', name: 'Чертёж.pdf' }).startsWith('/pdf?file='));
+  check('заметка Markdown — Блокнотом', openHref({ id: '1', name: 'Заметка.md' }).startsWith('/notes?file='));
+  check('ссылки на старые записи Конструктора (?doc=) не рождаются',
+    !['Смета.xlsx', 'Записка.docx', 'Старая.xls'].some((n) => /[?&]doc=/.test(openHref({ id: '1', name: n, refId: 'x' }))));
 }
 
 console.log('4. Пуск показывает семью одной группой');

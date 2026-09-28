@@ -353,9 +353,7 @@ export default function Desktop() {
         // почти никогда
         label: 'Карточка связей',
         icon: <Link2 className="w-3.5 h-3.5" />,
-        onClick: () => (item.kind === 'doc' && item.refId
-          ? openWhere('doc', item.refId)
-          : openWhere('file', item.id)),
+        onClick: () => openWhere('file', item.id),
       },
       { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
       { label: 'Убрать со стола', separated: true, icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },

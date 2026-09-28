@@ -125,7 +125,6 @@ function Letter({
     return [
       ...found.tags.map((t) => t.identifier),
       ...found.files.map((f) => f.name),
-      ...found.docs.map((d) => d.name),
     ];
   }, [found]);
 

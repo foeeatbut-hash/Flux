@@ -63,7 +63,6 @@ export interface ElementLite {
   version: number; updatedAt: string | null;
 }
 
-export interface DocLite { id: string; name: string; kind: string; scope: string; text: string }
 export interface FileLite {
   id: string; name: string; folderId: string | null; folderName: string; revision: string; statusCode: string;
   tagIds: string[]; refId: string | null; updatedAt: string | null;
@@ -89,7 +88,6 @@ export interface ProjectSnapshot {
   projects: { id: string; name: string }[];
   tags: TagLite[];
   elements: ElementLite[];
-  docs: DocLite[];
   files: FileLite[];
   vdr: VdrLite[];
   notes: NoteLite[];
@@ -149,8 +147,6 @@ export function plainText(html: string): string {
 // ── Сбор среза из базы ──────────────────────────────────────────────────────
 
 export interface SnapshotOptions {
-  /** Тексты документов Конструктора нужны только для поиска упоминаний */
-  withDocText?: boolean;
   /** Кому отдаём: личные документы и заметки чужими не показываем */
   userId?: string;
   /**
@@ -168,7 +164,7 @@ const DEFAULT_STAGES: StageLite[] = [
 
 export async function projectSnapshot(prisma: any, projectId: string, opts: SnapshotOptions = {}): Promise<ProjectSnapshot> {
   const uid = opts.userId || '';
-  const [project, allProjects, stageSetting, tags, systems, docs, files, registers, notes, mail, chat] = await Promise.all([
+  const [project, allProjects, stageSetting, tags, systems, files, registers, notes, mail, chat] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true } }).catch(() => null),
     prisma.project.findMany({ select: { id: true, name: true } }).catch(() => []),
     prisma.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } }).catch(() => null),
@@ -176,10 +172,6 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     prisma.equipmentSystem.findMany({
       where: { projectId },
       include: { monoblocks: { include: { components: { include: { tags: { select: { id: true, identifier: true } } } } } } },
-    }),
-    prisma.constructorDoc.findMany({
-      where: { projectId, deletedAt: null, OR: [{ scope: 'SHARED' }, { ownerId: uid }] },
-      select: { id: true, name: true, kind: true, scope: true, workbook: opts.withDocText === true, bindings: opts.withDocText === true },
     }),
     prisma.fileNode.findMany({
       where: {
@@ -297,12 +289,6 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     projects: (allProjects || []).map((p: any) => ({ id: p.id, name: String(p.name || '') })),
     tags: tagsLite,
     elements,
-    docs: (docs || []).map((d: any) => ({
-      id: d.id, name: String(d.name || ''), kind: String(d.kind || 'DOC'), scope: String(d.scope || 'SHARED'),
-      // Снапшот книги и привязки — единственное место, где документ хранит
-      // текст; ищем по ним обоим, иначе упоминание в формуле не находится
-      text: opts.withDocText ? `${d.workbook || ''}\n${d.bindings || ''}` : '',
-    })),
     files: (files || []).map((f: any) => ({
       id: f.id, name: String(f.name || ''),
       folderId: f.folder?.id || null, folderName: String(f.folder?.name || ''),
@@ -420,13 +406,6 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         })),
       },
       {
-        id: 'docs', title: 'Документы Flux Office', hint: 'Обозначение встречается в тексте или в формуле',
-        links: snap.docs.map(d => ({ d, n: countMentions(d.text, code) })).filter(x => x.n > 0).map(({ d, n }) => ({
-          kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
-          route: `/constructor?doc=${encodeURIComponent(d.id)}`, badge: `${n}×`,
-        })),
-      },
-      {
         id: 'vdr', title: 'Реестр ВДР', hint: 'Строки, выпускаемые на это оборудование',
         links: snap.vdr.filter(v => v.tagCodes.some(c => c === code) || mentions(v.titleRu, code)).map(v => ({
           kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
@@ -483,13 +462,6 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         }),
       },
       {
-        id: 'docs', title: 'Документы Flux Office', hint: 'Код элемента встречается в тексте или в формуле',
-        links: snap.docs.map(d => ({ d, n: countMentions(d.text, code) })).filter(x => x.n > 0).map(({ d, n }) => ({
-          kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
-          route: `/constructor?doc=${encodeURIComponent(d.id)}`, badge: `${n}×`,
-        })),
-      },
-      {
         id: 'chat', title: 'Обсуждения', hint: 'Сообщения об этом элементе',
         links: snap.chat.filter(m => m.elementId === el.id || mentions(m.text, code)).slice(0, 25).map(m => ({
           kind: 'chat' as const, id: m.id, title: m.text.slice(0, 90),
@@ -520,50 +492,6 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
     };
   }
 
-  if (kind === 'doc') {
-    const doc = snap.docs.find(d => d.id === id);
-    if (!doc) return empty;
-    const usedTags = snap.tags.filter(t => t.identifier && mentions(doc.text, t.identifier));
-    const usedEls = snap.elements.filter(e => e.itemCode && mentions(doc.text, e.itemCode));
-    const groups: UsageGroup[] = [
-      {
-        id: 'tags', title: 'Теги в документе', hint: 'Изменение этих тегов меняет документ',
-        links: usedTags.map(t => ({
-          kind: 'tag' as const, id: t.id, title: t.identifier, subtitle: t.mainName || t.brand || 'тег',
-          route: `/registry?focus=${encodeURIComponent(t.id)}`,
-        })),
-      },
-      {
-        id: 'elements', title: 'Элементы в документе', hint: 'Оборудование, на которое ссылается документ',
-        links: usedEls.map(e => ({
-          kind: 'element' as const, id: e.id, title: e.itemCode,
-          subtitle: `${e.systemName} · ${e.monoblockName}`, route: `/equipment?element=${encodeURIComponent(e.id)}`,
-        })),
-      },
-      {
-        id: 'vdr', title: 'Строки ВДР', hint: 'Реестр, где этот документ значится выпуском',
-        links: snap.vdr.filter(v => v.docId === doc.id).map(v => ({
-          kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
-          subtitle: `${v.registerName} · рев. ${v.revision}`,
-          route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
-        })),
-      },
-      {
-        id: 'files', title: 'Проводник', hint: 'Зеркало документа в папках проекта',
-        links: snap.files.filter(f => f.refId === doc.id).map(f => ({
-          kind: 'file' as const, id: f.id, title: f.name, subtitle: f.folderName || 'корень раздела',
-          route: fileRoute(f),
-        })),
-      },
-    ];
-    const out = nonEmpty(groups);
-    return {
-      found: true, kind, id: doc.id, title: doc.name,
-      subtitle: doc.kind === 'TEXT' ? 'документ Flux Office' : 'таблица Flux Office',
-      total: out.reduce((s, g) => s + g.links.length, 0), groups: out,
-    };
-  }
-
   if (kind === 'file') {
     const file = snap.files.find(f => f.id === id);
     if (!file) return empty;
@@ -577,13 +505,6 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
             route: `/registry?focus=${encodeURIComponent(tid)}`,
           };
         }),
-      },
-      {
-        id: 'docs', title: 'Документ Flux Office', hint: 'Файл — зеркало этого документа',
-        links: file.refId ? snap.docs.filter(d => d.id === file.refId).map(d => ({
-          kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
-          route: `/constructor?doc=${encodeURIComponent(d.id)}`,
-        })) : [],
       },
       {
         id: 'vdr', title: 'Реестр ВДР', hint: 'Строки, где этот файл — замечания заказчика',
@@ -615,13 +536,6 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
           route: t ? `/registry?focus=${encodeURIComponent(t.id)}` : '',
         };
       }),
-    },
-    {
-      id: 'docs', title: 'Документ выпуска', hint: 'Чем закрыта строка реестра',
-      links: item.docId ? snap.docs.filter(d => d.id === item.docId).map(d => ({
-        kind: 'doc' as const, id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
-        route: `/constructor?doc=${encodeURIComponent(d.id)}`,
-      })) : [],
     },
   ];
   const out = nonEmpty(groups);
@@ -675,12 +589,6 @@ export function searchAll(snap: ProjectSnapshot, query: string, limit = 30): Sea
       subtitle: `${e.systemName} · ${e.monoblockName} · ${e.equipType.toLowerCase()}`,
       route: `/equipment?element=${encodeURIComponent(e.id)}`,
       score: Math.max(scoreOf(e.itemCode, q), scoreOf(e.name, q) - 5, scoreOf(e.systemName, q) - 20),
-    });
-  }
-  for (const d of snap.docs) {
-    push({
-      kind: 'doc', id: d.id, title: d.name, subtitle: d.kind === 'TEXT' ? 'документ' : 'таблица',
-      route: `/constructor?doc=${encodeURIComponent(d.id)}`, score: scoreOf(d.name, q),
     });
   }
   for (const f of snap.files) {

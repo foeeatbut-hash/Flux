@@ -26,6 +26,7 @@ import OfficePresence from '../components/collab/OfficePresence';
 import { rememberDoc } from '../store/recentStore';
 import { editorHref } from '../lib/officeFiles';
 import ProjectDataPanel from '../components/office/ProjectDataPanel';
+import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -337,17 +338,17 @@ export default function OfficeHost() {
     send({ event: 'insertText', payload: `{{${f.key}}}` });
     addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
   };
-  const updateFields = async () => {
+  // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
+  const saveBeforeServer = async (): Promise<boolean> => {
     if (collabFileRef.current) {
-      if (holdingRef.current && collabRef.current.unsaved() && !(await collabRef.current.flush())) {
-        addToast('Документ не записан — поля не обновлены', 'error'); return;
-      }
-    } else {
-      const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
-      if (state?.dirty && !(await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000))) {
-        addToast('Документ не записан — поля не обновлены', 'error'); return;
-      }
+      return !(holdingRef.current && collabRef.current.unsaved()) || await collabRef.current.flush();
     }
+    const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
+    return !state?.dirty || (await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) === true;
+  };
+  const [englishOpen, setEnglishOpen] = useState(false);
+  const updateFields = async () => {
+    if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
     const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
     });
@@ -388,6 +389,8 @@ export default function OfficeHost() {
       <div className="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-2 dark:border-slate-800">
         <Btn size="sm" tone={dataOpen ? 'primary' : 'ghost'} aria-pressed={dataOpen} onClick={() => setDataOpen((v) => !v)}
           title="Поля проекта, тегов, оборудования и ВДР — вставить в документ">Данные проекта</Btn>
+        <Btn size="sm" tone="ghost" onClick={() => setEnglishOpen(true)}
+          title="Сверка перевода и копия «(EN)» рядом с этим файлом">Английская версия</Btn>
       </div>
       <div className="flex min-h-0 flex-1">
       <div className="relative min-h-0 flex-1">
@@ -409,6 +412,10 @@ export default function OfficeHost() {
         <ProjectDataPanel fileId={fileId} kind="doc" readOnly={!editable} onInsert={insertField} onUpdate={updateFields} onClose={() => setDataOpen(false)} />
       )}
       </div>
+      {englishOpen && (
+        <FileEnglishVersion fileId={fileId} name={name} onClose={() => setEnglishOpen(false)}
+          beforeIssue={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан — сверять нечего'); }} />
+      )}
       {conflict && (
         <Dialog title={conflict.why === 'locked' ? 'Файл сейчас правит другой сотрудник' : 'Файл изменили, пока он был открыт'}
           onClose={() => setConflict(null)} busy={busy} width="max-w-lg"

@@ -50,12 +50,12 @@ export const TOPIC_ARTICLES: HandbookArticle[] = [
         ],
       },
     ],
-    stores: ['Project', 'Tag', 'EquipmentSystem', 'Folder', 'ConstructorDoc', 'DocFormula', 'UserNote', 'MailMessage', 'ChatMessage', 'User'],
+    stores: ['Project', 'Tag', 'EquipmentSystem', 'Folder', 'FileNode', 'DocFormula', 'UserNote', 'MailMessage', 'ChatMessage', 'User'],
     links: [
       ['Tag', 'Project', 'projectId'],
       ['EquipmentSystem', 'Project', 'projectId'],
       ['Folder', 'Project', 'projectId'],
-      ['ConstructorDoc', 'Project', 'projectId'],
+      ['FileNode', 'Folder', 'folderId'],
       ['DocFormula', 'Project', 'projectId'],
     ],
     pitfalls: [
@@ -87,7 +87,7 @@ export const TOPIC_ARTICLES: HandbookArticle[] = [
     ],
     stores: [
       'Project', 'Tag', 'Equipment', 'EquipmentSystem', 'Monoblock', 'ComponentElement',
-      'Folder', 'FileNode', 'ConstructorDoc', 'UserNote', 'ChatMessage', 'MailMessage', 'User',
+      'Folder', 'FileNode', 'UserNote', 'ChatMessage', 'MailMessage', 'User',
     ],
     links: [
       ['Tag', 'Project', 'projectId'],
@@ -98,7 +98,6 @@ export const TOPIC_ARTICLES: HandbookArticle[] = [
       ['Folder', 'Project', 'projectId'],
       ['FileNode', 'Folder', 'folderId'],
       ['FileNode', 'Tag', 'mainTags и additionalTags'],
-      ['ConstructorDoc', 'Project', 'projectId'],
       ['ChatMessage', 'ChatGroup', 'chatGroupId'],
       ['MailMessage', 'MailFolder', 'folderId'],
     ],

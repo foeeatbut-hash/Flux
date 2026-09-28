@@ -15,7 +15,7 @@
  */
 
 export interface OpenThing {
-  /** Раздел окна: /constructor, /pdf, /registry… */
+  /** Раздел окна: /doc, /pdf, /registry… */
   path: string;
   /** Название раздела человеческим словом */
   section: string;

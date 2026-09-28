@@ -14,10 +14,11 @@
  */
 import { readFileSync } from 'fs';
 
+// Ленты Документа, Таблицы и Просмотра ушли вместе со старыми редакторами:
+// у редакторов Flux Office (GenOffice) лента своя, внутри фрейма. Осталась
+// лента Переводчика — её кнопки проверяются по экрану так же
 const PAIRS: [string, string, string][] = [
-  ['Текстовый документ', 'src/lib/ribbonDoc.ts', 'src/screens/TextDocEditor.tsx'],
-  ['Таблица', 'src/lib/ribbonSheet.ts', 'src/screens/ConstructorScreen.tsx'],
-  ['Просмотр', 'src/lib/ribbonPdf.ts', 'src/screens/PdfEditor.tsx'],
+  ['Переводчик', 'src/lib/ribbonTranslate.ts', 'src/screens/TranslateScreen.tsx'],
 ];
 
 let failed = 0;
@@ -68,25 +69,17 @@ for (const [name, ribbonFile, screenFile] of PAIRS) {
  * теперь роняет проверку.
  */
 const FROM_ENGINE = new Set([
-  'doc.undo', 'doc.redo', 'doc.bold', 'doc.italic', 'doc.underline',
-  'notes.undo', 'notes.redo', 'notes.bold', 'notes.italic', 'notes.underline',
-  'sh.undo', 'sh.redo', 'sh.bold', 'sh.italic', 'sh.underline',
-  // Ctrl+F у таблицы и документа — UniverSheetsFindReplacePreset
-  'sh.find',
   // Ctrl+V — обычная вставка браузера в поле ввода
   'tr.paste',
 ]);
 
 /** Где искать обработчик сочетания: экраны разделов */
 const KEY_SOURCES = [
-  'src/screens/TranslateScreen.tsx', 'src/screens/NotesManagement.tsx',
-  'src/screens/ConstructorScreen.tsx', 'src/screens/TextDocEditor.tsx',
-  'src/screens/Explorer.tsx', 'src/screens/PdfEditor.tsx',
+  'src/screens/TranslateScreen.tsx', 'src/screens/Explorer.tsx',
 ];
 
 /** Все ленты — сочетания объявляются и там, где пары «лента ↔ экран» нет */
 const RIBBON_FILES = [
-  'src/lib/ribbonDoc.ts', 'src/lib/ribbonSheet.ts', 'src/lib/ribbonPdf.ts',
   'src/lib/ribbonTranslate.ts',
 ];
 

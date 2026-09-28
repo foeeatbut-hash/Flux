@@ -1,9 +1,9 @@
 import React from 'react';
-import { Tag as TagIcon, FileText, Table2, ExternalLink } from 'lucide-react';
+import { Tag as TagIcon, FileText, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { MailMentions as Found } from '../../services/mailService';
 import { openInProject } from '../../lib/projectScope';
-import { officePathForKind } from '../../lib/fileTypes';
+import { openHref } from '../../lib/fileTypes';
 import { useStore } from '../../store/store';
 
 /**
@@ -79,7 +79,7 @@ export default function MailMentions({ found, loading }: Props) {
     );
   }
 
-  const total = (found?.tags.length || 0) + (found?.files.length || 0) + (found?.docs.length || 0);
+  const total = (found?.tags.length || 0) + (found?.files.length || 0);
   if (!found || total === 0) return null;
 
   return (
@@ -109,29 +109,16 @@ export default function MailMentions({ found, loading }: Props) {
             icon={FileText}
             label={f.name}
             project={foreignName(f.projectId, f.projectName)}
-            title={`Документ «${f.name}»${f.projectName ? ` — проект «${f.projectName}»` : ''}. Открыть в Проводнике.`}
+            title={`Файл «${f.name}»${f.projectName ? ` — проект «${f.projectName}»` : ''}. Открыть.`}
             onClick={() => openInProject({
-              what: `Документ «${f.name}»`,
+              what: `Файл «${f.name}»`,
               projectId: f.projectId,
-              open: () => navigate(`/explorer?file=${encodeURIComponent(f.id)}`),
+              // Тем же, чем двойной щелчок: Word и Excel — в редакторе, прочее — в Проводнике
+              open: () => navigate(openHref({ id: f.id, name: f.name, folderId: f.folderId })),
             })}
           />
         ))}
 
-        {found.docs.map((d) => (
-          <Chip
-            key={`doc-${d.id}`}
-            icon={Table2}
-            label={d.name}
-            project={foreignName(d.projectId, d.projectName)}
-            title={`Документ Flux Office «${d.name}»${d.projectName ? ` — проект «${d.projectName}»` : ''}.`}
-            onClick={() => openInProject({
-              what: `Книга «${d.name}»`,
-              projectId: d.projectId,
-              open: () => navigate(`${officePathForKind(d.kind)}?doc=${encodeURIComponent(d.id)}`),
-            })}
-          />
-        ))}
       </div>
     </div>
   );

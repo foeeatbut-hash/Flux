@@ -4,9 +4,8 @@
  * поиск для панели «Данные проекта», значения полей по ключам, подписи,
  * умные блоки, «Обновить поля» закрытого файла.
  *
- * Маршруты данных жили в Конструкторе (/api/constructor/…). Они переехали
- * сюда под /api/project-data/… с теми же ответами; старые пути зовут эти же
- * функции (server/routes/constructor.ts), пока Конструктор не удалён.
+ * Маршруты данных жили в Конструкторе (/api/constructor/…) и переехали сюда
+ * под /api/project-data/… с теми же ответами, когда Конструктора не стало.
  *
  * Запись в файл идёт только через writeOfficeFile: право, держатель правки,
  * сверка версии и откат — прежнее содержимое ложится в FileVersion до записи.
@@ -596,7 +595,7 @@ export function registerProjectDataRoutes(app: Express, deps: ProjectDataDeps): 
       }
       let sha = sha256(before);
       if (!bytes.equals(before)) {
-        const w = await writeOfficeFile({ fileId, body: bytes, baseSha: sha, user: (req as any).authUser });
+        const w = await writeOfficeFile({ fileId, body: bytes, baseSha: sha, user: (req as any).authUser, server: true });
         if (w.status !== 200) return res.status(w.status).json(w.json);
         sha = w.json.sha256;
       }

@@ -5,7 +5,7 @@
  * Проверяем отбор и арифметику на подставном срезе проекта — без базы:
  * ошибка здесь молча даёт неверный итог в книге, а это хуже пустой ячейки.
  */
-import { findElement, filterElements, resolveValue } from '../server/routes/constructor';
+import { findElement, filterElements, resolveValue } from '../server/projectSlice';
 import { parseRuNumber } from '../server/normalize';
 
 let ok = 0, fail = 0;

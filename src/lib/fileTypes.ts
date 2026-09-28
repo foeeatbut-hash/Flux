@@ -20,7 +20,7 @@
 export interface FileLike {
   id: string;
   name?: string;
-  /** Тип из базы: CONSTRUCTOR, PDF, XLSX, DOCX, TXT, IMAGE, FILE */
+  /** Тип из базы: PDF, XLSX, DOCX, TXT, IMAGE, FILE */
   type?: string | null;
   /** Документ Flux Office: ссылка на сам документ, а не на файл */
   refId?: string | null;
@@ -153,33 +153,7 @@ export interface FileApp {
 
 const q = (v: string) => encodeURIComponent(v);
 
-/**
- * Программа семьи для вида документа: DOC и TEMPLATE — таблица, TEXT и NOTE —
- * текст, TITLE (шаблон титула) — тоже таблица, он рисуется на листе.
- */
-export const officePathForKind = (kind: string | null | undefined): string =>
-  (kind === 'TEXT' || kind === 'NOTE') ? '/doc' : '/sheet';
-
-/** Обратное: какой вид документа заводит программа по этому адресу */
-export const officeKindForPath = (path: string): 'DOC' | 'TEXT' =>
-  String(path || '').startsWith('/doc') ? 'TEXT' : 'DOC';
-
-/** Путь программы Flux Office для этого документа: таблица или текст */
-export const officePathOf = (f: FileLike): string =>
-  String(f.filePath || '').startsWith('/doc/') ? '/doc' : '/sheet';
-
-/** Какой программой семьи открывать принесённый файл — по его лицу */
-export const officePathForName = (name: string): string =>
-  faceOf(name) === 'sheet' ? '/sheet' : '/doc';
-
 export const FILE_APPS: Record<string, FileApp> = {
-  // Ключ не «constructor»: у любого объекта в JavaScript уже есть поле с таким
-  // именем, и обращение к нему возвращает не программу, а функцию-конструктор
-  docs: {
-    id: 'docs', name: 'Flux Office',
-    path: officePathOf,
-    href: (f) => `${officePathOf(f)}?doc=${q(f.refId || f.id)}`,
-  },
   pdf: {
     id: 'pdf', name: 'Flux Office — PDF',
     path: () => '/pdf',
@@ -203,13 +177,13 @@ export const FILE_APPS: Record<string, FileApp> = {
     path: () => '/notes',
     href: (f) => `/notes?file=${q(f.id)}`,
   },
-  // Офисный файл, ещё не ставший документом: Flux Office разберёт его при
-  // открытии и запомнит связь, чтобы второе открытие вело в тот же документ,
-  // а не в новую копию
-  office: {
-    id: 'office', name: 'Конструктор Flux Office',
-    path: (f) => officePathForName(f.name || ''),
-    href: (f) => `${officePathForName(f.name || '')}?fromFile=${q(f.id)}`,
+  // Старая книга .xls и таблица .csv: Таблица правит только .xlsx, поэтому
+  // рядом заводится копия .xlsx и открывается она. Исходник не трогается —
+  // его могли прислать и ждать обратно в том же виде
+  sheetCopy: {
+    id: 'sheetCopy', name: 'Flux Office — Таблица (копия .xlsx)',
+    path: () => '/sheet',
+    href: (f) => `/sheet?convert=${q(f.id)}`,
   },
   // Предпросмотр Проводника — тоже способ открыть: для картинки, бланка и
   // всего, для чего своего редактора нет, он и есть единственный
@@ -254,24 +228,18 @@ export const isExcelFile = (f: FileLike): boolean => /\.xls[xm]$/i.test(String(f
 /** Заметка Markdown: её правит Блокнот Flux Office */
 export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test(String(f.name || ''));
 
-/** Документ Flux Office — это ссылка на документ, а не файл на диске */
-export const isConstructorDoc = (f: FileLike): boolean =>
-  !!f.refId || f.type === 'CONSTRUCTOR';
-
 /**
  * Чем можно открыть этот файл. Первая программа — по двойному нажатию,
  * остальные предлагаются в «Открыть с помощью».
  */
 export function appsFor(f: FileLike): FileApp[] {
-  if (isConstructorDoc(f)) return [FILE_APPS.docs];
   if (isPdf(f)) return [FILE_APPS.pdf, FILE_APPS.explorer];
   // Офисный файл открывается редактором, а не предпросмотром. Предпросмотр
   // остаётся вторым пунктом: иногда человеку нужно просто посмотреть
-  // Word и Excel — в своих редакторах, прямо в файле. Конструктор остаётся
-  // вторым пунктом: в нём данные проекта и умные блоки
-  if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.office, FILE_APPS.explorer];
-  if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.office, FILE_APPS.explorer];
-  if (isOffice(f)) return [FILE_APPS.office, FILE_APPS.explorer];
+  // Word и Excel — в своих редакторах, прямо в файле
+  if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.explorer];
+  if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.explorer];
+  if (isOffice(f) && faceOf(f) === 'sheet') return [FILE_APPS.sheetCopy, FILE_APPS.explorer];
   if (isMarkdownFile(f)) return [FILE_APPS.notes, FILE_APPS.explorer];
   // Картинку и текст показывает предпросмотр, и этого достаточно. Всё
   // остальное — чертёж САПР, архив, модель — отдаём Windows: у неё для этого

@@ -26,8 +26,6 @@
     "@prisma/client-pg": "file:./prisma-clients/client-pg",
     "@prisma/client-sqlite": "file:./prisma-clients/client-sqlite",
     "@tanstack/react-virtual": "^3.13.25",
-    "@univerjs/core": "0.25.1",
-    "@univerjs/presets": "0.25.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",

@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import {
-  Folder, FolderOpen, FolderPlus, File as FileIcon, Grid3X3, Upload, RefreshCw,
+  Folder, FolderOpen, FolderPlus, File as FileIcon, Grid3X3, Upload, RefreshCw, History, Languages,
   Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2,
 } from 'lucide-react';
 import { appsFor, type FileLike } from '../../lib/fileTypes';
@@ -34,7 +34,6 @@ export interface ExplorerMenuProps {
   /** Есть ли что вставить */
   hasClipboard: boolean;
   /** Можно ли редактировать копию файла в Конструкторе (по имени) */
-  canEditInConstructor: boolean;
   onClose: () => void;
   open: (id: string) => void;
   /** «Открыть в: …» — адрес выбранной программы */
@@ -46,9 +45,12 @@ export interface ExplorerMenuProps {
   createTxt: () => void;
   upload: () => void;
   paste: () => void;
-  editCopy: (id: string) => void;
   toEquipment: (id: string) => void;
   attachVdr: (id: string) => void;
+  /** Прежние содержимые файла и возврат к ним */
+  versions: (id: string) => void;
+  /** Английская версия файла Word или Excel */
+  english: (id: string) => void;
   download: (id: string) => void;
   assignTag: (id: string) => void;
   assignDepartment: (id: string) => void;
@@ -123,12 +125,12 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
                   onClick={() => { p.openWith(app.href({ ...(target || {}), id }), app.id); p.onClose(); }} />
               ))}
               <Sep />
-              {p.canEditInConstructor && (
-                <Item icon={<Grid3X3 />} label="Редактировать копию в Flux Office"
-                  onClick={() => { p.editCopy(id); p.onClose(); }} />
-              )}
               <Item icon={<Boxes />} label="В оборудование…" onClick={() => { p.toEquipment(id); p.onClose(); }} />
               <Item icon={<Grid3X3 />} label="Прикрепить к строке ВДР…" onClick={() => { p.attachVdr(id); p.onClose(); }} />
+              <Item icon={<History />} label="Версии…" onClick={() => { p.versions(id); p.onClose(); }} />
+              {/\.(docx|xlsx|xlsm)$/i.test(String(target?.name || '')) && (
+                <Item icon={<Languages />} label="Английская версия…" onClick={() => { p.english(id); p.onClose(); }} />
+              )}
               <Sep />
               <Item icon={<Download />} label="Скачать" onClick={() => { p.download(id); p.onClose(); }} />
               <Item icon={<Tag />} label="Назначить теги..." onClick={() => { p.assignTag(id); p.onClose(); }} />

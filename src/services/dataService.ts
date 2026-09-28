@@ -813,18 +813,6 @@ export const dataService = {
     });
   },
 
-  /**
-   * Копия документа со своим содержимым — выход из конфликта «сохранил поверх
-   * чужой правки»: обе работы остаются целыми и лежат раздельно
-   */
-  async forkDoc(docId: string, workbook: string, name: string): Promise<any> {
-    const r = await request<any>(`/constructor/docs/${docId}/duplicate`, { method: 'POST' });
-    const copy = r?.doc;
-    if (!copy?.id) throw new Error('Не удалось создать копию');
-    await request(`/constructor/docs/${copy.id}`, { method: 'PUT', body: JSON.stringify({ workbook, name }) });
-    return copy;
-  },
-
   /** Статус документооборота: D черновик → C на проверке → B согласован → A выдан */
   async setFileStatus(id: string, statusCode: string): Promise<any> {
     return request(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ statusCode }) });

@@ -34,7 +34,6 @@ const MailScreen = lazy(() => import('../screens/Mail'));
 const LogsManagement = lazy(() => import('../screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('../screens/ProcurementManagement'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
-const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
 const FeedbackScreen = lazy(() => import('../screens/FeedbackScreen'));
 const OfficeHost = lazy(() => import('../screens/OfficeHost'));
@@ -42,15 +41,14 @@ const OfficeHost = lazy(() => import('../screens/OfficeHost'));
 const OfficePdf = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="pdf" /> })));
 const OfficeSheet = lazy(() => import('../screens/OfficeAppHost').then((m) => ({ default: () => <m.default app="sheets" /> })));
 // Окно программы без файла — стартовое окно (создать, недавние, файлы
-// проекта); с файлом — редактор. Старые документы Конструктора (?doc=) до их
-// удаления открываются прежним экраном
+// проекта); с файлом — редактор
 const OfficeHome = lazy(() => import('../screens/OfficeHome'));
+// .xls и .csv: Таблица правит только .xlsx — рядом кладётся копия и открывается она
+const SheetCopyEntry = lazy(() => import('../screens/SheetCopyEntry'));
 const officeEntry = (kind: 'doc' | 'sheet' | 'pdf', Editor: React.ComponentType) => function OfficeEntry() {
   const [params] = useSearchParams();
   if (params.get('file')) return <Editor />;
-  if (kind !== 'pdf' && (params.get('doc') || params.get('fromFile'))) {
-    return <div className="h-full overflow-auto p-4"><ConstructorScreen /></div>;
-  }
+  if (kind === 'sheet' && params.get('convert')) return <SheetCopyEntry />;
   return <OfficeHome kind={kind} />;
 };
 const DocEntry = officeEntry('doc', OfficeHost);
@@ -156,13 +154,9 @@ export const SECTIONS: SectionDef[] = [
   { path: '/sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: SheetEntry },
   { path: '/doc', title: 'Документ', icon: DocAppIcon, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: DocEntry },
   // PDF — редактор Flux Office (GenOffice), открывается из Проводника своим
-  // окном; пометки пишутся в сам файл. Прежние замечания Просмотра
-  // переносятся из окна (components/collab/LegacyMarkupBar.tsx)
+  // окном; пометки пишутся в сам файл
   { path: '/pdf', title: 'PDF', icon: PdfAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: PdfEntry },
-  // Файлы Word и Excel — в редакторах Flux Office (GenOffice): правка идёт в
-  // сам файл, а не в копию в базе. Документы Конструктора (/sheet, /doc)
-  // открываются по-прежнему — их перевод в файлы отдельным этапом
-  // (docs/office-genoffice-plan.md)
+  // Прежние адреса редакторов файлов (ссылки из 1.16) — синонимы /doc и /sheet
   { path: '/office-sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeSheet },
   { path: '/office-doc', title: 'Документ', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeHost },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
