@@ -2951,7 +2951,7 @@ registerImportJobRoutes(app);
 // Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно
 startImportJobs();
 registerEquipmentEditRoutes(app);
-registerVdrRoutes(app);
+registerVdrRoutes(app, { chunkBytes: limits.chunkBytes });
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах
 // + данные в Excel), страховочные копии базы при старте, API и расписание

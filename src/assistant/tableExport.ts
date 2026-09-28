@@ -5,20 +5,17 @@
  * около 900 КБ, а хранилище поднимается при старте программы. Статический
  * импорт держал бы всю библиотеку в стартовом куске ради кнопки, которую
  * нажимают раз в неделю, — поэтому она грузится по требованию.
+ *
+ * Модуль остаётся без React и без побочных эффектов (правило для src/assistant):
+ * здесь только байты и имя, класть файл во Flux и открывать его — дело
+ * вызывающего (assistantStore), у него есть навигация.
  */
 import type { AssistantTable } from './types';
+import { buildDocx, type DocPart } from '../lib/docxWrite';
 
-function triggerDownload(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-}
+export interface ExportedTableFile { bytes: Uint8Array; name: string }
 
-export async function exportTableToExcel(table: AssistantTable) {
+export async function exportTableToExcel(table: AssistantTable): Promise<ExportedTableFile> {
   const XLSX = await import('xlsx');
   const aoa = [table.columns, ...table.rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -26,19 +23,16 @@ export async function exportTableToExcel(table: AssistantTable) {
   XLSX.utils.book_append_sheet(wb, ws, 'Данные');
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  triggerDownload(new Blob([out], { type: 'application/octet-stream' }), `PDM_${ts}.xlsx`);
+  return { bytes: new Uint8Array(out), name: `PDM_${ts}.xlsx` };
 }
 
-export function exportTableToWord(table: AssistantTable) {
-  const head = table.columns.map(c => `<th style="border:1px solid #888;padding:6px;background:#eee">${c}</th>`).join('');
-  const body = table.rows.map(r =>
-    '<tr>' + r.map(c => `<td style="border:1px solid #888;padding:6px">${String(c ?? '')}</td>`).join('') + '</tr>'
-  ).join('');
-  const html =
-    `<html><head><meta charset="utf-8"></head><body>` +
-    `<h2>${table.title}</h2>` +
-    `<table style="border-collapse:collapse"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
-    `</body></html>`;
+/** Настоящий .docx: раньше сюда уходила HTML-страница под именем .doc, и Word
+ * открывал её с предупреждением «формат не соответствует расширению» */
+export function exportTableToWord(table: AssistantTable): ExportedTableFile {
+  const parts: DocPart[] = [
+    { kind: 'head', text: table.title, level: 1 },
+    { kind: 'table', rows: [table.columns, ...table.rows.map((r) => r.map((c) => String(c ?? '')))] },
+  ];
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  triggerDownload(new Blob(['﻿', html], { type: 'application/msword' }), `PDM_${ts}.doc`);
+  return { bytes: buildDocx(parts), name: `PDM_${ts}.docx` };
 }

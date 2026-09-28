@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.js';
+import { createFileFromBytes, exportsHome } from '../officeStore.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -245,7 +246,7 @@ function isDataRow(row: any[], map: Record<number, string>): boolean {
 
 const STATUSES = ['DRAFT', 'READY', 'REMARKS', 'ACCEPTED'];
 
-export function registerVdrRoutes(app: Express): void {
+export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promise<number> }): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 
   app.use('/api/vdr', async (_req, _res, next) => {
@@ -956,10 +957,16 @@ export function registerVdrRoutes(app: Express): void {
         .replace('{lang}', 'ER') + '.xlsx').replace(/[\\/:*?"<>|]/g, '_');
 
       const buf: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('X-File-Name', encodeURIComponent(fileName));
-      res.send(buf);
+
+      // Настоящий файл во Flux вместо скачивания в браузер: ложится в «Выгрузки»
+      // того, кто нажал «Выгрузить», и сразу открывается в Flux Office
+      const me = authUserOf(req);
+      if (!me) return res.status(401).json({ error: 'Не авторизован' });
+      const home = await exportsHome(me.id, register.projectId);
+      const file = await createFileFromBytes({
+        name: fileName, body: buf, home, userId: me.id, chunkBytes: await deps.chunkBytes(),
+      });
+      res.json({ id: file.id, name: file.name });
     } catch (err: any) { sendError(res, err); }
   });
 }
