@@ -174,7 +174,7 @@ const get = (path: string) => call('GET', path);
   const views = await get('/api/equipment/view-templates');
   ok('шаблон виден в списке', (views.data?.views || []).some((v: any) => v.id === view.data?.view?.id), views.data);
 
-  const query = await post('/api/constructor/query', {
+  const query = await post('/api/project-data/query', {
     projectId, entity: 'element',
     columns: ['tag', 'role', 'parentTag', 'unitTag', 'param:Электродвигатель|Номинальная мощность'],
     filters: [{ field: 'role', op: 'eq', value: 'ДВИГАТЕЛЬ' }],

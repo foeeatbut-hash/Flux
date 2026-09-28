@@ -4,8 +4,7 @@ import { findCycle, cycleNames } from '../../src/lib/docFormula.js';
 
 // Формулы документа: именованные значения титула.
 //
-// Вынесено отдельным модулем, а не дописано в constructor.ts: тот и так подошёл
-// к пределу размера, а формулы — своя область со своим сроком жизни.
+// Формулы — своя область со своим сроком жизни, поэтому отдельный модуль.
 
 // Вид формулы: чужое значение в базе означало бы, что документ соберётся
 // непредсказуемо, поэтому проверяем на входе
@@ -106,19 +105,14 @@ export function registerFormulaRoutes(app: Express): void {
       const id = String(req.params.id);
       const f = await prisma.docFormula.findUnique({ where: { id } });
       if (!f) return res.status(404).json({ error: 'Формула не найдена' });
-      const docs = await prisma.constructorDoc.findMany({
-        where: { projectId: f.projectId, kind: 'TEMPLATE' },
-        select: { id: true, name: true, bindings: true },
-      });
-      const used = (docs as any[])
-        .filter((d) => String(d.bindings || '').includes(`data-formula-id="${id}"`))
-        .map((d) => ({ id: d.id, name: d.name }));
       // И в других формулах-сборках
       const others = await prisma.docFormula.findMany({ where: { projectId: f.projectId } });
       const inFormulas = (others as any[])
         .filter((o) => o.id !== id && String(o.config || '').includes(id))
         .map((o) => ({ id: o.id, name: o.name }));
-      res.json({ templates: used, formulas: inFormulas });
+      // Шаблоны титулов Конструктора ушли вместе с ним: формулу держат только
+      // другие формулы-сборки. Поле templates оставлено пустым для окна
+      res.json({ templates: [], formulas: inFormulas });
     } catch (err: any) { sendError(res, err); }
   });
 

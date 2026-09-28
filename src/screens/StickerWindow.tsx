@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { dataService, UserNote } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
-import RichTextEditor from '../components/RichTextEditor';
+import NoteEditorHost, { type NoteSaveState } from './NoteEditorHost';
+import { htmlToMarkdown, looksLikeHtml } from '../lib/htmlToMarkdown';
 import { X, RefreshCw, Save, Check, ExternalLink } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -29,6 +30,12 @@ export default function StickerWindow() {
   // Накапливаем все несохраненные поля: debounce-таймер перезапускается на каждое
   // изменение, и без объединения сохранялся бы только последний fields (потеря правок)
   const pendingFieldsRef = useRef<Partial<UserNote>>({});
+  // Текст правит редактор Markdown: он же сам и пишет. Если заметку поправили
+  // в Блокноте, пока стикер открыт, редактор открывается заново — но не
+  // поверх своей несохранённой правки и не от своей же записи
+  const [version, setVersion] = useState(0);
+  const textState = useRef<NoteSaveState>('idle');
+  const ownStamp = useRef('');
 
   // Extract note ID from URL param
   const query = new URLSearchParams(location.search);
@@ -90,8 +97,9 @@ export default function StickerWindow() {
       try {
         const fresh = await dataService.getNoteById(noteId);
         // Only update local state if another window edited it (compare updated timestamp)
-        if (note && fresh && fresh.updatedAt !== note.updatedAt) {
+        if (note && fresh && fresh.updatedAt !== note.updatedAt && fresh.updatedAt !== ownStamp.current) {
           setNote(fresh);
+          if (textState.current !== 'dirty' && textState.current !== 'saving' && fresh.content !== note.content) setVersion((v) => v + 1);
         }
       } catch (e) {
         // fail silently for sync
@@ -200,11 +208,20 @@ export default function StickerWindow() {
       </div>
 
       {/* SIMPLIFIED EDITOR CONTEXT (Step 4 & 5) */}
-      <div className="flex-1 p-2 overflow-y-auto">
-        <RichTextEditor
-          value={note.content}
-          onChange={(html) => handleNoteChange({ content: html })}
-          className="h-full border-none shadow-none bg-transparent prose-xs"
+      <div className="flex-1 min-h-0">
+        <NoteEditorHost
+          key={`${note.id}:${version}`}
+          compact
+          path={`flux://note/${note.id}`}
+          name={note.title}
+          readOnly={note.canEdit === false}
+          load={async () => (looksLikeHtml(note.content || '') ? htmlToMarkdown(note.content || '') : String(note.content || ''))}
+          save={async (text) => {
+            const saved = await dataService.updateNote(note.id, { content: text });
+            ownStamp.current = String(saved?.updatedAt || '');
+            setNote((n) => (n ? { ...n, content: text, updatedAt: saved?.updatedAt || n.updatedAt } : n));
+          }}
+          onState={(st) => { textState.current = st; setSaveStatus(st === 'dirty' || st === 'saving' ? 'saving' : st === 'saved' ? 'saved' : st === 'error' ? 'error' : 'idle'); }}
         />
       </div>
     </div>

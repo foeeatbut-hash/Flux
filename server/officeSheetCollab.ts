@@ -75,6 +75,9 @@ export class SheetBook {
 
   get(fileId: string): SheetSession | null { return this.sessions.get(fileId) || null; }
 
+  /** Забыть сеанс: файл записал сервер в обход окна (см. CollabBook.drop) */
+  drop(fileId: string): void { this.sessions.delete(fileId); }
+
   /** Правка участника: получает номер и встаёт в журнал. null — не принята */
   push(s: SheetSession, op: SheetOp): number | null {
     if (s.ops.length >= MAX_OPS) return null;

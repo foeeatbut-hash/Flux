@@ -12,7 +12,7 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, FileClock, Home } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, Home } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { visibleSections } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
@@ -22,6 +22,8 @@ import { useWindowStore } from '../store/windowStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
 import { groupSections, countFound, pinnedTiles, stepFocus } from '../lib/startMenu';
+import FileBadge from './ui/FileBadge';
+import { recentBadge } from '../lib/fileBadge';
 import { useRecentStore } from '../store/recentStore';
 import { visibleRecentDocs, whenLabel, kindName } from '../lib/recentDocs';
 import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON } from '../lib/metrics';
@@ -331,7 +333,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-left
                              hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
                 >
-                  <FileClock className="w-4 h-4 shrink-0 text-slate-400" />
+                  <FileBadge file={d.title} kind={recentBadge(d)} size={18} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-slate-700 dark:text-slate-300 truncate">{d.title}</span>
                     <span className="block text-2xs text-slate-400">{kindName(d.kind)} · {whenLabel(d.at)}</span>

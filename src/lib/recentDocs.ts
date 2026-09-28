@@ -34,7 +34,7 @@ export const KIND_NAMES: Record<DocKind, string> = {
   sheet: 'Таблица',
   text: 'Документ',
   note: 'Заметка',
-  pdf: 'Просмотр',
+  pdf: 'PDF',
 };
 
 /** Как называется программа, которая это открывает */

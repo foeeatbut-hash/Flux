@@ -43,7 +43,7 @@ export function registerInsightRoutes(app: Express): void {
       if (!projectId) return res.json({ found: false, kind, id, title: '', subtitle: '', total: 0, groups: [] });
       // Тексты документов нужны: половина связей — упоминания в формулах
       const snap = await projectSnapshot(getPrisma(), projectId, {
-        withDocText: true, userId: actorOf(req)?.id, mailAccountIds: await mailIds(req),
+        userId: actorOf(req)?.id, mailAccountIds: await mailIds(req),
       });
       res.json(whereUsed(snap, kind as UsageKind, id));
     } catch (err: any) { sendError(res, err); }

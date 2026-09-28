@@ -10,6 +10,7 @@
  * имени — гадание, и здесь этого нет.
  */
 import { say, type AssistantMessage } from './types';
+import { isExcelFile, isWordFile, openHref } from '../lib/fileTypes';
 
 export interface FileRecord {
   id: string;
@@ -26,7 +27,8 @@ export interface FileCard {
   attached: { id: string; title: string; kind: string };
 }
 
-const isDocOf = (f: FileRecord) => !!f.refId || f.type === 'CONSTRUCTOR';
+// Документ Flux Office — настоящий файл Word или Excel: его правит редактор
+const isDocOf = (f: FileRecord) => isWordFile(f) || isExcelFile(f);
 const isPdfOf = (f: FileRecord) => f.type === 'PDF' || /\.pdf$/i.test(f.name || '');
 
 /** Вид файла словом — им же подписан значок в Проводнике */
@@ -38,10 +40,7 @@ export function kindOf(f: FileRecord): 'doc' | 'pdf' | 'file' {
 
 /** Адрес, которым файл открывается: тот же, что у двойного нажатия */
 export function openRoute(f: FileRecord): string {
-  const kind = kindOf(f);
-  if (kind === 'doc') return `${String((f as any).filePath || '').startsWith('/doc/') ? '/doc' : '/sheet'}?doc=${encodeURIComponent(f.refId || f.id)}`;
-  if (kind === 'pdf') return `/pdf?file=${encodeURIComponent(f.id)}`;
-  return `/explorer?file=${encodeURIComponent(f.id)}${f.folderId ? `&folder=${encodeURIComponent(f.folderId)}` : ''}`;
+  return openHref({ ...f, name: f.name || '' });
 }
 
 export function fileCard(f: FileRecord): FileCard {
@@ -59,13 +58,12 @@ export function fileCard(f: FileRecord): FileCard {
       {
         actions: [
           {
-            label: kind === 'doc' ? 'Открыть в Flux Office' : kind === 'pdf' ? 'Открыть в Просмотре' : 'Показать в Проводнике',
+            label: kind === 'doc' ? 'Открыть в Flux Office' : kind === 'pdf' ? 'Открыть в PDF' : 'Показать в Проводнике',
             kind: 'navigate', route: openRoute(f),
           },
           {
             label: 'Карточка связей', kind: 'where-used',
-            usageKind: kind === 'doc' ? 'doc' : 'file',
-            usageId: kind === 'doc' ? (f.refId || f.id) : f.id,
+            usageKind: 'file', usageId: f.id,
           },
         ],
       },

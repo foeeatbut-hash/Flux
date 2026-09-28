@@ -14,10 +14,16 @@ import { addRecent, forgetRecent, type RecentDoc } from '../lib/recentDocs';
 
 const KEY = 'flux_recent_docs';
 
+/**
+ * Документы Конструктора (?doc=, ?fromFile=) уходят вместе с ним: Flux Office
+ * правит файлы. Такая запись в Пуске вела бы в никуда — отбрасываем при чтении
+ */
+const live = (d: RecentDoc): boolean => !!d && typeof d.href === 'string' && !/[?&](doc|fromFile)=/.test(d.href);
+
 const read = (): RecentDoc[] => {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
-    return Array.isArray(raw) ? raw : [];
+    return Array.isArray(raw) ? raw.filter(live) : [];
   } catch (_) { return []; }
 };
 

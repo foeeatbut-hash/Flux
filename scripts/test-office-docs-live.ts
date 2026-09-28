@@ -101,10 +101,10 @@ async function upload(name: string, bytes: Buffer): Promise<string> {
 
     console.log('\n1. Открытие');
     await page.goto(`${BASE}/#/office-doc?file=${id}`, { waitUntil: 'domcontentloaded' });
-    const frameEl = page.locator('iframe[title="Документ Flux Office"]');
+    const frameEl = page.locator('iframe[title="Flux Office — Документ"]');
     await frameEl.waitFor({ timeout: 20000 }).catch(() => {});
     ok('окно с редактором открылось', await frameEl.count() > 0);
-    const fr = page.frameLocator('iframe[title="Документ Flux Office"]');
+    const fr = page.frameLocator('iframe[title="Flux Office — Документ"]');
     const text = fr.locator('.ProseMirror').first();
     await text.waitFor({ timeout: 30000 }).catch(() => {});
     const body = await text.innerText().catch(() => '');

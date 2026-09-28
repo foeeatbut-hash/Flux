@@ -762,27 +762,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // Выгрузка документа в Ворд: диалог «Сохранить как», как у самого Ворда.
-  // Через браузерное скачивание не делаем — Chromium теряет кириллицу в имени
-  // файла, если у системы не задана локаль, и файл приходит как «download».
-  ipcMain.handle('doc:save-word', async (_event, { html, title }: { html: string; title?: string }) => {
-    const { dialog } = require('electron');
-    try {
-      const safe = String(title || 'Документ').replace(/[\\/:*?"<>|]/g, '-').trim().slice(0, 80) || 'Документ';
-      const result = await dialog.showSaveDialog({
-        title: 'Сохранить документ Word',
-        defaultPath: `${safe}.doc`,
-        filters: [{ name: 'Документ Word (*.doc)', extensions: ['doc'] }],
-      });
-      if (result.canceled || !result.filePath) return { success: false, canceled: true };
-      // BOM: по нему Ворд понимает кодировку и не показывает кракозябры
-      fs.writeFileSync(result.filePath, '﻿' + String(html || ''), 'utf-8');
-      return { success: true, filePath: result.filePath };
-    } catch (err: any) {
-      return { success: false, error: err?.message || String(err) };
-    }
-  });
-
   // Захват экрана (вставка скриншота в чат)
   ipcMain.handle('desktop:capture', async () => {
     const { desktopCapturer } = require('electron');

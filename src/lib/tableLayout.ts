@@ -54,7 +54,7 @@ export interface CatalogField extends FieldRef {
   sample?: string;
 }
 
-/** То, что отдаёт `GET /api/constructor/catalog`. */
+/** То, что отдаёт `GET /api/project-data/catalog`. */
 export interface ProjectCatalog {
   counts?: { tags: number; elements: number };
   tagFields?: { path: string; title: string }[];

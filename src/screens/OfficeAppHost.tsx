@@ -17,10 +17,14 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Empty } from '../components/ui';
+import { Btn, Empty } from '../components/ui';
+import ProjectDataPanel from '../components/office/ProjectDataPanel';
+import FileEnglishVersion from '../components/translate/FileEnglishVersion';
+import { sheetName, cellValue } from '../../office/fieldKeys';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import OfficePresence from '../components/collab/OfficePresence';
-import LegacyMarkupBar from '../components/collab/LegacyMarkupBar';
+import { rememberDoc } from '../store/recentStore';
+import { editorHref } from '../lib/officeFiles';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -30,7 +34,7 @@ import { dueToSave } from '../components/collab/useDocCollab';
 
 export type HostedApp = 'pdf' | 'sheets';
 
-const TITLES: Record<HostedApp, string> = { pdf: 'PDF Flux Office', sheets: 'Таблица Flux Office' };
+const TITLES: Record<HostedApp, string> = { pdf: 'Flux Office — PDF', sheets: 'Flux Office — Таблица' };
 const HELLO_MS = 15_000;
 
 /** На что окно отвечает само: язык, тема, ИИ (отключён) */
@@ -62,6 +66,8 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
   const sessionId = useRef(0);
   const dirty = useRef(false);
   const closeWait = useRef<((ok: boolean) => void) | null>(null);
+  const fieldWait = useRef<((r: { ok: boolean; cell?: string; error?: string } | null) => void) | null>(null);
+  const [dataOpen, setDataOpen] = useState(false);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const themeRef = useRef(theme);
@@ -85,6 +91,10 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
     unsaved.current = { first: unsaved.current.first ?? now, last: now };
   };
   useWindowTitle(name);
+  // Недавние: открытый файл попадает в Пуск тем же адресом, что у двойного щелчка
+  useEffect(() => {
+    if (fileId && name) rememberDoc({ href: editorHref({ id: fileId, name }), title: name, kind: app === 'pdf' ? 'pdf' : 'sheet', at: Date.now() });
+  }, [fileId, name]);
 
   const send = useCallback((msg: object) => {
     frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin));
@@ -144,6 +154,7 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
         }
         if (channel === 'flux:x-applied') touched();
         if (channel === 'flux:x-ready') setTogether(true);
+        if (channel === 'flux:field-inserted' && fieldWait.current) { const w = fieldWait.current; fieldWait.current = null; w(args[0] || null); }
         return;
       }
       if (m.op === 'ipc-send') {
@@ -254,6 +265,37 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
     });
   }, [paneId, send, addToast, app]);
 
+  // Данные проекта (только Таблица): значение — в выделенную ячейку, на ней
+  // имя FLUX_<ключ>; «Обновить поля» — записать книгу, дать серверу подставить
+  // значения по именам (server/routes/projectData.ts) и открыть её заново
+  const [englishOpen, setEnglishOpen] = useState(false);
+  const saveNow = () => new Promise<boolean>((resolve) => {
+    if (!dirty.current) { resolve(true); return; }
+    closeWait.current = resolve;
+    send({ event: 'ipc', payload: { channel: 'workbook:close-save-request', args: [] } });
+    setTimeout(() => { if (closeWait.current === resolve) { closeWait.current = null; resolve(false); } }, 120_000);
+  });
+  const insertField = (f: { key: string; title: string; value: string }) => new Promise<void>((resolve) => {
+    fieldWait.current = (r) => {
+      if (r?.ok) addToast(`Поле «${f.title}» — в ячейке ${r.cell}`, 'success');
+      else addToast(r?.error || 'Поле не вставлено', 'error');
+      resolve();
+    };
+    send({ event: 'ipc', payload: { channel: 'flux:insert-field', args: [{ name: sheetName(f.key), value: cellValue(f.value === '—' ? '' : f.value) }] } });
+    setTimeout(() => { if (fieldWait.current) { fieldWait.current = null; addToast('Редактор не ответил — поле не вставлено', 'error'); resolve(); } }, 8000);
+  });
+  const updateFields = async () => {
+    if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) { addToast('Книга не записана — поля не обновлены', 'error'); return; }
+    const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { addToast(d?.error || 'Поля не обновлены', 'error'); return; }
+    const miss = (d.skipped || []).length;
+    addToast(d.unchanged ? 'Поля уже актуальны' : `Обновлено полей: ${(d.changed || []).length}${miss ? `, без значения: ${miss}` : ''}`, miss ? 'info' : 'success');
+    if (!d.unchanged) reopenRef.current();
+  };
+
   if (!fileId) return <Empty title="Файл не выбран" text="Откройте файл из Проводника двойным щелчком." />;
   if (phase === 'missing') {
     return <Empty title="Редактор не установлен" text="В этой сборке нет этого редактора Flux Office. Обновите программу." />;
@@ -270,10 +312,15 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
           {failure}
         </div>
       )}
-      {app === 'pdf' && phase === 'ready' && (
-        <LegacyMarkupBar fileId={fileId} canWrite={room.mode === 'edit' || room.mode === 'alone'} unsaved={() => dirty.current}
-          onDone={(message, ok) => { addToast(message, ok ? 'success' : 'error'); if (ok) reopenRef.current(); }} />
+      {app === 'sheets' && (
+        <div className="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-2 dark:border-slate-800">
+          <Btn size="sm" tone={dataOpen ? 'primary' : 'ghost'} aria-pressed={dataOpen} onClick={() => setDataOpen((v) => !v)}
+            title="Поля проекта, тегов, оборудования и ВДР — вставить в выделенную ячейку">Данные проекта</Btn>
+          <Btn size="sm" tone="ghost" onClick={() => setEnglishOpen(true)}
+            title="Сверка перевода и копия «(EN)» рядом с этой книгой">Английская версия</Btn>
+        </div>
       )}
+      <div className="flex min-h-0 flex-1">
       <div className="relative min-h-0 flex-1">
         <iframe key={`${fileId}:${frameKey}`} ref={frame} src={`genoffice/${app}/index.html`} title={TITLES[app]}
           onLoad={onFrameLoad} className="absolute inset-0 h-full w-full border-0 bg-white" />
@@ -281,6 +328,15 @@ export default function OfficeAppHost({ app }: { app: HostedApp }) {
           <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 text-sm text-slate-500">Открывается…</div>
         )}
       </div>
+      {app === 'sheets' && dataOpen && (
+        <ProjectDataPanel fileId={fileId} kind="sheet" onInsert={insertField} onUpdate={updateFields} onClose={() => setDataOpen(false)}
+          readOnly={!(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} />
+      )}
+      </div>
+      {app === 'sheets' && englishOpen && (
+        <FileEnglishVersion fileId={fileId} name={name} onClose={() => setEnglishOpen(false)}
+          beforeIssue={async () => { if (!(await saveNow())) throw new Error('Книга не записана — сверять нечего'); }} />
+      )}
     </div>
   );
 }

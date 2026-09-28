@@ -7,6 +7,7 @@
  * добавится в Каталог данными, и Конструктор подберёт его тем же путём.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ClipboardList, Sparkles, Upload, LayoutTemplate, Send, Plus, Pencil, Trash2, Undo2, Link2, Download, BookOpen, AlertTriangle } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useCatalogStore } from '../store/catalogStore';
@@ -16,7 +17,7 @@ import { useCatalogLive } from '../components/catalog/useCatalogLive';
 import { useToastStore } from '../store/toastStore';
 import { useWindowStore } from '../store/windowStore';
 import { can } from '../lib/permissions';
-import { saveBytes } from '../lib/saveToWindows';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
 import NoProject from '../components/NoProject';
 import SectionErrorBoundary from '../components/SectionErrorBoundary';
 import ItemsTable from '../components/builder/ItemsTable';
@@ -41,6 +42,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ classNam
 ];
 
 export default function BuilderScreen() {
+  const navigate = useNavigate();
   const project = useStore((s) => s.activeProject);
   const user = useStore((s) => s.user);
   const catalog = useCatalogStore((s) => s.catalog);
@@ -112,9 +114,13 @@ export default function BuilderScreen() {
     if (t) addToast(`Отменено: ${t}`, 'info');
   };
   const exportList = async () => {
-    const bytes = await exportListXlsx(catalog, b.items, b.list?.name || 'Ведомость');
-    const r = await saveBytes(`${(b.list?.name || 'Ведомость').replace(/[\\/:*?"<>|]+/g, '-')}.xlsx`, bytes);
-    if (r.ok) addToast('Ведомость выгружена', 'success'); else if (!r.canceled) addToast(r.error || 'Не выгрузилось', 'error');
+    try {
+      const bytes = await exportListXlsx(catalog, b.items, b.list?.name || 'Ведомость');
+      const name = `${(b.list?.name || 'Ведомость').replace(/[\\/:*?"<>|]+/g, '-')}.xlsx`;
+      const made = await saveNewFile(bytes, name);
+      addToast(`Ведомость выгружена: ${made.name}`, 'success');
+      navigate(editorHref(made));
+    } catch (e: any) { addToast(e?.message || 'Не выгрузилось', 'error'); }
   };
 
   return (

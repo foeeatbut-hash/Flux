@@ -7,6 +7,7 @@
  * считается от снимка прошлого выпуска и подставляется в описание ревизии.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, FileText, FolderUp, Send, AlertTriangle, CircleCheck, History, Download } from 'lucide-react';
 import type { Catalog } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
@@ -22,6 +23,7 @@ import { useCatalogStore } from '../../store/catalogStore';
 import { useToastStore } from '../../store/toastStore';
 import { useStore } from '../../store/store';
 import { gridsToXlsx, bytesToExplorer } from '../../lib/blankXlsx';
+import { editorHref } from '../../lib/officeFiles';
 import { documentHtml, footerTemplate } from '../../lib/blankHtml';
 import { saveBytes } from '../../lib/saveToWindows';
 import { Area, Btn, Chip, Field, Input, Seg, Select, SectionTitle, confirmAsk } from '../catalog/ui';
@@ -41,6 +43,7 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
   catalog: Catalog; list: SelectionList; items: SelectionItemData[]; canIssue: boolean;
   onUpdateList: (patch: Partial<Pick<SelectionList, 'header' | 'orderNos' | 'templateId' | 'lang'>>) => Promise<void>;
 }) {
+  const navigate = useNavigate();
   const templates = useCatalogStore((s) => s.templates);
   const loadTemplates = useCatalogStore((s) => s.loadTemplates);
   const addToast = useToastStore((s) => s.addToast);
@@ -97,8 +100,9 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
         if (r.ok) addToast(r.path ? `Сохранено: ${r.path}` : 'Файл сохранён', 'success');
         else if (!r.canceled) addToast(r.error || 'Не сохранилось', 'error');
       } else {
-        await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev, user?.id);
-        addToast('Бланк положен в Проводник', 'success');
+        const made = await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev);
+        addToast(`Бланк положен в Проводник: ${made.name}`, 'success');
+        navigate(editorHref(made));
       }
     } catch (e: any) { addToast(`Excel не собрался: ${e?.message || e}`, 'error'); } finally { setBusy(''); }
   };
@@ -135,7 +139,7 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
       if (dirtyHeader) await onUpdateList({ header, orderNos });
       const bytes = await gridsToXlsx(grids());
       let fileId: string | null = null;
-      try { fileId = await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev, user?.id); } catch { /* без Проводника выпуск всё равно записывается */ }
+      try { fileId = (await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev)).id; } catch { /* без Проводника выпуск всё равно записывается */ }
       await catalogService.issue(list.id, { ...issue, diffText: diff, fileId });
       addToast(`Ревизия ${issue.rev} выпущена${fileId ? ', файл — в Проводнике' : ''}`, 'success');
       await reloadIssues();

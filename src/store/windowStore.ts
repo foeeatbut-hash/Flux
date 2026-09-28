@@ -44,7 +44,7 @@ interface WindowState {
   /**
    * Открыть адрес окном.
    *
-   * Адрес, а не раздел: `/constructor?doc=42` и `/constructor?doc=43` — два
+   * Адрес, а не раздел: `/doc?file=42` и `/doc?file=43` — два
    * окна. Уже открытый адрес поднимается вместо второго окна того же.
    */
   open: (href: string) => void;

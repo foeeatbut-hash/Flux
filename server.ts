@@ -29,16 +29,17 @@ import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes, fileBytes } from './server/routes/fileChunks.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
-import { registerPdfMarkupTransferRoutes } from './server/routes/pdfMarkupTransfer.js';
+import { registerOfficeConvertRoutes } from './server/routes/officeConvert.js';
+import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
+import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
+import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
-import { setupDocRooms } from './server/collab.js';
 import { officeRooms } from './server/officeRooms.js';
 import { setupOfficeSockets } from './server/officeSockets.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
-import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
@@ -56,7 +57,6 @@ import { registerImportDictRoutes } from './server/routes/importDict.js';
 import { registerEquipmentDraftRoutes, cleanTagLinks } from './server/routes/equipmentDraft.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
 import { registerDesktopRoutes } from './server/routes/desktop.js';
-import { registerPdfMarkupRoutes } from './server/routes/pdfMarkups.js';
 import { registerMailRoutes } from './server/routes/mail.js';
 import { registerMailSharedRoutes } from './server/routes/mailShared.js';
 import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
@@ -1137,14 +1137,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('equipment:conflict', data);
   });
 
-  // Комната документа: присутствие, выделения, операции движка (server/collab.ts)
-  const docRooms = setupDocRooms(io, socket, async (id) => (await getAuthUser(id))?.name || '');
   // Flux Office: комната файла, совместная правка, редакторы на сервере (server/officeSockets.ts)
   const office = setupOfficeSockets(io, socket, { getAuthUser, mayWriteFile });
 
   socket.on('disconnect', (reason) => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
-    docRooms.leaveAll();
     office.gone(String(reason || ''));
     if (uid) {
       const set = online.get(uid);
@@ -1975,11 +1972,13 @@ async function mayWriteFile(req: any, fileId: string): Promise<string> {
 registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
 // Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
 registerOfficeFileRoutes(app, {
-  chunkBytes: limits.chunkBytes,
-  mayWrite: mayWriteFile,
+  chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, can: userCan,
   holderOf: (fileId) => officeRooms.holder(fileId, Date.now()),
 });
-registerPdfMarkupTransferRoutes(app, { mayWrite: mayWriteFile }); // прежние замечания Просмотра → в сам PDF
+registerProjectDataRoutes(app, { mayWrite: mayWriteFile }); // поля, подписи и блоки файлов Flux Office
+registerOfficeConvertRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile }); // .xls/.csv → копия .xlsx
+registerOfficeVersionRoutes(app, { holderOf: (fileId) => officeRooms.holder(fileId, Date.now()) }); // откат файла
+registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, holderOf: (fileId) => officeRooms.holder(fileId, Date.now()) }); // английская версия
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»
@@ -2215,7 +2214,6 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
 registerExplorerRoutes(app, { can: userCan });
 registerDesktopRoutes(app);
-registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
 registerAssistantRoutes(app);
 registerTranslateRoutes(app);
@@ -2942,7 +2940,6 @@ registerMailRoutes(app, { userDataPath, enforce, mayFeature });
 registerMailSharedRoutes(app);
 registerMailComposeRoutes(app, { userDataPath });
 registerMailLinkRoutes(app, { userDataPath });
-registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
 registerCatalogRoutes(app);
@@ -2952,7 +2949,7 @@ registerImportJobRoutes(app);
 // Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно
 startImportJobs();
 registerEquipmentEditRoutes(app);
-registerVdrRoutes(app);
+registerVdrRoutes(app, { chunkBytes: limits.chunkBytes });
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах
 // + данные в Excel), страховочные копии базы при старте, API и расписание

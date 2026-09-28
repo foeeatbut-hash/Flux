@@ -6,6 +6,7 @@ import { getSection } from '../assistant/sections';
 import { allowEntitlement } from './policyStore';
 import { applyRename } from '../assistant/renameDialog';
 import { exportTableToExcel, exportTableToWord } from '../assistant/tableExport';
+import { saveNewFile, editorHref } from '../lib/officeFiles';
 import {
   fetchAssistantData, invalidateDataCache, renameTagApi, validateTagCode, setDataProjectGetter,
   type AssistantData,
@@ -454,14 +455,26 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   },
 
   runAction: (action) => {
+    // Выгрузка ответа помощника — файл во Flux («Выгрузки»), а не скачивание
+    // мимо программы: его тут же открывает тот же экран Flux Office
+    const exportTable = async (build: () => Promise<{ bytes: Uint8Array; name: string }> | { bytes: Uint8Array; name: string }) => {
+      try {
+        const file = await build();
+        const made = await saveNewFile(file.bytes, file.name);
+        set(s => ({ messages: [...s.messages, { id: uid(), role: 'assistant', text: `«${made.name}» — в «Выгрузки», открываю…` }] }));
+        if (navigateFn) navigateFn(editorHref(made));
+      } catch (err: any) {
+        set(s => ({ messages: [...s.messages, { id: uid(), role: 'assistant', text: `Не выгрузилось: ${err?.message || err}` }] }));
+      }
+    };
     if (action.kind === 'tour' && action.tourId) {
       get().startTour(action.tourId);
     } else if (action.kind === 'ask' && action.query) {
       get().ask(action.query);
     } else if (action.kind === 'export-excel' && get().lastTable) {
-      exportTableToExcel(get().lastTable!);
+      exportTable(() => exportTableToExcel(get().lastTable!));
     } else if (action.kind === 'export-word' && get().lastTable) {
-      exportTableToWord(get().lastTable!);
+      exportTable(() => exportTableToWord(get().lastTable!));
     } else if (action.kind === 'navigate' || action.kind === 'open-section') {
       if (action.route === '__help') {
         const ans = findKnowledge('что умеешь');

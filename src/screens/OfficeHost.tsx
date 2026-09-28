@@ -23,6 +23,10 @@ import { Btn, Dialog, Empty } from '../components/ui';
 import { useOfficeRoom } from '../components/collab/useOfficeRoom';
 import { useDocCollab } from '../components/collab/useDocCollab';
 import OfficePresence from '../components/collab/OfficePresence';
+import { rememberDoc } from '../store/recentStore';
+import { editorHref } from '../lib/officeFiles';
+import ProjectDataPanel from '../components/office/ProjectDataPanel';
+import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -86,6 +90,10 @@ export default function OfficeHost() {
   holderRef.current = holderName;
 
   useWindowTitle(name);
+  // Недавние: открытый файл попадает в Пуск тем же адресом, что у двойного щелчка
+  useEffect(() => {
+    if (fileId && name) rememberDoc({ href: editorHref({ id: fileId, name }), title: name, kind: 'text', at: Date.now() });
+  }, [fileId, name]);
 
   const send = useCallback((msg: object) => {
     frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin));
@@ -321,6 +329,35 @@ export default function OfficeHost() {
   };
   const reopenRef = useRef(reopen);
   reopenRef.current = reopen;
+
+  // Данные проекта: метка {{ключ}} в место курсора; «Обновить поля» — записать
+  // свои правки, дать серверу превратить метки в поля и подставить значения,
+  // открыть файл заново (server/routes/projectData.ts)
+  const [dataOpen, setDataOpen] = useState(false);
+  const insertField = (f: { key: string; title: string }) => {
+    send({ event: 'insertText', payload: `{{${f.key}}}` });
+    addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+  };
+  // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
+  const saveBeforeServer = async (): Promise<boolean> => {
+    if (collabFileRef.current) {
+      return !(holdingRef.current && collabRef.current.unsaved()) || await collabRef.current.flush();
+    }
+    const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
+    return !state?.dirty || (await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) === true;
+  };
+  const [englishOpen, setEnglishOpen] = useState(false);
+  const updateFields = async () => {
+    if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
+    const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { addToast(d?.error || 'Поля не обновлены', 'error'); return; }
+    const miss = (d.skipped || []).length;
+    addToast(d.unchanged ? 'Поля уже актуальны' : `Обновлено полей: ${(d.changed || []).length}${miss ? `, без значения: ${miss}` : ''}`, miss ? 'info' : 'success');
+    if (!d.unchanged) reopen(fileId);
+  };
   const holdingRef = useRef(room.holding);
   holdingRef.current = room.holding;
 
@@ -349,12 +386,19 @@ export default function OfficeHost() {
   return (
     <div className="flex h-full w-full flex-col">
       <OfficePresence roster={room.roster} clientId={room.clientId} mode={room.mode} editable={editable} onTake={takeEdit} />
+      <div className="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-2 dark:border-slate-800">
+        <Btn size="sm" tone={dataOpen ? 'primary' : 'ghost'} aria-pressed={dataOpen} onClick={() => setDataOpen((v) => !v)}
+          title="Поля проекта, тегов, оборудования и ВДР — вставить в документ">Данные проекта</Btn>
+        <Btn size="sm" tone="ghost" onClick={() => setEnglishOpen(true)}
+          title="Сверка перевода и копия «(EN)» рядом с этим файлом">Английская версия</Btn>
+      </div>
+      <div className="flex min-h-0 flex-1">
       <div className="relative min-h-0 flex-1">
       <iframe
         key={`${fileId}:${frameKey}`}
         ref={frame}
         src={EDITOR_URL}
-        title="Документ Flux Office"
+        title="Flux Office — Документ"
         onLoad={onFrameLoad}
         className="absolute inset-0 h-full w-full border-0 bg-white"
       />
@@ -364,6 +408,14 @@ export default function OfficeHost() {
         </div>
       )}
       </div>
+      {dataOpen && (
+        <ProjectDataPanel fileId={fileId} kind="doc" readOnly={!editable} onInsert={insertField} onUpdate={updateFields} onClose={() => setDataOpen(false)} />
+      )}
+      </div>
+      {englishOpen && (
+        <FileEnglishVersion fileId={fileId} name={name} onClose={() => setEnglishOpen(false)}
+          beforeIssue={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан — сверять нечего'); }} />
+      )}
       {conflict && (
         <Dialog title={conflict.why === 'locked' ? 'Файл сейчас правит другой сотрудник' : 'Файл изменили, пока он был открыт'}
           onClose={() => setConflict(null)} busy={busy} width="max-w-lg"

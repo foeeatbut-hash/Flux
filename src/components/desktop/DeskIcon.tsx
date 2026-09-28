@@ -6,13 +6,12 @@
  * какая ревизия, чей тег и видят ли его коллеги. Всё это на значке и стоит,
  * иначе за каждым ответом придётся открывать документ.
  *
- * Картинки те же, что в Проводнике (FILE_STATUSES оттуда же): один документ
- * обязан выглядеть одинаково там и там, иначе его примут за разные файлы.
+ * Картинки те же, что в Проводнике (FileBadge, FILE_STATUSES оттуда же): один
+ * документ обязан выглядеть одинаково там и там, иначе его примут за разные файлы.
  */
 import React from 'react';
-import {
-  Folder, FileSpreadsheet, FileText, File as FileIcon, StickyNote, Users, Shapes, Trash2,
-} from 'lucide-react';
+import { Folder, Users, Shapes, Trash2 } from 'lucide-react';
+import FileBadge from '../ui/FileBadge';
 import { SECTIONS } from '../../workspace/sections';
 import { FILE_STATUSES, statusOf } from '../explorer/FileItems';
 import { isSystemKind, type DeskItem } from '../../lib/desktop';
@@ -42,10 +41,10 @@ function Glyph({ item, size }: { item: DeskItem; size: number }) {
   }
   if (item.kind === 'bin') return <Trash2 size={size} className="text-slate-500 dark:text-slate-400" />;
   if (item.kind === 'folder') return <Folder size={size} className="text-amber-500 fill-amber-200" />;
-  if (item.kind === 'note') return <StickyNote size={size} className="text-amber-500" />;
-  if (item.kind === 'text') return <FileText size={size} className="text-emerald-600" />;
-  if (item.kind === 'doc') return <FileSpreadsheet size={size} className="text-emerald-600" />;
-  return <FileIcon size={size} className="text-slate-400" />;
+  // Файлы — значком Flux Office по виду файла (lib/fileBadge.ts): тот же,
+  // что в Проводнике, Пуске и окне. Раньше стол рисовал любой файл серым листом
+  if (item.kind === 'note') return <FileBadge file={item.name} kind="note" size={size} />;
+  return <FileBadge file={item.name} size={size} />;
 }
 
 export const titleOf = (item: DeskItem): string =>

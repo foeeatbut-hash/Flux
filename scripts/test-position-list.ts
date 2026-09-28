@@ -11,7 +11,7 @@
  */
 import { classifyAll } from '../equipment/classes';
 import { positionRows, filterRows, classCounts, groupRows, byTag, rowLabel } from '../src/lib/positionList';
-import { resolveValue } from '../server/routes/constructor';
+import { resolveValue } from '../server/projectSlice';
 import { compareBy } from '../server/constructorSort';
 
 let failed = 0;

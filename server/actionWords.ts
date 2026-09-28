@@ -39,7 +39,7 @@ const AREA: Record<string, { word: string; route: string }> = {
   folders: { word: 'папку', route: '/explorer' },
   equipment: { word: 'оборудование', route: '/equipment' },
   components: { word: 'изделие', route: '/equipment' },
-  constructor: { word: 'документ', route: '/constructor' },
+  'project-data': { word: 'данные документа', route: '/explorer' },
   notes: { word: 'заметку', route: '/notes' },
   calendar: { word: 'событие календаря', route: '/calendar' },
   chat: { word: 'сообщение', route: '/chat' },
@@ -63,7 +63,6 @@ const SPECIAL: { test: (m: string, p: string[]) => boolean; what: string; route:
   { test: (m, p) => m === 'DELETE' && p[0] === 'updates', what: 'Отозвал релиз', route: '/settings?section=updates' },
   { test: (m, p) => m === 'POST' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => m === 'PUT' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
-  { test: (m, p) => p[0] === 'constructor' && p[1] === 'docs' && p[2] === 'import-file', what: 'Открыл файл в Flux Office', route: '/sheet' },
   // Flux Play: в журнал попадает распоряжение администратора, а не игра
   // сотрудника. Про игру см. isNoise ниже
   { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'platform', what: 'Переключил Flux Play', route: '/settings?section=play' },
@@ -103,7 +102,7 @@ export function describeAction(method: string, path: string): ActionWords | null
 /** Адреса, которые в журнал не пишутся: они не действия человека */
 const SKIP = [
   'logs', 'presence', 'notifications', 'health', 'limits', 'license',
-  'assistant', 'insight', 'translate', 'constructor/fn',
+  'assistant', 'insight', 'translate', 'project-data/fn', 'project-data/search',
   // Куски вложения: файл на сорок мегабайт — это полторы сотни запросов, и
   // каждый оставил бы в журнале действий свою строку. Само обращение при этом
   // в журнал попадает: оно одно на весь файл

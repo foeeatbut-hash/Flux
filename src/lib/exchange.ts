@@ -15,11 +15,15 @@
  * BOM: без него Excel открывает кириллицу крякозябрами).
  */
 
-/** Куда выгружаем */
-export type Target = 'xlsx' | 'csv' | 'clipboard';
+/**
+ * Куда выгружаем. «office» — файл .xlsx в «Выгрузках» на своём столе, сразу
+ * открытый Таблицей Flux Office; «xlsx» — тот же файл в Windows (скачать)
+ */
+export type Target = 'office' | 'xlsx' | 'csv' | 'clipboard';
 
 export const TARGET_LABEL: Record<Target, string> = {
-  xlsx: 'XLSX',
+  office: 'Таблица Flux Office',
+  xlsx: 'XLSX в Windows',
   csv: 'CSV',
   clipboard: 'Буфер обмена',
 };
@@ -96,11 +100,19 @@ export function toClipboard(headers: string[], rows: (string | number)[][]): str
 export function fileName(section: string, target: Target, at: Date = new Date()): string {
   const d = `${String(at.getDate()).padStart(2, '0')}-${String(at.getMonth() + 1).padStart(2, '0')}-${at.getFullYear()}`;
   const clean = String(section || 'Данные').replace(/[\\/:*?"<>|]+/g, ' ').trim();
-  return `Flux — ${clean} — ${d}.${target === 'xlsx' ? 'xlsx' : 'csv'}`;
+  return `Flux — ${clean} — ${d}.${target === 'xlsx' || target === 'office' ? 'xlsx' : 'csv'}`;
 }
 
 /** Отобрать столбцы в том порядке, в каком они объявлены разделом */
 export function pickColumns(all: Column[], chosen: string[]): Column[] {
   const want = new Set(chosen);
   return all.filter((c) => want.has(c.key));
+}
+
+/** Книга .xlsx из строк — один лист; библиотека грузится только при выгрузке */
+export async function toXlsx(headers: string[], rows: unknown[][], sheet = 'Данные'): Promise<Uint8Array> {
+  const XLSX = await import('xlsx');
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headers, ...rows]), sheet.slice(0, 31));
+  return new Uint8Array(XLSX.write(book, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer);
 }

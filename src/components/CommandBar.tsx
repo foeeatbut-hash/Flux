@@ -41,7 +41,7 @@ const GROUP_TITLE: Record<BarGroup, string> = {
   помощник: 'Помощник',
 };
 
-function ItemIcon({ icon }: { icon: string }) {
+function ItemIcon({ icon, name }: { icon: string; name?: string }) {
   const cls = 'w-4 h-4 shrink-0 text-slate-400 dark:text-slate-500';
   switch (icon) {
     case 'open': return <AppWindow className={cls} />;
@@ -56,7 +56,7 @@ function ItemIcon({ icon }: { icon: string }) {
     case 'check': return <ShieldCheck className={cls} />;
     case 'history': return <History className={cls} />;
     case 'ask': return <MessageCircleQuestion className={cls} />;
-    default: return <KindIcon kind={icon} />;
+    default: return <KindIcon kind={icon} name={name} />;
   }
 }
 
@@ -275,7 +275,7 @@ export default function CommandBar() {
                     i === cursor ? 'bg-slate-100 dark:bg-slate-800' : ''
                   }`}
                 >
-                  <ItemIcon icon={it.icon} />
+                  <ItemIcon icon={it.icon} name={it.title} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm text-slate-800 dark:text-slate-150 truncate">{it.title}</span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{it.subtitle}</span>

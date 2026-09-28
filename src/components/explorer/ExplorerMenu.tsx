@@ -10,10 +10,11 @@
  */
 import React from 'react';
 import {
-  Folder, FolderOpen, FolderPlus, File as FileIcon, FileText, Grid3X3, Upload, RefreshCw,
+  Folder, FolderOpen, FolderPlus, File as FileIcon, Grid3X3, Upload, RefreshCw, History, Languages,
   Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2,
 } from 'lucide-react';
 import { appsFor, type FileLike } from '../../lib/fileTypes';
+import FileBadge from '../ui/FileBadge';
 
 export interface ExplorerMenuState {
   x: number;
@@ -33,7 +34,6 @@ export interface ExplorerMenuProps {
   /** Есть ли что вставить */
   hasClipboard: boolean;
   /** Можно ли редактировать копию файла в Конструкторе (по имени) */
-  canEditInConstructor: boolean;
   onClose: () => void;
   open: (id: string) => void;
   /** «Открыть в: …» — адрес выбранной программы */
@@ -41,13 +41,16 @@ export interface ExplorerMenuProps {
   openFolder: (id: string) => void;
   refresh: () => void;
   createFolder: () => void;
-  createDoc: (kind: 'DOC' | 'TEXT') => void;
+  createDoc: (kind: 'doc' | 'sheet') => void;
   createTxt: () => void;
   upload: () => void;
   paste: () => void;
-  editCopy: (id: string) => void;
   toEquipment: (id: string) => void;
   attachVdr: (id: string) => void;
+  /** Прежние содержимые файла и возврат к ним */
+  versions: (id: string) => void;
+  /** Английская версия файла Word или Excel */
+  english: (id: string) => void;
   download: (id: string) => void;
   assignTag: (id: string) => void;
   assignDepartment: (id: string) => void;
@@ -99,8 +102,8 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
           {/* «Создать» — как в Windows: правый клик по пустому месту */}
           <div className="px-6 py-1 text-xs font-medium text-slate-400 select-none">Создать</div>
           <Item icon={<FolderPlus />} label="Папку" onClick={() => { p.createFolder(); p.onClose(); }} />
-          <Item icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { p.createDoc('DOC'); p.onClose(); }} />
-          <Item icon={<FileText />} label="Документ (Word)" onClick={() => { p.createDoc('TEXT'); p.onClose(); }} />
+          <Item icon={<FileBadge file="Документ.docx" size={16} />} label="Документ" onClick={() => { p.createDoc('doc'); p.onClose(); }} />
+          <Item icon={<FileBadge file="Таблица.xlsx" size={16} />} label="Таблицу" onClick={() => { p.createDoc('sheet'); p.onClose(); }} />
           <Item icon={<FileIcon />} label="Текстовый файл (.txt)" onClick={() => { p.createTxt(); p.onClose(); }} />
           <Sep />
           <Item icon={<Upload />} label="Загрузить" onClick={() => { p.upload(); p.onClose(); }} />
@@ -122,12 +125,12 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
                   onClick={() => { p.openWith(app.href({ ...(target || {}), id }), app.id); p.onClose(); }} />
               ))}
               <Sep />
-              {p.canEditInConstructor && (
-                <Item icon={<Grid3X3 />} label="Редактировать копию в Flux Office"
-                  onClick={() => { p.editCopy(id); p.onClose(); }} />
-              )}
               <Item icon={<Boxes />} label="В оборудование…" onClick={() => { p.toEquipment(id); p.onClose(); }} />
               <Item icon={<Grid3X3 />} label="Прикрепить к строке ВДР…" onClick={() => { p.attachVdr(id); p.onClose(); }} />
+              <Item icon={<History />} label="Версии…" onClick={() => { p.versions(id); p.onClose(); }} />
+              {/\.(docx|xlsx|xlsm)$/i.test(String(target?.name || '')) && (
+                <Item icon={<Languages />} label="Английская версия…" onClick={() => { p.english(id); p.onClose(); }} />
+              )}
               <Sep />
               <Item icon={<Download />} label="Скачать" onClick={() => { p.download(id); p.onClose(); }} />
               <Item icon={<Tag />} label="Назначить теги..." onClick={() => { p.assignTag(id); p.onClose(); }} />

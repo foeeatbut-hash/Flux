@@ -210,6 +210,13 @@ export function installFluxCollab(): void {
   if (!p) return
   p.on('collab', (cfg: any) => { if (cfg && cfg.on) void start(cfg, p) })
   p.on('y', (u: Uint8Array) => { if (state.ydoc) Y.applyUpdate(state.ydoc, u, REMOTE) })
+  // Панель «Данные проекта»: метка {{ключ}} в место курсора. В поле Word её
+  // превращает «Обновить поля» (server/officeFields.ts, fillDocxMarkers): поле
+  // с кодом GenOffice сам не вставляет, а текст метки переживает любую правку
+  p.on('insertText', (text: unknown) => {
+    const ed = ctxNow()?.editor
+    if (ed && typeof text === 'string' && text) ed.chain().focus().insertContent(text).run()
+  })
 }
 
 // Подключение при загрузке редактора: мост Flux к этому времени уже стоит

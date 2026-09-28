@@ -22,9 +22,6 @@ import { parsePack } from '../src/translate/pack';
 import { existsSync, readFileSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { findDates, deadlineOf, asksIn, codesIn, digestOf, dueLabel } from '../src/translate/mailDigest';
-import {
-  collectDocCells, docFingerprint, hasFormulas, modesFor, applyTranslation, cellKey,
-} from '../src/translate/docPlan';
 import type { TermPair, TmEntry } from '../src/translate/types';
 
 let failed = 0;
@@ -226,85 +223,7 @@ console.log('Движок целиком');
   check('по словарю — не готово к отправке', r.ready === 0, r);
 }
 
-console.log('Английская версия документа');
-{
-  const snap = () => ({
-    sheetOrder: ['s1'],
-    styles: { st1: { bl: 1 } },
-    sheets: {
-      s1: {
-        id: 's1',
-        name: 'Ведомость',
-        columnCount: 5,
-        columnData: { 0: { w: 60 }, 1: { w: 200 } },
-        mergeData: [{ startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 }],
-        cellData: {
-          0: { 0: { v: '№' }, 1: { v: 'Наименование', s: 'st1' } },
-          1: { 0: { v: 1 }, 1: { v: 'Опросный лист' }, 2: { v: 'AHU-01' } },
-          2: { 0: { v: 2 }, 1: { v: 'Габаритный чертёж' }, 2: { v: '12 000' } },
-        },
-      },
-    },
-  });
-
-  const cells = collectDocCells(snap());
-  check('переводить нечего в числах и кодах', cells.length === 3, cells.map((c) => c.text));
-  check('шапка попала в список', cells.some((c) => c.text === 'Наименование'), cells);
-  check('код AHU-01 не попал', !cells.some((c) => c.text === 'AHU-01'), cells);
-  check('отпечаток считается', docFingerprint(snap()).length > 4);
-  check('отпечаток меняется от правки текста', docFingerprint(snap()) !== (() => {
-    const s = snap(); s.sheets.s1.cellData[1][1].v = 'Опросный лист на вентустановку'; return docFingerprint(s);
-  })());
-
-  const pairs = new Map([
-    [cellKey('s1', 0, 1), 'Title'],
-    [cellKey('s1', 1, 1), 'Data sheet'],
-    [cellKey('s1', 2, 1), 'General arrangement drawing'],
-  ]);
-
-  const file = applyTranslation(snap(), pairs, 'file');
-  check('второй файл: текст заменён', file.snap.sheets.s1.cellData[1][1].v === 'Data sheet', file.changed);
-  check('второй файл: числа не тронуты', file.snap.sheets.s1.cellData[1][0].v === 1);
-  check('второй файл: код не тронут', file.snap.sheets.s1.cellData[1][2].v === 'AHU-01');
-
-  const sheet = applyTranslation(snap(), pairs, 'sheet');
-  check('второй лист: появился', sheet.snap.sheetOrder.length === 2, sheet.snap.sheetOrder);
-  check('второй лист: назван по-английски', /EN$/.test(sheet.snap.sheets.s1_en.name), sheet.snap.sheets.s1_en?.name);
-  check('второй лист: перевод в копии', sheet.snap.sheets.s1_en.cellData[1][1].v === 'Data sheet');
-  check('второй лист: оригинал цел', sheet.snap.sheets.s1.cellData[1][1].v === 'Опросный лист');
-
-  const lines = applyTranslation(snap(), pairs, 'lines');
-  check('две строки: обе в ячейке',
-    lines.snap.sheets.s1.cellData[1][1].v === 'Опросный лист\nData sheet', lines.snap.sheets.s1.cellData[1][1].v);
-  // Стиль ячейки бывает и ссылкой в общий список, и своим объектом — перенос
-  // должен встать в обоих случаях
-  const wrapOf = (cell: any) => (typeof cell.s === 'string' ? lines.snap.styles[cell.s]?.tb : cell.s?.tb);
-  check('две строки: перенос включён у своей ячейки',
-    wrapOf(lines.snap.sheets.s1.cellData[1][1]) === 3, lines.snap.sheets.s1.cellData[1][1].s);
-  check('две строки: перенос включён у ячейки с общим стилем',
-    wrapOf(lines.snap.sheets.s1.cellData[0][1]) === 3, lines.snap.sheets.s1.cellData[0][1].s);
-  check('две строки: чужой общий стиль не испорчен', lines.snap.styles.st1.tb === undefined, lines.snap.styles.st1);
-  const twice = applyTranslation(lines.snap, pairs, 'lines');
-  check('две строки: повтор не удваивает', twice.changed === 0, twice.changed);
-
-  const col = applyTranslation(snap(), pairs, 'column');
-  check('столбец рядом: оригинал на месте', col.snap.sheets.s1.cellData[1][1].v === 'Опросный лист');
-  check('столбец рядом: перевод справа', col.snap.sheets.s1.cellData[1][2].v === 'Data sheet',
-    col.snap.sheets.s1.cellData[1]);
-  check('столбец рядом: код уехал правее', col.snap.sheets.s1.cellData[1][3].v === 'AHU-01');
-  check('столбец рядом: ширина скопирована', col.snap.sheets.s1.columnData[2]?.w === 200, col.snap.sheets.s1.columnData);
-  check('столбец рядом: объединение растянуто',
-    col.snap.sheets.s1.mergeData[0].endColumn === 2, col.snap.sheets.s1.mergeData);
-
-  const withFormula = snap();
-  (withFormula.sheets.s1.cellData[2] as any)[3] = { f: '=SUM(A1:A2)' };
-  check('формулы видны', hasFormulas(withFormula));
-  check('со столбцом рядом на формулах программа отказывается',
-    applyTranslation(withFormula, pairs, 'column').problem.includes('формул'),
-    applyTranslation(withFormula, pairs, 'column').problem);
-  check('и не предлагает этот вид', !modesFor(withFormula).includes('column'), modesFor(withFormula));
-  check('без формул предлагает все четыре', modesFor(snap()).length === 4);
-}
+// Английская версия файла (.docx/.xlsx) — отдельный набор test-translate-file
 
 console.log('Разбор письма');
 {

@@ -1,6 +1,5 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
-import { syncMirror } from './constructor.js';
 import { applyScopeRecursive } from './explorer.js';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
 
@@ -87,42 +86,6 @@ export function registerDesktopRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
-  // Документ, созданный на столе, — обычный документ Конструктора: его видно и
-  // в разделе «Конструктор», и в Проводнике. Отличается только тем, что зеркало
-  // лежит не в системной папке «Конструктор», а в папке стола.
-  app.post('/api/desktop/doc', async (req: Request, res: Response) => {
-    const prisma = getPrisma();
-    try {
-      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
-      const me = authUserOf(req);
-      const kind = ['DOC', 'TEXT', 'NOTE'].includes(String(req.body?.kind || '')) ? String(req.body.kind) : 'DOC';
-      // Заметка — всегда своя: она и заводится как личная запись
-      const scope = kind === 'NOTE' || !me ? 'PERSONAL' : (req.body?.scope === 'SHARED' ? 'SHARED' : 'PERSONAL');
-      if (scope === 'PERSONAL' && !me?.id) return res.status(401).json({ error: 'Нужно войти в программу.' });
-
-      const doc = await prisma.constructorDoc.create({
-        data: {
-          projectId,
-          name: String(req.body?.name || 'Новый документ').slice(0, 200),
-          named: true,
-          kind,
-          scope,
-          ownerId: me?.id || null,
-          createdById: me?.id || null,
-          updatedById: me?.id || null,
-        },
-      });
-      // Зеркало заводим общими правилами Конструктора, затем переносим на стол.
-      // Дальнейшие правки документа зеркало с места не сдвинут: syncMirror
-      // сохраняет папку, пока не менялся раздел.
-      await syncMirror(doc);
-      const folder = await ensureDeskFolder(projectId, scope as any, me?.id || null);
-      const mirror = await prisma.fileNode.findFirst({ where: { type: 'CONSTRUCTOR', refId: doc.id } });
-      if (mirror) await prisma.fileNode.update({ where: { id: mirror.id }, data: { folderId: folder.id } });
-      res.json({ doc, file: mirror ? { ...mirror, folderId: folder.id } : null });
-    } catch (err: any) { sendError(res, err); }
-  });
-
   // «Выложить на общий стол» и обратно. Это перенос между двумя папками
   // Проводника — тот же, что перетаскиванием в самом Проводнике, поэтому
   // никакой особой записи здесь нет: меняется папка и раздел.
@@ -146,11 +109,6 @@ export function registerDesktopRoutes(app: Express): void {
         await prisma.fileNode.update({
           where: { id }, data: { folderId: target.id, scope: to, ownerId: to === 'PERSONAL' ? me : null },
         });
-        if (file.type === 'CONSTRUCTOR' && file.refId) {
-          await prisma.constructorDoc.update({
-            where: { id: file.refId }, data: { scope: to, ownerId: to === 'PERSONAL' ? me : null },
-          }).catch(() => { /* документ мог быть удалён — зеркало починит Конструктор */ });
-        }
         return res.json({ success: true });
       }
 

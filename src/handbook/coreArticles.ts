@@ -194,7 +194,6 @@ export const CORE_ARTICLES: HandbookArticle[] = [
       ['Tag', 'Project', 'projectId'],
       ['Folder', 'Project', 'projectId'],
       ['EquipmentSystem', 'Project', 'projectId'],
-      ['ConstructorDoc', 'Project', 'projectId'],
     ],
     perms: ['project.manage'],
     pitfalls: [

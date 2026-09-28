@@ -6,7 +6,11 @@ import { useStore } from '../store/store';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
-import { officePathForKind, isOffice, legacyAdvice, appsFor } from '../lib/fileTypes';
+import { legacyAdvice, appsFor } from '../lib/fileTypes';
+import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
+import { saveNewFile, editorHref, type FileTarget } from '../lib/officeFiles';
+import FileVersionsDialog from '../components/explorer/FileVersionsDialog';
+import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
 import { ROOT_NAME } from '../lib/explorerTabs';
@@ -170,6 +174,8 @@ export default function Explorer() {
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean, isSection?: boolean } | null>(null);
   // «Прикрепить к строке ВДР»: файл (замечания/выпуск) привязывается к документу реестра
   const [vdrAttachFileId, setVdrAttachFileId] = useState<string | null>(null);
+  const [versionsOf, setVersionsOf] = useState<{ id: string; name: string } | null>(null);
+  const [englishOf, setEnglishOf] = useState<{ id: string; name: string } | null>(null);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -714,47 +720,34 @@ export default function Explorer() {
      fetchData();
   };
 
-  // «Создать → Таблицу/Документ»: новый документ Flux Office нужного типа
-  // и сразу в его редактор. Зеркало в Проводнике появится после именования.
-  const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
+  // «Создать → Таблицу/Документ»: настоящий .xlsx/.docx в открытой папке —
+  // как в Windows — и сразу в его редактор. Тот же файл откроется и в Excel/Word
+  const createOfficeFile = async (kind: BlankKind) => {
+    if (!currentFolderId || isSmartId(currentFolderId) || currentFolderId === TRASH_ID) {
+      addToast('Откройте папку или раздел «Общий» / «Личный», чтобы создать файл.', 'error');
+      return;
+    }
+    let target: FileTarget;
+    if (isSectionId(currentFolderId) && currentFolderId !== SEC_DISK) {
+      const sec = parseSection(currentFolderId);
+      if (sec.scope === 'PERSONAL' && sec.ownerId && sec.ownerId !== user?.id) {
+        addToast('Это личный раздел другого сотрудника: создать в нём файл нельзя.', 'error');
+        return;
+      }
+      target = { section: sec.scope };
+    } else {
+      const folderId = asFolderId(currentFolderId);
+      if (!folderId) { addToast('Общий диск ещё не готов — обновите Проводник.', 'error'); return; }
+      target = { folderId };
+    }
     try {
-      const res = await fetch('/api/constructor/docs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: activeProject?.id || '', ...(kind !== 'DOC' ? { kind } : {}) }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
-      navigate(`${officePathForKind(kind)}?doc=${data.doc.id}`);
+      const made = await saveNewFile(await blankBytes(kind), BLANK_NAME[kind], target);
+      fetchData();
+      navigate(editorHref(made));
     } catch (e: any) {
-      addToast(`Не удалось создать документ: ${e.message}`, 'error');
+      addToast(`Не удалось создать файл: ${e.message}`, 'error');
     }
   };
-  const createConstructorSheet = () => createConstructorDoc('DOC');
-
-  // «Редактировать копию»: xlsx/csv → Таблица, txt/md/docx → Документ.
-  // Исходный файл не меняется — правится копия-документ Flux Office.
-  const editCopyInConstructor = async (fileId: string) => {
-    try {
-      const res = await fetch('/api/constructor/docs/import-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, projectId: activeProject?.id || '' }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось открыть файл');
-      addToast('Создана редактируемая копия — исходный файл не изменён', 'success');
-      navigate(`${officePathForKind(data.doc.kind)}?doc=${data.doc.id}`);
-    } catch (e: any) {
-      addToast(String(e.message || e), 'error');
-    }
-  };
-
-  // Файл можно открыть в Flux Office? Спрашиваем общую таблицу расширений, а
-  // не свой список: их было семь, и они разошлись — .xls принимал один и
-  // отвергал другой, отчего «не все файлы открывались»
-  const canEditInConstructor = (name: string) =>
-    isOffice({ id: '', name }) || /\.(txt|md|log|json)$/i.test(name || '');
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
   // при переносе в корень раздела передаём его область видимости
@@ -2046,7 +2039,6 @@ export default function Explorer() {
           target={allCurrentItems.find(i => i.id === contextMenu.targetId)}
           currentFolderId={currentFolderId}
           hasClipboard={!!clipboard}
-          canEditInConstructor={canEditInConstructor(allCurrentItems.find(i => i.id === contextMenu.targetId)?.name || '')}
           onClose={() => setContextMenu(null)}
           open={(id) => handleItemDoubleClick(id, false)}
           openWith={(href, appId) => {
@@ -2069,13 +2061,14 @@ export default function Explorer() {
           openFolder={navigateTo}
           refresh={fetchData}
           createFolder={createFolder}
-          createDoc={createConstructorDoc}
+          createDoc={createOfficeFile}
           createTxt={() => createEmptyFile('Новый документ.txt', 'TXT', '')}
           upload={() => fileInputRef.current?.click()}
           paste={handlePaste}
-          editCopy={editCopyInConstructor}
           toEquipment={openImportPicker}
           attachVdr={setVdrAttachFileId}
+          versions={(id) => setVersionsOf({ id, name: String(allCurrentItems.find(i => i.id === id)?.name || 'файл') })}
+          english={(id) => setEnglishOf({ id, name: String(allCurrentItems.find(i => i.id === id)?.name || 'файл') })}
           download={(id) => handleDownload(id, false)}
           assignTag={handleAssignTag}
           assignDepartment={handleAssignDepartment}
@@ -2297,6 +2290,10 @@ export default function Explorer() {
       )}
 
       {/* Прикрепить файл к строке ВДР: файл замечаний/выпуска у документа реестра */}
+      {englishOf && <FileEnglishVersion fileId={englishOf.id} name={englishOf.name} onClose={() => { setEnglishOf(null); fetchData(); }} />}
+      {versionsOf && (
+        <FileVersionsDialog fileId={versionsOf.id} name={versionsOf.name} onClose={() => setVersionsOf(null)} onRestored={fetchData} />
+      )}
       {vdrAttachFileId && (
         <VdrItemPicker
           projectId={activeProject?.id || 'default'}

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.js';
+import { createFileFromBytes, exportsHome } from '../officeStore.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -245,7 +246,7 @@ function isDataRow(row: any[], map: Record<number, string>): boolean {
 
 const STATUSES = ['DRAFT', 'READY', 'REMARKS', 'ACCEPTED'];
 
-export function registerVdrRoutes(app: Express): void {
+export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promise<number> }): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 
   app.use('/api/vdr', async (_req, _res, next) => {
@@ -585,44 +586,6 @@ export function registerVdrRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
-  // ── Привязка/отвязка документа Конструктора к строке (обе стороны сразу) ──
-  app.post('/api/vdr/items/:id/link-doc', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
-      const docId = req.body?.docId ? String(req.body.docId) : null;
-
-      // Отвязать старый документ строки
-      if (item.docId && item.docId !== docId) {
-        try {
-          const old = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-          if (old) {
-            const st = parseJson(old.settings, {});
-            delete st.vdrItemId;
-            await prisma.constructorDoc.update({ where: { id: old.id }, data: { settings: JSON.stringify(st) } });
-          }
-        } catch (_) {}
-      }
-
-      if (docId) {
-        const doc = await prisma.constructorDoc.findUnique({ where: { id: docId } });
-        if (!doc) return res.status(404).json({ error: 'Документ не найден' });
-        const st = parseJson(doc.settings, {});
-        st.vdrItemId = item.id;
-        st.docMeta = {
-          ...st.docMeta,
-          code: item.contractorNo || item.ownerNo,
-          revision: item.revision,
-          title: item.titleRu || item.titleEn || st.docMeta?.title,
-        };
-        await prisma.constructorDoc.update({ where: { id: doc.id }, data: { settings: JSON.stringify(st) } });
-      }
-      const updated = await prisma.docRegisterItem.update({ where: { id: item.id }, data: { docId } });
-      res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
-    } catch (err: any) { sendError(res, err); }
-  });
-
   // ── История ревизий строки (лист «Учёт ревизий» документа) ──
   app.get('/api/vdr/items/:id/revisions', async (req: Request, res: Response) => {
     try {
@@ -678,17 +641,6 @@ export function registerVdrRoutes(app: Express): void {
         },
       });
 
-      // Титул привязанного документа получает новую ревизию
-      if (item.docId) {
-        try {
-          const doc = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-          if (doc) {
-            const settings = parseJson(doc.settings, {});
-            settings.docMeta = { ...settings.docMeta, revision };
-            await prisma.constructorDoc.update({ where: { id: doc.id }, data: { settings: JSON.stringify(settings) } });
-          }
-        } catch (_) {}
-      }
       res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -699,38 +651,6 @@ export function registerVdrRoutes(app: Express): void {
     return (app._router.handle as any)
       ? res.redirect(307, `/api/vdr/items/${req.params.id}/issue-revision`)
       : res.status(400).json({ error: 'unsupported' });
-  });
-
-  // ── Формирование документа по строке ──
-  app.post('/api/vdr/items/:id/create-doc', async (req: Request, res: Response) => {
-    try {
-      const me = authUserOf(req);
-      const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
-      if (item.docId) {
-        const existing = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
-        if (existing && !existing.deletedAt) return res.json({ doc: existing, existed: true });
-      }
-      const title = item.titleRu || item.titleEn || '';
-      const name = [item.contractorNo, title].filter(Boolean).join(' — ') || 'Документ по ВДР';
-      const doc = await prisma.constructorDoc.create({
-        data: {
-          projectId: item.projectId,
-          name, named: true,
-          kind: String(req.body?.kind) === 'DOC' ? 'DOC' : 'TEXT',
-          scope: 'SHARED',
-          ownerId: me?.id || null, createdById: me?.id || null, updatedById: me?.id || null,
-          workbook: '',
-          settings: JSON.stringify({
-            docMeta: { code: item.contractorNo || item.ownerNo, revision: item.revision, title },
-            vdrItemId: item.id,
-          }),
-        },
-      });
-      await prisma.docRegisterItem.update({ where: { id: item.id }, data: { docId: doc.id, assigneeId: item.assigneeId || me?.id || null } });
-      res.json({ doc });
-    } catch (err: any) { sendError(res, err); }
   });
 
   // ── Импорт Excel-ВДР 2.0 ──
@@ -882,7 +802,7 @@ export function registerVdrRoutes(app: Express): void {
   });
 
   // ── Экспорт ВДР в Excel (формат заказчика: Titular + Accounting + Register) ──
-  app.get('/api/vdr/registers/:id/export', async (req: Request, res: Response) => {
+  app.post('/api/vdr/registers/:id/export', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
       const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
@@ -956,10 +876,16 @@ export function registerVdrRoutes(app: Express): void {
         .replace('{lang}', 'ER') + '.xlsx').replace(/[\\/:*?"<>|]/g, '_');
 
       const buf: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('X-File-Name', encodeURIComponent(fileName));
-      res.send(buf);
+
+      // Настоящий файл во Flux вместо скачивания в браузер: ложится в «Выгрузки»
+      // того, кто нажал «Выгрузить», и сразу открывается в Flux Office
+      const me = authUserOf(req);
+      if (!me) return res.status(401).json({ error: 'Не авторизован' });
+      const home = await exportsHome(me.id, register.projectId);
+      const file = await createFileFromBytes({
+        name: fileName, body: buf, home, userId: me.id, chunkBytes: await deps.chunkBytes(),
+      });
+      res.json({ id: file.id, name: file.name });
     } catch (err: any) { sendError(res, err); }
   });
 }

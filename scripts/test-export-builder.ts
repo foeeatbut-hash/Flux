@@ -12,7 +12,7 @@
 import { specOf, defaultSpec, selectItems, orderItems, exportTable, toLayout, SERVICE_COLUMNS, applyPreset, paramSections } from '../src/lib/exportSpec';
 import { equipmentColumns, type ExchangeComponent } from '../src/lib/equipmentExchange';
 import { modelOf } from '../equipment/classes';
-import { resolveValue } from '../server/routes/constructor';
+import { resolveValue } from '../server/projectSlice';
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {

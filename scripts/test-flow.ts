@@ -70,7 +70,12 @@ const api = async (method: string, url: string, body?: any) => {
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
   const errors: string[] = [];
-  page.on('pageerror', (e: any) => errors.push('исключение: ' + String(e.message).slice(0, 110)));
+  // Исключения внутри фрейма редактора GenOffice (отказ отключённого ИИ, его
+  // внутренности) — не ошибки Flux: их источник виден по адресу в стеке
+  page.on('pageerror', (e: any) => {
+    if (/\/genoffice\//.test(String(e.stack || ''))) return;
+    errors.push('исключение: ' + String(e.message).slice(0, 110));
+  });
 
 
   page.on('console', (m: any) => { if (m.type() === 'error') errors.push('консоль: ' + m.text().slice(0, 110)); });
@@ -251,20 +256,25 @@ const api = async (method: string, url: string, body?: any) => {
       ok('поле поиска в закупках найдено', false);
     }
 
-    console.log('5. Выгрузка закупок в Excel отдаёт непустой файл');
-    const dl = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
+    // С 1.17 выгрузка — файл во Flux («Выгрузки» на своём столе), сразу
+    // открытый Таблицей; скачать в Windows — уже из Проводника
+    console.log('5. Выгрузка закупок в Excel кладёт непустую книгу во Flux и открывает её');
     const pressedExcel = await clickByName('В Excel', 5000);
     ok('кнопка «В Excel» на месте', pressedExcel);
-    const file = await dl;
-    ok('файл выгрузки начал скачиваться', !!file, file ? await file.suggestedFilename() : null);
-    if (file) {
-      const fs = await import('fs');
-      const path = await file.path();
-      const size = path ? fs.statSync(path).size : 0;
-      ok('файл не пустой', size > 1000, { байт: size });
-      const head = path ? fs.readFileSync(path).subarray(0, 2).toString('latin1') : '';
-      ok('это настоящая книга Excel (сигнатура PK)', head === 'PK', head);
+    const sheetWin = page.locator('iframe[title="Flux Office — Таблица"]');
+    const opened = await sheetWin.first().waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
+    ok('выгрузка открылась в Таблице', opened);
+    const fileId = await page.evaluate(() => new URLSearchParams(location.hash.split('?')[1] || '').get('file') || '');
+    const book = fileId ? await fetch(`${BASE}/api/files/${fileId}/raw`, { headers: { Authorization: `Bearer ${token}` } }) : null;
+    const bytes = book && book.ok ? Buffer.from(await book.arrayBuffer()) : Buffer.alloc(0);
+    ok('файл не пустой', bytes.length > 1000, { байт: bytes.length });
+    ok('это настоящая книга Excel (сигнатура PK)', bytes.subarray(0, 2).toString('latin1') === 'PK');
+    // Окно Таблицы закрываем: дальше проверка идёт по Менеджменту
+    if (opened) {
+      await page.locator('[data-window-body]').last().locator('xpath=..').getByRole('button', { name: 'Закрыть' }).first().click().catch(() => {});
+      await page.waitForTimeout(1500);
     }
+    if (fileId) await fetch(`${BASE}/api/files/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
 
     console.log('6. Удаление тега убирает позицию отовсюду');
     await api('DELETE', `/api/tags/${created[0]}`);
@@ -291,14 +301,16 @@ const api = async (method: string, url: string, body?: any) => {
     const note = notesAfter.find((n: any) => !((n.content || '').trim()) || /Новая заметка/.test(n.title || ''));
     if (note) createdNotes.push(note.id);
 
-    // Текст печатаем в редакторе и ждём автосохранения
-    const editor = await firstVisible('[contenteditable="true"]');
+    // Текст печатаем в редакторе Markdown Flux Office (он во фрейме) и ждём
+    // автосохранения: Блокнот пишет сам через 3 с после правки
+    const noteFrame = page.frameLocator('iframe[title="Flux Office — Блокнот"]');
+    const editor = await noteFrame.locator('.ProseMirror').first().waitFor({ timeout: 20000 }).then(() => noteFrame.locator('.ProseMirror').first()).catch(() => null);
     ok('поле заметки доступно для ввода', !!editor);
     if (editor) {
       const MARK = `запись проверки ${stamp}`;
       await editor.click();
       await page.keyboard.type(MARK, { delay: 12 });
-      await page.waitForTimeout(4000);       // автосохранение
+      await page.waitForTimeout(6000);       // автосохранение
       const saved = (await api('GET', '/api/notes')).json?.notes || [];
       ok('текст заметки сохранён на сервере', saved.some((n: any) => (n.content || '').includes(MARK)),
          saved.map((n: any) => (n.content || '').slice(0, 40)).slice(0, 3));

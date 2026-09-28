@@ -30,12 +30,12 @@ const doc = (href: string, title: string, over: Partial<RecentDoc> = {}): Recent
 console.log('Список пополняется');
 {
   let list: RecentDoc[] = [];
-  list = addRecent(list, doc('/sheet?doc=1', 'Смета.xlsx'));
+  list = addRecent(list, doc('/office-sheet?file=1', 'Смета.xlsx'));
   list = addRecent(list, doc('/pdf?file=2', 'Паспорт.pdf', { kind: 'pdf' }));
   check('свежее первым', list[0].title === 'Паспорт.pdf', list.map((d) => d.title));
 
   // Десять строк «Смета.xlsx» — бесполезный список
-  const again = addRecent(list, doc('/sheet?doc=1', 'Смета.xlsx'));
+  const again = addRecent(list, doc('/office-sheet?file=1', 'Смета.xlsx'));
   check('повтор не двоится, а всплывает',
     again.length === 2 && again[0].title === 'Смета.xlsx', again.map((d) => d.title));
 
@@ -43,7 +43,7 @@ console.log('Список пополняется');
   check('вещь без адреса тоже', addRecent([], doc('  ', 'Имя')).length === 0);
 
   let many: RecentDoc[] = [];
-  for (let i = 0; i < RECENT_MAX + 5; i++) many = addRecent(many, doc(`/d?doc=${i}`, `Д${i}`));
+  for (let i = 0; i < RECENT_MAX + 5; i++) many = addRecent(many, doc(`/office-doc?file=${i}`, `Д${i}`));
   check(`помещается не больше ${RECENT_MAX}`, many.length === RECENT_MAX, many.length);
   check('и это самые свежие', many[0].title === `Д${RECENT_MAX + 4}`, many[0]);
 }
@@ -87,7 +87,7 @@ console.log('Чем открывается');
   check('таблица', kindName('sheet') === 'Таблица');
   check('текст', kindName('text') === 'Документ');
   check('заметка', kindName('note') === 'Заметка');
-  check('пдф', kindName('pdf') === 'Просмотр');
+  check('пдф', kindName('pdf') === 'PDF');
 }
 
 if (failed) {
