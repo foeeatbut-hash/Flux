@@ -1028,6 +1028,27 @@ model PdfMarkupTransfer {
   @@index([fileId])
 }
 
+/// Умный блок в книге Flux Office: диапазон с именем FLUX_BLOCK_<n>, который
+/// собирается из данных проекта (server/routes/projectData.ts). Сам диапазон
+/// живёт в файле, здесь — что в него собирать и по какому состоянию проекта
+/// он собран в последний раз: расхождение отпечатка = «устарело»
+model OfficeBlock {
+  id          String   @id @default(uuid())
+  fileId      String
+  /// Имя диапазона в книге: FLUX_BLOCK_1, FLUX_BLOCK_2…
+  name        String
+  /// Запрос: сущность, колонки, отбор, порядок (JSON)
+  query       String   @default("{}")
+  /// Вид: подписи колонок, шапка (JSON)
+  layout      String   @default("{}")
+  /// Отпечаток данных проекта на момент последней сборки
+  fingerprint String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([fileId])
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Обращения сотрудников: «Замечания и предложения»
 //
