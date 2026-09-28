@@ -2370,8 +2370,13 @@ async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     try {
       const viteModule = eval('require')('vite');
+      // HMR идёт по тому же порту, что и сервер. Отдельный порт по умолчанию
+      // (24678) один на машину: второй сервер разработки (проверки на двух
+      // серверах, рабочие копии субагентов) его не получал, и страница сыпала
+      // в консоль «failed to connect to websocket» — проверки «в консоли
+      // пусто» падали не по своей вине.
       const vite = await viteModule.createServer({
-        server: { middlewareMode: true },
+        server: { middlewareMode: true, hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer } },
         appType: "spa",
       });
       app.use(vite.middlewares);
