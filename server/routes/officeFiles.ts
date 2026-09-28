@@ -298,7 +298,8 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
           home = await exportsHome(user.id, projectId);
         }
         if (!home) return res.status(404).json({ error: 'Папка не найдена' });
-        const file = await createFileFromBytes({ name: cleanName(name, name), body, home, userId: user.id, chunkBytes: await deps.chunkBytes() });
+        const revision = typeof req.query.revision === 'string' ? req.query.revision : undefined;
+        const file = await createFileFromBytes({ name: cleanName(name, name), body, home, userId: user.id, chunkBytes: await deps.chunkBytes(), revision });
         res.json(file);
       } catch (err: any) { sendError(res, err); }
     });

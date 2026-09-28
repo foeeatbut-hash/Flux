@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
 import { officePathForKind } from '../lib/fileTypes';
+import { editorHref } from '../lib/officeFiles';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
 
@@ -204,13 +205,12 @@ export default function VdrPanel() {
   const exportXlsx = async () => {
     if (!register) return;
     const r = await fetch(`/api/vdr/registers/${register.id}/export`);
-    if (!r.ok) { addToast('Ошибка экспорта', 'error'); return; }
-    const name = decodeURIComponent(r.headers.get('x-file-name') || 'VDR.xlsx');
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-    URL.revokeObjectURL(url);
-    addToast(`Выгружен «${name}»`, 'success');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d?.id) { addToast(d?.error || 'Ошибка экспорта', 'error'); return; }
+    // Книгу собирает сервер и сам кладёт её файлом во Flux (officeStore) —
+    // окну остаётся только открыть то, что получилось
+    navigate(editorHref(d));
+    addToast(`Выгружен «${d.name}»`, 'success');
   };
 
   const registerRevisionUp = async () => {
