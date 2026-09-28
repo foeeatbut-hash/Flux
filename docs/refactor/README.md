@@ -14,7 +14,7 @@
 | 1 | `SettingsScreen.tsx` по секциям | готово: 1512 → 218 |
 | 2 | `server.ts` → `server/routes/*`, `server/sockets.ts` | см. `LEGACY` в `scripts/test-architecture.ts` |
 | 3 | `Registry.tsx` | карта и порядок — [registry.md](registry.md); вынос не начат |
-| 4 | `Explorer.tsx`, `DictionaryEditor.tsx`, `ChatManagement.tsx` — по одному компоненту на 1 700–2 250 строк; `assistantStore.ts` | сначала карта, как для Registry |
+| 4 | `Explorer.tsx`, `DictionaryEditor.tsx`, `ChatManagement.tsx` — по одному компоненту на 1 700–2 250 строк; `assistantStore.ts` | карты — [screens.md](screens.md) |
 
 Актуальные размеры — всегда в `LEGACY` храповика: после каждого шага
 руководитель опускает число.
