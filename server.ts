@@ -34,7 +34,6 @@ import { registerActionLog } from './server/actionLog.js';
 import { officeRooms } from './server/officeRooms.js';
 import { setupOfficeSockets } from './server/officeSockets.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
-import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerChatRoutes } from './server/routes/chat.js';
 import { registerDictionaryRoutes } from './server/routes/dictionaries.js';
@@ -62,7 +61,7 @@ import { registerMailRoutes } from './server/routes/mail.js';
 import { registerMailSharedRoutes } from './server/routes/mailShared.js';
 import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
 import { registerMailLinkRoutes } from './server/routes/mailLink.js';
-import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mail/idle.js';
+import { watchAll as watchAllMail } from './server/mail/idle.js';
 import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerAssistantRoutes } from './server/routes/assistant.js';
 import { registerTranslateRoutes } from './server/routes/translate.js';
@@ -71,8 +70,10 @@ import { registerMemberRoutes } from './server/routes/members.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerTagPolicyRoutes } from './server/routes/tagPolicy.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
+import { registerSystemRoutes } from './server/routes/system.js';
+import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
-import { assertHealthySqlite, snapshotSqlite } from './server/sqliteSafety.js';
+import { assertHealthySqlite } from './server/sqliteSafety.js';
 import { allowsLocalSetup, requiresAdministrator } from './server/accessPolicy.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
@@ -1334,319 +1335,13 @@ app.use(async (req: Request, res: Response, next) => {
   }
 });
 
-// Готовность сервера: порт начинает слушать только после инициализации БД,
-// так что успешный ответ = приложение полностью готово (для стартовой заставки)
-// Готовность сервера и его версия: сервер компании обновляют отдельно, и
-// программа должна сама заметить, что он старее её (см. server/presence.ts)
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, uptime: Math.round(process.uptime()), version: APP_VERSION });
-});
-
-// ── Лицензия ──
-// Резервный путь для рендерера, когда IPC Electron недоступен (dev/браузер,
-// локальный режим). В упакованном приложении основной путь — IPC главного
-// процесса (он считает отпечаток именно клиентской машины). Здесь папка
-// пользователя = папка встроенного сервера (на машине клиента в локальном режиме).
-app.get('/api/license/status', (_req: Request, res: Response) => {
-  try {
-    res.json(licenseStatus(ventAppDataPath));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message, machineId: (() => { try { return computeMachineId(); } catch { return ''; } })() });
-  }
-});
-
-app.post('/api/license/activate', (req: Request, res: Response) => {
-  try {
-    const code = String(req.body?.code || '');
-    if (!code) return res.status(400).json({ error: 'Код не указан' });
-    res.json(activateLicense(ventAppDataPath, code));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Ручная проверка/обновление структуры базы (только администратор). Проходит
-// обычную авторизацию (путь НЕ /api/db/, поэтому loopback-исключение не действует).
-app.post('/api/admin/sync-schema', async (req: Request, res: Response) => {
-  const user = (req as any).authUser;
-  if (!user || user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Доступно только администратору' });
-  }
-  try {
-    const cfg = loadAppConfig();
-    if (cfg.current_db_type === 'REMOTE') {
-      const applied = await syncRemoteSchema(prisma, cfg.database_url || process.env.DATABASE_URL || '');
-      return res.json({
-        mode: 'REMOTE',
-        applied,
-        message: applied.length
-          ? `Структура обновлена: ${applied.join(', ')}`
-          : 'Структура общей базы уже соответствует программе — изменений нет.',
-      });
-    }
-    // Локальная база догоняет схему при каждом запуске; повторяем догон колонок
-    try { ensureSchemaColumns(resolveLocalDbPath(cfg)); } catch (_) {}
-    return res.json({
-      mode: 'LOCAL',
-      applied: [],
-      message: 'Локальная база синхронизируется автоматически при каждом запуске.',
-    });
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-// Database Routing
-app.get('/api/db/config', (req: Request, res: Response) => {
-  const config = loadAppConfig();
-  const dbPath = resolveLocalDbPath(config);
-  res.json({
-    current_db_type: config.current_db_type,
-    database_url: config.database_url,
-    databasePath: dbPath,
-    isConfigured: true,
-    displayPath: config.current_db_type === 'LOCAL' ? dbPath : config.database_url,
-    defaultPath: path.join(ventAppDataPath, 'database.sqlite'),
-    local_db_path: config.local_db_path || '',
-    crash_log_dir: config.crash_log_dir || ''
-  });
-});
-
-// Настройка папки для аварийных crash-логов
-app.post('/api/config/logs', (req: Request, res: Response) => {
-  const { crash_log_dir } = req.body;
-  const current = loadAppConfig();
-  if (typeof crash_log_dir === 'string') {
-    current.crash_log_dir = crash_log_dir.trim();
-  }
-  saveAppConfig(current);
-  res.json({ success: true, crash_log_dir: current.crash_log_dir || '' });
-});
-
-app.get('/api/db/download', async (req: Request, res: Response) => {
-  const config = loadAppConfig();
-  if (config.current_db_type !== 'LOCAL') return res.status(400).json({ error: 'Файловая копия доступна только для локальной базы' });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-db-download-'));
-  const snapshot = path.join(dir, 'database.sqlite');
-  const cleanup = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {} };
-  try {
-    await snapshotSqlite(resolveLocalDbPath(config), snapshot);
-    res.download(snapshot, 'database.sqlite', (error) => {
-      cleanup();
-      if (error && !res.headersSent) res.status(500).json({ error: 'Не удалось передать копию базы' });
-    });
-  } catch (_) {
-    cleanup();
-    res.status(500).json({ error: 'Не удалось создать проверенную копию базы. Исходная база сохранена.' });
-  }
-});
-
-app.post('/api/db/test', async (req: Request, res: Response) => {
-  const { current_db_type, database_url } = req.body;
-  if (current_db_type === 'LOCAL') {
-    return res.json({
-      success: true,
-      exists: fs.existsSync(resolveLocalDbPath(loadAppConfig())),
-      message: 'Локальная база данных SQLite активна и готова к работе!'
-    });
-  }
-
-  if (!database_url) {
-    return res.status(400).json({ success: false, message: 'Строка подключения remote_url не указана!' });
-  }
-
-  // Test custom remote URL using a temporary client
-  try {
-    const tempPrisma = createPrismaClient('REMOTE', database_url);
-    await tempPrisma.$queryRawUnsafe('SELECT 1;');
-    await tempPrisma.$disconnect();
-
-    res.json({
-      success: true,
-      exists: true,
-      message: 'Удаленное подключение успешно проверено и доступно!'
-    });
-  } catch (err: any) {
-    res.json({
-      success: false,
-      message: `Не удалось подключиться по указанному адресу: ${err.message}`
-    });
-  }
-});
-
-app.post('/api/db/switch', async (req: Request, res: Response) => {
-  const { current_db_type, database_url, database_path } = req.body;
-  
-  const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}"\n`;
-  console.log('[DB Switch Request]', logMsg.trim());
-  try {
-    fs.appendFileSync(path.join(ventAppDataPath, 'database-switch.log'), logMsg, 'utf-8');
-  } catch (e) {}
-
-  if (!current_db_type) {
-    return res.status(400).json({ success: false, message: 'Тип базы данных не указан!' });
-  }
-
-  const oldPrisma = prisma;
-  try {
-    const existingConfig = loadAppConfig();
-    // database_path: undefined = оставить текущий путь, '' = вернуть стандартный, иначе — новый путь
-    let nextLocalPath = existingConfig.local_db_path || '';
-    if (typeof database_path === 'string') {
-      nextLocalPath = database_path.trim();
-    }
-
-    let targetDbUrl = '';
-    if (current_db_type === 'LOCAL') {
-      const dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(ventAppDataPath, 'database.sqlite');
-      const parentDir = path.dirname(dbFile);
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true });
-      }
-      targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
-      ensureHealthyLocalDb(dbFile);
-    } else {
-      if (!database_url) {
-        return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
-      }
-      targetDbUrl = database_url;
-    }
-
-    // Disconnect old client cleanly
-    try {
-      if (oldPrisma) {
-        await oldPrisma.$disconnect();
-      }
-    } catch (discErr: any) {
-      console.warn('[DB Switch] Notice during client disconnect:', discErr.message);
-    }
-
-    process.env.DATABASE_URL = targetDbUrl;
-    prisma = createPrismaClient(current_db_type, targetDbUrl);
-    setPrisma(prisma);
-    // База другая — ящики в ней тоже другие: старые наблюдения гасим, новые
-    // поднимем после того, как схема встанет
-    stopMailWatch();
-
-    if (current_db_type === 'LOCAL') {
-      try {
-        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-      } catch (pragmaErr: any) {
-        console.warn('[DB Switch] Failed setting local performance PRAGMAs:', pragmaErr.message);
-      }
-    }
-
-    // Try a test query
-    await prisma.$queryRawUnsafe('SELECT 1;');
-
-    // Общая база: приводим схему к версии программы (создаёт недостающие
-    // таблицы/колонки) до автозаполнения и первых запросов
-    if (current_db_type === 'REMOTE') {
-      await syncRemoteSchema(prisma, targetDbUrl);
-    }
-
-    // Save configuration settings
-    saveAppConfig({
-      ...existingConfig,
-      current_db_type,
-      database_url: database_url || '',
-      local_db_path: nextLocalPath
-    });
-
-    // Auto-seed if newly switched DB has no users
-    let seedMessage = '';
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-      await prisma.user.create({
-        data: {
-          name: 'Главный администратор (RaupovKhKh)',
-          symbol: 'RaupovKhKh',
-          password: hashPassword('1122'),
-          role: 'ADMIN',
-        }
-      });
-      await prisma.project.create({
-        data: {
-          name: 'Технологический проект Альфа'
-        }
-      });
-      await prisma.equipment.create({
-        data: {
-          type: 'AHU',
-          description: 'Air Handling Unit',
-        }
-      });
-      seedMessage = ' База данных успешно инициализирована начальными учетными записями.';
-    }
-
-    // Схема на месте — поднимаем слежение за ящиками новой базы
-    void watchAllMail();
-
-    return res.json({
-      success: true,
-      message: `База данных успешно переключена на режим ${current_db_type === 'LOCAL' ? 'Локальный' : 'Совместный / Внешний'}!${seedMessage}`
-    });
-
-  } catch (err: any) {
-    console.error('[DB Switch] switchover failure:', err);
-    // Restore original state
-    prisma = oldPrisma;
-    setPrisma(prisma);
-    return res.status(500).json({
-      success: false,
-      message: `Не удалось изменить подключение: ${err.message}`
-    });
-  }
-});
-
-// Alias POST /api/db/save to POST /api/db/switch to prevent old parts from erroring
-app.post('/api/db/save', async (req: Request, res: Response) => {
-  const { databasePath } = req.body;
-  if (databasePath) {
-    // Treat legacy call as configuring SQLite path in config.json
-    try {
-      const resolved = path.resolve(databasePath);
-      const parentDir = path.dirname(resolved);
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true });
-      }
-      
-      const targetDbUrl = `file:${resolved}?connection_limit=1&busy_timeout=15000`;
-      ensureHealthyLocalDb(resolved);
-
-      if (prisma) {
-        await prisma.$disconnect();
-      }
-
-      process.env.DATABASE_URL = targetDbUrl;
-      prisma = createPrismaClient('LOCAL', targetDbUrl);
-      setPrisma(prisma);
-
-      try {
-        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-      } catch (e) {}
-
-      saveAppConfig({
-        ...loadAppConfig(),
-        current_db_type: 'LOCAL',
-        database_url: '',
-        local_db_path: resolved
-      });
-
-      return res.json({
-        success: true,
-        message: 'Локальный путь SQLite базы успешно изменён!'
-      });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, message: err.message });
-    }
-  }
-
-  // Redirect to standard switch handler
-  req.url = '/api/db/switch';
-  (app as any).handle(req, res);
+registerSystemRoutes(app, {
+  appVersion: APP_VERSION,
+  appDataPath: ventAppDataPath,
+  loadAppConfig, saveAppConfig, resolveLocalDbPath, createPrismaClient,
+  ensureHealthyLocalDb, ensureSchemaColumns, syncRemoteSchema, hashPassword,
+  // Переключение базы подменяет клиента: и здесь, и в общем контексте вынесенных маршрутов
+  replaceClient: (client) => { prisma = client; setPrisma(client); },
 });
 
 // ── Надёжное время (анти-обход срока действия профиля переводом часов) ─────────
@@ -1757,110 +1452,11 @@ async function trustedNowFull(): Promise<{ now: number; tampered: boolean; sourc
   return { now, tampered: timeTampered, source };
 }
 
-// Users
-app.post('/api/login', async (req: Request, res: Response) => {
-  const { symbol, password } = req.body;
-
-  const normSymbol = String(symbol || '').trim();
-
-  // Попытка авторизации через локальную БД, если БД вообще была создана/готова
-  try {
-    // Логин не чувствителен к регистру: RaupovKhkh == RaupovKhKh
-    let user = await prisma.user.findUnique({
-      where: { symbol: normSymbol },
-    });
-    if (!user) {
-      const allUsers = await prisma.user.findMany();
-      user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
-    }
-    if (user) {
-      // Проверка пароля: поддерживаются и хешированные, и legacy-пароли в открытом виде
-      const isPasswordCorrect = verifyPassword(String(password), user.password);
-
-      if (isPasswordCorrect) {
-        // Миграция: старый открытый пароль перехешируем при первом успешном входе
-        if (isLegacyPassword(user.password)) {
-          try {
-            await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(String(password)) } });
-          } catch (migErr) {
-            console.warn('[Login] Не удалось перехешировать legacy-пароль:', migErr);
-          }
-        }
-        // Контроль доступа: профиль может быть отключен администратором или просрочен
-        if (user.isActive === false) {
-          return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
-        }
-        if (user.validUntil) {
-          // Срок проверяем по надёжному времени: якорь + сеть (перевод часов не помогает)
-          const { now, tampered } = await trustedNowFull();
-          if (tampered && user.role !== 'ADMIN') {
-            return res.status(403).json({ success: false, message: 'Обнаружен перевод системных часов назад. Вход для профилей со сроком действия заблокирован — верните корректную дату и время.' });
-          }
-          if (new Date(user.validUntil).getTime() < now) {
-            const dt = new Date(user.validUntil).toLocaleDateString('ru-RU');
-            return res.status(403).json({ success: false, message: `Срок действия профиля истек ${dt}. Обратитесь к администратору для продления доступа.` });
-          }
-        } else {
-          // Обновляем якорь времени и для бессрочных входов
-          trustedNowSync();
-        }
-        // Отметка входа. Нужна не для порядка: в разделе «Сотрудники»
-        // администратор видит, кто когда заходил, а присутствие помнит людей
-        // только неделю — по нему «не заходил с мая» отличить от «не заходил
-        // никогда» нельзя
-        try {
-          await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-        } catch (_) { /* колонки может не быть: база старее программы */ }
-        const { password: _pw, ...safeUser } = user as any;
-        // Права роли отдаём вместе с профилем: интерфейс должен знать, что
-        // человеку можно, не запрашивая это на каждом экране.
-        (safeUser as any).rolePermissions = JSON.stringify(await rolePermissionsOf(String(user.role || '')));
-        // Токен сессии: клиент шлёт его в Authorization на каждом запросе
-        return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
-      } else {
-        return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
-      }
-    } else {
-      return res.status(401).json({ success: false, message: 'Пользователь с таким логином не зарегистрирован в системе!' });
-    }
-  } catch (dbErr: any) {
-    console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
-    return res.status(500).json({
-      success: false,
-      message: 'База данных еще не инициализирована или не подключена. Перезапустите приложение или настройте СУБД в настройках подключения.'
-    });
-  }
-});
-
-// Периодическая проверка действительности профиля во время работы:
-// фронтенд опрашивает и принудительно завершает сессию, если доступ отозван
-app.get('/api/auth/check', async (req: Request, res: Response) => {
-  const userId = String(req.query.userId || '');
-  if (!userId) {
-    return res.json({ valid: false, reason: 'Не указан идентификатор пользователя.' });
-  }
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.json({ valid: false, reason: 'Профиль не найден в базе данных. Выйдите и войдите заново.' });
-    }
-    if (user.isActive === false) {
-      return res.json({ valid: false, reason: 'Профиль отключен администратором.' });
-    }
-    if (user.validUntil) {
-      const now = trustedNowSync();
-      if (timeTampered && user.role !== 'ADMIN') {
-        return res.json({ valid: false, reason: 'Обнаружен перевод системных часов назад. Верните корректную дату и время.' });
-      }
-      if (new Date(user.validUntil).getTime() < now) {
-        return res.json({ valid: false, reason: `Срок действия профиля истек ${new Date(user.validUntil).toLocaleDateString('ru-RU')}.` });
-      }
-    }
-    return res.json({ valid: true });
-  } catch (err: any) {
-    // При временной недоступности БД не выбрасываем пользователя из сессии
-    return res.json({ valid: true, degraded: true });
-  }
+// Вход, проверка сессии и заполнение базы вынесены в server/routes/auth.ts
+registerAuthRoutes(app, {
+  hashPassword, verifyPassword, isLegacyPassword, issueAuthToken, rolePermissionsOf,
+  trustedNowFull, trustedNowSync,
+  isClockTampered: () => timeTampered,
 });
 
 // Словари импорта (выученные подписи и условные обозначения) вынесены
@@ -1870,50 +1466,6 @@ registerImportDictRoutes(app);
 // Сотрудники, роли и личные настройки уведомлений вынесены
 // в server/routes/users.ts
 registerUserRoutes(app, { hashPassword, invalidateRolePerms, invalidateAuthUser, refreshHiddenOnline });
-
-// For dummy data generation so we can test the app
-app.post('/api/seed', async (req: Request, res: Response) => {
-  try {
-    const admin = await prisma.user.upsert({
-      where: { symbol: 'RaupovKhKh' },
-      // Повторное заполнение не меняет пароль и права существующей учётной записи.
-      update: {},
-      create: {
-        name: 'Главный администратор (RaupovKhKh)',
-        symbol: 'RaupovKhKh',
-        password: hashPassword('1122'),
-        role: 'ADMIN',
-      }
-    });
-
-    const existingProject = await prisma.project.findFirst({
-      where: { name: { in: ['Проект Альфа', 'Технологический Проект Альфа'] } }
-    });
-    if (!existingProject) {
-      await prisma.project.create({
-        data: {
-          name: 'Проект Альфа',
-        }
-      });
-    }
-
-    const existingAhu = await prisma.equipment.findFirst({
-      where: { type: 'AHU' }
-    });
-    if (!existingAhu) {
-      await prisma.equipment.create({
-        data: {
-          type: 'AHU',
-          description: 'Air Handling Unit',
-        }
-      });
-    }
-
-    res.json({ success: true, user: admin });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // Обновления программы: публикация, раздача и отзыв — server/updates.ts.
 // Файл едет в общую базу: сервера приложения у сотрудников нет, общая только она
