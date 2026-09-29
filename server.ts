@@ -12,7 +12,8 @@ import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting, setSessionForget } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
-import { setupPresence, readAppVersion } from './server/presence.js';
+import { readAppVersion } from './server/presence.js';
+import { registerSockets } from './server/sockets.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
@@ -20,7 +21,7 @@ import { registerPolicyRoutes } from './server/routes/policy.js';
 import { registerPlayAccess } from './server/play/access.js';
 import { registerPlayRoutes } from './server/play/routes.js';
 import { registerPlayDiagnostics } from './server/play/diagnostics.js';
-import { attachPlaySocket, startPresenceSweep } from './server/play/socket.js';
+import { startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes } from './server/routes/fileChunks.js';
@@ -32,7 +33,6 @@ import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
 import { officeRooms } from './server/officeRooms.js';
-import { setupOfficeSockets } from './server/officeSockets.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerChatRoutes } from './server/routes/chat.js';
@@ -1052,21 +1052,6 @@ io.use((socket, next) => {
   next();
 });
 
-// ── Кто сейчас в сети ────────────────────────────────────────────────────────
-// Один сотрудник — несколько вкладок и окон, поэтому считаем сокеты, а не
-// людей: закрытая вкладка не должна гасить человека, у которого открыто ещё
-// три. «Не в сети» объявляется, когда ушёл последний его сокет.
-//
-// Правило одно для всех: администратор виден так же, как остальные. Скрытое
-// присутствие начальника — это не приватность, а неравенство, из-за которого
-// в чате пишут в пустоту, не понимая, дошло ли.
-const online = new Map<string, Set<string>>();
-const lastSeen = new Map<string, number>();
-
-const rosterOnline = () => Array.from(online.keys());
-
-// Присутствие живёт в общей базе (server/presence.ts): в отделе база одна, а
-// сервер у каждого свой — в памяти оно означало бы «все не в сети»
 /**
  * Кто скрыл своё присутствие.
  *
@@ -1085,81 +1070,11 @@ export async function refreshHiddenOnline(): Promise<void> {
   }
 }
 
-const { markPresence, markGone, rosterFromDb, isHidden } = setupPresence({
+registerSockets(io, {
   getPrisma: () => prisma,
-  localOnline: rosterOnline,
-  localSeen: () => Object.fromEntries(lastSeen),
-  broadcast: (roster) => io.emit('presence:list', roster),
+  getAuthUser,
+  mayWriteFile,
   hiddenIds: () => hiddenOnline,
-  broadcastTo: (userId, roster) => io.to(`user:${userId}`).emit('presence:list', roster),
-});
-
-io.on('connection', (socket) => {
-  console.log(`[Socket] client connected: ${socket.id}`);
-
-  // Личная комната сокета. Без неё сообщения чата рассылались всем
-  // подключённым: интерфейс чужую переписку прятал, но текст всё равно
-  // приходил на каждую машину в сети
-  const uid = (socket as any).userId;
-  if (uid) socket.join(`user:${uid}`);
-
-  if (uid) {
-    const was = online.get(uid);
-    if (was) was.add(socket.id);
-    else {
-      online.set(uid, new Set([socket.id]));
-      // Появился — сказать всем. Себе тоже: своя точка «в сети» подтверждает,
-      // что связь есть, и отличает «никто не отвечает» от «я отключён».
-      // Скрывшему себя — только себе: остальным он не появлялся
-      if (isHidden(uid)) socket.emit('presence:online', { userId: uid });
-      else io.emit('presence:online', { userId: uid });
-    }
-  }
-
-  // Живая часть платформы: присутствие с арендой и подписка на её события.
-  // Доступ проверяется на каждом событии, а не один раз здесь: его отбирают
-  // в живой сессии, и подключившийся минуту назад сокет права не даёт
-  if (uid) attachPlaySocket(socket, uid, getAuthUser);
-
-  // Пришедшему — весь список сразу: без него человек до первого чужого входа
-  // видел бы всех офлайн. Список считается от его лица: себя скрывший видит
-  const sendRoster = async () => socket.emit('presence:list', await rosterFromDb(uid || ''));
-  void (async () => { if (uid) await markPresence(uid); await sendRoster(); })();
-  socket.on('presence:list', () => { void sendRoster(); });
-
-  socket.on('tag:linked', (data) => {
-    socket.broadcast.emit('tag:linked', data);
-  });
-
-  socket.on('tag:updated', (data) => {
-    socket.broadcast.emit('tag:updated', data);
-  });
-
-  socket.on('equipment:conflict', (data) => {
-    socket.broadcast.emit('equipment:conflict', data);
-  });
-
-  // Flux Office: комната файла, совместная правка, редакторы на сервере (server/officeSockets.ts)
-  const office = setupOfficeSockets(io, socket, { getAuthUser, mayWriteFile });
-
-  socket.on('disconnect', (reason) => {
-    console.log(`[Socket] client disconnected: ${socket.id}`);
-    office.gone(String(reason || ''));
-    if (uid) {
-      const set = online.get(uid);
-      set?.delete(socket.id);
-      if (set && set.size === 0) {
-        online.delete(uid);
-        const at = Date.now();
-        lastSeen.set(uid, at);
-        // И в общей базе тоже: иначе на чужих машинах он останется «в сети»
-        // до конца срока свежести отметки
-        void markGone(uid);
-        // Скрытый и так числился ушедшим — событие о его уходе никому не нужно
-        if (!isHidden(uid)) io.emit('presence:offline', { userId: uid, at });
-      }
-    }
-  });
 });
 
 app.use((req, res, next) => {

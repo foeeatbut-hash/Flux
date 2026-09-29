@@ -65,7 +65,9 @@ console.log('Подпись под именем');
 
 console.log('Сервер считает сокеты, а не людей');
 {
-  const src = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+  // Подключения сокетов вынесены из server.ts в server/sockets.ts: читаем оба файла
+  const src = readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../server/sockets.ts', import.meta.url), 'utf8');
   check('присутствие ведётся по набору сокетов', /const online = new Map<string, Set<string>>\(\)/.test(src));
   check('появление объявляется только для первого сокета',
     /online\.set\(uid, new Set\(\[socket\.id\]\)\);\s*[\s\S]{0,400}?io\.emit\('presence:online'/.test(src));
@@ -199,7 +201,8 @@ console.log('Скрыться может только администратор
   check('меняется только своя видимость',
     /presence\/visibility'[\s\S]{0,900}?prisma\.user\.update\(\{ where: \{ id: me\.id \}/.test(routes));
 
-  const srv = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+  const srv = readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+    + readFileSync(new URL('../server/sockets.ts', import.meta.url), 'utf8');
   check('список скрытых кэшируется, а не спрашивается на каждом ударе сердца',
     srv.includes('let hiddenOnline') && srv.includes('refreshHiddenOnline'));
   check('скрытый не объявляется ушедшим', /if \(!isHidden\(uid\)\) io\.emit\('presence:offline'/.test(srv));

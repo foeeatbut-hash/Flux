@@ -198,8 +198,8 @@ const LEGACY: Record<string, number> = {
   // раскладка — в lib/tagLayout: планка ниже
   'src/screens/Registry.tsx': 4682,
   // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
-  // лицензией и вход уехали в server/routes/* — планка ниже вдвое с лишним
-  'server.ts': 1963,
+  // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts
+  'server.ts': 1878,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
   // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
   'src/screens/Explorer.tsx': 2362,
