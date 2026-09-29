@@ -41,3 +41,7 @@ license-generator.html
 public/genoffice/
 genoffice-server/
 .cache/
+
+# Рабочие копии субагентов Claude Code (Agent с isolation: worktree) — иначе
+# поиск в основном дереве видит каждый файл репозитория по нескольку раз.
+.claude/worktrees/

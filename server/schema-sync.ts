@@ -21,9 +21,16 @@ interface Column {
   defaultSql: string | null; // готовый фрагмент DEFAULT ... или null
 }
 
+/** Составной уникальный ключ @@unique([a, b]) — имя индекса и его колонки */
+interface UniqueKey {
+  name: string;
+  columns: string[];
+}
+
 interface Model {
   name: string;
   columns: Column[];
+  uniques: UniqueKey[];
 }
 
 /**
@@ -158,6 +165,14 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
         if (clean) indexed.add(clean);
       }
     }
+    // Составные ключи. Имя — как у Prisma по умолчанию (Модель_а_б_key) или
+    // заданное map: — чтобы индекс, созданный prisma db push, узнавался своим
+    const uniques: UniqueKey[] = [];
+    for (const um of body.matchAll(/@@unique\s*\(\s*(?:fields:\s*)?\[([^\]]*)\]([^)]*)\)/g)) {
+      const cols = um[1].split(',').map((f) => f.trim().replace(/\(.*$/, '')).filter(Boolean);
+      const map = (um[2].match(/map:\s*"([^"]+)"/) || [])[1];
+      if (cols.length) uniques.push({ name: map || `${name}_${cols.join('_')}_key`, columns: cols });
+    }
     for (const lineRaw of body.split('\n')) {
       const line = lineRaw.replace(/\/\/.*$/, '').trim();
       if (!line || line.startsWith('@@')) continue;
@@ -184,7 +199,7 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
       // запоминаем базовый тип для fallback-дефолта
       (columns[columns.length - 1] as any)._base = base;
     }
-    if (columns.length) models.push({ name, columns });
+    if (columns.length) models.push({ name, columns, uniques });
   }
   return models;
 }
@@ -244,6 +259,73 @@ async function existingColumns(prisma: any, dialect: Dialect, table: string): Pr
     `SELECT column_name AS c, data_type AS t FROM information_schema.columns WHERE ${where} AND table_name = ${quoteStr(table)}`
   );
   return new Map(rows.map(r => [String(r.c ?? r.C), String(r.t ?? r.T ?? '').toLowerCase()]));
+}
+
+/**
+ * Уникальные индексы таблицы — как наборы колонок («fileId,idx», по алфавиту).
+ *
+ * Сверяем по колонкам, а не по имени: часть ключей старые версии создавали
+ * вручную под своими именами (CalGuest_event_user_key), и второй такой же
+ * индекс рядом ничего бы не дал, кроме лишней записи на каждую вставку.
+ */
+async function existingUniqueSets(prisma: any, dialect: Dialect, table: string): Promise<Set<string>> {
+  const byIndex = new Map<string, string[]>();
+  const add = (index: string, col: string) => {
+    if (!byIndex.has(index)) byIndex.set(index, []);
+    byIndex.get(index)!.push(col);
+  };
+  if (dialect === 'sqlite') {
+    const list: any[] = await prisma.$queryRawUnsafe(`PRAGMA index_list(${quoteId(dialect, table)})`);
+    for (const ix of list.filter((r: any) => Number(r.unique) === 1)) {
+      const info: any[] = await prisma.$queryRawUnsafe(`PRAGMA index_info(${quoteId(dialect, String(ix.name))})`);
+      for (const c of info) add(String(ix.name), String(c.name));
+    }
+  } else if (dialect === 'mysql') {
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT index_name AS n, column_name AS c FROM information_schema.statistics
+       WHERE table_schema = DATABASE() AND table_name = ${quoteStr(table)} AND non_unique = 0`
+    );
+    for (const r of rows) add(String(r.n ?? r.N), String(r.c ?? r.C));
+  } else {
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT i.relname AS n, a.attname AS c
+       FROM pg_index x
+       JOIN pg_class t ON t.oid = x.indrelid
+       JOIN pg_namespace s ON s.oid = t.relnamespace
+       JOIN pg_class i ON i.oid = x.indexrelid
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey)
+       WHERE x.indisunique AND s.nspname = current_schema() AND t.relname = ${quoteStr(table)}`
+    );
+    for (const r of rows) add(String(r.n), String(r.c));
+  }
+  return new Set([...byIndex.values()].map((cols) => [...cols].sort().join(',')));
+}
+
+/**
+ * Досоздать составные уникальные ключи модели.
+ *
+ * Без них таблица, созданная автомиграцией (у обновившихся со старой версии и
+ * в общей базе), выглядела исправной, но любая запись через upsert по такому
+ * ключу падала: SQLite и PostgreSQL отвечают «ON CONFLICT не совпадает ни с
+ * одним ключом». Так не записывался ни один кусок файла (FileChunk), а в
+ * MariaDB ключ просто не держал повторов.
+ *
+ * Если в таблице уже есть повторы, индекс не создастся — об этом пишем в лог
+ * и идём дальше: удалять чужие строки автомиграция не вправе.
+ */
+async function ensureUniqueKeys(prisma: any, dialect: Dialect, model: Model, log: (msg: string) => void, applied: string[]) {
+  if (!model.uniques.length) return;
+  const have = await existingUniqueSets(prisma, dialect, model.name);
+  for (const u of model.uniques) {
+    if (have.has([...u.columns].sort().join(','))) continue;
+    const cols = u.columns.map((c) => quoteId(dialect, c)).join(', ');
+    try {
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX ${quoteId(dialect, u.name)} ON ${quoteId(dialect, model.name)} (${cols})`);
+      applied.push(`ключ ${u.name}`);
+    } catch (e: any) {
+      log(`[Schema Sync] Не удалось создать ключ ${u.name} (${u.columns.join(', ')}): ${e.message}. Возможно, в таблице есть повторы — данные не тронуты.`);
+    }
+  }
 }
 
 /** Насколько тип вместителен: расширять можно только вверх */
@@ -333,6 +415,7 @@ export async function ensureRemoteSchema(
           await prisma.$executeRawUnsafe(create(true));
         }
         applied.push(`создана таблица ${model.name}`);
+        await ensureUniqueKeys(prisma, dialect, model, log, applied);
         continue;
       }
       // Таблица есть — добавляем недостающие колонки и расширяем узкие
@@ -358,6 +441,7 @@ export async function ensureRemoteSchema(
           log(`[Schema Sync] Не удалось расширить ${model.name}.${c.name}: ${e.message}`);
         }
       }
+      await ensureUniqueKeys(prisma, dialect, model, log, applied);
     } catch (e: any) {
       log(`[Schema Sync] Ошибка при обработке ${model.name}: ${e.message}`);
     }

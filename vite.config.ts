@@ -24,7 +24,22 @@ export default defineConfig(() => {
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Рабочие копии субагентов (.claude/worktrees) — полные клоны репозитория:
+      // без исключения каждая их правка перезагружала страницу в основном
+      // сервере посреди проверки, и test-flow/test-layout падали на входе.
+      watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/.claude/**', '**/.probe/**', '**/database/**'] },
+      // Интерфейс собирается сразу при старте сервера, а не по первому
+      // запросу страницы: иначе первое открытие ждёт сборки больше минуты, и
+      // проверки через браузер, запущенные сразу после сервера, падали на входе.
+      warmup: { clientFiles: ['./src/main.tsx'] },
+    },
+    // Зависимости ищутся только от настоящей страницы. По умолчанию Vite
+    // сканирует все *.html в корне — образцы docs/stand и index.html рабочих
+    // копий субагентов, — находит «новые» зависимости уже после открытия
+    // страницы и пересобирает их на ходу: страница перезагружается, а до того
+    // успевает получить две копии React («Invalid hook call»).
+    optimizeDeps: {
+      entries: ['index.html'],
     },
   };
 });

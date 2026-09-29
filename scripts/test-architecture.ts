@@ -195,22 +195,19 @@ const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   // Слой связей уехал в components/registry/BoardLinks, меню и мини-панель
   // карточки — в CardActions, панель дублей — в DuplicatesPanel, геометрия и
-  // раскладка — в lib/tagLayout: планка ниже
-  'src/screens/Registry.tsx': 4682,
-  // Проверка и копирование SQLite вынесены отдельно, мастер-вход удалён.
-  'server.ts': 4206,
+  // раскладка — в lib/tagLayout, вкладки «Спецификация» и «Подбор» — в
+  // SpecTable и SegmentCollectorTab, карточка тега, шапка, управление холстом и
+  // его меню — в свои компоненты: планка ниже. Дальше — docs/refactor/registry.md
+  'src/screens/Registry.tsx': 3670,
+  // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
+  // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
+  // догоняющая миграция SQLite — в server/localSchema.ts
+  'server.ts': 1522,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
   // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
   'src/screens/Explorer.tsx': 2362,
-  'src/screens/DictionaryEditor.tsx': 2208,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  // Выбор оболочки ушёл вместе с панелями и левым меню — планка ниже
-  'src/screens/SettingsScreen.tsx': 1494,
-  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже.
-  // Приветствие уехало туда же (assistant/greeting), но файл всё равно чуть
-  // выше планки: поднимать её не за что, живём в допуске
-  'src/store/assistantStore.ts': 1246,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
 const all = [...SRC, ...ELECTRON, ...SHARED, ...walk('server'), ...walk('scripts'), 'server.ts'];

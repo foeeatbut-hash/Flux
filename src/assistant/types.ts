@@ -56,3 +56,23 @@ export const uid = () => Math.random().toString(36).slice(2) + Date.now().toStri
 /** Короткий помощник для сборки ответа. */
 export const say = (text: string, extra: Partial<AssistantMessage> = {}): AssistantMessage =>
   ({ id: uid(), role: 'assistant', text, ...extra });
+
+// Ожидание ввода в диалоге: следующая реплика пользователя — не запрос,
+// а значение для начатого действия (например, новый код переименовываемого тега)
+export type PendingInput =
+  | { kind: 'rename-tag'; tagId: string; oldCode: string }
+  | null;
+
+// Последний результат — для follow-up вопросов («а сколько их?», «выгрузи», «первый на холсте»)
+export interface LastResult {
+  kind: 'tags' | 'components' | 'duplicates';
+  ids: string[];
+  label: string;
+}
+
+// Преобразование подсказки раздела в кнопку-действие сообщения
+export function toAction(s: { label: string; kind: 'ask' | 'tour'; query?: string; tourId?: string }): AssistantAction {
+  return s.kind === 'tour'
+    ? { label: s.label, kind: 'tour', tourId: s.tourId }
+    : { label: s.label, kind: 'ask', query: s.query };
+}

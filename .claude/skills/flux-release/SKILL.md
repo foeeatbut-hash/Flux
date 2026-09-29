@@ -81,13 +81,12 @@ cd /tmp/fresh && git am /tmp/patches/*.patch && git push origin HEAD:<ветка
 Сверить перед этим `git diff <локальный> origin/<ветка>` — должно быть пусто.
 
 **Пропал `node_modules`.** Признак — `tsc` сыплет «Cannot find module
-@types/node», «@prisma/client». Лечится:
+@types/node», «@prisma/client». Лечится тем же, что делает хук в начале
+облачной сессии (npm ci, три prisma generate, Electron, редакторы Office —
+только то, чего не хватает):
 
 ```bash
-npm ci --no-audit --no-fund
-npx prisma generate --schema=prisma/schema.prisma
-npx prisma generate --schema=prisma/schema.postgresql.prisma
-npx prisma generate --schema=prisma/schema.mariadb.prisma
+rm -f node_modules/.flux-lock && CLAUDE_CODE_REMOTE=true bash scripts/session-start.sh
 ```
 
 `playwright-core` стоит в зависимостях проекта; браузер уже лежит в
