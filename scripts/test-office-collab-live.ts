@@ -15,16 +15,27 @@
  *   - опоздавший сразу видит ещё не записанное;
  *   - личный файл совместно не правится.
  *
+ * Два сервера, одна база — как в отделе, где у каждого сотрудника свой
+ * встроенный сервер (README, «Где лежат данные и где сервер»). Второй
+ * сотрудник подключается к FLUX_API2 (по умолчанию тот же сервер, что FLUX_API —
+ * тогда проверка идёт по-старому, на одной машине, и поломки не видит).
+ * Кроме прежнего проверяется то, ради чего сервера два:
+ *   - диалога «Сохранить мои правки рядом» не появляется ни у кого;
+ *   - держатель в общей базе один (нужна FLUX_PG или database/config.json).
+ *
  * Нужны поднятый сервер и собранный редактор (node tools/genoffice/build.mjs).
- * Запуск: npx tsx scripts/test-office-collab-live.ts
+ * Запуск: FLUX_API=http://localhost:3000 FLUX_API2=http://localhost:3001 \
+ *         npx tsx scripts/test-office-collab-live.ts
  */
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { FEATURES } from '../src/lib/permissions';
-import { makeDocx, loginPage } from './officeHarness';
+import { makeDocx, loginPage, watchConflictDialog, conflictSeen, holdersInDb } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
+/** Сервер второго сотрудника: в отделе он у каждого свой, база одна */
+const BASE2 = process.env.FLUX_API2 || BASE;
 const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
@@ -91,15 +102,17 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const outside: string[] = [];
-  const openAs = async (who: typeof ADMIN) => {
+  const seen: boolean[] = [];
+  const openAs = async (who: typeof ADMIN, base = BASE) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     const page = await ctx.newPage();
     page.on('request', (r: any) => {
       const u = String(r.url());
-      if (!u.startsWith(BASE) && !u.startsWith('blob:') && !u.startsWith('data:') && !u.startsWith('ws://localhost')) outside.push(u);
+      if (!u.startsWith(BASE) && !u.startsWith(BASE2) && !u.startsWith('blob:') && !u.startsWith('data:') && !u.startsWith('ws://localhost')) outside.push(u);
     });
-    await loginPage(page, BASE, who);
-    await page.goto(`${BASE}/#/office-doc?file=${id}`, { waitUntil: 'domcontentloaded' });
+    await watchConflictDialog(page);
+    await loginPage(page, base, who);
+    await page.goto(`${base}/#/office-doc?file=${id}`, { waitUntil: 'domcontentloaded' });
     const fr = page.frameLocator('iframe[title="Flux Office — Документ"]');
     await fr.locator('.ProseMirror').first().waitFor({ timeout: 30000 }).catch(() => {});
     return { ctx, page, fr };
@@ -111,7 +124,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     c.querySelectorAll('.ProseMirror-yjs-cursor, .ProseMirror-yjs-selection').forEach((n: any) => n.remove());
     return c.textContent || '';
   }).catch(() => '');
-  const strip = (page: any) => page.getByRole('status', { name: 'Кто в файле' }).innerText().catch(() => '');
+  const strip = (page: any) => page.getByRole('status', { name: 'Кто в файле' }).innerText({ timeout: 1500 }).catch(() => '');
   const typeAt = async (x: { page: any; fr: any }, anchor: string, s: string, delay = 40) => {
     await x.fr.getByText(anchor).first().click();
     await x.page.keyboard.press('End');
@@ -119,11 +132,21 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
   };
   const fileXml = async () => part((await api('GET', `/api/files/${id}/raw`, admin)).buf, 'word/document.xml');
 
+  /** Закрыть окно, сперва спросив, не мелькал ли в нём диалог конфликта */
+  const closeWin = async (x: { page: any; ctx: any }) => { seen.push(await conflictSeen(x.page)); await x.ctx.close(); };
+  /** Комната в общей базе: держатель один, а серверов в ней два */
+  const roomCheck = async () => {
+    const h = await holdersInDb(id);
+    if (!h) { console.log('  · база недоступна тесту (нет FLUX_PG и database/config.json) — держатель не сверен'); return; }
+    ok('держатель в общей базе один', h.holders.length === 1, h.holders);
+    ok('оба сервера в одной комнате общей базы', BASE2 === BASE || h.servers >= 2, h.peers);
+  };
+
   try {
     console.log('1. Оба правят');
     const a = await openAs(ADMIN);
     ok('первый может править', await until(async () => (await editable(a.fr)) === 'true', 20000));
-    const b = await openAs(mate);
+    const b = await openAs(mate, BASE2);
     ok('второй тоже может править', await until(async () => (await editable(b.fr)) === 'true', 20000));
     ok('первый видит, что правят вместе', await until(async () => /Правите вместе/.test(await strip(a.page)), 10000), await strip(a.page));
 
@@ -156,6 +179,8 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     ok('колонтитул со штампом — байт в байт', await partSha(saved, 'word/footer1.xml') === await partSha(original, 'word/footer1.xml'));
     ok('стили не тронуты', await partSha(saved, 'word/styles.xml') === await partSha(original, 'word/styles.xml'));
 
+    await roomCheck();
+
     console.log('\n5. Список у соавтора');
     await b.fr.getByText('Вторая строка бланка').first().click();
     await b.page.keyboard.press('End');
@@ -174,7 +199,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
 
     console.log('\n6. Держатель ушёл');
     await a.page.getByRole('button', { name: 'Закрыть' }).last().click();
-    await a.ctx.close();
+    await closeWin(a);
     const MD = `ДЕЛЬТА${stamp.slice(-2).toUpperCase()}`;
     await typeAt(b, 'Проба Flux Office', ' ' + MD);
     ok('правка второго записывается в файл', await until(async () => (await fileXml()).includes(MD), 25000));
@@ -186,10 +211,13 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
     ok('сразу видит ещё не записанную правку', await until(async () => (await text(c.fr)).includes(ME), 8000), (await text(c.fr)).slice(0, 160));
     ok('и может править', await until(async () => (await editable(c.fr)) === 'true', 10000));
     await b.page.screenshot({ path: process.env.OUT || '/tmp/office-cowrite.png' }).catch(() => {});
-    await c.ctx.close();
-    await b.ctx.close();
+    await closeWin(c);
+    await closeWin(b);
 
-    console.log('\n8. Личный файл');
+    console.log('\n8. Диалога конфликта не было');
+    ok('«Сохранить мои правки рядом» не появлялось ни у кого', seen.length > 0 && seen.every((v) => !v), seen);
+
+    console.log('\n9. Личный файл');
     const own = await upload(`__личная проба ${stamp}.docx`, { scope: 'PERSONAL', filePath: '/personal/x.docx' });
     created.push(own.id);
     const opened = await api('GET', `/api/office/files/${own.id}/open`, admin);

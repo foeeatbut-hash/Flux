@@ -4,6 +4,8 @@
  * должно — документ собирается с нуля.
  */
 import JSZip from 'jszip';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -103,4 +105,53 @@ export async function makeXlsx(): Promise<Buffer> {
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Проба таблицы</dc:title></cp:coreProperties>`);
   z.file('customXml/item1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><flux proba="1">не трогать</flux>`);
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+
+/**
+ * Диалог «Сохранить мои правки рядом» следит за собой сам: он мог мелькнуть
+ * между двумя опросами теста, а в общем файле его не должно быть вовсе
+ * (docs/office-collab-shared-db.md). Наблюдатель ставится до загрузки окна и
+ * запоминает любое появление текста, даже если диалог потом закрыли.
+ */
+export async function watchConflictDialog(page: any): Promise<void> {
+  await page.addInitScript(() => {
+    const bad = /Сохранить мои правки рядом|Файл сейчас правит другой сотрудник|Файл изменили, пока он был открыт/;
+    const look = () => { try { if (bad.test(document.body?.innerText || '')) (window as any).__conflictSeen = true; } catch (_) { /* нет тела */ } };
+    const start = () => { new MutationObserver(look).observe(document.documentElement, { childList: true, subtree: true, characterData: true }); look(); };
+    if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
+  });
+}
+
+export const conflictSeen = async (page: any): Promise<boolean> =>
+  page.evaluate(() => !!(window as any).__conflictSeen).catch(() => false);
+
+/** Адрес общей базы: FLUX_PG или та же настройка, что читают серверы (database/config.json) */
+function pgUrl(): string {
+  if (process.env.FLUX_PG) return process.env.FLUX_PG;
+  try {
+    if (!existsSync('database/config.json')) return '';
+    const c = JSON.parse(readFileSync('database/config.json', 'utf8'));
+    return c?.current_db_type === 'REMOTE' && /^postgres/i.test(String(c.database_url || '')) ? String(c.database_url) : '';
+  } catch { return ''; }
+}
+
+/**
+ * Что в общей базе про комнату файла: держатели и участники с их серверами.
+ * null — база тесту недоступна (не PostgreSQL или нет таблиц): проверка
+ * тогда пропускается, а не выдаётся за пройденную
+ */
+export async function holdersInDb(fileId: string): Promise<null | { holders: any[]; peers: any[]; servers: number }> {
+  const url = pgUrl();
+  if (!url) return null;
+  try {
+    const { Client } = createRequire(process.cwd() + '/package.json')('pg');
+    const c = new Client({ connectionString: url });
+    await c.connect();
+    try {
+      const holders = (await c.query(`SELECT * FROM "OfficeHolder" WHERE "fileId" = $1 AND "socketId" <> ''`, [fileId])).rows;
+      const peers = (await c.query(`SELECT "socketId","serverId","userId","mayWrite" FROM "OfficePeer" WHERE "fileId" = $1`, [fileId])).rows;
+      return { holders, peers, servers: new Set(peers.map((p: any) => p.serverId)).size };
+    } finally { await c.end(); }
+  } catch { return null; }
 }
