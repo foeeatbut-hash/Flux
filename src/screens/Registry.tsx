@@ -1548,6 +1548,21 @@ export default function Registry() {
     }, 250);
   };
 
+  // Последняя версия centerOnTag для отложенных вызовов. Ссылка на тег
+  // (из письма, Проводника, чата) открывает окно Тегов, и холст меряется уже
+  // после срабатывания ссылки: замкнутая в setTimeout старая функция считала
+  // центр по размеру холста по умолчанию, и карточка уезжала за край окна
+  const centerOnTagRef = useRef(centerOnTag);
+  centerOnTagRef.current = centerOnTag;
+  // Окно, открытое ссылкой, ещё раскрывается и растёт: центр, посчитанный по
+  // первому размеру холста, после разворота оказывается сбоку. Пока ссылка
+  // свежая, каждое новое измерение холста снова ставит тег в центр
+  const pendingCenterRef = useRef<{ id: string; until: number } | null>(null);
+  useEffect(() => {
+    const p = pendingCenterRef.current;
+    if (p && Date.now() < p.until) centerOnTagRef.current(p.id);
+  }, [boardSize.w, boardSize.h]);
+
   // Вписывает группу карточек (или весь холст) в видимую область
   const fitToTags = (list: any[]) => {
     if (list.length === 0) return;
@@ -1725,7 +1740,8 @@ export default function Registry() {
     deepLinkHandledRef.current = sig;
     if (focus && tagsById[focus]) {
       setActiveTab('board');
-      setTimeout(() => centerOnTag(focus), 200);
+      pendingCenterRef.current = { id: focus, until: Date.now() + 2500 };
+      setTimeout(() => centerOnTagRef.current(focus), 350);
     } else if (byCode) {
       // Тег есть в письме, но не в этом проекте — молчать нельзя, иначе
       // нажатие выглядит как сломанное
