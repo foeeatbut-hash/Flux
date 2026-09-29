@@ -402,7 +402,7 @@ export default function OfficeHost() {
   };
 
   if (!fileId) {
-    return <Empty title="Файл не выбран" text="Откройте документ Word из Проводника: «Открыть в: Документ (проба)»." />;
+    return <Empty title="Файл не выбран" text="Откройте документ Word из Проводника двойным щелчком." />;
   }
   if (phase === 'missing') {
     return (

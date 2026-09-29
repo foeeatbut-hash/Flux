@@ -360,6 +360,11 @@ export default function Explorer() {
   useEffect(() => {
     // Именно useLocation, а не window.location: адрес живёт в решётке, и у
     // window.location строка запроса всегда пустая.
+    // Только свой адрес. Двойной щелчок по документу уводит общий адрес на
+    // /office-doc?file=…, а Проводник в этот миг ещё живое окно и видит тот же
+    // file: принимал его за свою ссылку, переписывал адрес — и рядом с
+    // документом открывалось пустое окно «Файл не выбран»
+    if (routeLoc.pathname !== '/explorer') return;
     const want = new URLSearchParams(routeLoc.search).get('file');
     if (!want || deepFileRef.current === want) return;
     if (isLoading || (!folders.length && !rootFiles.length)) return;
@@ -442,6 +447,8 @@ export default function Explorer() {
   // файла не знал бы, куда идти. Папка без файла — тоже осмысленная ссылка (так
   // открывают папку со стола); раньше она молча не делала ничего.
   useEffect(() => {
+    // Чужой адрес с file (документ, открытый из этого же окна) — не наша ссылка
+    if (routeLoc.pathname !== '/explorer') return;
     const fileId = searchParams.get('file');
     const folderId = searchParams.get('folder');
     if (!fileId && !folderId) return;
