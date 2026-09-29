@@ -195,8 +195,9 @@ const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   // Слой связей уехал в components/registry/BoardLinks, меню и мини-панель
   // карточки — в CardActions, панель дублей — в DuplicatesPanel, геометрия и
-  // раскладка — в lib/tagLayout: планка ниже
-  'src/screens/Registry.tsx': 4682,
+  // раскладка — в lib/tagLayout, вкладки «Спецификация» и «Подбор» — в
+  // SpecTable и SegmentCollectorTab: планка ниже. Дальше — docs/refactor/registry.md
+  'src/screens/Registry.tsx': 4025,
   // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
   // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
   // догоняющая миграция SQLite — в server/localSchema.ts

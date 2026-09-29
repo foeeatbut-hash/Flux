@@ -4,11 +4,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { useInsightStore } from '../store/insightStore';
-import { copyAsTable } from '../lib/copyTable';
 import { dataService } from '../services/dataService';
 import {
   Network,
-  Copy,
   List,
   Table,
   Plus,
@@ -42,7 +40,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { format } from 'date-fns';
 import CustomSelect from '../components/CustomSelect';
 import ContextMenu from '../components/ContextMenu';
 import TagImportWizard from '../components/TagImportWizard';
@@ -54,9 +51,8 @@ import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
 import ExchangeTab from '../components/registry/ExchangeTab';
 import TagComments from '../components/registry/TagComments';
-import { toXlsx, fileName, type Column } from '../lib/exchange';
-import { saveNewFile, editorHref } from '../lib/officeFiles';
-import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
+import { type Column } from '../lib/exchange';
+import { TAG_EXCHANGE_COLUMNS, buildTagExchange } from '../lib/tagExchange';
 import {
   linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
@@ -68,7 +64,9 @@ import {
 import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
 import CardActions from '../components/registry/CardActions';
 import DuplicatesPanel from '../components/registry/DuplicatesPanel';
-import SegmentColumn from '../components/registry/SegmentColumn';
+import SegmentCollectorTab from '../components/registry/SegmentCollectorTab';
+import { useSegmentCollector } from '../components/registry/useSegmentCollector';
+import SpecTable from '../components/registry/SpecTable';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { SectionHead, Btn, IconBtn, Status, Empty, Dialog } from '../components/ui';
 import TagVdrDocs from '../components/registry/TagVdrDocs';
@@ -641,39 +639,10 @@ export default function Registry() {
     return str.split(/[-.,\/ ]+/).filter(Boolean);
   }, []);
 
-  // Independent segment filters for Tag (left) and Mark (right)
-  const [activeTagFilters, setActiveTagFilters] = useState<{ [position: number]: string }>({});
-  const [activeMarkFilters, setActiveMarkFilters] = useState<{ [position: number]: string }>({});
-  
   const [tagSearchQueries, setTagSearchQueries] = useState<{ [position: number]: string }>({});
   const [markSearchQueries, setMarkSearchQueries] = useState<{ [position: number]: string }>({});
 
-  const [tagDictBindings, setTagDictBindings] = useState<{ [position: number]: string }>({});
-  const [markDictBindings, setMarkDictBindings] = useState<{ [position: number]: string }>({});
-
-  const [tagHierarchySelections, setTagHierarchySelections] = useState<{ [position: number]: any }>({});
-  const [markHierarchySelections, setMarkHierarchySelections] = useState<{ [position: number]: any }>({});
-
-  const [selectedTagFilterCategoryIds, setSelectedTagFilterCategoryIds] = useState<{ [position: number]: string }>({});
-  const [selectedMarkFilterCategoryIds, setSelectedMarkFilterCategoryIds] = useState<{ [position: number]: string }>({});
-
-  const [addedTagSegmentsCount, setAddedTagSegmentsCount] = useState<number>(0);
-  const [addedMarkSegmentsCount, setAddedMarkSegmentsCount] = useState<number>(0);
-
   const [dictionaries, setDictionaries] = useState<any[]>([]);
-
-  const [excludeEmptyWBS, setExcludeEmptyWBS] = useState(false);
-  const [onlyWithWarning, setOnlyWithWarning] = useState(false);
-  const [exportColumns, setExportColumns] = useState({
-    identifier: true,
-    brand: true,
-    brandParts: true,
-    department: true,
-    fluid: true,
-    parts: true,
-    chain: true,
-    descriptions: true
-  });
 
   // Load all tags
   // Последний прочитанный список — состояние в замыкании эффекта уже устарело,
@@ -2379,118 +2348,11 @@ export default function Registry() {
     return chainList.join(' ➔ ');
   };
 
-  // Extract all unique values at a specific segment/part index across all tags
-  const getUniqueTagSegmentValuesForPos = (idx: number): string[] => {
-    const values = new Set<string>();
-    tags.forEach(t => {
-      const parts = splitSegments(t.identifier);
-      if (parts[idx]) {
-        values.add(parts[idx]);
-      }
-    });
-    return Array.from(values).sort();
-  };
-
-  const getUniqueMarkSegmentValuesForPos = (idx: number): string[] => {
-    const values = new Set<string>();
-    tags.forEach(t => {
-      const parts = splitSegments(t.brand || '');
-      if (parts[idx]) {
-        values.add(parts[idx]);
-      }
-    });
-    return Array.from(values).sort();
-  };
-
-  // Find max segment depth across all items
-  const getMaximumTagSegmentLength = (): number => {
-    let max = 0;
-    tags.forEach(t => {
-      const parts = splitSegments(t.identifier);
-      if (parts.length > max) max = parts.length;
-    });
-    return max || 3;
-  };
-
-  const getMaximumMarkSegmentLength = (): number => {
-    let max = 0;
-    tags.forEach(t => {
-      const parts = splitSegments(t.brand || '');
-      if (parts.length > max) max = parts.length;
-    });
-    return max || 3;
-  };
-
-  // Safe mappings to keep existing references happy
-  const getUniqueSegmentValuesForPos = getUniqueTagSegmentValuesForPos;
-  const getMaximumSegmentLength = getMaximumTagSegmentLength;
-
-  // Perform multi-segment query selection with independent Tag & Mark filter vectors
-  const getSegmentMatchedTags = () => {
-    return tags.filter(t => {
-      const tagParts = splitSegments(t.identifier);
-      const markParts = splitSegments(t.brand || '');
-      
-      // Left-side card filter values check only the data inside the Tag Segments column
-      for (const posKey in activeTagFilters) {
-        const filterVal = activeTagFilters[posKey];
-        if (!filterVal || filterVal === '*') continue;
-        
-        const partVal = tagParts[Number(posKey)];
-        if (!partVal || !partVal.toLowerCase().includes(filterVal.toLowerCase())) {
-          return false;
-        }
-      }
-
-      // Right-side card filter values check only data inside the Mark Segments column
-      for (const posKey in activeMarkFilters) {
-        const filterVal = activeMarkFilters[posKey];
-        if (!filterVal || filterVal === '*') continue;
-        
-        const partVal = markParts[Number(posKey)];
-        if (!partVal || !partVal.toLowerCase().includes(filterVal.toLowerCase())) {
-          return false;
-        }
-      }
-
-      // Supplementary filters
-      if (excludeEmptyWBS && !t.wbs) return false;
-      if (onlyWithWarning) {
-        const meta = parseTagMetadata(t);
-        const hasFlags = meta.descriptions.some(d => d.status === 'warning' || d.status === 'critical');
-        if (!hasFlags) return false;
-      }
-
-      return true;
-    });
-  };
-
-  const splitBrandIntoParts = (brandStr: string) => {
-    if (!brandStr) return [];
-    return brandStr.split(/[-/\.\s]+/);
-  };
-
-  const getMaximumBrandSegmentLength = () => {
-    let max = 0;
-    tags.forEach(t => {
-      if (t.brand) {
-        const len = splitBrandIntoParts(t.brand).length;
-        if (len > max) max = len;
-      }
-    });
-    return max;
-  };
-
-  // List Virtualization:
-  const parentRefSegments = useRef<HTMLDivElement>(null);
-  const matchedTagsList = useMemo(() => getSegmentMatchedTags(), [tags, activeTagFilters, activeMarkFilters, excludeEmptyWBS, onlyWithWarning, dictionaries]);
-  
-  const segmentsVirtualizer = useVirtualizer({
-    count: matchedTagsList.length,
-    getScrollElement: () => parentRefSegments.current,
-    estimateSize: () => 75,
-    overscan: 10,
-  });
+  // Сборщик по сегментам: состояние и логика — в useSegmentCollector. Хук вызывается здесь,
+  // а не во вкладке: вкладка монтируется заново и теряла бы введённое, а список
+  // подборки нужен ещё и «Обмену»
+  const collector = useSegmentCollector({ tags, dictionaries, splitSegments, splitTagIntoParts, getParentTraceLineage });
+  const { matchedTagsList } = collector;
 
   const parentRefTable = useRef<HTMLDivElement>(null);
   const sortedTagsList = useMemo(() => getSortedTags(), [tags, searchQuery, sortConfig]);
@@ -2532,54 +2394,6 @@ export default function Registry() {
     cols,
     { lineage: getParentTraceLineage, meta: parseTagMetadata },
   );
-
-  // Сборка таблицы подбора уехала в lib/tagExchange: раздел «Теги» — самый
-  // большой файл программы, и держать в нём ещё и разбор сегментов значит
-  // растить его дальше. Заодно эту сборку теперь можно проверить скриптом
-  const buildExportTable = (): { headers: string[]; rows: string[][] } | null => {
-    const matched = getSegmentMatchedTags();
-    if (matched.length === 0) return null;
-    return buildSegmentTable(matched, exportColumns, {
-      segments: getMaximumSegmentLength(),
-      brandSegments: getMaximumBrandSegmentLength(),
-      splitTag: splitTagIntoParts,
-      splitBrand: splitBrandIntoParts,
-      lineage: getParentTraceLineage,
-      meta: parseTagMetadata,
-    });
-  };
-
-  // Раньше здесь был CSV под видом Excel: без форматов и с вопросом про
-  // кодировку. Теперь — книга .xlsx в «Выгрузках», сразу открытая Таблицей
-  const handleExportSelectedToExcel = async () => {
-    const table = buildExportTable();
-    if (!table) {
-      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
-      return;
-    }
-    try {
-      const made = await saveNewFile(await toXlsx(table.headers, table.rows, 'Подбор'), fileName('Теги — подбор', 'xlsx'), 'exports');
-      addToast(`Выгружено в «Выгрузки»: ${made.name}`, 'success');
-      navigate(editorHref(made));
-    } catch (e: any) {
-      addToast(`Не удалось выгрузить: ${e?.message || e}`, 'error');
-    }
-  };
-
-  /** Та же подборка — сразу в буфер, чтобы вставить в письмо или протокол */
-  const handleCopySelectedAsTable = async () => {
-    const table = buildExportTable();
-    if (!table) {
-      void openAlert('Нечего копировать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
-      return;
-    }
-    const objects = table.rows.map(r => Object.fromEntries(table.headers.map((h, i) => [h, r[i] ?? ''])));
-    const ok = await copyAsTable(objects, table.headers);
-    addToast(
-      ok ? `Скопировано строк: ${objects.length} — вставьте в Ворд или Эксель` : 'Не удалось скопировать',
-      ok ? 'success' : 'error',
-    );
-  };
 
   const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
 
@@ -3767,310 +3581,7 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
-
-            {/* SELECTION FILTERS BLOCK */}
-            <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 text-left">
-              
-              <SegmentColumn kind="tag" title="Отбор по сегментам тега" hint="По частям кода тега: только латиница и цифры."
-                segmentLabel="Сегмент тега" className="@[880px]:border-r border-slate-100 dark:border-slate-850 @[880px]:pr-6"
-                baseCount={getMaximumTagSegmentLength()} added={addedTagSegmentsCount} setAdded={setAddedTagSegmentsCount}
-                uniqueValues={getUniqueTagSegmentValuesForPos} dictionaries={dictionaries}
-                filters={activeTagFilters} setFilters={setActiveTagFilters}
-                bindings={tagDictBindings} setBindings={setTagDictBindings}
-                hierarchy={tagHierarchySelections} setHierarchy={setTagHierarchySelections}
-                categoryIds={selectedTagFilterCategoryIds} setCategoryIds={setSelectedTagFilterCategoryIds} />
-              <SegmentColumn kind="mark" title="Отбор по сегментам марки" hint="По частям марки оборудования: любой язык."
-                segmentLabel="Сегмент марки"
-                baseCount={getMaximumMarkSegmentLength()} added={addedMarkSegmentsCount} setAdded={setAddedMarkSegmentsCount}
-                uniqueValues={getUniqueMarkSegmentValuesForPos} dictionaries={dictionaries}
-                filters={activeMarkFilters} setFilters={setActiveMarkFilters}
-                bindings={markDictBindings} setBindings={setMarkDictBindings}
-                hierarchy={markHierarchySelections} setHierarchy={setMarkHierarchySelections}
-                categoryIds={selectedMarkFilterCategoryIds} setCategoryIds={setSelectedMarkFilterCategoryIds} />
-
-              {/* SEPARATOR AND SUPPLEMENTARY CONTROLS */}
-              <div className="@[880px]:col-span-2 flex flex-wrap gap-6 pt-3 border-t border-slate-100 dark:border-slate-850 text-xs">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={excludeEmptyWBS}
-                    onChange={(e) => setExcludeEmptyWBS(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <span className="text-slate-600 dark:text-slate-300 font-medium">Исключить пустые WBS элементы</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={onlyWithWarning}
-                    onChange={(e) => setOnlyWithWarning(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <span className="text-slate-600 dark:text-slate-300 font-medium">Только теги с предупреждениями (Критично/Проверить)</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTagFilters({});
-                    setActiveMarkFilters({});
-                    setTagDictBindings({});
-                    setMarkDictBindings({});
-                    setTagHierarchySelections({});
-                    setMarkHierarchySelections({});
-                    setSelectedTagFilterCategoryIds({});
-                    setSelectedMarkFilterCategoryIds({});
-                    setAddedTagSegmentsCount(0);
-                    setAddedMarkSegmentsCount(0);
-                  }}
-                  className="fx-btn fx-btn-quiet ml-auto"
-                >
-                  Сбросить сегменты
-                </button>
-              </div>
-            </div>
-
-            {/* EXPORT COLUMNS SETTINGS */}
-            <div className="border-t border-slate-200 dark:border-slate-850 pt-3 space-y-3">
-              <div className="flex flex-col @[880px]:flex-row @[880px]:items-center @[880px]:justify-between gap-4">
-                <div>
-                  <h3 className="text-[13px] font-semibold text-slate-900 dark:text-white">
-                    Колонки для выгрузки
-                  </h3>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={handleCopySelectedAsTable} title="Те же колонки — сразу в буфер обмена, без файла"
-                    className="fx-btn">
-                    <Copy className="w-4 h-4" /><span>Скопировать таблицей</span>
-                  </button>
-                  <button type="button" onClick={handleExportSelectedToExcel}
-                    className="fx-btn fx-btn-primary">
-                    <FileSpreadsheet className="w-4 h-4" /><span>Экспортировать подборку в Excel</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-4 pt-1 text-xs">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.identifier}
-                    onChange={(e) => setExportColumns(p => ({ ...p, identifier: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Код тега (Identifier)</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.parts}
-                    onChange={(e) => setExportColumns(p => ({ ...p, parts: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Сегменты отдельными колонками</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.department}
-                    onChange={(e) => setExportColumns(p => ({ ...p, department: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Технологическая зона / Дисциплина</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.fluid}
-                    onChange={(e) => setExportColumns(p => ({ ...p, fluid: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Рабочая среда (Fluid)</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.chain}
-                    onChange={(e) => setExportColumns(p => ({ ...p, chain: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Связи по иерархической цепочке родителей</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.brand}
-                    onChange={(e) => setExportColumns(p => ({ ...p, brand: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Марка оборудования</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.brandParts}
-                    onChange={(e) => setExportColumns(p => ({ ...p, brandParts: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Сегменты марки отдельно</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportColumns.descriptions}
-                    onChange={(e) => setExportColumns(p => ({ ...p, descriptions: e.target.checked }))}
-                    className="rounded border-slate-300 text-emerald-600"
-                  />
-                  <span>Комментарии / Контрольные точки КИП</span>
-                </label>
-              </div>
-            </div>
-
-            {/* MATCHED RESULTS PREVIEW TABLE */}
-            <div className="border-t border-slate-200 dark:border-slate-850">
-              <div className="py-2 flex justify-between items-center gap-3 flex-wrap">
-                <span className="text-[13px] font-semibold text-slate-900 dark:text-white block">
-                  Результат подбора · {countOf(matchedTagsList.length, 'запись')}
-                </span>
-              </div>
-
-              <div 
-                ref={parentRefSegments}
-                className="overflow-auto max-h-[600px] style-scrollbar"
-              >
-                <table className="fx-table text-left">
-                  <thead className="sticky top-0 z-10">
-                    <tr>
-                      <th>Сегменты тега</th>
-                      <th>Сегменты марки</th>
-                      <th>Наименование тега</th>
-                      {/* Кнопка «добавить колонку» отсюда убрана: она только
-                          сообщала, что возможность не готова. Кнопка, которая
-                          ничего не делает, хуже отсутствующей — она обещает */}
-                      <th>Статус / Актуальность</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
-                    {segmentsVirtualizer.getVirtualItems().length > 0 && (
-                      <tr style={{ height: `${segmentsVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={4} style={{ padding: 0, border: 'none', height: 0 }} />
-                      </tr>
-                    )}
-                    {segmentsVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const t = matchedTagsList[virtualRow.index];
-                      if (!t) return null;
-                      const tMeta = parseTagMetadata(t);
-                      const tagParts = tMeta.tagSegments && tMeta.tagSegments.length > 0
-                        ? tMeta.tagSegments
-                        : splitSegments(t.identifier || '');
-                        
-                      const markParts = tMeta.markSegments && tMeta.markSegments.length > 0
-                        ? tMeta.markSegments
-                        : splitSegments(t.brand || '');
-
-                      const overallStatus = getTagOverallStatus(t);
-                      const statusCfg = statusConfig[overallStatus] || statusConfig.draft;
-
-                      return (
-                        <tr 
-                          key={t.id} 
-                          ref={segmentsVirtualizer.measureElement}
-                          data-index={virtualRow.index}
-                          
-                        >
-                          {/* COLUMN 1: TAG SEGMENTS (KKS) */}
-                          <td>
-                            <div className="flex flex-wrap gap-1">
-                              {tagParts.map((part, idx) => {
-                                const isMatched = activeTagFilters[idx] && activeTagFilters[idx] !== '*' && activeTagFilters[idx] === part;
-                                return (
-                                  <span 
-                                    key={`tag-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono transition-ui ${
-                                      isMatched 
-                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/40'
-                                    }`}
-                                  >
-                                    {part}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          </td>
-
-                          {/* COLUMN 2: MARK SEGMENTS */}
-                          <td>
-                            <div className="flex flex-wrap gap-1">
-                              {markParts.map((part, idx) => {
-                                const isMatched = activeMarkFilters[idx] && activeMarkFilters[idx] !== '*' && activeMarkFilters[idx] === part;
-                                return (
-                                  <span 
-                                    key={`mark-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono transition-ui ${
-                                      isMatched 
-                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-400/25' 
-                                        : 'bg-amber-50 dark:bg-slate-900 text-amber-800 dark:text-amber-400 border border-amber-200/40 dark:border-amber-900/45'
-                                    }`}
-                                  >
-                                    {part}
-                                  </span>
-                                );
-                              })}
-                              {markParts.length === 0 && (
-                                <span className="text-slate-400">—</span>
-                              )}
-                            </div>
-                            {t.brand && (
-                              <span className="text-xs text-slate-450 dark:text-slate-500 block mt-1 font-medium select-all font-mono">
-                                {t.brand}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* COLUMN 3: NAME */}
-                          <td>
-                            <p className="text-slate-900 dark:text-white select-all">
-                              {tMeta.mainName || 'Без наименования'}
-                            </p>
-                            <span className="text-xs text-slate-400 font-sans block mt-0.5 font-medium leading-relaxed font-mono">
-                              {t.identifier}
-                            </span>
-                          </td>
-
-                          {/* COLUMN 4: STATUS / RELEVANCE */}
-                          <td>
-                            <div className="flex items-center gap-2">
-                              <Status tone={statusCfg.tone}>{statusCfg.label}</Status>
-                              {tMeta.descriptions.length > 0 && (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  замечаний: {tMeta.descriptions.length}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {segmentsVirtualizer.getVirtualItems().length > 0 && (
-                      <tr style={{ height: `${segmentsVirtualizer.getTotalSize() - segmentsVirtualizer.getVirtualItems()[segmentsVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={4} style={{ padding: 0, border: 'none', height: 0 }} />
-                      </tr>
-                    )}
-
-                    {matchedTagsList.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="py-6 text-slate-500 dark:text-slate-400">
-                          Под запрашиваемые критерии Tag или Mark сегментов не подходит ни один тег. Пожалуйста, поменяйте конфигурацию фильтров.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <SegmentCollectorTab collector={collector} dictionaries={dictionaries} splitSegments={splitSegments} />
           </motion.div>
         )}
 
@@ -4084,190 +3595,23 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full flex flex-col min-h-0 text-left pr-1"
           >
-            <div className="flex-1 flex flex-col min-h-0">
-              {/* Счётчик записей — в шапке раздела; здесь только вид таблицы */}
-              <div className="fx-tools shrink-0 justify-end">
-                <button
-                  type="button"
-                  aria-pressed={showOptionalTableColumns}
-                  onClick={() => setShowOptionalTableColumns(!showOptionalTableColumns)}
-                  className="fx-btn"
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                  Колонки «Отдел» и «Среда»
-                </button>
-              </div>
-
-              <div 
-                ref={parentRefTable}
-                className="overflow-auto flex-1 min-h-0 style-scrollbar"
-              >
-                <table className="fx-table text-left">
-                  <thead className="sticky top-0 z-10">
-                    <tr>
-                      <th className="cursor-pointer" onClick={() => handleSort('identifier')}>
-                        Тег / Главное наименование {sortConfig.key === 'identifier' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                      </th>
-                      <th className="cursor-pointer" onClick={() => handleSort('brand')}>
-                        Марка {sortConfig.key === 'brand' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                      </th>
-                      {showOptionalTableColumns && (
-                        <>
-                          <th className="cursor-pointer" onClick={() => handleSort('department')}>
-                            Зона / Отдел {sortConfig.key === 'department' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                          </th>
-                          <th className="cursor-pointer" onClick={() => handleSort('fluid')}>
-                            Тех. Среда {sortConfig.key === 'fluid' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                          </th>
-                        </>
-                      )}
-                      <th>Актуальность</th>
-                      <th>Комментарии</th>
-                      <th className="cursor-pointer" onClick={() => handleSort('createdAt')}>
-                        Регистрация {sortConfig.key === 'createdAt' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                      </th>
-                      <th className="w-20"><span className="sr-only">Действия</span></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
-                    {tableVirtualizer.getVirtualItems().length > 0 && (
-                      <tr style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none', height: 0 }} />
-                      </tr>
-                    )}
-                    {tableVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const t = sortedTagsList[virtualRow.index];
-                      if (!t) return null;
-                      const meta = parseTagMetadata(t);
-                      return (
-                        <tr
-                          key={t.id}
-                          id={`spec-row-${t.id}`}
-                          ref={tableVirtualizer.measureElement}
-                          data-index={virtualRow.index}
-                          onClick={(e) => {
-                            // Ctrl+клик — мультивыбор строк для «Поделиться»
-                            if (e.ctrlKey || e.metaKey) {
-                              e.preventDefault();
-                              setSelectedTagIds(prev => {
-                                const next = new Set(prev);
-                                if (next.has(t.id)) next.delete(t.id);
-                                else next.add(t.id);
-                                return next;
-                              });
-                            }
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (!selectedTagIds.has(t.id)) setSelectedTagIds(new Set([t.id]));
-                            setCardMenu({ x: e.clientX, y: e.clientY, tagId: t.id });
-                          }}
-                          aria-selected={selectedTagIds.has(t.id)}
-                        >
-                          <td>
-                            <div className="font-mono text-slate-900 dark:text-white select-all leading-5">
-                              {t.identifier}
-                            </div>
-                            {/* Вторая строка: наименование, а при скрытых колонках — отдел и среда */}
-                            <div className="text-xs text-slate-500 dark:text-slate-400 leading-4 truncate max-w-[36rem]">
-                              {meta.mainName || 'Без наименования'}
-                              {!showOptionalTableColumns && ` · ${t.department || 'Комплексный'} · среда ${t.fluid || '—'}`}
-                            </div>
-                          </td>
-                          <td className="max-w-[160px] truncate" title={t.brand || undefined}>
-                            {t.brand || <span className="text-slate-400 dark:text-slate-500">—</span>}
-                          </td>
-                          {showOptionalTableColumns && (
-                            <>
-                              <td className="text-slate-600 dark:text-slate-300">
-                                {t.department || '-'}
-                              </td>
-                              <td className="text-slate-600 dark:text-slate-300">
-                                {t.fluid || '-'}
-                              </td>
-                            </>
-                          )}
-                          {/* Актуальность тега — отдельной колонкой: за ней и
-                              приходят в спецификацию, а раньше её приходилось
-                              выискивать среди комментариев */}
-                          <td>
-                            {(() => {
-                              const look = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
-                              return <Status tone={look.tone}>{look.label}</Status>;
-                            })()}
-                          </td>
-                          <td>
-                            {meta.descriptions.length > 0 ? (
-                              <div className="space-y-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowTableDescriptions(p => ({ ...p, [t.id]: !p[t.id] }));
-                                    setTimeout(() => tableVirtualizer.measure(), 20);
-                                  }}
-                                  aria-expanded={!!showTableDescriptions[t.id]}
-                                  className="fx-btn fx-btn-quiet"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>{showTableDescriptions[t.id] ? 'Скрыть' : 'Показать'} · {meta.descriptions.length}</span>
-                                </button>
-                                
-                                {showTableDescriptions[t.id] && (
-                                  <div className="space-y-1.5 max-w-[420px] pt-1.5 animate-fadeIn">
-                                    {meta.descriptions.map((d) => {
-                                      const config = statusConfig[d.status] || statusConfig.draft;
-                                      const Icon = config.icon;
-                                      return (
-                                        <div key={d.id} className="flex items-start gap-1.5 text-xs text-slate-700 dark:text-slate-300 text-left">
-                                          <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${config.text}`} />
-                                          <div className="text-left">
-                                            <span className="font-medium text-slate-900 dark:text-slate-100">{d.text}: </span>
-                                            <span className="text-slate-500 dark:text-slate-400">{d.comment}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-500">—</span>
-                            )}
-                          </td>
-                          <td className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                            {t.createdAt ? format(new Date(t.createdAt), 'dd.MM.yyyy HH:mm') : '-'}
-                          </td>
-                          <td>
-                            <div className="fx-row-acts">
-                              <IconBtn label="Изменить тег" onClick={() => setEditingTag(t)}>
-                                <Edit2 className="w-4 h-4" />
-                              </IconBtn>
-                              <IconBtn label="Удалить тег" onClick={() => handleDeleteTag(t.id)}>
-                                <Trash2 className="w-4 h-4" />
-                              </IconBtn>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {tableVirtualizer.getVirtualItems().length > 0 && (
-                      <tr style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none', height: 0 }} />
-                      </tr>
-                    )}
-
-                    {tags.length === 0 && (
-                      <tr>
-                        <td colSpan={showOptionalTableColumns ? 8 : 6} className="py-6 text-slate-500 dark:text-slate-400">
-                          В проекте пока нет тегов. Заполните строку выше или нажмите «Новый тег».
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <SpecTable
+              tagCount={tags.length}
+              sortedTags={sortedTagsList}
+              tableVirtualizer={tableVirtualizer}
+              scrollRef={parentRefTable}
+              sortConfig={sortConfig}
+              onSort={handleSort}
+              showOptionalColumns={showOptionalTableColumns}
+              setShowOptionalColumns={setShowOptionalTableColumns}
+              showDescriptions={showTableDescriptions}
+              setShowDescriptions={setShowTableDescriptions}
+              selectedTagIds={selectedTagIds}
+              setSelectedTagIds={setSelectedTagIds}
+              setCardMenu={setCardMenu}
+              onEditTag={setEditingTag}
+              onDeleteTag={handleDeleteTag}
+            />
           </motion.div>
         )}
 
