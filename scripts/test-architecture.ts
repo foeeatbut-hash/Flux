@@ -205,7 +205,6 @@ const LEGACY: Record<string, number> = {
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
   // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
   'src/screens/Explorer.tsx': 2362,
-  'src/screens/DictionaryEditor.tsx': 2208,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
 };
