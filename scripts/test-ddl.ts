@@ -16,6 +16,7 @@ import {
 // однажды пропустила колонку с файлом обновления
 import { parsePrismaSchema, needsWidening, isTextDefaultRefusal } from '../server/schema-sync';
 import { readFileSync } from 'fs';
+import { TABLES as OFFICE_TABLES } from '../server/officeBus';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -285,6 +286,65 @@ console.log('Частичные индексы: там, где они есть')
   const plain = createIndexSql('postgresql', 'T', 'i', ['a']);
   check('без условия ничего не дописывается', !plain.includes('WHERE'), plain);
 }
+
+// Таблицы общей правки Flux Office (server/officeBus.ts). У них два источника:
+// схема Prisma (по ней их создаёт автомиграция и читает клиент) и описание для
+// подстраховки. Разойдись они — подстраховка создала бы таблицу, с которой
+// клиент Prisma не работает, и у отдела с MariaDB совместная правка молча не
+// поднялась бы. Живого MariaDB здесь нет, поэтому сверяем описания.
+console.log('Таблицы Flux Office: подстраховка и схема Prisma не расходятся');
+{
+  const files: Array<[string, 'sqlite' | 'postgresql' | 'mysql']> = [
+    ['prisma/schema.prisma', 'sqlite'], ['prisma/schema.postgresql.prisma', 'postgresql'], ['prisma/schema.mariadb.prisma', 'mysql'],
+  ];
+  for (const [file, dialect] of files) {
+    const models = parsePrismaSchema(dialect, readFileSync(file, 'utf-8'));
+    for (const spec of OFFICE_TABLES) {
+      const m = models.find((x) => x.name === spec.table);
+      check(`${file}: модель ${spec.table} есть`, !!m);
+      if (!m) continue;
+      const names = m.columns.map((c) => c.name).sort().join(',');
+      check(`${file}: у ${spec.table} те же колонки`, names === spec.cols.map((c) => c.name).sort().join(','), [names, spec.cols.map((c) => c.name).join(',')]);
+      for (const c of spec.cols) {
+        const pc = m.columns.find((x) => x.name === c.name);
+        if (!pc) continue;
+        const notNull = !!(c.pk || c.notNull);
+        check(`${file}: ${spec.table}.${c.name} — NULL там же, где в схеме`, pc.nullable === !notNull, [pc.nullable, notNull]);
+        check(`${file}: ${spec.table}.${c.name} — первичный ключ там же`, pc.isId === !!c.pk);
+      }
+      for (const ix of (spec.indexes || []).filter((i) => i.unique)) {
+        check(`${file}: уникальный ключ ${ix.name} назван, как у Prisma`, (m.uniques || []).some((u: any) => u.name === ix.name && u.columns.join(',') === ix.cols.join(',')), m.uniques);
+      }
+    }
+  }
+}
+
+console.log('Таблицы Flux Office: SQL под каждый движок');
+{
+  for (const spec of OFFICE_TABLES) {
+    const my = createTableSql('mysql', spec.table, spec.cols);
+    const pg = createTableSql('postgresql', spec.table, spec.cols);
+    const lite = createTableSql('sqlite', spec.table, spec.cols);
+    check(`${spec.table}: у MariaDB нет двойных кавычек`, !my.includes('"'), my.slice(0, 80));
+    check(`${spec.table}: у PostgreSQL имена в двойных кавычках`, pg.includes(`"${spec.table}"`));
+    const blobs = spec.cols.filter((c) => c.kind === 'blob').length;
+    if (blobs) {
+      check(`${spec.table}: двоичное у MariaDB — LONGBLOB`, (my.match(/LONGBLOB/g) || []).length === blobs, my);
+      check(`${spec.table}: у PostgreSQL — BYTEA`, (pg.match(/BYTEA/g) || []).length === blobs, pg);
+      check(`${spec.table}: у SQLite — BLOB`, (lite.match(/BLOB/g) || []).length === blobs, lite);
+    }
+    // Всё, что в ключе или индексе, у MariaDB — VARCHAR: TEXT там без длины не индексируется
+    for (const c of spec.cols.filter((x) => (x.pk || x.indexed) && x.kind === 'text')) {
+      check(`${spec.table}.${c.name}: под ключом или индексом у MariaDB — VARCHAR(191)`, columnSql('mysql', c).includes('VARCHAR(191)'), columnSql('mysql', c));
+    }
+    for (const ix of spec.indexes || []) {
+      check(`${spec.table}: индекс ${ix.name} строится на всех трёх`, ['sqlite', 'postgresql', 'mysql'].every((d) => createIndexSql(d as any, spec.table, ix.name, ix.cols, ix.unique).includes(ix.name)));
+    }
+  }
+  check('журнал событий: (fileId, seq) — уникальный индекс',
+    !!OFFICE_TABLES.find((t) => t.table === 'OfficeEvent')?.indexes?.some((i) => i.unique && i.cols.join(',') === 'fileId,seq'));
+}
+
 
 if (failed) {
   console.error(`\nПровалено проверок: ${failed}`);
