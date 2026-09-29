@@ -23,16 +23,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
 import { ensureTables as ensureDbTables } from '../ddl.js';
 import { fileBytes } from './fileChunks.js';
-import { collab } from '../officeCollab.js';
-import { sheetBook } from '../officeSheetCollab.js';
+import { collabShared } from '../officeCollab.js';
+import { officeBus } from '../officeBus.js';
 import { cleanName, createFileFromBytes, deskHome, exportsHome, homeOfFile, homeOfFolder, type FileHome } from '../officeStore.js';
 
 export interface OfficeFileDeps {
   chunkBytes: () => Promise<number>;
   /** '' — можно писать; иначе причина отказа для человека */
   mayWrite: (req: Request, fileId: string) => Promise<string>;
-  /** Кто сейчас держит правку файла (server/officeRooms.ts); null — никто */
-  holderOf?: (fileId: string) => { userId: string; name: string } | null;
+  /** Кто сейчас держит правку файла (server/officeRooms.ts, по общей базе); null — никто */
+  holderOf?: (fileId: string) => Promise<{ userId: string; name: string } | null>;
   /** Право сотрудника (userCan): класть на общий диск — по праву «Общий диск» */
   can?: (user: any, perm: string) => boolean;
 }
@@ -89,7 +89,7 @@ export async function writeOfficeFile(a: {
   /**
    * Пишет сервер, а не окно держателя: восстановление версии, «Обновить поля»,
    * английская версия. Сеанс совместной правки после такой записи забывается —
-   * в нём старое содержимое (CollabBook.drop)
+   * в нём старое содержимое (OfficeBus.dropSession)
    */
   server?: boolean;
 }): Promise<{ status: number; json: any }> {
@@ -105,7 +105,7 @@ export async function writeOfficeFile(a: {
   if (denied) return reply(403, { error: denied });
   // Файл открыт и правится другим — его сохранение и есть правда;
   // запись в обход держателя затёрла бы то, что он видит у себя
-  const holder = deps.holderOf?.(fileId);
+  const holder = await deps.holderOf?.(fileId);
   if (holder && holder.userId !== user.id) {
     return reply(423, { error: `Файл сейчас правит ${holder.name}. Ваши правки не записаны.`, holder: holder.name });
   }
@@ -122,9 +122,15 @@ export async function writeOfficeFile(a: {
   const beforeSha = sha256(before);
   if (!base) return reply(400, { error: 'Не указано, с какой версии начата правка' });
   if (base !== beforeSha) {
+    // Общий файл: если в нём ровно то, что записал сам сеанс (держатель успел
+    // смениться, и записал прежний), окно вправе взять этот хеш и записать ещё
+    // раз — содержимое общее, и в нём уже есть всё записанное. Если же файл
+    // менял кто-то в обход сеанса, повторять вслепую нельзя: затрёшь чужое
+    const session = isSharedFile(file as any) ? await officeBus.session(fileId).catch(() => null) : null;
     return reply(409, {
       error: 'Файл изменили после того, как вы его открыли. Ваши правки не записаны.',
       currentSha256: beforeSha,
+      bySession: !!session && session.savedSha === beforeSha,
     });
   }
   const afterSha = sha256(body);
@@ -168,7 +174,10 @@ export async function writeOfficeFile(a: {
     where: { fileId }, orderBy: { version: 'desc' }, skip: KEEP, select: { id: true },
   });
   if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
-  if (a.server) { collab.drop(fileId); sheetBook.drop(fileId); }
+  // Сеанс общий для всех серверов: сбрасывается в базе, а не в памяти этого
+  if (a.server) await officeBus.dropSession(fileId);
+  // Что записано последним: по этому хешу отличают «записал держатель» от «изменили в обход»
+  else if (isSharedFile(file as any)) await officeBus.patchSession({ fileId }, { savedSha: afterSha }).catch(() => 0);
 
   return reply(200, { sha256: afterSha, size: body.length, version: keepVersion ? version : last?.version ?? 0 });
 }
@@ -204,8 +213,10 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       if (!file) return res.status(404).json({ error: 'Файл не найден' });
       const current = await fileBytes(file);
       const shared = isSharedFile(file as any);
-      const session = shared ? await collab.ensure(file.id, async () => current) : null;
-      const body = session ? session.baseBytes : current;
+      // Исходник сеанса берётся из общей базы: его записал тот, кто открыл файл
+      // первым, на любом сервере, и у всех участников он один
+      const session = shared ? await collabShared.base(file.id, async () => current) : null;
+      const body = session ? (session.baseData as Buffer) : current;
       if (session) res.setHeader('X-Collab-Session', session.key);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('X-Collab', shared ? '1' : '0');

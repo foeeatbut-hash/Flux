@@ -16,13 +16,24 @@
  * Файл записывает держатель (server/officeRooms.ts). Сверка при записи —
  * с хешем последней записи сеанса, а не с исходником: держатель пишет всё,
  * что было до него записано, плюс новое.
+ *
+ * Где что живёт. Журнал, исходник, хеш последней записи и «до какого номера
+ * записано» — в общей базе (server/officeBus.ts): у каждого сотрудника свой
+ * сервер, и порядок правок, заведённый на одном из них, второму был бы
+ * неизвестен — у двоих оказались бы разные книги. Номер правки выдаёт база, так
+ * что порядок один для всех серверов. Правки доходят до окон через насос шины в
+ * порядке номеров — и до окон этого же сервера тоже: по приходу их разослать
+ * нельзя, две правки могли бы обогнать друг друга, а окно отбрасывает всё, что
+ * старше уже применённого.
  */
-import type { Server, Socket } from 'socket.io';
-import { createHash, randomUUID } from 'node:crypto';
-import { officeRooms } from './officeRooms.js';
+import type { Socket } from 'socket.io';
+import { createHash } from 'node:crypto';
+import { officeHub, type OfficeRoomHub } from './officeRooms.js';
+import { officeBus, BusFull, IDLE_MS, type OfficeBus, type SessionRow } from './officeBus.js';
+import { officeOut, type OfficeOut } from './officeIo.js';
 
-/** Сколько живёт записанный сеанс без людей: переоткрыли — продолжили */
-export const IDLE_MS = 10 * 60_000;
+export { IDLE_MS };
+
 /** Одна правка не больше этого (вставка большого куска — несколько мегабайт) */
 export const MAX_OP_CHARS = 8 * 1024 * 1024;
 /** Журнал сеанса не бесконечен: дальше — открыть книгу заново */
@@ -36,84 +47,72 @@ export interface SheetOp {
   sheets?: Record<string, string>;
 }
 
-export interface SheetSession {
-  fileId: string;
-  /** Опознаватель сеанса: сменился (сервер перезапускался) — окно открывает книгу заново */
-  key: string;
-  baseBytes: Buffer;
-  baseSha: string;
-  /** Хеш файла после последней записи сеанса — с ним сверяется следующая */
-  savedSha: string;
-  ops: Array<{ seq: number; op: SheetOp }>;
-  /** До какого номера правки уже в файле */
-  savedSeq: number;
-  emptyAt: number | null;
-}
-
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 
-export class SheetBook {
-  private sessions = new Map<string, SheetSession>();
-  private opening = new Map<string, Promise<SheetSession>>();
+/** Одна запись журнала: номер и правка */
+export interface SheetEntry { seq: number; op: SheetOp }
 
-  /** Сеанс файла; нет — открыть с текущим содержимым файла как исходником */
-  async ensure(fileId: string, read: () => Promise<Buffer>): Promise<SheetSession> {
-    const have = this.sessions.get(fileId);
-    if (have) return have;
-    const pending = this.opening.get(fileId);
-    if (pending) return pending;
-    const p = (async () => {
-      const bytes = await read();
-      const sha = sha256(bytes);
-      const s: SheetSession = { fileId, key: randomUUID(), baseBytes: bytes, baseSha: sha, savedSha: sha, ops: [], savedSeq: 0, emptyAt: null };
-      this.sessions.set(fileId, s);
-      return s;
-    })();
-    this.opening.set(fileId, p);
-    try { return await p; } finally { this.opening.delete(fileId); }
+/**
+ * Журнал Таблицы на шине. Один на сервер. Правила (что принять, сколько
+ * держать) — здесь, состояние — в базе.
+ */
+export class SheetShared {
+  constructor(private bus: OfficeBus, private out: OfficeOut = officeOut) {
+    // Правки после номера — окнам этого сервера, в порядке номеров; автору — нет, он свою уже знает
+    bus.on('x', (ev) => {
+      let op: SheetOp | null = null;
+      try { op = ev.data ? JSON.parse(ev.data.toString('utf8')) : null; } catch (_) { op = null; }
+      if (op) this.out.room(ev.fileId, 'office:x-op', { fileId: ev.fileId, seq: ev.seq, op }, ev.fromSocket);
+    });
   }
 
-  get(fileId: string): SheetSession | null { return this.sessions.get(fileId) || null; }
-
-  /** Забыть сеанс: файл записал сервер в обход окна (см. CollabBook.drop) */
-  drop(fileId: string): void { this.sessions.delete(fileId); }
-
-  /** Правка участника: получает номер и встаёт в журнал. null — не принята */
-  push(s: SheetSession, op: SheetOp): number | null {
-    if (s.ops.length >= MAX_OPS) return null;
-    const seq = (s.ops.length ? s.ops[s.ops.length - 1].seq : 0) + 1;
-    s.ops.push({ seq, op });
-    return seq;
+  /** Сеанс общей книги; нет — открыть с текущим содержимым файла как исходником */
+  async open(fileId: string, read: () => Promise<Buffer>): Promise<SessionRow> {
+    const row = await this.bus.ensureBase(fileId, 'sheets', read, sha256);
+    if (!row.baseData) throw new Error('У сеанса нет исходника');
+    return row;
   }
 
-  /** Правки после номера from — опоздавшему */
-  since(s: SheetSession, from: number): Array<{ seq: number; op: SheetOp }> {
-    return from <= 0 ? s.ops.slice() : s.ops.filter((o) => o.seq > from);
+  /** Журнал после номера from (опоздавшему — весь) */
+  async since(fileId: string, from: number): Promise<{ key: string; ops: SheetEntry[] } | null> {
+    const row = await this.bus.session(fileId);
+    if (!row) return null;
+    const ops: SheetEntry[] = [];
+    let after = Math.max(0, from);
+    for (;;) {
+      const page = await this.bus.since(fileId, after, ['x']);
+      for (const ev of page) {
+        try { ops.push({ seq: ev.seq, op: JSON.parse((ev.data || Buffer.alloc(0)).toString('utf8')) }); } catch (_) { /* повреждённую правку пропускаем */ }
+      }
+      if (page.length < 2000) break;
+      after = page[page.length - 1].seq;
+    }
+    return { key: row.key, ops };
   }
 
-  lastSeq(s: SheetSession): number { return s.ops.length ? s.ops[s.ops.length - 1].seq : 0; }
+  /** Правка участника: номер по порядку и в журнал. null — не принята, причина в error */
+  async push(fileId: string, key: string, op: SheetOp, fromSocket: string): Promise<{ seq: number } | { error: string; key?: string }> {
+    const row = await this.bus.session(fileId);
+    if (!row) return { error: 'Сеанс общей книги не открыт' };
+    if (key !== row.key) return { error: 'session', key: row.key };
+    try {
+      const seq = await this.bus.publish(fileId, { kind: 'x', fromSocket, data: Buffer.from(JSON.stringify(op)), app: 'sheets' }, { maxSeq: MAX_OPS });
+      return { seq };
+    } catch (e) {
+      if (e instanceof BusFull) return { error: 'Журнал общей книги переполнен: откройте её заново' };
+      throw e;
+    }
+  }
 
   /** Держатель записал: в файле всё до seq, и следующая запись сверяется с этим хешем */
-  markSaved(s: SheetSession, sha: string, seq: number): void {
-    s.savedSha = sha;
-    s.savedSeq = Math.max(s.savedSeq, seq);
-  }
-
-  unsaved(s: SheetSession): boolean { return this.lastSeq(s) > s.savedSeq; }
-
-  /** Пустые сеансы: записанные — через IDLE_MS; незаписанные ждут людей */
-  sweep(now: number, occupied: (fileId: string) => boolean): void {
-    for (const [id, s] of this.sessions) {
-      if (occupied(id)) { s.emptyAt = null; continue; }
-      if (s.emptyAt == null) s.emptyAt = now;
-      if (now - s.emptyAt >= IDLE_MS && !this.unsaved(s)) this.sessions.delete(id);
-    }
+  async markSaved(fileId: string, sha: string, seq: number): Promise<void> {
+    await this.bus.patchSession({ fileId }, { savedSha: sha });
+    await this.bus.patchSession({ fileId, savedSeq: { lt: seq } }, { savedSeq: seq });
   }
 }
 
-export const sheetBook = new SheetBook();
+export const sheetShared = new SheetShared(officeBus);
 
-const roomOf = (fileId: string) => `office:${fileId}`;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MUTATION = /^[a-z][\w.-]{0,127}$/i;
 
@@ -131,40 +130,35 @@ export function cleanOp(v: unknown): SheetOp | null {
   return { id: o.id, params: o.params ?? null, sheets };
 }
 
-let sweeper: ReturnType<typeof setInterval> | null = null;
-
 /** Подписать одно соединение на обмен правками Таблицы. Зовётся из connection */
-export function setupOfficeSheetCollab(io: Server, socket: Socket): { gone: () => void } {
-  if (!sweeper) {
-    sweeper = setInterval(() => sheetBook.sweep(Date.now(), (id) => officeRooms.roster(id).peers.length > 0), 30_000);
-    sweeper.unref?.();
-  }
-  const member = (fileId: string) => (ID.test(fileId) ? officeRooms.peerOf(fileId, socket.id) : null);
+export function setupOfficeSheetCollab(
+  socket: Socket, parts: { hub: OfficeRoomHub; shared: SheetShared } = { hub: officeHub, shared: sheetShared },
+): { gone: () => void } {
+  const { hub, shared } = parts;
+  const member = (fileId: string) => (ID.test(fileId) ? hub.peerLocal(fileId, socket.id) : null);
 
   /** Журнал сеанса после номера from (опоздавшему — весь) */
-  socket.on('office:x-want', ({ fileId, from }: { fileId: string; from?: number }, ack?: (r: any) => void) => {
+  socket.on('office:x-want', async ({ fileId, from }: { fileId: string; from?: number }, ack?: (r: any) => void) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const id = String(fileId || '');
-    const s = sheetBook.get(id);
-    if (!member(id) || !officeRooms.roster(id).collab || !s) return reply({ error: 'Сеанс общей книги не открыт' });
-    reply({ key: s.key, ops: sheetBook.since(s, Number(from) || 0) });
+    if (!member(id) || !hub.isCollab(id)) return reply({ error: 'Сеанс общей книги не открыт' });
+    try {
+      const got = await shared.since(id, Number(from) || 0);
+      reply(got || { error: 'Сеанс общей книги не открыт' });
+    } catch (e: any) { reply({ error: `Журнал общей книги не прочитан: ${e?.message || e}` }); }
   });
 
   /** Правка участника: номер по порядку, в журнал, остальным */
-  socket.on('office:x-op', ({ fileId, key, op }: { fileId: string; key: string; op: unknown }, ack?: (r: any) => void) => {
+  socket.on('office:x-op', async ({ fileId, key, op }: { fileId: string; key: string; op: unknown }, ack?: (r: any) => void) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const id = String(fileId || '');
     const peer = member(id);
-    const s = sheetBook.get(id);
     // Правки шлёт только тот, кому файл можно писать
-    if (!peer?.mayWrite || !s) return reply({ error: 'Эту книгу вам можно только смотреть' });
-    if (String(key || '') !== s.key) return reply({ error: 'session', key: s.key });
+    if (!peer?.mayWrite) return reply({ error: 'Эту книгу вам можно только смотреть' });
     const clean = cleanOp(op);
     if (!clean) return reply({ error: 'Правка не принята' });
-    const seq = sheetBook.push(s, clean);
-    if (seq == null) return reply({ error: 'Журнал общей книги переполнен: откройте её заново' });
-    socket.to(roomOf(id)).emit('office:x-op', { fileId: id, seq, op: clean });
-    reply({ seq });
+    try { reply(await shared.push(id, String(key || ''), clean, socket.id)); }
+    catch (e: any) { reply({ error: `Правка не записана в общую базу: ${e?.message || e}` }); }
   });
 
   return { gone: () => {} };

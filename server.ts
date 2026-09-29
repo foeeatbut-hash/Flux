@@ -32,7 +32,7 @@ import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
 import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { registerActionLog } from './server/actionLog.js';
-import { officeRooms } from './server/officeRooms.js';
+import { officeHub } from './server/officeRooms.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { ensureSchemaColumns as ensureLocalSchema } from './server/localSchema.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
@@ -1085,12 +1085,12 @@ registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWrite
 // Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
 registerOfficeFileRoutes(app, {
   chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, can: userCan,
-  holderOf: (fileId) => officeRooms.holder(fileId, Date.now()),
+  holderOf: (fileId) => officeHub.holderOf(fileId),
 });
 registerProjectDataRoutes(app, { mayWrite: mayWriteFile }); // поля, подписи и блоки файлов Flux Office
 registerOfficeConvertRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile }); // .xls/.csv → копия .xlsx
-registerOfficeVersionRoutes(app, { holderOf: (fileId) => officeRooms.holder(fileId, Date.now()) }); // откат файла
-registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, holderOf: (fileId) => officeRooms.holder(fileId, Date.now()) }); // английская версия
+registerOfficeVersionRoutes(app, { holderOf: (fileId) => officeHub.holderOf(fileId) }); // откат файла
+registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, holderOf: (fileId) => officeHub.holderOf(fileId) }); // английская версия
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Читается по праву «Журнал действий»

@@ -147,8 +147,8 @@ export default function OfficeHost() {
     }
     // Правку держит другой. Сюда попадают правки, сделанные до того, как её
     // забрали (обрыв связи дольше паузы): их не выбрасываем, а предлагаем
-    // сохранить рядом
-    if (id === fileId && !editableRef.current) {
+    // сохранить рядом. Общий файл сюда не попадает: у него свой порядок выше
+    if (id === fileId && !collabFileRef.current && !editableRef.current) {
       if (p.auto) return { ok: false, reason: 'external-modified' };
       // Ctrl+S у зрителя без правок — не повод для окна выбора: редактор
       // сохраняет и нетронутый документ
@@ -160,19 +160,47 @@ export default function OfficeHost() {
       setConflict((c) => c || { fileId: id, bytes: p.bytes.slice(0), why: 'locked', holder: holderRef.current });
       return { ok: false, reason: 'external-modified' };
     }
-    const res = await fetch(`/api/office/files/${encodeURIComponent(id)}/content`, {
+    const put = (sha: string) => fetch(`/api/office/files/${encodeURIComponent(id)}/content`, {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/octet-stream', 'X-Base-Sha256': from,
+        'Content-Type': 'application/octet-stream', 'X-Base-Sha256': sha,
         ...(autoRef.current ? { 'X-Autosave': '1' } : {}),
       },
       body: p.bytes,
     });
-    const data = await res.json().catch(() => ({}));
+    let res = await put(from);
+    let data = await res.json().catch(() => ({}));
+    const together = id === fileId && collabFileRef.current;
+    if (together) {
+      // Общий файл: вопросов «что делать с правками» здесь нет. Содержимое общее,
+      // и в нём уже есть всё, что записали другие, — отказ значит только то, что
+      // хеш у окна устарел или записывает не оно
+      //   409 — файл успел записать другой держатель (держатель сменился, в отделе
+      //   он бывает на другом сервере): берём хеш, что сейчас в файле, и пишем ещё раз
+      //   Только если в файле то, что записал сам сеанс (bySession): изменённое в обход
+      //   вслепую не затирается
+      for (let i = 0; i < 2 && res.status === 409 && data?.currentSha256 && data?.bySession !== false; i++) {
+        base.current.set(id, String(data.currentSha256));
+        res = await put(String(data.currentSha256));
+        data = await res.json().catch(() => ({}));
+      }
+      //   423 — записывает другой: окно считало себя держателем по устаревшему списку.
+      //   Отдаём запись тому, кто держит, и ждём его «записал»
+      if (res.status === 423) {
+        return (await collabRef.current.askHolder()) ? { ok: true } : {
+          ok: false,
+          error: 'Файл записывает другой участник, и он пока не ответил. Ваши правки в общем документе не пропадут и запишутся с его следующим сохранением',
+        };
+      }
+    }
     if (res.ok) {
       base.current.set(id, data.sha256);
       if (id === fileId && !data.unchanged) room.saved(data.sha256);
       return { ok: true };
+    }
+    if (together) {
+      // Ещё раз не вышло — правки остаются в общем документе и уйдут со следующей записью; диалога нет
+      return { ok: false, error: String(data?.error || `сервер ответил ${res.status}`) };
     }
     if (res.status === 409 || res.status === 423) {
       // Правка человека не пропадает: байты держим до его решения

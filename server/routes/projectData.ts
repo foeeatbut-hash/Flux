@@ -19,7 +19,7 @@ import { getPrisma, resolveProjectId, sendError } from '../context.js';
 import { normalizeKey, parseRuNumber } from '../normalize.js';
 import { fileBytes } from './fileChunks.js';
 import { writeOfficeFile } from './officeFiles.js';
-import { officeRooms } from '../officeRooms.js';
+import { officeHub } from '../officeRooms.js';
 import { BLOCK_RE, SIGN_ROLES, type SignRole } from '../../office/fieldKeys.js';
 import {
   filterElements, findElement, loadProjectAliases, loadProjectSlice, normalizeSpecs, parseJsonSafe,
@@ -550,7 +550,8 @@ export function registerProjectDataRoutes(app: Express, deps: ProjectDataDeps): 
       // правки, а после — открывает файл заново. Запись в обход чужого окна
       // спорила бы с тем, что видит другой
       const me = String((req as any).authUser?.id || '');
-      const peers = officeRooms.roster(fileId).peers;
+      // Кто в файле — по общей базе: окно могло быть открыто у коллеги на его сервере
+      const peers = (await officeHub.rosterOf(fileId)).peers;
       if (peers.length && !(req.body?.fromEditor === true && peers.every((p) => p.userId === me))) {
         return res.status(423).json({ error: peers.some((p) => p.userId !== me)
           ? 'Файл сейчас открыт у других — поля обновятся, когда они закроют его'
