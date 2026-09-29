@@ -6,31 +6,22 @@ import { useToastStore } from '../store/toastStore';
 import { useInsightStore } from '../store/insightStore';
 import { dataService } from '../services/dataService';
 import {
-  Network,
-  List,
   Table,
   Plus,
-  Trash2, 
-  Edit2, 
-  Link2, 
-  X, 
+  Trash2,
+  Edit2,
+  Link2,
+  X,
   ChevronRight,
   ChevronDown,
-  Maximize2,
-  Undo2,
   ChevronUp,
-  Database, 
-  AlertTriangle, 
-  CheckCircle2, 
-  XCircle, 
-  Info, 
-  HelpCircle, 
-  Activity, 
-  ZoomIn, 
-  ZoomOut, 
-  RefreshCw,
-  FolderTree,
-  FileSpreadsheet,
+  Database,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Info,
+  HelpCircle,
+  Activity,
   Eye,
   ArrowRight,
   ClipboardCheck,
@@ -41,23 +32,20 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import CustomSelect from '../components/CustomSelect';
-import ContextMenu from '../components/ContextMenu';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
 import { useShareStore } from '../store/shareStore';
-import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
 import ExchangeTab from '../components/registry/ExchangeTab';
-import TagComments from '../components/registry/TagComments';
 import { type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange } from '../lib/tagExchange';
 import {
   linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
 import {
-  layoutForest, linkPath, portAt, boundsOf, fitView, clampZoom, zoomAt, screenToWorld,
+  layoutForest, linkPath, portAt, boundsOf, fitView, zoomAt, screenToWorld,
   hitTestCard, hitTestBox, boxFromDrag, findFreePosition as freeSpot, placeUnplaced, cleanMeta, snap, fitZoom,
   DEFAULT_BOX as LAYOUT_BOX, GRID, type TreeAxis, type Point,
 } from '../lib/tagLayout';
@@ -67,10 +55,13 @@ import DuplicatesPanel from '../components/registry/DuplicatesPanel';
 import SegmentCollectorTab from '../components/registry/SegmentCollectorTab';
 import { useSegmentCollector } from '../components/registry/useSegmentCollector';
 import SpecTable from '../components/registry/SpecTable';
+import TagCardModal from '../components/registry/TagCardModal';
+import RegistryHeader from '../components/registry/RegistryHeader';
+import BoardControls from '../components/registry/BoardControls';
+import BoardContextMenu from '../components/registry/BoardContextMenu';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
-import { SectionHead, Btn, IconBtn, Status, Empty, Dialog } from '../components/ui';
-import TagVdrDocs from '../components/registry/TagVdrDocs';
-import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
+import { Status, Empty } from '../components/ui';
+import { parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
@@ -80,18 +71,6 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // вписанными в четырёх местах этого файла и однажды разошлись с разметкой
 const CARD_W = LAYOUT_BOX.w;
 const CARD_H = LAYOUT_BOX.h;
-
-
-/** Одинаковое поле карточки тега: раньше каждое несло свой набор классов */
-const cardField = 'w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
-
-const actualitySelectOptions = [
-  { value: 'actual', label: '🟢 Актуально' },
-  { value: 'warning', label: '🟡 Проверить' },
-  { value: 'critical', label: '🔴 Критично' },
-  { value: 'info', label: '🔵 В работе' },
-  { value: 'draft', label: '⚪ Устарело' }
-];
 
 const emojiOptions = [
   { value: 'actual', label: '🟢' },
@@ -2410,46 +2389,21 @@ export default function Registry() {
 
   return (
     <div id="registry-screen-root" className="fx-page @container animate-fadeIn">
-      {/* Шапка: название, число, вкладки в порядке работы, главное действие.
-          Было: значок в зелёном квадрате, «Реестр технологических тегов» и
-          вкладки ручным переключателем справа */}
-      <SectionHead title="Теги" count={countOf(tags.length, 'тег')}
-        actions={<Btn tone="primary" onClick={startNewTag} title="Новый тег: строка создания над списком"><Plus />Новый тег</Btn>}>
-        <div className="fx-tabs min-w-0 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Вкладки Тегов">
-          <button type="button" role="tab" aria-selected={activeTab === 'board'} onClick={() => setActiveTab('board')} title="Схема связей между тегами" className="fx-tab">
-            <Network className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Схема</span>
-          </button>
-          <button type="button" role="tab" aria-selected={activeTab === 'tree'} onClick={() => setActiveTab('tree')} title="Дерево связей" className="fx-tab">
-            <FolderTree className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Дерево связей</span>
-          </button>
-          <button type="button" role="tab" aria-selected={activeTab === 'segments'} onClick={() => setActiveTab('segments')} title="Подбор по сегментам кода" className="fx-tab">
-            <List className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Подбор</span>
-          </button>
-          <button type="button" role="tab" aria-selected={activeTab === 'table'} data-tour="tag-table-tab" onClick={() => setActiveTab('table')} title="Спецификация" className="fx-tab">
-            <List className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Спецификация</span>
-          </button>
-          {/* Обмен с внешним миром — последним: сначала работа, потом выгрузка */}
-          <button type="button" role="tab" aria-selected={activeTab === 'exchange'} data-tour="tag-exchange-tab" onClick={() => setActiveTab('exchange')} title="Импорт тегов, выгрузка и захват с экрана" className="fx-tab">
-            <FileSpreadsheet className="w-3.5 h-3.5" /><span className="hidden @[760px]:inline">Экспорт и импорт</span>
-          </button>
-        </div>
-        {/* Что принёс последний захват. Вспышка гаснет за секунды, а это
-            остаётся, пока инженер сам не закроет */}
-        {lastCapture && (
-          <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
-            <Status tone="emerald">последний захват: {lastCapture.created.length + lastCapture.filled.length}</Status>
-            <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm"
-              onClick={() => {
-                captureUntilRef.current = Date.now() + 3600;
-                const ids = [...lastCapture.created, ...lastCapture.filled];
-                const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
-                if (cards.length && activeTab === 'board') fitToTags(cards as any[]);
-                flashCapture(lastCapture);
-              }}>показать</button>
-            <IconBtn label="Убрать отметку захвата" onClick={() => setLastCapture(null)}><X /></IconBtn>
-          </span>
-        )}
-      </SectionHead>
+      <RegistryHeader
+        tagCount={tags.length}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onNewTag={startNewTag}
+        lastCapture={lastCapture}
+        onDismissCapture={() => setLastCapture(null)}
+        onShowCapture={(capture) => {
+          captureUntilRef.current = Date.now() + 3600;
+          const ids = [...capture.created, ...capture.filled];
+          const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
+          if (cards.length && activeTab === 'board') fitToTags(cards as any[]);
+          flashCapture(capture);
+        }}
+      />
 
       {/* QUICK PANEL, REAL-TIME VALIDATION & SEARCH */}
       {/* Панель инструментов: найти → создать. Строка создания — только там,
@@ -2723,152 +2677,24 @@ export default function Registry() {
               </div>
               )}
 
-              {/* Overlaid Zoom and Canvas Controls on the top-right */}
-              <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <button type="button"
-                    onClick={() => setZoom((z) => clampZoom(z - 0.1))}
-                    title="Отдалить"
-                    className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span ref={zoomLabelRef} className="px-2 py-0.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-400 self-center tabular-nums">
-                    {Math.round(zoom * 100)}%
-                  </span>
-                  <button type="button"
-                    onClick={() => setZoom((z) => clampZoom(z + 0.1))}
-                    title="Приблизить"
-                    className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
-
-                {/* «По размеру» отдельной кнопкой. Раньше это был ВТОРОЙ щелчок
-                    по «Центрировать» с таймером в 260 мс: задержка чувствуется
-                    на каждом обычном нажатии, а научиться такому неоткуда */}
-                <button type="button"
-                  onClick={fitCanvasToCenter}
-                  title="Вписать весь холст (F)"
-                  className="fx-btn fx-btn-sm"
-                >
-                  <Maximize2 className="w-3 h-3 text-emerald-600" />
-                  По размеру
-                </button>
-
-                <div className="relative">
-                  <button type="button"
-                    onClick={(e) => { e.stopPropagation(); setCenterPickerOpen((v) => !v); }}
-                    title="Показать дерево выбранной установки целиком"
-                    className="fx-btn fx-btn-sm"
-                  >
-                    <RefreshCw className="w-3 h-3 text-emerald-600" />
-                    Центрировать
-                  </button>
-
-                  {/* Выбор главного родителя: его дерево выделяется и центрируется */}
-                  {centerPickerOpen && (
-                    <div
-                      className="absolute top-full right-0 mt-1.5 w-72 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
-                      onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <div className="px-3 py-2 text-xs font-medium text-slate-400 border-b border-slate-100 dark:border-slate-850">
-                        Главные родители ({rootTags.length})
-                      </div>
-                      <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5">
-                        {rootTags.length === 0 ? (
-                          <div className="text-center text-xs text-slate-400 py-4">Нет корневых тегов</div>
-                        ) : rootTags.map(rt => (
-                          <button type="button"
-                            key={rt.id}
-                            onClick={() => centerTreeOfRoot(rt.id)}
-                            className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-xs flex items-center justify-between gap-2 cursor-pointer"
-                          >
-                            <span className="font-mono font-medium text-emerald-700 dark:text-emerald-400 truncate">{rt.identifier}</span>
-                            <span className="text-slate-400 truncate max-w-[120px]">{parseTagMetadata(rt).mainName || ''}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Упорядочить — с выбором оси. Ось меняет и раскладку, и то,
-                    как идут линии: холст выглядит так, как его последний раз
-                    разложили */}
-                <div className="relative flex">
-                  <button type="button"
-                    onClick={() => { void arrangeTreeLayout(); }}
-                    disabled={isArranging}
-                    title={axis === 'down'
-                      ? 'Разложить: родитель сверху, дети под ним, следующее дерево правее'
-                      : 'Разложить: родитель слева, дети правее, следующее дерево правее'}
-                    className="fx-btn fx-btn-primary fx-btn-sm"
-                  >
-                    <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
-                    {isArranging ? 'Раскладка…' : 'Упорядочить'}
-                  </button>
-                  <button type="button"
-                    onClick={(e) => { e.stopPropagation(); setAxisPickerOpen((v) => !v); }}
-                    disabled={isArranging}
-                    title="Как раскладывать дерево"
-                    aria-label="Выбрать раскладку"
-                    className="px-1.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-r-lg border-l border-emerald-500 transition-colors cursor-pointer"
-                  >
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-
-                  {axisPickerOpen && (
-                    <div
-                      className="absolute top-full right-0 mt-1.5 w-64 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-0.5"
-                      onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {([
-                        { id: 'down' as const, title: 'Сверху вниз', hint: 'Родитель сверху, состав под ним' },
-                        { id: 'right' as const, title: 'Слева направо', hint: 'Родитель слева, состав правее' },
-                      ]).map((o) => (
-                        <button type="button"
-                          key={o.id}
-                          /* Выбор сразу и раскладывает: переключатель, которому
-                             нужно второе нажатие, читается как несработавший */
-                          onClick={() => { chooseAxis(o.id); setAxisPickerOpen(false); void arrangeTreeLayout(o.id); }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs cursor-pointer flex items-center gap-2 ${
-                            axis === o.id
-                              ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
-                              : 'hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300'}`}
-                        >
-                          <Check className={`w-3 h-3 shrink-0 ${axis === o.id ? '' : 'opacity-0'}`} />
-                          <span className="min-w-0">
-                            <span className="block font-medium">{o.title}</span>
-                            <span className="block text-2xs text-slate-400">{o.hint}</span>
-                          </span>
-                        </button>
-                      ))}
-                      <p className="px-2.5 pt-1 text-2xs text-slate-400">
-                        Деревья встают в ряд слева направо при обеих раскладках.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Откат раскладки: она переписывает координаты всех тегов
-                    разом, и расставленное руками иначе теряется навсегда */}
-                {undoArrange && !isArranging && (
-                  <button type="button"
-                    onClick={() => { void undoArrangeLayout(); }}
-                    title="Вернуть карточки туда, где они стояли до раскладки"
-                    className="fx-btn fx-btn-quiet fx-btn-sm"
-                  >
-                    <Undo2 className="w-3 h-3" />
-                    Отменить
-                  </button>
-                )}
-              </div>
+              <BoardControls
+                zoom={zoom}
+                setZoom={setZoom}
+                zoomLabelRef={zoomLabelRef}
+                fitCanvasToCenter={fitCanvasToCenter}
+                centerPickerOpen={centerPickerOpen}
+                setCenterPickerOpen={setCenterPickerOpen}
+                rootTags={rootTags}
+                centerTreeOfRoot={centerTreeOfRoot}
+                axis={axis}
+                axisPickerOpen={axisPickerOpen}
+                setAxisPickerOpen={setAxisPickerOpen}
+                chooseAxis={chooseAxis}
+                arrangeTreeLayout={arrangeTreeLayout}
+                isArranging={isArranging}
+                undoArrange={undoArrange}
+                undoArrangeLayout={undoArrangeLayout}
+              />
 
               {/* Точечная сетка холста.
                   Раньше она была фоном самого холста — элемента 3500×2500,
@@ -3417,38 +3243,15 @@ export default function Registry() {
         {/* Меню правой кнопки по пустому холсту: раскладка, «по размеру» и
             создание тега прямо там, куда нажали */}
         {boardMenu && (
-          <ContextMenu
-            x={boardMenu.x}
-            y={boardMenu.y}
-            items={[
-              {
-                label: 'Упорядочить сверху вниз',
-                icon: <Network className="w-3.5 h-3.5" />,
-                onClick: () => { chooseAxis('down'); void arrangeTreeLayout('down'); },
-              },
-              {
-                label: 'Упорядочить слева направо',
-                icon: <Network className="w-3.5 h-3.5" />,
-                onClick: () => { chooseAxis('right'); void arrangeTreeLayout('right'); },
-              },
-              {
-                label: 'Вписать весь холст',
-                icon: <Maximize2 className="w-3.5 h-3.5" />,
-                onClick: () => fitCanvasToCenter(),
-              },
-              {
-                label: 'Создать тег здесь',
-                icon: <Plus className="w-3.5 h-3.5" />,
-                // Место запоминаем ДО открытия формы: пока человек набирает
-                // код, он успевает подвинуть холст, и «здесь» уезжает
-                onClick: () => { newTagSpotRef.current = boardMenu.at; setShowAdvancedCreation(true); },
-              },
-              {
-                label: 'Снять выделение',
-                icon: <X className="w-3.5 h-3.5" />,
-                onClick: () => { setSelectedTagIds(new Set()); setSelectedConnection(null); },
-              },
-            ]}
+          <BoardContextMenu
+            menu={boardMenu}
+            chooseAxis={chooseAxis}
+            arrangeTreeLayout={arrangeTreeLayout}
+            fitCanvasToCenter={fitCanvasToCenter}
+            /* Место запоминаем ДО открытия формы: пока человек набирает
+               код, он успевает подвинуть холст, и «здесь» уезжает */
+            onCreateHere={(at) => { newTagSpotRef.current = at; setShowAdvancedCreation(true); }}
+            onClearSelection={() => { setSelectedTagIds(new Set()); setSelectedConnection(null); }}
             onClose={() => setBoardMenu(null)}
           />
         )}
@@ -3621,190 +3424,32 @@ export default function Registry() {
       {/* Карточка тега. Код правится прямо в заголовке, остальное — ниже;
           всё сохраняется само, поэтому в подвале нет «Сохранить» */}
       {editingTag && (
-        <Dialog
-          label={`Тег ${editingTag.identifier}`}
-          width="max-w-lg"
-          onClose={() => { setEditingTag(null); loadTags(); }}
-          title={
-            <span className="flex items-center gap-2 min-w-0">
-              <input
-                          value={modalCode}
-                          onChange={(e) => setModalCode(e.target.value)}
-                          onBlur={() => handleRenameTag(editingTag.id, modalCode)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          spellCheck={false}
-                          aria-label="Код тега"
-                          className="fx-input min-w-0 flex-1 font-mono"
-                          title="Код тега можно изменить прямо здесь — связи сохранятся"
-                        />
-              <span className={`fx-note shrink-0 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>Сохранено</span>
-            </span>
-          }
-          footer={<>
-            <button type="button"
-              onClick={async () => { const id = editingTag.id; setEditingTag(null); await handleDeleteTag(id); }}
-              className="fx-btn fx-btn-danger mr-auto"
-              title="Удалить тег со всеми связями"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Удалить тег
-            </button>
-            <span className="fx-note">Изменения сохраняются сами</span>
-            <Btn tone="primary" onClick={() => { setEditingTag(null); loadTags(); }}>Готово</Btn>
-          </>}
-        >
-              {/* Плотнее, чем было: карточку открывают ради одной правки, а
-                  она требовала прокрутки из-за крупных блоков с отступами */}
-              <div className="space-y-3 text-left">
-
-                {/* Наименование и актуальность — то, ради чего карточку открыли */}
-                <div className="space-y-1 text-left">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <label className="fx-label">Наименование</label>
-                    {/* Актуальность тега не задаётся отдельно: она складывается
-                        из комментариев ниже. Показываем её тем же значком, что
-                        и в списке, — иначе человек ищет переключатель, которого
-                        нет, и решает, что поле пропало */}
-                    {(() => {
-                      const look = statusConfig[getTagOverallStatus(editingTag)] || statusConfig.draft;
-                      return (
-                        <Status tone={look.tone} title="Актуальность тега складывается из его комментариев">{look.label}</Status>
-                      );
-                    })()}
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Напр., Приточная вентиляционная установка"
-                    value={modalMainName}
-                    onChange={(e) => setModalMainName(e.target.value)}
-                    onBlur={async () => {
-                      if (modalMainName !== (parseTagMetadata(editingTag).mainName || '')) {
-                        await handleUpdateMainName(editingTag.id, modalMainName);
-                        flashSaved();
-                      }
-                    }}
-                    className={cardField}
-                  />
-                </div>
-
-                {/* Марка и WBS. Конструктор марки убран: он собирал строку из
-                    трёх списков справочника, которого почти нигде нет, и занимал
-                    треть карточки, показывая пустоту. Марка сейчас — просто
-                    марка, а подсказка берётся из марок этого же проекта */}
-                <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
-                  <div className="space-y-1 text-left">
-                    <label className="fx-label block">Марка</label>
-                    <input
-                      type="text"
-                      list="tag-brands"
-                      placeholder="Напр. Датчик-К1"
-                      value={editTagBrand}
-                      onChange={(e) => setEditTagBrand(e.target.value)}
-                      onBlur={async () => {
-                        if (editTagBrand !== (editingTag.brand || '')) {
-                          await handleUpdateBrand(editingTag.id, editTagBrand);
-                          flashSaved();
-                        }
-                      }}
-                      className={cardField}
-                    />
-                    <datalist id="tag-brands">
-                      {projectBrands.map((b) => <option key={b} value={b} />)}
-                    </datalist>
-                  </div>
-                  <div className="space-y-1 text-left">
-                    <label className="fx-label block">WBS</label>
-                    <input
-                      key={`wbs-${editingTag.id}`}
-                      type="text"
-                      placeholder="Структура работ, необязательно"
-                      defaultValue={editingTag.wbs || ''}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v === (editingTag.wbs || '')) return;
-                        try {
-                          const res = await fetch(`/api/tags/${editingTag.id}`, {
-                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ wbs: v }),
-                          });
-                          if (!res.ok) throw new Error();
-                          setTags(prev => prev.map(t => t.id === editingTag.id ? { ...t, wbs: v } : t));
-                          setEditingTag((prev: any) => prev ? { ...prev, wbs: v } : null);
-                          flashSaved();
-                        } catch { addToast('Не удалось сохранить WBS', 'error'); }
-                      }}
-                      className={cardField}
-                    />
-                  </div>
-                </div>
-
-                {/* Дополнительные поля — те, что заведены в «Справочнике».
-                    Заведённое там появляется здесь само: это и есть обещанная
-                    расширяемость, а не отдельная настройка карточки */}
-                {(() => {
-                  const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
-                  const cats = configDict
-                    ? (configDict.items || [])
-                        .filter((i: any) => !i.parentId)
-                        .sort((a: any, b: any) => a.code.localeCompare(b.code))
-                    : [];
-
-                  if (cats.length > 0) {
-                    const tagMeta = parseTagMetadata(editingTag);
-                    const tagDFields = tagMeta.dynamicFields || {};
-
-                    return (
-                      <div className="space-y-2">
-                        <label className="fx-label block">Дополнительные поля</label>
-                        <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
-                          {cats.map((cat: any) => {
-                            const options = (configDict?.items || [])
-                              .filter((i: any) => i.parentId === cat.id)
-                              .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
-
-                            return (
-                              <div key={cat.id} className="space-y-1">
-                                <span className="fx-label">{cat.nameRu}</span>
-                                <CustomSelect
-                                  value={tagDFields[cat.nameRu] || ''}
-                                  onChange={(val) => { handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val }); flashSaved(); }}
-                                  placeholder="-- Выберите --"
-                                  options={options.map((opt: any) => ({
-                                    value: opt.nameRu,
-                                    label: opt.nameRu
-                                  }))}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-
-                <TagComments
-                  items={parseTagMetadata(editingTag).descriptions as any}
-                  statusConfig={statusConfig as any}
-                  statusOptions={actualitySelectOptions}
-                  formatDate={formatDateStr}
-                  onAdd={async (text, comment, status) => {
-                    await handleAddDescription(editingTag.id, text, comment, status as any);
-                    flashSaved();
-                  }}
-                  onUpdate={async (id, patch) => {
-                    await handleUpdateDescription(editingTag.id, id, patch as any);
-                    flashSaved();
-                  }}
-                  onRemove={(id) => handleRemoveDescription(editingTag.id, id)}
-                />
-
-                {/* Документы ВДР по этому тегу (главный тег строки реестра) */}
-                <TagVdrDocs identifier={editingTag.identifier} projectId={activeProject?.id || 'default'} />
-
-              </div>
-
-        </Dialog>
+        <TagCardModal
+          tag={editingTag}
+          setEditingTag={setEditingTag}
+          loadTags={loadTags}
+          modalCode={modalCode}
+          setModalCode={setModalCode}
+          onRenameTag={handleRenameTag}
+          savedFlash={savedFlash}
+          flashSaved={flashSaved}
+          onDeleteTag={handleDeleteTag}
+          modalMainName={modalMainName}
+          setModalMainName={setModalMainName}
+          onUpdateMainName={handleUpdateMainName}
+          editTagBrand={editTagBrand}
+          setEditTagBrand={setEditTagBrand}
+          onUpdateBrand={handleUpdateBrand}
+          projectBrands={projectBrands}
+          setTags={setTags}
+          dictionaries={dictionaries}
+          onUpdateDynamicFields={handleUpdateDynamicFields}
+          onAddDescription={handleAddDescription}
+          onUpdateDescription={handleUpdateDescription}
+          onRemoveDescription={handleRemoveDescription}
+          formatDate={formatDateStr}
+          projectId={activeProject?.id || 'default'}
+        />
       )}
 
       {exchangeOpen && (

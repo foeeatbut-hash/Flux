@@ -100,3 +100,11 @@ export const statusConfig = {
   draft: { tone: 'slate' as const, bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', icon: HelpCircle, label: 'Устарело' }
 };
 
+/** Варианты актуальности для выпадающих списков раздела «Теги»: их берут и карточка тега, и сам экран */
+export const actualitySelectOptions = [
+  { value: 'actual', label: '🟢 Актуально' },
+  { value: 'warning', label: '🟡 Проверить' },
+  { value: 'critical', label: '🔴 Критично' },
+  { value: 'info', label: '🔵 В работе' },
+  { value: 'draft', label: '⚪ Устарело' }
+];
