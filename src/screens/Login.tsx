@@ -3,15 +3,9 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw, Server, Laptop, CheckCircle2 } from 'lucide-react';
-import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl, setAuthToken } from '../config/env';
-import { checkServerUrl } from '../lib/serverUrl';
-import { labelOfUrl } from '../lib/dbUrl';
-import DbConnectDialog from '../components/DbConnectDialog';
-import { useModalStore } from '../store/modalStore';
-
-// Диалоги программы вместо системных окон Windows
-const { openConfirm } = useModalStore.getState();
+import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon } from 'lucide-react';
+import { setAuthToken } from '../config/env';
+import ConnectionPanel from '../components/ConnectionPanel';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -22,24 +16,6 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   const theme = useStore((state) => state.theme);
   const toggleTheme = useStore((state) => state.toggleTheme);
   const { addToast } = useToastStore();
-  
-  const [dbPath, setDbPath] = useState('');
-  const [dbDisplayPath, setDbDisplayPath] = useState('');
-  const [dbType, setDbType] = useState('LOCAL');
-
-  useEffect(() => {
-    async function loadDbConfig() {
-      try {
-        const config = await dataService.getDbConfig() as any;
-        setDbType(config.current_db_type || 'LOCAL');
-        setDbPath(config.databasePath || '');
-        setDbDisplayPath(config.displayPath || '');
-      } catch (err) {
-        console.warn('Failed to fetch DB config in Login:', err);
-      }
-    }
-    loadDbConfig();
-  }, []);
   
   const [remember, setRemember] = useState(() => {
     return localStorage.getItem('login_remember') === 'true';
@@ -57,116 +33,6 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isDbBusy, setIsDbBusy] = useState(false);
-
-  // ── Подключение: встроенный сервер (эта машина) или сервер компании ──
-  const [serverUrl] = useState(() => getConfiguredServerUrl());
-  const [serverPanelOpen, setServerPanelOpen] = useState(false);
-  const [serverDraft, setServerDraft] = useState(() => getConfiguredServerUrl());
-  const [serverCheck, setServerCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
-  /**
-   * Отказ показывается прямо в панели, а не всплывающим сообщением.
-   *
-   * Всплывающих сообщений на экране входа не видно вовсе — оболочка с ними
-   * ещё не поднята. Именно поэтому строку подключения к базе поле принимало
-   * «молча»: программа возражала, но возражение показать было негде.
-   */
-  const [serverError, setServerError] = useState('');
-
-  /**
-   * Где лежат данные — отдельный вопрос и отдельная кнопка. Пока он был
-   * подписан почти так же, как адрес сервера программы, в поле сервера
-   * вписывали строку подключения к базе — и программа переставала работать
-   * целиком (§23.1 дизайна).
-   */
-  const [dbUrl, setDbUrl] = useState('');
-  const [dbDialog, setDbDialog] = useState(false);
-
-  const checkServer = async (url: string): Promise<boolean> => {
-    try {
-      const base = url.trim().replace(/\/+$/, '');
-      const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(base) ? base : `http://${base}`;
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 4000);
-      const r = await fetch(`${withProto}/api/health`, { signal: ctl.signal });
-      clearTimeout(t);
-      return r.ok;
-    } catch (_) {
-      return false;
-    }
-  };
-
-  const handleServerCheck = async () => {
-    setServerCheck('checking');
-    setServerCheck((await checkServer(serverDraft)) ? 'ok' : 'fail');
-  };
-
-  const applyServerUrl = async (url: string) => {
-    // Негодный адрес не сохраняем вовсе: строка подключения к базе, попавшая
-    // сюда однажды, обездвижила программу вместе с этим самым экраном
-    const parsed = checkServerUrl(url);
-    if (parsed.error) { setServerError(parsed.error); setServerCheck('fail'); return; }
-    setServerError('');
-    await setConfiguredServerUrl(parsed.url);
-    addToast(parsed.url ? `Сервер компании: ${parsed.url}. Перезагрузка…` : 'Встроенный сервер. Перезагрузка…', 'success');
-    setTimeout(() => window.location.reload(), 600);
-  };
-
-  const isElectronApp = typeof window !== 'undefined' && !!(window as any).electron?.ipcRenderer?.invoke;
-
-  const refreshDbConfig = async () => {
-    try {
-      const config = await dataService.getDbConfig() as any;
-      setDbType(config.current_db_type || 'LOCAL');
-      setDbPath(config.databasePath || '');
-      setDbDisplayPath(config.displayPath || '');
-      setDbUrl(config.database_url || '');
-    } catch (e) {}
-  };
-
-  // Переключение локальной базы на выбранный файл (например, общая БД отдела)
-  const switchLocalDb = async (databasePath: string) => {
-    setIsDbBusy(true);
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/switch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current_db_type: 'LOCAL', database_url: '', database_path: databasePath })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        addToast(databasePath ? 'База данных подключена!' : 'Возвращен стандартный путь базы данных', 'success');
-        await refreshDbConfig();
-      } else {
-        addToast(data.message || 'Не удалось переключить базу данных', 'error');
-      }
-    } catch (err: any) {
-      addToast(`Ошибка подключения базы: ${err.message}`, 'error');
-    } finally {
-      setIsDbBusy(false);
-    }
-  };
-
-  const handlePickDbFile = async () => {
-    if (!isElectronApp) {
-      addToast('Выбор файла базы доступен только в приложении Flux', 'info');
-      return;
-    }
-    try {
-      const filePath = await (window as any).electron.ipcRenderer.invoke('database:select-file');
-      if (filePath) {
-        await switchLocalDb(String(filePath));
-      }
-    } catch (err: any) {
-      addToast(`Ошибка выбора файла: ${err.message}`, 'error');
-    }
-  };
-
-  const handleResetDbPath = async () => {
-    if (!await openConfirm('Вернуть базу в стандартную папку?', 'Программа снова будет работать с базой в папке AppData/pdm-app.', { confirmLabel: 'Вернуть' })) return;
-    await switchLocalDb('');
-  };
- 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -344,110 +210,8 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         </motion.div>
       </div>
 
-      {/* Подключение: встроенный сервер или сервер компании */}
-      <div className="w-full flex flex-col items-center gap-2 pb-1">
-        <button
-          type="button"
-          onClick={() => { setServerPanelOpen(v => !v); setServerDraft(serverUrl); setServerCheck('idle'); setServerError(''); }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-ui cursor-pointer"
-          title="Настроить подключение к серверу"
-        >
-          {serverUrl ? <Server className="w-3.5 h-3.5 text-emerald-600" /> : <Laptop className="w-3.5 h-3.5" />}
-          {serverUrl ? `Сервер компании: ${serverUrl}` : 'Встроенный сервер (эта машина)'}
-        </button>
-
-        {/* Где лежат данные — второй, отдельный вопрос. Отдельная строка и
-            отдельное окно: пока их путали, строка подключения к базе попадала
-            в поле сервера и обездвиживала программу */}
-        <button
-          type="button"
-          onClick={() => setDbDialog(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-ui cursor-pointer"
-          title="Где лежат данные: на этом компьютере или в общей базе"
-        >
-          <Database className="w-3.5 h-3.5 text-emerald-600" />
-          {labelOfUrl(dbType, dbUrl)}
-        </button>
-
-        {serverPanelOpen && (
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-4 space-y-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Здесь — только адрес сервера программы. Где лежат данные, спрашивают
-              отдельной кнопкой «База» ниже.
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Укажите адрес сервера компании (например, <span className="font-mono">http://192.168.1.100:3000</span>) —
-              все данные и чат будут общими для сотрудников. Оставьте пустым, чтобы работать
-              на встроенном сервере этой машины.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={serverDraft}
-                onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); setServerError(''); }}
-                placeholder="http://адрес:порт (пусто = встроенный)"
-                className="flex-1 min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-              />
-              <button
-                type="button"
-                onClick={handleServerCheck}
-                disabled={!serverDraft.trim() || serverCheck === 'checking'}
-                className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 disabled:opacity-50 transition-ui cursor-pointer flex items-center gap-1.5"
-              >
-                {serverCheck === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
-                 serverCheck === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> :
-                 serverCheck === 'fail' ? <AlertCircle className="w-3.5 h-3.5 text-rose-500" /> : null}
-                Проверить
-              </button>
-            </div>
-            {serverCheck === 'ok' && <p className="text-xs text-emerald-600 dark:text-emerald-400">Сервер отвечает — можно подключаться.</p>}
-            {serverCheck === 'fail' && (
-              <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
-                {serverError || 'Сервер не отвечает. Проверьте адрес и что сервер запущен.'}
-              </p>
-            )}
-            <div className="flex items-center justify-end gap-2">
-              {serverUrl && (
-                <button
-                  type="button"
-                  onClick={() => applyServerUrl('')}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-ui cursor-pointer flex items-center gap-1.5"
-                >
-                  <Laptop className="w-3.5 h-3.5" /> Встроенный сервер
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setServerPanelOpen(false)}
-                className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-ui cursor-pointer"
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                onClick={() => applyServerUrl(serverDraft.trim())}
-                disabled={!serverDraft.trim()}
-                className="fx-btn fx-btn-primary"
-              >
-                <Server className="w-3.5 h-3.5" /> Подключиться
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {dbDialog && (
-        <DbConnectDialog
-          current={dbUrl}
-          currentType={dbType}
-          onClose={() => setDbDialog(false)}
-          onDone={(what) => {
-            setDbDialog(false);
-            addToast(`Подключено: ${what}. Перезагрузка…`, 'success');
-            setTimeout(() => window.location.reload(), 800);
-          }}
-        />
-      )}
+      {/* Подключение — одно поле: строка базы или адрес сервера (ConnectionPanel) */}
+      <ConnectionPanel />
 
       {/* Footer: авторство слева, версия справа */}
       <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">

@@ -18,6 +18,7 @@
 import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { testSignature } from './fixtures/updateTestSign';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
@@ -72,6 +73,7 @@ const updatesDir = (): string => {
     ok('файл ушёл в общую базу, а не только на диск', up.json?.shared === true, up.json);
     const pub = await api(token, 'POST', '/api/updates', {
       version: VERSION, changelog: 'Проверочный релиз', fileUrl: '',
+      signature: testSignature(fake, VERSION),
     });
     ok('релиз записан', pub.status === 200, pub.json || pub.status);
     ok('ссылка ведёт на сервер, а не наружу',
@@ -110,6 +112,14 @@ const updatesDir = (): string => {
     const bad = await api(token, 'POST', '/api/updates', { version: '90', changelog: '', fileUrl: 'http://x/y.exe' });
     ok('«90» сервер не принимает', bad.status === 400, bad.json || bad.status);
     ok('и объясняет, как пишется версия', String(bad.json?.error || '').includes('0.90.0'), bad.json);
+
+    console.log('4а. Без подписи владельца релиз не публикуется');
+    const unsigned = await api(token, 'POST', '/api/updates', { version: VERSION, changelog: '', fileUrl: '' });
+    ok('без подписи — отказ', unsigned.status === 400 && /подпись/i.test(String(unsigned.json?.error || '')), unsigned.json);
+    const wrongFile = await api(token, 'POST', '/api/updates', {
+      version: VERSION, changelog: '', fileUrl: '', signature: testSignature(Buffer.concat([fake, Buffer.from('x')]), VERSION),
+    });
+    ok('подпись другого файла — отказ', wrongFile.status === 400, wrongFile.json);
 
     console.log('5. Сервер отвечает, дошёл ли файл, не отдавая его целиком');
     const check = await api(token, 'GET', `/api/updates/check/${VERSION}`);

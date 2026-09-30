@@ -3,6 +3,7 @@ import { htmlToMarkdown } from '../../src/lib/htmlToMarkdown.js';
 import fs from 'fs';
 import path from 'path';
 import { getPrisma, sendError, resolveProjectId } from '../context.js';
+import { canReadFile, getMainAdminId, personalScopeWhere } from '../fileAccess.js';
 import { readableAccount, readableAccounts } from '../mail/access.js';
 import * as imap from '../mail/imap.js';
 import { credsOf, loadBody } from '../mail/sync.js';
@@ -251,20 +252,26 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
 
       // ── Файлы Проводника ──
       // Личные файлы чужого сотрудника из письма не показываем: правило то же,
-      // что и в самом Проводнике.
+      // что и в самом Проводнике. Условие раздела — общее (personalScopeWhere):
+      // прежнее «общее или моё» не знало про Главного Администратора, а
+      // папку и проект файла не смотрело вовсе, поэтому ниже каждый найденный
+      // файл проходит ещё и единую проверку чтения
       const names = caseVariants(fileCandidates(text));
-      const rawFiles = names.length
+      const mainAdminId = await getMainAdminId(prisma);
+      const foundFiles = names.length
         ? await prisma.fileNode.findMany({
             where: {
               name: { in: names },
               deletedAt: null,
               type: { not: 'CHAT_FILE' },
-              OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: me.id }],
+              ...personalScopeWhere(me, mainAdminId),
             },
-            select: { id: true, name: true, folderId: true, folder: { select: { projectId: true } } },
+            select: { id: true, name: true, folderId: true, scope: true, ownerId: true, type: true, folder: { select: { projectId: true } } },
             take: 60,
           })
         : [];
+      const rawFiles: any[] = [];
+      for (const f of foundFiles) if (await canReadFile(prisma, me, f)) rawFiles.push(f);
 
       const withProject = (projectId: string | null | undefined) => ({
         projectId: projectId || null,

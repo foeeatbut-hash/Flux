@@ -148,6 +148,7 @@ function makeNode(name: string, be: Backend): Node {
   const deps: OfficeRoomDeps = {
     nameOf: async (id) => `Имя ${id}`,
     mayWrite: async (id) => (writers.get(id) === false ? 'Только просмотр' : ''),
+    mayRead: async () => true,
     isShared: async () => true,
   };
   const node: Node = {

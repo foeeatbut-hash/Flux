@@ -13,6 +13,8 @@
  *   npx tsx server.ts > /tmp/srv.log 2>&1 &
  *   npx tsx scripts/test-update-ui.ts
  */
+import { testSignature } from './fixtures/updateTestSign';
+
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -53,6 +55,8 @@ const api = async (token: string, method: string, url: string, body?: any) => {
     version: VERSION,
     changelog: 'Проверочный релиз. Его нужно удалить после прогона.',
     fileUrl: 'https://example.invalid/Flux.exe',
+    // Подпись обязательна; проверочная — годится только серверу из исходников
+    signature: testSignature(Buffer.from('MZ'), VERSION),
   });
   if (published.status !== 200) { console.error('Релиз не опубликовался', published.status, published.json); process.exit(2); }
 

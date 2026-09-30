@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import { getPrisma } from '../context.js';
 import { maskDbUrl, unmaskDbUrl } from '../security.js';
+import { getDialect, setDialect } from '../ddl.js';
 import { computeMachineId, licenseStatus, activateLicense } from '../../electron/license.js';
 import { snapshotSqlite } from '../sqliteSafety.js';
 import { watchAll as watchAllMail, stopAll as stopMailWatch } from '../mail/idle.js';
@@ -172,8 +173,13 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     }
 
     // Test custom remote URL using a temporary client
+    // Создание клиента запоминает движок базы для всего сервера (server/ddl.ts).
+    // Проверка чужой базы не должна его менять: после неудачной проверки
+    // MySQL работающий на SQLite сервер начинал писать SQL для MySQL
+    const dialectWas = getDialect();
     try {
       const tempPrisma = createPrismaClient('REMOTE', database_url);
+      setDialect(dialectWas);
       await tempPrisma.$queryRawUnsafe('SELECT 1;');
       await tempPrisma.$disconnect();
 
@@ -183,6 +189,7 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
         message: 'Удаленное подключение успешно проверено и доступно!'
       });
     } catch (err: any) {
+      setDialect(dialectWas);
       res.json({
         success: false,
         message: `Не удалось подключиться по указанному адресу: ${err.message}`

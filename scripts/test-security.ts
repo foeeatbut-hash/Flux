@@ -33,7 +33,7 @@ eq('server.cjs не раздаётся', isPrivateBuildFile('/server.cjs'), true
 eq('карта исходников не раздаётся', isPrivateBuildFile('/server.cjs.map'), true);
 eq('любые .map не раздаются', isPrivateBuildFile('/assets/index-abc.js.map'), true);
 eq('закодированное имя тоже ловится', isPrivateBuildFile('/server%2Ecjs'), true);
-eq('скрытые файлы не раздаются', isPrivateBuildFile('/.env'), true);
+eq('зависимости разработки из /node_modules/.vite не задеты', isPrivateBuildFile('/node_modules/.vite/deps/react.js'), false);
 eq('обычный бандл окна раздаётся', isPrivateBuildFile('/assets/index-abc.js'), false);
 eq('index.html раздаётся', isPrivateBuildFile('/index.html'), false);
 

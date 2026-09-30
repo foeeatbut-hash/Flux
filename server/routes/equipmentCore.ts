@@ -54,7 +54,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     if (!fileId || !category) return res.status(400).json({ error: 'Не указан файл или категория' });
     try {
       const projectId = await resolveImportProject(reqProjectId);
-      const { result, fileName } = await readEquipmentFile(fileId, projectId);
+      const { result, fileName } = await readEquipmentFile(fileId, projectId, (req as any).authUser);
       const edited = applyEdits(result, edits);
       const plan = await planEquipmentImport(prisma, projectId, category, edited);
       res.json({ success: true, fileName, plan });
@@ -74,7 +74,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
 
     try {
       const projectId = await resolveImportProject(reqProjectId);
-      const { result, fileName } = await readEquipmentFile(fileId, projectId);
+      const { result, fileName } = await readEquipmentFile(fileId, projectId, (req as any).authUser);
 
       // Правки предпросмотра и выбор области применяются до записи
       const edited = applyEdits(result, edits);

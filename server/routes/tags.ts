@@ -5,6 +5,7 @@ import { getPrisma } from '../context.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
+import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 
 // Теги проекта: список и ручное создание, массовый импорт, захват с экрана
@@ -103,7 +104,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     try {
       const { fileId } = req.body;
       const file = await prisma.fileNode.findUnique({ where: { id: String(fileId) } });
-      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      // Разбор по номеру файла отдаёт его ячейки — правило чтения то же, что у
+      // Проводника; чужой личный файл неотличим от несуществующего
+      if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: 'Файл не найден' });
       // Байты общим путём: содержимое лежит кусками, а у старых файлов — строкой
       const buf = await fileBytes(file);
       if (!buf.length) return res.status(404).json({ error: 'У файла нет содержимого' });

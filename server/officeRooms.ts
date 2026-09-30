@@ -503,6 +503,11 @@ export const officeHub = new OfficeRoomHub(officeBus);
 
 export interface OfficeRoomDeps {
   nameOf: (userId: string) => Promise<string>;
+  /**
+   * Видит ли человек файл (server/fileAccess.ts). Обязательна: без неё вход
+   * в комнату был бы открыт всем, кто знает номер файла
+   */
+  mayRead: (userId: string, fileId: string) => Promise<boolean>;
   /** '' — можно писать файл; тот же ответ, что у сохранения */
   mayWrite: (userId: string, fileId: string) => Promise<string>;
   /** Файл в общем доступе — правят вместе (личный правит только хозяин) */
@@ -519,6 +524,14 @@ export function setupOfficeRooms(socket: Socket, deps: OfficeRoomDeps, hub: Offi
     if (!ID.test(String(fileId || '')) || !ID.test(String(clientId || ''))) return;
     const userId = String((socket as any).userId || '');
     if (!userId) return;
+    // Право ЧТЕНИЯ — до socket.join. Раньше сокет попадал в комнату любого
+    // файла по номеру (проверялась лишь запись, и она только помечала
+    // участника «зрителем»), а комната отдаёт список участников, правки
+    // документа и сигнал «сохранено». Отказ молчаливый — как «нет файла»:
+    // ни комнаты, ни состояния, ни подтверждения, что номер существует
+    let readable = false;
+    try { readable = await deps.mayRead(userId, fileId); } catch (_) { readable = false; }
+    if (!readable) return;
     let name = 'Сотрудник';
     try { name = (await deps.nameOf(userId)) || name; } catch (_) { /* без имени участник всё равно виден */ }
     let mayWrite = false;

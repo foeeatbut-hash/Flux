@@ -13,6 +13,8 @@
 export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'app:get-server-url',
   'app:set-server-url',
+  'app:set-database',
+  'app:relaunch',
   'license:status',
   'license:activate',
   'chat:open-file',

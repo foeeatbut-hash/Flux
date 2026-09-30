@@ -14,6 +14,7 @@ import { isSharedFile } from './routes/officeFiles.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { getPrisma } from './context.js';
 import { attachIo } from './officeIo.js';
+import { canReadFile } from './fileAccess.js';
 
 export interface OfficeSocketDeps {
   getAuthUser: (id: string) => Promise<any>;
@@ -27,6 +28,8 @@ export function setupOfficeSockets(io: Server, socket: Socket, deps: OfficeSocke
   const rooms = setupOfficeRooms(socket, {
     nameOf: async (id) => (await deps.getAuthUser(id))?.name || '',
     mayWrite: async (id, fileId) => deps.mayWriteFile({ authUser: await deps.getAuthUser(id) }, fileId),
+    // Единое правило чтения: чужой личный файл и файл закрытого проекта в комнату не пускают
+    mayRead: async (id, fileId) => canReadFile(prisma(), await deps.getAuthUser(id), fileId),
     isShared: async (fileId) => {
       const f = await prisma().fileNode.findUnique({ where: { id: fileId }, select: { scope: true } });
       return !!f && isSharedFile(f as any);
@@ -34,6 +37,10 @@ export function setupOfficeSockets(io: Server, socket: Socket, deps: OfficeSocke
   });
   const collab = setupOfficeCollab(socket, {
     read: async (fileId) => {
+      // Исходник сеанса совместной правки читается по номеру — те же права,
+      // что у комнаты: вход в неё уже проверен, но исходник не должен
+      // зависеть от того, что проверку кто-то обойдёт. Отказ — «нет файла»
+      if (!(await canReadFile(prisma(), await deps.getAuthUser((socket as any).userId), fileId))) throw new Error('Файл не найден');
       const f = await prisma().fileNode.findUnique({ where: { id: fileId } });
       if (!f) throw new Error('Файл не найден');
       return fileBytes(f);

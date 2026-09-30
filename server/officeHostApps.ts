@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getPrisma } from './context.js';
+import { canReadFile } from './fileAccess.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { writeOfficeFile, isSharedFile } from './routes/officeFiles.js';
 import { sheetShared } from './officeSheetCollab.js';
@@ -129,7 +130,10 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
       if (app !== 'pdf' && app !== 'sheets') return reply({ error: 'Неизвестный редактор' });
       if (!userId()) return reply({ error: 'Требуется вход в систему' });
       const file = await getPrisma().fileNode.findUnique({ where: { id: String(fileId || '') } });
-      if (!file) return reply({ error: 'Файл не найден' });
+      // Файл берётся по номеру из сокета: без проверки чужой личный документ
+      // открывался в главном процессе редактора и отдавал своё содержимое.
+      // Отказ — тот же ответ, что и «нет файла»
+      if (!file || !(await canReadFile(getPrisma(), await deps.getAuthUser(userId()), file))) return reply({ error: 'Файл не найден' });
       const h = host(app);
       // Общая книга открывается с исходника сеанса: у всех участников одно и
       // то же начало, свежее — в журнале правок сеанса

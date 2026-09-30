@@ -126,12 +126,14 @@ const call = async (method: string, url: string, body?: any, headers: Record<str
     const keepAdmin = token;
     token = (await call('POST', '/api/login', { symbol: `ofc${stamp}`, password: pass })).json?.token || '';
     ok('второй сотрудник вошёл', !!token);
+    // Чужой личный файл для постороннего не существует (server/fileAccess.ts):
+    // «нельзя» выдавало бы, что такой файл есть
     const foreign = await call('PUT', `/api/office/files/${pid}/content`, second, { 'X-Base-Sha256': sha(first.subarray(0, 100)) });
-    ok('чужой личный файл не перезаписать', foreign.status === 403, [foreign.status, foreign.json]);
+    ok('чужой личный файл не перезаписать', foreign.status === 404, [foreign.status, foreign.json]);
     const foreignCopy = await call('POST', `/api/office/files/${pid}/copy?name=x.docx`, second);
-    ok('и копию в чужую личную папку не положить', foreignCopy.status === 403, foreignCopy.status);
+    ok('и копию в чужую личную папку не положить', foreignCopy.status === 404, foreignCopy.status);
     const foreignChunk = await call('POST', `/api/files/${pid}/chunk`, { idx: 0, data: second.toString('base64') });
-    ok('и кусками Проводника тоже', foreignChunk.status === 403, foreignChunk.status);
+    ok('и кусками Проводника тоже', foreignChunk.status === 404, foreignChunk.status);
     token = keepAdmin;
     const still2 = await call('GET', `/api/files/${pid}/raw`);
     ok('личный файл цел', still2.buf.equals(first.subarray(0, 100)));

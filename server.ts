@@ -31,6 +31,7 @@ import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
 import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
 import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
+import { canWriteFile, FILE_NOT_FOUND } from './server/fileAccess.js';
 import { registerActionLog } from './server/actionLog.js';
 import { officeHub } from './server/officeRooms.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
@@ -718,7 +719,7 @@ registerSockets(io, {
 app.use(corsMiddleware, blockPrivateBuildFiles, earlyBodyGate(r => AUTH_EXEMPT.has(r), t => !!verifyAuthToken(t)));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/chat_files', chatFileGate(t => !!verifyAuthToken(t)), express.static(path.join(userDataPath, 'chat_files'), staticUploadOptions));
+app.use('/chat_files', chatFileGate(), express.static(path.join(userDataPath, 'chat_files'), staticUploadOptions));
 // Картинки подписей: показываются в разделе; в отправленном письме они
 // уходят вложением с Content-ID, потому что снаружи этот адрес недоступен
 app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig'), staticUploadOptions));
@@ -1049,21 +1050,13 @@ registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackC
 // Office: иначе два пути записи одного файла разошлись бы в правилах
 async function mayWriteFile(req: any, fileId: string): Promise<string> {
   const user = (req as any).authUser;
-  if (user?.role === 'ADMIN') return '';
-  const file = await prisma.fileNode.findUnique({
-    where: { id: fileId }, select: { folderId: true, scope: true, ownerId: true },
-  });
-  // Личный файл пишет только его хозяин: раньше правило смотрело лишь на общий
-  // диск, и чужой личный документ можно было перезаписать, зная его номер
-  if (file?.scope === 'PERSONAL' && file.ownerId && file.ownerId !== user?.id) {
-    return 'Это личный файл другого сотрудника: изменить его может только он сам.';
-  }
+  // Единое правило видимости (server/fileAccess.ts). Раньше любой ADMIN обходил проверку
+  // и писал в чужие личные файлы, хотя видит их лишь Главный Администратор; отказ — как «нет файла»
+  if (!(await canWriteFile(prisma, user, fileId))) return FILE_NOT_FOUND;
+  const file = await prisma.fileNode.findUnique({ where: { id: fileId }, select: { folderId: true } });
   if (!file?.folderId) return '';
-  const folder = await prisma.folder.findUnique({
-    where: { id: file.folderId }, select: { projectId: true },
-  });
-  const disk = await ensureDiskProject();
-  if (folder?.projectId !== disk) return '';
+  const folder = await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } });
+  if (folder?.projectId !== (await ensureDiskProject())) return '';
   return userCan(user, 'disk.write') ? ''
     : 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».';
 }
