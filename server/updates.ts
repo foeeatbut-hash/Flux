@@ -59,6 +59,15 @@ export interface UpdateDeps {
   broadcast: (event: string, payload: unknown) => void;
 }
 
+/**
+ * Проверочный ключ наборов (scripts/fixtures/update-test-key.txt) — только для
+ * сервера, запущенного из исходников. Собранный server.cjs его не принимает, а
+ * программа сотрудника не примет выпуск с ним ни при каком сервере: окончательно
+ * подпись проверяет она, своим зашитым ключом (electron/updateSignature.ts).
+ */
+const TEST_UPDATE_KEY_HEX = '9d155f2aa7bb2b9ec4b8e271c8181cd9d289b2c4e264fec77848963e1a6b0215';
+const FROM_SOURCE = /\.ts$/.test(__filename);
+
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   const ventAppDataPath = deps.dataDir;
   // ── Обновления приложения: публикация и раздача через сервер ────────────────
@@ -361,17 +370,27 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
      * закрытый ключ, которого на сервере нет.
      */
     const signature = String(req.body?.signature || '').trim();
-    const signed = readUpdateSignature(signature);
+    const signed = readUpdateSignature(signature) || (FROM_SOURCE ? readUpdateSignature(signature, TEST_UPDATE_KEY_HEX) : null);
     if (!signed) {
       return res.status(400).json({ error: 'Нужна подпись выпуска владельца программы (файл .flux-sig из tools/update-sign.mjs). Без неё обновление никто не поставит.' });
     }
     if (signed.version !== version) {
       return res.status(400).json({ error: `Подпись относится к версии ${signed.version}, а публикуется ${version}.` });
     }
-    if (onDisk) {
-      const buf = fs.readFileSync(updateFilePath(version));
-      const sha = crypto.createHash('sha256').update(buf).digest('hex');
-      if (buf.length !== signed.size || sha !== signed.sha256) {
+    // Сверяется то, что будут скачивать: файл на диске этой машины, а если его
+    // нет — куски из общей базы. Иначе подпись от другого exe проходила бы,
+    // стоило файлу остаться только в базе
+    if (onDisk || inDb) {
+      const h = crypto.createHash('sha256');
+      let size = 0;
+      if (onDisk) {
+        const buf = fs.readFileSync(updateFilePath(version));
+        h.update(buf); size = buf.length;
+      } else {
+        const parts = await deps.getPrisma().appUpdateChunk.findMany({ where: { version }, orderBy: { idx: 'asc' }, select: { data: true } });
+        for (const part of parts) { const b = Buffer.from(part.data); h.update(b); size += b.length; }
+      }
+      if (size !== signed.size || h.digest('hex') !== signed.sha256) {
         return res.status(400).json({ error: 'Подпись не подходит к загруженному файлу: exe не тот, что подписан.' });
       }
     }
