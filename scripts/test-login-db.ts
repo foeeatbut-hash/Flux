@@ -1,11 +1,12 @@
 /**
- * Экран входа: два разных вопроса — двумя разными кнопками.
+ * Экран входа: одно поле подключения, которое само понимает, что в него вставили.
  *
- * Проверка написана по случившемуся. В поле «Сервер компании» вписали строку
- * подключения к базе; поле приняло её молча, и программа перестала работать
- * целиком — вместе с этим самым экраном, с которого это можно было бы
- * исправить. Здесь проверяется, что так больше нельзя и что у базы есть своё
- * место.
+ * История. Сначала поле было одно — «сервер компании», — и в него вписали
+ * строку подключения к базе: программа перестала работать целиком. Тогда
+ * вопросы развели на две кнопки с отдельными окнами, и подключение стало
+ * требовать лишних действий каждый раз. Теперь поле снова одно, но строка
+ * распознаётся (src/lib/connection.ts): база — подключается как база, адрес
+ * сервера — как сервер, негодное — объясняется и не сохраняется.
  *
  * Запуск (нужен поднятый сервер и playwright-core):
  *   npx tsx server.ts > /tmp/srv.log 2>&1 &
@@ -13,7 +14,8 @@
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const DSN = 'mysql://Flux:секрет@192.168.120.14:3306/Flux';
+// Порт 1 на своей машине — база, которая гарантированно не ответит, и быстро
+const DSN = 'mysql://Flux:се@крет]1@127.0.0.1:1/Flux';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -44,47 +46,55 @@ const ok = (n: string, c: boolean, d?: any) =>
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(4500);
 
-    console.log('1. Два вопроса — две кнопки');
-    const dbBtn = page.locator('button[title^="Где лежат данные"]').first();
-    ok('строка о базе есть на экране входа', await dbBtn.isVisible().catch(() => false));
-    ok('в ней сказано, где база',
-      /База:/.test(await dbBtn.innerText().catch(() => '')), await dbBtn.innerText().catch(() => ''));
-    ok('строка о сервере программы осталась отдельной',
-      await page.getByTitle('Настроить подключение к серверу').isVisible().catch(() => false));
+    console.log('1. Одна строка подключения под формой');
+    const btn = page.locator('button[title="Где программа берёт данные"]');
+    ok('строка подключения одна', (await btn.count()) === 1, await btn.count());
+    ok('в ней сказано, где данные', /Подключение:/.test(await btn.innerText().catch(() => '')), await btn.innerText().catch(() => ''));
+    ok('старых кнопок «сервер» и «база» нет',
+      (await page.locator('button[title="Настроить подключение к серверу"], button[title^="Где лежат данные"]').count()) === 0);
 
-    console.log('2. Строку подключения к базе в поле сервера не принимают');
-    await page.getByTitle('Настроить подключение к серверу').click();
-    await page.waitForTimeout(700);
-    await page.locator('input[placeholder^="http://адрес"]').first().fill(DSN);
-    await page.getByRole('button', { name: 'Подключиться' }).first().click();
-    await page.waitForTimeout(700);
-    const body = await page.evaluate(() => document.body.innerText);
-    ok('программа объясняет, что это база, а не сервер', body.includes('базе данных'), body.slice(0, 400));
-    ok('негодный адрес не сохранён',
+    console.log('2. Строка базы распознаётся без показа пароля');
+    await btn.click();
+    await page.waitForTimeout(500);
+    const input = page.locator('input[placeholder^="mysql://"]');
+    ok('поле открылось', await input.isVisible().catch(() => false));
+    ok('строка вводится скрытой', (await input.getAttribute('type')) === 'password');
+    await input.fill(DSN);
+    await page.waitForTimeout(300);
+    const hint = await page.evaluate(() => document.body.innerText);
+    ok('распознано как база MariaDB/MySQL', hint.includes('База MariaDB / MySQL · 127.0.0.1:1 · Flux'), hint.slice(-400));
+    ok('пароля в подсказке нет', !hint.includes('се@крет'));
+
+    console.log('3. Адрес сервера распознаётся как сервер');
+    await input.fill('192.168.1.100:3000');
+    await page.waitForTimeout(300);
+    ok('распознано как сервер компании', (await page.evaluate(() => document.body.innerText)).includes('Сервер компании · http://192.168.1.100:3000'));
+
+    console.log('4. Недоступная база — объяснение, а не поломка');
+    await input.fill(DSN);
+    await page.getByRole('button', { name: 'Подключиться' }).click();
+    await page.waitForSelector('.fx-error', { timeout: 60000 }).catch(() => null);
+    const err = await page.locator('.fx-error').innerText().catch(() => '');
+    ok('ошибка показана прямо в панели', !!err, err);
+    ok('адрес сервера не сохранён',
       await page.evaluate(() => localStorage.getItem('flux_server_url') || '') === '',
       await page.evaluate(() => localStorage.getItem('flux_server_url')));
-    ok('страница жива, а не обездвижена', await dbBtn.isVisible().catch(() => false));
+    const cfg = await (await fetch(BASE + '/api/db/config')).json().catch(() => ({}));
+    ok('база не переключена на недоступную', !String(cfg.database_url || '').includes('127.0.0.1:1'), cfg.database_url);
+    ok('страница жива', await btn.isVisible().catch(() => false));
 
-    console.log('3. Окно подключения к базе');
-    await dbBtn.click();
-    await page.waitForTimeout(900);
-    const dialog = page.getByRole('dialog', { name: 'Подключение к базе данных' });
-    ok('окно открылось', await dialog.isVisible().catch(() => false));
-    ok('спрашивают человеческим языком',
-      await page.getByText('Где лежат данные', { exact: false }).first().isVisible().catch(() => false));
-    await page.getByText('PostgreSQL', { exact: false }).first().click();
-    await page.waitForTimeout(400);
-    for (const label of ['Сервер', 'База данных', 'Пользователь', 'Пароль']) {
-      ok(`поле «${label}» на месте`,
-        await dialog.getByText(label, { exact: true }).first().isVisible().catch(() => false));
-    }
-    ok('есть «Проверить» до переключения',
-      await dialog.getByRole('button', { name: 'Проверить' }).isVisible().catch(() => false));
-    ok('пароль вводится скрытым',
-      (await dialog.locator('input[type="password"]').count()) === 1);
+    console.log('5. Негодное — объясняется');
+    await input.fill('sqlite:///C:/x.sqlite');
+    await page.getByRole('button', { name: 'Подключиться' }).click();
+    await page.waitForTimeout(300);
+    // На локальной базе кнопки «Этот компьютер» нет — и отсылать к ней нельзя
+    ok('про файл базы сказано честно', /этом компьютере/.test(await page.locator('.fx-error').innerText().catch(() => '')));
     ok('в консоли пусто', errs.length === 0, errs.slice(0, 3));
 
-    await page.screenshot({ path: '/tmp/login-db.png' });
+    await page.screenshot({ path: '/tmp/login-connection-light.png' });
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: '/tmp/login-connection-dark.png' });
   } finally {
     await browser.close();
   }

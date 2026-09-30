@@ -204,6 +204,36 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
 
+  /**
+   * Подключение к базе с экрана входа, когда встроенный сервер не запущен.
+   *
+   * В режиме «сервер компании» встроенный Express не поднимается, и спросить
+   * его «переключи базу» некому. Поэтому настройка пишется прямо в config.json,
+   * а программа перезапускается — встроенный сервер стартует уже на новой базе
+   * и сам сверит её схему. Пустая строка — база на этом компьютере.
+   */
+  ipcMain.handle('app:set-database', (_event, url: string) => {
+    try {
+      const next = String(url || '').trim();
+      if (next && !/^(mysql|mariadb|postgres|postgresql):\/\//i.test(next)) {
+        return { success: false, error: 'Это не строка подключения к базе.' };
+      }
+      let parsed: any = {};
+      try { if (fs.existsSync(CONFIG_FILE)) parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {}; } catch (e) { parsed = {}; }
+      parsed.current_db_type = next ? 'REMOTE' : 'LOCAL';
+      parsed.database_url = next;
+      parsed.remote_server_url = '';
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  });
+
+  // Смена режима подключения меняет то, какие процессы нужны (встроенный
+  // сервер или нет), — перезагрузки окна для этого мало
+  ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
+
   // Лицензия: авторитетная проверка в главном процессе (отпечаток именно этой
   // машины). Папка пользователя — стандартная userData этого приложения.
   ipcMain.handle('license:status', () => {

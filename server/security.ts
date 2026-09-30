@@ -69,7 +69,10 @@ export const socketAllowRequest = (req: { headers: Record<string, any> }, cb: (e
 // комментариями лежал по адресу, открытому без входа, любому в сети.
 export function isPrivateBuildFile(pathname: string): boolean {
   const p = decodeURIComponent(String(pathname || '')).toLowerCase();
-  return /(^|\/)server\.c?js(\.map)?$/.test(p) || /\.map$/.test(p) || /(^|\/)\.[^/]/.test(p);
+  // Скрытые файлы express.static не раздаёт и сам (dotfiles: ignore), а
+  // запрет «всего, что с точкой» ломал разработку: Vite отдаёт зависимости из
+  // /node_modules/.vite/
+  return /(^|\/)server\.c?js(\.map)?$/.test(p) || /\.map$/.test(p);
 }
 
 export function blockPrivateBuildFiles(req: Request, res: Response, next: NextFunction) {
