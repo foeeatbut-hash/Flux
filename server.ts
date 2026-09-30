@@ -76,11 +76,11 @@ import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite } from './server/sqliteSafety.js';
 import { allowsLocalSetup, requiresAdministrator } from './server/accessPolicy.js';
+import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
-// Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
-// legacy-паролем в открытом виде — он проверяется как есть и перехешируется при
-// первом успешном входе (см. /api/login), поэтому существующие учётки не ломаются.
+// Формат хранения: "scrypt$<saltHex>$<hashHex>". Открытые записи прежних версий
+// переводятся в хеш один раз на базу (server/security.ts) и при входе не принимаются.
 const PW_PREFIX = 'scrypt$';
 
 function hashPassword(plain: string): string {
@@ -107,8 +107,8 @@ function verifyPassword(plain: string, stored: string | null | undefined): boole
       return false;
     }
   }
-  // legacy: пароль хранится открытым текстом
-  return stored === String(plain);
+  // Открытый текст не принимается: его мог вписать любой, у кого есть база
+  return false;
 }
 
 // Разбор даты и ФИО переехал в server/routes/users.ts вместе с профилями
@@ -564,6 +564,7 @@ try {
     logInit('[Startup DB Feed Check] Verifying records in User table...');
     const userCount = await prisma.user.count();
     logInit(`[Startup DB Feed Check] Found ${userCount} users registered.`);
+    try { const n = await hashLegacyPasswords(prisma, hashPassword, isLegacyPassword); if (n) logInit(`[Security] Открытых паролей переведено в хеш: ${n}`); } catch (e: any) { logInit(`[Security] Перевод открытых паролей не выполнен: ${e?.message}`); }
     if (userCount === 0) {
       logInit('[Startup DB Feed] Seeding default administrator account...');
       await prisma.user.create({
@@ -611,6 +612,7 @@ try {
   // перестанут действовать после перезапуска, но авторизация работает
   authSecret = crypto.randomBytes(48).toString('hex');
 }
+setLinkSecret(authSecret); // им же подписываются ссылки на вложения
 
 const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
 // Старые сессии могли быть выданы мастер-входом: после обновления нужен обычный вход.
@@ -679,12 +681,8 @@ app.use(traceRequest);
 const PORT = Number(process.env.PORT) || 3000;
 
 const httpServer = createServer(app);
-const io = new SocketIOServer(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "DELETE"]
-  }
-});
+// Кого пускать, решает то же правило, что и для HTTP (server/security.ts)
+const io = new SocketIOServer(httpServer, { cors: { origin: true, methods: ['GET', 'POST', 'DELETE'] }, allowRequest: socketAllowRequest });
 
 traceSockets(io);
 // Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
@@ -721,27 +719,14 @@ registerSockets(io, {
   hiddenIds: () => hiddenOnline,
 });
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  // X-Flux-Trace и X-Flux-Interaction связывают запрос окна с работой сервера,
-  // X-Chunk-SHA256 несёт контрольную сумму куска файла. Без разрешения браузер
-  // не пропустит их предварительным запросом, и сломается это только там, где
-  // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256');
-  res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
+// Чужие сайты, большие тела без входа, файлы сборки — server/security.ts
+app.use(corsMiddleware, blockPrivateBuildFiles, earlyBodyGate(r => AUTH_EXEMPT.has(r), t => !!verifyAuthToken(t)));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
+app.use('/chat_files', chatFileGate(t => !!verifyAuthToken(t)), express.static(path.join(userDataPath, 'chat_files'), staticUploadOptions));
 // Картинки подписей: показываются в разделе; в отправленном письме они
 // уходят вложением с Content-ID, потому что снаружи этот адрес недоступен
-app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig')));
+app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig'), staticUploadOptions));
 
 // ── Проверка входа на каждом запросе к API ──────────────────────────────────
 // Открыты только вход, проверка готовности и конфиг БД для экрана входа.
@@ -1013,7 +998,7 @@ async function trustedNowFull(): Promise<{ now: number; tampered: boolean; sourc
 
 // Вход, проверка сессии и заполнение базы вынесены в server/routes/auth.ts
 registerAuthRoutes(app, {
-  hashPassword, verifyPassword, isLegacyPassword, issueAuthToken, rolePermissionsOf,
+  hashPassword, verifyPassword, issueAuthToken, rolePermissionsOf,
   trustedNowFull, trustedNowSync,
   isClockTampered: () => timeTampered,
 });
@@ -1511,7 +1496,7 @@ async function startServer() {
   // держится в памяти и обновляется только при смене переключателя
   void refreshHiddenOnline();
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, listenHost(), () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);
     // Подключённые ящики начинают ждать письма: раздел показывает новое сам,
     // без нажатия «Проверить»

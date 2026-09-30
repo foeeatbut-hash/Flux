@@ -205,7 +205,12 @@ export function registerMailComposeRoutes(app: Express, deps: ComposeDeps): void
 
       const subject = mode === 'FORWARD' ? forwardSubject(src.subject) : replySubject(src.subject);
       const when = new Date(src.sentAt).toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short' });
-      const who = src.fromName ? `${src.fromName} &lt;${src.fromAddr}&gt;` : src.fromAddr;
+      // Имя и адрес отправителя пишет сам отправитель — это чужой текст, как
+      // и тема. Без экранирования имя вида «<img onerror=…>» становилось
+      // разметкой в окне ответа и выполнялось в программе
+      const who = src.fromName
+        ? `${escapeHtml(src.fromName)} &lt;${escapeHtml(src.fromAddr || '')}&gt;`
+        : escapeHtml(src.fromAddr || '');
       const quote = mode === 'FORWARD'
         ? `<p>---------- Пересланное письмо ----------<br>От: ${who}<br>Дата: ${when}<br>Тема: ${escapeHtml(src.subject)}</p>`
         : `<p>${when}, ${who} пишет:</p>`;

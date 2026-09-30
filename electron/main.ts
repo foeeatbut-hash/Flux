@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess } from 'electron';
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
+import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
 import { setupCapture } from './capture';
 import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
@@ -37,19 +38,6 @@ if (!APPLY) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-
-// Prisma 7: клиент создается только через driver adapter, DATABASE_URL из env не читается
-function createDbClient(dbType: string, dbUrl: string) {
-  if (dbType === 'REMOTE') {
-    const { PrismaClient } = require('@prisma/client-pg');
-    const { PrismaPg } = require('@prisma/adapter-pg');
-    return new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) });
-  }
-  const { PrismaClient } = require('@prisma/client-sqlite');
-  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
-  // better-sqlite3 не понимает query-параметры в URL — отрезаем их
-  return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: dbUrl.split('?')[0], timeout: 15000 }) });
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -195,7 +183,18 @@ app.whenReady().then(() => {
       try {
         if (fs.existsSync(CONFIG_FILE)) parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {};
       } catch (e) { parsed = {}; }
-      parsed.remote_server_url = String(url || '').trim();
+      // Адрес сервера решает, кому окно отдаст пароль при входе. Принимаем
+      // только http(s) без логина в адресе — иначе строку в конфиг могла бы
+      // подложить что угодно, от file: до чужой схемы
+      const next = String(url || '').trim();
+      if (next) {
+        let u: URL;
+        try { u = new URL(next); } catch (_) { return { success: false, error: 'Адрес сервера не похож на адрес.' }; }
+        if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) {
+          return { success: false, error: 'Адрес сервера должен начинаться с http:// или https://.' };
+        }
+      }
+      parsed.remote_server_url = next;
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
       return { success: true };
     } catch (err: any) {
@@ -229,10 +228,14 @@ app.whenReady().then(() => {
     const localDbPath = resolveLocalDbPath(startupConfig.localDbPath);
     finalDbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
   } else {
-    finalDbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+    // Адреса «по умолчанию» с паролем здесь быть не должно: исходник читают, и
+    // пароль из него становится общим. Нет адреса — сервер скажет об этом сам
+    finalDbUrl = databaseUrlSetting;
   }
 
   process.env.DATABASE_URL = finalDbUrl;
+  // Встроенный сервер слушает только этот компьютер (server/security.ts, listenHost)
+  process.env.FLUX_EMBEDDED = '1';
 
   if (app.isPackaged && startupConfig.remoteServerUrl) {
     // Настроен сервер компании: встроенный Express не нужен — клиент ходит
@@ -293,42 +296,9 @@ app.whenReady().then(() => {
     }
   }
 
-  try {
-    const localPrisma = createDbClient(currentDbType, finalDbUrl);
-    
-    // PostgreSQL database connection check & safe Auto-Seed
-    (async () => {
-      try {
-        if (currentDbType === 'LOCAL') {
-          console.log('[Electron Main] Portable SQLite mode: Startup connection check skipped in Main process.');
-          return;
-        }
-        console.log('[Electron Main] Connecting to PostgreSQL and checking users...');
-        const count = await localPrisma.user.count();
-        if (count === 0) {
-          await localPrisma.user.create({
-            data: {
-              name: 'Главный Администратор (RaupovKhKh)',
-              symbol: 'RaupovKhKh',
-              password: '1122',
-              role: 'ADMIN',
-            }
-          });
-          console.log('[Electron Main] Auto-seeded initial ADMIN user (RaupovKhKh).');
-        } else {
-          console.log('[Electron Main] Database count check complete. Seeding not required.');
-        }
-      } catch (err: any) {
-        console.warn('[Electron Main] Connection/seeding skipped or failed:', err);
-      } finally {
-        try {
-          await localPrisma.$disconnect();
-        } catch (disErr) {}
-      }
-    })();
-  } catch (dbErr) {
-    console.warn('[Electron Main] Prisma client module loading skipped inside Electron main process context:', dbErr);
-  }
+  // Главный процесс в базу не ходит. Раньше он сам заводил администратора с
+  // паролем открытым текстом — в обход хеширования сервера, — а сервер делает
+  // первичное заполнение и так, уже с хешем
 
   // --- DATABASE FILE DIALOG HANDLER ---
   // Управление окном (кастомный заголовок, frame:false). Кнопки заголовка
@@ -609,6 +579,7 @@ app.whenReady().then(() => {
       fs.mkdirSync(dir, { recursive: true });
       const safe = String(p?.name || 'файл').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || 'файл';
       const full = path.join(dir, safe);
+      if (isRunnableFile(safe)) return { success: false, error: RUNNABLE_REFUSAL };
       // Путь обязан лежать внутри временной папки: имя пришло из базы, а туда
       // его когда-то записал человек
       if (!path.resolve(full).startsWith(path.resolve(dir) + path.sep)) {
@@ -693,6 +664,7 @@ app.whenReady().then(() => {
       if (resolved !== chatDir && !resolved.startsWith(chatDir + path.sep)) {
         return { success: false, error: 'Недопустимый путь к файлу.' };
       }
+      if (isRunnableFile(resolved)) return { success: false, error: RUNNABLE_REFUSAL };
       if (fs.existsSync(resolved)) {
         await shell.openPath(resolved);
         return { success: true };

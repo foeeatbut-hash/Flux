@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { getPrisma, notifyUser } from '../context.js';
+import { signLink, hardenFileResponse } from '../security.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -359,6 +360,32 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       res.status(500).json({ error: err.message });
     }
   });
+  /**
+   * Ссылка на вложение для внешнего браузера — на десять минут и только
+   * участнику переписки. Сам адрес вложения без подписи или токена больше не
+   * открывается (server/security.ts), поэтому переслать его «навсегда» нельзя.
+   */
+  app.get('/api/chat/file-link', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const me = (req as any).authUser;
+      const filePath = String(req.query.path || '');
+      if (!me || !filePath.startsWith('/chat_files/')) return res.status(400).json({ error: 'Не указан файл' });
+      const att = await prisma.chatAttachment.findMany({
+        where: { filePath },
+        select: { message: { select: { senderId: true, receiverId: true, chatGroup: { select: { members: { select: { id: true } } } } } } },
+        take: 20,
+      });
+      const mine = att.some((a: any) =>
+        a.message.senderId === me.id || a.message.receiverId === me.id ||
+        (a.message.chatGroup?.members || []).some((m: any) => m.id === me.id));
+      if (!mine && me.role !== 'ADMIN') return res.status(404).json({ error: 'Файл не найден' });
+      res.json({ url: signLink(filePath) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/chat_files/:id/:name', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
@@ -368,8 +395,10 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       }
       const buffer = Buffer.from(node.content, 'base64');
       const ext = path.extname(node.name).toLowerCase();
-      res.setHeader('Content-Type', CHAT_MIME[ext] || 'application/octet-stream');
+      const type = CHAT_MIME[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', type);
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(node.name)}`);
+      hardenFileResponse(res, type);
       res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { getPrisma } from '../context.js';
+import { maskDbUrl, unmaskDbUrl } from '../security.js';
 import { computeMachineId, licenseStatus, activateLicense } from '../../electron/license.js';
 import { snapshotSqlite } from '../sqliteSafety.js';
 import { watchAll as watchAllMail, stopAll as stopMailWatch } from '../mail/idle.js';
@@ -115,10 +116,11 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     const dbPath = resolveLocalDbPath(config);
     res.json({
       current_db_type: config.current_db_type,
-      database_url: config.database_url,
+      // Пароль базы наружу не уходит (server/security.ts)
+      database_url: maskDbUrl(config.database_url),
       databasePath: dbPath,
       isConfigured: true,
-      displayPath: config.current_db_type === 'LOCAL' ? dbPath : config.database_url,
+      displayPath: config.current_db_type === 'LOCAL' ? dbPath : maskDbUrl(config.database_url),
       defaultPath: path.join(appDataPath, 'database.sqlite'),
       local_db_path: config.local_db_path || '',
       crash_log_dir: config.crash_log_dir || ''
@@ -155,7 +157,8 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
   });
 
   app.post('/api/db/test', async (req: Request, res: Response) => {
-    const { current_db_type, database_url } = req.body;
+    const { current_db_type } = req.body;
+    const database_url = unmaskDbUrl(req.body?.database_url, loadAppConfig().database_url);
     if (current_db_type === 'LOCAL') {
       return res.json({
         success: true,
@@ -189,7 +192,8 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
 
   app.post('/api/db/switch', async (req: Request, res: Response) => {
     let prisma = getPrisma();
-    const { current_db_type, database_url, database_path } = req.body;
+    const { current_db_type, database_path } = req.body;
+    const database_url = unmaskDbUrl(req.body?.database_url, loadAppConfig().database_url);
   
     const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}"\n`;
     console.log('[DB Switch Request]', logMsg.trim());

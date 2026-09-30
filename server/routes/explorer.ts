@@ -293,7 +293,10 @@ app.get('/api/files/:id', async (req: Request, res: Response) => {
       include: { mainTags: true, createdBy: { select: { id: true, name: true } } },
       ...(metaOnly ? { omit: { content: true } } : {}),
     });
-    if (!file || file.deletedAt) return res.status(404).json({ error: 'Файл не найден' });
+    // Вложения чата лежат в той же таблице, но читаются только участниками
+    // переписки через /chat_files. По id отсюда их отдавать было нельзя: так
+    // любой вошедший открывал вложение чужого личного чата
+    if (!file || file.deletedAt || file.type === 'CHAT_FILE') return res.status(404).json({ error: 'Файл не найден' });
     res.json({ file });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

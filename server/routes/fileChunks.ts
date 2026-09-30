@@ -133,9 +133,11 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
     const prisma = getPrisma();
     try {
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      // Вложение чата — только через /chat_files, участникам переписки
+      if (!file || file.type === 'CHAT_FILE') return res.status(404).json({ error: 'Файл не найден' });
 
       res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name || 'file')}`);
 
       const parts = await prisma.fileChunk.findMany({
