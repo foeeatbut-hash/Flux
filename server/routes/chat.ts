@@ -3,6 +3,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { getPrisma, notifyUser } from '../context.js';
 import { signLink, hardenFileResponse } from '../security.js';
+import { mayEditGroup, ownerForNewGroup } from '../projectAccess.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -558,7 +559,12 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
   app.post('/api/chat/groups', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const { name, type, memberIds, description, color, ownerId } = req.body;
+      const { name, type, memberIds, description, color } = req.body;
+      const me = (req as any).authUser;
+      if (!me?.id) return res.status(401).json({ success: false, message: 'Требуется вход' });
+      // Владелец — создающий (из сессии): присланный ownerId позволял назначить
+      // владельцем кого угодно, а значит и записать чужой группе чужого хозяина
+      const ownerId = ownerForNewGroup(String(me.id), me.role === 'ADMIN', req.body?.ownerId);
       if (!name || !String(name).trim()) {
         return res.status(400).json({ error: 'Укажите название' });
       }
@@ -572,7 +578,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
           type: safeType,
           description: String(description || ''),
           color: String(color || 'indigo'),
-          ownerId: ownerId ? String(ownerId) : null,
+          ownerId,
           members: { connect: ids.map(id => ({ id })) },
         },
         include: { members: { select: { id: true, name: true, symbol: true, role: true } } },
@@ -588,15 +594,18 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
     const prisma = getPrisma();
     try {
       const { id } = req.params;
-      const { name, description, color, memberIds, ownerId, userId } = req.body;
-      const group = await prisma.chatGroup.findUnique({ where: { id }, include: { members: true } });
+      const { name, description, color, memberIds, ownerId } = req.body;
+      const me = (req as any).authUser;
+      if (!me?.id) return res.status(401).json({ success: false, message: 'Требуется вход' });
+      // Кто правит, решает сессия, а не userId из тела: без присланного userId
+      // проверка владельца пропускалась, и любой мог сменить ownerId чужой группы
+      const group = await prisma.chatGroup.findUnique({ where: { id }, select: { id: true, type: true, ownerId: true } });
       if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
       if (group.type === 'PROJECT') {
         return res.status(400).json({ success: false, message: 'Системную группу проекта изменить нельзя' });
       }
-      // менять может владелец или администратор
-      const editor = userId ? await prisma.user.findUnique({ where: { id: String(userId) } }) : null;
-      if (group.ownerId && userId && group.ownerId !== String(userId) && editor?.role !== 'ADMIN') {
+      // менять (и передавать владение) может владелец или администратор
+      if (!mayEditGroup(String(me.id), me.role === 'ADMIN', group.ownerId)) {
         return res.status(403).json({ success: false, message: 'Изменять может только владелец или администратор' });
       }
       const data: any = {};
@@ -622,14 +631,15 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
     const prisma = getPrisma();
     try {
       const { id } = req.params;
-      const userId = String(req.query.userId || '');
-      const group = await prisma.chatGroup.findUnique({ where: { id } });
+      const me = (req as any).authUser;
+      if (!me?.id) return res.status(401).json({ success: false, message: 'Требуется вход' });
+      // ?userId= из адреса игнорируется: владельца определяет сессия
+      const group = await prisma.chatGroup.findUnique({ where: { id }, select: { id: true, type: true, ownerId: true } });
       if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
       if (group.type === 'PROJECT') {
         return res.status(400).json({ success: false, message: 'Системную группу проекта удалить нельзя' });
       }
-      const editor = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
-      if (group.ownerId && userId && group.ownerId !== userId && editor?.role !== 'ADMIN') {
+      if (!mayEditGroup(String(me.id), me.role === 'ADMIN', group.ownerId)) {
         return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
       }
       await prisma.chatGroup.delete({ where: { id } });

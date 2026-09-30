@@ -972,8 +972,14 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
   }, []);
 
   const saveConflictMode = async (m: 'immediate' | 'wait') => {
+    const was = conflictMode;
     setConflictMode(m);
-    await fetch(api('/settings/equip_conflict_mode'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: null, value: m }) }).catch(() => {});
+    // Режим общий для отдела; отказ сервера не должен выглядеть как выбор
+    const res = await fetch(api('/settings/equip_conflict_mode'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: null, value: m }) }).catch(() => null);
+    if (!res?.ok) {
+      setConflictMode(was);
+      addToast?.(res?.status === 403 ? 'Режим для всех меняет администратор' : 'Не удалось сохранить режим', 'error');
+    }
   };
 
   const addCategory = async () => {
