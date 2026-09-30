@@ -54,6 +54,8 @@ export default function UpdaterWidget() {
   const [pubChangelog, setPubChangelog] = useState('');
   const [pubFile, setPubFile] = useState<File | null>(null);
   const [pubFileUrl, setPubFileUrl] = useState('');
+  // Подпись выпуска владельцем (файл .flux-sig): без неё обновление не ставится
+  const [pubSignature, setPubSignature] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
   /** Почему публикация не удалась — прямо в окне, а не всплывающей подсказкой */
   const [pubError, setPubError] = useState('');
@@ -153,6 +155,10 @@ export default function UpdaterWidget() {
       addToast(badVersion, 'error');
       return;
     }
+    if (!pubSignature.trim()) {
+      addToast('Приложите подпись выпуска (.flux-sig) — без неё обновление никто не поставит', 'error');
+      return;
+    }
     if (!pubFile && !pubFileUrl.trim()) {
       addToast('Выберите файл exe или укажите прямую ссылку', 'error');
       return;
@@ -181,7 +187,7 @@ export default function UpdaterWidget() {
       const res = await fetch('/api/updates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version, changelog: pubChangelog, fileUrl: pubFileUrl.trim() }),
+        body: JSON.stringify({ version, changelog: pubChangelog, fileUrl: pubFileUrl.trim(), signature: pubSignature.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Сервер ответил ${res.status}`);
@@ -209,6 +215,7 @@ export default function UpdaterWidget() {
       setShowPublishModal(false);
       setPubChangelog('');
       setPubFile(null);
+      setPubSignature('');
       void check(true);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
@@ -407,6 +414,14 @@ export default function UpdaterWidget() {
               <input ref={fileInputRef} type="file" accept=".exe" onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
                 className="text-xs text-slate-700 dark:text-slate-300 file:mr-2 file:border file:border-slate-300 file:rounded file:px-2 file:py-1 file:bg-transparent file:cursor-pointer" />
               {pubFile && <span className="fx-hint">{pubFile.name} · {formatSize(pubFile.size)} — будет загружен на сервер</span>}
+            </Field>
+            <Field label="Подпись выпуска (.flux-sig)">
+              <input type="file" accept=".flux-sig,.txt"
+                onChange={async (e) => { const f = e.target.files?.[0]; setPubSignature(f ? (await f.text()).trim() : ''); }}
+                className="text-xs text-slate-700 dark:text-slate-300 file:mr-2 file:border file:border-slate-300 file:rounded file:px-2 file:py-1 file:bg-transparent file:cursor-pointer" />
+              <span className="fx-hint">
+                {pubSignature ? 'Подпись приложена — сервер сверит её с файлом.' : 'Создаётся на компьютере владельца: node tools/update-sign.mjs sign …'}
+              </span>
             </Field>
             <Field label="Или прямая ссылка (если файл не загружаете)">
               <Input value={pubFileUrl} onChange={(e) => setPubFileUrl(e.target.value)} placeholder="https://…/Flux-Setup.exe (необязательно)" className="code" />

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { INVOKE_CHANNELS, SEND_CHANNELS, LISTEN_CHANNELS, refused } from './ipcAllow';
 
 // ── Сколько окно ждало ответа от главного процесса ──────────────────────────
 //
@@ -63,23 +64,32 @@ contextBridge.exposeInMainWorld('electron', {
   /** Открыть файл программой Windows — для того, чему своей программы нет */
   openFileExternally: (p: { name: string; base64: string }) =>
     ipcRenderer.invoke('files:open-external', p),
+  // Общий мост — только по списку (electron/ipcAllow.ts): «любой канал»
+  // означал, что любая ошибка в окне получает всё, что умеет оболочка
   ipcRenderer: {
-    send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
+    send: (channel: string, ...args: any[]) => {
+      if (!SEND_CHANNELS.has(channel)) throw refused(channel);
+      ipcRenderer.send(channel, ...args);
+    },
     on: (channel: string, func: (...args: any[]) => void) => {
+      if (!LISTEN_CHANNELS.has(channel)) throw refused(channel);
       const subscription = (event: any, ...args: any[]) => func(...args);
       ipcRenderer.on(channel, subscription);
       return () => {
         ipcRenderer.removeListener(channel, subscription);
       };
     },
-    invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+    invoke: (channel: string, ...args: any[]) => {
+      if (!INVOKE_CHANNELS.has(channel)) return Promise.reject(refused(channel));
+      return ipcRenderer.invoke(channel, ...args);
+    },
   },
   saveLog: (text: string) => ipcRenderer.invoke('log:save-dialog', text),
   emergencySave: (text: string) => ipcRenderer.send('log:emergency-save', text),
   
   // Автообновления: проверка и публикация идут через HTTP API сервера
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
-  startDownload: (data: { url: string; version: string; token?: string; server?: string }) =>
+  startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string }) =>
     ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),

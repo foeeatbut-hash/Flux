@@ -14,6 +14,7 @@
 import type { Express, Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
+import { FILE_NOT_FOUND, canReadFile } from '../fileAccess.js';
 import { fileBytes } from './fileChunks.js';
 import { writeOfficeFile } from './officeFiles.js';
 import { createFileFromBytes, homeOfFile, exportsHome } from '../officeStore.js';
@@ -30,9 +31,11 @@ const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 async function readable(req: Request, id: string) {
   const user = (req as any).authUser;
-  const file = await getPrisma().fileNode.findUnique({ where: { id } });
-  if (!file || file.deletedAt) return { error: [404, 'Файл не найден'] as const };
-  if (file.scope === 'PERSONAL' && file.ownerId && file.ownerId !== user?.id) return { error: [403, 'Это чужой личный файл'] as const };
+  const prisma = getPrisma();
+  const file = await prisma.fileNode.findUnique({ where: { id } });
+  // Чужой личный файл — «не найден», а не «чужой»: второй ответ подтверждал бы,
+  // что номер существует
+  if (!file || file.deletedAt || !(await canReadFile(prisma, user, file))) return { error: [404, FILE_NOT_FOUND] as const };
   const kind = kindOfName(file.name || '');
   if (!kind) return { error: [400, 'Английская версия делается для файлов Word (.docx) и Excel (.xlsx)'] as const };
   return { file, kind };
@@ -67,8 +70,12 @@ export function registerOfficeEnglishRoutes(app: Express, deps: OfficeEnglishDep
   app.get('/api/office/files/:id/english', async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
-      const l = await linkOf(id);
-      if (!l) return res.json({ link: null });
+      // Связь раскрывает имена оригинала и перевода: спрашивать её о файле,
+      // которого человек не видит, нельзя — как и отдавать пару, где второй файл скрыт
+      const user = (req as any).authUser;
+      const prisma = getPrisma();
+      const l = (await canReadFile(prisma, user, id)) ? await linkOf(id) : null;
+      if (!l || !(await canReadFile(prisma, user, l.src)) || !(await canReadFile(prisma, user, l.dst))) return res.json({ link: null });
       const kind = kindOfName(l.src.name || '');
       const now = kind ? (await listFileSegments(await fileBytes(l.src), kind)).fingerprint : '';
       res.json({

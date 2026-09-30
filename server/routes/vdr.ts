@@ -490,7 +490,9 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.get('/api/vdr/attention', async (req: Request, res: Response) => {
     try {
       const projectId = String(req.query.projectId || '');
-      const userId = String(req.query.userId || '');
+      // «Адресованные мне» считаются для вошедшего: `?userId=` позволял
+      // выяснять чужие замечания, подставив номер коллеги
+      const userId = String((req as any).authUser?.id || '');
       if (!projectId) return res.json({ overdue: 0, soon: 0, remarks: 0, items: [] });
 
       const now = new Date();

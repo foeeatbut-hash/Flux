@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
 import { applyScopeRecursive } from './explorer.js';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
+import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canWriteFile, getMainAdminId, personalScopeWhere } from '../fileAccess.js';
 
 // Рабочий стол.
 //
@@ -40,6 +41,7 @@ export function registerDesktopRoutes(app: Express): void {
       const me = deskOwner(req);
       const shared = await ensureDeskFolder(projectId, 'SHARED', null);
       const personal = me ? await ensureDeskFolder(projectId, 'PERSONAL', me) : null;
+      const mainAdminId = await getMainAdminId(prisma);
       const ids = [shared.id, ...(personal ? [personal.id] : [])];
 
       const [files, folders, trashCount] = await Promise.all([
@@ -49,7 +51,12 @@ export function registerDesktopRoutes(app: Express): void {
         prisma.fileNode.findMany({
           where: { folderId: { in: ids }, deletedAt: null },
           orderBy: { name: 'asc' },
-          include: { mainTags: true, updatedBy: true, createdBy: true },
+          // Не `true`: связь отдала бы всю запись сотрудника, с хешем пароля
+          include: {
+            mainTags: true,
+            updatedBy: { select: { id: true, name: true, symbol: true } },
+            createdBy: { select: { id: true, name: true, symbol: true } },
+          },
         }),
         prisma.folder.findMany({
           where: { parentId: { in: ids }, deletedAt: null },
@@ -59,8 +66,10 @@ export function registerDesktopRoutes(app: Express): void {
         // Считаем и папки — в корзине Проводника лежат и они, и показывать
         // «пусто» на непустой корзине нельзя
         Promise.all([
-          prisma.fileNode.count({ where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } } }),
-          prisma.folder.count({ where: { projectId, deletedAt: { not: null } } }),
+          // Считаем только то, что человеку видно в корзине: чужие удалённые
+          // личные файлы в число не входят (и не выдают, что они были)
+          prisma.fileNode.count({ where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' }, ...personalScopeWhere(authUserOf(req), mainAdminId) } }),
+          prisma.folder.count({ where: { projectId, deletedAt: { not: null }, ...personalScopeWhere(authUserOf(req), mainAdminId) } }),
         ]).then(([f, d]: number[]) => f + d),
       ]);
 
@@ -100,6 +109,16 @@ export function registerDesktopRoutes(app: Express): void {
       const id = String(req.body?.id || '');
 
       const file = await prisma.fileNode.findFirst({ where: { id } });
+      // Переносить можно только то, что человеку видно и что он вправе менять.
+      // Раньше номер чужого личного файла или папки принимался как есть, и
+      // перенос «на свой стол» делал вызывающего его владельцем (ownerId ниже
+      // берётся из сессии) — то есть отнимал файл у хозяина
+      if (file && !(await canWriteFile(prisma, authUserOf(req), file))) {
+        return res.status(404).json({ error: FILE_NOT_FOUND });
+      }
+      if (!file && !(await canAccessFolder(prisma, authUserOf(req), id))) {
+        return res.status(404).json({ error: FOLDER_NOT_FOUND });
+      }
       if (file) {
         // Забрать с общего стола чужое нельзя: положивший его коллега не должен
         // однажды обнаружить, что документ уехал в чей-то личный раздел

@@ -5,6 +5,7 @@ import { getPrisma } from '../context.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
+import { canSeeProject, hiddenProjectsOf } from './members.js';
 
 // Теги проекта: список и ручное создание, массовый импорт, захват с экрана
 // (применение и отмена), разбор Excel/XML, системы и привязка тегов к
@@ -19,6 +20,16 @@ interface TagDeps {
   /** Уведомление всей команде (кроме `exceptUserId`); нужно и проектам, поэтому остаётся в server.ts */
   notifyAll: (category: string, title: string, body?: string, targetRoute?: string, exceptUserId?: string) => Promise<void>;
 }
+
+// Проект «по умолчанию» (адрес без названного проекта) общий страж по адресу не
+// видит: он проверяет только названные проекты. Разрешённое имя проверяем здесь,
+// после того как оно определилось, — иначе посторонний получал данные закрытого
+// первого проекта.
+async function mayUseProject(req: Request, projectId: string): Promise<boolean> {
+  const me = (req as any).authUser;
+  return canSeeProject(String(me?.id || ''), projectId, me?.role === 'ADMIN');
+}
+const NO_PROJECT = { error: 'Нет доступа к проекту. Попросите добавить вас в состав.' };
 
 export function registerTagRoutes(app: Express, deps: TagDeps): void {
   const { io, notifyAll } = deps;
@@ -40,8 +51,13 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       } as const;
       let tags;
       if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-        tags = await prisma.tag.findMany({ include });
+        // «Все теги» без проекта раньше отдавали и закрытые проекты: скрытые от
+        // человека проекты исключаем
+        const me = (req as any).authUser;
+        const hidden = await hiddenProjectsOf(String(me?.id || ''), me?.role === 'ADMIN');
+        tags = await prisma.tag.findMany({ where: hidden.length ? { projectId: { notIn: hidden } } : undefined, include });
       } else {
+        if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
         tags = await prisma.tag.findMany({ where: { projectId }, include });
       }
       res.json({ tags });
@@ -63,6 +79,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         }
         projectId = firstProject.id;
       }
+      if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const tag = await prisma.tag.create({
         data: {
           projectId,
@@ -110,6 +127,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } }); projectId = fp.id;
       }
+      if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const existing = await prisma.tag.findMany({ where: { projectId } });
       const byCode = new Map<string, any>();
       const codeToId = new Map<string, string>();
@@ -191,6 +209,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } });
         projectId = fp.id;
       }
+      if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const existing = await prisma.tag.findMany({ where: { projectId } });
       const byId = new Map(existing.map((t: any) => [t.id, t]));
 
@@ -364,6 +383,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         }
         projectId = firstProject.id;
       }
+      if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
 
       const buffer = Buffer.from(fileContent, 'base64');
       const extension = fileName.split('.').pop()?.toLowerCase();
@@ -446,6 +466,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         }
         projectId = firstProject.id;
       }
+      if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const systems = await prisma.equipmentSystem.findMany({
         where: { projectId },
         include: {

@@ -47,11 +47,20 @@ export default function TagsSection({ addToast }: any) {
   }, []);
 
   const save = async (key: 'registry_link_mode' | 'tree_link_mode', m: 'click' | 'drag') => {
-    if (key === 'registry_link_mode') setCanvasMode(m); else setTreeMode(m);
-    await fetch(`/api/settings/${key}`, {
+    const set = key === 'registry_link_mode' ? setCanvasMode : setTreeMode;
+    const was = key === 'registry_link_mode' ? canvasMode : treeMode;
+    set(m);
+    // Способ связей общий для всех, и меняет его администратор. Раньше ответ
+    // сервера не читался, и отказ показывался как «сохранено»
+    const res = await fetch(`/api/settings/${key}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: null, value: m }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!res?.ok) {
+      set(was);
+      addToast?.(res?.status === 403 ? 'Способ связей для всех меняет администратор' : 'Не удалось сохранить способ связей', 'error');
+      return;
+    }
     try { window.dispatchEvent(new CustomEvent('flux:settings-changed', { detail: { key, value: m } })); } catch (_) {}
     addToast?.('Способ создания связей сохранён', 'success');
   };

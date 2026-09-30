@@ -1,6 +1,16 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { ensureDiskProject, ensureDiskRoot } from '../systemFolders.js';
+import {
+  FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile, getMainAdminId,
+  hiddenProjectIds, isFileOwnerOrAdmin, patchFileFields, personalScopeWhere,
+} from '../fileAccess.js';
+
+// Кто и какой файл видит — server/fileAccess.ts: одно правило и для списка, и
+// для каждого маршрута, что берёт файл по номеру.
+
+/** Безопасные поля сотрудника для подписи «кто изменил»: без хеша пароля */
+const WHO = { select: { id: true, name: true, symbol: true } };
 
 // Проводник: папки, файлы и корзина проекта.
 //
@@ -101,44 +111,33 @@ async function projectOfFile(fileId: string): Promise<string | null> {
 }
 
 // Folders & Files (Explorer)
-// «Главный Администратор» — единственный: самый первый созданный пользователь с ролью ADMIN.
-// Пользователи, которым админ выдал права/роль позже, главными не считаются.
-async function getMainAdminId(): Promise<string | null> {
-  const prisma = getPrisma();
-  try {
-    const admin = await prisma.user.findFirst({
-      where: { role: 'ADMIN' },
-      orderBy: { createdAt: 'asc' }
-    });
-    return admin ? admin.id : null;
-  } catch {
-    return null;
-  }
-}
 
 app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   const { projectId } = req.params;
-  const actorId = String(req.query.actorId || '');
+  // Кто смотрит — только из сессии. Раньше это был `?actorId=` из запроса: подставив
+  // номер Главного Администратора, любой вошедший получал все личные разделы
+  const me = (req as any).authUser || null;
+  const actorId = String(me?.id || '');
   try {
-    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default')
-      ? {}
-      : { projectId };
+    const specific = !(!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default');
+    // Проекты с составом, куда человека не звали, в списке не показываются —
+    // так же, как в переключателе проектов: иначе файлы такого проекта видны
+    // в Проводнике при закрытом самом проекте
+    const hidden = await hiddenProjectIds(prisma, me);
+    const hiddenHere = specific && hidden.includes(projectId);
+    const projectWhere = specific ? { projectId } : hidden.length ? { projectId: { notIn: hidden } } : {};
 
     // Диск заводим ДО запроса дерева: иначе при самом первом открытии его
     // корень в ответ не попадёт, и диск покажется пустым
     const diskProjectId = await ensureDiskProject();
     const diskRoot = await ensureDiskRoot();
 
-    const mainAdminId = await getMainAdminId();
+    const mainAdminId = await getMainAdminId(prisma);
     const isMainAdmin = !!actorId && actorId === mainAdminId;
 
     // Личные папки/файлы видит только их владелец; Главный Администратор видит все
-    const scopeWhere = isMainAdmin
-      ? {}
-      : actorId
-        ? { OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: actorId }] }
-        : { scope: { not: 'PERSONAL' } };
+    const scopeWhere = personalScopeWhere(me, mainAdminId);
 
     // Удалённое лежит в корзине и в обычных списках не показывается
     // Содержимое в дерево не кладём. Раньше оно ехало вместе со списком — на
@@ -147,19 +146,20 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
     // вовсе нет. Предпросмотр берёт байты сам, по одному файлу
     const filesOmit = { omit: { content: true } };
     const folders = await prisma.folder.findMany({
-      where: { ...projectWhere, ...scopeWhere, deletedAt: null },
+      where: { ...projectWhere, ...scopeWhere, deletedAt: null, ...(hiddenHere ? { id: { in: [] as string[] } } : {}) },
       include: {
         files: {
           where: { deletedAt: null },
           ...filesOmit,
-          include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true },
+          // Не `true`: связь отдала бы всю запись сотрудника, с хешем пароля
+          include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO },
         },
       },
     });
     const rootFiles = await prisma.fileNode.findMany({
       where: { folderId: null, type: { not: 'CHAT_FILE' }, deletedAt: null, ...scopeWhere },
       ...filesOmit,
-      include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true },
+      include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO },
     });
 
     // Главному Администратору отдаём список владельцев для подписей личных разделов
@@ -180,6 +180,32 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
   }
 });
 
+/**
+ * Что из корзины видно этому человеку.
+ *
+ * Корзина брала все удалённые записи проекта, включая личные файлы других
+ * сотрудников: имена и размеры чужого личного раздела читались из «мусора», а
+ * «Очистить корзину» стирала чужое безвозвратно. Теперь корзина показывает и
+ * чистит только то, что человеку видно в самом Проводнике.
+ */
+async function trashWhere(req: Request, projectId: string) {
+  const prisma = getPrisma();
+  const me = (req as any).authUser || null;
+  const specific = !(!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default');
+  const hidden = await hiddenProjectIds(prisma, me);
+  const projectWhere: any = specific ? { projectId } : hidden.length ? { projectId: { notIn: hidden } } : {};
+  const sc = personalScopeWhere(me, await getMainAdminId(prisma));
+  const restricted = Object.keys(sc).length > 0;
+  return {
+    empty: specific && hidden.includes(projectId),
+    folders: { ...projectWhere, deletedAt: { not: null }, ...sc },
+    files: {
+      deletedAt: { not: null }, type: { not: 'CHAT_FILE' },
+      AND: [trashFileWhere(projectWhere), ...(restricted ? [sc, { OR: [{ folderId: null }, { folder: sc }] }] : [])],
+    },
+  };
+}
+
 app.post('/api/folders', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
@@ -194,12 +220,22 @@ app.post('/api/folders', async (req: Request, res: Response) => {
       projectId = firstProject.id;
     }
     if (await deniedOnDisk(req, res, projectId)) return;
+    // Создать папку внутри чужой личной (или в скрытом проекте) нельзя: раньше
+    // родитель не проверялся, и подпапка наследовала чужого владельца — так
+    // можно было засорить чужой личный раздел, зная номер папки
+    if (parentId && !(await canAccessFolder(prisma, (req as any).authUser, String(parentId)))) {
+      return res.status(404).json({ error: FOLDER_NOT_FOUND });
+    }
     // Вложенные папки наследуют раздел (общий/личный) родителя
     if (parentId) {
       const parent = await prisma.folder.findUnique({ where: { id: parentId } });
       if (parent) {
         scope = (parent as any).scope || 'SHARED';
         ownerId = (parent as any).ownerId || null;
+      } else {
+        // Родителя нет — наследовать нечего, а владелец из тела запроса не
+        // доверяется: личная папка принадлежит тому, кто вошёл
+        ownerId = null;
       }
     }
     // Владелец личной папки — только тот, кто вошёл. Раньше идентификатор
@@ -212,7 +248,7 @@ app.post('/api/folders', async (req: Request, res: Response) => {
       data: {
         name, projectId, parentId,
         scope: isPersonal ? 'PERSONAL' : 'SHARED',
-        ownerId: isPersonal ? (parentId ? (ownerId || null) : actorId) : null
+        ownerId: isPersonal ? (parentId ? (ownerId || actorId) : actorId) : null
       }
     });
     res.json({ folder });
@@ -225,13 +261,22 @@ app.patch('/api/folders/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   // Системные папки (напр. «Конструктор») переименовывать/переносить нельзя
   const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if (!target || !(await canAccessFolder(prisma, (req as any).authUser, req.params.id))) {
+    return res.status(404).json({ error: FOLDER_NOT_FOUND });
+  }
   if ((target as any)?.system && ('name' in req.body || 'parentId' in req.body)) {
     return res.status(403).json({ error: 'Это системная папка — её нельзя переименовать или переместить.' });
   }
   if (await deniedOnDisk(req, res, (target as any)?.projectId)) return;
+  // Раньше тело уходило в Prisma целиком: через PATCH папке меняли scope,
+  // ownerId и projectId — то есть забирали чужую личную папку или уводили её
+  // в другой проект. Переименование — единственное, что делает окно; перенос
+  // идёт отдельным маршрутом с проверкой (/api/files/copy)
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name) return res.status(400).json({ error: 'Нужно новое имя папки' });
   const folder = await prisma.folder.update({
     where: { id: req.params.id },
-    data: req.body,
+    data: { name },
     include: { files: { include: { mainTags: true, additionalTags: true } } }
   });
   res.json({ folder });
@@ -240,6 +285,9 @@ app.patch('/api/folders/:id', async (req: Request, res: Response) => {
 app.delete('/api/folders/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if (!target || !(await canAccessFolder(prisma, (req as any).authUser, req.params.id))) {
+    return res.status(404).json({ error: FOLDER_NOT_FOUND });
+  }
   if ((target as any)?.system) {
     return res.status(403).json({ error: 'Это системная папка — её нельзя удалить.' });
   }
@@ -247,9 +295,10 @@ app.delete('/api/folders/:id', async (req: Request, res: Response) => {
   // Мягкое удаление: папка со всем содержимым уходит в корзину и
   // восстанавливается целиком. Файлы внутри не трогаем — они скрыты
   // вместе с папкой и вернутся вместе с ней.
+  // Кто удалил — из сессии: `actorId` из запроса позволял записать удаление на другого
   await prisma.folder.update({
     where: { id: req.params.id },
-    data: { deletedAt: new Date(), deletedById: String(req.query.actorId || req.body?.actorId || '') || null },
+    data: { deletedAt: new Date(), deletedById: (req as any).authUser?.id || null },
   });
   res.json({ success: true, trashed: true });
 });
@@ -261,11 +310,12 @@ app.get('/api/projects/:projectId/trash', async (req: Request, res: Response) =>
   const prisma = getPrisma();
   try {
     const { projectId } = req.params;
-    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') ? {} : { projectId };
+    const w = await trashWhere(req, projectId);
+    if (w.empty) return res.json({ folders: [], files: [] });
     const [folders, files] = await Promise.all([
-      prisma.folder.findMany({ where: { ...projectWhere, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } }),
+      prisma.folder.findMany({ where: w.folders, orderBy: { deletedAt: 'desc' } }),
       prisma.fileNode.findMany({
-        where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' }, ...trashFileWhere(projectWhere) },
+        where: w.files,
         orderBy: { deletedAt: 'desc' },
         include: { mainTags: true, additionalTags: true },
       }),
@@ -293,7 +343,15 @@ app.get('/api/files/:id', async (req: Request, res: Response) => {
       include: { mainTags: true, createdBy: { select: { id: true, name: true } } },
       ...(metaOnly ? { omit: { content: true } } : {}),
     });
-    if (!file || file.deletedAt) return res.status(404).json({ error: 'Файл не найден' });
+    // Личное чужого и файл закрытого проекта — «не найден», как и несуществующий:
+    // отказ другими словами подтвердил бы, что такой номер есть
+    if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) {
+      return res.status(404).json({ error: FILE_NOT_FOUND });
+    }
+    // Вложения чата лежат в той же таблице, но читаются только участниками
+    // переписки через /chat_files. По id отсюда их отдавать было нельзя: так
+    // любой вошедший открывал вложение чужого личного чата
+    if (file.deletedAt || file.type === 'CHAT_FILE') return res.status(404).json({ error: FILE_NOT_FOUND });
     res.json({ file });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -301,6 +359,10 @@ app.get('/api/files/:id', async (req: Request, res: Response) => {
 app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
+    // Восстановить можно только то, что человеку видно; чужое — «не найдено»
+    if (!(await canWriteFile(prisma, (req as any).authUser, req.params.id))) {
+      return res.status(404).json({ error: FILE_NOT_FOUND });
+    }
     const file = await prisma.fileNode.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
     // Если папка файла тоже в корзине — возвращаем и её, иначе файл
     // «восстановится» в невидимое место.
@@ -317,6 +379,9 @@ app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
 app.post('/api/folders/:id/restore', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
+    if (!(await canAccessFolder(prisma, (req as any).authUser, req.params.id))) {
+      return res.status(404).json({ error: FOLDER_NOT_FOUND });
+    }
     await prisma.folder.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -326,11 +391,10 @@ app.delete('/api/projects/:projectId/trash', async (req: Request, res: Response)
   const prisma = getPrisma();
   try {
     const { projectId } = req.params;
-    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') ? {} : { projectId };
-    const files = await prisma.fileNode.deleteMany({
-      where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' }, ...trashFileWhere(projectWhere) },
-    });
-    const folders = await prisma.folder.deleteMany({ where: { ...projectWhere, deletedAt: { not: null } } });
+    const w = await trashWhere(req, projectId);
+    if (w.empty) return res.json({ success: true, files: 0, folders: 0 });
+    const files = await prisma.fileNode.deleteMany({ where: w.files });
+    const folders = await prisma.folder.deleteMany({ where: w.folders });
     res.json({ success: true, files: files.count, folders: folders.count });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -347,8 +411,10 @@ app.post('/api/files', async (req: Request, res: Response) => {
     type: typeof b.type === 'string' ? b.type : 'FILE',
     department: typeof b.department === 'string' ? b.department : 'Unassigned',
     content: typeof b.content === 'string' ? b.content : undefined,
-    createdById: b.createdById || null,
-    updatedById: b.updatedById || b.createdById || null,
+    // Автор — вошедший, а не тот, кого назвали в теле: иначе файл записывался
+    // «от имени» любого сотрудника, и в свойствах стоял чужой автор
+    createdById: (req as any).authUser?.id || null,
+    updatedById: (req as any).authUser?.id || null,
     // Откуда файл принесли из Windows: по этому пути выгрузка предложит ту же
     // папку, и файл, который ходит туда-сюда, ходит по одной тропинке
     ...(typeof b.origin === 'string' && b.origin ? { origin: b.origin.slice(0, 500) } : {}),
@@ -357,6 +423,11 @@ app.post('/api/files', async (req: Request, res: Response) => {
     ...(typeof b.statusCode === 'string' ? { statusCode: b.statusCode } : {}),
     ...(b.scope === 'PERSONAL' || b.scope === 'SHARED' ? { scope: b.scope } : {}),
   };
+  // Класть файл в чужую личную папку или в закрытый проект нельзя: он
+  // унаследовал бы чужого владельца, и вошедший писал бы в чужой раздел
+  if (data.folderId && !(await canAccessFolder(prisma, (req as any).authUser, data.folderId))) {
+    return res.status(404).json({ error: FOLDER_NOT_FOUND });
+  }
   // Файл внутри папки наследует её раздел (общий/личный)
   if (data.folderId) {
     try {
@@ -375,7 +446,7 @@ app.post('/api/files', async (req: Request, res: Response) => {
   if (await deniedOnDisk(req, res, await projectOfFolder(data.folderId))) return;
   const file = await prisma.fileNode.create({
     data,
-    include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
+    include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO }
   });
   res.json({ file });
 });
@@ -385,7 +456,23 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
   // targetScope/targetOwnerId передаются при перемещении в корень раздела «Общий»/«Личный».
   // При перемещении внутрь папки раздел наследуется от неё.
   const { ids, targetFolderId, isCut, targetScope, targetOwnerId } = req.body;
+  const me = (req as any).authUser || null;
   try {
+    // Всё, что переносят или копируют, и куда кладут, должно быть человеку
+    // видно. Раньше проверялся только общий диск: чужой личный файл можно было
+    // «перенести» в свой раздел (и стать его владельцем) или скопировать себе,
+    // зная номер. Проверка до первой записи: половина пачки не переезжает
+    const list: string[] = Array.isArray(ids) ? ids.map((x: any) => String(x)) : [];
+    for (const id of list) {
+      const isFile = await prisma.fileNode.findUnique({ where: { id }, select: { id: true } });
+      const okItem = isFile
+        ? (isCut ? await canWriteFile(prisma, me, id) : await canReadFile(prisma, me, id))
+        : await canAccessFolder(prisma, me, id);
+      if (!okItem) return res.status(404).json({ success: false, error: FILE_NOT_FOUND });
+    }
+    if (targetFolderId && !(await canAccessFolder(prisma, me, String(targetFolderId)))) {
+      return res.status(404).json({ success: false, error: FOLDER_NOT_FOUND });
+    }
     // Куда кладём — раз; откуда уносим при перемещении — два: унести чужое с
     // общего диска без права так же нельзя, как и положить туда своё
     if (await deniedOnDisk(req, res, await projectOfFolder(targetFolderId))) return;
@@ -405,10 +492,14 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
       }
     } else if (targetScope) {
       scope = targetScope === 'PERSONAL' ? 'PERSONAL' : 'SHARED';
-      ownerId = scope === 'PERSONAL' ? (targetOwnerId || null) : null;
+      // Владелец личного раздела — вошедший. Чужого назначить может только
+      // Главный Администратор, который и так видит все личные разделы; от
+      // остальных `targetOwnerId` делал бы вызывающего хозяином чужих файлов
+      const isMain = !!me?.id && me.id === await getMainAdminId(prisma);
+      ownerId = scope === 'PERSONAL' ? ((isMain && targetOwnerId) || me?.id || null) : null;
     }
 
-    for (const id of ids) {
+    for (const id of list) {
       if (isCut) {
         // Just move it
         const file = await prisma.fileNode.findUnique({ where: { id } });
@@ -452,29 +543,53 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
 
 app.patch('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
+  const me = (req as any).authUser || null;
+  const current = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
+    id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
+  } });
+  if (!current || !(await canWriteFile(prisma, me, current))) return res.status(404).json({ error: FILE_NOT_FOUND });
   if (await deniedOnDisk(req, res, await projectOfFile(req.params.id))) return;
-  const { mainTagIds, additionalTagIds, ...updateData } = req.body;
+  // Только известные поля (server/fileAccess.ts): тело запроса раньше шло в
+  // Prisma целиком, вместе со scope, ownerId и content
+  const patch = patchFileFields(req.body, {
+    actorId: String(me.id), current,
+    ownerOrAdmin: isFileOwnerOrAdmin(me, current),
+    actorIsMainAdmin: me.id === await getMainAdminId(prisma),
+  });
+  if (patch.error) return res.status(patch.error.status).json({ error: patch.error.message });
+  if (typeof patch.data.ownerId === 'string' && patch.data.ownerId !== me.id
+    && !(await prisma.user.findUnique({ where: { id: patch.data.ownerId }, select: { id: true } }))) {
+    return res.status(400).json({ error: 'Такого сотрудника нет' });
+  }
+  const { mainTagIds, additionalTagIds } = patch;
   const file = await prisma.fileNode.update({
     where: { id: req.params.id },
     data: {
-      ...updateData,
+      ...patch.data,
       ...(mainTagIds ? { mainTags: { set: mainTagIds.map((id: string) => ({ id })) } } : {}),
       ...(additionalTagIds ? { additionalTags: { set: additionalTagIds.map((id: string) => ({ id })) } } : {})
     },
-    include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
+    omit: { content: true },
+    include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO }
   });
   res.json({ file });
 });
 
 app.delete('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
-  const target = await prisma.fileNode.findUnique({ where: { id: req.params.id } });
+  const target = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
+    id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
+  } });
+  if (!target || !(await canWriteFile(prisma, (req as any).authUser, target))) {
+    return res.status(404).json({ error: FILE_NOT_FOUND });
+  }
   if (await deniedOnDisk(req, res, await projectOfFolder((target as any)?.folderId))) return;
   // Мягкое удаление: файл уходит в корзину проводника и восстановим.
   // Безвозвратно чистит только «Очистить корзину».
+  // Кто удалил — из сессии: `actorId` из запроса позволял записать удаление на другого
   await prisma.fileNode.update({
     where: { id: req.params.id },
-    data: { deletedAt: new Date(), deletedById: String(req.query.actorId || req.body?.actorId || '') || null },
+    data: { deletedAt: new Date(), deletedById: (req as any).authUser?.id || null },
   });
   res.json({ success: true, trashed: true });
 });

@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from 'express';
+import crypto from 'crypto';
 import { getPrisma } from '../context.js';
+import { loginWait, loginFailed, loginSucceeded, LOGIN_REFUSED, waitText } from '../security.js';
 
 // Вход, проверка сессии и начальное заполнение базы.
 //
@@ -11,8 +13,6 @@ import { getPrisma } from '../context.js';
 interface AuthDeps {
   hashPassword: (plain: string) => string;
   verifyPassword: (plain: string, stored: string | null | undefined) => boolean;
-  /** Пароль в открытом виде, оставшийся от старых версий: его перехешируют при входе */
-  isLegacyPassword: (stored: string | null | undefined) => boolean;
   /** Подписанный токен сессии: его клиент шлёт в Authorization */
   issueAuthToken: (userId: string) => string;
   /** Права роли отдаются вместе с профилем при входе */
@@ -27,9 +27,12 @@ interface AuthDeps {
 
 export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   const {
-    hashPassword, verifyPassword, isLegacyPassword, issueAuthToken, rolePermissionsOf,
+    hashPassword, verifyPassword, issueAuthToken, rolePermissionsOf,
     trustedNowFull, trustedNowSync, isClockTampered,
   } = deps;
+
+  // Хеш-приманка для входа несуществующим логином: считается ради времени ответа
+  const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
 
   // Users
   app.post('/api/login', async (req: Request, res: Response) => {
@@ -37,6 +40,15 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
     const { symbol, password } = req.body;
 
     const normSymbol = String(symbol || '').trim();
+    const addr = String(req.socket.remoteAddress || '');
+
+    // Перебор пароля: после нескольких промахов подряд ответ приходит только
+    // через паузу, и пауза растёт (server/security.ts)
+    const wait = loginWait(normSymbol, addr);
+    if (wait > 0) {
+      res.setHeader('Retry-After', String(Math.ceil(wait / 1000)));
+      return res.status(429).json({ success: false, message: waitText(wait) });
+    }
 
     // Попытка авторизации через локальную БД, если БД вообще была создана/готова
     try {
@@ -49,18 +61,11 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
         user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
       }
       if (user) {
-        // Проверка пароля: поддерживаются и хешированные, и legacy-пароли в открытом виде
+        // Принимается только хеш: открытые записи переведены при старте сервера
         const isPasswordCorrect = verifyPassword(String(password), user.password);
 
         if (isPasswordCorrect) {
-          // Миграция: старый открытый пароль перехешируем при первом успешном входе
-          if (isLegacyPassword(user.password)) {
-            try {
-              await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(String(password)) } });
-            } catch (migErr) {
-              console.warn('[Login] Не удалось перехешировать legacy-пароль:', migErr);
-            }
-          }
+          loginSucceeded(normSymbol);
           // Контроль доступа: профиль может быть отключен администратором или просрочен
           if (user.isActive === false) {
             return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
@@ -93,10 +98,17 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
           // Токен сессии: клиент шлёт его в Authorization на каждом запросе
           return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
         } else {
-          return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
+          loginFailed(normSymbol, addr);
+          return res.status(401).json({ success: false, message: LOGIN_REFUSED });
         }
       } else {
-        return res.status(401).json({ success: false, message: 'Пользователь с таким логином не зарегистрирован в системе!' });
+        // Хеш считается и здесь: без него «нет такого логина» отвечал заметно
+        // быстрее, чем «не тот пароль», и время ответа выдавало то же самое
+        verifyPassword(String(password), DUMMY_HASH);
+        // Тот же ответ, что и на неверный пароль: разные ответы выдавали,
+        // какие логины в программе есть, — половину подбора
+        loginFailed(normSymbol, addr);
+        return res.status(401).json({ success: false, message: LOGIN_REFUSED });
       }
     } catch (dbErr: any) {
       console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
@@ -111,7 +123,9 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   // фронтенд опрашивает и принудительно завершает сессию, если доступ отозван
   app.get('/api/auth/check', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const userId = String(req.query.userId || '');
+    // Проверяется профиль вошедшего, а не названный в запросе: иначе по номеру
+    // можно было выяснять состояние чужой учётной записи (отключена, срок вышел)
+    const userId = String((req as any).authUser?.id || '');
     if (!userId) {
       return res.json({ valid: false, reason: 'Не указан идентификатор пользователя.' });
     }

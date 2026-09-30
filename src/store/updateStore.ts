@@ -22,6 +22,8 @@ export interface Release {
   changelog: string;
   fileUrl: string;
   size?: number;
+  /** Подпись владельца программы (FLUXUPD1…); без неё обновление не ставится */
+  signature?: string;
 }
 
 /** Опубликованный релиз, у которого на сервере нет файла */
@@ -107,7 +109,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         return;
       }
       set({
-        latest: { version: d.version, changelog: d.changelog || '', fileUrl: d.fileUrl || '', size: d.size },
+        latest: { version: d.version, changelog: d.changelog || '', fileUrl: d.fileUrl || '', size: d.size, signature: d.signature || '' },
         phase: 'available',
         seen: false,
         error: '',
@@ -147,7 +149,8 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
 
     set({ phase: 'downloading', percent: 0, error: '' });
     try {
-      await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base });
+      // Подпись владельца проверяет главный процесс до запуска (electron/updateSignature.ts)
+      await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base, signature: latest.signature || '' });
     } catch (err: any) {
       // Причину уже прислал главный процесс через onUpdaterError; здесь она
       // повторяется на случай, если событие не дошло

@@ -18,6 +18,8 @@
 import type { Express, Request, Response } from 'express';
 import { CHUNK_MAX, CHUNK_MIN, chunkSizeFor } from './limits.js';
 import express from 'express';
+import crypto from 'crypto';
+import { readUpdateSignature } from '../electron/updateSignature.js';
 import path from 'path';
 import fs from 'fs';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
@@ -111,9 +113,11 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       for (const upd of list) state.set(upd.version, await availability(upd.version, upd.fileUrl));
       const { release, broken } = pickRelease(list, (r: any) => state.get(r.version)!);
       if (!release) return res.json({ version: null, broken });
+      const sig = await deps.getPrisma().appSetting.findFirst({ where: { key: `update.sig.${release.version}`, userId: null } }).catch(() => null);
       res.json({
         version: release.version, changelog: release.changelog, fileUrl: release.fileUrl,
         size: state.get(release.version)?.size || 0, createdAt: release.createdAt, broken,
+        signature: sig?.value || '',
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Не удалось получить сведения об обновлении' });
@@ -349,7 +353,33 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       });
     }
     const fileUrl = (onDisk || inDb) ? `/api/updates/download/${version}` : external;
+    /**
+     * Подпись владельца обязательна. Проверяет её главный процесс каждого
+     * сотрудника перед запуском — здесь она сверяется заранее, чтобы
+     * публикующий узнал о негодной подписи сразу, а не от всего отдела.
+     * Хранится рядом с выпуском: подделать её, дописав в базу, нельзя — нужен
+     * закрытый ключ, которого на сервере нет.
+     */
+    const signature = String(req.body?.signature || '').trim();
+    const signed = readUpdateSignature(signature);
+    if (!signed) {
+      return res.status(400).json({ error: 'Нужна подпись выпуска владельца программы (файл .flux-sig из tools/update-sign.mjs). Без неё обновление никто не поставит.' });
+    }
+    if (signed.version !== version) {
+      return res.status(400).json({ error: `Подпись относится к версии ${signed.version}, а публикуется ${version}.` });
+    }
+    if (onDisk) {
+      const buf = fs.readFileSync(updateFilePath(version));
+      const sha = crypto.createHash('sha256').update(buf).digest('hex');
+      if (buf.length !== signed.size || sha !== signed.sha256) {
+        return res.status(400).json({ error: 'Подпись не подходит к загруженному файлу: exe не тот, что подписан.' });
+      }
+    }
     try {
+      // Уникальность по (key, userId=NULL) базы понимают по-разному — поэтому
+      // не upsert, а «убрать прежнюю и записать»
+      await deps.getPrisma().appSetting.deleteMany({ where: { key: `update.sig.${version}`, userId: null } });
+      await deps.getPrisma().appSetting.create({ data: { key: `update.sig.${version}`, userId: null, value: signature } });
       const update = await deps.getPrisma().appUpdate.upsert({
         where: { version },
         update: { changelog, fileUrl },

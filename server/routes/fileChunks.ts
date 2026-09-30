@@ -19,6 +19,7 @@
  */
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
+import { FILE_NOT_FOUND, canReadFile, canWriteFile } from '../fileAccess.js';
 
 export interface FileChunkDeps {
   /** Размер куска под предел пакета этой базы */
@@ -71,6 +72,9 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
     const prisma = getPrisma();
     try {
       const fileId = String(req.params.id);
+      // Чужого личного файла для вошедшего нет: писать в него куски по номеру
+      // значило подменить содержимое чужого документа
+      if (!(await canWriteFile(prisma, (req as any).authUser, fileId))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
 
@@ -100,6 +104,7 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
     const prisma = getPrisma();
     try {
       const fileId = String(req.params.id);
+      if (!(await canWriteFile(prisma, (req as any).authUser, fileId))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
 
@@ -133,9 +138,15 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
     const prisma = getPrisma();
     try {
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      // Вложение чата — только через /chat_files, участникам переписки. Чужое
+      // личное и файл закрытого проекта — то же «не найден»: потоком отдавались
+      // байты любого файла по номеру, минуя правило списка Проводника
+      if (!file || file.type === 'CHAT_FILE' || !(await canReadFile(prisma, (req as any).authUser, file))) {
+        return res.status(404).json({ error: FILE_NOT_FOUND });
+      }
 
       res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name || 'file')}`);
 
       const parts = await prisma.fileChunk.findMany({

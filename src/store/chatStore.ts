@@ -434,8 +434,16 @@ export const useChatStore = create<ChatState>((set, get) => {
         const win = window as any;
         const p = String(filePath || '');
         if (p.startsWith('/chat_files/') || p.startsWith('http')) {
-          // Файл на сервере: открываем по URL (в Electron — системным браузером)
-          const url = p.startsWith('http') ? p : `${SERVER_BASE_URL}${p}`;
+          // Файл на сервере: открываем по URL (в Electron — системным браузером).
+          // Внешний браузер токена не знает, поэтому просим у сервера ссылку
+          // на несколько минут — её выдают только участнику переписки
+          let url = p;
+          if (!p.startsWith('http')) {
+            const r = await fetch(`/api/chat/file-link?path=${encodeURIComponent(p)}`);
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || !d.url) { alert(d.error || 'Файл не найден.'); return; }
+            url = `${SERVER_BASE_URL || window.location.origin}${d.url}`;
+          }
           if (win.electron?.openExternal) {
             const result = await win.electron.openExternal(url);
             if (result && result.success === false) alert(result.error || 'Не удалось открыть файл.');

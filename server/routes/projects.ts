@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
-import { canSeeProject } from './members.js';
+import { canSeeProject, registerProjectAccessGuard } from './members.js';
 import { forgetProjectSelections } from './builder.js';
 
 // Проекты: список с учётом состава, создание, правка и удаление.
@@ -18,6 +18,9 @@ interface ProjectDeps {
 
 export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
   const { enforce, notifyAll } = deps;
+  // Проверка видимости проекта — один общий слой на все маршруты данных проекта,
+  // подключённые ниже по server.ts (теги, справочники, ведомости, реестр ВДР…)
+  registerProjectAccessGuard(app);
   app.get('/api/projects', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     // Служебный проект «Общий диск» — не проект, а место хранения: в

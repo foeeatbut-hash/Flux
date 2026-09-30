@@ -155,6 +155,14 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
   app.get('/api/users/:id/signature', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
+      // Изображение подписи — то, чем заверяют выпущенные бланки. Видеть его
+      // должны владелец и тот, кто им управляет, а не любой вошедший: иначе
+      // чужую подпись брали отсюда и ставили куда угодно
+      const me = (req as any).authUser;
+      const own = me && me.id === String(req.params.id);
+      if (!own && !(me?.role === 'ADMIN' || (await isTopAdmin(req)))) {
+        return res.status(403).json({ error: 'Чужую подпись смотреть нельзя' });
+      }
       const u = await prisma.user.findUnique({
         where: { id: String(req.params.id) },
         select: { signatureImage: true, signatureHeightMm: true },

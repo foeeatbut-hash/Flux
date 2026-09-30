@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { X, Send, Paperclip, Loader2, AlertTriangle, PenLine, Minus, Languages } from 'lucide-react';
 import { mailService, type MailAccount, type MailSignature } from '../../services/mailService';
 import { useEscapeClose } from '../../lib/useDismiss';
+import { sanitizeMailHtml } from '../../lib/mailHtml';
 import { useToastStore } from '../../store/toastStore';
 import { useTranslateStore } from '../../store/translateStore';
 import { detectLang } from '../../translate/lang';
@@ -19,6 +20,16 @@ import { joinSegments } from '../../translate/engine';
  * Подпись подставляется отдельным блоком под курсором ввода, а не вшивается в
  * текст: человек должен видеть, чем подписывается, и уметь это убрать.
  */
+
+
+/**
+ * Разметка в окне письма показывается в самом окне программы, а не в
+ * песочнице, как тело письма. Цитата несёт текст отправителя, подпись могла
+ * прийти из общего ящика, — поэтому обе проходят ту же очистку, что и письмо:
+ * одно пропущенное экранирование на сервере не должно становиться кодом в
+ * программе.
+ */
+const safeHtml = (html: string) => sanitizeMailHtml(html, { allowRemoteImages: true }).html;
 
 export type ComposeMode = 'NEW' | 'REPLY' | 'REPLY_ALL' | 'FORWARD';
 
@@ -256,7 +267,7 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
                   {useSig && (
                     <div
                       className="px-3 py-2 text-sm text-slate-700 dark:text-slate-300 [&_img]:max-w-full"
-                      dangerouslySetInnerHTML={{ __html: signature.html }}
+                      dangerouslySetInnerHTML={{ __html: safeHtml(signature.html) }}
                     />
                   )}
                 </div>
@@ -267,7 +278,7 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
                   <summary className="px-3 py-1.5 text-2xs font-semibold text-slate-500 dark:text-slate-400 cursor-pointer">
                     Цитата исходного письма
                   </summary>
-                  <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" dangerouslySetInnerHTML={{ __html: quote }} />
+                  <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" dangerouslySetInnerHTML={{ __html: safeHtml(quote) }} />
                 </details>
               )}
 
