@@ -1952,3 +1952,93 @@ model SelectionBatch {
 
   @@index([listId])
 }
+
+/// Совместная правка Flux Office: сеанс одного файла, общий для всех серверов.
+/// В отделе у каждого сотрудника свой встроенный сервер, а база одна, поэтому
+/// всё, что должны видеть двое, лежит здесь, а не в памяти сервера
+/// (docs/office-collab-shared-db.md, server/officeBus.ts)
+model OfficeSession {
+  fileId       String    @id
+  /// docs | sheets | pdf: кто открыл первым; на правила не влияет
+  app          String    @default("")
+  /// Опознаватель сеанса: сменился — окна открывают файл заново
+  key          String
+  /// Исходник сеанса: с него начинают все окна, свежее берут из журнала
+  baseData     Bytes?
+  baseSha      String    @default("")
+  /// Хеш файла после последней записи держателя: с ним сверяется следующая
+  savedSha     String    @default("")
+  savedSeq     Int       @default(0)
+  /// Последний выданный номер события: UPDATE в транзакции, поэтому без дыр
+  lastSeq      Int       @default(0)
+  /// Номер последней правки содержимого (y, x): «есть незаписанное» = dataSeq > savedSeq
+  dataSeq      Int       @default(0)
+  seeded       Boolean   @default(false)
+  seederSocket String?
+  seederAt     DateTime?
+  /// Сжатое состояние общего документа: опоздавшему не проигрывать весь журнал
+  snapshot     Bytes?
+  snapshotSeq  Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now())
+
+  @@index([updatedAt])
+}
+
+/// Журнал сеанса: правки Документа и Таблицы, курсоры, «записал», просьбы
+/// сохранить. Номер seq выдаётся подряд на файл (OfficeSession.lastSeq)
+model OfficeEvent {
+  id         String   @id @default(uuid())
+  fileId     String
+  seq        Int
+  sessionKey String   @default("")
+  /// y | x | aware | saved | save-request | roster
+  kind       String
+  fromSocket String?
+  /// Какой сервер записал: он свои события своим окнам уже разослал сам
+  fromServer String   @default("")
+  /// null — всем в комнате; иначе одному окну
+  toSocket   String?
+  data       Bytes?
+  createdAt  DateTime @default(now())
+
+  @@unique([fileId, seq])
+  @@index([createdAt])
+}
+
+/// Участник комнаты файла: одно открытое окно на одном из серверов
+model OfficePeer {
+  socketId String    @id
+  fileId   String
+  serverId String
+  clientId String
+  userId   String
+  name     String    @default("")
+  color    String    @default("")
+  mayWrite Boolean   @default(false)
+  app      String    @default("")
+  since    DateTime  @default(now())
+  /// Удар сердца сервера-хозяина: раз в 5 с; давно не бился — сервер упал
+  beatAt   DateTime  @default(now())
+
+  @@index([fileId])
+  @@index([serverId])
+}
+
+/// Держатель правки файла и признаки комнаты. Меняется только сравнением
+/// version: двое серверов не могут оба стать держателем
+model OfficeHolder {
+  fileId    String    @id
+  /// Файл в общем доступе: правят все, держатель только записывает
+  collab    Boolean   @default(false)
+  /// Правку отпустили: дальше её берут кнопкой, а не по приходу
+  freed     Boolean   @default(false)
+  socketId  String    @default("")
+  clientId  String    @default("")
+  userId    String    @default("")
+  name      String    @default("")
+  color     String    @default("")
+  lostAt    DateTime?
+  version   Int       @default(0)
+  updatedAt DateTime  @default(now())
+}

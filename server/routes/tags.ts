@@ -117,6 +117,13 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       let created = 0, updated = 0; const dupes: string[] = [];
       const parentLinks: { childCode: string; parentCode: string }[] = [];
       let col = 0;
+      // Новые карточки — рядами ниже уже стоящих. Сетка от угла холста клала
+      // второй ввоз ровно поверх первого: П5 на П1, П6 на П3, и щелчок по
+      // ссылке на тег показывал соседа, лежащего сверху
+      let topY = 80;
+      for (const t of existing) {
+        try { const y = Number(JSON.parse(t.metadata || '{}').y); if (Number.isFinite(y)) topY = Math.max(topY, y + 150); } catch { /* без координат — не мешает */ }
+      }
       for (const r of (rows || [])) {
         const code = String(r.identifier || '').trim();
         if (!code) continue;
@@ -136,7 +143,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           updated++; codeToId.set(code, ex.id);
         } else {
           if (ex) dupes.push(code);
-          const meta: any = { connections: [], descriptions: [], x: 120 + (col % 6) * 360, y: 80 + Math.floor(col / 6) * 150 };
+          const meta: any = { connections: [], descriptions: [], x: 120 + (col % 6) * 360, y: topY + Math.floor(col / 6) * 150 };
           if (r.name) meta.mainName = String(r.name);
           if (r.actuality) meta.actuality = String(r.actuality);
           const t = await prisma.tag.create({ data: { projectId, ...baseData, metadata: JSON.stringify(meta) } });

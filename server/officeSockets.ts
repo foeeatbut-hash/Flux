@@ -13,6 +13,7 @@ import { setupOfficeSheetCollab } from './officeSheetCollab.js';
 import { isSharedFile } from './routes/officeFiles.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { getPrisma } from './context.js';
+import { attachIo } from './officeIo.js';
 
 export interface OfficeSocketDeps {
   getAuthUser: (id: string) => Promise<any>;
@@ -22,7 +23,8 @@ export interface OfficeSocketDeps {
 
 export function setupOfficeSockets(io: Server, socket: Socket, deps: OfficeSocketDeps): { gone: (reason: string) => void } {
   const prisma = () => getPrisma();
-  const rooms = setupOfficeRooms(io, socket, {
+  attachIo(io);
+  const rooms = setupOfficeRooms(socket, {
     nameOf: async (id) => (await deps.getAuthUser(id))?.name || '',
     mayWrite: async (id, fileId) => deps.mayWriteFile({ authUser: await deps.getAuthUser(id) }, fileId),
     isShared: async (fileId) => {
@@ -30,14 +32,14 @@ export function setupOfficeSockets(io: Server, socket: Socket, deps: OfficeSocke
       return !!f && isSharedFile(f as any);
     },
   });
-  const collab = setupOfficeCollab(io, socket, {
+  const collab = setupOfficeCollab(socket, {
     read: async (fileId) => {
       const f = await prisma().fileNode.findUnique({ where: { id: fileId } });
       if (!f) throw new Error('Файл не найден');
       return fileBytes(f);
     },
   });
-  const sheets = setupOfficeSheetCollab(io, socket);
+  const sheets = setupOfficeSheetCollab(socket);
   const apps = setupOfficeHostApps(io, socket, { getAuthUser: deps.getAuthUser });
   return { gone: (reason) => { rooms.gone(reason); collab.gone(); sheets.gone(); apps.gone(); } };
 }

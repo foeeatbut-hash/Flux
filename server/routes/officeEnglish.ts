@@ -22,7 +22,7 @@ import { applyFileTranslation, englishName, kindOfName, listFileSegments } from 
 export interface OfficeEnglishDeps {
   chunkBytes: () => Promise<number>;
   mayWrite: (req: Request, fileId: string) => Promise<string | null>;
-  holderOf: (fileId: string) => { userId: string; name: string } | null;
+  holderOf: (fileId: string) => Promise<{ userId: string; name: string } | null>;
 }
 
 const MODE = 'office';
@@ -101,7 +101,7 @@ export function registerOfficeEnglishRoutes(app: Express, deps: OfficeEnglishDep
       const l = await linkOf(r.file.id);
       if (l && l.src.id === r.file.id) {
         // Повторный выпуск — в ту же копию: её могли уже отправить, ссылка на неё живёт
-        const holder = deps.holderOf(l.dst.id);
+        const holder = await deps.holderOf(l.dst.id);
         if (holder) return res.status(423).json({ error: `Английская версия открыта (${holder.name}). Закройте её и выпустите заново.` });
         const w = await writeOfficeFile({
           fileId: l.dst.id, body: bytes, baseSha: sha256(await fileBytes(l.dst)), user, server: true,

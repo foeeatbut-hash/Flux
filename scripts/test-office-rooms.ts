@@ -166,6 +166,61 @@ ok('печатают — ждёт тишины', !dueToSave(1000 + QUIET_MS - 1,
 ok('тишина — пишет', dueToSave(1000 + QUIET_MS, 0, 1000));
 ok('печатают без остановки — всё равно пишет', dueToSave(MAX_UNSAVED_MS, 0, MAX_UNSAVED_MS - 100));
 
+console.log('\n9. Комната, загруженная из общей базы: правила те же');
+{
+  // Общая комната живёт в базе (server/officeBus.ts): сервер грузит строки в
+  // книгу, применяет правила и записывает итог. Значит, загруженная комната
+  // обязана вести себя так же, как собранная вызовами join
+  const snap = (holder: OfficePeer | null, peers: OfficePeer[], collab: boolean, lostAt: number | null = null, freed = false) =>
+    ({ peers, holder: holder ? { peer: holder, lostAt } : null, freed, collab });
+  const A = peer('s1', 'c1', 'A'), B = { ...peer('s2', 'c2', 'B'), since: 5 };
+  {
+    const b = new OfficeRoomBook();
+    b.load('F', snap(A, [A, B], true));
+    ok('загруженный держатель держит', b.holds('F', 's1'));
+    b.leave('s1');
+    ok('общий файл: ушёл — записывает следующий', b.holds('F', 's2'));
+    const c = b.cell('F');
+    ok('итог для базы: держатель — второй, правка «отпущена»', c?.holder?.peer.socketId === 's2' && c.freed && c.collab, c);
+  }
+  {
+    const b = new OfficeRoomBook();
+    b.load('F', snap(A, [A, B], false));
+    b.leave('s1');
+    ok('личный файл: ушёл — правка свободна и не переходит', b.holder('F', 1) === null && b.cell('F')?.freed === true);
+    ok('зритель берёт её кнопкой, в итоге для базы он держатель', b.take('F', 's2', 2) === '' && b.cell('F')?.holder?.peer.socketId === 's2');
+  }
+  {
+    const b = new OfficeRoomBook();
+    b.load('F', snap(null, [], false, null, true));
+    b.expire(0);
+    ok('в опустевшей комнате базе записывать нечего: строку держателя убирают', b.cell('F') === null);
+  }
+  {
+    // Держатель без участника: строку участника убрали (сервер упал), держателя не тронули
+    const b = new OfficeRoomBook();
+    b.load('F', snap(A, [B], false));
+    b.reconcile('F', 1000);
+    ok('такой держатель считается потерявшим связь с этого момента', b.roster('F').holder?.lost === true);
+    ok('его ждут GRACE_MS', b.holder('F', 1000 + GRACE_MS - 1)?.userId === 'A');
+    ok('не вернулся — правка свободна', b.holder('F', 1000 + GRACE_MS) === null && b.cell('F')?.freed === true);
+  }
+  {
+    const b = new OfficeRoomBook();
+    b.load('F', snap(A, [A, B], false));
+    b.reconcile('F', 1000);
+    ok('держателя, чьё окно на месте, reconcile не трогает', b.roster('F').holder?.lost === false);
+  }
+  {
+    // Умерший сервер: его окна считаются потерянными с момента последнего удара сердца
+    const b = new OfficeRoomBook();
+    b.load('F', snap(A, [A, B], true));
+    b.lost('s1', 2000);
+    ok('потеряно окно с сервера, чьи удары прекратились: его убрали из списка', b.roster('F').peers.length === 1);
+    ok('ждём его GRACE_MS от последнего удара, а не от момента, когда заметили', b.holder('F', 2000 + GRACE_MS - 1)?.userId === 'A' && b.holder('F', 2000 + GRACE_MS)?.userId === 'B');
+  }
+}
+
 console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
 process.exit(f ? 1 : 0);
 })();

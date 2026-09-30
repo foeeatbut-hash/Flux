@@ -19,7 +19,7 @@ import { writeOfficeFile } from './officeFiles.js';
 
 export interface OfficeVersionDeps {
   /** Кто держит файл в редакторе; null — файл закрыт */
-  holderOf: (fileId: string) => { userId: string; name: string } | null;
+  holderOf: (fileId: string) => Promise<{ userId: string; name: string } | null>;
 }
 
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
@@ -51,7 +51,7 @@ export function registerOfficeVersionRoutes(app: Express, deps: OfficeVersionDep
     try {
       const r = await versionOf(req);
       if ('error' in r) return res.status(r.error[0]).json({ error: r.error[1] });
-      const holder = deps.holderOf(r.file.id);
+      const holder = await deps.holderOf(r.file.id);
       if (holder) return res.status(423).json({ error: `Файл открыт (${holder.name}). Закройте его в редакторе и восстановите версию.` });
       const w = await writeOfficeFile({
         fileId: r.file.id, body: Buffer.from(r.v.data), baseSha: sha256(await fileBytes(r.file)),
