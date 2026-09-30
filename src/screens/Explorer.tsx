@@ -607,19 +607,8 @@ export default function Explorer() {
     
     const fileContent = await base64Promise;
     
-    const win = window as any;
-    if (win.electron && win.electron.ipcRenderer) {
-      try {
-        return await win.electron.ipcRenderer.invoke('excel:parse-and-import', {
-          projectId: activeProject?.id || 'default',
-          fileName: file.name,
-          fileContent
-        });
-      } catch (err) {
-        console.warn("Electron IPC excel:parse-and-import failed, using API:", err);
-      }
-    }
-
+    // Разбор идёт только на сервере: обработчика в оболочке не было давно,
+    // вызов в неё всегда падал и лишь откладывал этот запрос
     const response = await fetch(`/api/projects/${activeProject?.id || 'default'}/excel/parse-and-import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

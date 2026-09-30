@@ -14,11 +14,15 @@ export function registerLogRoutes(app: Express): void {
   // Добавить запись в журнал
   app.post('/api/logs', async (req: Request, res: Response) => {
     try {
-      const { userName, userSymbol, description, targetRoute } = req.body;
+      const { description, targetRoute } = req.body;
+      // Автор — тот, кто вошёл, а не тот, кем назвалось окно: имя из тела
+      // запроса позволяло записать действие на любого сотрудника
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
       const log = await getPrisma().systemChangeLog.create({
         data: {
-          userName: userName || 'Сотрудник',
-          userSymbol: userSymbol || 'ENGINEER',
+          userName: me.name || me.symbol || 'Сотрудник',
+          userSymbol: me.symbol || '',
           description,
           targetRoute: targetRoute || '',
         },

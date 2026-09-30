@@ -76,7 +76,7 @@ import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite } from './server/sqliteSafety.js';
 import { allowsLocalSetup, requiresAdministrator } from './server/accessPolicy.js';
-import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost } from './server/security.js';
+import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, socketAuth, dropRevokedSockets } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Открытые записи прежних версий
@@ -658,6 +658,7 @@ function invalidateAuthUser(userId?: string) {
    * входе. Толчок несёт только «перечитай»: сами права окно спрашивает само
    * (`GET /api/me/bootstrap`), и присланному в событии верить не приходится.
    */
+  if (userId) void dropRevokedSockets(io, userId, getAuthUser);
   try {
     if (userId) io.to(`user:${userId}`).emit('capabilities:changed', { at: Date.now() });
     else io.emit('capabilities:changed', { at: Date.now() });
@@ -685,14 +686,8 @@ const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, { cors: { origin: true, methods: ['GET', 'POST', 'DELETE'] }, allowRequest: socketAllowRequest });
 
 traceSockets(io);
-// Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
-// иначе любой в сети слушал бы трансляцию сообщений чата
-io.use((socket, next) => {
-  const userId = verifyAuthToken(String((socket.handshake as any)?.auth?.token || ''));
-  if (!userId) return next(new Error('unauthorized'));
-  (socket as any).userId = userId;
-  next();
-});
+// Socket.io пускает только вошедших и годных профилей (server/security.ts)
+io.use(socketAuth(verifyAuthToken, getAuthUser));
 
 /**
  * Кто скрыл своё присутствие.
@@ -878,6 +873,12 @@ app.use(async (req: Request, res: Response, next) => {
     return res.status(500).json({ error: 'Не удалось проверить сессию', details: e?.message });
   }
 });
+
+// Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
+// окно, обходится закрытием окна. Стоит ДО всех маршрутов: ответ, законченный
+// раньше подключённым обработчиком, до позднего журнала не доходил, и вход,
+// сотрудники, обновления и файлы в него не попадали
+registerActionLog(app, { getPrisma: () => prisma, can: userCan });
 
 registerSystemRoutes(app, {
   appVersion: APP_VERSION,
@@ -1077,9 +1078,6 @@ registerOfficeConvertRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayW
 registerOfficeVersionRoutes(app, { holderOf: (fileId) => officeHub.holderOf(fileId) }); // откат файла
 registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, holderOf: (fileId) => officeHub.holderOf(fileId) }); // английская версия
 
-// Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
-// окно, обходится закрытием окна. Читается по праву «Журнал действий»
-registerActionLog(app, { getPrisma: () => prisma, can: userCan });
 
 // Projects
 // ── Права доступа «по функциям» (зеркало src/lib/permissions.ts) ──────────────

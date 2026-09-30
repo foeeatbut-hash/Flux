@@ -317,3 +317,34 @@ export function listenHost(env: Record<string, string | undefined> = process.env
   if (explicit) return explicit;
   return env.FLUX_EMBEDDED === '1' ? '127.0.0.1' : '0.0.0.0';
 }
+
+// ── Сокеты: тот же пропуск, что и у HTTP ────────────────────────────────────
+//
+// Рукопожатие сокета проверяло только подпись токена. Отключённый или
+// просроченный профиль продолжал получать чат, присутствие и правки документов
+// до конца срока токена — месяц, — хотя любой HTTP-запрос ему уже отказывал.
+export function accountRefusal(user: any, now = Date.now()): string {
+  if (!user) return 'профиль удалён';
+  if (user.isActive === false) return 'профиль отключён';
+  if (user.validUntil && new Date(user.validUntil).getTime() < now) return 'срок профиля истёк';
+  return '';
+}
+
+export function socketAuth(verify: (t: string) => string | null, getUser: (id: string) => Promise<any>) {
+  return async (socket: any, next: (err?: Error) => void) => {
+    const userId = verify(String(socket.handshake?.auth?.token || ''));
+    if (!userId) return next(new Error('unauthorized'));
+    try {
+      if (accountRefusal(await getUser(userId))) return next(new Error('unauthorized'));
+    } catch (_) { return next(new Error('unauthorized')); }
+    socket.userId = userId;
+    next();
+  };
+}
+
+/** Профиль изменили — если он больше не годен, его сокеты закрываются сразу */
+export async function dropRevokedSockets(io: any, userId: string, getUser: (id: string) => Promise<any>) {
+  try {
+    if (accountRefusal(await getUser(userId))) io.in(`user:${userId}`).disconnectSockets(true);
+  } catch (_) { /* база недоступна — проверит следующее рукопожатие */ }
+}

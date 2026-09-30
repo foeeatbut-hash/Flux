@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityPr
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
+import { updateRefusal, sha256File } from './updateSignature';
 import { setupCapture } from './capture';
 import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
@@ -786,9 +787,18 @@ app.whenReady().then(() => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             if (redirectCount > 5) { reject(new Error('Сервер уводит запрос по кругу.')); return; }
             redirectCount++;
-            const next = new URL(res.headers.location, requestUrl).toString();
+            const nextUrl = new URL(res.headers.location, requestUrl);
             res.resume();
-            startGet(next);
+            // Перенаправление не должно уносить токен на чужой адрес и уводить
+            // с https на http: раньше заголовок входа ехал за любым редиректом
+            if (parsed.protocol === 'https:' && nextUrl.protocol !== 'https:') {
+              reject(new Error('Сервер перенаправил скачивание с https на незащищённый адрес — отказ.'));
+              return;
+            }
+            if (nextUrl.origin !== parsed.origin && headers) {
+              delete headers['Authorization'];
+            }
+            startGet(nextUrl.toString());
             return;
           }
 
@@ -857,7 +867,7 @@ app.whenReady().then(() => {
    * проверки легла бы на место работающего exe.
    */
   ipcMain.handle('updater:start-download', async (_event, payload: {
-    url: string; version: string; token?: string; server?: string;
+    url: string; version: string; token?: string; server?: string; signature?: string;
   }) => {
     const path = require('path');
     const fs = require('fs');
@@ -890,6 +900,16 @@ app.whenReady().then(() => {
       if (bad) {
         try { fs.unlinkSync(installerPath); } catch (_) { /* уже нет */ }
         throw new Error(bad);
+      }
+      // Подпись владельца — до того, как файл станет «скачанным обновлением»:
+      // запускается только то, что он выпустил (electron/updateSignature.ts)
+      const refusal = updateRefusal({
+        signature: String(payload?.signature || ''), version, current: app.getVersion(),
+        size, sha256: await sha256File(installerPath),
+      });
+      if (refusal) {
+        try { fs.unlinkSync(installerPath); } catch (_) { /* уже нет */ }
+        throw new Error(refusal);
       }
 
       latestCachedUpdate = { version, installerPath };
