@@ -18,6 +18,7 @@ import { ensureTables as ensureDbTables } from '../ddl.js';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
 import { normalizeKey, parseRuNumber } from '../normalize.js';
 import { fileBytes } from './fileChunks.js';
+import { canReadFile } from '../fileAccess.js';
 import { writeOfficeFile } from './officeFiles.js';
 import { officeHub } from '../officeRooms.js';
 import { BLOCK_RE, SIGN_ROLES, type SignRole } from '../../office/fieldKeys.js';
@@ -392,13 +393,16 @@ const blockView = async (b: any, projectId: string) => {
   return { id: b.id, fileId: b.fileId, name: b.name, query: q, layout, fingerprint: b.fingerprint, updatedAt: b.updatedAt, stale: b.fingerprint !== now };
 };
 
-/** Видит ли человек файл: личный чужой — нет */
+/**
+ * Видит ли человек файл — единое правило server/fileAccess.ts. Прежняя
+ * проверка была шире его: любой ADMIN видел чужие личные файлы (правило — лишь
+ * Главный Администратор), личный файл без владельца был виден всем, а папка и
+ * закрытый проект файла не смотрелись вовсе. Взято строгое; пустой номер
+ * («без файла») по-прежнему не ограничивается.
+ */
 async function seesFile(req: Request, fileId: string): Promise<boolean> {
   if (!fileId) return true;
-  const me = (req as any).authUser;
-  const f = await getPrisma().fileNode.findUnique({ where: { id: fileId }, select: { scope: true, ownerId: true } });
-  if (!f) return false;
-  return me?.role === 'ADMIN' || f.scope !== 'PERSONAL' || !f.ownerId || f.ownerId === me?.id;
+  return canReadFile(getPrisma(), (req as any).authUser, fileId);
 }
 
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');

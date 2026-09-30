@@ -13,6 +13,7 @@
 
 import { getPrisma } from './context.js';
 import { fileBytes } from './routes/fileChunks.js';
+import { canReadFile, type Actor } from './fileAccess.js';
 import { parseEquipmentXML, parseEquipmentExcel } from './equipmentParser.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
 import type { KindMap } from './vezaDict.js';
@@ -44,10 +45,15 @@ export async function parseOptionsFor(projectId?: string): Promise<VezaOptions> 
 /** Что умеет этот путь. PDF, Word и сканы идут через мастер распознавания. */
 export const CALC_EXTENSIONS = ['xlsx', 'xls', 'xml', 'csv'];
 
-export async function readEquipmentFile(fileId: string, projectId?: string): Promise<{ result: any; fileName: string }> {
+/**
+ * `actor` обязателен: файл берётся по номеру из тела запроса или из задания, и
+ * без проверки чужой личный расчёт можно было разобрать и вытянуть в свою
+ * базу оборудования. Нет права — тот же ответ, что и «нет файла».
+ */
+export async function readEquipmentFile(fileId: string, projectId: string | undefined, actor: Actor | null | undefined): Promise<{ result: any; fileName: string }> {
   const prisma = getPrisma();
   const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
-  if (!fileNode) throw { status: 404, error: 'Файл не найден' };
+  if (!fileNode || !(await canReadFile(prisma, actor, fileNode))) throw { status: 404, error: 'Файл не найден' };
   const buffer = await fileBytes(fileNode);
   if (!buffer.length) throw { status: 400, error: 'Содержимое файла пустое' };
   const extension = fileNode.name.split('.').pop()?.toLowerCase();

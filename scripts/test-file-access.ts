@@ -14,6 +14,7 @@ import {
   canReadFile, canWriteFile, canAccessFolder,
 } from '../server/fileAccess';
 import { setPrisma } from '../server/context';
+import { setupOfficeRooms } from '../server/officeRooms';
 
 let ok = 0, fail = 0;
 function eq(name: string, got: any, want: any) {
@@ -144,6 +145,38 @@ setPrisma(fake as any);
   eq('корень раздела (папки нет) доступен', await canAccessFolder(fake, BORIS, null), true);
   eq('несуществующая папка — нет', await canAccessFolder(fake, ANNA, 'нет'), false);
   eq('без входа — нет', await canReadFile(fake, null, 'f2'), false);
+  // № 24 и mayWriteFile: запись в чужой личный файл — только у владельца и Главного Администратора
+  eq('другой администратор не пишет в чужой личный файл', await canWriteFile(fake, OTHER_ADMIN, 'f1'), false);
+  eq('Главный Администратор пишет в чужой личный файл, как и видит его', await canWriteFile(fake, MAIN_USER, 'f1'), true);
+  eq('другой администратор не читает файл в чужой личной папке', await canReadFile(fake, OTHER_ADMIN, 'f4'), false);
+
+  console.log('9. Комната файла: вход только тем, кто файл читает');
+  // Подставной сокет: комната записывает вход в hub и подписывает сокет на рассылку
+  const enter = async (user: any, fileId: string) => {
+    const handlers: Record<string, Function> = {};
+    const joined: string[] = [];
+    const hubCalls: string[] = [];
+    const socket: any = { id: 's1', userId: user.id, connected: true, on: (e: string, f: Function) => { handlers[e] = f; }, join: (r: string) => joined.push(r), leave: () => {} };
+    const hub: any = { join: async (id: string) => { hubCalls.push(id); }, depart: async () => {} };
+    let wrote = 0;
+    setupOfficeRooms(socket, {
+      nameOf: async () => 'Имя',
+      mayRead: async (uid, fid) => canReadFile(fake, uid === user.id ? user : null, fid),
+      mayWrite: async () => { wrote++; return ''; },
+      isShared: async () => false,
+    }, hub);
+    await handlers['office:join']({ fileId, clientId: 'c1', app: 'docs' });
+    return { joined, hubCalls, wrote };
+  };
+  const own = await enter(ANNA, 'f1');
+  eq('хозяин личного файла входит в комнату', [own.joined.length, own.hubCalls], [1, ['f1']]);
+  const alien = await enter(BORIS, 'f1');
+  eq('чужой в комнату личного файла не входит и в базу не записывается', [alien.joined, alien.hubCalls], [[], []]);
+  const other = await enter(OTHER_ADMIN, 'f1');
+  eq('другой администратор тоже не входит', [other.joined, other.hubCalls], [[], []]);
+  const ghost = await enter(ANNA, 'нет-такого');
+  eq('несуществующий файл — молчаливый отказ, как и чужой', [ghost.joined, ghost.hubCalls], [[], []]);
+  eq('право записи до отказа не спрашивается впустую', alien.wrote, 0);
 
   console.log(`\n${ok} ✓, ${fail} ✗`);
   process.exit(fail ? 1 : 0);

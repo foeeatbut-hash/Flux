@@ -141,15 +141,15 @@ export function linkValid(pathname: string, s: unknown, now = Date.now()): boole
 }
 
 /**
- * Вход к вложениям чата: действительный токен (запрос из окна) или подписанная
- * ссылка (открытие во внешнем браузере). Путь берётся целиком, с /chat_files, —
- * ссылка подписана на него.
+ * Вход к вложениям чата — только по подписанной ссылке.
+ *
+ * Токен входа сюда не годится: он говорит, КТО пришёл, но не что этот человек
+ * участвует в переписке, — и с ним любой вошедший забирал чужое вложение по
+ * номеру. Ссылку выдаёт /api/chat/file-link после проверки участия, и путь в
+ * ней подписан целиком, с /chat_files.
  */
-export function chatFileGate(tokenValid: (token: string) => boolean) {
+export function chatFileGate() {
   return (req: Request, res: Response, next: NextFunction) => {
-    const header = String(req.headers.authorization || '');
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (token && tokenValid(token)) return next();
     const pathname = (req.baseUrl || '') + req.path;
     if (linkValid(pathname, req.query.s)) return next();
     res.status(401).json({ error: 'Ссылка на файл устарела. Откройте вложение из чата заново.' });
