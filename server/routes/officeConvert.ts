@@ -17,6 +17,7 @@
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, sendError } from '../context.js';
+import { FILE_NOT_FOUND, canReadFile, personalScopeWhere, getMainAdminId } from '../fileAccess.js';
 import { fileBytes } from './fileChunks.js';
 import { createFileFromBytes, exportsHome, homeOfFile } from '../officeStore.js';
 
@@ -45,14 +46,14 @@ export function registerOfficeConvertRoutes(app: Express, deps: OfficeConvertDep
       const user = (req as any).authUser;
       if (!user?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
       const from = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!from || from.deletedAt) return res.status(404).json({ error: 'Файл не найден' });
-      if (from.scope === 'PERSONAL' && from.ownerId && from.ownerId !== user.id) {
-        return res.status(403).json({ error: 'Это чужой личный файл' });
-      }
+      // Чужой личный файл и файл закрытого проекта — «не найден»: ответ 403
+      // подтверждал, что такой номер существует, а конвертация отдавала бы
+      // содержимое чужого файла копией в свои «Выгрузки»
+      if (!from || from.deletedAt || !(await canReadFile(prisma, user, from))) return res.status(404).json({ error: FILE_NOT_FOUND });
       if (!FROM.test(from.name || '')) return res.status(400).json({ error: 'Копию .xlsx делаем только из .xls и .csv' });
 
       const done = await prisma.fileNode.findFirst({
-        where: { refId: mark(from.id), deletedAt: null, OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: user.id }] },
+        where: { refId: mark(from.id), deletedAt: null, ...personalScopeWhere(user, await getMainAdminId(prisma)) },
         select: { id: true, name: true, folderId: true },
       });
       if (done) return res.json({ ...done, existed: true });

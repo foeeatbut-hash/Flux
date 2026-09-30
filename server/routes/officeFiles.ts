@@ -22,6 +22,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
 import { ensureTables as ensureDbTables } from '../ddl.js';
+import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile } from '../fileAccess.js';
 import { fileBytes } from './fileChunks.js';
 import { collabShared } from '../officeCollab.js';
 import { officeBus } from '../officeBus.js';
@@ -101,6 +102,9 @@ export async function writeOfficeFile(a: {
   const user = a.user;
   const reply = (status: number, json: any) => ({ status, json });
   if (!user?.id) return reply(401, { error: 'Требуется вход в систему' });
+  // Общее ядро записи для всех редакторов: чужой личный файл и файл закрытого
+  // проекта для вошедшего «не найден», как и в Проводнике
+  if (!(await canWriteFile(prisma, user, fileId))) return reply(404, { error: FILE_NOT_FOUND });
   const denied = await deps.mayWrite({ authUser: user } as any, fileId);
   if (denied) return reply(403, { error: denied });
   // Файл открыт и правится другим — его сохранение и есть правда;
@@ -191,7 +195,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
     const prisma = getPrisma();
     try {
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const bytes = await fileBytes(file);
       res.json({
         id: file.id, name: file.name, folderId: file.folderId, size: bytes.length, sha256: sha256(bytes),
@@ -210,7 +214,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
     const prisma = getPrisma();
     try {
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const current = await fileBytes(file);
       const shared = isSharedFile(file as any);
       // Исходник сеанса берётся из общей базы: его записал тот, кто открыл файл
@@ -258,13 +262,14 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         const fromId = String(req.params.id);
         const user = (req as any).authUser;
         if (!user?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
+        if (!(await canReadFile(prisma, user, fromId))) return res.status(404).json({ error: FILE_NOT_FOUND });
         const denied = await deps.mayWrite(req, fromId);
         if (denied) return res.status(403).json({ error: denied });
         const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
         if (!body.length) return res.status(400).json({ error: 'Пустое содержимое: сохранять нечего' });
 
         const from = await prisma.fileNode.findUnique({ where: { id: fromId } });
-        if (!from) return res.status(404).json({ error: 'Файл не найден' });
+        if (!from) return res.status(404).json({ error: FILE_NOT_FOUND });
 
         const home = await homeOfFile(fromId);
         if (!home) return res.status(404).json({ error: 'Файл не найден' });
@@ -298,7 +303,9 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         if (where === 'folder') {
           const folderId = String(req.query.folderId || '');
           const folder = folderId ? await prisma.folder.findUnique({ where: { id: folderId }, include: { project: true } }) : null;
-          if (!folder || folder.deletedAt) return res.status(404).json({ error: 'Папка не найдена' });
+          // Скрытый проект и чужая личная папка — «не найдена»: ответ «чужая»
+          // подтверждал, что такой номер есть
+          if (!folder || folder.deletedAt || !(await canAccessFolder(prisma, user, folderId))) return res.status(404).json({ error: FOLDER_NOT_FOUND });
           // Чужая личная папка и общий диск — не место для выгрузки: на диск
           // кладут по праву «Общий диск», через Проводник
           if (folder.scope === 'PERSONAL' && folder.ownerId !== user.id) return res.status(403).json({ error: 'Это чужая личная папка' });
@@ -327,6 +334,8 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
   app.get('/api/office/files/:id/versions', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
+      // Список версий раскрывает, кто и когда правил файл, — только тем, кому файл виден
+      if (!(await canReadFile(prisma, (req as any).authUser, String(req.params.id)))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const why = await ensureVersionTable();
       if (why) return res.status(500).json({ error: why });
       const rows = await (prisma as any).fileVersion.findMany({

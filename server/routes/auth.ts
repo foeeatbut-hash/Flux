@@ -123,7 +123,9 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   // фронтенд опрашивает и принудительно завершает сессию, если доступ отозван
   app.get('/api/auth/check', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const userId = String(req.query.userId || '');
+    // Проверяется профиль вошедшего, а не названный в запросе: иначе по номеру
+    // можно было выяснять состояние чужой учётной записи (отключена, срок вышел)
+    const userId = String((req as any).authUser?.id || '');
     if (!userId) {
       return res.json({ valid: false, reason: 'Не указан идентификатор пользователя.' });
     }

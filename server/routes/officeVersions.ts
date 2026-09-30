@@ -14,6 +14,7 @@
 import type { Express, Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
+import { FILE_NOT_FOUND, canReadFile, canWriteFile } from '../fileAccess.js';
 import { fileBytes } from './fileChunks.js';
 import { writeOfficeFile } from './officeFiles.js';
 
@@ -25,12 +26,14 @@ export interface OfficeVersionDeps {
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 export function registerOfficeVersionRoutes(app: Express, deps: OfficeVersionDeps): void {
-  const versionOf = async (req: Request) => {
+  const versionOf = async (req: Request, write = false) => {
     const prisma = getPrisma() as any;
     const user = (req as any).authUser;
     const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-    if (!file || file.deletedAt) return { error: [404, 'Файл не найден'] as const };
-    if (file.scope === 'PERSONAL' && file.ownerId && file.ownerId !== user?.id) return { error: [403, 'Это чужой личный файл'] as const };
+    // Чужой личный файл — «не найден»: прежний ответ 403 подтверждал, что номер
+    // существует. Восстановление версии — запись, скачивание — чтение
+    const allowed = file && (write ? await canWriteFile(prisma, user, file) : await canReadFile(prisma, user, file));
+    if (!file || file.deletedAt || !allowed) return { error: [404, FILE_NOT_FOUND] as const };
     const v = await prisma.fileVersion.findFirst({ where: { id: String(req.params.vid), fileId: file.id } });
     if (!v) return { error: [404, 'Версия не найдена: старые версии уходят, когда их больше двадцати'] as const };
     return { file, v };
@@ -49,7 +52,7 @@ export function registerOfficeVersionRoutes(app: Express, deps: OfficeVersionDep
 
   app.post('/api/office/files/:id/versions/:vid/restore', async (req: Request, res: Response) => {
     try {
-      const r = await versionOf(req);
+      const r = await versionOf(req, true);
       if ('error' in r) return res.status(r.error[0]).json({ error: r.error[1] });
       const holder = await deps.holderOf(r.file.id);
       if (holder) return res.status(423).json({ error: `Файл открыт (${holder.name}). Закройте его в редакторе и восстановите версию.` });
