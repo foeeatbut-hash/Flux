@@ -1,0 +1,60 @@
+name: Flux-Owner portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/hopeful-meitner-zb0ir5]
+    paths:
+      - tools/flux-owner/**
+      - .github/workflows/build-owner.yml
+
+permissions:
+  contents: write
+
+jobs:
+  portable:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/flux-owner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/flux-owner/package-lock.json
+
+      - name: Зависимости
+        run: npm ci
+      - name: Проверки совместимости с Flux
+        run: npm test
+      - name: Windows portable
+        run: npm run portable
+
+      - name: Версии и имя файла
+        id: meta
+        shell: pwsh
+        run: |
+          $ownerVersion = node -p "require('./package.json').version"
+          $fluxVersion = node -p "require('../../package.json').version"
+          "tag=v$fluxVersion" >> $env:GITHUB_OUTPUT
+          "file=tools/flux-owner/release/Flux-Owner-$ownerVersion-x64.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Файл сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flux-Owner-portable
+          path: ${{ steps.meta.outputs.file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Добавить программу владельца к выпуску Flux
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          OWNER_FILE: ${{ steps.meta.outputs.file }}
+        run: |
+          gh release upload $env:RELEASE_TAG "../../$env:OWNER_FILE" --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось добавить Flux-Owner к выпуску Flux.' }
