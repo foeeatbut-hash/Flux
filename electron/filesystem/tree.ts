@@ -54,6 +54,7 @@ export async function cleanCreatedWindowsTree(created: CreatedTreeEntry[]): Prom
 }
 export async function copyWindowsTree(source: string, target: string, plan: TreeEntry[]): Promise<CreatedTreeEntry[]> {
   const created: CreatedTreeEntry[] = [];
+  let canonicalTarget: string | null = null;
   try {
     for (const item of plan) {
       const from = item.relative ? path.join(source, ...item.relative.split('/')) : source;
@@ -66,13 +67,16 @@ export async function copyWindowsTree(source: string, target: string, plan: Tree
         if (root.isSymbolicLink() || root.dev !== ownedRoot.dev || root.ino !== ownedRoot.ino) throw new WindowsFilesError('CONFLICT', 'Папка назначения заменена во время копирования.');
         const parent = path.dirname(to);
         const actualParent = await fs.realpath(parent);
-        const relativeParent = path.relative(target, actualParent);
+        const relativeParent = path.relative(canonicalTarget!, actualParent);
         if (relativeParent === '..' || relativeParent.startsWith(`..${path.sep}`) || path.isAbsolute(relativeParent)) throw new WindowsFilesError('OUTSIDE_ROOT', 'Папка назначения заменена ссылкой.');
       }
       if (item.kind === 'directory') await fs.mkdir(to);
       else await fs.copyFile(from, to, constants.COPYFILE_EXCL);
       const actual = await fs.lstat(to, { bigint: true });
       created.push({ filename: to, kind: item.kind, dev: actual.dev, ino: actual.ino, ...(item.sha256 ? { sha256: item.sha256 } : {}) });
+      // TEMP на Windows может содержать 8.3-имя RUNNER~1: обе стороны
+      // containment сравниваются после realpath, проверка inode выше остаётся.
+      if (!item.relative) canonicalTarget = await fs.realpath(target);
       if (item.kind === 'file' && await hashFile(to) !== item.sha256) throw new WindowsFilesError('CONFLICT', 'Копия файла не совпала с исходником.');
     }
     const current = await inspectWindowsTree(source);
