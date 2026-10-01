@@ -1,3 +1,4 @@
+import { Tabs } from '../components/ui';
 /**
  * Каталог — справочник оборудования программы.
  *
@@ -8,7 +9,7 @@
  * добавляются здесь же, без правки программы.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Layers, Wrench, Tag as TagIcon, Sparkles, Brain, ShieldCheck, ArrowLeftRight, Factory } from 'lucide-react';
+import { Search, Plus, Layers, Wrench, Tag as TagIcon, Sparkles, Brain, ShieldCheck, ArrowLeftRight, Factory, FileSpreadsheet } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useCatalogStore } from '../store/catalogStore';
 import { useToastStore } from '../store/toastStore';
@@ -16,6 +17,7 @@ import { can } from '../lib/permissions';
 import SectionErrorBoundary from '../components/SectionErrorBoundary';
 import FamilyEditor from '../components/catalog/FamilyEditor';
 import DescribeMatch from '../components/catalog/DescribeMatch';
+import CatalogSpreadsheetPanel from '../components/catalog/CatalogSpreadsheetPanel';
 import { ComponentsPanel, TagRulesPanel, LearnedPanel, CheckPanel, ExchangePanel } from '../components/catalog/CatalogPanels';
 import { catalogService } from '../services/catalogService';
 import { useCatalogLive } from '../components/catalog/useCatalogLive';
@@ -23,11 +25,12 @@ import type { Family, EquipmentClass } from '../../catalog/model';
 import { textOf, t2 } from '../../catalog/model';
 import { Btn, Chip, Empty, Select, StatusChip, promptAsk } from '../components/catalog/ui';
 
-type Tab = 'families' | 'components' | 'tags' | 'try' | 'learned' | 'check' | 'exchange';
+type Tab = 'families' | 'components' | 'spreadsheet' | 'tags' | 'try' | 'learned' | 'check' | 'exchange';
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'families', label: 'Семейства', icon: Layers },
   { id: 'components', label: 'Комплектующие', icon: Wrench },
+  { id: 'spreadsheet', label: 'Excel: импорт и выгрузка', icon: FileSpreadsheet },
   { id: 'tags', label: 'Правила тегов', icon: TagIcon },
   { id: 'try', label: 'Пробный подбор', icon: Sparkles },
   { id: 'learned', label: 'Выученное', icon: Brain },
@@ -36,18 +39,19 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ classNam
 ];
 
 function blankFamily(classId: string, manufacturerId: string, code: string): Family {
+  const isValve = classId === 'cls-valve';
   return {
     id: `fam-${Math.random().toString(36).slice(2, 10)}`, classId, manufacturerId, code,
-    title: t2(code), kind: 'air', typeLabel: t2(''), shapes: ['rect'],
-    params: [
+    title: t2(code), kind: isValve ? 'air' : 'other', typeLabel: t2(''), shapes: isValve ? ['rect'] : [],
+    params: isValve ? [
       { key: 'W', label: t2('Ширина', 'Width'), kind: 'number', size: 'W', unit: 'мм', step: 'size' },
       { key: 'H', label: t2('Высота', 'Height'), kind: 'number', size: 'H', unit: 'мм', step: 'size' },
       { key: 'D', label: t2('Диаметр', 'Diameter'), kind: 'number', size: 'D', unit: 'мм', step: 'size' },
-    ],
-    positions: [
+    ] : [],
+    positions: isValve ? [
       { key: 'series', label: t2('Обозначение'), formats: [code] },
       { key: 'size', label: t2('Сечение'), formats: ['{W}{x}{H}', '{D}'] },
-    ],
+    ] : [{ key: 'series', label: t2('Обозначение'), formats: [code] }],
     rules: [], match: { kinds: [] }, specs: [], status: 'draft', examples: [], sort: 999,
   };
 }
@@ -92,7 +96,7 @@ export default function CatalogScreen() {
   const addFamily = async () => {
     const code = await promptAsk('Новое семейство', 'Код семейства — так начинается обозначение (например, КПУ-5)');
     if (!code) return;
-    const mfId = mf || catalog.manufacturers[0]?.id;
+    const mfId = mf || catalog.manufacturers.find((m) => m.id === 'mf-veza')?.id || catalog.manufacturers[0]?.id;
     if (!mfId) { addToast('Сначала заведите производителя', 'error'); return; }
     const f = blankFamily(classId, mfId, code.trim());
     try { await catalogService.save('family', f); await load(true); setOpenId(f.id); } catch (e: any) { addToast(e?.message || 'Не создалось', 'error'); }
@@ -125,14 +129,11 @@ export default function CatalogScreen() {
           {canEdit && <Btn tone="ghost" onClick={addClass} title="Новый класс оборудования"><Plus className="w-3.5 h-3.5" /> Класс</Btn>}
         </div>
         {error && <div className="text-xs text-rose-600 dark:text-rose-400">{error}</div>}
-        <div className="flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 flex-wrap">
-          {TABS.map((t) => (
-            <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={tab === t.id}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-b-2 -mb-px cursor-pointer ${tab === t.id ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-emerald-700'}`}>
-              <t.icon className="w-3.5 h-3.5" /> {t.label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={tab} onChange={setTab} label="Разделы каталога" tabs={TABS.map(({ id, label, icon: Icon }) => ({
+          value: id,
+          label: id === 'families' ? (classId === 'cls-valve' ? 'Оборудование ВЕЗА' : 'Оборудование') : label,
+          icon: <Icon className="w-3.5 h-3.5" />,
+        }))} />
 
         <div className="flex-1 min-h-0">
           {!loaded ? <div className="text-xs text-slate-400">Загружаю Каталог…</div> : (
@@ -181,7 +182,8 @@ export default function CatalogScreen() {
                   </div>
                 </div>
               )}
-              {tab === 'components' && <div className="h-full overflow-auto"><ComponentsPanel catalog={catalog} classId={classId} canEdit={canEdit} /></div>}
+              {tab === 'components' && <div className="h-full overflow-auto flex flex-col gap-2">{classId === 'cls-valve' && <div className="text-xs text-slate-500 dark:text-slate-400">В оборудовании ВЕЗА могут применяться комплектующие других изготовителей — изготовитель каждой модели указывается отдельно.</div>}<div className="min-h-0 flex-1"><ComponentsPanel catalog={catalog} classId={classId} canEdit={canEdit} /></div></div>}
+              {tab === 'spreadsheet' && <div className="h-full overflow-auto"><CatalogSpreadsheetPanel catalog={catalog} classId={classId} canEdit={canEdit} /></div>}
               {tab === 'tags' && <div className="h-full overflow-auto"><TagRulesPanel key={classId} catalog={catalog} classId={classId} canEdit={canEdit} /></div>}
               {tab === 'try' && (
                 <div className="h-full overflow-auto">

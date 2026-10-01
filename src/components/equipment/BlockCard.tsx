@@ -8,6 +8,7 @@ import { useStore } from '../../store/store';
 import { useEntityChanged } from '../../lib/entityWatch';
 import { normalizeSpecs, type ParamConflict } from '../../lib/specs';
 import TypeChip from './TypeChip';
+import CatalogSourcePanel from './CatalogSourcePanel';
 
 /**
  * Карточка позиции: характеристики, теги, конфликты, правки.
@@ -128,6 +129,7 @@ export default function BlockCard(props: any) {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 @container">
+        <CatalogSourcePanel componentId={comp.id} onChanged={() => onReload?.()} />
         {/* Состав — первым: у секции это и есть её содержание, у вентилятора —
             его двигатель. Тег каждой позиции виден сразу, строка открывает её */}
         {(props.composition?.children?.length || 0) > 0 && (

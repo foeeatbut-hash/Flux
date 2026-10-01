@@ -18,6 +18,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { getPrisma, onDatabaseSwapped } from '../context.js';
+import { groupIncidents } from '../../diagnostics/incidents.js';
 import { summarize, parseJsonl } from '../../diagnostics/summary.js';
 import { technicalFingerprint } from '../../feedback/fingerprint.js';
 import { sha256Hex } from '../../feedback/sha256.js';
@@ -206,7 +207,7 @@ async function assemble(prisma: any, row: any): Promise<void> {
   ];
 
   const { events, broken } = parseJsonl(clientText + serverText);
-  const summary = summarize(events);
+  const summary = { ...summarize(events), incidents: groupIncidents(events) };
   const fingerprint = fingerprintOfEvents(events, report.appVersion || '', report.sectionKey || '');
 
   const manifest: BundleManifest = {

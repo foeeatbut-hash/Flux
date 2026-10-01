@@ -5,6 +5,7 @@ import type { MailMentions as Found } from '../../services/mailService';
 import { openInProject } from '../../lib/projectScope';
 import { openHref } from '../../lib/fileTypes';
 import { useStore } from '../../store/store';
+import { useTagNavigationStore } from '../../store/tagNavigationStore';
 
 /**
  * Полоса «в письме упомянуто» под самим письмом.
@@ -98,7 +99,7 @@ export default function MailMentions({ found, loading }: Props) {
             onClick={() => openInProject({
               what: `Тег ${t.identifier}`,
               projectId: t.projectId,
-              open: () => navigate(`/registry?tag=${encodeURIComponent(t.identifier)}`),
+              open: () => useTagNavigationStore.getState().open({ projectId: t.projectId, tagId: t.id, identifier: t.identifier }),
             })}
           />
         ))}

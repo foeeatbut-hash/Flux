@@ -15,6 +15,7 @@ import { FIRE_FAMILIES, VEZA } from './valve/seedFire';
 import { AIR_FAMILIES } from './valve/seedAir';
 import { CHECK_FAMILIES } from './valve/seedCheck';
 import { VALVE_COMPONENTS } from './valve/components';
+import { NEMAN_MANUFACTURER, NEMAN_COMPONENTS } from './actuator/neman';
 import type { Detector } from './describe';
 
 /** Версия затравки. Поднимается, когда семейства в коде изменились */
@@ -32,9 +33,9 @@ export const SEED_MANUFACTURERS: Manufacturer[] = [
 export function seedCatalog(): Catalog {
   return {
     classes: [VALVE_CLASS],
-    manufacturers: SEED_MANUFACTURERS,
+    manufacturers: [...SEED_MANUFACTURERS, NEMAN_MANUFACTURER],
     families: [...FIRE_FAMILIES, ...AIR_FAMILIES, ...CHECK_FAMILIES].map((f) => ({ ...f, version: SEED_VERSION })),
-    components: VALVE_COMPONENTS,
+    components: [...VALVE_COMPONENTS, ...NEMAN_COMPONENTS],
     tagRules: VALVE_TAG_RULES,
   };
 }

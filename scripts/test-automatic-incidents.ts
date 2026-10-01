@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { automaticEvents, emptyAutomaticState, mergeAutomatic } from '../diagnostics/automatic';
+
+const now = Date.now();
+const event = (seq: number, fields: any = {}) => ({ v: 1, time: new Date(now + seq).toISOString(), session: 'abc-123', seq, source: 'renderer', event: 'fetch.headers', data: { route: '/api/equipment/:id', status: 500, secret: 'private', ...fields } });
+const safe = automaticEvents([event(1), { ...event(2), source: 'server' }, { ...event(3), session: 'bad/value' }], ['renderer'], now);
+assert.equal(safe.length, 1);
+assert.equal(safe[0].data.secret, undefined);
+let state = mergeAutomatic(emptyAutomaticState(), safe);
+assert.equal(state.incidents.length, 1);
+assert.equal(state.incidents[0].count, 1);
+assert.deepEqual(mergeAutomatic(state, safe), state, 'повторная отправка не удваивает счётчик');
+state.incidents[0].resolvedAt = new Date(now + 1).toISOString();
+state = mergeAutomatic(state, automaticEvents([event(2)], ['renderer'], now));
+assert.equal(state.incidents[0].count, 2);
+assert.equal(state.incidents[0].resolvedAt, undefined, 'новый сбой открывает проблему повторно');
+state = mergeAutomatic(state, automaticEvents([event(4, { status: 404 })], ['renderer'], now));
+assert.equal(state.incidents[0].count, 2, 'ожидаемый 404 не добавляет проблему');
+const stall = (seq: number) => ({ ...event(seq), event: 'ui.stall', data: { durationMs: 6000 } });
+let pauses = mergeAutomatic(emptyAutomaticState(), automaticEvents([stall(5)], ['renderer'], now));
+pauses = mergeAutomatic(pauses, automaticEvents([stall(6)], ['renderer'], now));
+assert.equal(pauses.incidents[0].count, 2, 'паузы из разных пакетов накапливаются');
+console.log('10 проверок автоматической диагностики пройдено');

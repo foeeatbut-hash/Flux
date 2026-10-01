@@ -11,6 +11,7 @@
  *
  * Маршруты — server/routes/projectData.ts.
  */
+import { enrichEquipment } from './equipmentCatalog.js';
 import { createHash } from 'node:crypto';
 import { compositionOf } from '../equipment/composition.js';
 import { classifyAll, classTitle, modelOf } from '../equipment/classes.js';
@@ -105,6 +106,10 @@ export async function loadProjectSlice(projectId: string) {
       include: { monoblocks: { include: { components: { include: { tags: true } } } } },
     }),
   ]);
+  await enrichEquipment(systems);
+  // Связанные с тегами позиции должны видеть тот же срез источников.
+  const enriched = new Map<string, any>(systems.flatMap(s => s.monoblocks.flatMap(m => m.components)).map(e => [e.id, e]));
+  for (const tag of tags) tag.componentElements = tag.componentElements.map(el => ({ ...el, ...(enriched.get(el.id) || {}) }));
   const elements: any[] = [];
   for (const sys of systems) {
     // Состав: тег владельца и тег установки — сразу у каждой строки. Считать

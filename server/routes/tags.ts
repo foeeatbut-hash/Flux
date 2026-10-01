@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import * as XLSX from 'xlsx';
+import { enrichEquipment } from '../equipmentCatalog.js';
 import { getPrisma } from '../context.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
@@ -484,6 +485,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           }
         }
       });
+      await enrichEquipment(systems);
       res.json({ systems });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

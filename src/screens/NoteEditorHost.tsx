@@ -1,3 +1,4 @@
+import { useFileProject } from '../lib/useFileProject';
 /**
  * Редактор заметки Блокнота — Markdown Flux Office (GenOffice) во фрейме.
  *
@@ -21,6 +22,9 @@ import { usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { isOfficeMsg, targetOrigin, fromOwnFrame } from '../lib/officeBridge';
 import { saveNewFile, editorHref } from '../lib/officeFiles';
+import { dataService } from '../services/dataService';
+import { useTagNavigationStore } from '../store/tagNavigationStore';
+import FluxPanel from '../components/office/FluxPanel';
 import { Empty } from '../components/ui';
 
 const EDITOR_URL = 'genoffice/markdown/index.html';
@@ -78,6 +82,29 @@ function printHtml(html: string): Promise<void> {
 
 const fileName = (name: string) => (String(name || '').replace(/[\\/:*?"<>|]/g, '_').trim() || 'Заметка').slice(0, 120);
 
+function tagAtClick(doc: Document, event: MouseEvent): string | null {
+  const root = doc.querySelector('.ProseMirror');
+  if (!root) return null;
+  const extended = doc as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null; caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+  let node: Node | null = null;
+  let offset = -1;
+  const range = extended.caretRangeFromPoint?.(event.clientX, event.clientY);
+  if (range) { node = range.startContainer; offset = range.startOffset; }
+  else {
+    const caret = extended.caretPositionFromPoint?.(event.clientX, event.clientY);
+    if (caret) { node = caret.offsetNode; offset = caret.offset; }
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !root.contains(node)) return null;
+  const text = node.textContent || '';
+  const re = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*)/gu;
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) {
+    const start = m.index + m[1].length;
+    const end = start + m[0].length - m[1].length;
+    if (offset >= start && offset < end) return m[2];
+  }
+  return null;
+}
+
 const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHost(
   { path, name, load, save, compact = false, readOnly = false, onState, onReady }, ref,
 ) {
@@ -85,7 +112,10 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
   const paneId = usePaneId();
   const theme = useStore((s) => s.theme);
   const addToast = useToastStore((s) => s.addToast);
+  const linkedFileId = path.startsWith('flux://file/') ? path.slice('flux://file/'.length) : '';
+  const activeProjectId = useFileProject(linkedFileId);
   const frame = useRef<HTMLIFrameElement>(null);
+  const [fluxOpen, setFluxOpen] = useState(false);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'missing'>('loading');
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -96,6 +126,22 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
   const io = useRef({ load, save, name, onState, onReady, readOnly });
   io.current = { load, save, name, onState, onReady, readOnly };
   const handle = useRef<NoteEditorHandle | null>(null);
+  const tagClickOpener = useRef<(value: string, byId?: boolean) => void>(() => {});
+  const clickBinding = useRef<{ doc: Document; handler: (event: MouseEvent) => void } | null>(null);
+
+  const openKnownTag = useCallback(async (value: string, byId = false) => {
+    const projectId = activeProjectId;
+    if (!projectId || !value) return;
+    try {
+      const result = await dataService.getTags(projectId);
+      const tags = result?.tags || [];
+      const tag = byId
+        ? tags.find((item: any) => String(item.id) === value)
+        : tags.find((item: any) => String(item.identifier || '').trim().toLocaleLowerCase() === value.trim().toLocaleLowerCase());
+      if (tag) useTagNavigationStore.getState().open({ projectId, tagId: tag.id, identifier: tag.identifier });
+    } catch { /* неизвестный или недоступный тег не превращаем в ссылку */ }
+  }, [activeProjectId]);
+  tagClickOpener.current = (value, byId) => { void openKnownTag(value, byId); };
 
   const send = useCallback((msg: object) => {
     frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin));
@@ -138,6 +184,7 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
         send({ event: 'readOnly', payload: readOnly });
         return;
       }
+      if (m.op === 'flux:open-panel') { setFluxOpen(true); return; }
       const wait = waits.current.get(m.op);
       if (wait) { wait(m.payload); return; }
       if (m.op === 'dirty') {
@@ -153,7 +200,7 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
       if (m.op === 'notice') { addToast(String(m.payload || ''), 'info'); return; }
       if (m.op === 'openLink') {
         const tag = /^flux:tag\/(.+)$/.exec(String(m.payload || ''));
-        if (tag) navigate(`/registry?focus=${encodeURIComponent(tag[1])}`);
+        if (tag) tagClickOpener.current(tag[1], true);
         return;
       }
       if (m.id === undefined) return;
@@ -208,18 +255,35 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const onFrameLoad = useCallback(() => {
+    if (clickBinding.current) clickBinding.current.doc.removeEventListener('click', clickBinding.current.handler, true);
     try {
-      const title = frame.current?.contentDocument?.title;
+      const doc = frame.current?.contentDocument;
+      const title = doc?.title;
       if (title !== undefined && title !== 'Flux Office') { setPhase('missing'); return; }
+      if (doc) {
+        const handler = (event: MouseEvent) => {
+          const target = event.target as Element | null;
+          if (target?.nodeType === 1 && typeof target.closest === 'function' && target.closest('a')) return;
+          const identifier = tagAtClick(doc, event);
+          if (identifier) tagClickOpener.current(identifier);
+        };
+        doc.addEventListener('click', handler, true);
+        clickBinding.current = { doc, handler };
+      }
     } catch (_) { /* с диска документ фрейма закрыт — ждём моста */ }
     setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, HELLO_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (clickBinding.current) clickBinding.current.doc.removeEventListener('click', clickBinding.current.handler, true);
   }, []);
 
   if (phase === 'missing') {
     return <Empty title="Редактор не установлен" text="В этой сборке нет редактора Блокнота Flux Office. Обновите программу." />;
   }
   return (
-    <div className="relative h-full w-full">
+    <div className="relative flex h-full min-w-0 w-full">
+    <div className="relative min-w-0 h-full flex-1">
       <iframe
         key={path}
         ref={frame}
@@ -233,6 +297,12 @@ const NoteEditorHost = forwardRef<NoteEditorHandle, Props>(function NoteEditorHo
           Открывается…
         </div>
       )}
+    </div>
+      {fluxOpen && <FluxPanel fileId="" projectId={activeProjectId} editorKind="note" fileName={name} readOnly={readOnly} onClose={() => setFluxOpen(false)}
+        onInsertField={f => send({ event: 'fluxInsertText', payload: f.value })}
+        onInsertTable={async rows => { const r = await askFrame<{ok: boolean}>('fluxInsertTable', { rows }, 'flux:table-inserted', 10000); return !!r?.ok; }}
+        onReadText={async () => { await flush(); return io.current.load(); }}
+        onInsertText={text => send({ event: 'fluxInsertText', payload: text })} />}
     </div>
   );
 });

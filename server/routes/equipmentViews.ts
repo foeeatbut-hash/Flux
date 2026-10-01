@@ -112,7 +112,7 @@ function readSpec(raw: unknown): Record<string, unknown> | null {
   let v: any = raw;
   if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { return null; } }
   if (!v || typeof v !== 'object' || v.v !== 2) return null;
-  return JSON.stringify(v).length > 200_000 ? null : v;
+  return JSON.stringify(v).length > 2_500_000 ? null : v;
 }
 
 export function registerEquipmentViewRoutes(app: Express): void {
@@ -131,7 +131,20 @@ export function registerEquipmentViewRoutes(app: Express): void {
         where: { OR: [{ scope: 'SHARED' }, { scope: 'PERSONAL', ownerId: me?.id || '—' }] },
         orderBy: [{ name: 'asc' }],
       });
-      res.json({ views: (rows as any[]).map(toView) });
+      res.json({ views: (rows as any[]).map(row => {
+        const view = toView(row); const spec = view.spec;
+        return { ...view, hasWorkbook: !!spec?.workbookTemplate, spec: spec ? { ...spec, workbookTemplate: undefined } : null };
+      }) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.get('/api/equipment/view-templates/:id/workbook', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma(); await ensure(prisma);
+      const me = authUserOf(req);
+      const row = await prisma.equipmentViewTemplate.findFirst({ where: { id: String(req.params.id), OR: [{ scope: 'SHARED' }, { scope: 'PERSONAL', ownerId: me?.id || '—' }] } });
+      if (!row) return res.status(404).json({ error: 'Шаблон не найден' });
+      res.json({ workbookTemplate: readSpec(row.specJson)?.workbookTemplate || null });
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -146,6 +159,7 @@ export function registerEquipmentViewRoutes(app: Express): void {
 
       const fields = readFields(body.fields);
       const spec = readSpec(body.spec);
+      if (body.spec && !spec) return res.status(400).json({ error: 'Шаблон слишком большой или имеет неверный формат (предел 2,5 МБ)' });
       // Шаблону второй версии хватает служебных столбцов: «теги и типы
       // приводов» — законная выгрузка и без единой характеристики
       if (!fields.length && !spec) {

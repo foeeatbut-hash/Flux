@@ -14,6 +14,7 @@ import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { decodeShare } from '../lib/shareLink';
 import { openInProject } from '../lib/projectScope';
+import { useTagNavigationStore } from '../store/tagNavigationStore';
 import MessageBubble, { DayDivider } from '../components/chat/MessageBubble';
 import { markGroups } from '../components/chat/grouping';
 import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
@@ -661,16 +662,35 @@ export default function ChatManagement() {
       const res = await fetch(`/api/chat/search-element?tag=${encodeURIComponent(tag)}${pid ? `&projectId=${encodeURIComponent(pid)}` : ''}`);
       const data = res.ok ? await res.json() : {};
 
-      if (data.element) {
-        navigate(`/equipment?element=${encodeURIComponent(data.element.id)}`);
+      if (data.tag) {
+        const projectId = data.tag.projectId || pid;
+        openInProject({
+          what: `Тег ${tag}`,
+          projectId,
+          open: () => useTagNavigationStore.getState().open({ projectId, tagId: data.tag.id, identifier: data.tag.identifier || tag }),
+        });
         return;
       }
-      if (data.tag) {
-        navigate(`/registry?focus=${encodeURIComponent(data.tag.id)}`);
+      if (data.element) {
+        const linkedTag = (data.element.tags || []).find((item: any) => item.identifier?.toLocaleLowerCase() === tag.toLocaleLowerCase());
+        if (linkedTag) {
+          const projectId = linkedTag.projectId || pid;
+          openInProject({
+            what: `Тег ${tag}`,
+            projectId,
+            open: () => useTagNavigationStore.getState().open({ projectId, tagId: linkedTag.id, identifier: linkedTag.identifier || tag }),
+          });
+          return;
+        }
+        navigate(`/equipment?component=${encodeURIComponent(data.element.id)}`);
         return;
       }
       if (data.elsewhere) {
-        addToast(`Тег ${tag} — из проекта «${data.elsewhere.project?.name || 'другого'}». Переключите проект, чтобы открыть его.`, 'info');
+        openInProject({
+          what: `Тег ${tag}`,
+          projectId: data.elsewhere.projectId,
+          open: () => useTagNavigationStore.getState().open({ projectId: data.elsewhere.projectId, tagId: data.elsewhere.id, identifier: data.elsewhere.identifier || tag }),
+        });
         return;
       }
       addToast(`Тег ${tag} в этом проекте не найден — возможно, он ещё не заведён.`, 'info');

@@ -22,10 +22,12 @@ import { buildEquipmentExchange, byTag, paramColumnKey, type ExchangeComponent, 
 import { classById, classOrder, isClassId } from '../../equipment/classes';
 import { compareTags } from '../../equipment/notes';
 import type { TableLayout } from './tableLayout';
+import type { ExportGrid } from './exportGrid';
 
 export type ExportOrder = 'tag' | 'class-tag' | 'unit-tag';
 
-export interface ExportColumn { key: string; label: string; unit?: string }
+export interface ExportColumn { key: string; label: string; unit?: string; formula?: string }
+export interface WorkbookTemplate { base64: string; baseline: ExportGrid }
 
 export interface ExportSpec {
   v: 2;
@@ -38,6 +40,8 @@ export interface ExportSpec {
   order: ExportOrder;
   /** Строка-заголовок перед каждой группой типа («Приводы») */
   groupHeaders: boolean;
+  grid?: { deduplicate?: boolean; groupBy?: string[]; sums?: string[]; blankRepeats?: string[] };
+  workbookTemplate?: WorkbookTemplate;
 }
 
 /** Служебные столбцы — они есть у любой позиции, в отличие от характеристик */
@@ -82,8 +86,8 @@ export function specOf(raw: unknown, v1?: { role?: string; fields?: { group: str
   if (typeof r === 'string') { try { r = JSON.parse(r); } catch (_) { r = null; } }
   if (r && r.v === 2) {
     const columns = (Array.isArray(r.columns) ? r.columns : [])
-      .map((c: any) => ({ key: String(c?.key || ''), label: String(c?.label || '').trim(), unit: String(c?.unit || '') }))
-      .filter((c: ExportColumn) => c.key && (c.key.startsWith('param:') || SERVICE_COLUMNS.some((s) => s.key === c.key)))
+      .map((c: any) => ({ key: String(c?.key || ''), label: String(c?.label || '').trim(), unit: String(c?.unit || ''), ...(c?.formula ? { formula: String(c.formula) } : {}) }))
+      .filter((c: ExportColumn) => c.key && (c.key.startsWith('param:') || c.key.startsWith('formula:') || SERVICE_COLUMNS.some((s) => s.key === c.key)))
       .map((c: ExportColumn) => ({ ...c, label: c.label || service(c.key)?.label || c.key.split('|').pop() || c.key }));
     return {
       v: 2,
@@ -93,6 +97,8 @@ export function specOf(raw: unknown, v1?: { role?: string; fields?: { group: str
       columns: columns.length ? columns : defaultSpec().columns,
       order: r.order === 'tag' || r.order === 'unit-tag' ? r.order : 'class-tag',
       groupHeaders: r.groupHeaders !== false,
+      ...(typeof r.workbookTemplate?.base64 === 'string' && r.workbookTemplate.base64.length <= 2000000 && Array.isArray(r.workbookTemplate.baseline?.rows) && Array.isArray(r.workbookTemplate.baseline?.rowKeys) ? { workbookTemplate: r.workbookTemplate } : {}),
+      grid: r.grid && typeof r.grid === 'object' ? { deduplicate: !!r.grid.deduplicate, groupBy: strings(r.grid.groupBy), sums: strings(r.grid.sums), blankRepeats: strings(r.grid.blankRepeats) } : undefined,
     };
   }
   const fields = v1?.fields || [];

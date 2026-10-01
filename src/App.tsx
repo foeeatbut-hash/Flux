@@ -17,6 +17,9 @@ import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
 import LicenseGate from './screens/LicenseGate';
 import ProblemPanel from './components/feedback/ProblemPanel';
+import DeveloperContact from './components/DeveloperContact';
+import AutomaticIncidentWatcher from './components/feedback/AutomaticIncidentWatcher';
+import TagNavigationPanel from './components/TagNavigationPanel';
 import { useProblemPanel, openProblemPanel, closeProblemPanel } from './feedback/problemPanel';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
@@ -227,6 +230,7 @@ function ElectronTitleBar() {
           >
             <Bug className="w-3.5 h-3.5" />
           </button>
+          <DeveloperContact buttonClassName={btn} buttonStyle={{ ...noDrag, ...btnBox }} />
           {/* Кнопки окна — только в самой программе: в браузере окном
               распоряжается браузер, и три мёртвые кнопки там были бы обманом */}
           {isElectron && (
@@ -368,6 +372,8 @@ export default function App() {
               <LicenseGate>
                 <AnimatedRoutes />
                 <PlayInviteWatcher />
+                <TagNavigationPanel />
+                <AutomaticIncidentWatcher />
               </LicenseGate>
             </ServerGate>
           </div>

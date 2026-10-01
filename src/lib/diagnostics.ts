@@ -93,6 +93,8 @@ export function diagnostic<E extends EventName>(event: E, fields?: SafeFields<E>
   } catch (_) { /* запись не имеет права сломать работу окна */ }
 }
 
+export function rendererEvents(): DiagnosticEvent[] { return tail.map(e => ({ ...e, data: { ...e.data } })); }
+
 function push(entry: DiagnosticEvent): void {
   tail.push(entry);
   tailBytes += entry ? JSON.stringify(entry).length + 1 : 0;

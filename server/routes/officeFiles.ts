@@ -197,8 +197,9 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
       if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const bytes = await fileBytes(file);
+      const folder = await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } });
       res.json({
-        id: file.id, name: file.name, folderId: file.folderId, size: bytes.length, sha256: sha256(bytes),
+        id: file.id, name: file.name, folderId: file.folderId, projectId: folder?.projectId || null, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
       });
     } catch (err: any) { sendError(res, err); }

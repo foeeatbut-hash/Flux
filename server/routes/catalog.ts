@@ -5,6 +5,7 @@ import { seedCatalog, SEED_VERSION } from '../../catalog/seed.js';
 import { defaultBlankTemplate } from '../../catalog/blank/defaults.js';
 import type { Catalog, Family } from '../../catalog/model.js';
 import { SIGNATURE_MAX } from '../../catalog/text.js';
+import { registerCatalogSpreadsheetRoutes } from './catalogSpreadsheet.js';
 import { templateProblem } from '../../catalog/blank/safe.js';
 
 /**
@@ -60,9 +61,10 @@ const TABLES: TableSpec[] = [
 
 let ready = false;
 let seeded = false;
-onDatabaseSwapped(() => { ready = false; seeded = false; });
+let pending: Promise<void> | null = null;
+onDatabaseSwapped(() => { ready = false; seeded = false; pending = null; });
 
-async function ensure(prisma: any): Promise<void> {
+async function ensureInner(prisma: any): Promise<void> {
   if (!ready) {
     const err = await ensureTables(prisma, TABLES);
     if (err) throw new Error(err);
@@ -72,6 +74,11 @@ async function ensure(prisma: any): Promise<void> {
     await syncSeed(prisma);
     seeded = true;
   }
+}
+
+export async function ensureCatalog(prisma: any): Promise<void> {
+  if (!pending) pending = ensureInner(prisma).finally(() => { pending = null; });
+  await pending;
 }
 
 const parse = <T>(s: string | null | undefined, fallback: T): T => {
@@ -121,7 +128,7 @@ async function syncSeed(prisma: any): Promise<void> {
   }
 }
 
-async function readCatalog(prisma: any, withDeleted = false): Promise<Catalog & { meta: Record<string, any> }> {
+export async function readCatalog(prisma: any, withDeleted = false): Promise<Catalog & { meta: Record<string, any> }> {
   const [classes, mfs, fams, comps, rules] = await Promise.all([
     prisma.catalogClass.findMany({ orderBy: { sort: 'asc' } }),
     prisma.catalogManufacturer.findMany({ orderBy: { name: 'asc' } }),
@@ -180,10 +187,11 @@ function whyNot(entity: string, d: any): string {
 }
 
 export function registerCatalogRoutes(app: Express): void {
+  registerCatalogSpreadsheetRoutes(app, { ensure: ensureCatalog, readCatalog });
   app.get('/api/catalog', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const cat = await readCatalog(prisma, req.query.deleted === '1');
       res.json({ ...cat, stamp: await stampOf(prisma) });
     } catch (err: any) { sendError(res, err); }
@@ -192,7 +200,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/catalog/stamp', async (_req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       res.json({ stamp: await stampOf(prisma) });
     } catch (err: any) { sendError(res, err); }
   });
@@ -206,7 +214,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.put('/api/catalog/:entity/:id', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const entity = String(req.params.entity);
       const spec = ENTITY[entity];
       if (!spec) return res.status(404).json({ error: 'Нет такого вида записи' });
@@ -238,7 +246,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.delete('/api/catalog/:entity/:id', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const entity = String(req.params.entity);
       const spec = ENTITY[entity];
       if (!spec) return res.status(404).json({ error: 'Нет такого вида записи' });
@@ -257,7 +265,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/catalog/:entity/:id/revisions', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const rows = await prisma.catalogRevision.findMany({
         where: { entity: String(req.params.entity), entityId: String(req.params.id) },
         orderBy: { createdAt: 'desc' }, take: 50,
@@ -270,7 +278,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.post('/api/catalog/revisions/:id/restore', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const rev = await prisma.catalogRevision.findUnique({ where: { id: String(req.params.id) } });
       if (!rev) return res.status(404).json({ error: 'Снимок не найден' });
       // Шаблоны бланков откатываются тем же снимком, но правятся своим
@@ -306,7 +314,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.post('/api/catalog/family/:id/reseed', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const f = seedCatalog().families.find((x) => x.id === req.params.id);
       if (!f) return res.status(404).json({ error: 'Этого семейства нет в затравке программы' });
       const before = await prisma.catalogFamily.findUnique({ where: { id: f.id } });
@@ -324,7 +332,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/catalog/export', async (_req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const cat = await readCatalog(prisma);
       res.json({ format: 'flux-catalog', version: 1, exportedAt: new Date().toISOString(), ...cat, meta: undefined });
     } catch (err: any) { sendError(res, err); }
@@ -337,7 +345,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.post('/api/catalog/import', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const body = (req.body || {}) as any;
       if (body.format !== 'flux-catalog') return res.status(400).json({ error: 'Это не файл каталога Flux' });
       const apply = body.mode === 'apply';
@@ -379,7 +387,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/catalog/learn', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const rows = await prisma.catalogLearn.findMany({
         where: req.query.classId ? { classId: String(req.query.classId) } : {},
         orderBy: { updatedAt: 'desc' }, take: 5000,
@@ -396,7 +404,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.post('/api/catalog/learn', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const b = (req.body || {}) as any;
       const signature = String(b.signature || '');
       if (!signature || !b.familyId || !b.classId) return res.status(400).json({ error: 'Нечего запоминать' });
@@ -418,7 +426,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.delete('/api/catalog/learn/:id', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       await prisma.catalogLearn.deleteMany({ where: { id: String(req.params.id) } });
       res.json({ ok: true });
     } catch (err: any) { sendError(res, err); }
@@ -434,7 +442,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/blank-templates', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const rows = await prisma.blankTemplate.findMany({
         where: { OR: [{ scope: 'SHARED' }, { scope: 'PERSONAL', ownerId: me(req)?.id || '—' }] },
         orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -446,7 +454,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.put('/api/blank-templates/:id', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const b = (req.body || {}) as any;
       const name = String(b.name || b.layout?.name || '').trim().slice(0, 200);
       if (!name) return res.status(400).json({ error: 'У шаблона нет имени' });
@@ -476,7 +484,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.delete('/api/blank-templates/:id', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const row = await prisma.blankTemplate.findUnique({ where: { id: String(req.params.id) } });
       if (!row) return res.json({ ok: true });
       if (row.scope === 'PERSONAL' && row.ownerId !== me(req)?.id) return res.status(403).json({ error: 'Это личный шаблон другого сотрудника' });
@@ -491,7 +499,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.get('/api/import-profiles', async (_req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const rows = await prisma.importProfile.findMany({ orderBy: { updatedAt: 'desc' }, take: 200 });
       res.json({ profiles: rows.map((r: any) => ({ id: r.id, name: r.name, signature: r.signature, mapping: parse(r.mappingJson, {}), updatedAt: r.updatedAt })) });
     } catch (err: any) { sendError(res, err); }
@@ -500,7 +508,7 @@ export function registerCatalogRoutes(app: Express): void {
   app.post('/api/import-profiles', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
-      await ensure(prisma);
+      await ensureCatalog(prisma);
       const b = (req.body || {}) as any;
       const signature = String(b.signature || '');
       if (!signature) return res.status(400).json({ error: 'Нет подписи формата' });

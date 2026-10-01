@@ -70,7 +70,7 @@ const AMBIGUOUS: Record<string, Partial<Record<Dimension, number>>> = {
 };
 
 function unitKey(u: string): string {
-  return (u || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+  return (u || '').toLowerCase().replace(/³/g, '3').replace(/²/g, '2').replace(/\./g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Единица → { dim, factor } или null, если не распознана или неоднозначна */
