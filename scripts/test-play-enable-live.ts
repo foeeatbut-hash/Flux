@@ -100,7 +100,7 @@ async function revokePlay(token: string, userId: string): Promise<void> {
   const ids: Record<string, string> = {};
   for (const [label, who] of [['с доступом', withAccess], ['без доступа', without]] as const) {
     const made = await api(adminToken, 'POST', '/api/users', {
-      name: `Проверка включения ${label} ${stamp}`, symbol: who.symbol, password: who.password, role: 'ENGINEER',
+      name: `Проверка включения ${label} ${stamp}`, symbol: who.symbol, password: who.password, role: 'ENGINEER_VENT',
     });
     ids[who.symbol] = String(made.json?.user?.id || made.json?.id || '');
     ok(`сотрудник ${label} заведён`, !!ids[who.symbol], { s: made.status, j: made.json });

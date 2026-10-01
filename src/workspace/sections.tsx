@@ -11,7 +11,7 @@
 import React, { lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks, Archive } from 'lucide-react';
 import { APP_PLAY } from '../../play/features';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
 
@@ -61,6 +61,7 @@ const CalendarScreen = lazy(() => import('../screens/CalendarScreen'));
 const PlayScreen = lazy(() => import('../play/PlayScreen'));
 const CatalogScreen = lazy(() => import('../screens/CatalogScreen'));
 const BuilderScreen = lazy(() => import('../screens/BuilderScreen'));
+const ArchivesScreen = lazy(() => import('../screens/Archives'));
 
 /**
  * Область данных раздела — см. src/lib/projectScope.ts.
@@ -146,6 +147,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/builder', title: 'Конструктор', icon: Blocks, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
   // Каталог — справочник оборудования программы, а не проекта
   { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
+  { path: '/archives', title: 'Архиватор', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, Component: ArchivesScreen },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
   // Flux Office — семья редакторов, устроенная как офисный пакет: у каждого
   // вида документа своя программа со своим значком и своим именем в одно

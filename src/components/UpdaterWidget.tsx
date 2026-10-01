@@ -10,26 +10,16 @@
  * Состояние живёт в updateStore: о том же обновлении должен знать значок у
  * часов, а он к этому окну отношения не имеет.
  */
-import { Dialog, Btn, Field, Input, Area } from './ui';
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  RefreshCw,
-  CheckCircle2,
-  Download,
-  ArrowUpCircle,
-  PlusCircle,
-  Settings,
-  FileUp,
-  Link2
-} from 'lucide-react';
+import { Dialog, Btn } from './ui';
+import React, { useState, useEffect } from 'react';
+import { RefreshCw, Download } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
-import { useStore } from '../store/store';
 import { getServerBaseUrl } from '../config/env';
 import { useUpdateStore } from '../store/updateStore';
-import { phaseLabel, fileUrlOf, versionFromFileName, versionProblem } from '../lib/updates';
+import { phaseLabel, fileUrlOf } from '../lib/updates';
 
 // ── Автообновления через сервер ──
-// Админ публикует релиз прямо на сервер (загружает exe или даёт прямую ссылку),
+// Владелец публикует подписанный релиз через отдельную программу владельца,
 // запись попадает в AppUpdate. Сотрудники проверяют /api/updates/latest на том
 // сервере, с которым работают (встроенный или сервер компании), качают exe
 // оттуда же и портативное приложение подменяет само себя. Никакого стороннего
@@ -45,21 +35,8 @@ function formatSize(bytes: number): string {
 }
 
 export default function UpdaterWidget() {
-  const { user } = useStore();
   const { addToast } = useToastStore();
 
-  // Публикация релиза (админ)
-  const [showPublishModal, setShowPublishModal] = useState(false);
-  const [pubVersion, setPubVersion] = useState('');
-  const [pubChangelog, setPubChangelog] = useState('');
-  const [pubFile, setPubFile] = useState<File | null>(null);
-  const [pubFileUrl, setPubFileUrl] = useState('');
-  // Подпись выпуска владельцем (файл .flux-sig): без неё обновление не ставится
-  const [pubSignature, setPubSignature] = useState('');
-  const [isPublishing, setIsPublishing] = useState(false);
-  /** Почему публикация не удалась — прямо в окне, а не всплывающей подсказкой */
-  const [pubError, setPubError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showModal, setShowModal] = useState(false);
 
   const phase = useUpdateStore((s) => s.phase);
@@ -74,12 +51,10 @@ export default function UpdaterWidget() {
   const install = useUpdateStore((s) => s.install);
   const markSeen = useUpdateStore((s) => s.markSeen);
   const broken = useUpdateStore((s) => s.broken);
-  const revoke = useUpdateStore((s) => s.revoke);
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
   const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
-  /** Куда уходит запрос за файлом: сервер, с которым работает эта программа */
-  const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
+
 
   useEffect(() => {
     void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
@@ -133,110 +108,13 @@ export default function UpdaterWidget() {
     }
   };
 
-  /**
-   * Файл выбран — номер версии берётся из его имени.
-   *
-   * Руками номер набирать не надо: именно на этом обновления и встали. В поле
-   * оказалось «90» вместо «0.90.0», запись о релизе разошлась всем сотрудникам,
-   * а файл на сервере лежал под настоящим номером — и каждый получал «файла
-   * этой версии нет».
-   */
-  const handlePickFile = (file: File | null) => {
-    setPubFile(file);
-    if (!file) return;
-    const fromName = versionFromFileName(file.name);
-    if (fromName) setPubVersion(fromName);
-  };
-
-  const handlePublishRelease = async () => {
-    const version = pubVersion.trim();
-    const badVersion = versionProblem(version);
-    if (badVersion) {
-      addToast(badVersion, 'error');
-      return;
-    }
-    if (!pubSignature.trim()) {
-      addToast('Приложите подпись выпуска (.flux-sig) — без неё обновление никто не поставит', 'error');
-      return;
-    }
-    if (!pubFile && !pubFileUrl.trim()) {
-      addToast('Выберите файл exe или укажите прямую ссылку', 'error');
-      return;
-    }
-
-    setIsPublishing(true);
-    setPubError('');
-    try {
-      // Шаг 1: файл — на сервер (сырыми байтами, минуя JSON-лимиты)
-      if (pubFile) {
-        const upRes = await fetch(`/api/updates/upload?version=${encodeURIComponent(version)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: pubFile,
-        });
-        const upData = await upRes.json().catch(() => ({}));
-        if (!upRes.ok) throw new Error(upData.error || `Загрузка файла: сервер ответил ${upRes.status}`);
-        // Файл, не попавший в общую базу, виден только на этой машине.
-        // Публиковать такое нельзя: оповещение уйдёт всем, а скачать не сможет
-        // никто — именно так отдел и просидел два выпуска без обновлений
-        if (upData?.shared === false) {
-          throw new Error(String(upData.warning || 'Файл не попал в общую базу — сотрудники его не скачают.'));
-        }
-      }
-      // Шаг 2: запись релиза (ссылка на сервер, если файл загружен)
-      const res = await fetch('/api/updates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version, changelog: pubChangelog, fileUrl: pubFileUrl.trim(), signature: pubSignature.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Сервер ответил ${res.status}`);
-
-      /**
-       * Проверяем, что файл действительно лежит там, откуда его будут качать.
-       *
-       * Это не перестраховка. Публикация уходит на ТОТ сервер, с которым
-       * работает эта программа, а берут файл сотрудники из общей базы. Спросить
-       * дешевле, чем узнать от них через день. Спрашиваем именно вопросом, а не
-       * скачиванием: 130 мегабайт по сети ради двух байтов никому не нужны.
-       */
-      const probe = await fetch(fileUrlOf(`/api/updates/check/${version}`, base)).catch(() => null);
-      const state = probe ? await probe.json().catch(() => null) : null;
-      if (!state?.ok) {
-        setPubError(
-          `Релиз записан, но файла на сервере нет (${state?.why || (probe ? `код ${probe.status}` : 'сервер не ответил')}). `
-          + 'Сотрудники его не скачают — опубликуйте заново.',
-        );
-        addToast('Файл на сервере не найден — смотрите объяснение в окне публикации', 'error');
-        return;
-      }
-
-      addToast(`Релиз v${version} опубликован — сотрудники получат оповещение.`, 'success');
-      setShowPublishModal(false);
-      setPubChangelog('');
-      setPubFile(null);
-      setPubSignature('');
-      void check(true);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      // Причина остаётся в окне, а не уезжает с всплывающей подсказкой:
-      // читать её приходится внимательно, а иногда и показывать кому-то
-      setPubError(errMsg);
-      addToast(`Ошибка публикации: ${errMsg}`, 'error');
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
-  const isAdmin = user?.role === 'ADMIN';
   const isDevSandbox = isElectron && !isPackaged;
 
   return (
     <div className="max-w-xl text-left">
       <div className="fx-group-title flex items-center justify-between mt-2">
         <span>Автообновления</span>
-        {status !== 'idle' && (
+        {busy && (
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         )}
       </div>
@@ -337,32 +215,12 @@ export default function UpdaterWidget() {
           <div key={b.version} className="text-xs leading-snug bg-amber-500/10 rounded p-2 text-amber-700 dark:text-amber-300">
             <div>
               Релиз <span className="font-medium">v{b.version}</span> опубликован без файла: {b.why}.
-              {!isAdmin && ' Обновиться по нему нельзя — скажите администратору.'}
+              {' Обновиться по нему нельзя — обратитесь к владельцу Flux.'}
             </div>
-            {isAdmin && (
-              <button type="button"
-                onClick={async () => {
-                  const err = await revoke(b.version);
-                  addToast(err || `Публикация v${b.version} отозвана`, err ? 'error' : 'success');
-                }}
-                className="fx-btn fx-btn-quiet mt-1"
-              >
-                Отозвать публикацию
-              </button>
-            )}
           </div>
         ))}
 
-        {/* Публикация релиза — только администратор */}
-        {isAdmin && (
-          <button type="button"
-            onClick={() => setShowPublishModal(true)}
-            className="fx-btn mt-3 ml-2"
-          >
-            <PlusCircle />
-            <span>Опубликовать релиз</span>
-          </button>
-        )}
+        <p className="fx-hint mt-3">Выпуски публикует владелец через отдельную программу «Flux · Владелец». Сотрудникам доступны только подписанные обновления компании.</p>
       </div>
 
       {/* Что изменилось и подтверждение установки */}
@@ -385,54 +243,6 @@ export default function UpdaterWidget() {
         </Dialog>
       )}
 
-      {/* Администратор: публикация релиза */}
-      {showPublishModal && (
-        <Dialog title="Публикация обновления" width="max-w-lg" onClose={() => setShowPublishModal(false)} busy={isPublishing}
-          footer={<>
-            <Btn size="lg" onClick={() => setShowPublishModal(false)} disabled={isPublishing}>Отмена</Btn>
-            <Btn size="lg" tone="primary" onClick={handlePublishRelease} disabled={isPublishing}>
-              {isPublishing ? 'Загрузка на сервер…' : 'Опубликовать релиз'}
-            </Btn>
-          </>}>
-          <div className="space-y-3">
-            {/* Куда уйдёт файл — сказано прямо. Раньше он оставался на диске
-                того, кто публиковал, и сотрудники получали «файла этой версии
-                нет», хотя запись о релизе видели все */}
-            <p className="fx-note fx-note-warn">
-              Файл уйдёт в общую базу — ту же, где лежат проекты и переписка. Оттуда его возьмёт
-              программа каждого сотрудника, на какой бы машине она ни работала.
-              Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
-            </p>
-            <Field label="Номер релиза (версия)">
-              <Input value={pubVersion} onChange={(e) => setPubVersion(e.target.value)} placeholder="Например: 0.25.0" className="code" />
-              {/* Ошибку в номере видно сразу, а не после рассылки оповещения */}
-              {!!versionProblem(pubVersion, currentVersion) && pubVersion.trim() !== '' && (
-                <span className="fx-error">{versionProblem(pubVersion, currentVersion)}</span>
-              )}
-            </Field>
-            <Field label="Файл обновления (exe)">
-              <input ref={fileInputRef} type="file" accept=".exe" onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
-                className="text-xs text-slate-700 dark:text-slate-300 file:mr-2 file:border file:border-slate-300 file:rounded file:px-2 file:py-1 file:bg-transparent file:cursor-pointer" />
-              {pubFile && <span className="fx-hint">{pubFile.name} · {formatSize(pubFile.size)} — будет загружен на сервер</span>}
-            </Field>
-            <Field label="Подпись выпуска (.flux-sig)">
-              <input type="file" accept=".flux-sig,.txt"
-                onChange={async (e) => { const f = e.target.files?.[0]; setPubSignature(f ? (await f.text()).trim() : ''); }}
-                className="text-xs text-slate-700 dark:text-slate-300 file:mr-2 file:border file:border-slate-300 file:rounded file:px-2 file:py-1 file:bg-transparent file:cursor-pointer" />
-              <span className="fx-hint">
-                {pubSignature ? 'Подпись приложена — сервер сверит её с файлом.' : 'Создаётся на компьютере владельца: node tools/update-sign.mjs sign …'}
-              </span>
-            </Field>
-            <Field label="Или прямая ссылка (если файл не загружаете)">
-              <Input value={pubFileUrl} onChange={(e) => setPubFileUrl(e.target.value)} placeholder="https://…/Flux-Setup.exe (необязательно)" className="code" />
-            </Field>
-            <Field label="Список изменений">
-              <Area rows={4} value={pubChangelog} onChange={(e) => setPubChangelog(e.target.value)} placeholder={'• Добавлен конструктор таблиц …\n• Улучшен импорт бланков …'} />
-            </Field>
-            {!!pubError && <p className="fx-error">{pubError}</p>}
-          </div>
-        </Dialog>
-      )}
     </div>
   );
 }

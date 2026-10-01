@@ -1,3 +1,5 @@
+import { emitProjectEvent } from '../projectEvents.js';
+import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import * as XLSX from 'xlsx';
@@ -29,7 +31,7 @@ interface TagDeps {
 // первого проекта.
 async function mayUseProject(req: Request, projectId: string): Promise<boolean> {
   const me = (req as any).authUser;
-  return canSeeProject(String(me?.id || ''), projectId, me?.role === 'ADMIN');
+  return canSeeProject(String(me?.id || ''), projectId, isPrivilegedUser(me));
 }
 const NO_PROJECT = { error: 'Нет доступа к проекту. Попросите добавить вас в состав.' };
 
@@ -56,7 +58,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         // «Все теги» без проекта раньше отдавали и закрытые проекты: скрытые от
         // человека проекты исключаем
         const me = (req as any).authUser;
-        const hidden = await hiddenProjectsOf(String(me?.id || ''), me?.role === 'ADMIN');
+        const hidden = await hiddenProjectsOf(String(me?.id || ''), isPrivilegedUser(me));
         tags = await prisma.tag.findMany({ where: hidden.length ? { projectId: { notIn: hidden } } : undefined, include });
       } else {
         if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
@@ -434,7 +436,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
       for (const comp of conflictComponents) {
         const msg = `Найден конфликт в установке "${comp.monoblock.system.name}" на элементе "${comp.name}"`;
-        io.emit('equipment:conflict', {
+        await emitProjectEvent(io, comp.monoblock.system.projectId, 'equipment:conflict', {
           componentId: comp.id,
           systemId: comp.monoblock.system.id,
           message: msg,

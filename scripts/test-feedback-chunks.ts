@@ -120,7 +120,7 @@ async function main() {
     const who = async (suffix: string) => {
       const symbol = `fbc${stamp}${suffix}`;
       await api('POST', '/api/users', admin, {
-        symbol, name: `Проба Вложений ${suffix}`, password: pass, role: 'USER',
+        symbol, name: `Проба Вложений ${suffix}`, password: pass, role: 'ENGINEER_VENT',
         permissions: JSON.stringify(plain),
       });
       return (await api('POST', '/api/login', '', { symbol, password: pass })).json?.token || '';
@@ -243,7 +243,7 @@ async function main() {
   const perms: Record<string, any> = {};
   for (const feat of FEATURES) perms[feat.id] = { enabled: true, until: null };
   const mate = await api('POST', '/api/users', admin, {
-    symbol: `fb${stamp}`, name: 'Проба Обращений', password: pass, role: 'USER', permissions: JSON.stringify(perms),
+    symbol: `fb${stamp}`, name: 'Проба Обращений', password: pass, role: 'ENGINEER_VENT', permissions: JSON.stringify(perms),
   });
   const mateId = mate.json?.user?.id || mate.json?.id;
   const mateToken = (await api('POST', '/api/login', '', { symbol: `fb${stamp}`, password: pass })).json?.token || '';

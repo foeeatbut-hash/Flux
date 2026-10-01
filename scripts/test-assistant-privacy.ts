@@ -48,7 +48,7 @@ const call = async (token: string, method: string, url: string, body?: any) => {
   const symbol = `ПЧ${stamp}`;
   const password = `pv-${stamp}-Aa1`;
   const made = await call(admin, 'POST', '/api/users', {
-    name: `Проверка приватности ${stamp}`, symbol, password, role: 'ENGINEER',
+    name: `Проверка приватности ${stamp}`, symbol, password, role: 'ENGINEER_VENT',
   });
   const otherId = made.json?.user?.id || made.json?.id || '';
   if (!otherId) { console.error('Второй сотрудник не завёлся.', made.status, made.json); process.exit(2); }

@@ -15,6 +15,8 @@ import {
   Settings, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Sigma, Languages, Globe, Gamepad2,
 } from 'lucide-react';
 import { isTopAdmin } from '../lib/roles';
+import { canAdmin } from '../lib/permissions';
+import LicenseSection from '../components/settings/LicenseSection';
 import PlayPlatform from '../components/settings/PlayPlatform';
 import TagRules from '../components/settings/TagRules';
 import { canManagePlay } from '../lib/appPolicy';
@@ -30,12 +32,13 @@ import FormulasSection from '../components/settings/FormulasSection';
 import DocflowSection from '../components/settings/DocflowSection';
 import RolesSection from '../components/settings/RolesSection';
 
+import { useShallow } from 'zustand/react/shallow';
 // ── Раздел «Настройки» ─────────────────────────────────────────────────────────
 // Все настройки программы в одном месте: категории слева (как в настройках
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play' | 'tagrules';
+type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -46,6 +49,8 @@ type SettingScope = 'global' | 'project';
 const SECTIONS: Array<{
   id: SectionId; label: string; icon: any; desc: string; scope: SettingScope;
   topOnly?: boolean;
+  adminFeature?: string;
+  ownerOnly?: boolean;
   /**
    * Лист виден только по праву встроенной программы. От `topOnly` отличается
    * тем, что должность здесь не значит ничего: право выдаётся явно.
@@ -62,7 +67,7 @@ const SECTIONS: Array<{
   // этот лист вовсе: серая кнопка рассказывает о существовании двери, в
   // которую всё равно не войти, а отказ приходил уже от сервера — то есть
   // человек нажимал и получал ошибку
-  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global', topOnly: true },
+  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global', adminFeature: 'admin.roles.manage' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
   { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР', scope: 'global' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
@@ -72,7 +77,8 @@ const SECTIONS: Array<{
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
   { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
   { id: 'browser', label: 'Браузер', icon: Globe, desc: 'Куда разрешено ходить', scope: 'global' },
-  { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
+  { id: 'database', label: 'База данных', icon: Database, desc: 'Подключение сервера к БД', scope: 'global', ownerOnly: true },
+  { id: 'license', label: 'Лицензии сотрудников', icon: ShieldCheck, desc: 'Запрос и активация лицензий', scope: 'global', adminFeature: 'admin.license.activate' },
   { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных', scope: 'global' },
   // Раньше пункт звался «Crash-логи»: сотруднику это ни о чём не говорит, а
   // теперь он сюда заходит не за файлами, а чтобы сообщить о сбое
@@ -97,7 +103,7 @@ const SETTING_GROUPS: Array<{ scope: SettingScope; label: string; hint: string }
 ];
 
 export default function SettingsScreen() {
-  const { user, theme, toggleTheme, density, setDensity } = useStore();
+  const { user, theme, toggleTheme, density, setDensity } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, theme: s.theme, toggleTheme: s.toggleTheme, density: s.density, setDensity: s.setDensity })));
   const { addToast } = useToastStore();
   const addLog = useLogStore((s) => s.addLog);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -119,7 +125,7 @@ export default function SettingsScreen() {
     setSearchParams({ section: id }, { replace: true });
   };
 
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = user?.role === 'OWNER';
   // Главный администратор — уровень 1 (lib/roles). Роли и доступ доступны
   // только ему, и список настроек это учитывает, а не показывает всем
   const topAdmin = isTopAdmin(user);
@@ -127,9 +133,9 @@ export default function SettingsScreen() {
   const policyCtx = useAppContext();
   const mayManagePlay = canManagePlay(policyCtx);
   const allows = React.useCallback(
-    (def: { topOnly?: boolean; entitlement?: string; orTop?: boolean }) =>
-      (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
-    [topAdmin, mayManagePlay],
+    (def: { topOnly?: boolean; entitlement?: string; orTop?: boolean; ownerOnly?: boolean; adminFeature?: string }) =>
+      (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
+    [topAdmin, mayManagePlay, user],
   );
 
   // Раздел могли открыть по адресу — тот, кому он не положен, попадает
@@ -201,8 +207,9 @@ export default function SettingsScreen() {
             <BrowserSection />
           </SectionShell>
         )}
+        {section === 'license' && <LicenseSection />}
         {section === 'database' && <DatabaseSection addToast={addToast} />}
-        {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
+        {section === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
         {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'play' && <PlayPlatform addToast={addToast} />}
         {section === 'tagrules' && <TagRules addToast={addToast} />}

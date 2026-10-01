@@ -9,6 +9,9 @@ import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
 import { setupGames } from './games';
+import { setupOwnerLogin } from './ownerLogin';
+import { setupAuthStorage } from './authStorage';
+import { startCompanyServer } from './companyServer';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
@@ -22,6 +25,7 @@ import { applyUpdate } from './applyUpdate';
  * что-нибудь сделать. Окна помощник тоже не создаёт — ему нечего показывать.
  */
 const APPLY = parseApplyArgs(process.argv);
+const COMPANY_SERVER = process.argv.includes('--flux-company-server');
 
 const additionalData = { myKey: 'pdm-system' };
 if (!APPLY) {
@@ -95,6 +99,9 @@ function createWindow() {
 app.whenReady().then(() => {
   // Помощник подмены: ни меню, ни сервера, ни окна — только заменить файл и уйти
   if (APPLY) { void applyUpdate(APPLY); return; }
+  if (COMPANY_SERVER) { startCompanyServer(); return; }
+
+  if (app.isPackaged) process.env.FLUX_RESOURCES_PATH = process.resourcesPath;
 
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
@@ -174,6 +181,9 @@ app.whenReady().then(() => {
     } catch (e) {}
     return result;
   };
+
+  setupOwnerLogin(() => readAppConfig().remoteServerUrl);
+  setupAuthStorage(() => readAppConfig().remoteServerUrl);
 
   // Смена адреса сервера из интерфейса (экран входа): пусто = встроенный.
   // Пишем в config.json, не трогая остальные ключи; применяется при
@@ -1059,6 +1069,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  if (COMPANY_SERVER) return;
   app.quit();
 });
 

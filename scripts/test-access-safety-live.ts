@@ -29,7 +29,7 @@ const call = (route: string, token = '', method = 'GET', body?: any, origin?: st
 
     const symbol = `safety-${crypto.randomUUID()}`;
     const password = crypto.randomUUID();
-    const made = await call('/api/users', admin.token, 'POST', { name: 'Проверка доступа', symbol, password, role: 'ENGINEER' });
+    const made = await call('/api/users', admin.token, 'POST', { name: 'Проверка доступа', symbol, password, role: 'ENGINEER_VENT' });
     const data = await made.json() as any;
     employeeId = data.user?.id || data.id;
     assert(employeeId, JSON.stringify(data));

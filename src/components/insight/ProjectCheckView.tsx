@@ -24,7 +24,7 @@ import { KindIcon, Row, Empty, Skeleton } from './parts';
  * настоящие находки.
  */
 export default function ProjectCheckView() {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { openWhere, close, setCheckCounts } = useInsightStore();
   const { addToast } = useToastStore();
   const navigate = useNavigate();

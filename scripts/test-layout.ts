@@ -38,6 +38,7 @@ const SECTIONS: [string, string][] = [
   ['Конструктор', '/builder'],
   ['Каталог', '/catalog'],
   ['Проводник', '/explorer'],
+  ['Архиватор', '/archives'],
   ['Таблица', '/sheet'],
   ['Документ', '/doc'],
   ['Помощник', '/assistant'],
@@ -144,6 +145,20 @@ const TOLERANCE = 4;
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1920, height: 1000 } });
   const jsErrors: string[] = [];
+  let fixtureToken = '';
+  let fixtureFolderId = '';
+  let fixtureSourceId = '';
+  let fixtureArchiveId = '';
+  const api = async (token: string, method: string, path: string, body?: any) => {
+    const response = await fetch(BASE + path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await response.text();
+    try { return { status: response.status, json: JSON.parse(text) }; }
+    catch { return { status: response.status, json: null as any, text }; }
+  };
   page.on('pageerror', (e: any) => jsErrors.push(String(e.message).slice(0, 160)));
 
   // Лицензия проверяется подписью, приватного ключа в репозитории нет —
@@ -248,11 +263,12 @@ const TOLERANCE = 4;
     // раздела «Проекты». Обход тихо шёл по заглушкам «Сначала выберите проект»
     // и рапортовал, что раскладка цела, — мерить там было нечего. Кладём
     // проект туда же, где его помнит сама программа.
-    await page.evaluate(async () => {
+    const fixtureProjectId = await page.evaluate(async () => {
       const me = JSON.parse(localStorage.getItem('pdm_session_user') || 'null');
       const list = await (await fetch('/api/projects')).json();
       const first = Array.isArray(list) ? list[0] : (list?.projects || [])[0];
       if (me && first) localStorage.setItem(`max_active_project_${me.id}`, JSON.stringify(first));
+      return first?.id || '';
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(6500);
@@ -266,36 +282,84 @@ const TOLERANCE = 4;
       fs.mkdirSync(SHOTS, { recursive: true });
     }
 
+    // Минимальный настоящий архив: Архиватор должен отрисовать список записей,
+    // пароли и действия, а не только пустое состояние без открытого файла.
+    fixtureToken = (await api('', 'POST', '/api/login', LOGIN)).json?.token || '';
+    const fixtureStamp = Date.now().toString(36);
+    const folder = await api(fixtureToken, 'POST', '/api/folders', {
+      name: `__layout_archive_${fixtureStamp}`, parentId: null, projectId: fixtureProjectId,
+    });
+    fixtureFolderId = folder.json?.folder?.id || folder.json?.id || '';
+    ok('папка для минимального архива заведена', !!fixtureFolderId, folder.json);
+    if (fixtureFolderId) {
+      const payload = Buffer.from('Минимальный файл для проверки Архиватора.', 'utf8');
+      const source = await api(fixtureToken, 'POST', '/api/files', {
+        name: `__layout_archive_${fixtureStamp}.txt`, folderId: fixtureFolderId,
+        type: 'TXT', size: payload.length, content: `data:text/plain;base64,${payload.toString('base64')}`,
+      });
+      fixtureSourceId = source.json?.file?.id || '';
+      ok('исходный файл архива создан', !!fixtureSourceId, source.json);
+      if (fixtureSourceId) {
+        const archived = await api(fixtureToken, 'POST', '/api/archives/create', {
+          fileIds: [fixtureSourceId], folderIds: [], format: 'zip', level: 1, recurse: false,
+        });
+        fixtureArchiveId = archived.json?.id || archived.json?.file?.id || '';
+        ok('создан тестовый ZIP с одним файлом', !!fixtureArchiveId, archived.json);
+      }
+    }
+
     console.log('\n2. Обход разделов: меряем ОКНО, а не стол');
+    const baselineDark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
     for (const [name, path] of SECTIONS) {
       // Через адрес: оболочка сама заводит окно, увидев новый адрес
-      await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
+      const target = path === '/archives' && fixtureArchiveId
+        ? `/archives?file=${encodeURIComponent(fixtureArchiveId)}&create=${encodeURIComponent(fixtureSourceId)}` : path;
+      await page.evaluate((p: string) => { window.location.hash = '#' + p; }, target);
       await page.waitForTimeout(3200);
 
-      const bad: string[] = [];
-      for (const w of WIDTHS) {
-        await page.setViewportSize({ width: w, height: 950 });
-        await page.waitForTimeout(900);
-        // Корень измерения — тело окна: разделы отступают от него, а не от
-        // экрана, и мерить надо ровно то, что видит раздел
-        const p: any = await page.evaluate(`(${PROBE})('[data-window-body]')`);
-        const pw = await paneWidth();
+      const archiveModes = path === '/archives' ? ['create', 'open'] : ['current'];
+      for (const mode of archiveModes) {
+        if (mode === 'open') {
+          await page.getByRole('button', { name: 'Открыть архив', exact: true }).click();
+          await page.waitForTimeout(500);
+        }
+        const themes = path === '/archives' ? ['light', 'dark'] : ['current'];
+        for (const theme of themes) {
+          if (theme !== 'current') {
+            await page.evaluate((t: string) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
+            await page.waitForTimeout(500);
+          }
+          const bad: string[] = [];
+          for (const w of WIDTHS) {
+            await page.setViewportSize({ width: w, height: 950 });
+            await page.waitForTimeout(900);
+            // Корень измерения — тело окна: разделы отступают от него, а не от
+            // экрана, и мерить надо ровно то, что видит раздел
+            const p: any = await page.evaluate(`(${PROBE})('[data-window-body]')`);
+            const pw = await paneWidth();
 
-        const over = real(p.overflow);
-        const cut = real(p.clipped);
-        const tiny = real(p.tiny);
-        const zero = real(p.zero);
+            const over = real(p.overflow);
+            const cut = real(p.clipped);
+            const tiny = real(p.tiny);
+            const zero = real(p.zero);
 
-        if (over.length) bad.push(`окно ${pw}: шире места ${over.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
-        if (cut.length) bad.push(`окно ${pw}: обрезано без многоточия ${cut.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
-        if (tiny.length) bad.push(`окно ${pw}: мелкая цель ${tiny.map((x: any) => `«${x.text || x.cls.slice(0, 24)}» ${x.w}×${x.h}`).slice(0, 2).join(', ')}`);
-        if (zero.length) bad.push(`окно ${pw}: схлопнулось «${zero[0].text}»`);
+            if (over.length) bad.push(`окно ${pw}: шире места ${over.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
+            if (cut.length) bad.push(`окно ${pw}: обрезано без многоточия ${cut.map((x: any) => `«${x.text}» +${x.lost}px`).slice(0, 2).join(', ')}`);
+            if (tiny.length) bad.push(`окно ${pw}: мелкая цель ${tiny.map((x: any) => `«${x.text || x.cls.slice(0, 24)}» ${x.w}×${x.h}`).slice(0, 2).join(', ')}`);
+            if (zero.length) bad.push(`окно ${pw}: схлопнулось «${zero[0].text}»`);
 
-        if (SHOTS) {
-          await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}-${w}.png` });
+            if (SHOTS) {
+              await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}-${mode}-${theme}-${w}.png` });
+            }
+          }
+          const suffix = theme === 'current' ? '' : ` (${theme})`;
+          const modeLabel = path === '/archives' ? `, ${mode === 'create' ? 'создание' : 'просмотр'}` : '';
+          ok(`${name}${modeLabel} держит раскладку на всех ширинах${suffix}`, bad.length === 0, bad.slice(0, 3));
         }
       }
-      ok(`${name} держит раскладку на всех ширинах`, bad.length === 0, bad.slice(0, 3));
+      if (path === '/archives') {
+        await page.evaluate((dark: boolean) => document.documentElement.classList.toggle('dark', dark), baselineDark);
+      }
     }
 
     await page.setViewportSize({ width: 1920, height: 1000 });
@@ -304,6 +368,11 @@ const TOLERANCE = 4;
     console.log('\n3. Тишина в консоли за весь обход');
     ok('ни исключений, ни ошибок отрисовки', jsErrors.length === 0, Array.from(new Set(jsErrors)).slice(0, 5));
   } finally {
+    if (fixtureToken) {
+      if (fixtureArchiveId) await api(fixtureToken, 'DELETE', `/api/files/${encodeURIComponent(fixtureArchiveId)}`).catch(() => {});
+      if (fixtureSourceId) await api(fixtureToken, 'DELETE', `/api/files/${encodeURIComponent(fixtureSourceId)}`).catch(() => {});
+      if (fixtureFolderId) await api(fixtureToken, 'DELETE', `/api/folders/${encodeURIComponent(fixtureFolderId)}`).catch(() => {});
+    }
     await browser.close();
   }
 

@@ -1,3 +1,4 @@
+import { ownerTestLogin } from './fixtures/ownerTestLogin';
 /**
  * Файл обновления доходит до сотрудника, а не только до того, кто публиковал.
  *
@@ -43,6 +44,7 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
 
 /** Папка данных сервера — там же, где он держит файлы обновлений */
 const updatesDir = (): string => {
+  if (process.env.VENT_APP_DATA) return join(process.env.VENT_APP_DATA, 'updates');
   const base = process.env.APPDATA || join(homedir(), '.config');
   return join(base, 'pdm-app', 'updates');
 };
@@ -56,7 +58,7 @@ const updatesDir = (): string => {
     process.exit(2);
   }
 
-  const token = (await api('', 'POST', '/api/login', LOGIN)).json?.token || '';
+  const token = (await ownerTestLogin(BASE)).token;
   if (!token) { console.error('Не удалось войти.'); process.exit(2); }
 
   // Похожий на exe файл: с подписью MZ и достаточного размера — программа
@@ -67,7 +69,7 @@ const updatesDir = (): string => {
   fake.write('ФАЙЛ-ИЗ-ОБЩЕЙ-БАЗЫ', size - 64, 'utf-8');
 
   try {
-    console.log('1. Администратор публикует релиз');
+    console.log('1. Владелец публикует релиз');
     const up = await api(token, 'POST', `/api/updates/upload?version=${VERSION}`, undefined, fake);
     ok('файл загружен', up.status === 200, up.json || up.status);
     ok('файл ушёл в общую базу, а не только на диск', up.json?.shared === true, up.json);

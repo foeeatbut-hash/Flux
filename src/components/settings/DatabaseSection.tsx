@@ -10,7 +10,7 @@ const { openConfirm, openAlert } = useModalStore.getState();
 
 // ── База данных (перенесено из профиля) ────────────────────────────────────────
 export default function DatabaseSection({ addToast }: any) {
-  const { user } = useStore();
+  const user = useStore((s) => s.user);
   const isAdmin = user?.role === 'ADMIN';
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');

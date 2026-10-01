@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { administratorPermission, requireOwnerMiddleware } from '../accessPolicy.js';
 import { defaultPermissions } from '../../src/lib/permissions';
 import { getPrisma, notifyUser } from '../context.js';
 import { explainDbError } from '../dbError.js';
@@ -92,7 +93,8 @@ const MANAGER_GRANTS = grant(
 );
 
 const BUILTIN_ROLES = [
-  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Полный доступ, управление сотрудниками и ролями', permissions: '{}' },
+  { code: 'OWNER', name: 'Владелец Flux', color: 'slate', icon: 'key-round', level: 0, sortOrder: 0, description: 'Вход только по ключу; доверие, лицензии и обновления', permissions: '{}' },
+  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Работа компании; административные полномочия выдает владелец', permissions: '{}' },
   { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
   { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
   { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },
@@ -135,18 +137,24 @@ export async function backfillNameParts() {
   } catch (_) {}
 }
 
-/** Главный администратор — тот, чья роль имеет уровень 1. */
+/** Управление ролями и администраторскими правами остается у владельца. */
 async function isTopAdmin(req: Request): Promise<boolean> {
-  const prisma = getPrisma();
-  const u = (req as any).authUser;
-  if (!u) return false;
-  if (u.role === 'ADMIN') return true;
-  const role = await prisma.role.findUnique({ where: { code: u.role } }).catch(() => null);
-  return !!role && role.level <= 1;
+  return (req as any).authUser?.role === 'OWNER';
+}
+
+function administrativeGrants(raw: any): boolean {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return !!parsed && typeof parsed === 'object' && Object.keys(parsed).some(key => key.startsWith('admin.'));
+  } catch (_) { return true; }
 }
 
 export function registerUserRoutes(app: Express, d: UserDeps): void {
   deps = d;
+  app.use('/api/roles', (req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method)) return requireOwnerMiddleware(req, res, next);
+    next();
+  });
 
   // ── Подпись сотрудника ────────────────────────────────────────────────────
   // Подпись — как личная печать: свою ставит человек сам, чужую трогает только
@@ -181,8 +189,10 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       const id = String(req.params.id);
       if (!me) return res.status(401).json({ error: 'Требуется вход' });
 
+      const protectedUser = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+      if (protectedUser?.role === 'OWNER') return res.status(403).json({ error: 'Профиль владельца защищен' });
       const isSelf = me.id === id;
-      const canManage = me.role === 'ADMIN' || (await isTopAdmin(req));
+      const canManage = administratorPermission(me, 'admin.users.manage');
       if (!isSelf && !canManage) {
         return res.status(403).json({ error: 'Чужую подпись менять нельзя' });
       }
@@ -255,7 +265,14 @@ app.get('/api/users', async (req: Request, res: Response) => {
 app.post('/api/users', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
-    const { symbol, role, password } = req.body;
+    const actor = (req as any).authUser;
+    if (!administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права создавать сотрудников' });
+    const { symbol, password } = req.body;
+    if (String(symbol || '').trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
+    const role = String(req.body.role || 'ENGINEER_VENT').trim().toUpperCase();
+    if (role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца создается только при входе по ключу' });
+    if (actor.role !== 'OWNER' && (role === 'ADMIN' || administrativeGrants(req.body.permissions))) return res.status(403).json({ message: 'Администратора и его права назначает только владелец' });
+    if (!(await prisma.role.findUnique({ where: { code: role } }))) return res.status(400).json({ message: 'Выберите существующую роль' });
     // ФИО приходит по частям; единая строка name остаётся производной —
     // её показывают старые экраны и печатают документы.
     const parts = nameParts(req.body);
@@ -315,6 +332,17 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
     }
 
+    const actor = (req as any).authUser;
+    if (target.role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца защищен; обычный маршрут его не изменяет' });
+    const chosenRole = role === undefined ? target.role : String(role).trim().toUpperCase();
+    if (chosenRole === 'OWNER') return res.status(403).json({ message: 'Роль владельца не назначается через сотрудников' });
+    if (actor?.role !== 'OWNER' && (target.role === 'ADMIN' || chosenRole === 'ADMIN' || administrativeGrants(permissions))) return res.status(403).json({ message: 'Администратора и его права меняет только владелец' });
+    if (actor?.id !== id && !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права управлять сотрудниками' });
+    if (actor?.role !== 'OWNER' && actor?.role !== 'ADMIN' && (role !== undefined || permissions !== undefined || isActive !== undefined || validUntil !== undefined || symbol !== undefined)) return res.status(403).json({ message: 'Сотрудник не меняет собственные права доступа' });
+    if (role !== undefined && !(await prisma.role.findUnique({ where: { code: chosenRole } }))) return res.status(400).json({ message: 'Выберите существующую роль' });
+
+    if (typeof symbol === 'string' && symbol.trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
+
     // Смена логина (табельного номера) — проверяем уникальность
     if (typeof symbol === 'string' && symbol.trim() && symbol.trim() !== target.symbol) {
       if (symbol.includes('@')) {
@@ -341,7 +369,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     const willDeactivate = isActive === false || (parsedValidUntil !== null && parsedValidUntil.getTime() < Date.now());
     if (target.role === 'ADMIN' && willDeactivate) {
       const activeAdmins = await prisma.user.count({
-        where: { role: 'ADMIN', isActive: true, id: { not: id } }
+        where: { role: { in: ['ADMIN', 'OWNER'] }, isActive: true, id: { not: id } }
       });
       if (activeAdmins === 0) {
         return res.status(400).json({ success: false, message: 'Нельзя отключить последнего активного администратора — иначе никто не сможет управлять системой.' });
@@ -366,7 +394,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       data.birthDate = b;
     }
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
-    if (typeof role === 'string' && role) data.role = role;
+    if (typeof role === 'string' && role) data.role = chosenRole;
     if (typeof password === 'string' && password) data.password = hashPassword(password);
     if (typeof isActive === 'boolean') data.isActive = isActive;
     if (validUntil !== undefined) data.validUntil = parsedValidUntil;
@@ -397,8 +425,11 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     if (!target) {
       return res.status(404).json({ success: false, message: 'Сотрудник не найден.' });
     }
+    const actor = (req as any).authUser;
+    if (target.role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца нельзя удалить' });
+    if (!administratorPermission(actor, 'admin.users.manage') || (target.role === 'ADMIN' && actor?.role !== 'OWNER')) return res.status(403).json({ message: 'Нет права удалять этот профиль' });
     if (target.role === 'ADMIN') {
-      const otherAdmins = await prisma.user.count({ where: { role: 'ADMIN', isActive: true, id: { not: id } } });
+      const otherAdmins = await prisma.user.count({ where: { role: { in: ['ADMIN', 'OWNER'] }, isActive: true, id: { not: id } } });
       if (otherAdmins === 0) {
         return res.status(400).json({ success: false, message: 'Нельзя удалить последнего администратора.' });
       }
@@ -462,6 +493,7 @@ app.post('/api/roles', async (req: Request, res: Response) => {
     if (!name) return res.status(400).json({ message: 'Укажите название роли.' });
     // Код роли — латиницей: он попадает в данные и не должен зависеть от раскладки
     let code = String(req.body.code || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    if (['OWNER', 'ADMIN'].includes(code)) return res.status(403).json({ message: 'Системная роль зарезервирована' });
     if (!code) code = 'ROLE_' + Date.now().toString(36).toUpperCase();
     const dup = await prisma.role.findUnique({ where: { code } });
     if (dup) return res.status(400).json({ message: 'Роль с таким кодом уже есть.' });
@@ -495,6 +527,7 @@ app.put('/api/roles/:id', async (req: Request, res: Response) => {
     }
     const role = await prisma.role.findUnique({ where: { id: req.params.id } });
     if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
+    if (role.code === 'OWNER') return res.status(403).json({ message: 'Роль владельца защищена' });
     const data: any = {};
     if (req.body.name !== undefined) data.name = String(req.body.name).trim() || role.name;
     if (req.body.description !== undefined) data.description = String(req.body.description);

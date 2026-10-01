@@ -11,8 +11,9 @@ import { Plus, Search, Trash2, Users } from 'lucide-react';
 import { SectionHead, Btn, IconBtn, Input, Status, Empty, SectionTitle } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
 
+import { useShallow } from 'zustand/react/shallow';
 export default function ProjectsManagement() {
-  const { user, activeProject, setActiveProject } = useStore();
+  const { user, activeProject, setActiveProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject, setActiveProject: s.setActiveProject })));
   const { addToast } = useToastStore();
   const { openPrompt, openConfirm } = useModalStore();
   const navigate = useNavigate();

@@ -14,7 +14,7 @@ interface AuthDeps {
   hashPassword: (plain: string) => string;
   verifyPassword: (plain: string, stored: string | null | undefined) => boolean;
   /** Подписанный токен сессии: его клиент шлёт в Authorization */
-  issueAuthToken: (userId: string) => string;
+  issueAuthToken: (userId: string) => string | Promise<string>;
   /** Права роли отдаются вместе с профилем при входе */
   rolePermissionsOf: (code: string) => Promise<Record<string, any>>;
   /** Полная проверка времени при входе: якорь из базы + сетевое время */
@@ -60,7 +60,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
         const allUsers = await prisma.user.findMany();
         user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
       }
-      if (user) {
+      if (user && user.role !== 'OWNER') {
         // Принимается только хеш: открытые записи переведены при старте сервера
         const isPasswordCorrect = verifyPassword(String(password), user.password);
 
@@ -96,7 +96,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
           // человеку можно, не запрашивая это на каждом экране.
           (safeUser as any).rolePermissions = JSON.stringify(await rolePermissionsOf(String(user.role || '')));
           // Токен сессии: клиент шлёт его в Authorization на каждом запросе
-          return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
+          return res.json({ success: true, user: safeUser, token: await issueAuthToken(user.id) });
         } else {
           loginFailed(normSymbol, addr);
           return res.status(401).json({ success: false, message: LOGIN_REFUSED });
@@ -134,6 +134,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
       if (!user) {
         return res.json({ valid: false, reason: 'Профиль не найден в базе данных. Выйдите и войдите заново.' });
       }
+      if (user.role === 'OWNER') return res.json({ valid: true });
       if (user.isActive === false) {
         return res.json({ valid: false, reason: 'Профиль отключен администратором.' });
       }
@@ -157,18 +158,6 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   app.post('/api/seed', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const admin = await prisma.user.upsert({
-        where: { symbol: 'RaupovKhKh' },
-        // Повторное заполнение не меняет пароль и права существующей учётной записи.
-        update: {},
-        create: {
-          name: 'Главный администратор (RaupovKhKh)',
-          symbol: 'RaupovKhKh',
-          password: hashPassword('1122'),
-          role: 'ADMIN',
-        }
-      });
-
       const existingProject = await prisma.project.findFirst({
         where: { name: { in: ['Проект Альфа', 'Технологический Проект Альфа'] } }
       });
@@ -192,7 +181,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
         });
       }
 
-      res.json({ success: true, user: admin });
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

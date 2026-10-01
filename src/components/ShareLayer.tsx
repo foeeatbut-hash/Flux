@@ -9,10 +9,11 @@ import { dataService, User } from '../services/dataService';
 import { encodeShare } from '../lib/shareLink';
 import { Share2, Search, X, Link2 } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
 export default function ShareLayer() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, activeProject } = useStore();
+  const { user, activeProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject })));
   const { menu, openMenu, closeMenu, pickerCandidate, openPicker, closePicker, focusTarget, clearFocus } = useShareStore();
   const { addToast } = useToastStore();
   const [users, setUsers] = useState<User[]>([]);

@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import SignatureEditor from '../components/SignatureEditor';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
-import { FEATURES, OPEN_BY_DEFAULT, entryOf, parsePermissions, PermMap } from '../lib/permissions';
+import { FEATURES, ADMIN_FEATURES, canAdmin, OPEN_BY_DEFAULT, entryOf, parsePermissions, PermMap } from '../lib/permissions';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
@@ -24,7 +24,11 @@ import { SectionHead, Toolbar, FilterSeg, Seg, Btn, Input, Select, Empty, Status
 const { openConfirm } = useModalStore.getState();
 
 export default function UsersManagement() {
-  const { user } = useStore();
+  const user = useStore((s) => s.user);
+  const isOwner = user?.role === 'OWNER';
+  const mayCreate = canAdmin(user, 'admin.users.create');
+  const mayManage = canAdmin(user, 'admin.users.manage');
+  const editable = (employee: User) => employee.role !== 'OWNER' && (employee.role !== 'ADMIN' || isOwner) && mayManage;
   const { addToast } = useToastStore();
   
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -150,6 +154,7 @@ export default function UsersManagement() {
   }, []);
 
   const openEdit = (emp: User) => {
+    if (!editable(emp)) return;
     setEditUser(emp);
     // У профилей, заведённых до раздельного хранения, частей может не быть —
     // разбираем единую строку, чтобы форма не открылась пустой.
@@ -173,7 +178,7 @@ export default function UsersManagement() {
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editUser) return;
+    if (!editUser || !editable(editUser)) return;
     setEditError('');
     setIsEditSubmitting(true);
     if (!editSymbol.trim()) { setEditError('Укажите табельный номер (логин)'); setIsEditSubmitting(false); return; }
@@ -206,7 +211,7 @@ export default function UsersManagement() {
   };
 
   const handleDeleteUser = async () => {
-    if (!editUser) return;
+    if (!editUser || !editable(editUser)) return;
     if (!await openConfirm(`Удалить профиль «${editUser.name}»?`, 'Сообщения и файлы этого сотрудника останутся, но потеряют автора. Действие необратимо.', { confirmLabel: 'Удалить профиль', tone: 'danger' })) return;
     setIsEditSubmitting(true);
     try {
@@ -257,6 +262,7 @@ export default function UsersManagement() {
   // 2. Validate and handle user registration
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!mayCreate) return;
     setFormError('');
 
     const trimmedName = fullNameOf(nameValue);
@@ -384,7 +390,7 @@ export default function UsersManagement() {
   // ролей). Раньше список тогда показывал первую роль — «Администратор», —
   // хотя у человека другая: показываем её как есть
   const roleOptions = (current: string) => {
-    const opts = roles.map((r) => ({ value: r.code, label: r.name }));
+    const opts = roles.filter(r => r.code !== 'OWNER' && (r.code !== 'ADMIN' || isOwner)).map((r) => ({ value: r.code, label: r.name }));
     return current && !roles.some((r) => r.code === current) ? [{ value: current, label: `${current} (нет в списке ролей)` }, ...opts] : opts;
   };
 
@@ -407,7 +413,7 @@ export default function UsersManagement() {
       <SectionHead
         title="Сотрудники"
         count={countOf(counts.total, 'сотрудник')}
-        actions={<Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}
+        actions={mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}
       />
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
@@ -438,7 +444,7 @@ export default function UsersManagement() {
           <Empty title="Загрузка…" />
         ) : usersList.length === 0 ? (
           <Empty title="Сотрудников пока нет" text="Заведите первого — он получит логин, роль и права доступа.">
-            <Btn tone="primary" onClick={() => setIsModalOpen(true)} className="mt-3">Добавить сотрудника</Btn>
+            {mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} className="mt-3">Добавить сотрудника</Btn>}
           </Empty>
         ) : shown.length === 0 ? (
           <Empty title="Никто не подходит под отбор" text="Снимите фильтр или очистите поиск.">
@@ -488,7 +494,7 @@ export default function UsersManagement() {
                   </td>
                   <td>
                     <div className="fx-row-acts">
-                      <Btn tone="ghost" size="sm" onClick={() => openEdit(emp)} title={`Карточка сотрудника: ${emp.name}`}>Изменить</Btn>
+                      {editable(emp) && <Btn tone="ghost" size="sm" onClick={() => openEdit(emp)} title={`Карточка сотрудника: ${emp.name}`}>Изменить</Btn>}
                     </div>
                   </td>
                 </tr>
@@ -506,7 +512,7 @@ export default function UsersManagement() {
           nameParts={{ lastName: signFor.lastName, firstName: signFor.firstName, middleName: signFor.middleName, name: signFor.name }}
           value={signFor.hasSignature ? 'есть' : null}
           heightMm={signFor.signatureHeightMm ?? 8}
-          canEdit={user?.id === signFor.id || user?.role === 'ADMIN'}
+          canEdit={user?.id === signFor.id || editable(signFor)}
           onSaved={(sig, mm) => setUsersList((prev) => prev.map((u: any) =>
             u.id === signFor.id ? { ...u, hasSignature: !!sig, signatureHeightMm: mm } : u))}
           onClose={() => setSignFor(null)}
@@ -530,7 +536,7 @@ export default function UsersManagement() {
               <Input required value={password} onChange={(e) => setPassword(e.target.value)} disabled={isSubmitting} placeholder="Задайте надёжный пароль" />
             </Field>
             <Field label="Роль в системе">
-              <Select value={role} onChange={setRole} disabled={isSubmitting} options={roles.map((r) => ({ value: r.code, label: r.name }))} />
+              <Select value={role} onChange={setRole} disabled={isSubmitting} options={roles.filter(r => r.code !== 'OWNER' && (r.code !== 'ADMIN' || isOwner)).map((r) => ({ value: r.code, label: r.name }))} />
             </Field>
             <Field label="Срок действия профиля" hint="После этой даты сотрудник не сможет войти. Пусто — бессрочно.">
               <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} disabled={isSubmitting} />
@@ -583,7 +589,19 @@ export default function UsersManagement() {
             <div>
               <div className="fx-label mt-2 mb-1">Права доступа</div>
               {editRole === 'ADMIN' ? (
-                <Status tone="rose">Полный доступ (администратор)</Status>
+                <div>
+                  <Status tone="slate">Рабочие функции доступны администратору</Status>
+                  <p className="fx-hint mt-2">Административные полномочия назначает владелец лично. Роль не даёт права выдавать обновления или менять подключение к базе.</p>
+                  {isOwner && ADMIN_FEATURES.map(feature => {
+                    const entry = editPerms[feature.id];
+                    return <div key={feature.id} className="fx-set-row items-start">
+                      <div className="fx-set-text">{feature.label}<div className="fx-set-desc">{feature.desc}</div>
+                        {entry?.enabled && <label className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500 dark:text-slate-400">Действует до<Input type="datetime-local" value={toDateTimeInput(entry.until)} onChange={event => setPermUntil(feature.id, event.target.value)} disabled={isEditSubmitting} className="w-auto" /><span>{entry.until ? '' : 'Бессрочно'}</span></label>}
+                      </div>
+                      <Switch checked={!!entry?.enabled} onChange={value => togglePerm(feature.id, value)} label={feature.label} disabled={isEditSubmitting} />
+                    </div>;
+                  })}
+                </div>
               ) : (
                 <div>
                   {FEATURES.map((f) => {
@@ -628,7 +646,7 @@ export default function UsersManagement() {
                       </div>
                     );
                   })}
-                  <p className="fx-hint mt-1.5">Администратор всегда имеет полный доступ независимо от этих переключателей.</p>
+                  <p className="fx-hint mt-1.5">Административные полномочия назначает только владелец Flux.</p>
                 </div>
               )}
             </div>

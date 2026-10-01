@@ -107,6 +107,26 @@ export const FEATURES: FeatureDef[] = [
     desc: 'Менять сроки хранения, квоты и получателей разбора для всей компании' },
 ];
 
+/** Административные функции выдаёт лично владелец; должность не наследует их. */
+export const ADMIN_FEATURES: FeatureDef[] = [
+  { id: 'admin.users.create', group: 'Администрирование', label: 'Добавление сотрудников', desc: 'Заводить рабочие профили сотрудников' },
+  { id: 'admin.users.manage', group: 'Администрирование', label: 'Управление сотрудниками', desc: 'Менять и отключать рабочие профили', risky: true },
+  { id: 'admin.license.activate', group: 'Администрирование', label: 'Активация лицензий', desc: 'Передавать запрос владельцу и применять подписанные ключи' },
+  { id: 'admin.backup.run', group: 'Администрирование', label: 'Ручная резервная копия', desc: 'Запускать резервную копию общей базы данных', risky: true },
+  { id: 'admin.projects.manage', group: 'Администрирование', label: 'Управление проектами компании', desc: 'Создавать и менять проекты компании', risky: true },
+  { id: 'admin.roles.manage', group: 'Администрирование', label: 'Управление рабочими ролями', desc: 'Менять рабочие роли; полномочия администратора назначает только владелец', risky: true },
+];
+
+export function canAdmin(user: PermUser | null | undefined, feature: string): boolean {
+  if (!user || user.isActive === false) return false;
+  if (user.role === 'OWNER') return true;
+  if (user.role !== 'ADMIN' || !ADMIN_FEATURES.some(f => f.id === feature)) return false;
+  const until = user.validUntil instanceof Date ? user.validUntil.toISOString() : user.validUntil;
+  if (expired(until)) return false;
+  const entry = parsePermissions(user.permissions)[feature];
+  return !!entry?.enabled && entry.mode !== 'DENY' && !expired(entry.until);
+}
+
 /**
  * Что сотрудник может по умолчанию.
  *
@@ -232,7 +252,9 @@ export function permSource(user: PermUser | null | undefined, feature: string): 
 /** Главная проверка доступа. Администратор — всегда всё. */
 export function can(user: PermUser | null | undefined, feature: string): boolean {
   if (!user) return false;
-  if (user.role === 'ADMIN') return true;            // админ всегда главнее
+  if (feature.startsWith('admin.')) return canAdmin(user, feature);
+  if (user.role === 'OWNER') return true;
+  if (user.role === 'ADMIN') return true;            // существующие рабочие права сохраняются
   if (user.isActive === false) return false;          // профиль отключён
   if (expired(typeof user.validUntil === 'string' ? user.validUntil
       : user.validUntil instanceof Date ? user.validUntil.toISOString() : null)) return false;

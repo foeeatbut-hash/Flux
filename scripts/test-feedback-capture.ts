@@ -14,8 +14,22 @@ import {
   History, WHOLE, clampRect, clampZoom, fitZoom, hasMask, nextMark, rectOf, reframe,
   scaleOf, toPixels, toShare, HISTORY_STEPS, MIN_REGION_DIP, type Shape,
 } from '../src/feedback/shapes';
-import { fitRegion } from '../electron/feedbackCapture';
 import { shrinkTo } from '../src/feedback/flatten';
+
+// В этом наборе проверяется только чистая геометрия из main process. Исполняем
+// тот же TypeScript без Electron-импорта: тест должен работать и в среде, где
+// postinstall-бинарник Electron недоступен.
+const fs = require('node:fs') as typeof import('node:fs');
+const vm = require('node:vm') as typeof import('node:vm');
+const ts = require('typescript') as typeof import('typescript');
+const source = fs.readFileSync(require.resolve('../electron/feedbackCapture'), 'utf8')
+  .replace(/^import \{ ipcMain, BrowserWindow \} from 'electron';\s*/m, '');
+const javascript = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+const isolated: { exports: Record<string, any>; require: NodeRequire } = { exports: {}, require };
+vm.runInNewContext(javascript, isolated, { filename: 'feedbackCapture.ts' });
+const { fitRegion } = isolated.exports as typeof import('../electron/feedbackCapture');
 
 let passed = 0;
 let failed = 0;

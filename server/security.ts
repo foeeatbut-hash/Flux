@@ -8,6 +8,7 @@
  * промежуточного слоя server.ts их можно проверить только живым запросом.
  */
 import crypto from 'crypto';
+import { authTokenFromRequest } from './authCookies.js';
 import type { Request, Response, NextFunction } from 'express';
 
 // ── Откуда можно звать API из браузера (CORS) ───────────────────────────────
@@ -33,7 +34,7 @@ export function corsOriginAllowed(origin: string | undefined, host: string | und
   return !!host && o.host.toLowerCase() === String(host).toLowerCase();
 }
 
-const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256';
+const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256, X-Base-SHA256, X-Autosave, X-Office-Session, X-Flux-CSRF, X-Flux-Auth-Transport';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.get('origin');
@@ -48,7 +49,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     // не пропустит их предварительным запросом, и сломается это только там, где
     // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
     res.setHeader('Access-Control-Allow-Headers', ALLOW_HEADERS);
-    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace, X-Collab-Required, X-Current-SHA256, X-Base-SHA256, X-File-Name');
   }
   // Чужому происхождению заголовков не даём — браузер сам не пустит ответ
   if (req.method === 'OPTIONS') return res.sendStatus(corsOriginAllowed(origin, req.get('host')) ? 200 : 403);
@@ -232,8 +233,7 @@ export function earlyBodyGate(isExempt: (route: string) => boolean, tokenValid: 
     if (!route.startsWith('/api/')) return next();
     const size = Number(req.get('content-length') || 0);
     if (size <= OPEN_BODY_MAX) return next();
-    const header = String(req.headers.authorization || '');
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+    const token = authTokenFromRequest(req);
     if (!isExempt(route) && tokenValid(token)) return next();
     res.status(413).json({ error: 'Слишком большой запрос' });
   };
@@ -329,7 +329,7 @@ export function listenHost(env: Record<string, string | undefined> = process.env
 export function accountRefusal(user: any, now = Date.now()): string {
   if (!user) return 'профиль удалён';
   if (user.isActive === false) return 'профиль отключён';
-  if (user.validUntil && new Date(user.validUntil).getTime() < now) return 'срок профиля истёк';
+  if (user.role !== 'OWNER' && user.validUntil && new Date(user.validUntil).getTime() < now) return 'срок профиля истёк';
   return '';
 }
 

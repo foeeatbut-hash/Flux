@@ -41,7 +41,7 @@ const catColor: Record<string, string> = {
 };
 
 export default function NotificationsPanel() {
-  const { user } = useStore();
+  const user = useStore((s) => s.user);
   const { panelOpen, setPanelOpen, personal, fetch, markAllRead } = useNotificationStore();
   const quiet = useShellNotifyStore((s) => s.quiet);
   const setQuiet = useShellNotifyStore((s) => s.setQuiet);

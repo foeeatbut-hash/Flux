@@ -114,6 +114,7 @@ const MENU_KEYS = { s: 'save', S: 'save-as' };
 window.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const action = MENU_KEYS[e.shiftKey ? e.key.toUpperCase() : e.key.toLowerCase()];
+  if (action === 'save-as' && window.pdfApi) { e.preventDefault(); e.stopImmediatePropagation(); post({ op: 'flux:save-as' }); return; }
   const set = listeners.get('menu:action');
   if (!action || !set || !set.size) return;
   e.preventDefault();
@@ -123,3 +124,8 @@ window.addEventListener('keydown', (e) => {
 
 // Окно Flux ждёт этого слова: молчание значит «редактора нет»
 post({ op: 'hello' });
+
+document.addEventListener('click', (e) => {
+  const b = e.target?.closest?.('.qa-save-as');
+  if (window.pdfApi && b && b.getAttribute('aria-label') !== 'Flux') { e.preventDefault(); e.stopImmediatePropagation(); post({ op: 'flux:save-as' }); }
+}, true);

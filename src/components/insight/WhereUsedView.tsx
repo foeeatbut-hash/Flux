@@ -14,7 +14,7 @@ import { KindIcon, Row, GroupHead, Empty, Skeleton } from './parts';
  * счётчик «в 7 документах» заставляет искать эти семь руками.
  */
 export default function WhereUsedView({ kind, id }: { kind: UsageKind; id: string }) {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { openWhere, close } = useInsightStore();
   const navigate = useNavigate();
   const [data, setData] = useState<UsageResult>(EMPTY_USAGE);

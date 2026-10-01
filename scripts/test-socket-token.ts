@@ -69,10 +69,9 @@ const ok = (n: string, c: boolean, d?: any) =>
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(login),
       });
       const d = await r.json();
-      localStorage.setItem('flux_auth_token', d.token);
-      return String(d.token || '').slice(0, 12);
+      return d.success && document.cookie.includes('flux_csrf=') ? 'cookie-session' : '';
     }, LOGIN);
-    ok('новый токен получен', !!fresh, fresh);
+    ok('новая cookie-сессия получена', !!fresh, fresh);
 
     await page.waitForTimeout(7000);
     const j2 = await page.evaluate(() => {

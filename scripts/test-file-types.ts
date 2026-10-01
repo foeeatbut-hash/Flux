@@ -98,12 +98,17 @@ console.log('Адреса');
 console.log('Двойное нажатие всегда что-то делает');
 {
   // Ровно то, на что жаловался владелец: «не все файлы открываются». Своей
-  // программы для чертежа САПР нет и не будет — но тупика быть не должно
-  for (const name of ['Узел.dwg', 'Модель.step', 'Архив.zip', 'Проект.rvt']) {
+  // программы для чертежа САПР нет и не будет — но тупика быть не должно.
+  for (const name of ['Узел.dwg', 'Модель.step', 'Проект.rvt']) {
     const apps = appsFor({ id: 'x', name, folderId: 'd' });
     check(`${name}: есть чем открыть`, apps.length > 0 && apps.some((a) => a.id === 'windows'),
       apps.map((a) => a.id));
   }
+  const archive = appsFor({ id: 'archive-1', name: 'Архив.zip', folderId: 'd' });
+  check('архив открывается в Архиваторе', archive[0]?.id === 'archive', archive.map((a) => a.id));
+  check('для архива остаётся Проводник вторым способом', archive[1]?.id === 'explorer', archive.map((a) => a.id));
+  check('архив ведёт в его содержимое', openHref({ id: 'archive-1', name: 'Архив.zip' }) === '/archives?file=archive-1',
+    openHref({ id: 'archive-1', name: 'Архив.zip' }));
   // А у того, что открывается своей программой, чужой в списке быть не должно
   check('книга открывается своей программой, а не Windows',
     appsFor({ id: 'x', name: 'Смета.xlsx' })[0].id === 'excel');

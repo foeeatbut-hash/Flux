@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError, broadcast } from '../context.js';
 import { randomUUID } from 'node:crypto';
@@ -9,7 +10,7 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
     const el = await getPrisma().componentElement.findUnique({ where: { id: req.params.id }, include: { monoblock: { include: { system: true } } } });
     if (!el) throw Object.assign(new Error('Позиция не найдена'), { status: 404 });
     const actor = (req as any).authUser;
-    if (!(await canSeeProject(actor?.id || '', el.monoblock.system.projectId, actor?.role === 'ADMIN'))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
+    if (!(await canSeeProject(actor?.id || '', el.monoblock.system.projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
     return el;
   };
   app.get('/api/equipment/component/:id/catalog-source', async (req, res) => {

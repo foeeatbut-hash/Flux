@@ -11,7 +11,7 @@
 import React from 'react';
 import {
   Folder, FolderOpen, FolderPlus, File as FileIcon, Grid3X3, Upload, RefreshCw, History, Languages,
-  Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2,
+  Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2, Archive,
 } from 'lucide-react';
 import { appsFor, type FileLike } from '../../lib/fileTypes';
 import FileBadge from '../ui/FileBadge';
@@ -33,12 +33,16 @@ export interface ExplorerMenuProps {
   currentFolderId: string | null;
   /** Есть ли что вставить */
   hasClipboard: boolean;
+  /** Выделение нужно меню только для действий над несколькими объектами */
+  selectedIds?: string[];
   /** Можно ли редактировать копию файла в Конструкторе (по имени) */
   onClose: () => void;
   open: (id: string) => void;
   /** «Открыть в: …» — адрес выбранной программы */
   openWith: (href: string, appId: string) => void;
   openFolder: (id: string) => void;
+  /** Создать архив из выделения или из объекта под указателем */
+  archive?: (ids?: string[]) => void;
   refresh: () => void;
   createFolder: () => void;
   createDoc: (kind: 'doc' | 'sheet') => void;
@@ -114,6 +118,10 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
         <>
           {!!id && p.currentFolderId !== id && !isFile && (
             <Item icon={<Folder />} label="Открыть" onClick={() => { p.openFolder(id); p.onClose(); }} />
+          )}
+          {!!id && !menu.isSection && p.archive && (
+            <Item icon={<Archive />} label={(p.selectedIds?.length || 0) > 1 ? 'Создать архив из выделенного' : 'Создать архив'}
+              onClick={() => { p.archive(p.selectedIds?.includes(id) ? p.selectedIds : [id]); p.onClose(); }} />
           )}
           {isFile && (
             <>

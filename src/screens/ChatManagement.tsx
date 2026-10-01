@@ -56,6 +56,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useModalStore } from '../store/modalStore';
 
+import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
 
@@ -121,7 +122,7 @@ function UnreadDot({ n }: { n: number }) {
 }
 
 export default function ChatManagement() {
-  const { user, activeProject, setActiveProject } = useStore();
+  const { user, activeProject, setActiveProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject, setActiveProject: s.setActiveProject })));
   // Непрочитанное по каждому диалогу — считает хранилище уведомлений
   const chatUnreadByKey = useNotificationStore((s) => s.chatUnreadByKey);
   const { addToast } = useToastStore();

@@ -20,6 +20,7 @@ import { useStore } from '../store/store';
 import { dataService } from '../services/dataService';
 import { BAR_BTN } from '../lib/metrics';
 
+import { useShallow } from 'zustand/react/shallow';
 type Project = { id: string; name: string };
 
 /** Сколько проектов показывать без поиска: дальше начинается пролистывание */
@@ -43,7 +44,7 @@ export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, o
   /** «Все проекты» — то самое окно, которое раньше открывалось сразу */
   onOpenAll?: () => void;
 }) {
-  const { activeProject, setActiveProject } = useStore();
+  const { activeProject, setActiveProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, setActiveProject: s.setActiveProject })));
   const [open, setOpen] = React.useState(false);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [loading, setLoading] = React.useState(false);

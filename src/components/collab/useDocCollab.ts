@@ -144,5 +144,5 @@ export function useDocCollab({ on, room, send, me, saveNow, onSessionLost }: {
   /** Есть ли правки, которых ещё нет в файле */
   const unsaved = () => firstUnsaved.current != null;
 
-  return { ready, fromFrame, flush, askHolder, unsaved, markSaved: () => { firstUnsaved.current = null; lastChange.current = null; } };
+  return { ready, fromFrame, flush, askHolder, unsaved, sessionKey: () => session.current, markSaved: () => { firstUnsaved.current = null; lastChange.current = null; } };
 }

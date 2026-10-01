@@ -1,9 +1,11 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { getPrisma, notifyUser } from '../context.js';
 import { signLink, hardenFileResponse } from '../security.js';
 import { mayEditGroup, ownerForNewGroup } from '../projectAccess.js';
+import { canSeeProject, hiddenProjectsOf } from './members.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -53,6 +55,9 @@ async function ensureProjectChatGroups() {
       });
     }
     for (const p of projects) {
+      const projectMembers = await prisma.projectMember.findMany({ where: { projectId: p.id }, select: { userId: true } });
+      const allowed = projectMembers.length ? users.filter(u => projectMembers.some(m => m.userId === u.id) || isPrivilegedUser(u)) : users;
+      const members = allowed.map(u => ({ id: u.id }));
       const g = await prisma.chatGroup.findFirst({ where: { projectId: p.id } });
       if (!g) {
         await prisma.chatGroup.create({
@@ -60,7 +65,7 @@ async function ensureProjectChatGroups() {
             name: `Проект: ${p.name}`,
             type: 'PROJECT',
             projectId: p.id,
-            members: { connect: users.map(u => ({ id: u.id })) }
+            members: { connect: members }
           }
         });
       } else {
@@ -68,7 +73,7 @@ async function ensureProjectChatGroups() {
           where: { id: g.id },
           data: {
             name: `Проект: ${p.name}`,
-            members: { connect: users.map(u => ({ id: u.id })) }
+            members: { set: members }
           }
         });
       }
@@ -93,14 +98,25 @@ async function chatRooms(msg: { senderId: string; receiverId: string | null; cha
   if (msg.chatGroupId) {
     const g = await prisma.chatGroup.findUnique({
       where: { id: msg.chatGroupId },
-      select: { ownerId: true, members: { select: { id: true } } },
+      select: { ownerId: true, projectId: true, members: { select: { id: true } } },
     });
     if (g) {
       if (g.ownerId) ids.add(String(g.ownerId));
       for (const m of g.members) ids.add(String(m.id));
     }
   }
-  return [...ids].map((id) => `user:${id}`);
+  const candidates = [...ids];
+  if (msg.chatGroupId) {
+    const group = await prisma.chatGroup.findUnique({ where: { id: msg.chatGroupId }, select: { projectId: true } });
+    if (group?.projectId) {
+      const checked = await Promise.all(candidates.map(async id => {
+        const user = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+        return await canSeeProject(id, group.projectId, isPrivilegedUser(user)) ? id : null;
+      }));
+      return checked.filter(Boolean).map(id => `user:${id}`);
+    }
+  }
+  return candidates.map((id) => `user:${id}`);
 }
 
 /** Событие чата — только участникам, а не всей сети */
@@ -133,23 +149,18 @@ async function isGroupMember(userId: string, groupId: string): Promise<boolean> 
   if (!userId || !groupId) return false;
   const g = await prisma.chatGroup.findUnique({
     where: { id: String(groupId) },
-    select: { ownerId: true, members: { where: { id: userId }, select: { id: true } } },
+    select: { ownerId: true, projectId: true, members: { where: { id: userId }, select: { id: true } } },
   });
-  return !!g && (g.ownerId === userId || g.members.length > 0);
+  if (!g || !(g.ownerId === userId || g.members.length > 0)) return false;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  return !g.projectId || await canSeeProject(userId, g.projectId, isPrivilegedUser(user));
 }
 
 async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
   const prisma = getPrisma();
   if (!userId) return false;
-  if (msg.senderId === userId || msg.receiverId === userId) return true;
-  if (msg.chatGroupId) {
-    const g = await prisma.chatGroup.findUnique({
-      where: { id: msg.chatGroupId },
-      select: { ownerId: true, members: { where: { id: userId }, select: { id: true } } },
-    });
-    if (g && (g.ownerId === userId || g.members.length > 0)) return true;
-  }
-  return false;
+  if (msg.chatGroupId) return isGroupMember(userId, msg.chatGroupId);
+  return msg.senderId === userId || msg.receiverId === userId;
 }
 
 export function registerChatRoutes(app: Express, deps: ChatDeps): void {
@@ -211,6 +222,11 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       // Писать можно только от своего имени
       if (actorId(req) !== String(senderId)) {
         return res.status(403).json({ error: 'Сообщение можно отправить только от своего имени' });
+      }
+
+      if (replyToId) {
+        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) } });
+        if (!reply || !(await isChatParticipant(actorId(req), reply)) || reply.chatGroupId || ![reply.senderId, reply.receiverId].includes(String(receiverId))) return res.status(403).json({ error: 'Ответ должен ссылаться на сообщение этого диалога' });
       }
 
       const msg = await prisma.chatMessage.create({
@@ -380,7 +396,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       const mine = att.some((a: any) =>
         a.message.senderId === me.id || a.message.receiverId === me.id ||
         (a.message.chatGroup?.members || []).some((m: any) => m.id === me.id));
-      if (!mine && me.role !== 'ADMIN') return res.status(404).json({ error: 'Файл не найден' });
+      if (!mine && !isPrivilegedUser(me)) return res.status(404).json({ error: 'Файл не найден' });
       res.json({ url: signLink(filePath) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -427,8 +443,11 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         return res.status(400).json({ error: 'tag is required' });
       }
       const cleanTag = String(tag);
+      const hidden = await hiddenProjectsOf(actorId(req), isPrivilegedUser((req as any).authUser));
+      const visible = { notIn: hidden };
       const element = await prisma.componentElement.findFirst({
         where: {
+          monoblock: { system: { projectId: projectId ? String(projectId) : visible } },
           OR: [
             { itemCode: cleanTag },
             { name: cleanTag },
@@ -447,11 +466,11 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       // прямо, а не отправлять человека искать самому
       const pid = projectId ? String(projectId) : '';
       const tagRow = await prisma.tag.findFirst({
-        where: { identifier: cleanTag, ...(pid ? { projectId: pid } : {}) },
+        where: { identifier: cleanTag, projectId: pid || visible },
         select: { id: true, identifier: true, projectId: true },
       });
       const elsewhere = tagRow || !pid ? null : await prisma.tag.findFirst({
-        where: { identifier: cleanTag },
+        where: { identifier: cleanTag, projectId: visible },
         select: { id: true, identifier: true, projectId: true, project: { select: { name: true } } },
       });
 
@@ -468,13 +487,14 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       const { query, projectId } = req.query;
       const cleanQuery = query ? String(query).toLowerCase() : '';
       const cleanProjId = projectId ? String(projectId) : undefined;
+      const hidden = await hiddenProjectsOf(actorId(req), isPrivilegedUser((req as any).authUser));
 
       const suggestions: Array<{ text: string; description: string; elementId?: string }> = [];
 
       // 1. Fetch tags matching cleanQuery
       const tags = await prisma.tag.findMany({
         where: {
-          ...(cleanProjId ? { projectId: cleanProjId } : {}),
+          projectId: cleanProjId || { notIn: hidden },
           identifier: { contains: cleanQuery }
         },
         take: 15
@@ -490,13 +510,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       // 2. Fetch component elements matching cleanQuery
       const elements = await prisma.componentElement.findMany({
         where: {
-          ...(cleanProjId ? {
-            monoblock: {
-              system: {
-                projectId: cleanProjId
-              }
-            }
-          } : {}),
+          monoblock: { system: { projectId: cleanProjId || { notIn: hidden } } },
           OR: [
             { itemCode: { contains: cleanQuery } },
             { name: { contains: cleanQuery } }
@@ -542,7 +556,13 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
     const prisma = getPrisma();
     try {
       await ensureProjectChatGroups();
+      const me = (req as any).authUser;
+      const hidden = await hiddenProjectsOf(actorId(req), isPrivilegedUser(me));
       const groups = await prisma.chatGroup.findMany({
+        where: { AND: [
+          { OR: [{ ownerId: actorId(req) }, { members: { some: { id: actorId(req) } } }] },
+          { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] },
+        ] },
         include: {
           members: { select: { id: true, name: true, symbol: true, role: true } },
           project: { select: { id: true, name: true } }
@@ -564,7 +584,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (!me?.id) return res.status(401).json({ success: false, message: 'Требуется вход' });
       // Владелец — создающий (из сессии): присланный ownerId позволял назначить
       // владельцем кого угодно, а значит и записать чужой группе чужого хозяина
-      const ownerId = ownerForNewGroup(String(me.id), me.role === 'ADMIN', req.body?.ownerId);
+      const ownerId = ownerForNewGroup(String(me.id), isPrivilegedUser(me), req.body?.ownerId);
       if (!name || !String(name).trim()) {
         return res.status(400).json({ error: 'Укажите название' });
       }
@@ -605,7 +625,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         return res.status(400).json({ success: false, message: 'Системную группу проекта изменить нельзя' });
       }
       // менять (и передавать владение) может владелец или администратор
-      if (!mayEditGroup(String(me.id), me.role === 'ADMIN', group.ownerId)) {
+      if (!mayEditGroup(String(me.id), isPrivilegedUser(me), group.ownerId)) {
         return res.status(403).json({ success: false, message: 'Изменять может только владелец или администратор' });
       }
       const data: any = {};
@@ -639,7 +659,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (group.type === 'PROJECT') {
         return res.status(400).json({ success: false, message: 'Системную группу проекта удалить нельзя' });
       }
-      if (!mayEditGroup(String(me.id), me.role === 'ADMIN', group.ownerId)) {
+      if (!mayEditGroup(String(me.id), isPrivilegedUser(me), group.ownerId)) {
         return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
       }
       await prisma.chatGroup.delete({ where: { id } });
@@ -713,6 +733,14 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         include: { sender: { select: { name: true } }, attachments: true },
       });
       if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+      const me = actorId(req);
+      if (String(senderId) !== me || !(await isChatParticipant(me, src))) return res.status(403).json({ error: 'Нельзя пересылать чужую переписку или писать от чужого имени' });
+      if (!!toGroupId === !!toReceiverId) return res.status(400).json({ error: 'Выберите один диалог для пересылки' });
+      if (toGroupId && !(await isGroupMember(me, String(toGroupId)))) return res.status(403).json({ error: 'Вы не состоите в этой группе' });
+      if (toGroupId) {
+        const target = await prisma.chatGroup.findUnique({ where: { id: String(toGroupId) } });
+        if (target?.type === 'CHANNEL' && target.ownerId && target.ownerId !== me && !isPrivilegedUser((req as any).authUser)) return res.status(403).json({ error: 'В канал может писать только владелец или администратор' });
+      }
       const created = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
@@ -753,10 +781,13 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       const a = String(req.query.userA || '');
       const b = String(req.query.userB || '');
       if (groupId) {
+        const group = await prisma.chatGroup.findUnique({ where: { id: groupId }, select: { ownerId: true, projectId: true } });
+        if (!group || !mayEditGroup(actorId(req), isPrivilegedUser((req as any).authUser), group.ownerId) || !(await isGroupMember(actorId(req), groupId))) return res.status(403).json({ error: 'Очистить группу может её владелец или администратор-участник' });
         const r = await prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } });
         return res.json({ success: true, deleted: r.count });
       }
       if (a && b) {
+        if (actorId(req) !== a && actorId(req) !== b) return res.status(403).json({ error: 'Это чужая переписка' });
         const r = await prisma.chatMessage.deleteMany({
           where: { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] },
         });
@@ -819,9 +850,14 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       const grp = await prisma.chatGroup.findUnique({ where: { id: String(groupId) } });
       if (grp && grp.type === 'CHANNEL') {
         const u = await prisma.user.findUnique({ where: { id: String(senderId) } });
-        if (grp.ownerId && grp.ownerId !== String(senderId) && u?.role !== 'ADMIN') {
+        if (grp.ownerId && grp.ownerId !== String(senderId) && !isPrivilegedUser(u)) {
           return res.status(403).json({ error: 'В канал может писать только владелец или администратор' });
         }
+      }
+
+      if (replyToId) {
+        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) } });
+        if (!reply || !(await isChatParticipant(actorId(req), reply)) || reply.chatGroupId !== String(groupId)) return res.status(403).json({ error: 'Ответ должен ссылаться на сообщение этой группы' });
       }
 
       const msg = await prisma.chatMessage.create({

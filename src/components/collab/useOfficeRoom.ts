@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ENV_CONFIG, getAuthToken } from '../../config/env';
+import { ENV_CONFIG, getAuthToken, usesCookieTransport } from '../../config/env';
 
 export interface OfficeRoster {
   fileId: string;
@@ -72,6 +72,7 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     if (!fileId) return undefined;
     const sock = io(ENV_CONFIG.socketUrl, {
       auth: { token: getAuthToken() },
+      withCredentials: usesCookieTransport(),
       transports: ['websocket', 'polling'],
       reconnectionDelay: 800,
       reconnectionDelayMax: 4000,

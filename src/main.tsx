@@ -1,4 +1,4 @@
-import './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
+import { initializeAuthToken, getAuthSessionKey } from './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
 import { startDiagnostics } from './lib/diagnostics';
 import { registerEmergencySave } from './lib/emergencySave';
 import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
@@ -6,6 +6,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { useLogStore } from './store/logStore';
+import { useStore } from './store/store';
 import { isBenignUniverDisposeError, isResizeObserverNoise } from './lib/logNoise';
 
 // === GLOBAL INTERCEPTORS ===
@@ -193,24 +194,36 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
   }
 }
 
-try {
-  const rootEl = document.getElementById('root');
-  if (!rootEl) throw new Error('Корневой элемент #root не найден в документе');
-  createRoot(rootEl).render(
-    <StrictMode>
-      <RootErrorBoundary>
-        <App />
-      </RootErrorBoundary>
-    </StrictMode>,
-  );
-} catch (mountErr: any) {
-  // Если даже монтирование упало — показываем текст напрямую, без React
-  const rootEl = document.getElementById('root');
-  if (rootEl) {
-    rootEl.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:sans-serif;padding:24px"><div style="max-width:560px"><div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:10px">Не удалось запустить приложение</div><pre style="font-size:12px;color:#fca5a5;white-space:pre-wrap">${String(mountErr?.message || mountErr)}</pre></div></div>`;
-  }
+async function mountAuthenticatedApp() {
   try {
-    const win = window as any;
-    if (win.electron?.emergencySave) win.electron.emergencySave(`[MOUNT CRASH] ${mountErr?.message}\n${mountErr?.stack || ''}`);
-  } catch (_) {}
+    await initializeAuthToken();
+    const response = getAuthSessionKey() ? await fetch('/api/auth/me', { signal: AbortSignal.timeout(8000) }) : null;
+    if (response?.ok) {
+      const data = await response.json();
+      if (data.user?.id) useStore.getState().setUser(data.user);
+    }
+  } catch (_) { /* unavailable server: show the connection/login screen */ }
+  try {
+    const rootEl = document.getElementById('root');
+    if (!rootEl) throw new Error('Корневой элемент #root не найден в документе');
+    createRoot(rootEl).render(
+      <StrictMode>
+        <RootErrorBoundary>
+          <App />
+        </RootErrorBoundary>
+      </StrictMode>,
+    );
+  } catch (mountErr: any) {
+    // Если даже монтирование упало — показываем текст напрямую, без React
+    const rootEl = document.getElementById('root');
+    if (rootEl) {
+      rootEl.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:sans-serif;padding:24px"><div style="max-width:560px"><div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:10px">Не удалось запустить приложение</div><pre style="font-size:12px;color:#fca5a5;white-space:pre-wrap">${String(mountErr?.message || mountErr)}</pre></div></div>`;
+    }
+    try {
+      const win = window as any;
+      if (win.electron?.emergencySave) win.electron.emergencySave(`[MOUNT CRASH] ${mountErr?.message}\n${mountErr?.stack || ''}`);
+    } catch (_) {}
+  }
+
 }
+void mountAuthenticatedApp();

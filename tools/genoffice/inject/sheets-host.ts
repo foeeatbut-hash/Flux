@@ -44,8 +44,8 @@ function realName<T>(file: T): T {
   return file
 }
 
-export async function invoke(id: number, channel: string, args: unknown[]) {
-  const result = await __flux.invoke(id, channel, args)
+export async function invoke(id: number, channel: string, args: unknown[], saveTarget?: string) {
+  const result = await (saveTarget ? __flux.withSaveTarget(saveTarget, () => __flux.invoke(id, channel, args)) : __flux.invoke(id, channel, args))
   if (channel === 'workbook:select') return realName(result)
   if (channel === 'workbook:save' && result && typeof result === 'object') realName((result as any).file)
   return result

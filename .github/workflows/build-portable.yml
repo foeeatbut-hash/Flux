@@ -12,6 +12,7 @@ on:
       - claude/notebook-canvas-redesign-rhzsss
       - claude/program-code-review-ucf95m
       - claude/custom-table-builder-design-38h1b8
+      - claude/hopeful-meitner-zb0ir5
 
 permissions:
   contents: write
@@ -78,6 +79,9 @@ jobs:
           echo "Собран: $OUT ($(du -h "$OUT" | cut -f1))"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          # Первый выпуск защиты ждёт открытые ключи с компьютера владельца.
+          # Он не должен автоматически стать рекомендованным обновлением сотрудников.
+          node -e "const fs=require('fs');const a=fs.readFileSync('license/ownerKey.ts','utf8');const b=fs.readFileSync('electron/updateKey.ts','utf8');const ready=['OWNER_PUBLIC_KEY_HEX','OWNER_BACKUP_PUBLIC_KEY_HEX','LICENSE_SIGNING_PUBLIC_KEY_HEX'].every(n=>new RegExp(n+' = \\'[a-f0-9]{64}\\'', 'i').test(a)) && /UPDATE_PUBLIC_KEY_HEX = '[a-f0-9]{64}'/i.test(b);fs.appendFileSync(process.env.GITHUB_OUTPUT,'prerelease='+!ready+'\\n');"
 
       - name: Целый exe как артефакт сборки
         uses: actions/upload-artifact@v4
@@ -93,6 +97,7 @@ jobs:
         with:
           tag_name: v${{ steps.meta.outputs.version }}
           name: Flux ${{ steps.meta.outputs.version }}
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           target_commitish: ${{ github.sha }}
           body: |
             Портативная сборка Flux ${{ steps.meta.outputs.version }} для Windows x64.
@@ -100,7 +105,10 @@ jobs:
             Скачайте `Flux-${{ steps.meta.outputs.version }}-x64.exe` и запустите —
             установка не требуется.
 
+            Для первого развёртывания защиты нужны открытые ключи из Flux-Owner
+            и повторная сборка сервера и клиентов. Закрытые ключи остаются у владельца.
+
             Собрано из коммита ${{ github.sha }} ветки `${{ github.ref_name }}`.
           files: ${{ steps.meta.outputs.file }}
           fail_on_unmatched_files: true
-          make_latest: true
+          make_latest: ${{ steps.meta.outputs.prerelease == 'true' && 'false' || 'true' }}

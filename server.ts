@@ -25,6 +25,7 @@ import { startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
 import { registerFileChunkRoutes } from './server/routes/fileChunks.js';
+import { registerArchiveRoutes } from './server/routes/archives.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { registerOfficeConvertRoutes } from './server/routes/officeConvert.js';
 import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
@@ -77,8 +78,15 @@ import { registerSystemRoutes } from './server/routes/system.js';
 import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite } from './server/sqliteSafety.js';
-import { allowsLocalSetup, requiresAdministrator } from './server/accessPolicy.js';
-import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, socketAuth, dropRevokedSockets } from './server/security.js';
+import { requiresOwner, requiresAdministrator, isPrivilegedUser, administratorPermission } from './server/accessPolicy.js';
+import { createAuthSessions, registerSessionRoutes } from './server/authSessions.js';
+import { registerOwnerRoutes } from './server/routes/owner.js';
+import { registerPersonLicenseRoutes } from './server/routes/personLicense.js';
+import { configureLicenseService, licenseForUser, personLicenseMiddleware } from './server/licenseService.js';
+import { registerProjectEntityGuard } from './server/projectEntityAccess.js';
+import { protectSessionSockets } from './server/sessionSockets.js';
+import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
+import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Открытые записи прежних версий
@@ -155,7 +163,7 @@ function getVentAppDataPath(): string {
   }
 }
 
-const ventAppDataPath = getVentAppDataPath();
+const ventAppDataPath = process.env.VENT_APP_DATA || getVentAppDataPath();
 const logFilePath = path.join(ventAppDataPath, 'backend-init.log');
 
 function logInit(message: string) {
@@ -567,29 +575,7 @@ try {
     const userCount = await prisma.user.count();
     logInit(`[Startup DB Feed Check] Found ${userCount} users registered.`);
     try { const n = await hashLegacyPasswords(prisma, hashPassword, isLegacyPassword); if (n) logInit(`[Security] Открытых паролей переведено в хеш: ${n}`); } catch (e: any) { logInit(`[Security] Перевод открытых паролей не выполнен: ${e?.message}`); }
-    if (userCount === 0) {
-      logInit('[Startup DB Feed] Seeding default administrator account...');
-      await prisma.user.create({
-        data: {
-          name: 'Главный администратор (RaupovKhKh)',
-          symbol: 'RaupovKhKh',
-          password: hashPassword('1122'),
-          role: 'ADMIN',
-        }
-      });
-      await prisma.project.create({
-        data: {
-          name: 'Технологический проект Альфа'
-        }
-      });
-      await prisma.equipment.create({
-        data: {
-          type: 'AHU',
-          description: 'Air Handling Unit',
-        }
-      });
-      logInit('[Startup DB Feed] Initial schema seeding finished.');
-    }
+    if (userCount === 0) logInit('[Setup] Пустая база: первый вход выполняет владелец с подписанным ключом.');
   } catch (err: any) {
     logInit(`[Startup DB Seed Exception] Verifying / Seeding skipped or threw exception: ${err.message}\nStack: ${err.stack}`);
   }
@@ -616,38 +602,10 @@ try {
 }
 setLinkSecret(authSecret); // им же подписываются ссылки на вложения
 
-const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
-// Старые сессии могли быть выданы мастер-входом: после обновления нужен обычный вход.
-const AUTH_TOKEN_VERSION = 2;
-
-// Своя версия — из package.json, который едет вместе со сборкой
 const APP_VERSION: string = readAppVersion(__dirname);
-
-const signAuthPayload = (payload: string) =>
-  crypto.createHmac('sha256', authSecret).update(payload).digest('base64url');
-
-const issueAuthToken = (userId: string) => {
-  const payload = Buffer.from(JSON.stringify({ v: AUTH_TOKEN_VERSION, uid: userId, exp: Date.now() + AUTH_TOKEN_TTL_MS })).toString('base64url');
-  return `${payload}.${signAuthPayload(payload)}`;
-};
-
-const verifyAuthToken = (token: string): string | null => {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 2) return null;
-    const [payload, sig] = parts;
-    if (!payload || !sig) return null;
-    const expected = signAuthPayload(payload);
-    const a = Buffer.from(sig);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
-    if (data?.v !== AUTH_TOKEN_VERSION || !data.uid || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
-    return String(data.uid);
-  } catch (e) {
-    return null;
-  }
-};
+const authSessions = createAuthSessions({ secret: authSecret });
+const issueAuthToken = authSessions.issue;
+const verifyAuthToken = authSessions.verify;
 
 // Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
 // но отключение профиля администратором срабатывает в течение полуминуты
@@ -676,6 +634,10 @@ const getAuthUser = async (userId: string) => {
 };
 
 const app = express();
+// HTTPS завершается на локальном прокси; заголовкам удалённых клиентов не доверяем.
+app.set('trust proxy', 'loopback');
+const cookieAuth = createCookieAuth(authSecret);
+app.use(cookieAuth.middleware);
 app.use(traceRequest);
 // Порт из окружения, но по умолчанию тот же: программа и её оболочка ждут
 // именно 3000. Настройка нужна затем, чтобы поднять второй сервер на той же
@@ -689,7 +651,7 @@ const io = new SocketIOServer(httpServer, { cors: { origin: true, methods: ['GET
 
 traceSockets(io);
 // Socket.io пускает только вошедших и годных профилей (server/security.ts)
-io.use(socketAuth(verifyAuthToken, getAuthUser));
+protectSessionSockets(io, authSessions);
 
 /**
  * Кто скрыл своё присутствие.
@@ -755,7 +717,7 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/feedback\/(reports|uploads|drafts)/,
     perm: 'feedback.create', title: 'Писать обращения' },
   { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|stage_templates)/,
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|procurement_templates|stage_templates)/,
     perm: 'procurement.setup', title: 'Настройка этапов закупки' },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/,
     perm: 'vdr.standards', title: 'Стандарты документооборота' },
@@ -805,36 +767,35 @@ function permAllows(perms: Record<string, any>, feature: string): boolean {
   return true;
 }
 
-const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/license/status', '/api/license/activate']);
+const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/owner/challenge', '/api/owner/login']);
 app.use(async (req: Request, res: Response, next) => {
   // Express принимает другой регистр и хвостовой слеш: защита должна видеть тот же маршрут.
   const route = req.path.toLowerCase().replace(/\/+$/, '');
   if (!route.startsWith('/api/')) return next();
   if (AUTH_EXEMPT.has(route)) return next();
-  if (allowsLocalSetup(route, String(req.socket.remoteAddress || ''), req.get('origin'), req.get('host'))) return next();
 
-  const header = String(req.headers.authorization || '');
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const token = authTokenFromRequest(req);
   const userId = verifyAuthToken(token);
   if (!userId) return res.status(401).json({ error: 'Требуется вход в систему' });
 
   try {
-    const user = await getAuthUser(userId);
+    const user = await authSessions.validate(token);
     if (!user || user.isActive === false) {
       return res.status(401).json({ error: 'Профиль отключен или удалён администратором' });
     }
-    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+    if (user.role !== 'OWNER' && user.validUntil && new Date(user.validUntil).getTime() < trustedNowSync()) {
       return res.status(401).json({ error: 'Срок действия профиля истек' });
     }
 
-    if (requiresAdministrator(route) && user.role !== 'ADMIN') {
+    if (requiresOwner(route, req.method) && user.role !== 'OWNER') return res.status(403).json({ error: 'Доступно только владельцу Flux' });
+    if (requiresAdministrator(route) && !isPrivilegedUser(user)) {
       return res.status(403).json({ error: 'Доступно только администратору' });
     }
 
     // Управление сотрудниками — только администратор; менять самого себя
     // (имя/пароль) может каждый, но не роль/права/срок
     const isUserRoute = /^\/api\/users\/[^/]+$/.test(route);
-    if (user.role !== 'ADMIN') {
+    if (!isPrivilegedUser(user)) {
       if ((route === '/api/users' && req.method === 'POST') ||
           (isUserRoute && req.method === 'DELETE')) {
         return res.status(403).json({ error: 'Доступно только администратору' });
@@ -856,7 +817,7 @@ app.use(async (req: Request, res: Response, next) => {
     }
 
     // Права по функциям: одна таблица маршрутов на всю программу.
-    if (user.role !== 'ADMIN') {
+    if (!isPrivilegedUser(user)) {
       const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(route));
       if (rule) {
         const perms = await effectivePermsOf(user);
@@ -875,6 +836,19 @@ app.use(async (req: Request, res: Response, next) => {
     return res.status(500).json({ error: 'Не удалось проверить сессию', details: e?.message });
   }
 });
+
+// Проверяются и адрес проекта, и фактические связи каждой записи — до ранних Office API.
+registerProjectEntityGuard(app);
+configureLicenseService({ trustedNow: trustedNowSync, fromSource: /\.tsx?$/.test(process.argv[1] || ''), automaticTestLicense: true });
+app.use(personLicenseMiddleware({
+  allowed: (method, route) => {
+    const p = route.toLowerCase().replace(/\/+$/, '');
+    return AUTH_EXEMPT.has(p) || p.startsWith('/api/license/') || p === '/api/logout'
+      || (['GET', 'HEAD'].includes(method) && (p.startsWith('/api/updates') || p === '/api/me/bootstrap' || p === '/api/auth/check' || p === '/api/auth/me'));
+  },
+  readOnlyPost: p => /^\/api\/archives\/[^/]+\/(list|test|extract-preview|edit-preview)\/?$/i.test(p),
+}));
+registerPersonLicenseRoutes(app);
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
 // окно, обходится закрытием окна. Стоит ДО всех маршрутов: ответ, законченный
@@ -1006,6 +980,9 @@ registerAuthRoutes(app, {
   isClockTampered: () => timeTampered,
 });
 
+registerOwnerRoutes(app, { issueAuthToken, invalidateAuthUser });
+registerSessionRoutes(app, authSessions, cookieAuth);
+
 // Словари импорта (выученные подписи и условные обозначения) вынесены
 // в server/routes/importDict.ts
 registerImportDictRoutes(app);
@@ -1051,6 +1028,8 @@ registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackC
 // Office: иначе два пути записи одного файла разошлись бы в правилах
 async function mayWriteFile(req: any, fileId: string): Promise<string> {
   const user = (req as any).authUser;
+  const license = await licenseForUser(user);
+  if (!license.licensed) return 'Сохранение недоступно: продлите лицензию сотрудника у владельца Flux.';
   // Единое правило видимости (server/fileAccess.ts). Раньше любой ADMIN обходил проверку
   // и писал в чужие личные файлы, хотя видит их лишь Главный Администратор; отказ — как «нет файла»
   if (!(await canWriteFile(prisma, user, fileId))) return FILE_NOT_FOUND;
@@ -1062,6 +1041,7 @@ async function mayWriteFile(req: any, fileId: string): Promise<string> {
     : 'Общий диск открыт всем на чтение, а класть и удалять на нём — по праву «Общий диск». Его выдаёт администратор в разделе «Сотрудники».';
 }
 registerFileChunkRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile });
+registerArchiveRoutes(app, { can: userCan, chunkBytes: limits.chunkBytes });
 // Сохранение из редакторов Flux Office — целиком, со сверкой версии и откатом
 registerOfficeFileRoutes(app, {
   chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, can: userCan,
@@ -1077,7 +1057,8 @@ registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayW
 // ── Права доступа «по функциям» (зеркало src/lib/permissions.ts) ──────────────
 function userCan(user: any, feature: string): boolean {
   if (!user) return false;
-  if (user.role === 'ADMIN') return true;                       // админ всегда главнее
+  if (user.role === 'OWNER') return true;
+  if (user.role === 'ADMIN') return feature.startsWith('admin.') ? administratorPermission(user, feature, trustedNowSync()) : true;
   if (user.isActive === false) return false;
   // Сроки проверяем по надёжному времени (перевод часов назад не продлевает доступ)
   const now = trustedNowSync();
@@ -1091,13 +1072,7 @@ function userCan(user: any, feature: string): boolean {
 }
 
 async function loadActor(req: Request): Promise<any> {
-  // Кто действует: сначала владелец сессии (запрос уже прошёл проверку токена),
-  // и только потом явно переданный actorId — он остался от старых вызовов.
-  const fromSession = (req as any).authUser;
-  if (fromSession) return fromSession;
-  const id = String((req.body && req.body.actorId) || req.query.actorId || req.headers['x-actor-id'] || '');
-  if (!id) return null;
-  try { return await prisma.user.findUnique({ where: { id } }); } catch { return null; }
+  return (req as any).authUser || null;
 }
 
 // Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false.
@@ -1112,7 +1087,8 @@ async function loadActor(req: Request): Promise<any> {
 async function mayFeature(req: Request, feature: string): Promise<boolean> {
   const actor = await loadActor(req);
   if (!actor) return false;
-  if (actor.role === 'ADMIN') return true;
+  if (actor.role === 'OWNER') return true;
+  if (actor.role === 'ADMIN') return feature.startsWith('admin.') ? administratorPermission(actor, feature, trustedNowSync()) : true;
   if (actor.isActive === false) return false;
   if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < trustedNowSync())) return false;
   return permAllows(await effectivePermsOf(actor), feature);
@@ -1121,7 +1097,8 @@ async function mayFeature(req: Request, feature: string): Promise<boolean> {
 async function enforce(req: Request, res: Response, feature: string): Promise<boolean> {
   const actor = await loadActor(req);
   if (!actor) { res.status(401).json({ error: 'Требуется вход в систему.' }); return false; }
-  if (actor.role === 'ADMIN') return true;
+  if (actor.role === 'OWNER') return true;
+  if (actor.role === 'ADMIN') return feature.startsWith('admin.') ? administratorPermission(actor, feature, trustedNowSync()) : true;
   if (actor.isActive === false) { res.status(403).json({ error: 'Профиль отключён администратором.' }); return false; }
   const now = trustedNowSync();
   if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < now)) {
@@ -1337,95 +1314,7 @@ async function startServer() {
         logInit(`[SQLite WAL Setting skip] SQLite WAL mode pragma check skipped/failed: ${error.message}`);
       }
 
-      // Ensure database is seeded with initial user and project if empty
-      try {
-        const userCount = await prisma.user.count();
-        if (userCount === 0) {
-          logInit('[Database Seeder] No users found in database. Performing automatic initial seed...');
-          const admin = await prisma.user.create({
-            data: {
-              name: 'Главный администратор (RaupovKhKh)',
-              symbol: 'RaupovKhKh',
-              password: hashPassword('1122'),
-              role: 'ADMIN',
-            }
-          });
-          logInit(`[Database Seeder] Created initial admin user: ${admin.symbol}`);
 
-          const project = await prisma.project.create({
-            data: {
-              name: 'Технологический проект Альфа',
-            }
-          });
-          logInit(`[Database Seeder] Created initial project: ${project.name}`);
-
-          await prisma.equipment.create({
-            data: {
-              type: 'AHU',
-              description: 'Air Handling Unit',
-            }
-          });
-        }
-
-        // Seed dummy notes if none exist
-        const notesCount = await prisma.userNote.count();
-        if (notesCount === 0) {
-          logInit('[Database Seeder] Seeding initial notes...');
-          await prisma.userNote.createMany({
-            data: [
-              {
-                title: 'Заметки по проекту вентиляции',
-                content: '<p>Проверить производительность <strong>AHU-2</strong> согласно обновленному ТЗ.</p><p>Учесть параметры сопротивления воздушного тракта и настроить частотные преобразователи.</p>',
-                color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
-                equipmentId: 'AHU-2'
-              },
-              {
-                title: 'Согласование схем автоматики',
-                content: '<p>Выполнить сверку сигналов КИПиА для щита вентиляции. Особое внимание уделить датчикам перепада давления.</p>',
-                color: 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250',
-                equipmentId: 'AHU'
-              }
-            ]
-          });
-        }
-
-        // Seed dummy logs if none exist
-        const logsCount = await prisma.systemChangeLog.count();
-        if (logsCount === 0) {
-          logInit('[Database Seeder] Seeding initial changelogs...');
-          await prisma.systemChangeLog.createMany({
-            data: [
-              {
-                userName: 'Главный Администратор (RaupovKhKh)',
-                userSymbol: 'RaupovKhKh',
-                description: 'Обновлены спецификации вентилятора по тегу AHU-2',
-                targetRoute: '/explorer',
-              },
-              {
-                userName: 'Главный Администратор (RaupovKhKh)',
-                userSymbol: 'RaupovKhKh',
-                description: 'Добавлен новый чертеж КМД-102 в папку Проекты',
-                targetRoute: '/explorer',
-              },
-              {
-                userName: 'Главный Администратор (RaupovKhKh)',
-                userSymbol: 'RaupovKhKh',
-                description: 'Сформирована сводная ведомость по оборудованию Проекта Альфа',
-                targetRoute: '/',
-              },
-              {
-                userName: 'Главный Администратор (RaupovKhKh)',
-                userSymbol: 'RaupovKhKh',
-                description: 'Изменен статус проекта на Активный',
-                targetRoute: '/',
-              }
-            ]
-          });
-        }
-
-      } catch (e: any) {
-        logInit(`[Database Seeder error] Seeding failed/skipped: ${e.message}`);
-      }
     }
   }
 

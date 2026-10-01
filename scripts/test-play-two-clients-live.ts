@@ -193,7 +193,7 @@ async function press(page: any, label: string): Promise<boolean> {
         const symbol = `ДВ${suffix}${stamp}`;
         const password = `dv-${suffix}-${stamp}-Aa1`;
         const made = await api(adminToken, 'POST', '/api/users', {
-          name: `Игрок ${suffix} ${stamp}`, symbol, password, role: 'ENGINEER',
+          name: `Игрок ${suffix} ${stamp}`, symbol, password, role: 'ENGINEER_VENT',
         });
         const id = String(made.json?.user?.id || made.json?.id || '');
         await grant(adminToken, id, [APP_PLAY, gameEntitlement('testgame')]);

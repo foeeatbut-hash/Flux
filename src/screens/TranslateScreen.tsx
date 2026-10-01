@@ -37,7 +37,7 @@ const MODES: { id: Mode; label: string }[] = [
 ];
 
 export default function TranslateScreen() {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
   const store = useTranslateStore();
 

@@ -68,7 +68,7 @@ async function main() {
   const perms: Record<string, any> = {};
   for (const feat of FEATURES) perms[feat.id] = { enabled: !denied.includes(feat.id), until: null };
   const mk = await api('POST', '/api/users', admin, {
-    symbol: `fbp${stamp}`, name: 'Проба Приватности', password: pass, role: 'USER',
+    symbol: `fbp${stamp}`, name: 'Проба Приватности', password: pass, role: 'ENGINEER_VENT',
     permissions: JSON.stringify(perms),
   });
   const authorId = mk.json?.user?.id || mk.json?.id;

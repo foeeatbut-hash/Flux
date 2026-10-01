@@ -238,7 +238,7 @@ export function registerMemberRoutes(app: Express): void {
 
       const project = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
       const members = await prisma.projectMember.findMany({ where: { projectId }, take: 20 });
-      const admins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true }, take: 5 });
+      const admins = await prisma.user.findMany({ where: { role: { in: ['ADMIN', 'OWNER'] } }, select: { id: true }, take: 5 });
       const targets = new Set<string>([...members.map((m: any) => m.userId), ...admins.map((a: any) => a.id)]);
       targets.delete(me.id);
 

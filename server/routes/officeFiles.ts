@@ -86,7 +86,7 @@ async function ensureVersionTable(): Promise<string> {
  * хеша, откат до записи, кто сохранил — из сессии.
  */
 export async function writeOfficeFile(a: {
-  fileId: string; body: Buffer; baseSha: string; user: { id: string } | null; autosave?: boolean;
+  fileId: string; body: Buffer; baseSha: string; user: { id: string } | null; autosave?: boolean; sessionKey?: string;
   /**
    * Пишет сервер, а не окно держателя: восстановление версии, «Обновить поля»,
    * английская версия. Сеанс совместной правки после такой записи забывается —
@@ -134,29 +134,28 @@ export async function writeOfficeFile(a: {
     return reply(409, {
       error: 'Файл изменили после того, как вы его открыли. Ваши правки не записаны.',
       currentSha256: beforeSha,
-      bySession: !!session && session.savedSha === beforeSha,
+      bySession: !!a.sessionKey && session?.key === a.sessionKey && session.savedSha === beforeSha,
     });
   }
   const afterSha = sha256(body);
   if (afterSha === beforeSha) return reply(200, { sha256: afterSha, size: body.length, unchanged: true });
 
   const step = Math.max(64 * 1024, await deps.chunkBytes());
-  const last = await (prisma as any).fileVersion.findFirst({
-    where: { fileId }, orderBy: { version: 'desc' }, select: { version: true },
-  });
-  const version = (last?.version ?? 0) + 1;
-  // Автосохранение совместной правки пишет раз в несколько секунд:
-  // версия на каждое — и двадцать версий отката сгорели бы за минуту
-  let keepVersion = true;
-  if (autosave && last) {
-    const lastAt = await (prisma as any).fileVersion.findFirst({
-      where: { fileId }, orderBy: { version: 'desc' }, select: { createdAt: true },
+  // Сверка и захват строки в одной транзакции: два окна с одинаковым
+  // исходным хешем не могут оба затереть файл. Метка монотонна даже при
+  // двух сохранениях в одну миллисекунду.
+  const saved = await prisma.$transaction(async (tx: any) => {
+    const stamp = new Date(Math.max(Date.now(), new Date(file.updatedAt).getTime() + 1));
+    const claimed = await tx.fileNode.updateMany({
+      where: { id: fileId, updatedAt: file.updatedAt },
+      data: { updatedAt: stamp },
     });
-    keepVersion = !lastAt || Date.now() - new Date(lastAt.createdAt).getTime() >= AUTOSAVE_VERSION_MS;
-  }
-
-  await prisma.$transaction(async (tx: any) => {
-    // Прежнее — в откат, до того как его не станет
+    if (!claimed.count) return null;
+    const last = await tx.fileVersion.findFirst({
+      where: { fileId }, orderBy: { version: 'desc' }, select: { version: true, createdAt: true },
+    });
+    const version = (last?.version ?? 0) + 1;
+    const keepVersion = !autosave || !last || Date.now() - new Date(last.createdAt).getTime() >= AUTOSAVE_VERSION_MS;
     if (keepVersion) await tx.fileVersion.create({
       data: {
         id: randomUUID(), fileId, version, size: before.length, sha256: beforeSha,
@@ -169,9 +168,18 @@ export async function writeOfficeFile(a: {
     }
     await tx.fileNode.update({
       where: { id: fileId },
-      data: { size: body.length, content: null, updatedById: user.id },
+      data: { size: body.length, content: null, updatedById: user.id, updatedAt: stamp },
     });
+    return { version: keepVersion ? version : last?.version ?? 0 };
   }, { timeout: 120_000 });
+  if (!saved) {
+    const current = await prisma.fileNode.findUnique({ where: { id: fileId } });
+    if (!current) return reply(404, { error: FILE_NOT_FOUND });
+    return reply(409, {
+      error: 'Файл изменился во время сохранения. Ваши правки не записаны.',
+      currentSha256: sha256(await fileBytes(current)), bySession: false,
+    });
+  }
 
   // Старше KEEP — прочь; это только откат, а не история проекта
   const old = await (prisma as any).fileVersion.findMany({
@@ -181,12 +189,27 @@ export async function writeOfficeFile(a: {
   // Сеанс общий для всех серверов: сбрасывается в базе, а не в памяти этого
   if (a.server) await officeBus.dropSession(fileId);
   // Что записано последним: по этому хешу отличают «записал держатель» от «изменили в обход»
-  else if (isSharedFile(file as any)) await officeBus.patchSession({ fileId }, { savedSha: afterSha }).catch(() => 0);
+  else if (isSharedFile(file as any) && a.sessionKey) await officeBus.patchSession({ fileId, key: a.sessionKey }, { savedSha: afterSha }).catch(() => 0);
 
-  return reply(200, { sha256: afterSha, size: body.length, version: keepVersion ? version : last?.version ?? 0 });
+  return reply(200, { sha256: afterSha, size: body.length, version: saved.version });
 }
 
 let routeDeps: OfficeFileDeps | null = null;
+
+/** Копия редактора: те же права и место, что у копии документа Word. */
+export async function copyOfficeFile(a: { fileId: string; body: Buffer; name: string; user: { id: string } | null }) {
+  const prisma = getPrisma();
+  if (!a.user?.id || !routeDeps) throw new Error('Требуется вход в систему');
+  if (!(await canReadFile(prisma, a.user, a.fileId))) throw new Error(FILE_NOT_FOUND);
+  const denied = await routeDeps.mayWrite({ authUser: a.user } as any, a.fileId);
+  if (denied) throw new Error(denied);
+  const from = await prisma.fileNode.findUnique({ where: { id: a.fileId } });
+  const home = await homeOfFile(a.fileId);
+  if (!from || !home) throw new Error(FILE_NOT_FOUND);
+  if (!a.body.length) throw new Error('Пустое содержимое: сохранять нечего');
+  return createFileFromBytes({ name: cleanName(a.name, from.name), body: a.body, home,
+    userId: a.user.id, chunkBytes: await routeDeps.chunkBytes(), type: from.type });
+}
 
 export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): void {
   routeDeps = deps;
@@ -197,7 +220,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
       if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const bytes = await fileBytes(file);
-      const folder = await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } });
+      const folder = file.folderId ? await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } }) : null;
       res.json({
         id: file.id, name: file.name, folderId: file.folderId, projectId: folder?.projectId || null, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
@@ -243,6 +266,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
           baseSha: String(req.header('x-base-sha256') || ''),
           user: (req as any).authUser || null,
           autosave: String(req.header('x-autosave') || '') === '1',
+          sessionKey: String(req.header('x-office-session') || ''),
         });
         res.status(r.status).json(r.json);
       } catch (err: any) { sendError(res, err); }

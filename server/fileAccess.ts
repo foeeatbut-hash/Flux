@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from './accessPolicy.js';
 /**
  * Кто и какой файл может читать и менять.
  *
@@ -129,7 +130,7 @@ export async function canReadFile(prisma: any, user: Actor | null | undefined, f
   if (!f || !user?.id) return false;
   const folder = await folderFactsOf(prisma, f.folderId);
   const projectVisible = folder?.projectId
-    ? await canSeeProject(user.id, folder.projectId, user.role === 'ADMIN')
+    ? await canSeeProject(user.id, folder.projectId, isPrivilegedUser(user))
     : true;
   return decideFileAccess({ user, mainAdminId: await getMainAdminId(prisma), file: f, folder, projectVisible });
 }
@@ -151,7 +152,7 @@ export async function canAccessFolder(prisma: any, user: Actor | null | undefine
   const folder = await folderFactsOf(prisma, folderId);
   if (!folder) return false;
   if (!personalVisible(user, await getMainAdminId(prisma), folder.scope, folder.ownerId)) return false;
-  return folder.projectId ? canSeeProject(user.id, folder.projectId, user.role === 'ADMIN') : true;
+  return folder.projectId ? canSeeProject(user.id, folder.projectId, isPrivilegedUser(user)) : true;
 }
 
 /**
@@ -161,13 +162,13 @@ export async function canAccessFolder(prisma: any, user: Actor | null | undefine
  * при сбое проверки оно бросает, и маршрут отвечает ошибкой, а не всем списком.
  */
 export async function hiddenProjectIds(_prisma: any, user: Actor | null | undefined): Promise<string[]> {
-  return hiddenProjectsOf(String(user?.id || ''), user?.role === 'ADMIN');
+  return hiddenProjectsOf(String(user?.id || ''), isPrivilegedUser(user));
 }
 
 /** Владелец файла для целей смены раздела: хозяин личного, автор общего — или администратор */
 export function isFileOwnerOrAdmin(user: Actor | null | undefined, file: FileFacts): boolean {
   if (!user?.id) return false;
-  if (user.role === 'ADMIN') return true;
+  if (isPrivilegedUser(user)) return true;
   if (file.scope === 'PERSONAL') return !!file.ownerId && file.ownerId === user.id;
   return !!file.createdById && file.createdById === user.id;
 }

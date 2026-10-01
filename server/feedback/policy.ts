@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 /**
  * Общее для всех маршрутов обращений: кто обращается, что ему можно и как
  * выглядит ответ.
@@ -33,7 +34,7 @@ export function actorOf(req: Request): Actor | null {
   if (!user?.id) return null;
   const name = [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' ')
     || user.fullName || user.symbol || 'Сотрудник';
-  return { id: String(user.id), name: String(name).slice(0, 160), isAdmin: user.role === 'ADMIN' };
+  return { id: String(user.id), name: String(name).slice(0, 160), isAdmin: isPrivilegedUser(user) };
 }
 
 /** HTTP-код по смыслу отказа: окно решает по нему, что делать дальше. */
