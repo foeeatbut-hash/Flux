@@ -36,6 +36,8 @@ export interface FluxPanelProps {
   onUpdateFields?: () => Promise<void>;
   beforeTranslate?: () => Promise<void>;
   fileName?: string;
+  /** Local Windows file: never call file-id cloud endpoints or upload its bytes. */
+  localFile?: boolean;
 }
 
 type SourceTab = 'tags' | 'equipment' | 'procurement' | 'docs' | 'catalog';
@@ -398,7 +400,7 @@ export default function FluxPanel(props: FluxPanelProps) {
   };
 
   return (
-    <aside aria-label="Flux" className="flex h-full w-[min(420px,45vw)] min-w-0 shrink-0 max-[1024px]:absolute max-[1024px]:right-0 max-[1024px]:top-0 max-[1024px]:z-50 max-[1024px]:w-[min(420px,90vw)] max-[1024px]:shadow-sm flex-col border-l border-slate-200 bg-[var(--flux-surface)] text-slate-800 dark:border-slate-800 dark:text-slate-100">
+    <aside aria-label="Flux" className={`${props.localFile ? 'flex h-full w-full min-w-0 flex-col' : 'flex h-full w-[min(420px,45vw)] min-w-0 shrink-0 max-[1024px]:absolute max-[1024px]:right-0 max-[1024px]:top-0 max-[1024px]:z-50 max-[1024px]:w-[min(420px,90vw)] max-[1024px]:shadow-sm flex-col'} border-l border-slate-200 bg-[var(--flux-surface)] text-slate-800 dark:border-slate-800 dark:text-slate-100`}>
       <header className="fx-head">
         <h2 className="fx-head-title">Flux</h2>
         <div className="fx-head-acts"><IconBtn label="Закрыть панель Flux" onClick={props.onClose}><X /></IconBtn></div>
@@ -409,7 +411,7 @@ export default function FluxPanel(props: FluxPanelProps) {
         <button type="button" className="fx-tab whitespace-nowrap" aria-selected={tab === 'translation'} onClick={() => setTab('translation')}>Перевод</button>
       </nav>
       {panelError && <p role="alert" className="mx-3 mt-2 text-xs text-rose-600 dark:text-rose-400">{panelError}</p>}
-      {tab === 'data' && <div className="min-h-0 flex-1 overflow-auto">
+      {tab === 'data' && props.localFile ? <div className="min-h-0 flex-1 overflow-auto p-4"><Empty title="Поля локального файла" text="Локальный файл не связан с облачной карточкой документа. Данные проекта можно выгрузить или вставить в таблицу; обновление полей в исходном файле недоступно." /></div> : tab === 'data' && <div className="min-h-0 flex-1 overflow-auto">
         <ProjectDataPanel fileId={props.fileId} projectId={props.projectId} kind={props.editorKind === 'sheets' ? 'sheet' : 'doc'} onInsert={props.onInsertField || (() => {})} onUpdate={async () => {
           setPanelError('');
           try {
@@ -423,7 +425,7 @@ export default function FluxPanel(props: FluxPanelProps) {
         }} onClose={() => setTab('tags')} readOnly={props.readOnly || !props.onInsertField || props.editorKind === 'pdf'} />
         {props.editorKind === 'note' && props.onInsertField && <p className="mx-3 my-2 text-xs text-slate-500 dark:text-slate-400">Вставка полей в заметку поддерживается.</p>}
       </div>}
-      {tab === 'translation' && (['docs', 'sheets'].includes(props.editorKind) ? <FileEnglishVersion fileId={props.fileId} name={resolvedFileName || 'Документ'} onClose={() => setTab('tags')} beforeIssue={props.beforeTranslate} /> : <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} />)}
+      {tab === 'translation' && (props.localFile ? <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} /> : ['docs', 'sheets'].includes(props.editorKind) ? <FileEnglishVersion fileId={props.fileId} name={resolvedFileName || 'Документ'} onClose={() => setTab('tags')} beforeIssue={props.beforeTranslate} /> : <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} />)}
       {tab !== 'data' && tab !== 'translation' && <section className="flex min-h-0 flex-1 flex-col">
         {sourcePanel()}
       </section>}

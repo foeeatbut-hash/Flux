@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Вложение к обращению доезжает целым.
  *
@@ -17,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { FEATURES } from '../src/lib/permissions';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>

@@ -53,7 +53,7 @@ async function readLobby(tx: any, lobbyId: string): Promise<LobbyView> {
     state: lobby.state,
     revision: lobby.revision,
     slots,
-    seats: game ? game.teams * game.teamSize : slots.length,
+    seats: game?.variableSeats ? Math.max(game.variableSeats.min, slots.length) : game ? game.teams * game.teamSize : slots.length,
   };
 }
 
@@ -71,7 +71,9 @@ export async function openLobby(tx: any, partyId: string, actorId: string, gameI
   if (!gameById(gameId)) fail(PLAY_ERRORS.INVALID, 'Неизвестная игра');
 
   const open = await tx.playLobby.findFirst({ where: { partyId, state: { in: ALIVE } } });
-  if (open) return readLobby(tx, open.id);
+  if (open?.gameId === gameId) return readLobby(tx, open.id);
+  if (open?.state === 'STARTED') fail(PLAY_ERRORS.SESSION_ACTIVE, 'Закончите текущую партию перед выбором другой игры');
+  if (open) await tx.playLobby.update({ where: { id: open.id }, data: { state: 'CLOSED', revision: { increment: 1 } } });
 
   const id = randomUUID();
   try {
@@ -86,14 +88,18 @@ export async function openLobby(tx: any, partyId: string, actorId: string, gameI
 
   // Места раздаются по составу группы: вошедший позже получит своё, когда
   // состав изменится (см. syncSlots)
-  const members = await tx.playPartyMember.findMany({
-    where: { partyId, leftAt: null }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
-  });
   const game = gameById(gameId)!;
+  const currentMembers = await tx.playPartyMember.findMany({ where: { partyId, leftAt: null }, orderBy: { joinedAt: 'asc' } });
+  currentMembers.sort((a: any, b: any) => Number(b.userId === party.leaderId) - Number(a.userId === party.leaderId));
+  const capacity = game.variableSeats?.max || (game.variableSeats ? Infinity : game.teams * game.teamSize);
+  for (let i = 0; i < currentMembers.length; i++) await tx.playPartyMember.update({ where: { id: currentMembers[i].id }, data: { role: currentMembers[i].userId === party.leaderId ? 'LEADER' : i < capacity ? 'MEMBER' : 'SPECTATOR' } });
+  const members = await tx.playPartyMember.findMany({
+    where: { partyId, leftAt: null, role: { not: 'SPECTATOR' } }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
+  });
   let n = 0;
   for (const m of members) {
     await tx.playLobbySlot.create({
-      data: { id: randomUUID(), lobbyId: id, userId: m.userId, team: (n++ % game.teams) + 1 },
+      data: { id: randomUUID(), lobbyId: id, userId: m.userId, team: game.variableSeats ? ++n : (n++ % game.teams) + 1 },
     });
   }
 
@@ -117,7 +123,7 @@ export async function syncSlots(tx: any, lobbyId: string): Promise<LobbyView> {
   if (!lobby || !ALIVE.includes(lobby.state)) fail(PLAY_ERRORS.NOT_FOUND);
 
   const members = await tx.playPartyMember.findMany({
-    where: { partyId: lobby.partyId, leftAt: null }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
+    where: { partyId: lobby.partyId, leftAt: null, role: { not: 'SPECTATOR' } }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
   });
   const want = new Set(members.map((m: any) => m.userId));
   const slots = await tx.playLobbySlot.findMany({ where: { lobbyId } });
@@ -133,7 +139,7 @@ export async function syncSlots(tx: any, lobbyId: string): Promise<LobbyView> {
   for (const m of members) {
     if (have.has(m.userId)) continue;
     await tx.playLobbySlot.create({
-      data: { id: randomUUID(), lobbyId, userId: m.userId, team: (n++ % teams) + 1 },
+      data: { id: randomUUID(), lobbyId, userId: m.userId, team: game?.variableSeats ? ++n : (n++ % teams) + 1 },
     });
     changed = true;
   }
@@ -194,7 +200,7 @@ export async function setTeam(
   if (party?.leaderId !== actorId) fail(PLAY_ERRORS.FORBIDDEN, 'Команды расставляет ведущий группы');
 
   const game = gameById(lobby.gameId);
-  if (!game || team < 1 || team > game.teams) fail(PLAY_ERRORS.INVALID, 'Такой команды нет');
+  if (!game || game.variableSeats || team < 1 || team > game.teams) fail(PLAY_ERRORS.INVALID, 'Такой команды нет');
 
   const seat = await tx.playLobbySlot.findFirst({ where: { lobbyId, userId } });
   if (!seat) fail(PLAY_ERRORS.NOT_FOUND);

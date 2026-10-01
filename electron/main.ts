@@ -10,7 +10,11 @@ import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
 import { setupGames } from './games';
 import { setupOwnerLogin } from './ownerLogin';
-import { setupAuthStorage } from './authStorage';
+import { setupAuthStorage, trustedAuthSender, readNativeSession } from './authStorage';
+import { setupDisplayWorkspace } from './displays';
+import { registerWindowsFilesIpc } from './filesystem/ipc';
+import { createLocalFileAccess } from './localFileAccess';
+import { registerLocalOfficeIpc } from './localOfficeIpc';
 import { startCompanyServer } from './companyServer';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
@@ -96,7 +100,7 @@ function createWindow() {
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Помощник подмены: ни меню, ни сервера, ни окна — только заменить файл и уйти
   if (APPLY) { void applyUpdate(APPLY); return; }
   if (COMPANY_SERVER) { startCompanyServer(); return; }
@@ -184,6 +188,12 @@ app.whenReady().then(() => {
 
   setupOwnerLogin(() => readAppConfig().remoteServerUrl);
   setupAuthStorage(() => readAppConfig().remoteServerUrl);
+  const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender);
+  displayWorkspace.attach();
+  const localAccess = createLocalFileAccess({ server: () => readAppConfig().remoteServerUrl,
+    token: readNativeSession, fetch: globalThis.fetch });
+  const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess });
+  registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
 
   // Смена адреса сервера из интерфейса (экран входа): пусто = встроенный.
   // Пишем в config.json, не трогая остальные ключи; применяется при
@@ -351,6 +361,7 @@ app.whenReady().then(() => {
   ipcMain.on('window:maximize', (event) => {
     const w = senderWin(event);
     if (!w) return;
+    if (w === mainWindow && displayWorkspace.isEnabled()) { displayWorkspace.exit(); return; }
     if (w.isMaximized()) w.unmaximize(); else w.maximize();
   });
   ipcMain.on('window:close', (event) => { senderWin(event)?.close(); });
@@ -1072,4 +1083,3 @@ app.on('window-all-closed', () => {
   if (COMPANY_SERVER) return;
   app.quit();
 });
-

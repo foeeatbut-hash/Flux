@@ -79,20 +79,20 @@ export function useLive(enabled: boolean): void {
         // и объявлять его устаревшим только потому, что ничего не случилось,
         // было бы придиркой, а не честностью
         setLink('live');
-        touch();
+        void refresh({ quiet: true });
       });
     }, PLAY_LIMITS.heartbeatMs);
 
     /** Любое событие платформы — повод перечитать состояние целиком. */
     const touched = () => { void refresh(); };
-    for (const name of ['play:party', 'play:lobby', 'play:session', 'play:invite']) {
+    for (const name of ['play:party', 'play:lobby', 'play:session', 'play:invite', 'play:match']) {
       socket.on(name, touched);
     }
 
     return () => {
       alive = false;
       if (beat) clearInterval(beat);
-      for (const name of ['play:party', 'play:lobby', 'play:session', 'play:invite']) {
+      for (const name of ['play:party', 'play:lobby', 'play:session', 'play:invite', 'play:match']) {
         socket.off(name, touched);
       }
     };

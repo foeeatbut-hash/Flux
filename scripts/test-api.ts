@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Дымовая проверка HTTP-слоя: сервер поднят, вход работает, маршруты отвечают
  * тем же, чем раньше.
@@ -15,7 +16,7 @@
  * чтобы её нельзя было принять за пройденную.
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

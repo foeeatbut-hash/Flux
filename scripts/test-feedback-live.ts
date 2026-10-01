@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Обращение живьём: браузер, сервер, база.
  *
@@ -18,7 +19,7 @@
  */
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 /** SHOTS=1 — сохранять снимки для владельца. По умолчанию набор их не делает. */
 const SHOTS = process.env.SHOTS === '1' ? (process.env.SHOTS_DIR || '/tmp/flux-feedback') : '';

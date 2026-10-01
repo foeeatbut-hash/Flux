@@ -122,3 +122,5 @@ export const makeMove = (sessionId: string, move: unknown, expectedRevision: num
 /** Сдаться. Отдельно от хода: у половины игр ходом это не выражается */
 export const resignMatch = (sessionId: string, key: string) =>
   post<any>(`/match/${encodeURIComponent(sessionId)}/resign`, {}, key);
+
+export const fetchHistory = () => get<any[]>('/history');

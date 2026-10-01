@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Бланк доезжает до базы целиком: разбор → план → предпросмотр → запись → теги.
  *
@@ -17,7 +18,7 @@ import { recognize, draftToUnits } from '../src/import/recognize';
 import { VALVE_SHEET, AHU_SHEET } from './fixtures/blanks';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

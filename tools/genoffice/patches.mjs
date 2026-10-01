@@ -17,14 +17,14 @@ export const PATCHES = [
     id: 'flux-sheet-copy-session-import',
     file: 'apps/sheets/src/main/sheets-main.ts',
     find: "import { createHash, randomUUID } from 'node:crypto'",
-    replace: "import { createHash, randomUUID } from 'node:crypto'\nimport { isFluxCopySave } from 'electron'",
+    replace: "import { createHash, randomUUID } from 'node:crypto'\nimport { isFluxCopySave, commitFluxSave } from 'electron'",
   },
   {
     // Копия оставляет исходную сессию и журнал правок: иначе следующий Ctrl+S ссылается на закрытый сеанс.
     id: 'flux-sheet-copy-keeps-session',
     file: 'apps/sheets/src/main/sheets-main.ts',
     find: '    // The sidecar session still streams the pre-save bytes; swap it for a',
-    replace: '    if (isFluxCopySave()) return { canceled: true, fluxCopySaved: true }\n\n    // The sidecar session still streams the pre-save bytes; swap it for a',
+    replace: '    await commitFluxSave()\n    if (isFluxCopySave()) return { canceled: true, fluxCopySaved: true }\n\n    // The sidecar session still streams the pre-save bytes; swap it for a',
   },
   {
     id: 'flux-sheets-disabled-settings',

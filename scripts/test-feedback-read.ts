@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Отметки прочитанного и счётчик непрочитанного.
  *
@@ -19,7 +20,7 @@
  */
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>

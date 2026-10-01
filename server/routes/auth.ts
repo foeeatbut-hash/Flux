@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import crypto from 'crypto';
 import { getPrisma } from '../context.js';
 import { loginWait, loginFailed, loginSucceeded, LOGIN_REFUSED, waitText } from '../security.js';
+import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from '../legacyIdentity.js';
 
 // Вход, проверка сессии и начальное заполнение базы.
 //
@@ -52,7 +53,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
 
     // Попытка авторизации через локальную БД, если БД вообще была создана/готова
     try {
-      // Логин не чувствителен к регистру: RaupovKhkh == RaupovKhKh
+      // Логин сравнивается без учёта регистра.
       let user = await prisma.user.findUnique({
         where: { symbol: normSymbol },
       });
@@ -61,6 +62,10 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
         user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
       }
       if (user && user.role !== 'OWNER') {
+        if (isLegacyBootstrapAdmin(user)) {
+          loginFailed(normSymbol, addr);
+          return res.status(403).json({ success: false, message: LEGACY_BOOTSTRAP_REFUSAL });
+        }
         // Принимается только хеш: открытые записи переведены при старте сервера
         const isPasswordCorrect = verifyPassword(String(password), user.password);
 

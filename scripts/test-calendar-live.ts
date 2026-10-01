@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Календарь не выбрасывает из программы.
  *
@@ -16,7 +17,7 @@
  *   npx tsx scripts/test-calendar-live.ts
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let f = 0;

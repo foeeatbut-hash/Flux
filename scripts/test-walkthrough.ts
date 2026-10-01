@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Сквозной путь работы: проект → его данные → тег → оборудование → связь →
  * документ → общий доступ.
@@ -18,7 +19,7 @@
 import * as XLSX from 'xlsx';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

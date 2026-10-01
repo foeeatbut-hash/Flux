@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Вид разделов по методологии — замер вычисленных стилей в живой программе.
  *
@@ -15,7 +16,7 @@
  * ONLY=/logs,/users — только эти разделы.
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const THEME = process.env.THEME === 'dark' ? 'dark' : 'light';
 const SHOTS = process.env.SHOTS === '1' ? `/tmp/flux-design/${THEME}` : '';

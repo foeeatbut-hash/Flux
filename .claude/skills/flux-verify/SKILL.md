@@ -62,9 +62,9 @@ npm run build:electron
 
 ## Сервер
 
-`npx tsx server.ts` поднимает Express на порту 3000, создаёт SQLite в
-`database/`, синхронизирует схему и засевает администратора `RaupovKhKh` с
-паролем `1122`.
+`npx tsx server.ts` поднимает Express на порту 3000 и синхронизирует схему.
+Учётная запись с известным паролем не создаётся. Для тестов нужна отдельная
+база и явно заданные FLUX_USER/FLUX_PASS; корпоративную базу не использовать.
 
 ```bash
 setsid nohup npx tsx server.ts > /tmp/srv.log 2>&1 &

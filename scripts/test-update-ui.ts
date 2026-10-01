@@ -1,9 +1,10 @@
+import { testCredentials } from './testCredentials';
 /** Значок обновления ведёт сотрудника к скачиванию; публиковать может только владелец. */
 import { ownerTestLogin } from './fixtures/ownerTestLogin';
 import { testSignature } from './fixtures/updateTestSign';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const VERSION = `999.8.${Date.now() % 1_000_000}`;
 const EMPLOYEE_PASSWORD = 'update-ui-test-only';

@@ -91,13 +91,14 @@ export default function PrepareTab({
             <h2 className="text-sm font-semibold text-slate-800 dark:text-white">Матч закончен</h2>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {Number(result.winnerTeam) > 0
-              ? `Победила команда ${Number(result.winnerTeam)}`
-              : 'Ничья'}
+            {Array.isArray((result.details as any)?.winners)
+              ? `Победители: ${(result.details as any).winners.map((id: string) => nameOf(id)).join(', ')}`
+              : Number(result.winnerTeam) > 0 ? `Победил игрок ${Number(result.winnerTeam)}` : 'Ничья'}
             {Number(result.durationSec) > 0 && ` · ${Math.round(Number(result.durationSec))} с`}
           </p>
+          {(result.details as any)?.loser && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Дурак: {nameOf((result.details as any).loser)}</p>}
           <p className="mt-1 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
-            Счёт пришёл от игрового сервера и подписан — игроки его не присылают.
+            Результат рассчитан сервером по правилам игры.
           </p>
         </section>
       )}
@@ -118,13 +119,13 @@ export default function PrepareTab({
           </div>
 
           <div className="mt-2.5 grid gap-2 @[560px]:grid-cols-2">
-            {Array.from({ length: game?.teams || 2 }).map((_, i) => {
+            {Array.from({ length: game?.variableSeats ? Math.max(game.variableSeats.min, ...lobby.slots.map(slot => slot.team)) : game?.teams || 2 }).map((_, i) => {
               const team = i + 1;
               const mates = lobby.slots.filter((s) => s.team === team);
               return (
                 <div key={team} className="rounded-lg bg-slate-50 dark:bg-slate-950 p-2">
                   <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500">
-                    Команда {team}
+                    Игрок {team}
                   </h3>
                   <ul className="mt-1 space-y-1">
                     {!mates.length && (
@@ -159,7 +160,7 @@ export default function PrepareTab({
           <Empty
             icon={<Users className="w-5 h-5" />}
             title="Группы нет"
-            hint="Соберите группу из коллег или готовьтесь в одиночку — платформа не возражает."
+            hint="Пригласите коллегу в бильярд. После принятия отметьте готовность и начните партию."
             action={(
               <button
                 type="button"

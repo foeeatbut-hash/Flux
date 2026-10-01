@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { getPrisma } from '../context.js';
+import { gameById } from '../../play/features.js';
 import { PLAY_ERRORS } from '../../play/contracts.js';
 import { appendEvent, enqueue, fail, isDuplicate } from './commands.js';
 
@@ -103,8 +104,10 @@ export async function joinParty(tx: any, partyId: string, userId: string): Promi
   if (!party || party.state !== 'ACTIVE') fail(PLAY_ERRORS.NOT_FOUND);
 
   const before = await memberIds(tx, partyId);
+  const players = await tx.playPartyMember.count({ where: { partyId, leftAt: null, role: { not: 'SPECTATOR' } } });
+  const capacity = gameById(party.gameId || '')?.variableSeats?.max || 2;
   try {
-    await tx.playPartyMember.create({ data: { id: randomUUID(), partyId, userId, role: 'MEMBER' } });
+    await tx.playPartyMember.create({ data: { id: randomUUID(), partyId, userId, role: players >= capacity ? 'SPECTATOR' : 'MEMBER' } });
   } catch (e) {
     if (isDuplicate(e)) {
       // Либо он уже здесь (тогда всё хорошо), либо он в ЧУЖОЙ группе

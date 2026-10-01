@@ -31,7 +31,6 @@ export default function OwnerLogin() {
       const result = await response.json();
       if (!response.ok || !result.success || !result.token) throw new Error(result.error || result.message || 'Не удалось подтвердить ключ владельца.');
       await setAuthToken(result.token);
-      if (result.legacyAdministrator) sessionStorage.setItem('flux_owner_legacy_administrator', JSON.stringify(result.legacyAdministrator));
       useStore.getState().setUser(result.user);
     } catch (e: any) { setError(e.message || 'Не удалось войти.'); }
     finally { setPassword(''); setBusy(false); }

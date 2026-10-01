@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * История разговоров помощника — вживую, в окне.
  *
@@ -12,7 +13,7 @@
  *   npx tsx scripts/test-assistant-history.ts
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let f = 0;

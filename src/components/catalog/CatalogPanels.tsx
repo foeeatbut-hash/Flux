@@ -1,5 +1,5 @@
 /**
- * Вкладки Каталога помимо семейств: комплектующие, правила тегов, выученное,
+ * Вкладки Каталога помимо моделей: комплектующие, правила тегов, выученное,
  * проверка каталога целиком и обмен каталогом между серверами.
  */
 import React, { useMemo, useState } from 'react';
@@ -36,7 +36,7 @@ export function TagRulesPanel({ catalog, classId, canEdit }: { catalog: Catalog;
   const set = (i: number, r: TagRule) => setRows(rows.map((x, j) => (j === i ? r : x)));
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="text-2xs text-slate-400">Код типа — буквы перед номером в теге: 3700-B01-<b>DF</b>-001. Правило говорит, что это за изделие (признаки для подбора), как получить тег привода (DF → DFD) и не пропустить ли строку при импорте (решётки DA — не клапаны).</div>
+      <div className="text-2xs text-slate-400">Код типа — буквы перед номером в теге: 3700-B01-<b>DF</b>-001. Правило связывает код с видом изделия, признаками для подбора и тегом связанного привода. Неиспользуемые строки можно пропускать при импорте.</div>
       <table className="w-full text-xs">
         <thead><tr className="text-left text-2xs text-slate-400"><th className="p-1">Код</th><th className="p-1">Что это</th><th className="p-1">Признаки</th><th className="p-1">Тег привода</th><th className="p-1">Пропускать</th><th /></tr></thead>
         <tbody>
@@ -116,7 +116,7 @@ export function CheckPanel({ catalog, classId, onOpen }: { catalog: Catalog; cla
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-2 flex-wrap">
-        <Chip tone={bad.length ? 'amber' : 'emerald'}>{bad.length ? `замечаний у ${bad.length} семейств` : 'замечаний нет'}</Chip>
+        <Chip tone={bad.length ? 'amber' : 'emerald'}>{bad.length ? `замечаний у ${bad.length} моделей` : 'замечаний нет'}</Chip>
         <Chip tone="amber">сверить со страницей: {report.filter((r) => r.f.status !== 'full').length}</Chip>
       </div>
       {report.map(({ f, problems, todo }) => (
@@ -156,7 +156,7 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
   };
   return (
     <div className="flex flex-col gap-2 max-w-3xl">
-      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог живёт на сервере программы. Чтобы перенести его на другой сервер (или поделиться выверенными семействами), выгрузите файл и загрузите его там. Перед записью покажется, что добавится и что изменится; изменённое сохраняется снимком и откатывается.</div>
+      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог живёт на сервере программы. Чтобы перенести его на другой сервер, выгрузите файл и загрузите его там. Перед записью покажется, что добавится и что изменится; изменённое сохраняется снимком и откатывается.</div>
       <div className="flex gap-2 flex-wrap">
         <Btn onClick={exportAll}><Download className="w-3.5 h-3.5" /> Выгрузить каталог</Btn>
         {canEdit && (

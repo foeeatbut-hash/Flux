@@ -18,7 +18,8 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { playErrorHttp, playErrorText, PLAY_ERRORS } from '../../play/contracts.js';
-import { gameById } from '../../play/features.js';
+import { APP_PLAY, gameById, gameEntitlement } from '../../play/features.js';
+import { allowed, notThere } from './access.js';
 import { keyFromRequest, runCommand, PlayFailure } from './commands.js';
 import { createParty, kickFromParty, leaveParty, partyOf, viewOf } from './parties.js';
 import { cancelInvite, dropInvitesOfParty, inboxOf, respondInvite, sendInvite } from './invites.js';
@@ -65,11 +66,46 @@ async function read(res: Response, work: () => Promise<unknown>): Promise<void> 
 }
 
 export function registerPlayApi(app: Express): void {
+  // Права проверяются и на HTTP: скрытая кнопка не запрещает ручной запрос.
+  app.use('/api/play', async (req: any, res, next) => {
+    if (!await allowed(req.authUser, APP_PLAY)) return notThere(res);
+    const party = await partyOf(actorOf(req));
+    let game = String(req.body?.gameId || party?.gameId || 'billiards');
+    const matchId = /^\/match\/([^/]+)/.exec(req.path)?.[1];
+    if (matchId) game = (await getPrisma().playMatch.findFirst({ where: { sessionId: matchId }, select: { gameId: true } }))?.gameId || game;
+    const invitationId = /^\/invites\/([^/]+)/.exec(req.path)?.[1];
+    if (invitationId) {
+      const invitation = await getPrisma().playInvite.findUnique({ where: { id: invitationId } });
+      if (invitation) game = (await getPrisma().playParty.findUnique({ where: { id: invitation.partyId } }))?.gameId || game;
+    }
+    const resultSessionId = /^\/session\/([^/]+)\/result$/.exec(req.path)?.[1];
+    if (resultSessionId) game = (await getPrisma().playSession.findUnique({ where: { id: resultSessionId } }))?.gameId || game;
+    if (!(req.method === 'GET' && ['/state', '/party', '/inbox', '/history'].includes(req.path) || req.path === '/party/leave') && (!gameById(game) || !await allowed(req.authUser, gameEntitlement(game)))) return notThere(res);
+    if (req.method === 'POST' && ['/party', '/invites'].includes(req.path) && !await allowed(req.authUser, 'play.party.create')) return notThere(res);
+    if (req.method === 'POST' && req.path === '/session' && !await allowed(req.authUser, 'play.session.start')) return notThere(res);
+    return next();
+  });
   // ── Состояние целиком ─────────────────────────────────────────────────────
 
   /** То же, что приезжает по сокету: окно берёт его и при обычной загрузке. */
   app.get('/api/play/state', async (req: Request, res: Response) => {
     await read(res, () => snapshotFor(actorOf(req)));
+  });
+
+  app.get('/api/play/history', async (req: Request, res: Response) => {
+    await read(res, async () => {
+      const prisma = getPrisma();
+      const places = await prisma.playSessionMember.findMany({ where: { userId: actorOf(req) }, orderBy: { joinedAt: 'desc' }, take: 50 });
+      const sessions = await prisma.playSession.findMany({ where: { id: { in: places.map((p: any) => p.sessionId) }, state: { in: ['FINISHED', 'CANCELLED'] } }, orderBy: { createdAt: 'desc' }, take: 30 });
+      const visible = [];
+      for (const session of sessions) {
+        const game = gameById(session.gameId);
+        if (!game || !await allowed((req as any).authUser, gameEntitlement(game.id))) continue;
+        const members = await prisma.playSessionMember.findMany({ where: { sessionId: session.id }, select: { userId: true } });
+        visible.push({ id: session.id, gameId: game.id, title: game.title, state: session.state, startedAt: session.startedAt || session.createdAt, finishedAt: session.finishedAt, players: members.map((m: any) => m.userId), result: await resultOf(session.id) });
+      }
+      return visible;
+    });
   });
 
   app.get('/api/play/inbox', async (req: Request, res: Response) => {
@@ -260,6 +296,12 @@ export function registerPlayApi(app: Express): void {
 
   app.post('/api/play/lobby', async (req: Request, res: Response) => {
     const actorId = actorOf(req);
+    // Выбор доступной игры завершает снятый из каталога матч, сохраняя историю.
+    const priorSeat = await getPrisma().playSessionMember.findFirst({ where: { userId: actorId, state: 'ACTIVE' } });
+    if (priorSeat) {
+      const prior = await getPrisma().playSession.findUnique({ where: { id: priorSeat.sessionId } });
+      if (prior && !gameById(prior.gameId)) await cancelSession(prior.id, 'Игра снята из каталога');
+    }
     const gameId = String(req.body?.gameId || '');
     await command(req, res, 'lobby.open', { gameId }, async (tx) => {
       if (!gameById(gameId)) throw new PlayFailure(PLAY_ERRORS.INVALID, 'Неизвестная игра');
@@ -353,7 +395,10 @@ export function registerPlayApi(app: Express): void {
   });
 
   app.get('/api/play/session/:id/result', async (req: Request, res: Response) => {
-    await read(res, () => resultOf(String(req.params.id)));
+    await read(res, async () => {
+      if (!await matchView(String(req.params.id), actorOf(req))) throw new PlayFailure(PLAY_ERRORS.NOT_FOUND);
+      return resultOf(String(req.params.id));
+    });
   });
 
   // ── Служебное: билеты и результат ─────────────────────────────────────────

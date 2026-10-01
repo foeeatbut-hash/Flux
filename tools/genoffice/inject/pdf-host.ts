@@ -29,9 +29,12 @@ export function start(resources: string): void {
 }
 
 /** Окно редактора над файлом; возвращает его номер */
-export function open(path: string): number {
-  return createPdfView(path).webContents.id
+export function open(path: string, dataDir?: string): number {
+  const id = __flux.withDataDir(dataDir, () => createPdfView(path).webContents.id);
+  if (dataDir) __flux.setDataDir(id, dataDir);
+  return id;
 }
+export const setDataDir = (id: number, path: string) => __flux.setDataDir(id, path);
 
 export const invoke = (id: number, channel: string, args: unknown[]) => __flux.invoke(id, channel, args)
 export const send = (id: number, channel: string, args: unknown[]) => __flux.send(id, channel, args)

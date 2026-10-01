@@ -1304,7 +1304,7 @@ async function startServer() {
       }
     }
 
-    if (prisma && isPrismaAvailable) {
+    if (prisma && isPrismaAvailable && appConfig.current_db_type === 'LOCAL') {
       // Enable Write-Ahead Logging (WAL) mode for SQLite to prevent database disk image malformed exceptions during multi-user write operations
       try {
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');

@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Несколько расчётов одним ввозом — вживую, на поднятом сервере.
  *
@@ -25,7 +26,7 @@ const call = async (method: string, path: string, body?: unknown) => {
 };
 
 (async () => {
-  token = (await call('POST', '/api/login', { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' })).data?.token || '';
+  token = (await call('POST', '/api/login', testCredentials())).data?.token || '';
   if (!token) { console.error('Не удалось войти'); process.exit(2); }
   const made = await call('POST', '/api/projects', { name: `Проверка ввоза пачкой ${Date.now().toString(36)}`, code: 'PR' });
   const projectId = made.data?.project?.id || made.data?.id;

@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Обход разделов живым браузером.
  *
@@ -26,8 +27,7 @@ import { SECTIONS } from './walkthroughSections';
 const BASE = process.env.FLUX_BASE || 'http://localhost:3000';
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const OUT = process.env.FLUX_FRAMES || resolve('.walkthrough');
-const USER = process.env.FLUX_USER || 'RaupovKhKh';
-const PASS = process.env.FLUX_PASS || '1122';
+const { symbol: USER, password: PASS } = testCredentials();
 
 /** Чем кончился сценарий. «Не проверено» обязано назвать причину. */
 export type Verdict = 'ПРОЙДЕН' | 'НЕ ПРОЙДЕН' | 'НЕ ПРОВЕРЕНО';

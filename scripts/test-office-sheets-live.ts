@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Таблица Flux Office: открыть книгу Excel из Проводника, поправить ячейку,
  * сохранить.
@@ -24,7 +25,7 @@ import JSZip from 'jszip';
 import { makeXlsx, loginPage } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const FRAME = 'iframe[title="Flux Office — Таблица"]';
 

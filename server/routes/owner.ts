@@ -68,8 +68,7 @@ export function registerOwnerRoutes(app: Express, deps: { issueAuthToken: (id: s
       loginSucceeded('owner');
       deps.invalidateAuthUser?.(user.id);
       const { password: _password, ...safeUser } = user;
-      const legacy = await getPrisma().user.findFirst({ where: { symbol: 'RaupovKhKh', role: 'ADMIN' }, select: { id: true, symbol: true } });
-      res.json({ success: true, user: { ...safeUser, rolePermissions: '{}' }, token: await deps.issueAuthToken(user.id), legacyAdministrator: legacy });
+      res.json({ success: true, user: { ...safeUser, rolePermissions: '{}' }, token: await deps.issueAuthToken(user.id) });
     } catch (_) { res.status(503).json({ error: 'Не удалось подключиться к базе. Повторите вход после восстановления подключения.' }); }
   });
 }

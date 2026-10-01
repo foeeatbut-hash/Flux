@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 import { ownerTestLogin } from './fixtures/ownerTestLogin';
 /**
  * Файл обновления доходит до сотрудника, а не только до того, кто публиковал.
@@ -22,7 +23,7 @@ import { homedir } from 'os';
 import { testSignature } from './fixtures/updateTestSign';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const VERSION = '999.9.9';
 
 let f = 0;

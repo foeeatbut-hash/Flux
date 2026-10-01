@@ -38,14 +38,13 @@ export const hasGuard = (windowId: string): boolean => guards.has(windowId);
 /**
  * Можно ли закрывать.
  *
- * Без стража — да, немедленно. Сбой самого стража считается разрешением: окно,
- * которое невозможно закрыть из-за ошибки в проверке, — ловушка хуже той, от
- * которой проверка защищает.
+ * Без стража — да, немедленно. Ошибка сохранения оставляет окно открытым:
+ * закрытие при сбое могло уничтожить единственную копию правок.
  */
 export async function mayClose(windowId: string): Promise<boolean> {
   const g = guards.get(windowId);
   if (!g) return true;
-  try { return await g(); } catch (_) { return true; }
+  try { return await g(); } catch (_) { return false; }
 }
 
 /** Снять все стражи — при выходе из программы и в проверках. */

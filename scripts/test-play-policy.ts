@@ -34,6 +34,7 @@ const SURFACES: Record<string, string[]> = {
   'src/components/StartMenu.tsx': ['visibleSections'],
   'src/components/Taskbar.tsx': ['visibleSections'],
   'src/components/Desktop.tsx': ['visibleSections'],
+  'src/components/desktop/WindowsDesktop.tsx': ['visibleSections'],
   'src/components/CommandBar.tsx': ['visibleSections'],
   'src/screens/Dashboard.tsx': ['visibleSections'],
   'src/components/SectionFrame.tsx': ['sectionAccess'],

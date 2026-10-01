@@ -1,8 +1,8 @@
 /**
- * Карточка семейства в Каталоге: обзор, обозначение, параметры, правила,
+ * Карточка модели в Каталоге: обзор, обозначение, параметры, правила,
  * характеристики для бланка, профиль подбора, проба, история, JSON.
  *
- * Правка идёт в черновик; «Сохранить» пишет семейство целиком и оставляет
+ * Правка идёт в черновик; «Сохранить» пишет модель целиком и оставляет
  * снимок прежнего — откатить можно любую правку из «Истории».
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -74,14 +74,14 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
     } catch (e: any) { addToast(e?.message || 'Не сохранилось', 'error'); }
   };
   const duplicate = async () => {
-    const code = await promptAsk('Копия семейства', 'Код нового семейства', `${draft.code}-КОПИЯ`);
+    const code = await promptAsk('Копия модели', 'Код новой модели', `${draft.code}-КОПИЯ`);
     if (!code) return;
     const copy: Family = { ...JSON.parse(JSON.stringify(draft)), id: `fam-${Math.random().toString(36).slice(2, 10)}`, code, status: 'draft', examples: [] };
     copy.positions = copy.positions.map((p, i) => (i === 0 ? { ...p, formats: [code] } : p));
     try { await catalogService.save('family', copy); await load(true); onSaved(copy); addToast('Копия создана', 'success'); } catch (e: any) { addToast(e?.message || 'Не создалось', 'error'); }
   };
   const remove = async () => {
-    if (!(await confirmAsk(`Убрать ${draft.code} из Каталога?`, 'Семейство скроется из подбора. Позиции ведомостей, где оно уже выбрано, сохранятся; вернуть можно из истории.', { confirmLabel: 'Убрать', tone: 'danger' }))) return;
+    if (!(await confirmAsk(`Убрать ${draft.code} из Каталога?`, 'Модель скроется из подбора. Позиции ведомостей, где она уже выбрана, сохранятся; вернуть можно из истории.', { confirmLabel: 'Убрать', tone: 'danger' }))) return;
     try { await catalogService.remove('family', draft.id); await load(true); onDeleted(); } catch (e: any) { addToast(e?.message || 'Не удалилось', 'error'); }
   };
   const openHistory = async () => {
@@ -109,7 +109,7 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
         {canEdit && (<>
           <Btn tone="primary" onClick={save} disabled={!dirty}><Save className="w-3.5 h-3.5" /> Сохранить</Btn>
           <Btn tone="ghost" onClick={() => setDraft(family)} disabled={!dirty}><Undo2 className="w-3.5 h-3.5" /></Btn>
-          <Btn tone="ghost" onClick={duplicate} title="Копия семейства"><Copy className="w-3.5 h-3.5" /></Btn>
+          <Btn tone="ghost" onClick={duplicate} title="Копия модели"><Copy className="w-3.5 h-3.5" /></Btn>
           <Btn tone="ghost" onClick={remove} title="Убрать из Каталога"><Trash2 className="w-3.5 h-3.5" /></Btn>
         </>)}
       </div>
@@ -131,11 +131,11 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
               <Field label="Название"><Input value={draft.title.ru} onChange={(e) => setDraft({ ...draft, title: { ...draft.title, ru: e.target.value } })} disabled={ro} /></Field>
               <Field label="Название (EN)"><Input value={draft.title.en || ''} onChange={(e) => setDraft({ ...draft, title: { ...draft.title, en: e.target.value } })} disabled={ro} /></Field>
               <Field label="Производитель"><Select value={draft.manufacturerId} onChange={(v) => setDraft({ ...draft, manufacturerId: v })} disabled={ro} options={catalog.manufacturers.map((m) => ({ value: m.id, label: m.name }))} /></Field>
-              <Field label="Род"><Select value={draft.kind} onChange={(v) => setDraft({ ...draft, kind: v })} disabled={ro} options={(cls?.facts.find((f) => f.key === 'kind')?.values || []).map((k) => ({ value: k.code, label: textOf(k.label) }))} /></Field>
+              <Field label="Подтип"><Select value={draft.kind} onChange={(v) => setDraft({ ...draft, kind: v })} disabled={ro} options={(cls?.facts.find((f) => f.key === 'kind')?.values || []).map((k) => ({ value: k.code, label: textOf(k.label) }))} /></Field>
               <Field label="Статус сверки"><Select value={draft.status} onChange={(v) => setDraft({ ...draft, status: v as any })} disabled={ro} options={[{ value: 'full', label: 'сверено с каталогом' }, { value: 'partial', label: 'сверить' }, { value: 'draft', label: 'черновик' }]} /></Field>
               <Field label="Тип для бланка"><Input value={draft.typeLabel.ru} onChange={(e) => setDraft({ ...draft, typeLabel: { ...draft.typeLabel, ru: e.target.value } })} disabled={ro} /></Field>
               <Field label="Тип для бланка (EN)"><Input value={draft.typeLabel.en || ''} onChange={(e) => setDraft({ ...draft, typeLabel: { ...draft.typeLabel, en: e.target.value } })} disabled={ro} /></Field>
-              <Field label="Сечения">
+              {cls?.id === 'cls-valve' && <Field label="Сечения">
                 <span className="flex gap-3 text-xs">
                   {(['rect', 'round'] as const).map((s) => (
                     <label key={s} className="inline-flex items-center gap-1 cursor-pointer">
@@ -144,7 +144,7 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
                     </label>
                   ))}
                 </span>
-              </Field>
+              </Field>}
               <Field label="Знак размера в обозначении"><Select value={draft.sizeSep || '*'} onChange={(v) => setDraft({ ...draft, sizeSep: v })} disabled={ro} options={[{ value: '*', label: '* (как в каталоге)' }, { value: 'х', label: 'х (как в бланках)' }, { value: 'x', label: 'x латинская' }]} /></Field>
             </div>
             <Field label="Описание"><Area rows={2} value={draft.description?.ru || ''} onChange={(e) => setDraft({ ...draft, description: { ...(draft.description || { ru: '' }), ru: e.target.value } })} disabled={ro} /></Field>
@@ -214,10 +214,10 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
           <div className="flex flex-col gap-2">
             <MatchEditor family={draft} cls={cls} onChange={setDraft} readOnly={ro} />
             <SectionTitle>Проверить на описании</SectionTitle>
-            <Area rows={3} value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Вставьте строку MTO — увидите, на каком месте окажется это семейство и почему" />
+            <Area rows={3} value={probe} onChange={(e) => setProbe(e.target.value)} placeholder="Вставьте описание — увидите место модели в подборе и причины" />
             {probeResult && (
               <div className="flex flex-col gap-1 text-xs">
-                <div>{probeResult.mine ? <>Место <b>{probeResult.place}</b>, очки {probeResult.mine.score.toFixed(1)}{probeResult.mine.rejected ? ' — отброшено' : ''}</> : 'Семейство не участвует'}</div>
+                <div>{probeResult.mine ? <>Место <b>{probeResult.place}</b>, очки {probeResult.mine.score.toFixed(1)}{probeResult.mine.rejected ? ' — отброшено' : ''}</> : 'Модель не участвует'}</div>
                 <div className="flex flex-wrap gap-1">{probeResult.list.map((c) => <Chip key={c.familyId} tone={c.familyId === draft.id ? 'emerald' : 'slate'}>{catalog.families.find((f) => f.id === c.familyId)?.code} {c.score.toFixed(1)}</Chip>)}</div>
                 {probeResult.mine && <div className="flex flex-wrap gap-1">{probeResult.mine.reasons.map((r, i) => <Chip key={i} tone={r.status === 'mismatch' ? 'rose' : r.status === 'unknown' ? 'slate' : 'emerald'}>{r.text}</Chip>)}</div>}
               </div>
@@ -234,14 +234,14 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
                 <span className="tabular-nums">{new Date(r.createdAt).toLocaleString('ru-RU')}</span>
                 <Chip>{{ update: 'до правки', delete: 'до удаления', restore: 'до отката', seed: 'до сброса' }[r.action] || r.action}</Chip>
                 <span className="flex-1" />
-                {canEdit && <Btn tone="ghost" onClick={async () => { await catalogService.restore(r.id); await load(true); addToast('Семейство возвращено к снимку', 'success'); }}><RotateCcw className="w-3 h-3" /> вернуть</Btn>}
+                {canEdit && <Btn tone="ghost" onClick={async () => { await catalogService.restore(r.id); await load(true); addToast('Модель возвращена к снимку', 'success'); }}><RotateCcw className="w-3 h-3" /> вернуть</Btn>}
               </div>
             ))}
             {canEdit && edited && (
               <div className="mt-2">
                 <Btn onClick={async () => {
-                  if (!(await confirmAsk('Вернуть к затравке программы?', 'Все правки этого семейства будут заменены данными, с которыми пришла программа. Текущее состояние сохранится снимком.', { confirmLabel: 'Вернуть' }))) return;
-                  try { await catalogService.reseed(draft.id); await load(true); addToast('Семейство возвращено к затравке', 'success'); } catch (e: any) { addToast(e?.message || 'Не вышло', 'error'); }
+                  if (!(await confirmAsk('Вернуть к исходным данным программы?', 'Все правки этой модели будут заменены исходными данными. Текущее состояние сохранится снимком.', { confirmLabel: 'Вернуть' }))) return;
+                  try { await catalogService.reseed(draft.id); await load(true); addToast('Модель возвращена к исходным данным', 'success'); } catch (e: any) { addToast(e?.message || 'Не вышло', 'error'); }
                 }}><FileText className="w-3.5 h-3.5" /> Вернуть к затравке программы</Btn>
               </div>
             )}
@@ -249,7 +249,7 @@ export default function FamilyEditor({ catalog, family, canEdit, edited, onSaved
         )}
         {tab === 'json' && (
           <div className="flex flex-col gap-1">
-            <Area rows={24} value={jsonText} onChange={(e) => { setJsonText(e.target.value); try { const f = JSON.parse(e.target.value); setJsonErr(''); if (f && f.id === draft.id) setDraft(f); else setJsonErr('id семейства менять нельзя'); } catch (err: any) { setJsonErr(err?.message || 'Не JSON'); } }}
+            <Area rows={24} value={jsonText} onChange={(e) => { setJsonText(e.target.value); try { const f = JSON.parse(e.target.value); setJsonErr(''); if (f && f.id === draft.id) setDraft(f); else setJsonErr('id модели менять нельзя'); } catch (err: any) { setJsonErr(err?.message || 'Не JSON'); } }}
               className="font-mono !text-2xs" disabled={ro} />
             {jsonErr && <span className="text-2xs text-rose-600 dark:text-rose-400">{jsonErr}</span>}
           </div>

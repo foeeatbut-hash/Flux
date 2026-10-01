@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Повтор отправки не плодит обращений, а предел частоты не обходится.
  *
@@ -19,7 +20,7 @@ import { FEATURES } from '../src/lib/permissions';
 import { LIMITS } from '../feedback/contracts';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>

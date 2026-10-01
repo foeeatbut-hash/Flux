@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Ссылка на тег ставит его карточку в центр холста.
  *
@@ -12,7 +13,7 @@
 import { loginPage } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let f = 0, p = 0;

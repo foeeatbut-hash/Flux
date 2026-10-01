@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Своя позиция и привязка тега — вживую, на поднятом сервере.
  *
@@ -26,7 +27,7 @@ const call = async (method: string, path: string, body?: unknown) => {
 };
 
 (async () => {
-  const login = await call('POST', '/api/login', { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' });
+  const login = await call('POST', '/api/login', testCredentials());
   token = login.data?.token || '';
   if (!token) { console.error('Не удалось войти'); process.exit(2); }
 

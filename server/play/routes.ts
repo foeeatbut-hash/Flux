@@ -15,14 +15,12 @@ import {
 import { PLAY_ADMIN } from '../../play/features.js';
 import { registerPlayAdmin } from './admin.js';
 import { registerPlayApi } from './api.js';
-import { setupTestGame } from './adapters/testgame.js';
 import { registerBuiltinAdapters } from './adapters/builtin.js';
 import { ensurePlayReady } from './tables.js';
 
 export function registerPlayRoutes(app: Express): void {
   // Игры подключаются до маршрутов: матч по неподключённой игре не начнётся,
   // и человек увидит «игра не подключена», а не бесконечное «Подключение…»
-  setupTestGame((m) => console.log('[Play]', m));
   // Встроенные игры подключаются все разом: доска у них считается тем же
   // сервером, и выделять им нечего
   registerBuiltinAdapters();

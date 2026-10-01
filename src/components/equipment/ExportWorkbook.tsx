@@ -5,6 +5,8 @@ import OfficeAppEditor, { type OfficeAppEditorHandle } from '../office/OfficeApp
 import { saveNewFile, type SavedFile } from '../../lib/officeFiles';
 import { exportName, type ExportGrid } from '../../lib/exportGrid';
 import { toCsv, toClipboard } from '../../lib/exchange';
+import { useStore } from '../../store/store';
+import { exportBookKey } from '../../lib/exportWorkspace';
 import type { WorkbookTemplate } from '../../lib/exportSpec';
 
 export interface ExportWorkbookHandle { hasBook: () => boolean; save: () => Promise<boolean>; output: (kind: 'xlsx' | 'csv' | 'clipboard' | 'office') => Promise<void>; template: () => Promise<WorkbookTemplate | undefined>; applyTemplate: (t: WorkbookTemplate) => Promise<void> }
@@ -33,14 +35,16 @@ const download = (bytes: Blob, name: string) => { const url = URL.createObjectUR
 /** Настоящая книга хранится в Проводнике, а не в состоянии окна. */
 const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWorkbook({ projectId, grid, name, say }, ref) {
   const editor = useRef<OfficeAppEditorHandle>(null);
-  const storageKey = `flux_export_workbook:${projectId}`;
-  const [remembered, setRemembered] = useState<Remembered | null>(() => { try { return JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch { return null; } });
+  const userId = useStore(s => s.user?.id || 'anonymous');
+  const storageKey = exportBookKey(projectId, userId);
+  const [remembered, setRemembered] = useState<Remembered | null>(() => { try { const value = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof value?.file?.id === 'string' && Array.isArray(value?.baseline?.rows) && Array.isArray(value?.baseline?.headers) ? value : null; } catch { return null; } });
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const valid = grid.headers.length > 0 && grid.rows.length * grid.headers.length <= 10000;
+  const valid = grid.headers.length > 0 && grid.rows.length > 0 && grid.rows.length * grid.headers.length <= 10000;
+  const autoStarted = useRef(false);
   const remember = (value: Remembered) => { setRemembered(value); try { localStorage.setItem(storageKey, JSON.stringify(value)); } catch { /* книга уже сохранена на диске */ } };
   const create = async () => {
     if (busy || !valid) return; setBusy(true); setError('');
-    try { const file = await saveNewFile(bytesOf(grid), `${name.trim() || 'Выгрузка данных'}.xlsx`, 'exports'); remember({ file, baseline: grid }); }
+    try { const file = await saveNewFile(bytesOf(grid), `${name.trim() || 'Выгрузка данных'}.xlsx`, 'exports', undefined, projectId); remember({ file, baseline: grid }); }
     catch (err: any) { setError(err.message || 'Книга не создана'); }
     finally { setBusy(false); }
   };
@@ -53,6 +57,12 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
     }).catch(() => undefined);
     return () => { live = false; };
   }, [remembered?.file.id, storageKey]);
+  // Открытие выгрузки сразу даёт редактируемый лист, отдельный шаг «создать» не нужен.
+  useEffect(() => {
+    if (remembered || busy || autoStarted.current || !valid) return;
+    const timer = window.setTimeout(() => { autoStarted.current = true; void create(); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [remembered, valid, busy]);
   const save = async () => !remembered || !!(await editor.current?.save());
   const template = async (): Promise<WorkbookTemplate | undefined> => {
     if (!remembered) return undefined;
@@ -67,25 +77,28 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
   const applyTemplate = async (t: WorkbookTemplate) => {
     if (!(await save())) throw new Error('Текущая книга не сохранена');
     const bytes = Uint8Array.from(atob(t.base64), c => c.charCodeAt(0));
-    const file = await saveNewFile(bytes, `${name.trim() || 'Выгрузка данных'}.xlsx`, 'exports');
+    const file = await saveNewFile(bytes, `${name.trim() || 'Выгрузка данных'}.xlsx`, 'exports', undefined, projectId);
     remember({ file, baseline: t.baseline });
     say('Создана копия книги шаблона. Нажмите «Обновить данные в листе» для текущего отбора', 'info');
   };
-  const refresh = async () => {
-    if (!remembered) { await create(); return; }
-    if (!valid) return;
+  const refresh = async (): Promise<boolean> => {
+    if (!remembered) { await create(); return false; }
+    if (!valid) { setError('Этот отбор превышает размер рабочей книги. Сократите его перед обновлением'); return false; }
     setBusy(true); setError('');
     try {
       const result = await editor.current?.command('flux:refresh-export', { grid, before: remembered.baseline });
       if (!result?.ok) throw new Error(result?.error || 'Редактор ещё загружает книгу');
-      if (!(await save())) throw new Error('Обновление не сохранено. Дождитесь окончания загрузки и нажмите Ctrl+S');
+      if (!(await editor.current?.save(true))) throw new Error('Обновление не сохранено. Дождитесь окончания загрузки и нажмите Ctrl+S');
       remember({ ...remembered, baseline: grid });
       say(`Обновлено ячеек: ${result.updated}. Сохранено ручных правок и формул: ${result.preserved}${result.retainedRows ? `. Старых строк оставлено: ${result.retainedRows}` : ''}`, 'success');
-    } catch (err: any) { setError(err.message); }
+      return true;
+    } catch (err: any) { setError(err.message); return false; }
     finally { setBusy(false); }
   };
   const output = async (kind: 'xlsx' | 'csv' | 'clipboard' | 'office') => {
     if (!remembered) { await create(); return; }
+    // Скачивание после смены отбора должно содержать выбранные данные, а не старый лист.
+    if (JSON.stringify(remembered.baseline) !== JSON.stringify(grid) && !(await refresh())) throw new Error('Не удалось обновить данные в рабочей книге — выгрузка остановлена');
     if (!(await save())) throw new Error('Книга не сохранена — выгрузка остановлена');
     const r = await fetch(`/api/office/files/${encodeURIComponent(remembered.file.id)}/open`);
     if (!r.ok) throw new Error('Не удалось прочитать сохранённую книгу');
@@ -103,18 +116,20 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
     say('Выгружена сохранённая книга с вашими правками', 'success');
   };
   useImperativeHandle(ref, () => ({ save, output, template, applyTemplate, hasBook: () => !!remembered }));
+  const pendingData = remembered && JSON.stringify(remembered.baseline) !== JSON.stringify(grid);
   return <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="fx-bar flex flex-wrap items-center gap-2 px-3 py-2">
-      <Btn size="sm" tone="primary" onClick={refresh} disabled={busy || !valid}>{busy ? 'Подготовка…' : remembered ? 'Обновить данные в листе' : 'Создать рабочую книгу'}</Btn>
-      {remembered && <Btn size="sm" tone="ghost" onClick={async () => { if (await save()) { setRemembered(null); localStorage.removeItem(storageKey); } }} disabled={busy}>Новая книга</Btn>}
-      <span className="text-xs text-slate-500">{grid.rows.length} строк · {grid.headers.length} столбцов</span>
+      <Btn size="sm" tone="primary" onClick={refresh} disabled={busy || !valid}>{busy ? 'Подготовка…' : remembered ? 'Обновить данные в листе' : 'Открыть рабочую книгу'}</Btn>
+      {remembered && <Btn size="sm" tone="ghost" onClick={async () => { if (await save()) { autoStarted.current = false; setRemembered(null); localStorage.removeItem(storageKey); } }} disabled={busy}>Новая книга</Btn>}
+      <span className="text-xs text-slate-500 dark:text-slate-400">{remembered ? remembered.file.name : 'Рабочий лист'}</span>
+      {pendingData && <span role="status" className="text-xs text-amber-700 dark:text-amber-300">Отбор изменён — обновите данные в листе</span>}
     </div>
     {error && <p role="alert" className="px-3 py-2 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
     {grid.warnings.length > 0 && <details className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300"><summary>Проверьте данные · {grid.warnings.length}</summary><ul className="list-disc pl-4">{grid.warnings.slice(0, 20).map(w => <li key={w}>{w}</li>)}</ul></details>}
-    {!valid && <p className="p-3 text-xs text-amber-600">Выберите столбцы и сократите отбор до 10 000 ячеек за одно обновление. Полную выгрузку можно получить кнопкой Excel до создания книги.</p>}
-    {remembered ? <div className="flex-1 min-h-0"><OfficeAppEditor key={remembered.file.id} ref={editor} app="sheets" fileId={remembered.file.id} embedded /></div> : <div className="flex-1 overflow-auto p-3">
-      <p className="mb-3 text-xs text-slate-500">Создайте книгу, чтобы вводить формулы, добавлять строки и столбцы. Она сохранится в «Выгрузках», и работа продолжится после закрытия окна.</p>
-      <table className="fx-table"><thead><tr>{grid.headers.map((h, i) => <th key={i}>{h}</th>)}</tr></thead><tbody>{grid.rows.slice(0, 30).map((row, i) => <tr key={grid.rowKeys[i]}>{row.map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody></table>
+    {!valid && <p className="p-3 text-xs text-amber-700 dark:text-amber-300">Выберите столбцы и сократите отбор до 10 000 ячеек за одно обновление. Полную выгрузку можно получить кнопкой Excel до создания книги.</p>}
+    {remembered ? <div className="flex-1 min-h-0"><OfficeAppEditor key={remembered.file.id} ref={editor} app="sheets" fileId={remembered.file.id} embedded /></div> : <div className="flex-1 min-h-0 overflow-auto p-3">
+      <p className="mb-3 text-xs text-slate-500">Книга открывается автоматически. В листе можно вводить формулы, вставлять строки и столбцы; правки сохраняются в «Выгрузках». При изменении отбора нажмите «Обновить данные в листе» — ручные значения сохранятся.</p>
+      <table className="fx-table w-max min-w-full"><thead><tr>{grid.headers.map((h, i) => <th key={i}>{h}</th>)}</tr></thead><tbody>{grid.rows.slice(0, 30).map((row, i) => <tr key={grid.rowKeys[i]}>{row.map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody></table>
     </div>}
   </div>;
 });

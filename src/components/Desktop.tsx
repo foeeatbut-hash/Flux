@@ -51,11 +51,15 @@ import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
 import DeskFolder from './desktop/DeskFolder';
+import WindowsDesktop from './desktop/WindowsDesktop';
 
 /** Корзина — это вид Проводника, поэтому и открывается им */
 const BIN_HREF = '/explorer?folder=trash%3Aroot';
 
 export default function Desktop() {
+  return (window as any).electron?.windowsFiles ? <WindowsDesktop /> : <ProjectDesktop />;
+}
+function ProjectDesktop() {
   const activeProject = useStore((s) => s.activeProject);
   const user = useStore((s) => s.user);
   const navigate = useNavigate();

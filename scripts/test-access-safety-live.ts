@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -5,7 +6,7 @@ import os from 'os';
 import path from 'path';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const login = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const login = testCredentials();
 const call = (route: string, token = '', method = 'GET', body?: any, origin?: string) => fetch(BASE + route, {
   method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(origin ? { Origin: origin } : {}) },
   body: body === undefined ? undefined : JSON.stringify(body),

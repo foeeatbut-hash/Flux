@@ -34,7 +34,7 @@ export function corsOriginAllowed(origin: string | undefined, host: string | und
   return !!host && o.host.toLowerCase() === String(host).toLowerCase();
 }
 
-const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256, X-Base-SHA256, X-Autosave, X-Office-Session, X-Flux-CSRF, X-Flux-Auth-Transport';
+const ALLOW_HEADERS = 'Content-Type, Authorization, Idempotency-Key, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256, X-Base-SHA256, X-Autosave, X-Office-Session, X-Flux-CSRF, X-Flux-Auth-Transport';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.get('origin');

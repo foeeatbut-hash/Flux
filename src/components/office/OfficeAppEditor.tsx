@@ -61,7 +61,7 @@ export function localAnswer(channel: string, theme: string): { hit: boolean; val
   return { hit: false };
 }
 
-export interface OfficeAppEditorHandle { command: (channel: string, payload?: unknown) => Promise<any>; save: () => Promise<boolean> }
+export interface OfficeAppEditorHandle { command: (channel: string, payload?: unknown) => Promise<any>; save: (force?: boolean) => Promise<boolean> }
 interface EditorProps { app: HostedApp; fileId?: string; embedded?: boolean }
 const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function OfficeAppEditor({ app, fileId: explicitFileId, embedded }, ref) {
   const [params] = useSearchParams();
@@ -312,11 +312,13 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   // имя FLUX_<ключ>; «Обновить поля» — записать книгу, дать серверу подставить
   // значения по именам (server/routes/projectData.ts) и открыть её заново
   const [englishOpen, setEnglishOpen] = useState(false);
-  const saveNow = (waitingSince = Date.now()): Promise<boolean> => {
+  const saveNow = (waitingSince = Date.now(), force = false): Promise<boolean> => {
     if (Date.now() - waitingSince > 120_000) return Promise.resolve(false);
     // Закрытие ждёт уже начатую запись: второй вызов не должен ответить «нет правок» раньше первого.
-    if (app === 'sheets' && savingNow.current) return new Promise(resolve => setTimeout(() => { void saveNow(waitingSince).then(resolve); }, 100));
-    if (!dirty.current) return Promise.resolve(true);
+    if (app === 'sheets' && savingNow.current) return new Promise(resolve => setTimeout(() => { void saveNow(waitingSince, force).then(resolve); }, 100));
+    // Программное обновление отвечает раньше уведомления Univer «изменено».
+    // Его сохранение не должно вернуть успех со старыми байтами файла.
+    if (!dirty.current && !force) return Promise.resolve(true);
     if (savePending.current) return savePending.current;
     const pending = new Promise<boolean>((resolve) => {
       closeWait.current = resolve;
@@ -348,7 +350,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     if (!d.unchanged) reopenRef.current();
   };
 
-  useImperativeHandle(ref, () => ({ command, save: saveNow }));
+  useImperativeHandle(ref, () => ({ command, save: (force = false) => saveNow(Date.now(), force) }));
   const insertTable = async (rows: (string | number)[][]) => {
     const result = await command('flux:insert-table', { rows });
     if (!result?.ok) addToast(result?.error || 'Таблица не вставлена', 'error');

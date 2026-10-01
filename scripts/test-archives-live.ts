@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Живой сценарий архива: создать ZIP из Проводника, затем править копию через
  * экран Архивов и сверить состав, пароль и неизменность исходного файла.
@@ -8,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { loginPage } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 let token = '';
 

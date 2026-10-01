@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Живая проверка Каталога и Конструктора через HTTP.
  *
@@ -9,7 +10,7 @@
  * Запуск: FLUX_API=http://localhost:3100 npx tsx scripts/test-builder-live.ts
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let token = '';
 // Id позиций — свои на каждый прогон: строки прошлого прогона остаются в

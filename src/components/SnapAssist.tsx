@@ -10,11 +10,12 @@
  */
 import React from 'react';
 import { useWindowStore } from '../store/windowStore';
-import { shareStyle, type Share } from '../lib/layouts';
+import { shareStyle, shareRect, type Share } from '../lib/layouts';
 import { sectionForPath } from '../workspace/sections';
 
-export default function SnapAssist({ shares, skip, onClose }: {
+export default function SnapAssist({ shares, skip, displayId, onClose }: {
   shares: Share[];
+  displayId?: number;
   /** Окна, уже расставленные этой раскладкой */
   skip: string[];
   onClose: () => void;
@@ -22,6 +23,7 @@ export default function SnapAssist({ shares, skip, onClose }: {
   const windows = useWindowStore((s) => s.windows);
   const titles = useWindowStore((s) => s.titles);
   const area = useWindowStore((s) => s.area);
+  const display = useWindowStore(s => s.displays.find(d => d.id === displayId));
   const putInShare = useWindowStore((s) => s.putInShare);
   const [taken, setTaken] = React.useState<string[]>([]);
 
@@ -37,7 +39,8 @@ export default function SnapAssist({ shares, skip, onClose }: {
 
   if (!rest.length || !free.length) return null;
   const share = rest[0];
-  const box = shareStyle(share, area);
+  const rect = display ? shareRect(share, display.workArea) : null;
+  const box = rect && display ? { left: rect.x + display.workArea.x, top: rect.y + display.workArea.y, width: rect.w, height: rect.h } : shareStyle(share, area);
 
   return (
     <div
@@ -52,7 +55,7 @@ export default function SnapAssist({ shares, skip, onClose }: {
         return (
           <button key={w.id} type="button"
             onClick={() => {
-              putInShare(w.id, share);
+              putInShare(w.id, share, displayId);
               setTaken((list) => [...list, w.id]);
             }}
             className="w-44 p-2 rounded-lg cursor-pointer text-left bg-white dark:bg-slate-900

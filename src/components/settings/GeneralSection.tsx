@@ -11,6 +11,7 @@ import SectionShell from './SectionShell';
 import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
 import OnlineVisibility from './OnlineVisibility';
+import DisplaySettings from '../shell/DisplaySettings';
 
 export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast }: any) {
   return (
@@ -47,6 +48,8 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
       {/* Присутствие. Блок сам решает, показываться ли: право скрыть себя
           есть только у главного администратора, и спрашивается оно у сервера */}
       <OnlineVisibility addToast={addToast} />
+
+      <DisplaySettings />
 
       <StartupSection />
 

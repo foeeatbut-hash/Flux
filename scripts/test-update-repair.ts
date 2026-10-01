@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 import { testSignature } from './fixtures/updateTestSign';
 import { ownerTestLogin } from './fixtures/ownerTestLogin';
 /**
@@ -25,8 +26,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
-const DB = process.env.FLUX_DB || 'database/database.sqlite';
+const LOGIN = testCredentials();
+const DB = process.env.FLUX_DB;
 const VERSION = '999.9.5';
 
 let f = 0;
@@ -53,6 +54,10 @@ const updatesDir = (): string => {
 };
 
 (async () => {
+  if (!DB || !process.env.VENT_APP_DATA || process.env.FLUX_TEST_OWNER !== '1') {
+    console.error('Разрушительный сценарий схемы требует FLUX_DB, VENT_APP_DATA и FLUX_TEST_OWNER=1 в отдельной тестовой базе.');
+    process.exit(2);
+  }
   if (!existsSync(DB)) { console.error(`Базы ${DB} нет — проверка рассчитана на локальную базу.`); process.exit(2); }
   try {
     const h = await fetch(BASE + '/api/health');

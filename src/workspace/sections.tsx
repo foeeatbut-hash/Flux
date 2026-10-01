@@ -20,6 +20,9 @@ const Explorer = lazy(() => import('../screens/Explorer'));
 const Registry = lazy(() => import('../screens/Registry'));
 const DictionaryEditor = lazy(() => import('../screens/DictionaryEditor'));
 const Equipment = lazy(() => import('../screens/Equipment'));
+const EquipmentExport = lazy(() => import('../screens/EquipmentExport'));
+const WindowsExplorerHost = lazy(() => import('../screens/WindowsExplorerHost'));
+const WindowsFileHost = lazy(() => import('../screens/WindowsFileHost'));
 const UsersManagement = lazy(() => import('../screens/UsersManagement'));
 const NotesManagement = lazy(() => import('../screens/NotesManagement'));
 const MdFileHost = lazy(() => import('../screens/MdFileHost'));
@@ -139,6 +142,9 @@ export const SECTIONS: SectionDef[] = [
   { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
   { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Registry },
   { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
+  { path: '/equipment-export', title: 'Выгрузка данных', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: EquipmentExport },
+  { path: '/windows-files', title: 'Файлы Windows', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: WindowsExplorerHost },
+  { path: '/windows-file', title: 'Файл Windows', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: WindowsFileHost },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не

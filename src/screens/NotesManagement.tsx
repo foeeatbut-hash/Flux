@@ -195,6 +195,7 @@ export default function NotesManagement() {
   // Handle note deletion
   const handleDeleteNote = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    if (!user) { addToast('Войдите, чтобы удалить заметку', 'error'); return; }
     if (!await openConfirm('Удалить заметку?', 'Восстановить её будет нельзя.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
 
     try {
@@ -209,8 +210,8 @@ export default function NotesManagement() {
 
       // Log action to SystemChangeLog
       await dataService.createLog({
-        userName: user?.name || 'Главный Администратор',
-        userSymbol: user?.symbol || 'RaupovKhKh',
+        userName: user.name,
+        userSymbol: user.symbol,
         description: `Удалена инженерная заметка`,
         targetRoute: '/notes'
       });
@@ -221,6 +222,7 @@ export default function NotesManagement() {
 
   // Create new note
   const handleCreateNote = async (presetTitle?: string) => {
+    if (!user) { addToast('Войдите, чтобы создать заметку', 'error'); return; }
     try {
       const newNote = await dataService.createNote({
         // Пустой контент — редактор сам покажет подсказку, не нужно стирать текст
@@ -233,8 +235,8 @@ export default function NotesManagement() {
 
       // Log action
       await dataService.createLog({
-        userName: user?.name || 'Главный Администратор',
-        userSymbol: user?.symbol || 'RaupovKhKh',
+        userName: user.name,
+        userSymbol: user.symbol,
         description: `Создана новая инженерная заметка: "${newNote.title}"`,
         targetRoute: '/notes'
       });
