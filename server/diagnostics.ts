@@ -28,7 +28,7 @@ import { monitorRuntime } from '../diagnostics/node/runtime';
 import { newTraceId, routeName, safeError, safeName } from '../diagnostics/event';
 
 /** Куда пишем. Electron передаёт путь; отдельный сервер выбирает свой. */
-function diagnosticsDir(): string {
+export function diagnosticsDir(): string {
   return (
     process.env.FLUX_DIAGNOSTICS_DIR ||
     path.join(process.env.APPDATA || os.homedir(), 'pdm-app', 'logs', 'diagnostics')

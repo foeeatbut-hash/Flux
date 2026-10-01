@@ -302,6 +302,16 @@ export interface Component {
   code: string;
   title: Text2;
   manufacturer?: string;
+  manufacturerId?: string;
+  /** Собственный тип комплектующего не зависит от типа изделия-владельца. */
+  equipmentType?: string;
+  /** Применяемость: одна модель может использоваться в разных изделиях ВЕЗА. */
+  classIds?: string[];
+  familyIds?: string[];
+  catalog?: CatalogRef;
+  sourcePdfPage?: number;
+  status?: FamilyStatus;
+  todo?: string[];
   facts?: Facts;
   specs?: Array<{ label: Text2; value: string; unit?: string }>;
 }

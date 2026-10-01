@@ -19,6 +19,7 @@ import {
   BUNDLE_STATE_NAMES, SOURCE_NAMES, SOURCE_STATE_NAMES,
   type SourceReport,
 } from '../../../feedback/bundleSpec';
+import FeedbackIncidentSummary, { type FeedbackIncident } from './FeedbackIncidentSummary';
 
 export interface Bundle {
   id: string;
@@ -199,6 +200,8 @@ export default function FeedbackDiagnostics({ bundles, onPackage }: {
             <Section title="Покрытие: что приложено и чего нет" open>
               <Coverage sources={sources} state={one.state} error={manifest.error} />
             </Section>
+
+            <FeedbackIncidentSummary incidents={(s.incidents || []) as FeedbackIncident[]} />
 
             <Section title="Задержки">
               <div className="text-2xs text-slate-500 dark:text-slate-400">Запросы</div>

@@ -1,3 +1,4 @@
+import { useFileProject } from '../lib/useFileProject';
 /**
  * Документ Flux Office: редактор Word внутри окна Flux.
  *
@@ -25,7 +26,8 @@ import { useDocCollab } from '../components/collab/useDocCollab';
 import OfficePresence from '../components/collab/OfficePresence';
 import { rememberDoc } from '../store/recentStore';
 import { editorHref } from '../lib/officeFiles';
-import ProjectDataPanel from '../components/office/ProjectDataPanel';
+import FluxPanel from '../components/office/FluxPanel';
+import { openEditorTag } from '../lib/editorTag';
 import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
@@ -48,6 +50,7 @@ export default function OfficeHost() {
   const fileId = params.get('file') || '';
   const paneId = usePaneId();
   const theme = useStore((s) => s.theme);
+  const activeProjectId = useFileProject(fileId);
   const addToast = useToastStore((s) => s.addToast);
 
   const frame = useRef<HTMLIFrameElement>(null);
@@ -100,11 +103,11 @@ export default function OfficeHost() {
   }, []);
 
   /** Событие редактору и ожидание его ответа; молчание — null */
-  const askFrame = useCallback(<T,>(event: string, answer: string, ms: number): Promise<T | null> =>
+  const askFrame = useCallback(<T,>(event: string, answer: string, ms: number, payload?: unknown): Promise<T | null> =>
     new Promise((resolve) => {
       const done = (v: any) => { if (waits.current.get(answer) === done) waits.current.delete(answer); resolve(v); };
       waits.current.set(answer, done);
-      send({ event });
+      send({ event, payload });
       setTimeout(() => done(null), ms);
     }), [send]);
 
@@ -231,6 +234,8 @@ export default function OfficeHost() {
       const m = e.data;
       if (!isOfficeMsg(m)) return;
       if (m.op === 'hello') { setPhase('ready'); return; }
+      if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
+      if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
       if (wait) { wait(m.payload); return; }
       if (collabRef.current.fromFrame(m.op, m.payload)) return;
@@ -414,13 +419,7 @@ export default function OfficeHost() {
   return (
     <div className="flex h-full w-full flex-col">
       <OfficePresence roster={room.roster} clientId={room.clientId} mode={room.mode} editable={editable} onTake={takeEdit} />
-      <div className="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-2 dark:border-slate-800">
-        <Btn size="sm" tone={dataOpen ? 'primary' : 'ghost'} aria-pressed={dataOpen} onClick={() => setDataOpen((v) => !v)}
-          title="Поля проекта, тегов, оборудования и ВДР — вставить в документ">Данные проекта</Btn>
-        <Btn size="sm" tone="ghost" onClick={() => setEnglishOpen(true)}
-          title="Сверка перевода и копия «(EN)» рядом с этим файлом">Английская версия</Btn>
-      </div>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1">
       <div className="relative min-h-0 flex-1">
       <iframe
         key={`${fileId}:${frameKey}`}
@@ -437,13 +436,12 @@ export default function OfficeHost() {
       )}
       </div>
       {dataOpen && (
-        <ProjectDataPanel fileId={fileId} kind="doc" readOnly={!editable} onInsert={insertField} onUpdate={updateFields} onClose={() => setDataOpen(false)} />
+        <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={!editable} onClose={() => setDataOpen(false)}
+          onInsertField={insertField} onUpdateFields={updateFields}
+          onInsertTable={async rows => { const r = await askFrame<{ok: boolean; error?: string}>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
+          beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} />
       )}
       </div>
-      {englishOpen && (
-        <FileEnglishVersion fileId={fileId} name={name} onClose={() => setEnglishOpen(false)}
-          beforeIssue={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан — сверять нечего'); }} />
-      )}
       {conflict && (
         <Dialog title={conflict.why === 'locked' ? 'Файл сейчас правит другой сотрудник' : 'Файл изменили, пока он был открыт'}
           onClose={() => setConflict(null)} busy={busy} width="max-w-lg"

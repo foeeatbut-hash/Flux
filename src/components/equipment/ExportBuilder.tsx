@@ -1,4 +1,6 @@
 import React from 'react';
+import ExportWorkbook, { type ExportWorkbookHandle } from './ExportWorkbook';
+import { exportGrid } from '../../lib/exportGrid';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
@@ -31,7 +33,7 @@ import {
  */
 
 interface Scope { id: string; label: string; count: number }
-interface SavedView { id: string; name: string; scope: string; role: string; fields: { group: string; key: string; unit: string }[]; spec?: unknown }
+interface SavedView { id: string; name: string; scope: string; role: string; fields: { group: string; key: string; unit: string }[]; spec?: unknown; hasWorkbook?: boolean }
 
 interface Props {
   projectId: string;
@@ -54,6 +56,12 @@ const download = (blob: Blob, name: string) => {
 
 export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose }: Props) {
   const navigate = useNavigate();
+  const workbook = React.useRef<ExportWorkbookHandle>(null);
+  const [showFilters, setShowFilters] = React.useState(() => window.innerWidth >= 1100);
+  const [position, setPosition] = React.useState({ x: 12, y: 64 });
+  const moving = React.useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const close = async () => { if (await workbook.current?.save()) onClose(); else say('Книга не записана — окно остаётся открытым', 'error'); };
+  const closeRef = React.useRef(close); closeRef.current = close;
   // Прошлая выгрузка помнится у человека: обычно выгружают одно и то же, и
   // собирать столбцы заново каждый раз — та самая возня
   const last = React.useMemo(() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (_) { return null; } }, []);
@@ -76,7 +84,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
   }, []);
   React.useEffect(loadViews, [loadViews]);
   React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void closeRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -98,7 +106,8 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
   const inScope = React.useMemo(() => selectItems(items, { ...spec, columns: [] }), [items, spec]);
   // Характеристики — только выбранных типов: у привода нет «Расхода воздуха»
   const known = React.useMemo(() => equipmentColumns(inScope).filter((c) => c.key.startsWith('param:')), [inScope]);
-  const table = React.useMemo(() => exportTable(items, spec, known), [items, spec, known]);
+  const grid = React.useMemo(() => exportGrid(items, spec, known, spec.grid), [items, spec, known]);
+  const table = { headers: grid.headers, rows: grid.rows, count: grid.rows.length, groupRows: [], problems: [] as any[] };
 
   const set = (patch: Partial<ExportSpec>) => { setSpec((s) => ({ ...s, ...patch })); };
   const toggleIn = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -124,11 +133,21 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
   };
   const rename = (key: string, label: string) => set({ columns: spec.columns.map((c) => (c.key === key ? { ...c, label } : c)) });
 
-  const pickView = (id: string) => {
+  const pickView = async (id: string) => {
     setViewId(id);
     const v = views.find((x) => x.id === id);
     if (!v) { setSpec(defaultSpec()); return; }
-    setSpec(specOf(v.spec, v));
+    const next = specOf(v.spec, v);
+    try {
+      if (v.hasWorkbook) {
+        const response = await fetch(`/api/equipment/view-templates/${encodeURIComponent(id)}/workbook`);
+        if (!response.ok) throw new Error('Не удалось прочитать книгу шаблона');
+        const data = await response.json();
+        if (data.workbookTemplate) await workbook.current?.applyTemplate(data.workbookTemplate);
+      }
+    }
+    catch (e: any) { say(e.message, 'error'); return; }
+    setSpec(next);
     setSaveName(v.name);
   };
 
@@ -139,7 +158,11 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
       const [group, key] = c.key.slice(6).split('|');
       return { group, key, unit: c.unit || '' };
     });
-    const body = { name, scope: personal ? 'PERSONAL' : 'SHARED', role: spec.classes.length === 1 ? spec.classes[0] : '', fields, spec };
+    let workbookTemplate;
+    try { workbookTemplate = await workbook.current?.template(); }
+    catch (e: any) { say(e.message, 'error'); return; }
+    const savedSpec = { ...spec, workbookTemplate };
+    const body = { name, scope: personal ? 'PERSONAL' : 'SHARED', role: spec.classes.length === 1 ? spec.classes[0] : '', fields, spec: savedSpec };
     const res = await fetch(overwrite && viewId ? `/api/equipment/view-templates/${viewId}` : '/api/equipment/view-templates', {
       method: overwrite && viewId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).catch(() => null);
@@ -155,6 +178,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
     if (!spec.columns.length) { say('Выберите хотя бы один столбец', 'error'); return; }
     setBusy(true);
     try {
+      if (workbook.current?.hasBook()) { await workbook.current.output(target); return; }
       if (target === 'clipboard') {
         await navigator.clipboard.writeText(toClipboard(table.headers, table.rows));
         say(`Скопировано строк: ${table.count}`, 'success');
@@ -166,8 +190,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
         return;
       }
       // В Таблицу — без заголовков групп: собранный лист пишет строки подряд
-      const flat = target === 'office' ? exportTable(items, { ...spec, groupHeaders: false }, known) : table;
+      const flat = table;
       const sheet = XLSX.utils.aoa_to_sheet([flat.headers, ...flat.rows]);
+      grid.rows.forEach((row, i) => grid.formulas.forEach(j => { if (row[j]?.startsWith('=')) sheet[XLSX.utils.encode_cell({ r: i + 1, c: j })] = { t: 'n', f: row[j].slice(1) }; }));
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, sheet, 'Оборудование');
       const out = XLSX.write(book, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
@@ -201,27 +226,32 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
     ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 fx-backdrop" onMouseDown={onClose}>
-      <div role="dialog" aria-label="Выгрузка оборудования по шаблону" onMouseDown={(e) => e.stopPropagation()}
-        className="fx-dialog @container w-full max-w-6xl h-[min(780px,92vh)] flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-label="Выгрузка данных" className="fixed z-[90] fx-dialog @container flex flex-col overflow-hidden"
+      style={{ left: position.x, top: position.y, width: 'min(1280px,calc(100vw - 24px))', height: 'calc(100vh - 100px)', maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 80px)', minWidth: 'min(740px,calc(100vw - 24px))', minHeight: 380, resize: 'both' }}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 cursor-move touch-none"
+          onPointerDown={e => { if ((e.target as HTMLElement).closest('button,input,select')) return; moving.current = { x: e.clientX, y: e.clientY, left: position.x, top: position.y }; e.currentTarget.setPointerCapture(e.pointerId); }}
+          onPointerMove={e => { const m = moving.current; if (m) setPosition({ x: Math.max(0, Math.min(window.innerWidth - (e.currentTarget.parentElement?.getBoundingClientRect().width || 740), m.left + e.clientX - m.x)), y: Math.max(40, Math.min(window.innerHeight - (e.currentTarget.parentElement?.getBoundingClientRect().height || 380), m.top + e.clientY - m.y)) }); }}
+          onPointerUp={e => { moving.current = null; e.currentTarget.releasePointerCapture(e.pointerId); }}>
           <Download className="w-4 h-4 text-emerald-600" />
-          <b className="text-sm">Выгрузка оборудования</b>
+          <b className="text-sm shrink-0">Выгрузка данных</b>
+          <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" aria-expanded={showFilters} onClick={() => setShowFilters(v => !v)}>Параметры</button>
           <select value={viewId} onChange={(e) => pickView(e.target.value)} aria-label="Шаблон"
-            className="ml-2 px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 max-w-[260px]">
+            className="ml-2 min-w-0 px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 max-w-[260px]">
             <option value="">Без шаблона — свои столбцы</option>
             {views.map((v) => <option key={v.id} value={v.id}>{v.name}{v.scope === 'PERSONAL' ? ' · личный' : ''}</option>)}
           </select>
           <span className="flex-1" />
-          <span className="text-2xs text-slate-400 tabular-nums">{table.count} строк · {spec.columns.length} столбцов</span>
-          <button type="button" onClick={onClose} aria-label="Закрыть" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"><X className="w-4 h-4" /></button>
+          <span className="hidden @[900px]:inline text-2xs text-slate-400 tabular-nums">{table.count} строк · {spec.columns.length} столбцов</span>
+          <button type="button" onClick={() => void close()} aria-label="Закрыть" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
-        {/* В узком окне три колонки встают друг под другом и листаются целиком,
-            а не сжимаются до нечитаемых полосок */}
-        <div className="flex-1 min-h-0 overflow-y-auto @[980px]:overflow-hidden grid grid-cols-1 @[980px]:grid-cols-[230px_300px_1fr] @[980px]:grid-rows-[minmax(0,1fr)]">
+        {/* Левая полка прокручивается независимо от листа. Узкое окно даёт
+            горизонтальную прокрутку вместо сжатия формул и кнопок. */}
+        <div className="flex-1 min-h-0 overflow-x-auto">
+        <div className="grid h-full" style={{ gridTemplateColumns: showFilters ? '320px minmax(420px,1fr)' : 'minmax(420px,1fr)', minWidth: showFilters ? 740 : 420 }}>
+        <div className="overflow-y-auto border-r border-slate-200 dark:border-slate-800" hidden={!showFilters}>
           {/* 1. Что */}
-          <div className="border-b @[980px]:border-b-0 @[980px]:border-r border-slate-100 dark:border-slate-800 @[980px]:overflow-y-auto p-3 space-y-3">
+          <div className="border-b border-slate-200 dark:border-slate-800 p-3 space-y-3">
             <div className={label}>Что выгружаем</div>
             <div className="flex flex-col gap-1">
               {scopes.map((s) => (
@@ -265,18 +295,25 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                   {ORDER_TITLE[o]}
                 </label>
               ))}
-              <label className={`flex items-center gap-2 text-xs cursor-pointer ${spec.order === 'class-tag' ? '' : 'opacity-40'}`}>
-                <input type="checkbox" className="accent-emerald-600" disabled={spec.order !== 'class-tag'} checked={spec.groupHeaders}
-                  onChange={(e) => set({ groupHeaders: e.target.checked })} />
-                строка-заголовок у каждого типа
-              </label>
+
             </div>
+            <details className="border-t border-slate-200 pt-2 dark:border-slate-800">
+              <summary className="text-xs cursor-pointer">Повторы и объединение</summary>
+              <label className="flex items-center gap-2 text-xs my-2"><input type="checkbox" checked={!!spec.grid?.deduplicate} onChange={e => set({ grid: { ...spec.grid, deduplicate: e.target.checked } })} />Убрать полностью одинаковые строки</label>
+              <div className="text-xs text-slate-500 mb-2">Объединить по выбранным столбцам. Остальные значения сохраняются списком; отмеченные числовые поля складываются.</div>
+              {spec.columns.filter(c => !c.key.startsWith('formula:')).map(c => <div key={c.key} className="flex items-center gap-2 text-xs py-1">
+                <label className="flex-1"><input type="checkbox" checked={spec.grid?.groupBy?.includes(c.key) || false} onChange={() => set({ grid: { ...spec.grid, groupBy: toggleIn(spec.grid?.groupBy || [], c.key) } })} /> {c.label}</label>
+                <label title="Сложить значения"><input type="checkbox" checked={spec.grid?.sums?.includes(c.key) || false} disabled={spec.grid?.groupBy?.includes(c.key)} onChange={() => set({ grid: { ...spec.grid, sums: toggleIn(spec.grid?.sums || [], c.key) } })} /> Σ</label>
+              </div>)}
+              <label className="flex items-center gap-2 text-xs my-2"><input type="checkbox" checked={spec.grid?.blankRepeats?.includes('parentTag') || false} onChange={e => set({ grid: { ...spec.grid, blankRepeats: e.target.checked ? ['parentTag', 'unitTag'] : [] } })} />Показать повторяющегося родителя один раз</label>
+            </details>
           </div>
 
           {/* 2. Столбцы */}
-          <div className="border-b @[980px]:border-b-0 @[980px]:border-r border-slate-100 dark:border-slate-800 flex flex-col @[980px]:min-h-0">
-            <div className="p-3 space-y-1 overflow-y-auto flex-1 min-h-0">
+          <div className="flex flex-col">
+            <div className="p-3 space-y-1">
               <div className={label}>Быстрые наборы</div>
+              <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => setSpec(s => ({ ...applyPreset(s, 'tree'), classes: ['КЛАПАН', 'ПРИВОД'], taggedOnly: false }))}>Клапаны и их приводы</button>
               <div className="flex flex-wrap gap-1 pb-2">
                 {PRESETS.map((p) => (
                   <button key={p.id} type="button" className={chip(false)} onClick={() => setSpec((s) => applyPreset(s, p.id))}
@@ -301,6 +338,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                       className="w-full bg-transparent text-xs outline-none focus:ring-1 focus:ring-emerald-400 rounded px-1" />
                     {c.key.startsWith('param:') && <span className="block px-1 text-2xs text-slate-400 truncate">{c.key.slice(6).split('|')[0]}</span>}
                   </span>
+                  {c.key.startsWith('formula:') && <input aria-label="Формула столбца" className="fx-input w-28 text-xs" placeholder="=SUM(D{row}:F{row})" value={c.formula || ''} onChange={e => set({ columns: spec.columns.map(x => x.key === c.key ? { ...x, formula: e.target.value } : x) })} />}
                   {c.unit ? <span className="text-2xs text-slate-400 shrink-0">{c.unit}</span> : null}
                   <button type="button" onClick={() => stepCol(c.key, -1)} aria-label="Левее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowUp className="w-3 h-3" /></button>
                   <button type="button" onClick={() => stepCol(c.key, 1)} aria-label="Правее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowDown className="w-3 h-3" /></button>
@@ -308,7 +346,8 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
                 </div>
               ))}
             </div>
-            <div className="border-t border-slate-100 dark:border-slate-800 p-3 space-y-2 max-h-[45%] overflow-y-auto">
+            <div className="border-t border-slate-100 dark:border-slate-800 p-3 space-y-2 ">
+              <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => addCol({ key: `formula:${crypto.randomUUID()}`, label: 'Расчёт', formula: '=SUM(D{row}:F{row})' })}>+ Столбец с формулой</button>
               <div className={label}>Служебные</div>
               <div className="flex flex-wrap gap-1">
                 {SERVICE_COLUMNS.map((c) => (
@@ -347,33 +386,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
             </div>
           </div>
 
-          {/* 3. Предпросмотр */}
-          <div className="flex flex-col min-w-0 min-h-[320px] @[980px]:min-h-0">
-            <div className="px-3 py-2 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800">
-              <span className={label}>Предпросмотр</span>
-              <span className="text-2xs text-slate-400">первые 20 строк из {table.count}</span>
-              {table.problems.length > 0 && (
-                <span className="text-2xs text-amber-600 dark:text-amber-400" title={table.problems.slice(0, 5).map((p) => `${p.tag}: ${p.column} — ${p.why}`).join('\n')}>
-                  · значений не приведено к единице: {table.problems.length}
-                </span>
-              )}
-            </div>
-            <div className="flex-1 overflow-auto">
-              <table className="text-xs border-collapse">
-                <thead className="sticky top-0 bg-white dark:bg-slate-950">
-                  <tr>{table.headers.map((h, i) => <th key={i} className="px-2 py-1.5 text-left border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">{h}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {table.rows.slice(0, 20).map((r, i) => (
-                    table.groupRows.includes(i)
-                      ? <tr key={i}><td colSpan={Math.max(1, table.headers.length)} className="px-2 pt-2 pb-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">{r[0]}</td></tr>
-                      : <tr key={i} className="border-b border-slate-100 dark:border-slate-850">{r.map((v, j) => <td key={j} className="px-2 py-1 whitespace-nowrap max-w-[240px] truncate">{v}</td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
-              {table.count === 0 && <div className="text-xs text-slate-400 text-center py-8">Не попала ни одна строка — снимите часть отбора.</div>}
-            </div>
-          </div>
+        </div>
+          <ExportWorkbook ref={workbook} key={projectId} projectId={projectId} grid={grid} name={saveName || 'Выгрузка данных'} say={say} />
+        </div>
         </div>
 
         <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2 flex-wrap">
@@ -394,10 +409,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose 
           <button type="button" disabled={busy} onClick={() => run('clipboard')} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"><ClipboardCopy className="w-3.5 h-3.5" />В буфер</button>
           <button type="button" disabled={busy} onClick={() => run('csv')} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"><FileSpreadsheet className="w-3.5 h-3.5" />CSV</button>
           <button type="button" disabled={busy} onClick={() => run('office')} title="Файл .xlsx в «Выгрузках» на вашем столе — сразу откроется Таблицей Flux Office"
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 cursor-pointer disabled:opacity-50"><Table2 className="w-3.5 h-3.5" />В таблицу Flux Office</button>
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 cursor-pointer disabled:opacity-50"><Table2 className="w-3.5 h-3.5" />Сохранить книгу</button>
           <button type="button" disabled={busy} onClick={() => run('xlsx')} className="fx-btn fx-btn-primary fx-btn-sm"><Download className="w-3.5 h-3.5" />Excel</button>
         </div>
-      </div>
     </div>
   );
 }

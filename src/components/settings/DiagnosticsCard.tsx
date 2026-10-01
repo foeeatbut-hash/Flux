@@ -10,6 +10,7 @@
  * обещать «записываем всё» нельзя: человек тогда решит, что причина сбоя
  * обязана найтись в файле, и будет искать её там, где её нет.
  */
+import AutomaticIncidentsCard from '../feedback/AutomaticIncidentsCard';
 import React, { useEffect, useState } from 'react';
 import { rendererStatus, exportRendererDiagnostics, setDetailedMode } from '../../lib/diagnostics';
 
@@ -55,6 +56,8 @@ export default function DiagnosticsCard() {
   const lost = own.dropped + (shell?.dropped || 0);
 
   return (
+    <>
+    <AutomaticIncidentsCard />
     <div className="fx-set-group space-y-2">
       <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Подробная запись работы</div>
       <p className="text-xs text-slate-600 dark:text-slate-400">
@@ -120,5 +123,6 @@ export default function DiagnosticsCard() {
         события связи и команды редакторов.
       </p>
     </div>
+    </>
   );
 }

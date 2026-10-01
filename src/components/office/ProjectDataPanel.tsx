@@ -25,6 +25,7 @@ interface Signer { userId: string; name: string; date: string; source: string }
 
 export interface ProjectDataPanelProps {
   fileId: string;
+  projectId?: string;
   kind: 'doc' | 'sheet';
   /** Вставить поле в место курсора (Документ) или в выделенную ячейку (Таблица) */
   onInsert: (field: Field) => Promise<void> | void;
@@ -35,7 +36,7 @@ export interface ProjectDataPanelProps {
   readOnly?: boolean;
 }
 
-export default function ProjectDataPanel({ fileId, kind, onInsert, onUpdate, onClose, readOnly }: ProjectDataPanelProps) {
+export default function ProjectDataPanel({ fileId, projectId, kind, onInsert, onUpdate, onClose, readOnly }: ProjectDataPanelProps) {
   const [q, setQ] = useState('');
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [error, setError] = useState('');
@@ -49,13 +50,13 @@ export default function ProjectDataPanel({ fileId, kind, onInsert, onUpdate, onC
   useEffect(() => {
     const my = ++seq.current;
     const t = setTimeout(() => {
-      fetch(`/api/project-data/search?${new URLSearchParams({ q, fileId })}`)
+      fetch(`/api/project-data/search?${new URLSearchParams({ q, fileId, ...(projectId ? { projectId } : {}) })}`)
         .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d?.error || `сервер ответил ${r.status}`); return d; })
         .then((d) => { if (my === seq.current) { setGroups(d.groups || []); setError(''); } })
         .catch((e) => { if (my === seq.current) setError(String(e.message || e)); });
     }, q ? 250 : 0);
     return () => clearTimeout(t);
-  }, [q, fileId]);
+  }, [q, fileId, projectId]);
 
   useEffect(() => {
     fetch(`/api/project-data/signers?fileId=${encodeURIComponent(fileId)}`).then((r) => r.json()).then((d) => setSigners(d.signers || {})).catch(() => {});

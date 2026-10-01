@@ -4,7 +4,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Download, Upload, CircleCheck, AlertTriangle } from 'lucide-react';
-import type { Catalog, Component, TagRule } from '../../../catalog/model';
+import type { Catalog, TagRule } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
 import { parseWithFamily, buildDesignation, sameDesignation, paramsOfFormat } from '../../../catalog/designation';
 import { catalogService } from '../../services/catalogService';
@@ -14,65 +14,8 @@ import { saveBytes } from '../../lib/saveToWindows';
 import { factsToText, textToFacts } from './ParamsEditor';
 import { Btn, Chip, Empty, Input, Select, confirmAsk } from './ui';
 
-// ── Комплектующие ───────────────────────────────────────────────────────────
-
-const KINDS: Array<{ value: Component['kind']; label: string }> = [
-  { value: 'actuator', label: 'привод' }, { value: 'box', label: 'коробка' }, { value: 'gland', label: 'кабельный ввод' },
-  { value: 'heater', label: 'обогрев' }, { value: 'frame', label: 'рама' }, { value: 'other', label: 'прочее' },
-];
-
-export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalog; classId: string; canEdit: boolean }) {
-  const load = useCatalogStore((s) => s.load);
-  const addToast = useToastStore((s) => s.addToast);
-  const [edit, setEdit] = useState<Component | null>(null);
-  const list = catalog.components.filter((c) => c.classId === classId);
-  const save = async () => {
-    if (!edit) return;
-    try { await catalogService.save('component', edit); await load(true); setEdit(null); addToast('Сохранено', 'success'); } catch (e: any) { addToast(e?.message || 'Не сохранилось', 'error'); }
-  };
-  return (
-    <div className="grid grid-cols-1 @[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-      <div className="flex flex-col gap-1">
-        {canEdit && <div><Btn onClick={() => setEdit({ id: `cmp-${Math.random().toString(36).slice(2, 9)}`, classId, kind: 'actuator', code: '', title: { ru: '' }, specs: [] })}><Plus className="w-3 h-3" /> Комплектующее</Btn></div>}
-        {list.map((c) => (
-          <button key={c.id} type="button" onClick={() => setEdit(c)} className={`text-left rounded-md border px-2 py-1.5 cursor-pointer ${edit?.id === c.id ? 'border-emerald-500' : 'border-slate-200 dark:border-slate-700 hover:border-emerald-400'}`}>
-            <div className="flex items-center gap-2"><b className="font-mono text-xs">{c.code}</b><Chip>{KINDS.find((k) => k.value === c.kind)?.label}</Chip><span className="text-2xs text-slate-400">{c.manufacturer}</span></div>
-            <div className="text-2xs text-slate-500 dark:text-slate-400">{textOf(c.title)}</div>
-          </button>
-        ))}
-        {!list.length && <Empty title="Комплектующих пока нет" />}
-      </div>
-      {edit && (
-        <div className="flex flex-col gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 p-2">
-          <div className="grid grid-cols-3 gap-1.5">
-            <Input value={edit.code} placeholder="Код" onChange={(e) => setEdit({ ...edit, code: e.target.value })} className="font-mono" disabled={!canEdit} />
-            <Select value={edit.kind} onChange={(v) => setEdit({ ...edit, kind: v as any })} options={KINDS} disabled={!canEdit} />
-            <Input value={edit.manufacturer || ''} placeholder="Изготовитель" onChange={(e) => setEdit({ ...edit, manufacturer: e.target.value })} disabled={!canEdit} />
-          </div>
-          <Input value={edit.title.ru} placeholder="Название" onChange={(e) => setEdit({ ...edit, title: { ...edit.title, ru: e.target.value } })} disabled={!canEdit} />
-          <Input value={factsToText(edit.facts)} placeholder="Признаки: voltage=24; ex=true" onChange={(e) => setEdit({ ...edit, facts: textToFacts(e.target.value) })} className="font-mono" disabled={!canEdit} />
-          <div className="text-xs font-medium text-slate-400 mt-1">Характеристики</div>
-          {(edit.specs || []).map((s, i) => (
-            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_auto] gap-1">
-              <Input value={s.label.ru} onChange={(e) => setEdit({ ...edit, specs: edit.specs!.map((x, j) => (j === i ? { ...x, label: { ...x.label, ru: e.target.value } } : x)) })} disabled={!canEdit} />
-              <Input value={s.value} onChange={(e) => setEdit({ ...edit, specs: edit.specs!.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} disabled={!canEdit} />
-              <Input value={s.unit || ''} onChange={(e) => setEdit({ ...edit, specs: edit.specs!.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)) })} disabled={!canEdit} />
-              {canEdit && <Btn tone="ghost" onClick={() => setEdit({ ...edit, specs: edit.specs!.filter((_, j) => j !== i) })} aria-label="Удалить"><Trash2 className="w-3 h-3" /></Btn>}
-            </div>
-          ))}
-          {canEdit && (
-            <div className="flex gap-1.5 flex-wrap">
-              <Btn onClick={() => setEdit({ ...edit, specs: [...(edit.specs || []), { label: { ru: '' }, value: '' }] })}><Plus className="w-3 h-3" /> Характеристика</Btn>
-              <span className="flex-1" />
-              <Btn tone="danger" onClick={async () => { if (await confirmAsk('Удалить комплектующее?', edit.code, { confirmLabel: 'Удалить', tone: 'danger' })) { await catalogService.remove('component', edit.id).catch(() => undefined); await load(true); setEdit(null); } }}><Trash2 className="w-3 h-3" /></Btn>
-              <Btn tone="primary" onClick={save}><Save className="w-3.5 h-3.5" /> Сохранить</Btn>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// Сохранённый путь импорта оставлен для потребителей панели.
+export { ComponentsPanel } from './ComponentsPanel';
 
 // ── Правила тегов ───────────────────────────────────────────────────────────
 

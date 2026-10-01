@@ -42,6 +42,7 @@ import { registerDictionaryRoutes } from './server/routes/dictionaries.js';
 import { registerTagRoutes } from './server/routes/tags.js';
 import { registerProjectRoutes } from './server/routes/projects.js';
 import { registerNotificationRoutes } from './server/routes/notifications.js';
+import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
 import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
@@ -1251,6 +1252,7 @@ registerChatRoutes(app, { io });
 
 
 registerEquipmentCoreRoutes(app);
+registerEquipmentCatalogRoutes(app);
 
 
 // Ввоз распознанного документа (план и запись) вынесен

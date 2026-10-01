@@ -159,7 +159,7 @@ export async function resolveKeys(keys: string[], ctx: ResolveCtx): Promise<Reco
       }
       case 'tag': {
         const id = r.id.toLowerCase();
-        const tag = slice!.tags.find((t: any) => String(t.identifier).toLowerCase() === id);
+        const tag = slice!.tags.find((t: any) => t.id === r.id || String(t.identifier).toLowerCase() === id);
         out[key] = tag ? asCellValue(text(resolveValue('tag', tag, r.path, aliases))) : '#НЕТ_ТЕГА';
         break;
       }
@@ -244,7 +244,7 @@ export async function searchProject(q: string, ctx: ResolveCtx): Promise<PanelGr
   if (tags.length) {
     groups.push({
       id: 'tag', title: 'Теги', items: tags.map((t: any) => {
-        const key = (path: string) => makeKey('tag', t.identifier, path);
+        const key = (path: string) => makeKey('tag', t.id, path);
         const base = TAG_FIELDS.map(([path, title]) => ({ key: key(path), title, value: show(resolveValue('tag', t, path, aliases)) }));
         // Параметры тега — от его оборудования: так их видит и Конструктор
         const params = (t.componentElements || []).slice(0, 1).flatMap((el: any) => paramFields(el, key, aliases));

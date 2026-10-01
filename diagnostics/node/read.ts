@@ -139,7 +139,7 @@ async function collect(dir: string, source: string, window: ReadWindow): Promise
 export async function readSource(
   dir: string, source: SourceName, window: ReadWindow,
 ): Promise<{ text: string; report: SourceReport }> {
-  const got = await collect(dir, source === 'database' ? 'server' : source, window);
+  const got = await collect(dir, source === 'database' ? 'server' : source === 'shell' ? 'electron' : source, window);
 
   const lines = got.events.map((e) => `${JSON.stringify(e)}\n`);
   const text = lines.join('');

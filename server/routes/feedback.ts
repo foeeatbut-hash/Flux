@@ -20,6 +20,7 @@ import { registerInsightRoutes } from '../feedback/insight.js';
 import { startOutbox } from '../feedback/outbox.js';
 import { startCleanup } from '../feedback/cleanup.js';
 import { startBundles } from '../feedback/bundle.js';
+import { registerAutomaticRoutes } from '../feedback/automatic.js';
 import { unreadFor } from '../feedback/unread.js';
 import {
   ERRORS, LIMITS, TYPES, STATUSES, PRIORITIES, IMPACTS, FREQUENCIES,
@@ -88,6 +89,7 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
   startBundles();
 
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
+  registerAutomaticRoutes(app, deps);
   registerReportRoutes(app, deps);
   registerActionRoutes(app, deps);
   // Сводка, дубли и выгрузка идут после карточек: их пути начинаются с тех же

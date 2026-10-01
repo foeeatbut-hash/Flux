@@ -89,8 +89,18 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     console.log('1. Открытие');
     await page.goto(`${BASE}/#/office-sheet?file=${id}`, { waitUntil: 'domcontentloaded' });
     const fr = page.frameLocator(FRAME);
-    const status = fr.getByText('Книга полностью загружена', { exact: false }).first();
-    ok('книга загружена целиком', await status.waitFor({ timeout: 40000 }).then(() => true).catch(() => false));
+    // Строка состояния меняется при восстановлении выделения; полноту
+    // проверяем по состоянию движка, а русский интерфейс — отдельно ниже.
+    ok('книга загружена целиком', await until(async () => {
+      const editorFrame = page.frames().find((f: any) => f.url().includes('/genoffice/sheets/'));
+      return !!editorFrame && await editorFrame.evaluate(() => {
+        const hooks = (window as any).__fluxSheets;
+        const state = hooks?.lazyWorkbookRef?.current;
+        const book = hooks?.univerRef?.current?.univerAPI?.getActiveWorkbook();
+        const names = book?.getSheets().map((sheet: any) => sheet.getSheetName()) || [];
+        return names.includes('Перечень') && names.includes('Справка') && (!state || state.flags?.preloadComplete === true);
+      }).catch(() => false);
+    }, 40000));
     ok('«Открывается…» ушло', await until(async () => !(await page.getByText('Открывается…').isVisible().catch(() => false)), 10000));
     const body = await fr.locator('body').innerText().catch(() => '');
     ok('листы книги видны', /Перечень/.test(body) && /Справка/.test(body));

@@ -118,6 +118,43 @@ function whenReady(): Promise<Editor> {
   })
 }
 
+/** Возвращает тег только когда щелчок пришёлся внутрь явно набранного #TAG. */
+function tagAtPoint(root: HTMLElement, x: number, y: number): string | null {
+  const doc = root.ownerDocument as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null; caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null }
+  let node: Node | null = null
+  let offset = -1
+  const range = doc.caretRangeFromPoint?.(x, y)
+  if (range) { node = range.startContainer; offset = range.startOffset }
+  else {
+    const caret = doc.caretPositionFromPoint?.(x, y)
+    if (caret) { node = caret.offsetNode; offset = caret.offset }
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !root.contains(node)) return null
+  const text = node.textContent || ''
+  const re = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*)/gu
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) {
+    const start = m.index + m[1].length
+    const end = start + m[0].length - m[1].length
+    if (offset >= start && offset < end) return m[2]
+  }
+  return null
+}
+
+/** Читает только инструкцию Word-поля; видимое слово и соседний текст не угадываются. */
+export function tagTargetFromFieldInstruction(instruction: string): { tagId: string; identifier: string } | null {
+  const match = /^\s*DOCPROPERTY\s+"flux:tag\[([^\]\r\n]+)\]\.identifier"\s*$/i.exec(instruction)
+  if (!match) return null
+  const value = match[1]
+  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  return isId ? { tagId: value, identifier: '' } : { tagId: '', identifier: value }
+}
+
+function fieldTagAtTarget(target: EventTarget | null): { tagId: string; identifier: string } | null {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  const field = element?.closest('[data-instr-field]')
+  return field ? tagTargetFromFieldInstruction(field.getAttribute('data-instr-field') || '') : null
+}
+
 let started = false
 
 /** Подключить редактор к сеансу совместной правки */
@@ -208,11 +245,34 @@ async function start(cfg: { name: string; color: string }, p: Port): Promise<voi
 export function installFluxCollab(): void {
   const p = port()
   if (!p) return
+  // Тег передаётся по самому клику: слова вокруг него и содержимое документа
+  // не размечаются и не меняются. Project/tag ids дополняет окно Flux.
+  void whenReady().then((editor) => {
+    editor.view.dom.addEventListener('click', (event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('a')) return
+      const field = fieldTagAtTarget(target)
+      if (field) {
+        p.tell('flux:tag-click', { projectId: '', ...field })
+        return
+      }
+      const identifier = tagAtPoint(editor.view.dom, event.clientX, event.clientY)
+      if (identifier) p.tell('flux:tag-click', { projectId: '', tagId: '', identifier })
+    }, true)
+  })
   p.on('collab', (cfg: any) => { if (cfg && cfg.on) void start(cfg, p) })
   p.on('y', (u: Uint8Array) => { if (state.ydoc) Y.applyUpdate(state.ydoc, u, REMOTE) })
   // Панель «Данные проекта»: метка {{ключ}} в место курсора. В поле Word её
   // превращает «Обновить поля» (server/officeFields.ts, fillDocxMarkers): поле
   // с кодом GenOffice сам не вставляет, а текст метки переживает любую правку
+  p.on('insertTable', (message: any) => {
+    try {
+      const ed = ctxNow()?.editor; const rows = message?.rows;
+      if (!ed || !Array.isArray(rows) || !rows.length || rows.length > 501) throw new Error('Таблица должна содержать до 500 строк');
+      const content = { type: 'docTable', content: rows.map((row: any[], at: number) => ({ type: 'docTableRow', content: row.map(value => ({ type: at === 0 ? 'docTableHeader' : 'docTableCell', content: [{ type: 'docParagraph', content: String(value ?? '') ? [{ type: 'text', text: String(value) }] : [] }] })) })) };
+      const ok = ed.chain().focus().insertContent(content).run(); p.tell('flux:table-inserted', { ok });
+    } catch (err: any) { p.tell('flux:table-inserted', { ok: false, error: err.message }); }
+  });
   p.on('insertText', (text: unknown) => {
     const ed = ctxNow()?.editor
     if (ed && typeof text === 'string' && text) ed.chain().focus().insertContent(text).run()

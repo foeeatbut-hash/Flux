@@ -173,6 +173,8 @@ async function buildIpc(which, spec, src, out) {
     entryPoints: [join(appDir, spec.preload)], bundle: true, platform: 'browser', format: 'iife',
     target: 'es2022', outfile: join(out, 'flux-preload.js'), logLevel: 'warning',
     alias: { electron: join(here, 'shims', 'electron-renderer.js') },
+    // Браузерный preload не имеет Node process; флаг отладки всегда выключен.
+    define: { 'process.env.GENOFFICE_DEBUG_HOOKS': '"0"' },
   });
   cpSync(join(here, 'inject', spec.host), join(appDir, 'src', 'flux-host.ts'));
   const server = join(root, 'genoffice-server');

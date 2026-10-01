@@ -260,7 +260,7 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
                 <Label hint={`${fields.title.trim().length}/${LIMITS.title.max}`}>Коротко, одной строкой</Label>
                 <input value={fields.title} maxLength={LIMITS.title.max} autoFocus
                   onChange={(e) => set({ title: e.target.value })}
-                  placeholder="Закрылась Таблица при вставке столбца" className={field} />
+                  placeholder="Напр.: Таблица закрылась при вставке столбца" className={field} />
               </label>
 
               <label className="block">
@@ -278,7 +278,7 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
                     <div className="space-y-1.5">
                       {fields.steps.map((step, index) => (
                         <input key={index} value={step} maxLength={LIMITS.step} className={field}
-                          placeholder={index === 0 ? 'Открыл спецификацию проекта' : 'Дальше…'}
+                          placeholder={index === 0 ? '1. Открыл Таблицу проекта' : index === 1 ? '2. Вставил столбец' : 'Следующее действие'}
                           onChange={(e) => {
                             const steps = fields.steps.slice();
                             steps[index] = e.target.value;
@@ -294,12 +294,12 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
                     <label className="block">
                       <Label>Чего ждали</Label>
                       <input value={fields.expected} maxLength={LIMITS.expected} className={field}
-                        onChange={(e) => set({ expected: e.target.value })} placeholder="Столбец добавится" />
+                        onChange={(e) => set({ expected: e.target.value })} placeholder="Напр.: столбец появится в таблице" />
                     </label>
                     <label className="block">
                       <Label>Что получилось</Label>
                       <input value={fields.actual} maxLength={LIMITS.actual} className={field}
-                        onChange={(e) => set({ actual: e.target.value })} placeholder="Окно закрылось" />
+                        onChange={(e) => set({ actual: e.target.value })} placeholder="Напр.: окно закрылось, правка пропала" />
                     </label>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

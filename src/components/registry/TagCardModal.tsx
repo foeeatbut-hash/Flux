@@ -11,11 +11,14 @@
  */
 import React from 'react';
 import { Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import CustomSelect from '../CustomSelect';
 import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
 import TagVdrDocs from './TagVdrDocs';
+import { useTagNavigationStore } from '../../store/tagNavigationStore';
+import { openInProject } from '../../lib/projectScope';
 import {
   parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem,
 } from './tagMeta';
@@ -60,6 +63,7 @@ export default function TagCardModal({
   onUpdateDescription, onRemoveDescription, formatDate, projectId,
 }: TagCardModalProps) {
   const { addToast } = useToastStore();
+  const navigate = useNavigate();
   return (
     <Dialog
       label={`Тег ${tag.identifier}`}
@@ -125,6 +129,23 @@ export default function TagCardModal({
                 className={cardField}
               />
             </div>
+
+            <button type="button" className="fx-btn fx-btn-quiet" onClick={() => {
+              const positions = Array.isArray(tag.componentElements) ? tag.componentElements : [];
+              if (positions.length === 1) {
+                const position = positions[0];
+                openInProject({
+                  what: `Оборудование для тега ${tag.identifier}`,
+                  projectId,
+                  open: () => { setEditingTag(null); navigate(`/equipment?component=${encodeURIComponent(position.id)}`); },
+                });
+              } else {
+                setEditingTag(null);
+                useTagNavigationStore.getState().open({ projectId, tagId: tag.id, identifier: tag.identifier });
+              }
+            }}>
+              Характеристики оборудования
+            </button>
 
             {/* Марка и WBS. Конструктор марки убран: он собирал строку из
                 трёх списков справочника, которого почти нигде нет, и занимал
