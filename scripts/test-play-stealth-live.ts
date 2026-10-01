@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * T01 живьём: сотрудника без доступа платформы для него не существует.
  *
@@ -28,7 +29,7 @@ import { APP_PLAY, PLAY_ADMIN, gameEntitlement, isPlayKey } from '../play/featur
 
 const BASE = process.env.FLUX_API || process.env.FLUX_BASE || 'http://localhost:3000';
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

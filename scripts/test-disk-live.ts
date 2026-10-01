@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Общий диск: один на всю программу, читают все, пишут по праву.
  *
@@ -28,7 +29,7 @@ const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const permsExcept = (off: string) => JSON.stringify(
   Object.fromEntries(FEATURES.map((f) => [f.id, { enabled: f.id !== off, until: null }])),
 );
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let failed = 0;
 const ok = (name: string, cond: boolean, got?: unknown) => {

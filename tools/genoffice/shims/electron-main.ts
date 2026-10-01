@@ -103,7 +103,11 @@ export const ipcMain = {
   removeAllListeners(channel?: string) { if (channel) onHandlers.delete(channel); else onHandlers.clear(); return ipcMain; },
 };
 
-const base = () => join(tmpdir(), 'flux-genoffice');
+// Local native Office sessions use their own private userData/temp directory.
+// Server hosts leave this unset and preserve their existing paths.
+const dataDirectories = new Map<number, string>();
+const dataContext = new AsyncLocalStorage<string>();
+const base = () => dataContext.getStore() || join(tmpdir(), 'flux-genoffice');
 export const app = {
   name: 'Flux Office',
   isPackaged: false,
@@ -130,6 +134,9 @@ export const app = {
 };
 
 const saveTargets = new AsyncLocalStorage<string>();
+const saveCommits = new AsyncLocalStorage<() => Promise<void>>();
+/** Local capability persistence must succeed before a native workbook session is replaced. */
+export const commitFluxSave = async (): Promise<void> => { await saveCommits.getStore()?.(); };
 export const isFluxCopySave = (): boolean => !!saveTargets.getStore();
 export const dialog = {
   showSaveDialog: async () => { const filePath = saveTargets.getStore(); return { canceled: !filePath, filePath }; },
@@ -199,6 +206,9 @@ export const contextBridge = { exposeInMainWorld() {} };
 
 /** Хозяйство сервера Flux: вызвать обработчик окна, слушать его «send» */
 export const __flux = {
+  withDataDir: <T>(path: string | undefined, fn: () => T): T => path ? dataContext.run(path, fn) : fn(),
+  setDataDir: (wcId: number, path: string) => { if (contents.has(wcId)) dataDirectories.set(wcId, path); },
+  withSaveCommit: <T>(commit: () => Promise<void>, fn: () => Promise<T>): Promise<T> => saveCommits.run(commit, fn),
   withSaveTarget: <T>(path: string, fn: () => Promise<T>): Promise<T> => saveTargets.run(path, fn),
   /** Новое окно (без редактора) — для главных процессов, что ждут WebContents */
   makeWebContents: () => new FakeWebContents(),
@@ -208,16 +218,25 @@ export const __flux = {
     const fn = handlers.get(channel);
     if (!wc) throw new Error('Окно редактора закрыто');
     if (!fn) throw new Error(`Нет обработчика «${channel}»`);
-    return fn({ sender: wc, senderFrame: { url: '' }, processId: 0, frameId: 0 }, ...args);
+    const invoke = () => fn({ sender: wc, senderFrame: { url: '' }, processId: 0, frameId: 0 }, ...args);
+    const dir = dataDirectories.get(wcId);
+    return dir ? dataContext.run(dir, invoke) : invoke();
   },
   send(wcId: number, channel: string, args: unknown[]) {
     const wc = contents.get(wcId);
     if (!wc) return;
     const event = { sender: wc, senderFrame: { url: '' }, returnValue: undefined, reply() {} };
-    for (const fn of Array.from(onHandlers.get(channel) || [])) { try { fn(event, ...args); } catch (_) {} }
+    const send = () => { for (const fn of Array.from(onHandlers.get(channel) || [])) { try { fn(event, ...args); } catch (_) {} } };
+    const dir = dataDirectories.get(wcId);
+    if (dir) dataContext.run(dir, send); else send();
   },
   onSend(fn: Sink) { sinks.add(fn); return () => sinks.delete(fn); },
-  destroy(wcId: number) { contents.get(wcId)?.destroy(); },
+  destroy(wcId: number) {
+    const close = () => contents.get(wcId)?.destroy();
+    const dir = dataDirectories.get(wcId);
+    if (dir) dataContext.run(dir, close); else close();
+    dataDirectories.delete(wcId);
+  },
   channels: () => Array.from(handlers.keys()),
 };
 

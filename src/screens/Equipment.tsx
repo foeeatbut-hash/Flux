@@ -1,6 +1,6 @@
 import { SectionHead, Btn, IconBtn, Dialog } from '../components/ui';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useInsightStore } from '../store/insightStore';
 import { useEntityChanged } from '../lib/entityWatch';
 import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport';
@@ -9,9 +9,7 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network, ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine, Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square, ArrowRight, LayoutGrid, List, Search, Save, Download } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
-import ExportBuilder from '../components/equipment/ExportBuilder';
 import UnitSchematic from '../components/equipment/UnitSchematic';
-import type { ExchangeComponent } from '../lib/equipmentExchange';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
@@ -46,7 +44,6 @@ import { compositionView } from '../lib/cardComposition';
 import CategoryViewDialog from '../components/equipment/CategoryViewDialog';
 import { useCategoryView } from '../components/equipment/useCategoryView';
 import { arrange, isHiddenIn, toggleIn, viewOf } from '../lib/categoryView';
-import { rowsOfProject } from '../lib/equipmentRows';
 import AddPositionDialog, { type AddPositionTarget, type AddPositionBody } from '../components/equipment/AddPositionDialog';
 import TagPickerModal, { type PickerTag } from '../components/equipment/TagPickerModal';
 import { compositionOf } from '../../equipment/composition';
@@ -81,7 +78,7 @@ export default function Equipment() {
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
-  const [showExchange, setShowExchange] = useState(false);
+  const navigate = useNavigate();
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -150,35 +147,6 @@ export default function Equipment() {
   const catSystems = useMemo(() => systems.filter(s => s.category === activeCat)
     .sort((a, b) => compareTags(a.name, b.name)), [systems, activeCat]);
 
-  // Плоский список изделий для выгрузки: строка таблицы — одна единица
-  // оборудования со своими тегами и характеристиками
-  const exchangeItems = useMemo<ExchangeComponent[]>(
-    () => rowsOfProject(systems as any, normalizeSpecs),
-    [systems],
-  );
-
-  const exchangeScopes = useMemo(() => {
-    const inCat = exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
-    const unit = selectedUnitId ? systems.find(s => s.id === selectedUnitId) : null;
-    const list = [
-      { id: 'category', label: `Категория «${categories.find(c => c.id === activeCat)?.label || activeCat}»`, count: inCat.length },
-      { id: 'all', label: 'Всё оборудование проекта', count: exchangeItems.length },
-    ];
-    if (unit) list.unshift({ id: `unit:${unit.id}`, label: `Установка «${unit.name}»`, count: exchangeItems.filter(it => it.systemName === unit.name).length });
-    // Первым предлагаем то, где строки есть: окно открывается на выбранном
-    // сверху, и «не попала ни одна строка» вместо таблицы — плохое начало
-    const nonEmpty = list.filter(x => x.count > 0);
-    return nonEmpty.length ? [...nonEmpty, ...list.filter(x => x.count === 0)] : list;
-  }, [exchangeItems, catSystems, systems, selectedUnitId, categories, activeCat]);
-
-  const exchangeRows = (scopeId: string): ExchangeComponent[] => {
-    if (scopeId === 'all') return exchangeItems;
-    if (scopeId.startsWith('unit:')) {
-      const unit = systems.find(s => s.id === scopeId.slice(5));
-      return unit ? exchangeItems.filter(it => it.systemName === unit.name) : [];
-    }
-    return exchangeItems.filter(it => catSystems.some(s => s.name === it.systemName));
-  };
   const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
   const allBlocks = useMemo(() => {
@@ -502,7 +470,7 @@ export default function Equipment() {
           {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
               «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
           <Btn tone="ghost" onClick={() => { setShowOps(true); loadOps(); }} title="Центр операций: что ввозится в фоне и чем кончилось недавнее"><List />Центр операций</Btn>
-          <Btn onClick={() => setShowExchange(true)} title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"><Download />Выгрузка данных</Btn>
+          <Btn onClick={() => navigate(`/equipment-export?projectId=${encodeURIComponent(pid)}&scope=${encodeURIComponent(selectedUnitId ? `unit:${selectedUnitId}` : `cat:${activeCat}`)}`)} title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"><Download />Выгрузка данных</Btn>
           <Btn tone="primary" data-tour="equipment-import-btn" onClick={() => setShowDocImport(true)}
             title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"><ScanLine />Импорт из документов</Btn>
           <IconBtn label="Настройки оборудования" onClick={() => setShowSettings(true)}><Settings /></IconBtn>
@@ -542,15 +510,6 @@ export default function Equipment() {
         </div>
       </nav>
 
-      {showExchange && (
-        <ExportBuilder
-          projectId={pid}
-          scopes={exchangeScopes}
-          rowsOf={(scopeId) => exchangeRows(scopeId).map(it => ({ ...it, cls: types.get(it.id)?.cls, kind: types.get(it.id)?.kind }))}
-          say={addToast}
-          onClose={() => setShowExchange(false)}
-        />
-      )}
 
       {viewOpen && (
         <CategoryViewDialog

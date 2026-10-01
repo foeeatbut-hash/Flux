@@ -27,6 +27,8 @@ export interface Pending {
   message: string;
   /** Когда ответ получен: по нему «Отправлено» гаснет само */
   at: number;
+  intent?: string;
+  code?: string;
 }
 
 const IDLE: Pending = { phase: 'idle', key: '', message: '', at: 0 };
@@ -46,7 +48,7 @@ interface PendingState {
    * повторное нажатие «пока думает» не заводит второго действия — сервер
    * узнаёт тот же ключ и отвечает тем же.
    */
-  run: <T>(action: string, work: (key: string) => Promise<{ ok: boolean; message?: string; result?: T }>) => Promise<T | null>;
+  run: <T>(action: string, work: (key: string) => Promise<{ ok: boolean; message?: string; code?: string; result?: T }>, intent?: string) => Promise<T | null>;
   clear: (action: string) => void;
   reset: () => void;
 }
@@ -56,13 +58,13 @@ export const usePlayPendingStore = create<PendingState>((set, get) => ({
 
   of: (action) => get().byAction[action] || IDLE,
 
-  run: async (action, work) => {
+  run: async (action, work, intent) => {
     const cur = get().of(action);
     // Уже отправляем — второе нажатие ничего не меняет и ничего не портит
     if (cur.phase === 'sending') return null;
 
-    const key = cur.phase === 'failed' && cur.key ? cur.key : newKey();
-    set((s) => ({ byAction: { ...s.byAction, [action]: { phase: 'sending', key, message: '', at: 0 } } }));
+    const key = cur.phase === 'failed' && cur.code === 'OFFLINE' && cur.intent === intent && cur.key ? cur.key : newKey();
+    set((s) => ({ byAction: { ...s.byAction, [action]: { phase: 'sending', key, message: '', at: 0, intent } } }));
 
     const res = await work(key);
     set((s) => ({
@@ -73,6 +75,8 @@ export const usePlayPendingStore = create<PendingState>((set, get) => ({
           key,
           message: res.ok ? '' : String(res.message || 'Не получилось'),
           at: Date.now(),
+          intent,
+          code: res.ok ? '' : res.code,
         },
       },
     }));

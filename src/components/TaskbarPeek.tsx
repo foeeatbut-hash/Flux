@@ -14,9 +14,11 @@ import React from 'react';
 import { X, Plus } from 'lucide-react';
 import { useWindowStore, windowsOf } from '../store/windowStore';
 import { sectionForPath } from '../workspace/sections';
+import { displayForRect } from '../../workspace/displays';
 
-export default function TaskbarPeek({ path, left, onClose }: {
+export default function TaskbarPeek({ path, left, displayId, onClose }: {
   path: string;
+  displayId?: number;
   /** Отступ слева в точках: панель встаёт над своей кнопкой */
   left: number;
   onClose: () => void;
@@ -31,7 +33,8 @@ export default function TaskbarPeek({ path, left, onClose }: {
   const def = sectionForPath(path);
   // Список — про этот стол: на соседнем окна той же программы живут своей
   // жизнью, и мешать их в одну стопку значило бы поднимать невидимое
-  const mine = windowsOf(windows, path, desk);
+  const displays = useWindowStore(s => s.displays);
+  const mine = windowsOf(windows, path, desk).filter(w => displayId === undefined || displayForRect(displays, w)?.id === displayId);
 
   // Подсветка на столе гаснет вместе с панелью: она принадлежит наведению,
   // а не окну

@@ -35,8 +35,8 @@ async function refused(what: string, run: () => Promise<unknown>): Promise<void>
   try {
     await run();
     ok(what, false, 'база приняла вторую запись');
-  } catch (_) {
-    ok(what, true);
+  } catch (error: any) {
+    ok(what, error?.code === 'P2002', { code: error?.code, message: error?.message });
   }
 }
 
@@ -164,11 +164,11 @@ async function refused(what: string, run: () => Promise<unknown>): Promise<void>
   {
     // Проверка не должна оставлять следов: база рабочая, и мусор в ней
     // однажды примут за настоящие данные
-    await prisma.playResult.deleteMany({ where: { sessionId: { contains: mark } } });
+    await prisma.playResult.deleteMany({ where: { sessionId: { in: [sessionId, `${sessionId}-2`, `${sessionId}-3`, `${sessionId}-4`] } } });
     await prisma.playSessionMember.deleteMany({ where: { userId } });
-    await prisma.playSession.deleteMany({ where: { id: { contains: mark } } });
-    await prisma.playLobby.deleteMany({ where: { id: { contains: mark } } });
-    await prisma.playInvite.deleteMany({ where: { partyId: { contains: mark } } });
+    await prisma.playSession.deleteMany({ where: { id: { in: [sessionId, `${sessionId}-2`, `${sessionId}-3`, `${sessionId}-4`] } } });
+    await prisma.playLobby.deleteMany({ where: { id: { in: [lobbyId, `${lobbyId}-2`] } } });
+    await prisma.playInvite.deleteMany({ where: { partyId: { in: [partyId, otherParty] } } });
     await prisma.playPartyMember.deleteMany({ where: { userId } });
     await prisma.playParty.deleteMany({ where: { leaderId: userId } });
     const left = await prisma.playParty.count({ where: { leaderId: userId } });

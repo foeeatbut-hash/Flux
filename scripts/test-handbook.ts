@@ -142,6 +142,8 @@ console.log('\n7. Статья пригодна к чтению');
 console.log('\n8. Поиск находит то, что должен');
 {
   eq('«корзина» ведёт в Проводник', search('корзина')[0]?.article.id, 'explorer');
+  eq('«Файлы Windows» ведёт в локальный Проводник', search('Файлы Windows')[0]?.article.id, 'windows-files');
+  eq('«экспорт оборудования» ведёт в выгрузку данных', search('экспорт оборудования')[0]?.article.id, 'equipment-export');
   eq('«пароль приложения» ведёт в Почту', search('пароль приложения')[0]?.article.id, 'mail');
   eq('«бэкап» ведёт в резервные копии', search('бэкап')[0]?.article.id, 'backup');
   eq('«кто что может» ведёт в права', search('кто что может')[0]?.article.id, 'access');
@@ -156,6 +158,9 @@ console.log('\n9. Вход из раздела');
 {
   eq('у Почты есть своя статья', forRoute('/mail')?.id, 'mail');
   eq('у Тегов есть своя статья', forRoute('/registry')?.id, 'registry');
+  eq('у выгрузки есть своя статья', forRoute('/equipment-export')?.id, 'equipment-export');
+  eq('у Проводника Windows есть своя статья', forRoute('/windows-files')?.id, 'windows-files');
+  eq('у локального файла Windows есть своя статья', forRoute('/windows-file')?.id, 'windows-file');
   eq('неизвестный путь не даёт статью', forRoute('/нет-такого'), null);
 }
 

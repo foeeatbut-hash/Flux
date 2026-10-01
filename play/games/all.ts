@@ -6,6 +6,8 @@
  * работала бы в проверках и «не подключена» у человека.
  */
 
+import './billiards.js';
+import './durak.js';
 import './reversi.js';
 import './g2048.js';
 import './sudoku.js';

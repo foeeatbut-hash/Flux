@@ -35,6 +35,11 @@ jobs:
       - name: Зависимости
         run: npm ci
 
+      # Проверка настоящих NTFS, junction и ReplaceFileW до смены ABI SQLite
+      # на Electron; весь файловый стенд создаётся в одноразовой папке TEMP.
+      - name: Проверка проводника Windows и сохранения оригиналов
+        run: node --import tsx scripts/test-windows-files.ts
+
       # Редакторы Flux Office — Документ, Таблица, PDF — из GenOffice по
       # закреплённому коммиту (tools/genoffice/build.mjs). До сборки фронтенда:
       # Vite кладёт public/ в dist, и окна редакторов едут в сборку с ним.

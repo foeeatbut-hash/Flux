@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Два встроенных сервера на одной базе видят одно и то же.
  *
@@ -20,7 +21,7 @@ import { FEATURES } from '../src/lib/permissions';
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const SECOND_PORT = Number(process.env.FLUX_SECOND_PORT || 3101);
 const SECOND = `http://localhost:${SECOND_PORT}`;
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -63,7 +64,9 @@ async function main() {
   let authorId = '';
   try {
     console.log(`1. Поднимаем второй сервер на порту ${SECOND_PORT}`);
-    second = spawn('npx', ['tsx', 'server.ts'], {
+    // Прямой процесс нужен для завершения теста: остановка npx оставляла
+    // сервер-потомок на порту, и следующий прогон подключался к чужой базе.
+    second = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
       cwd: process.cwd(),
       env: { ...process.env, PORT: String(SECOND_PORT) },
       stdio: 'ignore',
@@ -143,7 +146,8 @@ async function main() {
     ok('счётчик ждущих посчитан', unread.status === 200 && typeof unread.json?.data?.total === 'number', unread.json);
   } finally {
     if (second && !second.killed) { try { second.kill('SIGTERM'); } catch (_) { /* уже вышел */ } }
-    await wait(500);
+    for (let n = 0; second && second.exitCode === null && n < 20; n++) await wait(100);
+    if (second && second.exitCode === null) second.kill('SIGKILL');
     if (authorId) {
       const a = (await api(BASE, 'POST', '/api/login', '', LOGIN)).json?.token || '';
       await api(BASE, 'DELETE', `/api/users/${authorId}`, a).catch(() => {});

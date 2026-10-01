@@ -15,6 +15,12 @@ export function trustedAuthSender(event: Electron.IpcMainInvokeEvent): boolean {
 export function secureStorageAvailable(): boolean {
   return safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 }
+export function readNativeSession(server: string): string {
+  return createSessionVault(app.getPath('userData'), new URL(server || 'http://localhost:3000').origin, {
+    available: secureStorageAvailable, encrypt: value => safeStorage.encryptString(value),
+    decrypt: value => safeStorage.decryptString(value),
+  }).read();
+}
 export function setupAuthStorage(configuredServer: () => string) {
   const vault = () => createSessionVault(app.getPath('userData'), new URL(configuredServer() || 'http://localhost:3000').origin, {
     available: secureStorageAvailable,

@@ -7,33 +7,19 @@
  */
 
 import type React from 'react';
-import ReversiBoard from './ReversiBoard';
-import G2048Board from './G2048Board';
-import SudokuBoard from './SudokuBoard';
-import CheckersBoard from './CheckersBoard';
-import SeaBattleBoard from './SeaBattleBoard';
-import ChessBoard from './ChessBoard';
-import ConnectFourBoard from './ConnectFourBoard';
-import DrawPokerBoard from './DrawPokerBoard';
+import BilliardsBoard from './BilliardsBoard';
+import DurakBoard from './DurakBoard';
 import UnknownBoard from './UnknownBoard';
 
 export interface BoardProps {
   view: any;
   yourTurn: boolean;
   busy: boolean;
+  names?: Record<string, string>;
   onMove: (move: unknown) => void | Promise<void>;
 }
 
-const BOARDS: Record<string, React.ComponentType<BoardProps>> = {
-  reversi: ReversiBoard,
-  g2048: G2048Board,
-  sudoku: SudokuBoard,
-  checkers: CheckersBoard,
-  seabattle: SeaBattleBoard,
-  chess: ChessBoard,
-  connectfour: ConnectFourBoard,
-  drawpoker: DrawPokerBoard,
-};
+const BOARDS: Record<string, React.ComponentType<BoardProps>> = { billiards: BilliardsBoard, cards: DurakBoard };
 
 export const boardFor = (gameId: string): React.ComponentType<BoardProps> =>
   BOARDS[String(gameId || '')] || UnknownBoard;

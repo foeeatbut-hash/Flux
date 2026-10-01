@@ -37,6 +37,31 @@ function noteIpc(channel: string, start: number, ok: boolean, error?: string): v
 };
 
 contextBridge.exposeInMainWorld('electron', {
+  windowsFiles: {
+    invoke: (request: unknown) => ipcRenderer.invoke('windows-files:invoke', request),
+    onChanged: (callback: (change: unknown) => void) => {
+      const listener = (_event: unknown, change: unknown) => callback(change);
+      ipcRenderer.on('windows-files:changed', listener);
+      return () => ipcRenderer.removeListener('windows-files:changed', listener);
+    },
+  },
+  localOffice: {
+    invoke: (request: unknown) => ipcRenderer.invoke('windows-office:invoke', request),
+    onEvent: (callback: (event: unknown) => void) => {
+      const listener = (_event: unknown, event: unknown) => callback(event);
+      ipcRenderer.on('windows-office:event', listener);
+      return () => ipcRenderer.removeListener('windows-office:event', listener);
+    },
+  },
+  displays: {
+    get: () => ipcRenderer.invoke('workspace:displays-get'),
+    set: (enabled: boolean) => ipcRenderer.invoke('workspace:displays-set', enabled),
+    onChanged: (callback: (event: unknown) => void) => {
+      const listener = (_event: unknown, value: unknown) => callback(value);
+      ipcRenderer.on('workspace:displays-changed', listener);
+      return () => ipcRenderer.removeListener('workspace:displays-changed', listener);
+    },
+  },
   /** Подробная запись работы программы: состояние, папка, режим */
   diagnostics: {
     append: (batch: unknown[]) => ipcRenderer.invoke('diagnostics:append', batch),

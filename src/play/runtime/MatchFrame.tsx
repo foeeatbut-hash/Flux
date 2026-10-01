@@ -28,6 +28,7 @@ export interface MatchState {
   done: boolean;
   winnerTeam: number;
   why: string;
+  details?: Record<string, unknown>;
   seats: string[];
 }
 
@@ -47,6 +48,7 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
 
   const load = React.useCallback(async () => {
     const res = await api.fetchMatch(sessionId);
+    if (!res.ok) setFailure(String(res.message || 'Не удалось обновить стол'));
     if (res.ok) setMatch(previous => {
       const next = (res.result || null) as MatchState | null;
       return previous && next && previous.sessionId === next.sessionId && previous.revision > next.revision ? previous : next;
@@ -61,12 +63,12 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
    *
    * Событие по сокету говорит только «поменялось», и на нём одном строить
    * нельзя: окно, которое в нужную секунду было без связи, так и осталось бы
-   * с прежней доской. Две секунды — не нагрузка: доска маленькая, а ждать
-   * соперника всё равно приходится.
+   * с прежней доской. Короткий опрос восстанавливает пропущенные события
+   * даже при подключении сотрудников к разным серверным процессам.
    */
   React.useEffect(() => {
     if (!match || match.done) return;
-    const t = setInterval(() => { void load(); }, 2000);
+    const t = setInterval(() => { void load(); }, 700);
     return () => clearInterval(t);
   }, [match?.revision, match?.done, load]);
 
@@ -85,7 +87,8 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
   const giveUp = async () => {
     if (!match || busy) return;
     setBusy(true);
-    await api.resignMatch(sessionId, newKey());
+    const result = await api.resignMatch(sessionId, newKey());
+    if (!result.ok) setFailure(String(result.message || 'Не удалось завершить партию'));
     setBusy(false);
     await load();
   };
@@ -100,8 +103,9 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
   if (!match) {
     return (
       <div className="blank">
-        <div className="blank-title">Доски нет</div>
-        <div className="blank-text">Матч не найден или уже закончился.</div>
+        <div className="blank-title">{failure ? 'Не удалось открыть стол' : 'Доски нет'}</div>
+        <div className="blank-text">{failure || 'Матч не найден.'}</div>
+        <button className="fx-btn" onClick={() => void load()}><RefreshCw className="w-4 h-4" />Повторить</button>
       </div>
     );
   }
@@ -133,7 +137,7 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
           className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить доску">
           <RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />
         </button>
-        {!match.done && (
+        {!match.done && mySeat > 0 && (
           <button type="button" onClick={() => void giveUp()} disabled={busy}
             className="fx-btn fx-btn-danger fx-btn-sm">
             <Flag className="w-3.5 h-3.5" />{solo ? 'Бросить' : 'Сдаться'}
@@ -147,6 +151,11 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
         )}
       </div>
 
+      {match.done && Array.isArray(match.details?.winners) && <p className="text-xs text-slate-600 dark:text-slate-300">
+        Победители: {(match.details.winners as string[]).map(id => names[id] || 'Сотрудник').join(', ')}
+        {typeof match.details.loser === 'string' && ` · Дурак: ${names[match.details.loser] || 'Сотрудник'}`}
+      </p>}
+
       {failure && (
         <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2">
           {failure}
@@ -156,7 +165,8 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
       <Board
         view={match.view}
         yourTurn={match.yourTurn && !match.done}
-        busy={busy}
+        busy={busy || match.done}
+        names={names}
         onMove={move}
       />
     </div>

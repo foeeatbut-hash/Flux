@@ -1,26 +1,8 @@
-/**
- * Адаптер встроенной игры: сервер — это мы сами.
- *
- * Договор платформы написан под внешнюю игру: выделить сервер, принять
- * подписанный результат, отпустить сервер. Настольной игре выделять нечего, а
- * результат ей неоткуда взять, кроме как от нас же.
- *
- * Поэтому здесь важно не соврать в двух местах.
- *
- * **`allocate` не выделяет сервер**, а заводит доску. Адрес возвращается
- * словом «встроенная», а не выдуманным «host:port»: окно по нему никуда не
- * пойдёт, и притворяться, что пойдёт, незачем.
- *
- * **`verify` не проверяет подпись, потому что её нет.** Договор прямо требует:
- * «адаптер игры, у которой подписи нет, обязан сказать об этом вслух, а не
- * возвращать `true`». Здесь он и говорит: принимается только результат,
- * написанный самим сервером (`signature === 'builtin'`), а всё остальное —
- * нет. Результат встроенной игры никуда не уезжал: его посчитали те же чистые
- * правила, которыми шла партия, и подписывать нечего.
- */
+/** Встроенная игра считает состояние и итог на сервере, а не принимает счёт от клиента. */
 
 import { randomBytes } from 'node:crypto';
 import { registerAdapter, type AllocatedServer, type GameAdapter } from './contract.js';
+import { PLAY_GAMES } from '../../../play/features.js';
 import { allRules } from '../../../play/games/all.js';
 import { openMatch } from '../match.js';
 
@@ -38,10 +20,10 @@ const builtinAdapter = (id: string): GameAdapter => ({
     return { address: BUILTIN_ADDRESS, externalId: sessionId };
   },
 
-  async verify(_sessionId, _payload, signature): Promise<boolean> {
-    // Подписи у встроенной игры нет, и «да» на любой запрос означало бы, что
-    // результат можно прислать снаружи
-    return signature === 'builtin';
+  async verify(_sessionId, _payload, _signature): Promise<boolean> {
+    // Даже строка builtin от клиента не является подписью: итог пишут
+    // правила внутри транзакции хода, HTTP-публикация его не принимает.
+    return false;
   },
 
   async release(): Promise<void> {
@@ -51,5 +33,5 @@ const builtinAdapter = (id: string): GameAdapter => ({
 
 /** Подключить адаптеры ко всем встроенным играм разом. */
 export function registerBuiltinAdapters(): void {
-  for (const rules of allRules()) registerAdapter(builtinAdapter(rules.id));
+  for (const rules of allRules()) if (PLAY_GAMES.some(game => game.id === rules.id)) registerAdapter(builtinAdapter(rules.id));
 }

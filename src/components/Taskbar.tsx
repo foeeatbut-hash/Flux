@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import {
-  Bell, BellOff, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
+  Bell, BellOff, Monitor, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { visibleSections } from '../lib/appPolicy';
@@ -38,6 +38,8 @@ import DeskSwitcher from './DeskSwitcher';
 import ProjectSwitcher from './ProjectSwitcher';
 import ClockPanel from './calendar/ClockPanel';
 import { useUpdateStore, updateReady } from '../store/updateStore';
+import { displayForRect } from '../../workspace/displays';
+import { useDisplayStore } from '../store/displayStore';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -49,10 +51,12 @@ function useNow(): Date {
   return now;
 }
 
-export default function Taskbar() {
+export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const user = useStore((s) => s.user);
   const activeProject = useStore((s) => s.activeProject);
-  const windows = useWindowStore((s) => s.windows);
+  const allWindows = useWindowStore(s => s.windows);
+  const displays = useWindowStore(s => s.displays);
+  const windows = React.useMemo(() => displayId === undefined ? allWindows : allWindows.filter(w => displayForRect(displays, w)?.id === displayId), [allWindows, displays, displayId]);
   const desk = useWindowStore((s) => s.desk);
   const toggleWindow = useWindowStore((s) => s.toggle);
   const minimizeAll = useWindowStore((s) => s.minimizeAll);
@@ -121,8 +125,9 @@ export default function Taskbar() {
   // хранилище рабочего стола: список нужен только Пуску и переживает закрытие
   const openSection = React.useCallback((path: string) => {
     rememberSectionUse(path);
+    if (displayId !== undefined) useWindowStore.getState().setActiveDisplay(displayId);
     toggleWindow(path);
-  }, [toggleWindow]);
+  }, [toggleWindow, displayId]);
 
   /**
    * Что считать «открытым»: открытые окна, включая свёрнутые. У свёрнутого
@@ -233,6 +238,7 @@ export default function Taskbar() {
   const initUpdate = useUpdateStore((s) => s.init);
 
   React.useEffect(() => {
+    if (displayId !== undefined && !displays.find(d => d.id === displayId)?.primary) return;
     void initUpdate(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
     // Первая проверка — после того, как оболочка поднялась; дальше раз в час и
     // мгновенно, когда администратор публикует релиз
@@ -245,7 +251,7 @@ export default function Taskbar() {
       clearInterval(timer);
       window.removeEventListener('socket:app:update-published', onPublished);
     };
-  }, [initUpdate, checkUpdate]);
+  }, [initUpdate, checkUpdate, displayId, displays]);
 
   const openUpdates = () => {
     useUpdateStore.getState().markSeen();
@@ -267,6 +273,7 @@ export default function Taskbar() {
       role="toolbar"
       aria-label="Панель задач"
       data-taskbar
+      onPointerDownCapture={() => { if (displayId !== undefined) useWindowStore.getState().setActiveDisplay(displayId); }}
       /* Высота, рост кнопки и размер значка — общая мера оболочки
          (src/lib/metrics.ts): панель обязана быть того же роста, что и ряд
          значков в системе, иначе программа рядом с ней выглядит увеличенной */
@@ -298,6 +305,13 @@ export default function Taskbar() {
         <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
       </button>
 
+      {displayId !== undefined && <button type="button" aria-label="Вернуться в оконный режим"
+        title="Вернуться в оконный режим · Ctrl+Alt+M"
+        onClick={() => void useDisplayStore.getState().setAllMonitors(false)}
+        style={{ width: BAR_BTN, height: BAR_BTN }}
+        className="flex items-center justify-center rounded-lg shrink-0 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800">
+        <Monitor size={BAR_ICON} />
+      </button>}
       <div className="w-2 shrink-0" />
 
       {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во
@@ -548,7 +562,7 @@ export default function Taskbar() {
       {clockOpen && <ClockPanel onClose={() => setClockOpen(false)} />}
 
       {peek && (
-        <TaskbarPeek path={peek.path} left={peek.left + 12} onClose={() => setPeek(null)} />
+        <TaskbarPeek path={peek.path} displayId={displayId} left={peek.left + 12} onClose={() => setPeek(null)} />
       )}
       {moreMenu && (
         <ContextMenu

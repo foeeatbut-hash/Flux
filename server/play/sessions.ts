@@ -114,6 +114,10 @@ export async function claimSession(
 
   const slots = await tx.playLobbySlot.findMany({ where: { lobbyId } });
   if (!slots.length) fail(PLAY_ERRORS.INVALID, 'В лобби никого нет');
+  const definition = gameById(lobby.gameId);
+  if (!definition) fail(PLAY_ERRORS.UNSUPPORTED, 'Эта игра больше недоступна');
+  if (definition.variableSeats?.max && slots.length > definition.variableSeats.max) fail(PLAY_ERRORS.NOT_READY, `За столом может играть не больше ${definition.variableSeats.max} человек; остальные могут наблюдать`);
+  if (definition.variableSeats ? slots.length < definition.variableSeats.min || (definition.variableSeats.max !== undefined && slots.length > definition.variableSeats.max) : slots.length !== definition.teams * definition.teamSize || slots.some((s: any) => slots.filter((other: any) => other.team === s.team).length !== definition.teamSize)) fail(PLAY_ERRORS.NOT_READY, 'Нужен полный состав готовых игроков');
   if (!slots.every((s: any) => s.ready)) fail(PLAY_ERRORS.NOT_READY);
   if (!adapterFor(lobby.gameId)) {
     fail(PLAY_ERRORS.UNSUPPORTED, 'Эта игра ещё не подключена к платформе');

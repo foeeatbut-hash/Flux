@@ -27,10 +27,11 @@ import {
 } from '../lib/rightPanels';
 import NotificationsPanel from './NotificationsPanel';
 import AssistantPanel from './AssistantPanel';
+import type { DisplayRect } from '../../workspace/displays';
 
 const SPLIT_KEY = 'flux_dock_split';
 
-export default function RightDock() {
+export default function RightDock({ bounds }: { bounds?: DisplayRect } = {}) {
   const notifOpen = useNotificationStore((s) => s.panelOpen);
   const assistantOpen = useAssistantStore((s) => s.isOpen);
 
@@ -59,7 +60,7 @@ export default function RightDock() {
   const boxRef = React.useRef<HTMLDivElement>(null);
   const [tab, setTab] = React.useState<PanelId | null>(null);
 
-  const plan = dockPlan(opened, width, split);
+  const plan = dockPlan(opened, bounds?.w ?? width, split);
   // Пока колонка открыта, страница браузера уступает место: родной слой
   // Chromium выше любой разметки, и без этого панель оказалась бы под страницей
   useOverlay(plan.order.length > 0);
@@ -90,7 +91,7 @@ export default function RightDock() {
   return (
     <aside
       ref={boxRef}
-      style={{ zIndex: Z.tray, width: PANEL_W, right: 'var(--flux-rail-w, 0px)', bottom: 'var(--flux-taskbar-h, 0px)' }}
+      style={{ zIndex: Z.tray, width: Math.min(PANEL_W, bounds?.w ?? PANEL_W), ...(bounds ? { left: bounds.x + Math.max(0, bounds.w - PANEL_W), top: bounds.y, height: bounds.h } : { right: 'var(--flux-rail-w, 0px)', bottom: 'var(--flux-taskbar-h, 0px)' }) }}
       data-right-dock
       className="absolute top-0 flex flex-col bg-white dark:bg-slate-900 border-l
                  border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"

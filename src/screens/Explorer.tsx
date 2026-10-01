@@ -30,6 +30,7 @@ import { countOf } from '../lib/plural';
 import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
+import WindowsExplorer from '../components/explorer/WindowsExplorer';
 import { uploadDropped } from '../lib/dropUpload';
 import { heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
@@ -64,6 +65,12 @@ const decodeTextContent = (dataUri: string): string => {
 };
 
 export default function Explorer() {
+  const [params] = useSearchParams();
+  const archive = params.get('projectFiles') === '1' || params.has('file') || params.has('folder') || params.has('open');
+  return (window as any).electron?.windowsFiles && !archive
+    ? <WindowsExplorer /> : <ProjectExplorer />;
+}
+function ProjectExplorer() {
   const { activeProject, explorerHistory, explorerForward, pushHistory, goBack, goForward, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, explorerHistory: s.explorerHistory, explorerForward: s.explorerForward, pushHistory: s.pushHistory, goBack: s.goBack, goForward: s.goForward, user: s.user })));
   
   const { addToast } = useToastStore();
@@ -2390,4 +2397,3 @@ const SkeletonRow = () => (
     </td>
   </tr>
 );
-

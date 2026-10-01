@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Документ Flux Office в окне Flux: открыть файл Word, поправить, сохранить.
  *
@@ -22,7 +23,7 @@ import JSZip from 'jszip';
 import { makeDocx, loginPage } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let f = 0;

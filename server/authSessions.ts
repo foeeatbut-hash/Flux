@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { Express } from 'express';
 import { getPrisma } from './context.js';
 import { authTokenFromRequest, createCookieAuth } from './authCookies.js';
+import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from './legacyIdentity.js';
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 interface Claims { v: 2; uid: string; iat: number; exp: number; stamp: string; sid: string }
@@ -38,6 +39,7 @@ export function createAuthSessions(deps: SessionDeps) {
   const issue = async (userId: string): Promise<string> => {
     const user = await getUser(userId);
     if (!user || user.isActive === false) throw new Error('Профиль недоступен');
+    if (isLegacyBootstrapAdmin(user)) throw new Error(LEGACY_BOOTSTRAP_REFUSAL);
     const now = Date.now();
     const claims: Claims = { v: 2, uid: userId, iat: now, exp: now + SESSION_TTL_MS, stamp: credentialStamp(user, await rolePermissions(user)), sid: crypto.randomBytes(16).toString('hex') };
     const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
@@ -50,7 +52,7 @@ export function createAuthSessions(deps: SessionDeps) {
     // Не кэшируем: два сервера на одной БД должны одновременно прекратить
     // принимать сессию после смены пароля, снятия права или выхода.
     const [user, revoked] = await Promise.all([getUser(c.uid), getPrisma().appSetting.findUnique({ where: { id: revocationId(c) }, select: { id: true } })]);
-    if (!user || revoked || user.isActive === false || (user.role !== 'OWNER' && user.validUntil && new Date(user.validUntil).getTime() < Date.now())) return null;
+    if (!user || revoked || user.isActive === false || isLegacyBootstrapAdmin(user) || (user.role !== 'OWNER' && user.validUntil && new Date(user.validUntil).getTime() < Date.now())) return null;
     if (!same(c.stamp, credentialStamp(user, await rolePermissions(user)))) return null;
     return user;
   };

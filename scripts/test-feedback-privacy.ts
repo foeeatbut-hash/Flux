@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Внутреннее не доходит до автора, а два обработчика не перетирают друг друга.
  *
@@ -20,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { FEATURES } from '../src/lib/permissions';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const SECRET = 'ВНУТРЕННЯЯ_ЗАМЕТКА_НЕ_ДЛЯ_АВТОРА';
 
 let f = 0;

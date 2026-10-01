@@ -42,6 +42,7 @@ export interface MatchView {
   done: boolean;
   winnerTeam: number;
   why: string;
+  details: Record<string, unknown>;
   /** Места в порядке команд: первый ходит первым */
   seats: string[];
 }
@@ -71,9 +72,11 @@ export async function openMatch(sessionId: string, gameId: string, seats: string
         revision: 1,
       },
     });
-  } catch (_) {
-    // Доска уже заведена — второй раз начинать партию заново нельзя: это
-    // стёрло бы сделанные ходы
+  } catch (error) {
+    // Только существующий стол подтверждает безопасный повтор: сбой БД
+    // не должен выдавать запущенную игру без доски.
+    const existing = await prisma.playMatch.findFirst({ where: { sessionId } });
+    if (!existing || existing.gameId !== gameId) throw error;
   }
 }
 
@@ -82,6 +85,15 @@ export async function matchView(sessionId: string, userId: string): Promise<Matc
   const prisma = getPrisma();
   const row = await prisma.playMatch.findFirst({ where: { sessionId } });
   if (!row) return null;
+  const lifecycle = await prisma.playSession.findUnique({ where: { id: sessionId } });
+  const stopped = lifecycle?.state === 'CANCELLED' || lifecycle?.state === 'FINISHED';
+  const members: string[] = safeJson(row.seatsJson) || [];
+  if (!members.includes(userId)) {
+    const session = await prisma.playSession.findUnique({ where: { id: sessionId } });
+    const lobby = session ? await prisma.playLobby.findUnique({ where: { id: session.lobbyId } }) : null;
+    const member = lobby ? await prisma.playPartyMember.findFirst({ where: { partyId: lobby.partyId, userId, leftAt: null } }) : null;
+    if (!member) return null;
+  }
   const rules = rulesOf(row.gameId);
   if (!rules) return null;
 
@@ -92,12 +104,13 @@ export async function matchView(sessionId: string, userId: string): Promise<Matc
   const resignedWinner = resigned >= 0 && state.seats.length > 1 ? (resigned === 0 ? 2 : 1) : 0;
   return {
     sessionId, gameId: row.gameId, revision: row.revision,
-    turnUserId: resigned >= 0 ? '' : turnUserId,
-    yourTurn: resigned < 0 && !!turnUserId && turnUserId === userId,
+    turnUserId: resigned >= 0 || stopped ? '' : turnUserId,
+    yourTurn: !stopped && resigned < 0 && !!turnUserId && turnUserId === userId,
     view: rules.viewOf(state, userId),
-    done: outcome.done || resigned >= 0,
+    done: outcome.done || resigned >= 0 || stopped,
     winnerTeam: resigned >= 0 ? resignedWinner : outcome.winnerTeam,
-    why: resigned >= 0 ? (resignedWinner ? `Игрок ${resigned + 1} сдался` : 'Партия брошена') : outcome.why,
+    why: lifecycle?.state === 'CANCELLED' ? 'Матч отменён' : resigned >= 0 ? (resignedWinner ? `Игрок ${resigned + 1} сдался` : 'Партия брошена') : outcome.why,
+    details: outcome.details,
     seats: safeJson(row.seatsJson) || [],
   };
 }
@@ -120,6 +133,8 @@ export async function makeMove(
     work: async (tx) => {
       const row = await tx.playMatch.findFirst({ where: { sessionId } });
       if (!row) fail(PLAY_ERRORS.NOT_FOUND, 'Партия не найдена');
+      const lifecycle = await tx.playSession.findUnique({ where: { id: sessionId } });
+      if (lifecycle?.state !== 'RUNNING') fail(PLAY_ERRORS.INVALID, 'Матч уже завершён или отменён');
 
       const rules = rulesOf(row.gameId);
       if (!rules) fail(PLAY_ERRORS.UNSUPPORTED);
@@ -133,6 +148,8 @@ export async function makeMove(
       if (!seats.includes(userId)) fail(PLAY_ERRORS.FORBIDDEN, 'Вы не за этой доской');
 
       const state = safeJson(row.stateJson);
+      if (row.gameId === 'billiards' && state.shotEndAt > Date.now()) fail(PLAY_ERRORS.INVALID, 'Шары ещё движутся');
+      if (!Number.isInteger(expectedRevision) || expectedRevision! < 1) fail(PLAY_ERRORS.INVALID, 'Нужна актуальная версия стола');
       // Отказ возвращается СЛОВАМИ самой игры: «не ваш ход» и «сюда нельзя,
       // ничего не переворачивается» — разные вещи, и человек должен видеть,
       // какая из них случилась
@@ -140,6 +157,7 @@ export async function makeMove(
       if (why) fail(PLAY_ERRORS.INVALID, why);
 
       const next = rules!.apply(state, userId, move);
+      if (row.gameId === 'billiards' && (move as any)?.type === 'shot') next.shotEndAt = Date.now() + (next.lastShot?.durationMs || 0);
       const outcome = rules!.outcome(next);
 
       // Условное обновление: между чтением и записью доску мог сдвинуть сосед
@@ -200,9 +218,25 @@ export async function resign(sessionId: string, userId: string, key: string): Pr
     work: async (tx) => {
       const row = await tx.playMatch.findFirst({ where: { sessionId } });
       if (!row) fail(PLAY_ERRORS.NOT_FOUND, 'Партия не найдена');
+      const lifecycle = await tx.playSession.findUnique({ where: { id: sessionId } });
+      if (lifecycle?.state !== 'RUNNING') fail(PLAY_ERRORS.INVALID, 'Матч уже завершён или отменён');
       const seats: string[] = safeJson(row.seatsJson) || [];
       const mine = seats.indexOf(userId);
       if (mine < 0) fail(PLAY_ERRORS.FORBIDDEN, 'Вы не за этой доской');
+      if (row.gameId === 'cards') {
+        const rules = rulesOf(row.gameId)!;
+        const state = safeJson(row.stateJson);
+        const why = rules.why(state, userId, { type: 'resign' });
+        if (why) fail(PLAY_ERRORS.INVALID, why);
+        const next = rules.apply(state, userId, { type: 'resign' });
+        const outcome = rules.outcome(next), revision = row.revision + 1;
+        const saved = await tx.playMatch.updateMany({ where: { id: row.id, revision: row.revision }, data: { stateJson: stableJson(next), revision: { increment: 1 }, updatedAt: new Date() } });
+        if (!saved.count) fail(PLAY_ERRORS.VERSION_CONFLICT);
+        await appendEvent(tx, 'match', sessionId, revision, 'retired', { by: userId });
+        for (const seat of seats) await enqueue(tx, `match:${sessionId}:${revision}:${seat}`, seat, 'match', { sessionId, revision });
+        if (outcome.done) await tx.playResult.create({ data: { id: randomUUID(), sessionId, payloadJson: stableJson({ winnerTeam: outcome.winnerTeam, details: outcome.details, why: outcome.why }), signature: 'builtin' } });
+        return { revision, done: outcome.done, why: outcome.why };
+      }
       if (row.resignedBy || rulesOf(row.gameId)?.outcome(safeJson(row.stateJson)).done) {
         fail(PLAY_ERRORS.INVALID, 'Партия уже окончена');
       }
@@ -233,7 +267,7 @@ export async function resign(sessionId: string, userId: string, key: string): Pr
       return { revision, done: true, why };
     },
   }).then(async (receipt) => {
-    if (receipt.ok) { try { await finishSession(sessionId); } catch (_) { /* разберёт обслуживание */ } }
+    if (receipt.ok && receipt.result?.done) { try { await finishSession(sessionId); } catch (_) { /* разберёт обслуживание */ } }
     return receipt;
   });
 }

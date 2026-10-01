@@ -1,7 +1,7 @@
 import { drawpoker, handValue, compareHands, type PokerState } from '../play/games/drawpoker';
 import { chachaBlock } from '../play/games/secureDeck';
 import { rulesOf } from '../play/games/all';
-import { gameById, gameEntitlement } from '../play/features';
+import { gameById, gameEntitlement, playEntitlementById } from '../play/features';
 
 let failed = 0;
 const ok = (name: string, pass: boolean) => pass
@@ -10,10 +10,10 @@ const seats = ['первый', 'второй'];
 const play = (s: PokerState, move: any) => drawpoker.apply(s, seats[s.turn], move);
 
 const c = (rank: number, suit: number) => suit * 13 + rank - 2;
-ok('покер подключён к каталогу, правам и серверному реестру',
-  gameById('drawpoker')?.kind === 'builtin' && !!gameEntitlement('drawpoker') && rulesOf('drawpoker') === drawpoker);
-ok('четыре в ряд подключена к каталогу и серверному реестру',
-  gameById('connectfour')?.kind === 'builtin' && !!rulesOf('connectfour'));
+ok('архивный покер скрыт из каталога и прав, его правила сохраняют совместимость истории',
+  !gameById('drawpoker') && !playEntitlementById(gameEntitlement('drawpoker')) && rulesOf('drawpoker') === drawpoker);
+ok('архивная игра четыре в ряд скрыта, её правила сохранены для старых данных',
+  !gameById('connectfour') && !playEntitlementById(gameEntitlement('connectfour')) && !!rulesOf('connectfour'));
 const hex = (bytes: Uint8Array) => [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 ok('поток колоды совпадает с проверочным вектором ChaCha20', hex(chachaBlock(
   Uint8Array.from({ length: 32 }, (_, i) => i), 1,

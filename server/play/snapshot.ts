@@ -52,7 +52,12 @@ export async function snapshotFor(userId: string): Promise<PlaySnapshot> {
   const lobby = party ? await lobbyOfParty(party.id) : null;
   if (lobby) versions[versionKey('lobby', lobby.id)] = lobby.revision;
 
-  const session = await sessionOf(userId);
+  let session = await sessionOf(userId);
+  if (!session && lobby && party?.members.some(m => m.userId === userId && m.role === 'SPECTATOR')) {
+    const active = await prisma.playSession.findFirst({ where: { lobbyId: lobby.id, state: 'RUNNING' } });
+    const seat = active ? await prisma.playSessionMember.findFirst({ where: { sessionId: active.id, state: 'ACTIVE' } }) : null;
+    if (seat) session = await sessionOf(seat.userId);
+  }
   if (session) versions[versionKey('session', session.id)] = session.revision;
 
   /**

@@ -20,14 +20,23 @@ import { clampDesk, deskName, reindexWindows, safeDesks, stepDesk } from '../lib
 import { sectionForPath } from '../workspace/sections';
 import { sectionAccess } from '../lib/appPolicy';
 import { appContext } from './policyStore';
+import { displayAt, displayForRect, displaySnap, rebaseRect, recoverRect, type WorkspaceDisplay, type DisplayRect } from '../../workspace/displays';
 
 const KEY = 'flux_windows';
 const DESKS_KEY = 'flux_desks';
+const DISPLAY_KEY = 'flux_window_display_geometry';
 
 interface WindowState {
   windows: WinState[];
   /** Размер стола: приходит от разметки, нужен геометрии */
   area: Area;
+  displays: WorkspaceDisplay[];
+  displayOrigin: DisplayRect | null;
+  activeDisplayId: number | null;
+  snappingDisplayId: number | null;
+  setDisplayAreas: (displays: WorkspaceDisplay[], origin: DisplayRect | null) => void;
+  setActiveDisplay: (id: number) => void;
+  finishMove: (id: string) => void;
   /** Куда прилипнет окно, если отпустить прямо сейчас — рисуется подсветкой */
   snapping: SnapZone;
 
@@ -65,12 +74,12 @@ interface WindowState {
   maximize: (id: string) => void;
   move: (id: string, dx: number, dy: number) => void;
   resize: (id: string, edge: Edge, dx: number, dy: number) => void;
-  setSnapping: (zone: SnapZone) => void;
+  setSnapping: (zone: SnapZone, displayId?: number | null) => void;
   applySnap: (id: string, zone: SnapZone) => void;
   tileAll: () => void;
   minimizeAll: () => void;
   /** Поставить окно в готовую долю экрана; прежний размер запоминается */
-  putInShare: (id: string, share: { x: number; y: number; w: number; h: number }) => void;
+  putInShare: (id: string, share: { x: number; y: number; w: number; h: number }, displayId?: number) => void;
   addDesk: () => void;
   removeDesk: (index: number) => void;
   renameDesk: (index: number, name: string) => void;
@@ -110,6 +119,19 @@ function restored(): WinState[] {
   } catch (_) { return []; }
 }
 
+function restoredDisplayGeometry(): { displays: WorkspaceDisplay[]; origin: DisplayRect | null } {
+  const empty = { displays: [], origin: null };
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DISPLAY_KEY);
+    const value = raw ? JSON.parse(raw) : null;
+    const validRect = (r: any) => r && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(r[k])) && r.w > 0 && r.h > 0;
+    if (!value?.origin || !validRect(value.origin) || !Array.isArray(value.displays) || !value.displays.length) return empty;
+    if (!value.displays.every((d: any) => Number.isFinite(d.id) && validRect(d.bounds) && validRect(d.workArea))) return empty;
+    return { displays: value.displays, origin: value.origin };
+  } catch { return empty; }
+}
+const savedDisplayGeometry = restoredDisplayGeometry();
+
 export const useWindowStore = create<WindowState>((set, get) => {
   const update = (fn: (list: WinState[]) => WinState[]) => {
     const windows = fn(get().windows);
@@ -125,12 +147,41 @@ export const useWindowStore = create<WindowState>((set, get) => {
     desk: 0,
     area: { w: 1280, h: 720 },
     snapping: null,
+    displays: savedDisplayGeometry.displays, displayOrigin: savedDisplayGeometry.origin, activeDisplayId: null, snappingDisplayId: null,
+    setActiveDisplay: id => { if (get().activeDisplayId !== id) set({ activeDisplayId: id }); },
+    setDisplayAreas: (displays, origin) => {
+      const state = get();
+      if (JSON.stringify(state.displays) === JSON.stringify(displays) && JSON.stringify(state.displayOrigin) === JSON.stringify(origin)) return;
+      const primary = displays.find(d => d.primary) || displays[0];
+      const windows = state.windows.map(win => {
+        let w = win;
+        if (origin && state.displayOrigin) {
+          w = rebaseRect(win, state.displayOrigin, origin);
+          if (w.restore) w = { ...w, restore: rebaseRect(w.restore, state.displayOrigin, origin) };
+        } else if (origin && primary) {
+          w = { ...win, x: win.x + primary.workArea.x, y: win.y + primary.workArea.y,
+            restore: win.restore ? { ...win.restore, x: win.restore.x + primary.workArea.x, y: win.restore.y + primary.workArea.y } : null };
+        } else if (state.displays.length) {
+          const previous = displayForRect(state.displays, win)?.workArea;
+          if (previous) w = { ...win, x: win.x - previous.x, y: win.y - previous.y,
+            restore: win.restore ? { ...win.restore, x: win.restore.x - previous.x, y: win.restore.y - previous.y } : null };
+        }
+        if (!displays.length) return refit([w], state.area)[0];
+        if (w.maximized) return { ...w, ...displayForRect(displays, w)!.workArea };
+        return recoverRect(w, displays);
+      });
+      persist(windows);
+      try { localStorage.setItem(DISPLAY_KEY, JSON.stringify({ displays, origin })); } catch {}
+      set({ displays, displayOrigin: origin, windows, snapping: null, snappingDisplayId: null,
+        activeDisplayId: displays.some(d => d.id === state.activeDisplayId) ? state.activeDisplayId : primary?.id ?? null });
+    },
+    finishMove: id => update(list => list.map(w => w.id === id ? recoverRect(w, get().displays) : w)),
 
     setArea: (area) => {
       if (area.w < 1 || area.h < 1) return;
       const cur = get().area;
       if (cur.w === area.w && cur.h === area.h) return;
-      set({ area, windows: refit(get().windows, area) });
+      set({ area, windows: get().displays.length ? get().windows.map(w => recoverRect(w, get().displays)) : refit(get().windows, area) });
     },
 
     open: (href) => {
@@ -165,7 +216,10 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const { windows, area } = get();
       if (sectionAccess(sectionForPath(pathOf(href)), appContext()) === 'hide') return;
       const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;
-      const rect = initialRect(area, windows.length);
+      const display = get().displays.find(d => d.id === get().activeDisplayId) || get().displays[0];
+      const bounds = display?.workArea;
+      const rect = initialRect(bounds || area, windows.length);
+      if (bounds) { rect.x += bounds.x; rect.y += bounds.y; }
       update((list) => [...list, {
         id: newId(), path: pathOf(href), href, desk: get().desk, ...rect,
         z, minimized: false, maximized: false, restore: null,
@@ -228,7 +282,13 @@ export const useWindowStore = create<WindowState>((set, get) => {
 
     minimize: (id) => update((list) => list.map((w) => (w.id === id ? { ...w, minimized: true } : w))),
     restore: (id) => get().focus(id),
-    maximize: (id) => update((list) => list.map((w) => (w.id === id ? toggleMaximize(w, get().area) : w))),
+    maximize: (id) => update(list => list.map(w => {
+      if (w.id !== id) return w;
+      const display = displayForRect(get().displays, w);
+      if (!display) return toggleMaximize(w, get().area);
+      if (w.maximized) return recoverRect({ ...w, ...(w.restore || initialRect(display.workArea, 0)), maximized: false, restore: null }, get().displays);
+      return { ...w, ...display.workArea, maximized: true, restore: { x: w.x, y: w.y, w: w.w, h: w.h } };
+    })),
 
     move: (id, dx, dy) => update((list) => list.map((w) => {
       if (w.id !== id) return w;
@@ -241,14 +301,15 @@ export const useWindowStore = create<WindowState>((set, get) => {
       w.id === id ? { ...w, ...resizeRect(w, edge, dx, dy, get().area), maximized: false } : w
     ))),
 
-    setSnapping: (zone) => { if (get().snapping !== zone) set({ snapping: zone }); },
+    setSnapping: (zone, displayId = null) => { if (get().snapping !== zone || get().snappingDisplayId !== displayId) set({ snapping: zone, snappingDisplayId: displayId }); },
 
     applySnap: (id, zone) => {
       if (!zone) { set({ snapping: null }); return; }
       const area = get().area;
       update((list) => list.map((w) => {
         if (w.id !== id) return w;
-        const rect = snapRect(zone, area);
+        const display = get().displays.find(d => d.id === get().snappingDisplayId) || displayForRect(get().displays, w);
+        const rect = display ? displaySnap(zone, display.workArea) : snapRect(zone, area);
         return {
           ...w, ...rect,
           maximized: zone === 'top',
@@ -258,9 +319,12 @@ export const useWindowStore = create<WindowState>((set, get) => {
       set({ snapping: null });
     },
 
-    putInShare: (id, share) => {
-      const area = get().area;
-      const rect = shareRect(share, area);
+    putInShare: (id, share, displayId) => {
+      const state = get();
+      const win = state.windows.find(w => w.id === id);
+      const display = state.displays.find(d => d.id === displayId) || (win ? displayForRect(state.displays, win) : null);
+      const rect = shareRect(share, display?.workArea || state.area);
+      if (display) { rect.x += display.workArea.x; rect.y += display.workArea.y; }
       update((list) => list.map((w) => {
         if (w.id !== id) return w;
         return {
@@ -277,7 +341,10 @@ export const useWindowStore = create<WindowState>((set, get) => {
     tileAll: () => {
       const here = get().desk;
       const mine = get().windows.filter((w) => w.desk === here);
-      const placed = tile(mine, get().area);
+      const displays = get().displays;
+      const placed = displays.length ? displays.flatMap(d => tile(
+        mine.filter(w => displayForRect(displays, w)?.id === d.id), d.workArea,
+      ).map(w => w.minimized ? w : ({ ...w, x: w.x + d.workArea.x, y: w.y + d.workArea.y }))) : tile(mine, get().area);
       update((list) => list.map((w) => placed.find((p) => p.id === w.id) || w));
     },
     minimizeAll: () => {

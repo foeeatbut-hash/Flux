@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Ввоз тегов не кладёт новые карточки поверх старых.
  *
@@ -9,7 +10,7 @@
  * Нужен поднятый сервер. Запуск: npx tsx scripts/test-tag-import-layout-live.ts
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let f = 0, p = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>

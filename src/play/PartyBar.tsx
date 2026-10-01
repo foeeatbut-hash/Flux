@@ -72,7 +72,7 @@ export default function PartyBar({
                 {m.userId === leaderId && (
                   <Crown className="w-3 h-3 shrink-0 text-amber-500" aria-label="ведущий" />
                 )}
-                <span className="text-2xs font-semibold truncate">{m.name}</span>
+                <span className="text-2xs font-semibold truncate">{m.name}{m.role === 'SPECTATOR' ? ' · наблюдает' : ''}</span>
                 {iLead && m.userId !== meId && (
                   <button
                     type="button"

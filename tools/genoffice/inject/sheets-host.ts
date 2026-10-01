@@ -27,11 +27,15 @@ export function start(resources: string): void {
 }
 
 /** Окно редактора над книгой; книга откроется первым selectWorkbook окна */
-export function open(path: string): number {
-  const view = createSheetsView({ includeAiHandlers: false })
-  queueWorkbookForView(view.webContents as any, path)
-  return view.webContents.id
+export function open(path: string, dataDir?: string): number {
+  return __flux.withDataDir(dataDir, () => {
+    const view = createSheetsView({ includeAiHandlers: false });
+    if (dataDir) __flux.setDataDir(view.webContents.id, dataDir);
+    queueWorkbookForView(view.webContents as any, path);
+    return view.webContents.id;
+  });
 }
+export const setDataDir = (id: number, path: string) => __flux.setDataDir(id, path);
 
 /**
  * Имя книги движок берёт у своего снимка (случайное имя в temp), и оно
@@ -44,8 +48,9 @@ function realName<T>(file: T): T {
   return file
 }
 
-export async function invoke(id: number, channel: string, args: unknown[], saveTarget?: string) {
-  const result = await (saveTarget ? __flux.withSaveTarget(saveTarget, () => __flux.invoke(id, channel, args)) : __flux.invoke(id, channel, args))
+export async function invoke(id: number, channel: string, args: unknown[], saveTarget?: string, commit?: () => Promise<void>) {
+  const invoke = () => saveTarget ? __flux.withSaveTarget(saveTarget, () => __flux.invoke(id, channel, args)) : __flux.invoke(id, channel, args);
+  const result = await (commit ? __flux.withSaveCommit(commit, invoke) : invoke());
   if (channel === 'workbook:select') return realName(result)
   if (channel === 'workbook:save' && result && typeof result === 'object') realName((result as any).file)
   return result

@@ -33,6 +33,7 @@ import { resumeQueue, submissionQueue } from '../feedback/submissionQueue';
 import { getMeta } from '../feedback/feedbackApi';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
+import { useDisplayStore } from '../store/displayStore';
 import { BAR_H } from '../lib/metrics';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
@@ -81,6 +82,11 @@ async function notifySystem(
 }
 
 export default function Layout() {
+  const displayWorkspace = useDisplayStore(s => s.workspace);
+  const displayAreas = useWindowStore(s => s.displays);
+  const activeDisplayId = useWindowStore(s => s.activeDisplayId);
+  const activeDisplayArea = displayAreas.find(d => d.id === activeDisplayId)?.workArea || displayAreas[0]?.workArea;
+  React.useEffect(() => useDisplayStore.getState().init(), []);
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, setUser: s.setUser, activeProject: s.activeProject, theme: s.theme, toggleTheme: s.toggleTheme, syncStatus: s.syncStatus })));
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
@@ -572,11 +578,11 @@ export default function Layout() {
         <div className="flex-1 min-h-0">
           <WindowsLayer />
         </div>
-        <Taskbar />
+        {!displayWorkspace.enabled && <Taskbar />}
       </main>
 
       {/* Раздвижные панели справа сдвигают содержимое */}
-      <RightDock />
+      <RightDock bounds={displayWorkspace.enabled ? activeDisplayArea : undefined} />
 
 
       {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}

@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Общий ящик компании: проверки правил на живом сервере.
  *
@@ -21,7 +22,7 @@
  * Нужен поднятый сервер: `npx tsx server.ts`.
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const ADMIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const ADMIN = testCredentials();
 
 let ok = 0;
 let fail = 0;

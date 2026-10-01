@@ -33,13 +33,14 @@ const activeProjectId = (): string => {
  * по ней в Проводнике видно выпуск, не открывая книгу
  */
 export async function saveNewFile(
-  bytes: ArrayBuffer | Uint8Array | Blob, name: string, target: FileTarget = 'exports', revision?: string,
+  bytes: ArrayBuffer | Uint8Array | Blob, name: string, target: FileTarget = 'exports', revision?: string, projectId?: string,
 ): Promise<SavedFile> {
   const q = new URLSearchParams({ name });
   if (typeof target === 'string') q.set('where', target);
   else if ('section' in target) { q.set('where', 'section'); q.set('scope', target.section); }
   else { q.set('where', 'folder'); q.set('folderId', target.folderId); }
-  const project = activeProjectId();
+  // Открытое окно может принадлежать другому проекту после переключения рабочего стола.
+  const project = projectId === undefined ? activeProjectId() : projectId;
   if (project) q.set('projectId', project);
   if (revision) q.set('revision', revision);
   const body = bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart]);

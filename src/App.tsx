@@ -27,6 +27,7 @@ import { Z } from './lib/layers';
 import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from './lib/metrics';
 import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
+import { useDisplayStore } from './store/displayStore';
 import { SECTIONS } from './workspace/sections';
 import PlayInviteWatcher from './play/InviteWatcher';
 
@@ -55,6 +56,11 @@ function ScreenLoader() {
  * достаются те 36 точек, которые она отнимала.
  */
 function ElectronTitleBar() {
+  const displayWorkspace = useDisplayStore(s => s.workspace);
+  const displays = useWindowStore(s => s.displays);
+  const activeDisplayId = useWindowStore(s => s.activeDisplayId);
+  const monitor = displayWorkspace.enabled ? displays.find(d => d.id === activeDisplayId) || displays.find(d => d.primary) || displays[0] : null;
+  const lane = monitor?.workArea || { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
   const location = useLocation();
   const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
   const wc = isElectron ? (window as any).electron?.windowControls : null;
@@ -89,19 +95,19 @@ function ElectronTitleBar() {
   React.useEffect(() => {
     if (!isElectron) return;
     const onMove = (e: MouseEvent) => {
-      if (e.clientY <= FRAME_LURE) {
+      if (e.clientY >= lane.y && e.clientY <= lane.y + FRAME_LURE && e.clientX >= lane.x && e.clientX < lane.x + lane.w) {
         clearTimeout(hideTimer.current);
         setNear(true);
         return;
       }
-      if (e.clientY > 64) {
+      if (e.clientY > lane.y + 64 || e.clientX < lane.x || e.clientX > lane.x + lane.w) {
         clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => setNear(false), 1500);
       }
     };
     window.addEventListener('mousemove', onMove);
     return () => { window.removeEventListener('mousemove', onMove); clearTimeout(hideTimer.current); };
-  }, [isElectron]);
+  }, [isElectron, lane.x, lane.y, lane.w]);
 
   // Панелька больше не выпрыгивает на каждую внутреннюю ошибку. Раньше она
   // так показывала счётчик — а счётчик показывал человеку то, чего он не
@@ -123,7 +129,7 @@ function ElectronTitleBar() {
   // этом остаётся: журнал нужен и там, а другого места у него больше нет
   const WIDTH = isElectron ? FRAME_W : FRAME_W - FRAME_BTN * 3;
   const left = Math.round(
-    x === null ? Math.max(8, (window.innerWidth - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, window.innerWidth - WIDTH - 8)),
+    lane.x + (x === null ? Math.max(8, (lane.w - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, lane.w - WIDTH - 8))),
   );
   const visible = pinned || near;
 
@@ -133,11 +139,11 @@ function ElectronTitleBar() {
     e.preventDefault();
     e.stopPropagation();
     const dx = e.clientX - left;
-    const onMove = (ev: PointerEvent) => setX(ev.clientX - dx);
+    const onMove = (ev: PointerEvent) => setX(ev.clientX - dx - lane.x);
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      const next = ev.clientX - dx;
+      const next = ev.clientX - dx - lane.x;
       setX(next);
       try { localStorage.setItem('flux_frame_x', String(Math.round(next))); } catch (_) { /* приватный режим */ }
     };
@@ -162,7 +168,7 @@ function ElectronTitleBar() {
       <div
         aria-hidden
         onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
-        style={{ zIndex: Z.frame, left, width: WIDTH, height: FRAME_LURE }}
+        style={{ zIndex: Z.frame, left, top: lane.y, width: WIDTH, height: FRAME_LURE }}
         className="fixed top-0"
       />
 
@@ -172,7 +178,8 @@ function ElectronTitleBar() {
         style={{
           zIndex: Z.frame,
           left,
-          top: visible ? 6 : -(FRAME_H + 8),
+          top: visible ? lane.y + 6 : lane.y - (FRAME_H + 8),
+          visibility: visible ? 'visible' : 'hidden',
           width: WIDTH,
           height: FRAME_H,
           transition: 'top 160ms ease',

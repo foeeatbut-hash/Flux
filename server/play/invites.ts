@@ -16,6 +16,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { APP_PLAY, gameEntitlement } from '../../play/features.js';
+import { allowed } from './access.js';
 import { getPrisma } from '../context.js';
 import { PLAY_ERRORS, PLAY_LIMITS } from '../../play/contracts.js';
 import { enqueue, fail, isDuplicate } from './commands.js';
@@ -54,6 +56,8 @@ export async function sendInvite(
   const party = await tx.playParty.findUnique({ where: { id: partyId } });
   if (!party || party.state !== 'ACTIVE') fail(PLAY_ERRORS.NOT_FOUND);
   if (party.leaderId !== actorId) fail(PLAY_ERRORS.FORBIDDEN, 'Звать в группу может только ведущий');
+  const target = await tx.user.findUnique({ where: { id: toUserId } });
+  if (!target || !await allowed(target, APP_PLAY) || !await allowed(target, gameEntitlement(party.gameId || 'billiards'))) fail(PLAY_ERRORS.INVALID, 'У сотрудника пока нет доступа к этой игре');
 
   const already = await tx.playPartyMember.findFirst({ where: { partyId, userId: toUserId, leftAt: null } });
   if (already) fail(PLAY_ERRORS.INVALID, 'Этот человек уже в группе');

@@ -29,7 +29,6 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
   const refresh = usePolicyStore((s) => s.refresh);
   const [busy, setBusy] = React.useState(false);
   const [failure, setFailure] = React.useState('');
-  const [keyDraft, setKeyDraft] = React.useState('');
   const [diag, setDiag] = React.useState<any | null>(null);
   const [diagFailure, setDiagFailure] = React.useState('');
   const [sessions, setSessions] = React.useState<Array<{
@@ -135,12 +134,6 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
   React.useEffect(() => {
     if (!platform.enabled) return;
     void loadSessions();
-    void (async () => {
-      try {
-        const data = await ask('/admin/builds');
-        setKeyDraft(String(data?.publisherKey || ''));
-      } catch (_) { /* ключа ещё нет */ }
-    })();
   }, [platform.enabled, loadSessions]);
 
   const flipMaintenance = async () => {
@@ -157,19 +150,6 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
       );
     } catch (e: any) {
       setFailure(e?.message || 'Не удалось переключить обслуживание');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveKey = async () => {
-    setBusy(true);
-    setFailure('');
-    try {
-      await ask('/publisher-key', { method: 'PUT', body: JSON.stringify({ publicKey: keyDraft }) });
-      addToast(keyDraft ? 'Ключ издателя сохранён.' : 'Ключ издателя убран: сборки ставиться не будут.', 'success');
-    } catch (e: any) {
-      setFailure(e?.message || 'Не удалось сохранить ключ');
     } finally {
       setBusy(false);
     }
@@ -385,35 +365,6 @@ export default function PlayPlatform({ addToast }: { addToast: (m: string, kind?
           </span>
         </span>
       </button>
-
-      {/* Ключ издателя: без него менеджер игр не поставит ничего */}
-      <div className="mt-4 fx-set-group">
-        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Ключ издателя сборок</h3>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed text-pretty">
-          Открытая часть ключа, которым подписаны описи сборок игр. Ею программа на машине
-          сотрудника проверяет, что сборку выложили вы, а не кто-то, кто добрался до файлового
-          сервера. Подписывающая часть сюда не вводится никогда — она остаётся у владельца.
-        </p>
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <input
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value.trim())}
-            spellCheck={false}
-            placeholder="64 знака шестнадцатеричной записи"
-            className="flex-1 min-w-[16rem] px-2.5 py-1.5 rounded-lg text-xs font-mono
-                       bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-150
-                       border border-slate-200 dark:border-slate-800"
-          />
-          <button
-            type="button"
-            onClick={saveKey}
-            disabled={busy}
-            className="fx-btn fx-btn-primary"
-          >
-            Сохранить
-          </button>
-        </div>
-      </div>
 
       {/* Зависшие матчи: лобби, из которого иначе никогда не начать */}
       <div className="mt-4 fx-set-group">

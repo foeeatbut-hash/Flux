@@ -99,7 +99,7 @@ export const usePlayStore = create<PlayState>((set, get) => ({
          * скрыто. Просто очищаемся.
          */
         if (res.code === 'NOT_FOUND') { set({ ...empty }); return; }
-        set({ loading: false, failure: String(res.message || 'Платформа не отвечает') });
+        set({ link: 'reconnecting', loading: false, failure: String(res.message || 'Платформа не отвечает') });
         return;
       }
       get().applySnapshot(res.result as PlaySnapshot);
@@ -113,6 +113,7 @@ export const usePlayStore = create<PlayState>((set, get) => ({
     const done = s.result || null;
     set({
       at: Number(s.at) || Date.now(),
+      link: 'live',
       loading: false,
       failure: '',
       party: s.party || null,

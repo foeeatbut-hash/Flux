@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Сохранение из Flux Office: целиком, со сверкой версии и откатом.
  *
@@ -15,7 +16,7 @@
 import { createHash } from 'node:crypto';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>

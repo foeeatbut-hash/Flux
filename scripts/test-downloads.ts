@@ -62,7 +62,7 @@ console.log('Второй такой же файл');
 
 console.log('Личная папка');
 {
-  check('папка названа логином', personFolder('RaupovKhKh') === 'RaupovKhKh');
+  check('папка названа логином', personFolder('test.user') === 'test.user');
   check('негодные знаки в логине не ломают путь', !/[\\/:*?"<>|]/.test(personFolder('a/b:c*')), personFolder('a/b:c*'));
   check('без логина файлы всё равно куда-то ложатся', personFolder('') === 'Общая');
 }

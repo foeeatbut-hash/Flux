@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Раскладка при сжатии: обходим разделы и меряем геометрию на экране.
  *
@@ -20,7 +21,7 @@
  * Переменные: SHOTS=1 — сохранять снимки экрана в /tmp/flux-layout.
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const SHOTS = process.env.SHOTS === '1' ? (process.env.SHOTS_DIR || '/tmp/flux-layout') : '';
 
@@ -74,6 +75,12 @@ const SKIP = new Set([
   // test-office-sheets-live.ts вместе с настоящими файлами
   '/office-doc',
   '/office-sheet',
+  // Выгрузка требует установки и книги: настоящую геометрию и формулы
+  // проверяет test-export-workspace-live.ts на шести ширинах в обеих темах.
+  '/equipment-export',
+  // Браузер не имеет файлового моста: раскладка Проводника проверяется
+  // test-windows-explorer-ui.ts, редактор — test-windows-file-docx-bridge.ts.
+  '/windows-files', '/windows-file',
 ]);
 {
   // Файл исполняется через tsx как CommonJS: import.meta здесь нет

@@ -24,6 +24,12 @@ import { sectionAccess } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
+import Taskbar from './Taskbar';
+import { useDisplayStore, workspaceAreas } from '../store/displayStore';
+import { displayAt, displayForRect, displaySnap, type DisplayRect } from '../../workspace/displays';
+import { shareRect } from '../lib/layouts';
+import { BAR_H } from '../lib/metrics';
+import { Z } from '../lib/layers';
 
 /** Восемь краёв: четыре стороны и четыре угла */
 const EDGES: { edge: Edge; cls: string }[] = [
@@ -86,9 +92,11 @@ function WindowFrame({
       // курсором, и попадание должно совпадать с тем, что он видит
       const box = el.closest('[data-desk]')?.getBoundingClientRect();
       if (box) {
-        st.getState().setSnapping(snapZoneAt(ev.clientX - box.left, ev.clientY - box.top, {
-          w: box.width, h: box.height,
-        }));
+        const x = ev.clientX - box.left, y = ev.clientY - box.top;
+        const monitor = displayAt(st.getState().displays, x, y);
+        const bounds = monitor?.workArea || { x: 0, y: 0, w: box.width, h: box.height };
+        if (monitor) st.getState().setActiveDisplay(monitor.id);
+        st.getState().setSnapping(snapZoneAt(x - bounds.x, y - bounds.y, bounds), monitor?.id);
       }
     };
     const onUp = () => {
@@ -97,7 +105,7 @@ function WindowFrame({
       el.removeEventListener('pointerup', onUp);
       const zone = st.getState().snapping;
       if (!edge && zone) st.getState().applySnap(win.id, zone);
-      else st.getState().setSnapping(null);
+      else { st.getState().setSnapping(null); if (!edge) st.getState().finishMove(win.id); }
     };
     el.addEventListener('pointermove', onMove);
     el.addEventListener('pointerup', onUp);
@@ -201,6 +209,29 @@ export default function WindowsLayer() {
   const navigate = useNavigate();
   const policy = useAppContext();
   const deskRef = React.useRef<HTMLDivElement>(null);
+  const workspace = useDisplayStore(s => s.workspace);
+  const displayReady = useDisplayStore(s => s.available);
+  const displays = useWindowStore(s => s.displays);
+  const snappingDisplayId = useWindowStore(s => s.snappingDisplayId);
+  React.useLayoutEffect(() => {
+    // Пока native-мост отвечает, сохраняем прошлую топологию: иначе старт
+    // сначала сдвинет окна в обычное окно, затем повторно в общий стол.
+    if (!displayReady && (window as any).electron?.displays) return;
+    useWindowStore.getState().setDisplayAreas(workspace.enabled ? workspaceAreas(workspace) : [], workspace.enabled ? workspace.bounds : null);
+  }, [workspace, displayReady]);
+  React.useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.altKey || e.code !== 'KeyM') return;
+      const state = useDisplayStore.getState();
+      if (!state.available || (!state.workspace.enabled && state.workspace.displays.length < 2)) return;
+      e.preventDefault();
+      void state.setAllMonitors(!state.workspace.enabled);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  const primary = displays.find(d => d.primary) || displays[0];
+  const snapBounds = displays.find(d => d.id === snappingDisplayId)?.workArea || { x: 0, y: 0, ...area };
 
   // Стол меряем сами и сообщаем геометрии: она не должна знать про DOM
   React.useEffect(() => {
@@ -326,9 +357,9 @@ export default function WindowsLayer() {
   }, []);
 
   // ── Доли экрана: панель у кнопки разворота ──
-  const [snap, setSnap] = React.useState<{ id: string; x: number; y: number } | null>(null);
+  const [snap, setSnap] = React.useState<{ id: string; x: number; y: number; bounds: DisplayRect; displayId?: number } | null>(null);
   const [shareHint, setShareHint] = React.useState<Share | null>(null);
-  const [assist, setAssist] = React.useState<{ shares: Share[]; skip: string[] } | null>(null);
+  const [assist, setAssist] = React.useState<{ shares: Share[]; skip: string[]; displayId?: number } | null>(null);
   const snapTimer = React.useRef<any>(null);
 
   const openSnap = React.useCallback((id: string, el: HTMLElement) => {
@@ -336,14 +367,17 @@ export default function WindowsLayer() {
     const r = el.getBoundingClientRect();
     if (!desk) return;
     const st = useWindowStore.getState();
-    const count = layoutsFor(st.area).length;
+    const win = st.windows.find(w => w.id === id);
+    const display = win ? displayForRect(st.displays, win) : null;
+    const bounds = display?.workArea || { x: 0, y: 0, ...st.area };
+    const count = layoutsFor(bounds).length;
     if (!count) return; // столу тесно — предлагать нечего, и панель не открываем
     const spot = panelSpot(
-      { x: r.left - desk.left, y: r.top - desk.top, h: r.height },
+      { x: r.left - desk.left - bounds.x, y: r.top - desk.top - bounds.y, h: r.height },
       { w: PANEL_W, h: panelHeight(count) },
-      st.area,
+      bounds,
     );
-    setSnap({ id, ...spot });
+    setSnap({ id, x: spot.x + bounds.x, y: spot.y + bounds.y, bounds, displayId: display?.id });
   }, []);
   const armSnap = React.useCallback((id: string, el: HTMLElement) => {
     clearTimeout(snapTimer.current);
@@ -356,6 +390,7 @@ export default function WindowsLayer() {
     setShareHint(null);
   }, []);
   React.useEffect(() => () => clearTimeout(snapTimer.current), []);
+  React.useEffect(() => { closeSnap(); setAssist(null); }, [displays, closeSnap]);
 
   /** Выбрали долю: ставим окно и предлагаем занять оставшиеся */
   const pickShare = React.useCallback((layout: Layout, index: number) => {
@@ -363,11 +398,11 @@ export default function WindowsLayer() {
     closeSnap();
     if (!id) return;
     const st = useWindowStore.getState();
-    st.putInShare(id, layout.shares[index]);
+    st.putInShare(id, layout.shares[index], snap?.displayId);
     const rest = otherShares(layout, index);
     // Занимать нечем — предлагать нечего: одно окно на столе это не раскладка
     const others = st.windows.filter((w) => w.id !== id && w.desk === st.desk);
-    setAssist(others.length && rest.length ? { shares: rest, skip: [id] } : null);
+    setAssist(others.length && rest.length ? { shares: rest, skip: [id], displayId: snap?.displayId } : null);
   }, [snap, closeSnap]);
 
   /**
@@ -406,10 +441,19 @@ export default function WindowsLayer() {
     <div
       ref={deskRef}
       data-desk
+      onPointerDownCapture={e => {
+        const box = e.currentTarget.getBoundingClientRect();
+        const display = displayAt(displays, e.clientX - box.left, e.clientY - box.top);
+        if (display) useWindowStore.getState().setActiveDisplay(display.id);
+      }}
       className="relative w-full h-full overflow-hidden bg-slate-100 dark:bg-dark-bg"
     >
       {/* Значки живут под окнами: стол — это фон, а не ещё одно окно */}
-      <Desktop />
+      {primary ? <div className="absolute overflow-hidden" style={{ left: primary.workArea.x, top: primary.workArea.y, width: primary.workArea.w, height: primary.workArea.h }}><Desktop /></div> : <Desktop />}
+      {displays.map(d => <div key={d.id} data-display-taskbar={d.id}
+        className="absolute" style={{ left: d.workArea.x, top: d.workArea.y + d.workArea.h, width: d.workArea.w, height: BAR_H, zIndex: Z.taskbar }}>
+        <Taskbar displayId={d.id} />
+      </div>)}
 
       {/* Показываем окна этого стола, но держим смонтированными все: раздел на
           соседнем столе продолжает жить — с открытым документом, набранным и
@@ -432,13 +476,13 @@ export default function WindowsLayer() {
 
       {/* Куда встанет окно по выбранной доле — зажигаем место на столе */}
       {shareHint && (
-        <div aria-hidden style={shareStyle(shareHint, area)}
+        <div aria-hidden style={(() => { const bounds = snap?.bounds || { x: 0, y: 0, ...area }; const r = shareRect(shareHint, bounds); return { left: r.x + bounds.x, top: r.y + bounds.y, width: r.w, height: r.h }; })()}
           className="absolute z-[59] rounded-xl border-2 border-emerald-500 bg-emerald-500/10 pointer-events-none" />
       )}
 
       {snap && (
         <SnapPanel
-          area={area}
+          area={snap.bounds}
           x={snap.x}
           y={snap.y}
           onPick={pickShare}
@@ -448,18 +492,14 @@ export default function WindowsLayer() {
       )}
 
       {assist && (
-        <SnapAssist shares={assist.shares} skip={assist.skip} onClose={() => setAssist(null)} />
+        <SnapAssist shares={assist.shares} skip={assist.skip} displayId={assist.displayId} onClose={() => setAssist(null)} />
       )}
 
       {/* Куда встанет окно, если отпустить: показываем до того, как отпустили */}
       {snapping && (
         <div
           aria-hidden
-          style={
-            snapping === 'top' ? { left: 0, top: 0, right: 0, bottom: 0 }
-              : snapping === 'left' ? { left: 0, top: 0, bottom: 0, width: '50%' }
-                : { right: 0, top: 0, bottom: 0, width: '50%' }
-          }
+          style={(() => { const r = displaySnap(snapping, snapBounds); return { left: r.x, top: r.y, width: r.w, height: r.h }; })()}
           className="absolute z-[9] rounded-xl border-2 border-emerald-500 bg-emerald-500/10 pointer-events-none"
         />
       )}

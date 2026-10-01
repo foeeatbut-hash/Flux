@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Состав оборудования доезжает до базы — вживую, на поднятом сервере.
  *
@@ -18,7 +19,7 @@
 import { VEZA_SAMPLE_XML } from './fixtures/veza';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const LOGIN = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const LOGIN = testCredentials();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>

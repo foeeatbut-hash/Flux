@@ -1,3 +1,4 @@
+import { testCredentials } from './testCredentials';
 /**
  * Выгрузка расчёта из САПР доходит до оборудования — вживую, в браузере.
  *
@@ -20,7 +21,7 @@ import { VEZA_SAMPLE_XML } from './fixtures/veza';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const USER = { symbol: process.env.FLUX_USER || 'RaupovKhKh', password: process.env.FLUX_PASS || '1122' };
+const USER = testCredentials();
 const OUT = process.env.FLUX_FRAMES || '.walkthrough';
 
 let f = 0;

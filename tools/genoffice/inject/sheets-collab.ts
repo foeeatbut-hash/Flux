@@ -24,6 +24,7 @@
  * каналы «flux:x-*» окно разбирает само (src/screens/OfficeAppHost.tsx).
  */
 import { journalSuppression } from '../univer-state'
+import { ensureLazyRangeLoaded } from '../univer-sync'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -313,7 +314,7 @@ async function exportCommands(): Promise<void> {
       reply(message.id, { ok: true });
     } catch (e: any) { reply(message?.id, { ok: false, error: e.message }); }
   });
-  link.on('flux:refresh-export', (_e, message: any) => {
+  link.on('flux:refresh-export', async (_e, message: any) => {
     try {
       const wb = workbook(); const grid = message?.payload?.grid; const before = message?.payload?.before;
       if (!wb || !grid || grid.rows.length * grid.headers.length > 10000) throw new Error('За одно обновление допускается до 10 000 ячеек данных');
@@ -335,6 +336,18 @@ async function exportCommands(): Promise<void> {
       const firstHeader = grid.columnKeys.map((k: string) => locate(nameOf('@header', k))).find(Boolean);
       const sheet = firstHeader?.sheet || wb.getSheets().find((s: any) => s.getSheetName() === 'Данные') || wb.getActiveSheet();
       if (!sheet) throw new Error('Лист данных не найден');
+      // Скрытый идентификатор строки не попадает в видимую загрузку Univer.
+      // Без явной загрузки корректная строка выглядит чужой и пропускает новые формулы.
+      const runtime = hooks()?.univerRef.current;
+      const lazy = hooks()?.lazyWorkbookRef;
+      if (runtime && lazy?.current && !lazy.current.flags?.preloadComplete) {
+        const resident = [...definitions.keys()].filter(k => k.startsWith('FXE_')).map(locate).filter((p): p is NonNullable<typeof p> => !!p && p.sheet.getSheetId() === sheet.getSheetId());
+        if (resident.length) {
+          const range = { startRow: Math.min(...resident.map(p => p.row)), endRow: Math.max(...resident.map(p => p.row)), startColumn: Math.min(...resident.map(p => p.col)), endColumn: Math.max(...resident.map(p => p.col)) };
+          if ((range.endRow - range.startRow + 1) * (range.endColumn - range.startColumn + 1) > 100000) throw new Error('Связанные ячейки расположены слишком далеко друг от друга. Сократите рабочую область перед обновлением');
+          if (!(await ensureLazyRangeLoaded(runtime, lazy, sheet, range, () => undefined))) throw new Error('Не удалось прочитать связанные ячейки книги. Дождитесь загрузки и повторите обновление');
+        }
+      }
       let lastRow = sheet.getLastRow(); let lastCol = sheet.getLastColumn();
       const headerRow = firstHeader?.row ?? 0;
       const oldRows = new Map<string, number>((before?.rowKeys || []).map((k: string, i: number) => [k, i]));

@@ -406,7 +406,7 @@ model UserNote {
 model SystemChangeLog {
   id          String   @id @default(uuid())
   userName    String // Кто изменил (например, "Главный Администратор")
-  userSymbol  String // Символ/ID (например, "RaupovKhKh")
+  userSymbol  String // Символ/ID (например, "test.user")
   description String // Что изменено ("Обновлены спецификации вентилятора по тегу AHU-2")
   targetRoute String // Маршрут/параметры для сквозного перехода (например, "/equipment?tag=AHU-2")
   createdAt   DateTime @default(now())
