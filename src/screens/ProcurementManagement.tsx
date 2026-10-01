@@ -19,6 +19,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { SectionHead, Tabs, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
 import NoProject from '../components/NoProject';
 
+import { useShallow } from 'zustand/react/shallow';
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
 // Оболочка над той же базой тегов под задачи менеджеров по закупкам.
 // Этапы закупки настраиваются в «Настройки → Менеджмент» (название/значок/цвет),
@@ -125,7 +126,7 @@ export default function ProcurementManagement() {
 }
 
 function ProcurementTab() {
-  const { activeProject, user } = useStore();
+  const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
   const navigate = useNavigate();
 

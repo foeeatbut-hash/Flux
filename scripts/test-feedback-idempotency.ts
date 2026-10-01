@@ -133,7 +133,7 @@ async function main() {
   const perms: Record<string, any> = {};
   for (const feat of FEATURES) perms[feat.id] = { enabled: feat.id !== 'feedback.triage', until: null };
   const mate = await api('POST', '/api/users', admin, {
-    symbol: `fbi${stamp}`, name: 'Проба Повторов', password: pass, role: 'USER',
+    symbol: `fbi${stamp}`, name: 'Проба Повторов', password: pass, role: 'ENGINEER_VENT',
     permissions: JSON.stringify(perms),
   });
   const mateId = mate.json?.user?.id || mate.json?.id;

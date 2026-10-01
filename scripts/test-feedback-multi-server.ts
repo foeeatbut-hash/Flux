@@ -83,7 +83,7 @@ async function main() {
     const perms: Record<string, any> = {};
     for (const feat of FEATURES) perms[feat.id] = { enabled: feat.id !== 'feedback.triage', until: null };
     const mk = await api(BASE, 'POST', '/api/users', a, {
-      symbol: `fbm${stamp}`, name: 'Проба Двух Серверов', password: pass, role: 'USER',
+      symbol: `fbm${stamp}`, name: 'Проба Двух Серверов', password: pass, role: 'ENGINEER_VENT',
       permissions: JSON.stringify(perms),
     });
     authorId = mk.json?.user?.id || mk.json?.id;

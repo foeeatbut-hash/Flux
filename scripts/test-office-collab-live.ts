@@ -83,7 +83,7 @@ const until = async (probe: () => Promise<boolean>, ms: number) => {
   if (!admin) { console.error('вход администратора не удался'); process.exit(2); }
   const stamp = Date.now().toString(36);
   const mate = { symbol: `ofc${stamp}`, password: `Пр${stamp}!7` };
-  const mk = await api('POST', '/api/users', admin, { ...mate, name: 'Проба Соавтор', role: 'USER' });
+  const mk = await api('POST', '/api/users', admin, { ...mate, name: 'Проба Соавтор', role: 'ENGINEER_VENT' });
   const mateId = mk.json?.user?.id || mk.json?.id;
   await api('PUT', `/api/users/${mateId}`, admin, {
     permissions: JSON.stringify(Object.fromEntries(FEATURES.map((x) => [x.id, { enabled: true, until: null }]))),

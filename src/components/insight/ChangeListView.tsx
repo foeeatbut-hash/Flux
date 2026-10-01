@@ -29,7 +29,7 @@ const PERIODS: { days: number; label: string }[] = [
 ];
 
 export default function ChangeListView() {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { openWhere, close } = useInsightStore();
   const { addToast } = useToastStore();
   const navigate = useNavigate();

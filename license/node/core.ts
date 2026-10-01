@@ -58,6 +58,8 @@ export interface LicensePayload {
   iat: number;
 }
 
+const validText = (s: unknown, limit: number): s is string => typeof s === 'string' && !!s.trim() && s.length <= limit && !/[\x00-\x1f]/.test(s);
+
 const DER_PUB_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 export const b64url = (b: Buffer | string) =>
@@ -88,10 +90,11 @@ export function makeRequest(r: LicenseRequest): string {
 
 export function readRequest(code: string): LicenseRequest | null {
   try {
-    const s = String(code || '').replace(/\s+/g, '');
+    if (typeof code !== 'string' || code.length > 2000000) return null;
+    const s = code.replace(/\s+/g, '');
     if (!s.startsWith(`${REQUEST_PREFIX}.`)) return null;
     const j = JSON.parse(unb64url(s.slice(REQUEST_PREFIX.length + 1)).toString('utf-8'));
-    if (!j || typeof j.inst !== 'string' || !Array.isArray(j.people)) return null;
+    if (!j || !validText(j.inst, 200) || !Array.isArray(j.people) || j.people.length > 10000 || typeof j.org !== 'string' || j.org.length > 200 || !Number.isSafeInteger(j.at) || j.at < 0) return null;
     const people = j.people
       .filter((p: any) => p && typeof p.login === 'string' && p.login.trim())
       .map((p: any) => ({ login: String(p.login).trim(), name: String(p.name || '') }));
@@ -123,11 +126,12 @@ export function readLicense(code: string, keyHex = LICENSE_PUBLIC_KEY_HEX): Lice
   try {
     const key = publicKeyOf(keyHex);
     if (!key) return null;
-    const parts = String(code || '').replace(/\s+/g, '').split('.');
-    if (parts.length !== 3 || parts[0] !== KEY_PREFIX) return null;
+    if (typeof code !== 'string' || code.length > 2000000) return null;
+    const parts = code.replace(/\s+/g, '').split('.');
+    if (parts.length !== 3 || parts[0] !== KEY_PREFIX || !/^[A-Za-z0-9_-]+$/.test(parts[1]) || !/^[A-Za-z0-9_-]{86}$/.test(parts[2])) return null;
     if (!crypto.verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), key, unb64url(parts[2]))) return null;
     const p = JSON.parse(unb64url(parts[1]).toString('utf-8'));
-    if (!p || p.v !== 2 || typeof p.inst !== 'string' || !Array.isArray(p.logins) || typeof p.exp !== 'number') return null;
+    if (!p || p.v !== 2 || !validText(p.id, 128) || !validText(p.inst, 200) || !Array.isArray(p.logins) || !p.logins.length || p.logins.length > 10000 || !p.logins.every((v: unknown) => validText(v, 120)) || !Number.isSafeInteger(p.exp) || !Number.isSafeInteger(p.iat) || p.iat < 0 || p.exp <= p.iat || typeof p.org !== 'string' || p.org.length > 200) return null;
     return { v: 2, id: String(p.id || ''), inst: p.inst, org: String(p.org || ''), logins: p.logins.map(normLogin), exp: p.exp, iat: Number(p.iat) || 0 };
   } catch (_) {
     return null;
@@ -136,7 +140,7 @@ export function readLicense(code: string, keyHex = LICENSE_PUBLIC_KEY_HEX): Lice
 
 // ── Состояние лицензии человека ─────────────────────────────────────────────
 
-export type LicenseReason = '' | 'none' | 'expired' | 'other_install';
+export type LicenseReason = '' | 'none' | 'expired' | 'other_install' | 'revoked';
 
 export interface PersonLicense {
   licensed: boolean;
@@ -152,10 +156,12 @@ export interface PersonLicense {
  * Лицензия человека по всем установленным ключам: берётся самая длинная из
  * подходящих. `now` — надёжное время сервера (перевод часов назад не помогает).
  */
-export function personLicense(login: string, inst: string, keys: LicensePayload[], now: number): PersonLicense {
+export function personLicense(login: string, inst: string, keys: LicensePayload[], now: number, revokedIds: ReadonlySet<string> = new Set()): PersonLicense {
   const who = normLogin(login);
   const mine = keys.filter((k) => k.logins.includes(who));
-  const here = mine.filter((k) => k.inst === inst);
+  const installed = mine.filter((k) => k.inst === inst);
+  const here = installed.filter(k => !revokedIds.has(k.id));
+  if (installed.length && !here.length) return { licensed: false, reason: 'revoked', expiresAt: null, daysLeft: null, warn: false };
   if (!here.length) {
     return { licensed: false, reason: mine.length ? 'other_install' : 'none', expiresAt: null, daysLeft: null, warn: false };
   }

@@ -15,7 +15,7 @@ export interface TagDictCtx extends DictCtx {
 }
 
 export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, activeCategoryTab, setActiveCategoryTab }: TagDictCtx) {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
 
   // Tag creation dynamic config states

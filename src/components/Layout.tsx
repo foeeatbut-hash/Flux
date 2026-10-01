@@ -41,6 +41,7 @@ import { useTranslateStore } from '../store/translateStore';
 import QuickTranslate from './translate/QuickTranslate';
 import { useModalStore } from '../store/modalStore';
 
+import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
 const { openAlert } = useModalStore.getState();
 
@@ -80,7 +81,7 @@ async function notifySystem(
 }
 
 export default function Layout() {
-  const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();
+  const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, setUser: s.setUser, activeProject: s.activeProject, theme: s.theme, toggleTheme: s.toggleTheme, syncStatus: s.syncStatus })));
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
   // Робот-помощник: его можно выключить в настройках — тогда он не создаётся

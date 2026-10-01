@@ -1,3 +1,5 @@
+import { testSignature } from './fixtures/updateTestSign';
+import { ownerTestLogin } from './fixtures/ownerTestLogin';
 /**
  * Таблица кусков, созданная НЕПОЛНОЙ, чинится сама — и файл доезжает до базы.
  *
@@ -45,6 +47,7 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
 };
 
 const updatesDir = (): string => {
+  if (process.env.VENT_APP_DATA) return join(process.env.VENT_APP_DATA, 'updates');
   const base = process.env.APPDATA || join(homedir(), '.config');
   return join(base, 'pdm-app', 'updates');
 };
@@ -59,7 +62,7 @@ const updatesDir = (): string => {
     process.exit(2);
   }
 
-  const token = (await api('', 'POST', '/api/login', LOGIN)).json?.token || '';
+  const token = (await ownerTestLogin(BASE)).token;
   if (!token) { console.error('Не удалось войти.'); process.exit(2); }
 
   console.log('1. Общая база в том самом состоянии: таблица есть, колонки с файлом нет');
@@ -75,7 +78,7 @@ const updatesDir = (): string => {
   fake[0] = 0x4d; fake[1] = 0x5a;
 
   try {
-    console.log('2. Администратор публикует релиз обычным путём');
+    console.log('2. Владелец публикует релиз обычным путём');
     const up = await api(token, 'POST', `/api/updates/upload?version=${VERSION}`, undefined, fake);
     ok('загрузка не отказала', up.status === 200, up.json || up.status);
     // Главное: сервер не сделал вид, что всё хорошо, оставив файл на своём диске
@@ -90,6 +93,8 @@ const updatesDir = (): string => {
     console.log('3. Файл берётся из базы, как у любого сотрудника');
     const local = join(updatesDir(), `Flux-${VERSION}.exe`);
     if (existsSync(local)) unlinkSync(local);
+    const published = await api(token, 'POST', '/api/updates', { version: VERSION, changelog: 'Проверка исправления таблицы', signature: testSignature(fake, VERSION) });
+    ok('подписанный файл опубликован владельцем', published.status === 200, published.json);
     const check = await api(token, 'GET', `/api/updates/check/${VERSION}`);
     ok('сервер подтверждает: файл есть', check.json?.ok === true, check.json);
     ok('и размер совпадает с загруженным', Number(check.json?.size) === size, check.json?.size);

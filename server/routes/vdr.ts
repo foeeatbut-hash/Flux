@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.js';
@@ -288,7 +289,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.delete('/api/vdr/standards/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
-      if (me && me.role !== 'ADMIN') return res.status(403).json({ error: 'Удалять стандарты может администратор' });
+      if (me && !isPrivilegedUser(me)) return res.status(403).json({ error: 'Удалять стандарты может администратор' });
       await getPrisma().docStandard.delete({ where: { id: req.params.id } });
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
@@ -372,7 +373,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.delete('/api/vdr/registers/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
-      if (me && me.role !== 'ADMIN' && me.role !== 'MANAGER') {
+      if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
         return res.status(403).json({ error: 'Удалять реестр может администратор или руководитель' });
       }
       await getPrisma().docRegister.delete({ where: { id: req.params.id } });
@@ -475,7 +476,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.delete('/api/vdr/items/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
-      if (me && me.role !== 'ADMIN' && me.role !== 'MANAGER') {
+      if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
         return res.status(403).json({ error: 'Удалять строки реестра может администратор или руководитель' });
       }
       await getPrisma().docRegisterItem.delete({ where: { id: req.params.id } });

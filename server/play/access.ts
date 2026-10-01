@@ -124,7 +124,7 @@ export function invalidateRoleMaps(): void {
  */
 export async function isTopAdminUser(user: any): Promise<boolean> {
   if (!user) return false;
-  if (user.role === 'ADMIN') return true;
+  if (user.role === 'ADMIN' || user.role === 'OWNER') return true;
   try {
     const role = await getPrisma().role.findUnique({ where: { code: String(user.role || '') } });
     return !!role && Number(role.level) <= 1;

@@ -3,9 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { getPrisma } from '../context.js';
+import { requireOwnerMiddleware } from '../accessPolicy.js';
 import { maskDbUrl, unmaskDbUrl } from '../security.js';
 import { getDialect, setDialect } from '../ddl.js';
-import { computeMachineId, licenseStatus, activateLicense } from '../../electron/license.js';
 import { snapshotSqlite } from '../sqliteSafety.js';
 import { watchAll as watchAllMail, stopAll as stopMailWatch } from '../mail/idle.js';
 
@@ -48,43 +48,25 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     ensureHealthyLocalDb, ensureSchemaColumns, syncRemoteSchema, hashPassword, replaceClient,
   } = deps;
 
+  app.use(['/api/db', '/api/admin/sync-schema', '/api/config/logs'], requireOwnerMiddleware);
+
   // Готовность сервера: порт начинает слушать только после инициализации БД,
   // так что успешный ответ = приложение полностью готово (для стартовой заставки)
   // Готовность сервера и его версия: сервер компании обновляют отдельно, и
   // программа должна сама заметить, что он старее её (см. server/presence.ts)
-  app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion });
-  });
-
-  // ── Лицензия ──
-  // Резервный путь для рендерера, когда IPC Electron недоступен (dev/браузер,
-  // локальный режим). В упакованном приложении основной путь — IPC главного
-  // процесса (он считает отпечаток именно клиентской машины). Здесь папка
-  // пользователя = папка встроенного сервера (на машине клиента в локальном режиме).
-  app.get('/api/license/status', (_req: Request, res: Response) => {
+  app.get('/api/health', async (_req: Request, res: Response) => {
     try {
-      res.json(licenseStatus(appDataPath));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message, machineId: (() => { try { return computeMachineId(); } catch { return ''; } })() });
-    }
-  });
-
-  app.post('/api/license/activate', (req: Request, res: Response) => {
-    try {
-      const code = String(req.body?.code || '');
-      if (!code) return res.status(400).json({ error: 'Код не указан' });
-      res.json(activateLicense(appDataPath, code));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
+      const needsSetup = await getPrisma().user.count() === 0;
+      res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion, needsSetup });
+    } catch (_) { res.status(503).json({ ok: false, version: appVersion, needsSetup: null, error: 'База временно недоступна' }); }
   });
 
   // Ручная проверка/обновление структуры базы (только администратор). Проходит
   // обычную авторизацию (путь НЕ /api/db/, поэтому loopback-исключение не действует).
   app.post('/api/admin/sync-schema', async (req: Request, res: Response) => {
     const user = (req as any).authUser;
-    if (!user || user.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Доступно только администратору' });
+    if (!user || user.role !== 'OWNER') {
+      return res.status(403).json({ error: 'Доступно только владельцу программы' });
     }
     try {
       const cfg = loadAppConfig();
@@ -279,31 +261,8 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
         local_db_path: nextLocalPath
       });
 
-      // Auto-seed if newly switched DB has no users
-      let seedMessage = '';
-      const userCount = await prisma.user.count();
-      if (userCount === 0) {
-        await prisma.user.create({
-          data: {
-            name: 'Главный администратор (RaupovKhKh)',
-            symbol: 'RaupovKhKh',
-            password: hashPassword('1122'),
-            role: 'ADMIN',
-          }
-        });
-        await prisma.project.create({
-          data: {
-            name: 'Технологический проект Альфа'
-          }
-        });
-        await prisma.equipment.create({
-          data: {
-            type: 'AHU',
-            description: 'Air Handling Unit',
-          }
-        });
-        seedMessage = ' База данных успешно инициализирована начальными учетными записями.';
-      }
+      const needsSetup = await prisma.user.count() === 0;
+      const seedMessage = needsSetup ? ' База пуста: войдите по ключу владельца и создайте администратора.' : '';
 
       // Схема на месте — поднимаем слежение за ящиками новой базы
       void watchAllMail();

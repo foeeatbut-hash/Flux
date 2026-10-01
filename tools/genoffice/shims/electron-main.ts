@@ -13,6 +13,7 @@
  *     и наружу редакторы ходить не должны (flux-data-safety, правило 8).
  */
 import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -128,8 +129,10 @@ export const app = {
   commandLine: { appendSwitch() {}, hasSwitch: () => false, getSwitchValue: () => '' },
 };
 
+const saveTargets = new AsyncLocalStorage<string>();
+export const isFluxCopySave = (): boolean => !!saveTargets.getStore();
 export const dialog = {
-  showSaveDialog: async () => ({ canceled: true, filePath: undefined }),
+  showSaveDialog: async () => { const filePath = saveTargets.getStore(); return { canceled: !filePath, filePath }; },
   showSaveDialogSync: () => undefined,
   showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
   showOpenDialogSync: () => undefined,
@@ -196,6 +199,7 @@ export const contextBridge = { exposeInMainWorld() {} };
 
 /** Хозяйство сервера Flux: вызвать обработчик окна, слушать его «send» */
 export const __flux = {
+  withSaveTarget: <T>(path: string, fn: () => Promise<T>): Promise<T> => saveTargets.run(path, fn),
   /** Новое окно (без редактора) — для главных процессов, что ждут WebContents */
   makeWebContents: () => new FakeWebContents(),
   webContents: (id: number) => contents.get(id) || null,

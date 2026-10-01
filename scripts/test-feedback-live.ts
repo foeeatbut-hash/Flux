@@ -118,8 +118,8 @@ async function main() {
     ok('форма сообщила об отправке', told, state);
 
     console.log('\n3. Обращение доехало до базы');
-    const token = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
-    const head = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const sessionCookies = await page.context().cookies(BASE);
+    const head = { Cookie: sessionCookies.map((c: any) => `${c.name}=${c.value}`).join('; '), 'X-Flux-CSRF': sessionCookies.find((c: any) => c.name === 'flux_csrf')?.value || '', 'Content-Type': 'application/json' };
     const mine = await fetch(`${BASE}/api/feedback/reports?scope=mine`, { headers: head }).then((r) => r.json());
     const row = (mine?.data || []).find((r: any) => r.title === title);
     ok('карточка есть в списке', !!row, (mine?.data || []).length);
@@ -150,7 +150,7 @@ async function main() {
     const symbol = `fbl${stamp}`.slice(0, 12);
     const made = await fetch(`${BASE}/api/users`, {
       method: 'POST', headers: head,
-      body: JSON.stringify({ symbol, name: 'Живая Проверка', password: pass, role: 'USER' }),
+      body: JSON.stringify({ symbol, name: 'Живая Проверка', password: pass, role: 'ENGINEER_VENT' }),
     }).then((r) => r.json()).catch(() => null);
     const authorId = made?.user?.id || made?.id || '';
     ok('сотрудник для проверки заведён', !!authorId, made);
@@ -285,8 +285,8 @@ async function main() {
     ok('панель отправила обращение', done, state);
     ok('показан номер обращения, а не просто «готово»', /ОБР-\d{6}/.test(state.текст), state.текст);
 
-    const token2 = await page.evaluate(() => localStorage.getItem('flux_auth_token') || '');
-    const head2 = { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' };
+    const sessionCookies2 = await page.context().cookies(BASE);
+    const head2 = { Cookie: sessionCookies2.map((c: any) => `${c.name}=${c.value}`).join('; '), 'X-Flux-CSRF': sessionCookies2.find((c: any) => c.name === 'flux_csrf')?.value || '', 'Content-Type': 'application/json' };
     const list = await fetch(`${BASE}/api/feedback/reports?scope=mine`, { headers: head2 }).then((r) => r.json());
     const fromPanel = (list?.data || []).filter((r: any) => String(r.title).includes(`__панель ${stamp}`));
     const quick = fromPanel[0];
@@ -342,7 +342,7 @@ async function main() {
     // Автор приложил записи, чтобы помочь разобрать поломку, а не чтобы
     // читать разбор работы программы: технической части ему не отдают
     const asAuthor = await fetch(`${BASE}/api/feedback/reports/${quick?.id}`, {
-      headers: { Authorization: `Bearer ${token2}`, 'Content-Type': 'application/json' },
+      headers: head2,
     }).then((r) => r.json());
     ok('разбирающий видит техническую часть', (asAuthor?.data?.diagnostics || []).length > 0);
 
@@ -355,7 +355,7 @@ async function main() {
      * сказано, чего в пакете НЕТ.
      */
     const pack = await fetch(`${BASE}/api/feedback/reports/${quick?.id}/package`, {
-      headers: { Authorization: `Bearer ${token2}` },
+      headers: head2,
     });
     ok('пакет отдаётся', pack.status === 200, pack.status);
     const zipBytes = new Uint8Array(await pack.arrayBuffer());

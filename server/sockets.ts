@@ -2,6 +2,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import { setupPresence } from './presence.js';
 import { attachPlaySocket } from './play/socket.js';
 import { setupOfficeSockets } from './officeSockets.js';
+import { relayProjectEvent } from './projectEvents.js';
 
 // Подключения по socket.io: присутствие, трансляции тегов и оборудования,
 // живая часть платформы и Flux Office.
@@ -54,7 +55,7 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
     // подключённым: интерфейс чужую переписку прятал, но текст всё равно
     // приходил на каждую машину в сети
     const uid = (socket as any).userId;
-    if (uid) socket.join(`user:${uid}`);
+    if (uid) { socket.data.userId = uid; socket.join(`user:${uid}`); }
 
     if (uid) {
       const was = online.get(uid);
@@ -80,17 +81,16 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
     void (async () => { if (uid) await markPresence(uid); await sendRoster(); })();
     socket.on('presence:list', () => { void sendRoster(); });
 
-    socket.on('tag:linked', (data) => {
-      socket.broadcast.emit('tag:linked', data);
-    });
-
-    socket.on('tag:updated', (data) => {
-      socket.broadcast.emit('tag:updated', data);
-    });
-
-    socket.on('equipment:conflict', (data) => {
-      socket.broadcast.emit('equipment:conflict', data);
-    });
+    // Только подсказка о записанной сущности. Присланные текст, details и
+    // projectId не транслируются: их могли подделать или взять из чужого проекта.
+    for (const event of ['tag:linked', 'tag:updated', 'equipment:conflict'] as const) {
+      socket.on(event, (data) => {
+        void (async () => {
+          const actor = uid ? await getAuthUser(uid) : null;
+          await relayProjectEvent(io, actor, socket.id, event, data);
+        })().catch(() => { /* права или состав не прочитались — нет рассылки */ });
+      });
+    }
 
     // Flux Office: комната файла, совместная правка, редакторы на сервере (server/officeSockets.ts)
     const office = setupOfficeSockets(io, socket, { getAuthUser, mayWriteFile });

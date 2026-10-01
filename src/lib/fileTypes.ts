@@ -64,6 +64,8 @@ interface ExtDef {
  * OLE2, и его не читает ничто из того, что у нас есть. Врать про это нельзя:
  * человек должен получить совет, а не пустой лист.
  */
+const ARCHIVE_EXTS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'cab', 'iso']);
+
 const BY_EXT: Record<string, ExtDef> = {
   xlsx: { face: 'sheet', label: 'Книга Excel', dbType: 'XLSX', open: true },
   xlsm: { face: 'sheet', label: 'Книга Excel с макросами', dbType: 'XLSX', open: true },
@@ -154,6 +156,11 @@ export interface FileApp {
 const q = (v: string) => encodeURIComponent(v);
 
 export const FILE_APPS: Record<string, FileApp> = {
+  archive: {
+    id: 'archive', name: 'Архиватор',
+    path: () => '/archives',
+    href: (f) => `/archives?file=${q(f.id)}`,
+  },
   pdf: {
     id: 'pdf', name: 'Flux Office — PDF',
     path: () => '/pdf',
@@ -205,6 +212,8 @@ export const FILE_APPS: Record<string, FileApp> = {
 };
 
 /** ПДФ узнаём и по типу из базы, и по имени: старые записи типа не имеют */
+export const isArchive = (f: FileLike | string): boolean => ARCHIVE_EXTS.has(extOf(typeof f === 'string' ? f : f.name));
+
 export const isPdf = (f: FileLike): boolean =>
   f.type === 'PDF' || faceOf(f) === 'pdf';
 
@@ -233,6 +242,7 @@ export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test
  * остальные предлагаются в «Открыть с помощью».
  */
 export function appsFor(f: FileLike): FileApp[] {
+  if (isArchive(f)) return [FILE_APPS.archive, FILE_APPS.explorer];
   if (isPdf(f)) return [FILE_APPS.pdf, FILE_APPS.explorer];
   // Офисный файл открывается редактором, а не предпросмотром. Предпросмотр
   // остаётся вторым пунктом: иногда человеку нужно просто посмотреть

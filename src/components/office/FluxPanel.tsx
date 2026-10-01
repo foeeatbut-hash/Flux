@@ -326,9 +326,8 @@ export default function FluxPanel(props: FluxPanelProps) {
 
   const exportRows = async (rows: DataRow[], format: 'csv' | 'xlsx' | 'office') => {
     if (!currentResult || !rows.length) return;
-    const capped = rows.slice(0, 500);
     const headers = activeColumns.map((column) => column.title);
-    const body = capped.map((row) => activeCellIndexes.map((index) => row.cells[index] ?? ''));
+    const body = rows.map((row) => activeCellIndexes.map((index) => row.cells[index] ?? ''));
     const title = TABS.find((item) => item.key === sourceTab)?.title || 'Данные';
     const name = exportFileName(title, format === 'csv' ? 'csv' : 'xlsx');
     setBusy(true); setInsertMessage('');
@@ -342,7 +341,7 @@ export default function FluxPanel(props: FluxPanelProps) {
           navigate(editorHref(made));
         } else downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name);
       }
-      setInsertMessage(`${format === 'csv' ? 'CSV скачан.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX скачан.'}${rows.length > 500 ? ' Использованы первые 500 строк.' : ''}`);
+      setInsertMessage(`${format === 'csv' ? 'CSV скачан.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX скачан.'} · ${rows.length} строк`);
     } catch (e: any) { setInsertMessage(String(e?.message || 'Не удалось подготовить файл.')); }
     finally { setBusy(false); }
   };
@@ -375,24 +374,23 @@ export default function FluxPanel(props: FluxPanelProps) {
         {!filtered.length ? <div className="min-h-0 flex-1"><Empty title="Ничего не найдено" text="Измените поисковый запрос или снимите фильтр." /></div> : <div className="min-h-0 flex-1 overflow-auto px-3">
           <p className="pb-2 text-xs text-slate-500 dark:text-slate-400">Предпросмотр: {filtered.length} строк{filtered.length > 500 ? ', максимум 500 за вставку' : ''}.</p>
           <div className="overflow-x-auto">
-            <table className="fx-table min-w-full text-xs">
-              <thead><tr><th className="w-7"><input type="checkbox" aria-label="Выбрать все видимые строки" checked={filtered.length > 0 && selectedRows.length === filtered.length} onChange={(event) => setSelected(event.target.checked ? filtered.map((row) => row.id) : [])} /></th>{activeColumns.map((column) => <th key={column.key}>{column.title}</th>)}</tr></thead>
+            <table className="fx-table text-xs" style={{ minWidth: 32 + activeColumns.length * 120 }}>
+              <thead><tr><th className="w-7"><input type="checkbox" aria-label="Выбрать все видимые строки" checked={filtered.length > 0 && selectedRows.length === filtered.length} onChange={(event) => setSelected(event.target.checked ? filtered.map((row) => row.id) : [])} /></th>{activeColumns.map((column) => <th key={column.key} className="min-w-[120px] whitespace-nowrap">{column.title}</th>)}</tr></thead>
               <tbody>{filtered.slice(0, 100).map((row) => <tr key={row.id}>
                 <td><input type="checkbox" aria-label={`Выбрать строку ${String(row.cells[0] || '')}`} checked={selected.includes(row.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /></td>
-                {activeCellIndexes.map((index) => <td key={`${row.id}:${index}`} title={String(row.cells[index] ?? '')}>{row.cells[index] ?? ''}</td>)}
+                {activeCellIndexes.map((index) => <td className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[280px]" key={`${row.id}:${index}`} title={String(row.cells[index] ?? '')}>{row.cells[index] ?? ''}</td>)}
               </tr>)}</tbody>
             </table>
           </div>
           {filtered.length > 100 && <p className="py-2 text-xs text-slate-500 dark:text-slate-400">В таблице показаны первые 100 строк; действие охватывает все отобранные.</p>}
         </div>}
-        <div className="flex items-center gap-2 border-t border-slate-200 p-3 dark:border-slate-800">
-          {props.onInsertTable ? <Btn tone="primary" disabled={props.readOnly || busy || !filtered.length || !activeColumns.length} onClick={() => void insert(selectedRows.length ? selectedRows : filtered)}>
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 p-3 dark:border-slate-800">
+          {props.onInsertTable && <Btn tone="primary" disabled={props.readOnly || busy || !filtered.length || !activeColumns.length} onClick={() => void insert(selectedRows.length ? selectedRows : filtered)}>
             <Check />{selectedRows.length ? `Вставить выбранные (${selectedRows.length})` : 'Вставить все'}
-          </Btn> : <>
-            <Btn size="sm" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'xlsx')}>Скачать XLSX</Btn>
-            <Btn size="sm" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'csv')}>Скачать CSV</Btn>
-            <Btn size="sm" tone="primary" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'office')}>Сохранить в Flux Office</Btn>
-          </>}
+          </Btn>}
+            <Btn size="sm" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'xlsx')}>XLSX</Btn>
+            <Btn size="sm" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'csv')}>CSV</Btn>
+            <Btn size="sm" tone="primary" disabled={busy || !filtered.length || !activeColumns.length} onClick={() => void exportRows(selectedRows.length ? selectedRows : filtered, 'office')}>Книга Flux</Btn>
           {insertMessage && <span role="status" className="text-xs text-slate-500 dark:text-slate-400">{insertMessage}</span>}
         </div>
       </>

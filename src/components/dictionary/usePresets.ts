@@ -14,7 +14,7 @@ export interface PresetsCtx extends DictCtx {
 }
 
 export function usePresets({ dictionaries, setDictionaries, fetchDictionaries, activePresetId, setActivePresetId }: PresetsCtx) {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
 
   // Preset state variables (mapped to Filter Categories & Variants)

@@ -11,7 +11,7 @@ export interface MarkingDictCtx extends DictCtx {
 }
 
 export function useMarkingDict({ dictionaries, setDictionaries, fetchDictionaries, activeMarkingTab, setActiveMarkingTab }: MarkingDictCtx) {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
 
   // Tag marking dynamic config states

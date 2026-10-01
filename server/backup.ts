@@ -1,3 +1,4 @@
+import { administratorPermission, requireOwnerMiddleware } from './accessPolicy.js';
 // ── Резервные копии программы ────────────────────────────────────────────────
 // Ежедневный «Архив»: если всё полетит (удалили базу, умер диск, кривое
 // обновление) — у владельца остаётся папка с датой, из которой всё читается
@@ -302,16 +303,16 @@ export function initBackups(deps: BackupDeps) {
 
   app.post('/api/backup/run', async (req: Request, res: Response) => {
     const u = (req as any).authUser;
-    if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Доступно только администратору' });
+    if (!administratorPermission(u, 'admin.backup.run')) return res.status(403).json({ error: 'Нет права запускать резервное копирование' });
     try {
       const result = await runBackup('manual');
       res.json({ success: true, ...result });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 
-  app.post('/api/backup/settings', async (req: Request, res: Response) => {
+  app.post('/api/backup/settings', requireOwnerMiddleware, async (req: Request, res: Response) => {
     const u = (req as any).authUser;
-    if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Доступно только администратору' });
+    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Доступно только владельцу' });
     try {
       const cur = await loadSettings();
       const next: BackupSettings = {

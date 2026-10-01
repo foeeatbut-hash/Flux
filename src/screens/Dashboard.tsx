@@ -37,6 +37,7 @@ import {
   AlertTriangle, CalendarClock, MessageSquareWarning, Bell, Cake, ShieldCheck,
 } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
 type Attention = {
   overdue: number;
   soon: number;
@@ -67,7 +68,7 @@ const KIND_LABEL: Record<Hit['kind'], string> = {
 const searches = makeLatest();
 
 export default function Dashboard() {
-  const { user, activeProject, setActiveProject } = useStore();
+  const { user, activeProject, setActiveProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject, setActiveProject: s.setActiveProject })));
   const { addToast } = useToastStore();
   // Разделы открываются окнами: панелей больше нет
   const open = (path: string) => { rememberSectionUse(path); useWindowStore.getState().open(path); };

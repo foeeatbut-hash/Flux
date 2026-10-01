@@ -17,6 +17,7 @@ import {
 import NoteShareDialog from '../components/NoteShareDialog';
 import { useModalStore } from '../store/modalStore';
 
+import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
 
@@ -40,7 +41,7 @@ export const presetOf = (color: string) =>
   COLORS.find(c => color.includes(c.class.split(' ')[0])) || COLORS[0];
 
 export default function NotesManagement() {
-  const { user, activeProject } = useStore();
+  const { user, activeProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject })));
   const { addToast } = useToastStore();
   const navigate = useNavigate();
 

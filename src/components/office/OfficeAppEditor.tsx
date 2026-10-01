@@ -37,6 +37,7 @@ import { editorHref } from '../../lib/officeFiles';
 import { useWindowTitle, usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
 import { useStore } from '../../store/store';
+import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
 import { isOfficeMsg, targetOrigin, fromOwnFrame } from '../../lib/officeBridge';
 import { dueToSave } from '../collab/useDocCollab';
@@ -77,6 +78,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const session = useRef<Promise<number> | null>(null);
   const sessionId = useRef(0);
   const dirty = useRef(false);
+  const savePending = useRef<Promise<boolean> | null>(null);
   const closeWait = useRef<((ok: boolean) => void) | null>(null);
   const fieldWait = useRef<((r: { ok: boolean; cell?: string; error?: string } | null) => void) | null>(null);
   const commandWaits = useRef(new Map<string, (r: any) => void>());
@@ -148,6 +150,25 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const reopenRef = useRef(reopen);
   reopenRef.current = reopen;
 
+  const copyPending = useRef(false);
+  const savePdfCopy = async () => {
+    if (copyPending.current) return;
+    copyPending.current = true;
+    // Открытие диалога не должно запускать автосохранение исходного PDF.
+    send({ event: 'ipc', payload: { channel: 'pdf:save-as-flow', args: [true] } });
+    try {
+      const wanted = await useModalStore.getState().openPrompt('Сохранить копию PDF', 'Копия появится рядом. Исходный файл останется без изменений.', 'Имя файла', name.replace(/\.pdf$/i, ' (копия).pdf'));
+      if (!wanted) return;
+      const r = await room.request<{ copy?: { name: string }; error?: string }>('office:save-copy', { session: await ensureSession(), name: wanted }, 120_000);
+      addToast(r?.copy ? `Копия сохранена: ${r.copy.name}` : r?.error || 'Копия не сохранена', r?.copy ? 'success' : 'error');
+    } catch (_) { addToast('Копия не сохранена. Правки остаются в окне', 'error'); }
+    finally {
+      copyPending.current = false;
+      send({ event: 'ipc', payload: { channel: 'pdf:save-as-flow', args: [false] } });
+      frame.current?.contentWindow?.focus();
+    }
+  };
+
   // Редактор → сервер
   useEffect(() => {
     const onMessage = async (e: MessageEvent) => {
@@ -178,6 +199,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         if (channel === 'flux:field-inserted' && fieldWait.current) { const w = fieldWait.current; fieldWait.current = null; w(args[0] || null); }
         return;
       }
+      if (m.op === 'flux:save-as' && app === 'pdf') { await savePdfCopy(); return; }
       if (m.op === 'ipc-send') {
         // Признак «изменено» и ответ на «сохрани перед закрытием» — окну
         if (/dirty-changed$/.test(channel)) dirty.current = args[0] === true;
@@ -200,21 +222,25 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         }
         // Записывает держатель: Ctrl+S соавтора — просьба к нему. Редактору —
         // «отменено», чтобы он не счёл правки записанными и не забыл их
-        if (channel === 'workbook:save' && collabKey.current && !holdingRef.current) {
+        if (channel === 'workbook:save' && args[0]?.mode !== 'save-as' && collabKey.current && !holdingRef.current) {
           room.emit('office:save-request', {});
           send({ reply: m.id, result: { canceled: true } });
           return;
         }
+        const isCopy = channel === 'workbook:save' && args[0]?.mode === 'save-as';
+        const copyName = isCopy ? await useModalStore.getState().openPrompt('Сохранить копию книги', 'Копия появится рядом. Исходный файл останется без изменений.', 'Имя файла', name.replace(/(\.[^.]+)$/, ' (копия)$1')) : undefined;
+        if (isCopy && !copyName) { send({ reply: m.id, result: { canceled: true } }); return; }
         const auto = channel === 'workbook:save' && autoSave.current;
         if (channel === 'workbook:save') { autoSave.current = false; savingNow.current = Date.now(); }
-        const r = await room.request<{ result?: unknown; error?: string }>('office:ipc', { session: id, channel, args, auto });
+        const r = await room.request<{ result?: unknown; error?: string; copy?: { name: string } }>('office:ipc', { session: id, channel, args, auto, copyName });
         if (channel === 'workbook:save') {
           const done = r && !r.error && (r.result as any)?.canceled === false;
           // Записано всё, что было до начала записи; пришедшее позже ждёт следующей
-          if (done && (unsaved.current.last ?? 0) <= savingNow.current) unsaved.current = { first: null, last: null };
+          if (done && (unsaved.current.last ?? 0) <= savingNow.current) { unsaved.current = { first: null, last: null }; dirty.current = false; }
           else if (done) unsaved.current = { first: unsaved.current.last, last: unsaved.current.last };
           savingNow.current = 0;
         }
+        if (r?.copy) addToast(`Копия сохранена: ${r.copy.name}`, 'success');
         if (r?.error) send({ reply: m.id, error: r.error });
         else send({ reply: m.id, result: r?.result });
       } catch (err: any) {
@@ -226,7 +252,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [send, ensureSession, room.emit, room.request]);
+  }, [send, ensureSession, room.emit, room.request, activeProjectId, name]);
 
   // Сервер → редактор: сообщения главного процесса своему окну
   useEffect(() => room.listen('office:ipc-event', (m) => {
@@ -275,11 +301,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       if (phaseRef.current !== 'ready' || !dirty.current) return true;
       // Общую книгу записывает держатель: у соавтора всё уже у него
       if (collabKey.current && !holdingRef.current) return true;
-      const ok = await new Promise<boolean>((resolve) => {
-        closeWait.current = resolve;
-        send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
-        setTimeout(() => { if (closeWait.current === resolve) { closeWait.current = null; resolve(false); } }, 120_000);
-      });
+      const ok = await saveNow();
       if (ok) return true;
       addToast('Файл не сохранён. Окно оставлено открытым, чтобы правка не пропала', 'error');
       return false;
@@ -290,12 +312,21 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   // имя FLUX_<ключ>; «Обновить поля» — записать книгу, дать серверу подставить
   // значения по именам (server/routes/projectData.ts) и открыть её заново
   const [englishOpen, setEnglishOpen] = useState(false);
-  const saveNow = () => new Promise<boolean>((resolve) => {
-    if (!dirty.current) { resolve(true); return; }
-    closeWait.current = resolve;
-    send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
-    setTimeout(() => { if (closeWait.current === resolve) { closeWait.current = null; resolve(false); } }, 120_000);
-  });
+  const saveNow = (waitingSince = Date.now()): Promise<boolean> => {
+    if (Date.now() - waitingSince > 120_000) return Promise.resolve(false);
+    // Закрытие ждёт уже начатую запись: второй вызов не должен ответить «нет правок» раньше первого.
+    if (app === 'sheets' && savingNow.current) return new Promise(resolve => setTimeout(() => { void saveNow(waitingSince).then(resolve); }, 100));
+    if (!dirty.current) return Promise.resolve(true);
+    if (savePending.current) return savePending.current;
+    const pending = new Promise<boolean>((resolve) => {
+      closeWait.current = resolve;
+      send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
+      setTimeout(() => { if (closeWait.current === resolve) { closeWait.current = null; resolve(false); } }, 120_000);
+    });
+    savePending.current = pending;
+    void pending.finally(() => { if (savePending.current === pending) savePending.current = null; });
+    return pending;
+  };
   const insertField = (f: { key: string; title: string; value: string }) => new Promise<void>((resolve) => {
     fieldWait.current = (r) => {
       if (r?.ok) addToast(`Поле «${f.title}» — в ячейке ${r.cell}`, 'success');
@@ -334,6 +365,9 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         const why = await room.take();
         if (why) addToast(why, 'error'); else reopenRef.current();
       }} />
+      {app === 'pdf' && phase === 'ready' && <div className="flex shrink-0 justify-end border-b border-slate-200 px-3 py-1 dark:border-dark-border">
+        <Btn onClick={() => void savePdfCopy()} title="Ctrl+Shift+S">Сохранить копию</Btn>
+      </div>}
       {failure && (
         <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
           {failure}

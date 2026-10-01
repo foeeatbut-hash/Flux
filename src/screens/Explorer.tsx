@@ -44,6 +44,7 @@ import {
 import FileProperties from '../components/explorer/FileProperties';
 
 
+import { useShallow } from 'zustand/react/shallow';
 // data:...;base64,<...> → текст в UTF-8 (atob даёт latin1, поэтому через TextDecoder)
 const decodeTextContent = (dataUri: string): string => {
   try {
@@ -63,15 +64,7 @@ const decodeTextContent = (dataUri: string): string => {
 };
 
 export default function Explorer() {
-  const { 
-    activeProject, 
-    explorerHistory, 
-    explorerForward, 
-    pushHistory, 
-    goBack, 
-    goForward,
-    user
-  } = useStore();
+  const { activeProject, explorerHistory, explorerForward, pushHistory, goBack, goForward, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, explorerHistory: s.explorerHistory, explorerForward: s.explorerForward, pushHistory: s.pushHistory, goBack: s.goBack, goForward: s.goForward, user: s.user })));
   
   const { addToast } = useToastStore();
   const { openPrompt, openConfirm, openSelect } = useModalStore();
@@ -2035,6 +2028,16 @@ export default function Explorer() {
           target={allCurrentItems.find(i => i.id === contextMenu.targetId)}
           currentFolderId={currentFolderId}
           hasClipboard={!!clipboard}
+          selectedIds={Array.from(selectedIds)}
+          archive={(ids) => {
+            const chosen = ids?.length ? ids : (contextMenu.targetId ? [contextMenu.targetId] : []);
+            const folderIds = chosen.filter(id => folders.some(folder => folder.id === id));
+            const fileIds = chosen.filter(id => files.some(file => file.id === id));
+            const query = new URLSearchParams();
+            if (fileIds.length) query.set('create', fileIds.join(','));
+            if (folderIds.length) query.set('folderIds', folderIds.join(','));
+            if (query.toString()) navigate(`/archives?${query.toString()}`);
+          }}
           onClose={() => setContextMenu(null)}
           open={(id) => handleItemDoubleClick(id, false)}
           openWith={(href, appId) => {

@@ -30,7 +30,7 @@ import PresetsPanel from '../components/dictionary/PresetsPanel';
 const { openConfirm } = useModalStore.getState();
 
 export default function DictionaryEditor() {
-  const { activeProject } = useStore();
+  const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
 
   const [dictionaries, setDictionaries] = useState<any[]>([]);

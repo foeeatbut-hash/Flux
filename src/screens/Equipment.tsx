@@ -53,10 +53,11 @@ import { compositionOf } from '../../equipment/composition';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
 import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
 
+import { useShallow } from 'zustand/react/shallow';
 const api = (p: string) => `/api${p}`;
 
 export default function Equipment() {
-  const { activeProject, user } = useStore();
+  const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
   const isAdmin = user?.role === 'ADMIN';
 

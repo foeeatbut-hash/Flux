@@ -14,7 +14,7 @@ export interface Actor {
   permissions?: string | null;
 }
 
-export const isAdminActor = (a: Actor | null | undefined): boolean => a?.role === 'ADMIN';
+export const isAdminActor = (a: Actor | null | undefined): boolean => a?.role === 'ADMIN' || a?.role === 'OWNER';
 
 /** Пустая строка и «null/undefined/default» — не проект, а «проект по умолчанию» */
 export function isRealProjectId(v: unknown): v is string {
@@ -58,12 +58,11 @@ export function hiddenProjectIds(rows: Array<{ projectId: string; userId: string
  */
 export function projectIdsOfRequest(path: string, query: any, body: any): string[] {
   const ids = new Set<string>();
-  const m = /^\/api\/projects\/([^/]+)\//i.exec(path);
+  const m = /^\/api\/projects\/([^/]+)(?:\/|$)/i.exec(path);
   if (m) { try { ids.add(decodeURIComponent(m[1])); } catch (_) { ids.add(m[1]); } }
   const q = query?.projectId;
   if (typeof q === 'string') ids.add(q);
-  const b = body?.projectId;
-  if (typeof b === 'string') ids.add(b);
+  for (const b of [body?.projectId, body?.linkedProjectId]) if (typeof b === 'string') ids.add(b);
   return [...ids].filter(isRealProjectId);
 }
 
@@ -130,7 +129,7 @@ export function judgeMembersChange(c: MembersChange): { ok: true } | { ok: false
  * штатный путь с проверкой прав (play/admin, время в server.ts, security.ts).
  */
 const TRUST_KEYS: RegExp[] = [
-  /^security[._:]/i, /^play[._:]/i, /^license/i, /anchor/i, /^time[._:]/i,
+  /^security[._:]/i, /^auth[._:]/i, /^play[._:]/i, /^license/i, /anchor/i, /^time[._:]/i,
   /^backup_settings$/i, /^feedback\.settings/i,
 ];
 

@@ -30,6 +30,8 @@
     "tools/genoffice/inject",
     "tools/genoffice/shims",
     "genoffice-server",
-    ".cache"
+    ".cache",
+    "public/genoffice",
+    "public/ocr"
   ]
 }

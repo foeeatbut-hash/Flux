@@ -4,8 +4,9 @@ import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon } from 'lucide-react';
-import { setAuthToken } from '../config/env';
+import { setAuthToken, markSessionEstablished } from '../config/env';
 import ConnectionPanel from '../components/ConnectionPanel';
+import OwnerLogin from '../components/OwnerLogin';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -44,7 +45,8 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       const data = await dataService.login(normUser, password);
       if (data.success) {
         // Токен сессии — до setUser, чтобы первые же запросы экранов ушли с ним
-        if ((data as any).token) setAuthToken((data as any).token);
+        await setAuthToken((data as any).token || '');
+        markSessionEstablished();
         if (remember) {
           localStorage.setItem('login_remember', 'true');
           localStorage.setItem('login_saved_username', login.trim());
@@ -206,11 +208,12 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               )}
             </button>
           </form>
+          <OwnerLogin />
           </div>
         </motion.div>
       </div>
 
-      {/* Подключение — одно поле: строка базы или адрес сервера (ConnectionPanel) */}
+      {/* Сотрудники подключаются к API сервера компании без реквизитов БД. */}
       <ConnectionPanel />
 
       {/* Footer: авторство слева, версия справа */}

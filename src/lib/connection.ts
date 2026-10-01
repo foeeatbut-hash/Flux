@@ -1,71 +1,40 @@
-/**
- * Одно поле подключения на экране входа: что именно вставил человек.
- *
- * Раньше под формой входа было два вопроса — «адрес сервера программы» и
- * «база данных», — и каждый в своём окне с пятью полями. Их развели после
- * того, как строку подключения к базе вписали в поле сервера и программа
- * перестала работать (src/lib/serverUrl.ts). Но два окна — это лишние действия
- * каждый раз, а путаница лечится не разведением полей, а распознаванием: по
- * самой строке видно, что это — база или сервер.
- *
- *   mysql://Flux:пароль@192.168.120.14:3306/Flux   → общая база (MariaDB/MySQL)
- *   postgresql://user:пароль@host:5432/flux         → общая база (PostgreSQL)
- *   http://192.168.1.100:3000  или  192.168.1.100:3000 → сервер компании
- *
- * Пароль в строке берётся «как есть», даже со спецзнаками: `@`, `:`, `/`, `]`
- * в пароле отдела встречались, и стандартный разбор адреса резал его не там.
- * Поэтому хост ищется после ПОСЛЕДНЕГО `@`, а строка собирается заново с
- * экранированием (buildDbUrl).
- *
- * Без React и без сети — scripts/test-connection.ts.
- */
-import { buildDbUrl, missing, type DbParts, DEFAULT_PORT } from './dbUrl';
 import { checkServerUrl } from './serverUrl';
 
-export type Connection =
-  | { kind: 'database'; url: string; parts: DbParts }
-  | { kind: 'server'; url: string }
-  | { kind: 'error'; error: string };
+export type Connection = { kind: 'server'; url: string } | { kind: 'error'; error: string };
 
-const DB_RE = /^(mysql|mariadb|postgres|postgresql):\/\/(.*)$/i;
-
+/** Клиент получает только адрес API: доступ к БД остаётся на сервере компании. */
 export function readConnection(raw: string): Connection {
-  const s = String(raw || '').trim();
-  if (!s) return { kind: 'error', error: 'Вставьте строку подключения к базе или адрес сервера компании.' };
-
-  if (/^(sqlite|file):/i.test(s)) {
-    return { kind: 'error', error: 'База на этом компьютере подключается кнопкой «Этот компьютер».' };
+  const text = String(raw || '').trim();
+  if (!text) return { kind: 'error', error: 'Введите адрес сервера Flux, например https://flux.company.ru.' };
+  if (/^(mysql|mariadb|postgres|postgresql|mongodb|sqlserver|sqlite|file):/i.test(text)) {
+    return { kind: 'error', error: 'Это адрес базы данных. Сотрудники подключаются к серверу Flux по HTTPS; базу настраивает владелец на сервере компании.' };
   }
-
-  const db = DB_RE.exec(s);
-  if (db) {
-    const engine = /^(mysql|mariadb)$/i.test(db[1]) ? 'MARIADB' : 'POSTGRES';
-    const rest = db[2];
-    // Хост — после последнего «@»: в пароле «@» бывает, в адресе сервера — нет
-    const at = rest.lastIndexOf('@');
-    const cred = at >= 0 ? rest.slice(0, at) : '';
-    const tail = at >= 0 ? rest.slice(at + 1) : rest;
-    const colon = cred.indexOf(':');
-    const user = colon >= 0 ? cred.slice(0, colon) : cred;
-    const password = colon >= 0 ? cred.slice(colon + 1) : '';
-    const m = /^([^/:?#]+)(?::(\d{1,5}))?\/([^?#]*)/.exec(tail);
-    if (!m) return { kind: 'error', error: 'Не разобрать сервер и базу. Пример: mysql://имя:пароль@192.168.1.10:3306/Flux' };
-    const safeDecode = (v: string) => { try { return decodeURIComponent(v); } catch (_) { return v; } };
-    const parts: DbParts = {
-      engine,
-      host: m[1],
-      port: m[2] || DEFAULT_PORT[engine],
-      database: safeDecode(m[3]),
-      // Уже закодированное (%40) раскодируем, чтобы не закодировать дважды
-      user: safeDecode(user),
-      password: /%[0-9a-f]{2}/i.test(password) ? safeDecode(password) : password,
-    };
-    const lack = missing(parts);
-    if (lack) return { kind: 'error', error: lack };
-    return { kind: 'database', url: buildDbUrl(parts), parts };
+  const explicit = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(text);
+  const loopback = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(text);
+  const checked = checkServerUrl(explicit ? text : `${loopback ? 'http' : 'https'}://${text}`);
+  if (checked.error) return { kind: 'error', error: checked.error };
+  const address = new URL(checked.url);
+  if (address.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(address.hostname.toLowerCase())) {
+    return { kind: 'error', error: 'Для сервера компании нужен HTTPS, чтобы логины, файлы и лицензии передавались защищённо. HTTP разрешён только на этом компьютере.' };
   }
+  return { kind: 'server', url: checked.url };
+}
 
-  const server = checkServerUrl(s);
-  if (server.error) return { kind: 'error', error: server.error };
-  return { kind: 'server', url: server.url };
+export type ServerProbe = { ready: boolean; version?: string; needsSetup?: boolean; error?: string };
+
+/** Одного ответа 200 недостаточно: на адресе может находиться сайт или сама БД. */
+export async function probeFluxServer(url: string, request: typeof fetch = fetch): Promise<ServerProbe> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const response = await request(`${url}/api/health`, { signal: ctl.signal, credentials: 'omit' });
+    const data = await response.json().catch(() => null);
+    if (!data || typeof data.ok !== 'boolean' || typeof data.version !== 'string') {
+      return { ready: false, error: 'По этому адресу нет API Flux. На сервере с БД нужно отдельно запустить сервер Flux и настроить HTTPS.' };
+    }
+    if (!response.ok || !data.ok) return { ready: false, error: data.error || 'Сервер Flux найден, но его база данных пока недоступна.' };
+    return { ready: true, version: data.version, needsSetup: data.needsSetup === true };
+  } catch (_) {
+    return { ready: false, error: 'Нет связи с сервером Flux. Проверьте адрес, HTTPS-сертификат, VPN и доступ к порту у администратора компании.' };
+  } finally { clearTimeout(timer); }
 }

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { usePresenceStore } from '../store/presenceStore';
-import { ENV_CONFIG, getAuthToken } from '../config/env';
+import { ENV_CONFIG, getAuthToken, getAuthSessionKey, usesCookieTransport } from '../config/env';
 import { isNewer } from '../lib/updates';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
@@ -69,16 +69,19 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
    * HTTP и жил, а присутствие ходит только сокетом и молчало до перезапуска
    * программы.
    */
+  const [sessionKey, setSessionKey] = useState<string>(() => getAuthSessionKey());
   const [token, setToken] = useState<string>(() => getAuthToken());
   useEffect(() => {
     const check = () => {
+      setSessionKey(getAuthSessionKey());
       const now = getAuthToken();
       setToken((was) => (was === now ? was : now));
     };
     // Вход и выход происходят в этом же окне — событие storage сюда не придёт
     const timer = setInterval(check, 2000);
     window.addEventListener('storage', check);
-    return () => { clearInterval(timer); window.removeEventListener('storage', check); };
+    window.addEventListener('flux:session-changed', check);
+    return () => { clearInterval(timer); window.removeEventListener('storage', check); window.removeEventListener('flux:session-changed', check); };
   }, []);
 
   useEffect(() => {
@@ -117,6 +120,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
     const activeSocket = io(ENV_CONFIG.socketUrl, {
       auth: { token },
+      withCredentials: usesCookieTransport(),
       // websocket в приоритете, polling — запасной транспорт (строгие прокси)
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -322,7 +326,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       useChatStore.getState().unbindSocket(activeSocket);
       activeSocket.disconnect();
     };
-  }, [addToast, userId, token]);
+  }, [addToast, userId, token, sessionKey]);
 
   const emitTagChange = (type: 'linked' | 'updated', tagId: string, details?: any) => {
     if (!socket) return;

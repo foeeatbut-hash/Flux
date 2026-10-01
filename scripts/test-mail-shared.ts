@@ -107,21 +107,14 @@ const run = async () => {
 
   console.log('\n3. Второй сотрудник');
   // Смысл общего ящика виден только вдвоём — одного сеанса не хватит
-  const users = await call('GET', '/api/users', admin);
-  const all: any[] = users.json?.users || users.json || [];
-  let mate = all.find?.((u: any) => u.symbol !== ADMIN.symbol);
-  let mateMine = false;
   const pass = 'проверка-общего-ящика';
-  if (!mate) {
-    const made = await call('POST', '/api/users', admin, {
-      name: 'Проверочный Сотрудник', symbol: MATE_SYMBOL, password: pass, role: 'ENGINEER_VENT',
-    });
-    mate = made.json?.user || made.json;
-    mateMine = Boolean(mate?.id);
-    eq('второй сотрудник заведён', Boolean(mate?.id), true);
-  } else {
-    await call('PUT', `/api/users/${mate.id}`, admin, { password: pass, isActive: true });
-  }
+  // Проверка создаёт свой профиль и не меняет пароль существующего сотрудника.
+  const madeMate = await call('POST', '/api/users', admin, {
+    name: 'Проверочный Сотрудник', symbol: MATE_SYMBOL, password: pass, role: 'ENGINEER_VENT',
+  });
+  const mate = madeMate.json?.user || madeMate.json;
+  const mateMine = Boolean(mate?.id);
+  eq('второй сотрудник заведён', mateMine, true);
   if (!mate?.id) { console.log('\nНекому проверять общий доступ'); process.exit(1); }
 
   const mateToken = await login(mate.symbol, pass);

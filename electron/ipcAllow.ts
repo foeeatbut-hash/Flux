@@ -11,6 +11,10 @@
  * новый канал добавляется сюда осознанно — или получает свой метод.
  */
 export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
+  'auth:read-session',
+  'auth:write-session',
+  'owner:select-key',
+  'owner:sign-login',
   'app:get-server-url',
   'app:set-server-url',
   'app:set-database',

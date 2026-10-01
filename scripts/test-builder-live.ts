@@ -164,7 +164,7 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     const stamp = Date.now().toString(36);
     const symbol = `builder-${stamp}`;
     const made = await call('POST', '/api/users', {
-      name: `Проверка Конструктора ${stamp}`, symbol, password: 'проверка', role: 'ENGINEER',
+      name: `Проверка Конструктора ${stamp}`, symbol, password: 'проверка', role: 'ENGINEER_VENT',
       // Запись прав «из прошлого»: новых ключей Конструктора в ней нет
       permissions: { 'tags.manage': { enabled: true, until: null } },
     });

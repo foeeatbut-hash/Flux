@@ -10,7 +10,7 @@
  *     шрифты, подписи);
  *   - получает сообщения главного процесса окну.
  */
-import { configurePdfRuntime, createPdfView } from './main/pdf-main'
+import { configurePdfRuntime, createPdfView, requestPdfSaveAs } from './main/pdf-main'
 import { __flux } from 'electron'
 
 let started = false
@@ -38,3 +38,9 @@ export const send = (id: number, channel: string, args: unknown[]) => __flux.sen
 export const onSend = (fn: (id: number, channel: string, args: unknown[]) => void) => __flux.onSend(fn)
 export const close = (id: number) => __flux.destroy(id)
 export const channels = () => __flux.channels()
+
+export const requestCopy = (id: number, target: string) => {
+  const wc = __flux.webContents(id);
+  if (!wc) return Promise.resolve(false);
+  return requestPdfSaveAs(wc as any, target);
+}

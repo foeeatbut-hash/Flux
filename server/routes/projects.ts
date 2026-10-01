@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { canSeeProject, registerProjectAccessGuard } from './members.js';
@@ -30,7 +31,7 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
     // никого не звали, виден всем: включать ограничение задним числом на базе,
     // которая о составе не знает, — значит отобрать у отдела всё разом
     const me = (req as any).authUser || null;
-    const isAdmin = me?.role === 'ADMIN';
+    const isAdmin = isPrivilegedUser(me);
     const mine: any[] = [];
     for (const p of projects) {
       if (await canSeeProject(me?.id || '', p.id, isAdmin)) mine.push(p);

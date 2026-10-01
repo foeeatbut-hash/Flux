@@ -119,7 +119,7 @@ async function revokePlay(token: string, userId: string): Promise<void> {
   let otherToken = '';
   {
     const made = await api(adminToken, 'POST', '/api/users', {
-      name: `Проверка скрытности ${stamp}`, symbol, password, role: 'ENGINEER',
+      name: `Проверка скрытности ${stamp}`, symbol, password, role: 'ENGINEER_VENT',
     });
     const otherId = String(made.json?.user?.id || made.json?.id || '');
     ok('второй сотрудник заведён', !!otherId, { s: made.status, j: made.json });

@@ -54,7 +54,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const symbol = `ПР${stamp}`;
   const password = `pr-${stamp}-Aa1`;
   const made = await api(adminToken, 'POST', '/api/users', {
-    name: `Проверка присутствия ${stamp}`, symbol, password, role: 'ENGINEER',
+    name: `Проверка присутствия ${stamp}`, symbol, password, role: 'ENGINEER_VENT',
   });
   const otherId = made.json?.user?.id || made.json?.id || '';
   if (!otherId) { console.error('Второй сотрудник не завёлся.', made.status, made.json); process.exit(2); }

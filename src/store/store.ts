@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { setNotifUser } from '../lib/notifPrefs';
+import { logoutSession, markSessionEstablished } from '../config/env';
+import { useToastStore } from './toastStore';
 
 type User = {
   id: string;
@@ -68,25 +70,25 @@ export const useStore = create<AppState>((set, get) => {
 
   const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
   applyDensity(initialDensity);
-  // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
-  let initialUser: User | null = null;
-  let initialProject: Project | null = null;
-  try {
-    const savedSession = typeof window !== 'undefined' ? localStorage.getItem('pdm_session_user') : null;
-    if (savedSession) {
-      initialUser = JSON.parse(savedSession);
-      // Восстанавливаем и активный проект, иначе проектные разделы просят выбрать проект после перезагрузки
-      const savedProjectStr = initialUser ? localStorage.getItem(`max_active_project_${initialUser.id}`) : null;
-      if (savedProjectStr) initialProject = JSON.parse(savedProjectStr);
-    }
-  } catch (e) {}
+  // Cached profile is presentation metadata, never proof of authorization.
+  // main.tsx restores only the server-confirmed profile before mounting React.
+  const initialUser: User | null = null;
+  const initialProject: Project | null = null;
 
   try { setNotifUser(initialUser?.id); } catch (e) {}
 
   return {
     user: initialUser,
     activeProject: initialProject,
-    setUser: (user) => {
+    setUser: async (user) => {
+      if (!user && get().user) {
+        try { await logoutSession(); }
+        catch (error: any) {
+          useToastStore.getState().addToast(error.message || 'Не удалось выйти. Повторите выход.', 'error');
+          return;
+        }
+      }
+      if (user) markSessionEstablished();
       try {
         if (user) {
           localStorage.setItem('pdm_session_user', JSON.stringify(user));

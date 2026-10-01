@@ -168,6 +168,7 @@ export default function OfficeHost() {
       headers: {
         'Content-Type': 'application/octet-stream', 'X-Base-Sha256': sha,
         ...(autoRef.current ? { 'X-Autosave': '1' } : {}),
+        ...(collabRef.current.sessionKey() ? { 'X-Office-Session': collabRef.current.sessionKey() } : {}),
       },
       body: p.bytes,
     });
@@ -182,7 +183,7 @@ export default function OfficeHost() {
       //   он бывает на другом сервере): берём хеш, что сейчас в файле, и пишем ещё раз
       //   Только если в файле то, что записал сам сеанс (bySession): изменённое в обход
       //   вслепую не затирается
-      for (let i = 0; i < 2 && res.status === 409 && data?.currentSha256 && data?.bySession !== false; i++) {
+      for (let i = 0; i < 2 && res.status === 409 && data?.currentSha256 && data?.bySession === true; i++) {
         base.current.set(id, String(data.currentSha256));
         res = await put(String(data.currentSha256));
         data = await res.json().catch(() => ({}));
@@ -201,7 +202,7 @@ export default function OfficeHost() {
       if (id === fileId && !data.unchanged) room.saved(data.sha256);
       return { ok: true };
     }
-    if (together) {
+    if (together && res.status !== 409) {
       // Ещё раз не вышло — правки остаются в общем документе и уйдут со следующей записью; диалога нет
       return { ok: false, error: String(data?.error || `сервер ответил ${res.status}`) };
     }

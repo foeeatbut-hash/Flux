@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { useModalStore } from '../store/modalStore';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, FileQuestion, HelpCircle, X } from 'lucide-react';
 
 export default function ModalProvider() {
+  const titleId = useId();
   const { currentModal, closeModal } = useModalStore();
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
   // выше любой разметки, и без этого панель оказалась бы под страницей
@@ -66,12 +67,13 @@ export default function ModalProvider() {
            animate={{ opacity: 1, y: 0 }}
            exit={{ opacity: 0, y: 6 }}
            transition={{ duration: 0.14 }}
+           role="dialog" aria-modal="true" aria-labelledby={titleId}
            className="relative w-full max-w-md fx-dialog overflow-hidden"
         >
            <form onSubmit={handleSubmit}>
               <div className="fx-dialog-head pr-10">
                 <Icon className={`w-4 h-4 shrink-0 ${danger ? 'text-rose-600 dark:text-rose-400' : currentModal.type === 'alert' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
-                <h3 className="min-w-0">{currentModal.title}</h3>
+                <h3 id={titleId} className="min-w-0">{currentModal.title}</h3>
               </div>
               <div className="fx-dialog-body">
                 {currentModal.message && <p className="whitespace-pre-wrap">{currentModal.message}</p>}

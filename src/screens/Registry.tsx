@@ -63,6 +63,7 @@ import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
 import { parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
 
+import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 
@@ -96,7 +97,7 @@ interface ActiveConnectionDrag {
 }
 
 export default function Registry() {
-  const { activeProject, theme, user } = useStore();
+  const { activeProject, theme, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, theme: s.theme, user: s.user })));
   const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToastStore();

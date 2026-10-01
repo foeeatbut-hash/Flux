@@ -1,3 +1,4 @@
+import { isPrivilegedUser } from '../accessPolicy.js';
 /**
  * Данные проекта для документов: каталог полей, алиасы параметров, точечные
  * значения, исполнитель запросов — и то, чем ими пользуются файлы Flux Office:
@@ -148,7 +149,7 @@ async function aliasesPut(req: Request, res: Response): Promise<any> {
   try {
     const me = (req as any).authUser || null;
     // Править общие алиасы может админ/менеджер (влияют на всех)
-    if (me && me.role !== 'ADMIN' && me.role !== 'MANAGER') {
+    if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
       return res.status(403).json({ error: 'Изменять алиасы может администратор или руководитель' });
     }
     const projectId = await resolveProjectId(String(req.body?.projectId || ''));

@@ -106,7 +106,7 @@ const api = async (method: string, url: string, token: string, body?: any) => {
   console.log('3. Класть на диск — по праву, читать — всем');
   const pass = `Пр${stamp}!7`;
   const mk = await api('POST', '/api/users', admin, {
-    symbol: `disk${stamp}`, name: 'Проба Диск', password: pass, role: 'USER',
+    symbol: `disk${stamp}`, name: 'Проба Диск', password: pass, role: 'ENGINEER_VENT',
   });
   const mateId = mk.json?.user?.id || mk.json?.id;
   ok('второй сотрудник заведён', !!mateId, mk.json);

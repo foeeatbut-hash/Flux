@@ -124,7 +124,7 @@ async function revoke(adminToken: string, userId: string): Promise<void> {
       const symbol = `ИГ${suffix}${stamp}`;
       const password = `pl-${suffix}-${stamp}-Aa1`;
       const made = await api(adminToken, 'POST', '/api/users', {
-        name: `Игрок ${suffix} ${stamp}`, symbol, password, role: 'ENGINEER',
+        name: `Игрок ${suffix} ${stamp}`, symbol, password, role: 'ENGINEER_VENT',
       });
       const id = String(made.json?.user?.id || made.json?.id || '');
       await grant(adminToken, id, [APP_PLAY, gameEntitlement('testgame')]);

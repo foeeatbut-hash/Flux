@@ -7,7 +7,7 @@ import { countOf } from '../../lib/plural';
 // Ежедневный «Архив»: копия базы + все файлы Проводника в родных форматах по
 // папкам + данные проектов в Excel. Если всё полетит — папка с датой читается
 // без программы. Плюс страховочные копии базы при каждом запуске.
-export default function BackupSection({ isAdmin, addToast }: any) {
+export default function BackupSection({ isAdmin, mayRun = isAdmin, addToast }: any) {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [runningNow, setRunningNow] = useState(false);
@@ -74,7 +74,7 @@ export default function BackupSection({ isAdmin, addToast }: any) {
               <div className="text-xs font-medium text-slate-400">Папка архивов</div>
               <div className="text-xs font-mono mt-1 text-slate-600 dark:text-slate-300 select-all break-all">{status?.dir || '—'}</div>
             </div>
-            {isAdmin && (
+            {mayRun && (
               <button type="button"
                 onClick={runNow}
                 disabled={runningNow || status?.running}

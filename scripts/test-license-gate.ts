@@ -44,14 +44,21 @@ console.log('\n2. Ради чего всё: сбой связи не выдаё�
   ok('сбой сильнее подделанного ответа', прежнее.kind === 'offline', прежнее.kind);
 }
 
-console.log('\n3. Гейт не ослаблен');
+console.log('\n3. Чтение после окончания лицензии');
 {
-  ok('пропускает только лицензию', passes(gateState({ status: { licensed: true }, failure: '' })));
+  const state = gateState({ status: { licensed: false, reason: 'expired', readOnly: true }, failure: '' });
+  ok('просроченная лицензия открывает только режим чтения', state.kind === 'readonly' && passes(state));
+  ok('одно слово expired без серверного readOnly не открывает данные', !passes(gateState({status:{licensed:false,reason:'expired'},failure:''})));
+  ok('отозванная лицензия не получает режим чтения', !passes(gateState({status:{licensed:false,reason:'revoked',readOnly:true},failure:''})));
+  ok('сбой связи не даёт доступа даже с истёкшей лицензией', !passes(gateState({status:{licensed:false,reason:'expired',readOnly:true},failure:'сервер недоступен'})));
+}
+{
+  ok('лицензия открывает работу', passes(gateState({ status: { licensed: true }, failure: '' })));
   ok('сбой связи НЕ пропускает', !passes(gateState({ status: null, failure: 'нет сети' })));
   ok('ожидание НЕ пропускает', !passes(gateState({ status: null, failure: '' })));
   ok('отказ НЕ пропускает', !passes(gateState({ status: { licensed: false, reason: 'expired' }, failure: '' })));
   // Даже если сервер ответил «нет» и связь заодно отвалилась
-  ok('ничто, кроме лицензии, не проходит',
+  ok('ожидание, отказ и сбой не проходят',
     !passes(gateState({ status: { licensed: false }, failure: 'нет сети' })));
 }
 

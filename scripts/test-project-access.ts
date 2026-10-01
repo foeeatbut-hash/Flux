@@ -45,7 +45,7 @@ async function main() {
   eq('из тела', projectIdsOfRequest('/api/tags/generate', {}, { projectId: 'p3' }), ['p3']);
   eq('все три — без повторов', projectIdsOfRequest('/api/projects/p1/x', { projectId: 'p1' }, { projectId: 'p4' }), ['p1', 'p4']);
   eq('«default» и «null» — не проект', projectIdsOfRequest('/api/projects/default/tags', { projectId: 'null' }, {}), []);
-  eq('сам проект без хвоста страж не трогает', projectIdsOfRequest('/api/projects/p1', {}, {}), []);
+  eq('сам проект без хвоста тоже попадает под страж', projectIdsOfRequest('/api/projects/p1', {}, {}), ['p1']);
   eq('массив в query — не строка', projectIdsOfRequest('/api/x', { projectId: ['p1', 'p2'] }, {}), []);
   eq('isRealProjectId: пусто', isRealProjectId('  '), false);
   eq('isRealProjectId: id', isRealProjectId('abc'), true);

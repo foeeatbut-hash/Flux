@@ -71,20 +71,45 @@ export async function setConfiguredServerUrl(url: string): Promise<void> {
   } catch (_) {}
 }
 
-// ── Токен сессии ──
-// Выдаётся сервером при входе; уходит в Authorization на каждом запросе к API
-// (добавляет fetch-обёртка ниже) и в handshake socket.io. Ответ 401 означает
-// «сессия недействительна» — приложение возвращает на экран входа.
-const AUTH_TOKEN_KEY = 'flux_auth_token';
-
-export function getAuthToken(): string {
-  try { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; } catch (_) { return ''; }
+// Browser sessions live in HttpOnly cookies; Electron keeps the encrypted token
+// in the main process. A cross-origin browser connection uses memory only.
+try { localStorage.removeItem('flux_auth_token'); } catch (_) {}
+let authToken = '';
+let sessionEstablished = false;
+export function getAuthToken(): string { return authToken; }
+export async function setAuthToken(token: string): Promise<void> {
+  const nextToken = token || '';
+  try { localStorage.removeItem('flux_auth_token'); } catch (_) {}
+  const bridge = typeof window !== 'undefined' ? (window as any).electron?.ipcRenderer : null;
+  if (bridge?.invoke) await bridge.invoke('auth:write-session', nextToken, new URL(SERVER_BASE_URL || window.location.origin).origin);
+  authToken = nextToken;
+  sessionEstablished = !!nextToken;
 }
-export function setAuthToken(token: string): void {
+export async function initializeAuthToken(): Promise<void> {
+  // Old unencrypted sessions are deliberately not trusted or migrated.
+  try { localStorage.removeItem('flux_auth_token'); } catch (_) {}
+  const bridge = typeof window !== 'undefined' ? (window as any).electron?.ipcRenderer : null;
+  if (bridge?.invoke) authToken = await bridge.invoke('auth:read-session', new URL(SERVER_BASE_URL || window.location.origin).origin) || '';
+}
+export function markSessionEstablished(): void {
+  sessionEstablished = true;
+  try { window.dispatchEvent(new Event('flux:session-changed')); } catch (_) {}
+}
+export function getAuthSessionKey(): string { return authToken || (usesCookieTransport() ? csrfCookie() : ''); }
+export function usesCookieTransport(): boolean {
+  return typeof window !== 'undefined' && window.location.protocol !== 'file:' && (!SERVER_BASE_URL || new URL(SERVER_BASE_URL).origin === window.location.origin);
+}
+export async function logoutSession(): Promise<void> {
+  const response = await fetch('/api/logout', { method: 'POST' });
+  if (!response.ok && response.status !== 401) throw new Error('Не удалось завершить сессию на сервере. Повторите выход.');
+  await setAuthToken('');
+  sessionEstablished = false;
+}
+function csrfCookie(): string {
   try {
-    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
-    else localStorage.removeItem(AUTH_TOKEN_KEY);
-  } catch (_) {}
+    const part = document.cookie.split(';').find(value => value.trim().startsWith('flux_csrf='));
+    return part ? decodeURIComponent(part.trim().slice('flux_csrf='.length)) : '';
+  } catch (_) { return ''; }
 }
 
 // Адрес зафиксирован на момент загрузки: смена сервера = перезагрузка окна,
@@ -145,30 +170,32 @@ if (typeof window !== 'undefined') {
     } catch (e) {}
 
     const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
-    const isApi = /\/api\//.test(urlForLog);
+    // Only the configured API origin may receive session credentials. A URL
+    // containing /api/ on an unrelated service must never receive our bearer.
+    let isApi = false;
+    try {
+      const target = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.href);
+      const apiOrigin = new URL(SERVER_BASE_URL || window.location.origin).origin;
+      isApi = target.origin === apiOrigin && target.pathname.startsWith('/api/');
+    } catch (_) {}
     const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/');
-
-    // Токен сессии — на каждый запрос к API (кроме случая, когда вызывающий
-    // код уже выставил Authorization сам)
     let sentToken = false;
     if (isApi) {
       const token = getAuthToken();
-      try {
-        const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-        const own = headers.get('Authorization') || '';
-        /**
-         * Свой пустой заголовок — не воля вызывающего, а ошибка.
-         *
-         * Один экран подставлял токен руками и брал его из неверного ключа
-         * хранилища: заголовок уходил пустым, а обёртка его не трогала —
-         * «раз задан, значит так и хотели». Сервер отвечал «требуется вход», и
-         * человека выбрасывало на экран входа при открытии события календаря.
-         * Пустой Authorization теперь заменяется настоящим.
-         */
-        if (token && (!own || /^Bearer\s*$/i.test(own))) headers.set('Authorization', `Bearer ${token}`);
-        sentToken = !!(headers.get('Authorization') || '').replace(/^Bearer\s*/i, '');
-        if (token) init = { ...(init || {}), headers };
-      } catch (_) { sentToken = !!token; }
+      const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+      const own = headers.get('Authorization') || '';
+      if (token && (!own || /^Bearer\s*$/i.test(own))) headers.set('Authorization', `Bearer ${token}`);
+      sentToken = !!headers.get('Authorization') || sessionEstablished;
+      const electron = !!(window as any).electron?.ipcRenderer;
+      const sameOrigin = !SERVER_BASE_URL || new URL(SERVER_BASE_URL).origin === window.location.origin;
+      if (shortUrl === '/api/login' || shortUrl === '/api/owner/login') {
+        headers.set('X-Flux-Auth-Transport', electron ? 'electron' : sameOrigin ? 'cookie' : 'memory');
+      }
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        const csrf = csrfCookie();
+        if (csrf && sameOrigin) headers.set('X-Flux-CSRF', csrf);
+      }
+      init = { ...(init || {}), headers, credentials: sameOrigin ? 'include' : 'omit' };
     }
     // Фоновые поллинги (уведомления, чат) идут каждые несколько секунд —
     // их успешные запросы не пишем, чтобы не забивать журнал шумом (ошибки пишем)
@@ -211,9 +238,9 @@ if (typeof window !== 'undefined') {
        *
        * /api/login не считается: там 401 = просто неверный пароль.
        */
-      if (res.status === 401 && isApi && sentToken && !shortUrl.startsWith('/api/login')) {
+      if (res.status === 401 && isApi && sentToken && !shortUrl.startsWith('/api/login') && !shortUrl.startsWith('/api/owner/login')) {
         try { window.dispatchEvent(new CustomEvent('flux:auth-expired')); } catch (_) {}
-      } else if (res.status === 401 && isApi && !sentToken) {
+      } else if (res.status === 401 && isApi && !sentToken && shortUrl !== '/api/auth/me') {
         logApi('ERROR', 'Ответ', `401 ${shortUrl} — запрос ушёл без токена (ошибка в коде, сессия цела)`);
       }
       return res;

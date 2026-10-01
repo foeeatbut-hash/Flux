@@ -53,6 +53,12 @@ const parts = async (b: Buffer) => {
   for (const [n, e] of Object.entries(z.files)) if (!e.dir) out.set(n, await e.async('nodebuffer'));
   return out;
 };
+const cellValue = async (id: string, ref: string): Promise<{ value: string; xml: string }> => {
+  const archive = await parts((await call('GET', `/api/files/${id}/raw`)).buf);
+  const xml = archive.get('xl/worksheets/sheet1.xml')?.toString('utf8') || '';
+  const match = xml.match(new RegExp(`<c\\b[^>]*\\br="${ref}"[^>]*>([\\s\\S]*?)<\\/c>`));
+  return { value: match?.[1]?.match(/<v>([\s\S]*?)<\/v>/)?.[1] || '', xml };
+};
 
 /** Перейти к ячейке, как в Excel: адрес в поле имени и Enter */
 async function gotoCell(page: any, ref: string): Promise<void> {
@@ -68,6 +74,7 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     console.error('Таблица не собрана: node tools/genoffice/build.mjs sheets'); process.exit(2);
   }
   let chromium: any;
+  let createdCopyId = '';
   try { ({ chromium } = await import('playwright-core')); } catch { console.error('нет playwright-core'); process.exit(2); }
   token = (await call('POST', '/api/login', LOGIN)).json?.token || '';
   const name = `__проба книги ${Date.now().toString(36)}.xlsx`;
@@ -134,12 +141,63 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     const versions = await call('GET', `/api/office/files/${id}/versions`);
     ok('прежнее содержимое — в откате', versions.json?.versions?.[0]?.sha256 === sha(original), versions.json);
 
-    console.log('\n3. Закрытие с несохранённой правкой');
+    console.log('\n3. Сохранение копии через Ctrl+Shift+S');
+    const sourceBeforeCopy = (await call('GET', `/api/files/${id}/raw`)).buf;
+    const copyName = `__проба копии книги ${Date.now().toString(36)}.xlsx`;
+    const projectFiles = async () => (await call('GET', '/api/projects/default/folders')).json?.rootFiles || [];
+    await gotoCell(page, 'B2');
+    await page.keyboard.type('6');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    await page.keyboard.press('Control+Shift+S');
+    const prompt = page.getByRole('dialog');
+    await prompt.getByRole('textbox').waitFor({ state: 'visible', timeout: 8000 });
+    const promptText = await prompt.innerText().catch(() => '');
+    ok('Ctrl+Shift+S открыл диалог с вводом имени и отменой', await prompt.getByRole('textbox').isVisible().catch(() => false) && await prompt.getByRole('button', { name: 'Отмена', exact: true }).isVisible().catch(() => false), promptText);
+    await prompt.getByRole('button', { name: 'Отмена', exact: true }).click();
+    await page.waitForTimeout(500);
+    ok('отмена не создала копию', !(await projectFiles()).some((file: any) => file.name === copyName));
+    ok('отмена не изменила исходные байты', (await call('GET', `/api/files/${id}/raw`)).buf.equals(sourceBeforeCopy));
+
+    await gotoCell(page, 'B2');
+    await page.keyboard.press('Control+Shift+S');
+    const savePrompt = page.getByRole('dialog');
+    await savePrompt.waitFor({ state: 'visible', timeout: 8000 });
+    await savePrompt.getByRole('textbox').fill(copyName);
+    await savePrompt.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    ok('копия сохранена с заданным именем', await until(async () => (await projectFiles()).some((file: any) => file.name === copyName), 20000));
+    const copyRow = (await projectFiles()).find((file: any) => file.name === copyName);
+    const copyId = String(copyRow?.id || '');
+    createdCopyId = copyId;
+    ok('копия появилась как отдельный файл Flux', !!copyId, copyRow);
+    const copyBytes = (await call('GET', `/api/files/${copyId}/raw`)).buf;
+    const copyParts = await parts(copyBytes);
+    const copySheet = copyParts.get('xl/worksheets/sheet1.xml')?.toString('utf8') || '';
+    ok('копия содержит правку, сделанную до Ctrl+Shift+S', /<c r="B2"[^>]*><v>6<\/v><\/c>/.test(copySheet), copySheet.match(/<c r="B2".{0,40}/)?.[0]);
+    ok('исходник после сохранения копии остался прежним', (await call('GET', `/api/files/${id}/raw`)).buf.equals(sourceBeforeCopy));
+
+    await gotoCell(page, 'B2');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('7');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    await page.keyboard.press('Control+s');
+    const sourceCellSaved = await until(async () => (await cellValue(id, 'B2')).value === '7', 20000);
+    const observedSourceCell = await cellValue(id, 'B2');
+    ok('после копии обычный Ctrl+S записал B2=7 в исходник', sourceCellSaved, observedSourceCell.xml.match(/<c r="B2"[^>]*>[\s\S]*?<\/c>/)?.[0]);
+    const sourceAfterSave = await parts((await call('GET', `/api/files/${id}/raw`)).buf);
+    const copyAfterSave = await parts((await call('GET', `/api/files/${copyId}/raw`)).buf);
+    const copyCell = copyAfterSave.get('xl/worksheets/sheet1.xml')?.toString('utf8') || '';
+    ok('Ctrl+S не перезаписал копию', /<c r="B2"[^>]*><v>6<\/v><\/c>/.test(copyCell), copyCell.match(/<c r="B2"[^>]*>[\s\S]*?<\/c>/)?.[0]);
+    ok('байты копии и исходника теперь различаются', sha(Buffer.from(sourceAfterSave.get('xl/worksheets/sheet1.xml') || '')) !== sha(Buffer.from(copyAfterSave.get('xl/worksheets/sheet1.xml') || '')));
+
+    console.log('\n4. Закрытие с несохранённой правкой');
     await gotoCell(page, 'B2');
     await page.keyboard.type('5');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(800);
-    await page.getByRole('button', { name: 'Закрыть' }).last().click();
+    // После диалога окно может сменить порядок в стеке: закрываем именно раму этой книги.
+    await page.locator(FRAME).locator('xpath=ancestor::*[@data-win][1]').getByRole('button', { name: 'Закрыть', exact: true }).click();
     ok('окно закрылось', await until(async () => !(await page.locator(FRAME).count()), 15000));
     const last = await parts((await call('GET', `/api/files/${id}/raw`)).buf);
     ok('правка перед закрытием сохранена', /<c r="B2"[^>]*><v>5<\/v><\/c>/.test(last.get('xl/worksheets/sheet1.xml')?.toString('utf8') || ''));
@@ -149,6 +207,7 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     ok('проба оборвалась', false, String(e?.message || e));
   } finally {
     await browser.close();
+    if (createdCopyId) await call('DELETE', `/api/files/${createdCopyId}`).catch(() => {});
     await call('DELETE', `/api/files/${id}`).catch(() => {});
   }
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

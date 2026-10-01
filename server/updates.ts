@@ -1,20 +1,9 @@
 /**
- * Обновления программы: публикация, раздача и отзыв.
- *
- * Главное решение этого модуля — ФАЙЛ ЕДЕТ В ОБЩУЮ БАЗУ.
- *
- * В отделе, для которого программа писалась, сервера приложения нет: общая у
- * сотрудников только база, а свой встроенный сервер поднимает программа
- * каждого. Пока запись о релизе ложилась в общую базу, а сам exe оставался на
- * диске того, кто публиковал, все остальные видели «доступна новая версия» и
- * получали «файла этой версии нет». Обновиться не мог никто, кроме автора
- * публикации, — и выглядело это как поломка обновлений.
- *
- * Поэтому файл кладётся туда же, где и запись о нём: кусками по два мегабайта,
- * потому что 130 мегабайт одним запросом не проходят — у MariaDB есть предел
- * размера пакета, и он обычно меньше. Диск остаётся быстрым путём для того,
- * кто публиковал; все прочие берут файл из базы.
+ * Публикация и отзыв обновлений доступны только владельцу Flux.
+ * Подписанный exe хранится целиком в общей БД, поэтому сотрудники скачивают
+ * проверенные байты независимо от дискового кэша. Внешние ссылки не публикуются.
  */
+import { requireOwnerMiddleware } from './accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import { CHUNK_MAX, CHUNK_MIN, chunkSizeFor } from './limits.js';
 import express from 'express';
@@ -71,12 +60,21 @@ const FROM_SOURCE = /\.ts$/.test(__filename);
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   const ventAppDataPath = deps.dataDir;
   // ── Обновления приложения: публикация и раздача через сервер ────────────────
-  // Админ загружает новый exe прямо на сервер (или указывает внешнюю ссылку),
-  // сотрудники проверяют и скачивают обновление с того же сервера, на котором
-  // работают — никакого стороннего хостинга. Файлы лежат в папке данных сервера.
+  // Владелец загружает exe в общую базу. Подпись проверяется до публикации;
+  // сотрудники получают только опубликованный выпуск с того же сервера.
   const updatesDir = path.join(ventAppDataPath, 'updates');
   const sanitizeVersion = (v: unknown): string => String(v || '').trim().replace(/[^0-9a-zA-Z.\-]/g, '').slice(0, 40);
   const updateFilePath = (version: string) => path.join(updatesDir, `Flux-${version}.exe`);
+  const pending = new Set<string>();
+  const mutationLock = (req: Request, res: Response, next: () => void) => {
+    const version = sanitizeVersion(req.params.version || req.query.version || req.body?.version);
+    if (pending.has(version)) return res.status(409).json({ error: 'Выпуск уже обрабатывается. Дождитесь окончания операции.' });
+    pending.add(version);
+    const release = () => pending.delete(version);
+    res.once('finish', release); res.once('close', release);
+    next();
+  };
+
 
   /**
    * Есть ли у релиза файл, который сотрудник действительно получит.
@@ -88,11 +86,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
    * до тех пор, пока запись не уберут руками. Именно в этом состоянии отдел и
    * просидел два выпуска.
    */
-  const availability = async (version: string, fileUrl: string): Promise<{ ok: boolean; size: number; why: string }> => {
-    // Внешнюю ссылку проверить нечем — она на чужом сервере, верим на слово
-    if (/^https?:\/\//i.test(String(fileUrl || ''))) return { ok: true, size: 0, why: '' };
-    const local = updateFilePath(version);
-    if (fs.existsSync(local)) return { ok: true, size: fs.statSync(local).size, why: '' };
+  const availability = async (version: string, _fileUrl: string): Promise<{ ok: boolean; size: number; why: string }> => {
     try {
       await ensureUpdateChunks();
       const n = await deps.getPrisma().appUpdateChunk.count({ where: { version } });
@@ -124,7 +118,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       if (!release) return res.json({ version: null, broken });
       const sig = await deps.getPrisma().appSetting.findFirst({ where: { key: `update.sig.${release.version}`, userId: null } }).catch(() => null);
       res.json({
-        version: release.version, changelog: release.changelog, fileUrl: release.fileUrl,
+        version: release.version, changelog: release.changelog, fileUrl: `/api/updates/download/${release.version}`,
         size: state.get(release.version)?.size || 0, createdAt: release.createdAt, broken,
         signature: sig?.value || '',
       });
@@ -148,7 +142,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     res.json({ version, ...a });
   });
 
-  // Загрузка файла exe на сервер (только админ). Тело запроса — сырые байты файла,
+  // Загрузка файла exe на сервер (только владелец). Тело запроса — сырые байты файла,
   // потому что base64-через-JSON упирается в лимит парсера, а exe весит >100 МБ.
   /**
    * Загрузка exe: на диск этого сервера И В ОБЩУЮ БАЗУ.
@@ -232,11 +226,15 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     }
   };
 
-  app.post('/api/updates/upload', express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
+  app.post('/api/updates/upload', requireOwnerMiddleware, express.raw({ type: () => true, limit: '800mb' }), mutationLock, async (req: Request, res: Response) => {
     const u = (req as any).authUser;
-    if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
+    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Публикация обновлений доступна только владельцу программы' });
     const version = sanitizeVersion(req.query.version);
     if (!version) return res.status(400).json({ error: 'Укажите версию (?version=1.2.3)' });
+    try {
+      const alreadyPublished = await deps.getPrisma().appUpdate.findUnique({ where: { version } });
+      if (alreadyPublished) return res.status(409).json({ error: 'Опубликованный выпуск нельзя перезаписать. Выпустите новую версию.' });
+    } catch (_) { return res.status(503).json({ error: 'База обновлений временно недоступна' }); }
     const body = req.body as Buffer;
     if (!Buffer.isBuffer(body) || body.length < 1024) return res.status(400).json({ error: 'Файл обновления пуст или не передан' });
     try {
@@ -309,29 +307,15 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       // Недописанное убираем сразу. Обрезанный exe хуже отсутствующего: он
       // выглядит как файл, скачивается и ложится на место работающей программы
       try { await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } }); } catch (_) {}
-      // На диске файл уже есть — этот сервер обновление раздаст, но остальные
-      // сотрудники его не увидят. Молчать об этом нельзя
-      console.error('[Обновление] Файл не попал в общую базу:', e?.message || e);
-      const lost = /connection closed|lost connection|ECONNRESET|socket|closed state/i.test(String(e?.message || e));
-      res.json({
-        success: true, version, size: body.length, shared: false,
-        warning: 'Файл сохранён только на этой машине: в общую базу он не записался. '
-          + 'Сотрудники его не скачают. Причина: ' + (e?.message || e)
-          + (lost
-            ? ' Программа уже пробовала уменьшать куски — не помогло. Так ведёт себя MariaDB, '
-              + 'когда пакет больше разрешённого: администратору базы нужно поднять max_allowed_packet '
-              + '(достаточно 16 МБ) или проверить, не рвёт ли соединение что-то между программой и базой.'
-            : ''),
-      });
+      try { fs.unlinkSync(updateFilePath(version)); } catch (_) {}
+      res.status(503).json({ success: false, version, shared: false, error: 'Файл не записан полностью в общую базу. Публикация отменена; повторите загрузку.' });
     }
   });
 
-  // Публикация релиза (только админ): создаёт/обновляет запись AppUpdate.
-  // Если файл этой версии уже загружен на сервер — ссылка ставится на сервер,
-  // иначе используется внешняя прямая ссылка из формы.
-  app.post('/api/updates', async (req: Request, res: Response) => {
+  // Владелец публикует только подписанный exe, целиком записанный в общую базу.
+  app.post('/api/updates', requireOwnerMiddleware, mutationLock, async (req: Request, res: Response) => {
     const u = (req as any).authUser;
-    if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
+    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Публикация обновлений доступна только владельцу программы' });
     const version = sanitizeVersion(req.body?.version);
     if (!version) return res.status(400).json({ error: 'Укажите номер версии' });
     // «90» вместо «0.90.0» — это не придирка к форме записи: файл на сервере
@@ -342,26 +326,11 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       });
     }
     const changelog = String(req.body?.changelog || '').slice(0, 20000);
-    const external = String(req.body?.fileUrl || '').trim();
-    /**
-     * Оповещение не уходит, пока файл не лежит там, откуда его возьмут.
-     *
-     * Раньше хватало файла на диске того, кто публикует. Но у сотрудников свои
-     * серверы, и его диск для них — чужая машина: они получали «файла этой
-     * версии нет». Теперь запись о релизе создаётся только вместе с настоящей
-     * возможностью его скачать.
-     */
+    // Сотрудники получают именно проверенные байты из общей базы.
+    if (req.body?.fileUrl) return res.status(400).json({ error: 'Обновление публикуется только через общую базу; внешние ссылки не принимаются' });
     const inDb = await deps.getPrisma().appUpdateChunk.count({ where: { version } }).catch(() => 0);
-    const onDisk = fs.existsSync(updateFilePath(version));
-    if (!external && !inDb) {
-      return res.status(400).json({
-        error: onDisk
-          ? 'Файл сохранён только на этой машине — в общую базу он не попал, и сотрудники его не скачают. '
-            + 'Загрузите exe заново; если не выходит, причина будет в журнале сервера.'
-          : 'Загрузите файл exe на сервер или укажите прямую ссылку',
-      });
-    }
-    const fileUrl = (onDisk || inDb) ? `/api/updates/download/${version}` : external;
+    if (!inDb) return res.status(400).json({ error: 'Сначала загрузите файл обновления в общую базу' });
+    const fileUrl = `/api/updates/download/${version}`;
     /**
      * Подпись владельца обязательна. Проверяет её главный процесс каждого
      * сотрудника перед запуском — здесь она сверяется заранее, чтобы
@@ -377,23 +346,15 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     if (signed.version !== version) {
       return res.status(400).json({ error: `Подпись относится к версии ${signed.version}, а публикуется ${version}.` });
     }
-    // Сверяется то, что будут скачивать: файл на диске этой машины, а если его
-    // нет — куски из общей базы. Иначе подпись от другого exe проходила бы,
-    // стоило файлу остаться только в базе
-    if (onDisk || inDb) {
-      const h = crypto.createHash('sha256');
-      let size = 0;
-      if (onDisk) {
-        const buf = fs.readFileSync(updateFilePath(version));
-        h.update(buf); size = buf.length;
-      } else {
-        const parts = await deps.getPrisma().appUpdateChunk.findMany({ where: { version }, orderBy: { idx: 'asc' }, select: { data: true } });
-        for (const part of parts) { const b = Buffer.from(part.data); h.update(b); size += b.length; }
-      }
-      if (size !== signed.size || h.digest('hex') !== signed.sha256) {
-        return res.status(400).json({ error: 'Подпись не подходит к загруженному файлу: exe не тот, что подписан.' });
-      }
+    const hash = crypto.createHash('sha256');
+    let size = 0;
+    const parts = await deps.getPrisma().appUpdateChunk.findMany({ where: { version }, orderBy: { idx: 'asc' }, select: { idx: true, data: true } });
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].idx !== i) return res.status(400).json({ error: 'В базе неполный файл обновления. Загрузите его заново.' });
+      const bytes = Buffer.from(parts[i].data); hash.update(bytes); size += bytes.length;
     }
+    if (size !== signed.size || hash.digest('hex') !== signed.sha256) return res.status(400).json({ error: 'Подпись не подходит к файлу в общей базе' });
+
     try {
       // Уникальность по (key, userId=NULL) базы понимают по-разному — поэтому
       // не upsert, а «убрать прежнюю и записать»
@@ -417,15 +378,15 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   });
 
   /**
-   * Отозвать опубликованный релиз (только админ).
+   * Отозвать опубликованный релиз (только владелец).
    *
    * Опубликовать не тот файл или не ту версию — обычное дело, а до этой правки
    * отозвать публикацию было нечем: запись жила в базе навсегда, и у всех
    * сотрудников горел значок обновления, которое ставить не надо.
    */
-  app.delete('/api/updates/:version', async (req: Request, res: Response) => {
+  app.delete('/api/updates/:version', requireOwnerMiddleware, mutationLock, async (req: Request, res: Response) => {
     const u = (req as any).authUser;
-    if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Отзыв релиза доступен только администратору' });
+    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Отзыв релиза доступен только владельцу программы' });
     const version = sanitizeVersion(req.params.version);
     if (!version) return res.status(400).json({ error: 'Не указана версия' });
     try {
@@ -446,19 +407,16 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
 
   // Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
   /**
-   * Раздача exe: сначала с диска этого сервера, потом из общей базы.
-   *
-   * Диск — быстрый путь для того, кто публиковал. Все остальные берут файл из
-   * общей базы: у них на диске его нет и взяться ему неоткуда.
+   * Раздача опубликованного exe только из общей базы. Дисковый кэш
+   * не участвует: публикация сверила подпись именно с байтами в БД.
    */
   app.get('/api/updates/download/:version', async (req: Request, res: Response) => {
     const version = sanitizeVersion(req.params.version);
     if (!version) return res.status(404).json({ error: 'Версия не указана' });
 
-    const filePath = updateFilePath(version);
-    if (fs.existsSync(filePath)) return res.download(filePath, `Flux ${version}.exe`);
-
     try {
+      const published = await deps.getPrisma().appUpdate.findUnique({ where: { version } });
+      if (!published) return res.status(404).json({ error: 'Выпуск не опубликован или отозван' });
       await ensureUpdateChunks();
       const parts = await deps.getPrisma().appUpdateChunk.findMany({
         where: { version }, orderBy: { idx: 'asc' }, select: { idx: true },
