@@ -5,7 +5,7 @@ release/
 *.pem
 *.key
 *.flux-sig
-vault*
+/vault*
 .env
 .env.*
 *.log
