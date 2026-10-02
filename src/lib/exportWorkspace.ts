@@ -9,6 +9,17 @@ export interface ExportDraft { scope: string; spec: ExportSpec; name: string; pe
 export const exportDraftKey = (projectId: string, userId: string) => `flux_export_draft:${encodeURIComponent(userId)}:${encodeURIComponent(projectId)}`;
 export const exportBookKey = (projectId: string, userId: string) => `flux_export_workbook:${encodeURIComponent(userId)}:${encodeURIComponent(projectId)}`;
 
+/** Не показываем и не сохраняем источники прежнего проекта во время его переключения. */
+export const exportSourcesAreCurrent = (loadedProjectId: string, projectId: string): boolean => !!projectId && loadedProjectId === projectId;
+/** Явная ссылка приоритетна; иначе окно остаётся с первоначальным проектом. */
+export const exportProjectIdForWindow = (queryId: string, pinnedId: string, activeId: string): string => queryId || pinnedId || activeId;
+
+/** Закрытие книги ждёт запись, начатую командой обновления листа. */
+export async function saveAfterExportOperation(pending: Promise<unknown> | null, save: () => Promise<boolean>): Promise<boolean> {
+  if (pending) await pending;
+  return save();
+}
+
 /** У листа остаётся место даже после переноса окна на узкий монитор. */
 export function railWidth(value: number, available: number): number {
   return Math.min(Math.max(180, Math.min(480, Math.round(available * .58))), Math.max(240, Number.isFinite(value) ? value : 320));

@@ -1,4 +1,4 @@
-import { buildExportSources, exportBookKey, exportDraftKey, parseExportDraft, railWidth, type ExportSystem } from '../src/lib/exportWorkspace';
+import { buildExportSources, exportBookKey, exportDraftKey, exportProjectIdForWindow, exportSourcesAreCurrent, parseExportDraft, railWidth, saveAfterExportOperation, type ExportSystem } from '../src/lib/exportWorkspace';
 import { exportGrid } from '../src/lib/exportGrid';
 import { saveNewFile } from '../src/lib/officeFiles';
 import { useStore } from '../src/store/store';
@@ -15,6 +15,11 @@ eq('Одинаковое имя установки не смешивает ка�
 eq('Установка отбирается по id, а не имени', sources.rows('unit:two').map(r => r.id), ['drive2']);
 eq('Весь проект включает обе установки', sources.rows('all').length, 2);
 eq('Удалённая установка не даёт весь проект вместо пустого', sources.rows('unit:missing'), []);
+eq('После смены проекта старые источники не считаются загруженными', exportSourcesAreCurrent('project-A', 'project-B'), false);
+eq('Источники разрешены только для загруженного проекта', exportSourcesAreCurrent('project-B', 'project-B'), true);
+eq('Окно без ссылки закрепляет проект первого открытия при смене global project', exportProjectIdForWindow('', 'project-A', 'project-B'), 'project-A');
+eq('Ссылка на проект имеет приоритет над закреплённым проектом', exportProjectIdForWindow('project-C', 'project-A', 'project-B'), 'project-C');
+eq('Окно без выбранного проекта ждёт первый active project', exportProjectIdForWindow('', '', 'project-B'), 'project-B');
 eq('Неизвестный охват не даёт весь проект', sources.rows('missing'), []);
 eq('Источники подписаны категориями каталога', sources.scopes.find(s => s.id === 'cat:AHU')?.label, 'Кондиционеры');
 eq('Счётчик категории не завышен одинаковыми именами', sources.scopes.find(s => s.id === 'cat:VALVE')?.count, 1);
@@ -46,4 +51,13 @@ async function checkFileProject() {
     eq('Старые вызовы создания файла сохраняют текущий проект', new URL(requested, 'http://localhost').searchParams.get('projectId'), 'project-B');
   } finally { globalThis.fetch = originalFetch; useStore.setState({ activeProject: originalProject }); }
 }
-checkFileProject().then(() => { console.log(`${passed} проверок пройдено, ${failed} провалено`); process.exit(failed ? 1 : 0); }).catch(e => { console.error(e); process.exit(1); });
+async function checkRefreshCloseOrder() {
+  let finishRefresh!: () => void; let saved = 0; let closeReturned = false;
+  const refresh = new Promise<void>(resolve => { finishRefresh = resolve; });
+  const close = saveAfterExportOperation(refresh, async () => { saved++; return true; }).then(result => { closeReturned = true; return result; });
+  await Promise.resolve();
+  eq('Закрытие не завершает сохранение до окончания обновления листа', [closeReturned, saved], [false, 0]);
+  finishRefresh();
+  eq('После обновления закрытие сохраняет книгу', [await close, closeReturned, saved], [true, true, 1]);
+}
+Promise.all([checkFileProject(), checkRefreshCloseOrder()]).then(() => { console.log(`${passed} проверок пройдено, ${failed} провалено`); process.exit(failed ? 1 : 0); }).catch(e => { console.error(e); process.exit(1); });

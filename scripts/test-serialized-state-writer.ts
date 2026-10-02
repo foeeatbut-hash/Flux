@@ -19,6 +19,16 @@ async function run() {
   await stableWriter(3).then(() => { throw new Error('expected write failure'); }, () => undefined);
   await stableWriter(4);
   check('a failed write does not block retry', calls === 4 && tokens[3] === 'fresh');
+
+  let active = 0; let peak = 0; let revision = 0;
+  const seen: number[] = [];
+  const burst = createSerializedStateWriter(() => ({ revision }), async (_value: number, current) => {
+    active++; peak = Math.max(peak, active); seen.push(current.revision);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    revision++; active--; return revision;
+  });
+  await Promise.all([burst(1), burst(2), burst(3), burst(4)]);
+  check('four simultaneous saves stay serial and each sees the previous saved revision', peak === 1 && seen.join(',') === '0,1,2,3');
 }
 
 void run().catch((error) => { console.error(error); process.exitCode = 1; });
