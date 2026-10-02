@@ -75,16 +75,54 @@ async function main() {
     await assert.rejects(fluxLogin.signOwnerChallenge(encryptedBackup, backupPassword, packet, 'https://other.test'), /другому серверу/);
 
     const sessionBackup = path.join(temp, 'first-run-backup.flux-owner');
+    let selectedDirectory = path.join(temp, 'setup-backups');
+    let selectedOpenFile = sessionBackup;
+    let selectedSaveFile = sessionBackup;
+    let confirmationResponse = 1;
+    let cancelDirectoryDialog = false;
     const nativeRequire = require('node:module').createRequire(path.join(root, 'src/main.cjs'));
     const testModule = { exports: {} };
     const testRequire = name => {
       if (name === 'node:os') return { homedir: () => temp };
       if (name === './signing.cjs') return ownerSigning;
-      if (name === 'electron') return { app: { whenReady: () => ({ then() {} }), on() {} }, dialog: { showSaveDialog: async () => ({ filePath: sessionBackup, canceled: false }), showOpenDialog: async () => ({ filePaths: [sessionBackup], canceled: false }) } };
+      if (name === 'electron') return {
+        app: { whenReady: () => ({ then() {} }), on() {} },
+        BrowserWindow: class {}, ipcMain: { handle() {} }, clipboard: { writeText() {} },
+        shell: { openPath: async () => '' },
+        dialog: {
+          showSaveDialog: async () => ({ filePath: selectedSaveFile, canceled: false }),
+          showOpenDialog: async (_win, options = {}) => ({
+            filePaths: [options.properties?.includes('openDirectory') ? selectedDirectory : selectedOpenFile], canceled: options.properties?.includes('openDirectory') && cancelDirectoryDialog,
+          }),
+          showMessageBox: async () => ({ response: confirmationResponse }),
+        },
+      };
       return nativeRequire(name);
     };
     new Function('require', 'module', '__dirname', `${await fs.readFile(path.join(root, 'src/main.cjs'), 'utf8')}\nmodule.exports = actions;`)(testRequire, testModule, path.join(root, 'src'));
     const ownerActions = testModule.exports;
+    // Реальный preload оставляет в мосту только allowlist и передаёт разрешённые действия в IPC.
+    let exposedOwnerApi;
+    const invokedActions = [];
+    const preloadElectron = {
+      contextBridge: { exposeInMainWorld: (name, api) => { assert.equal(name, 'owner'); exposedOwnerApi = api; } },
+      ipcRenderer: {
+        invoke: async (_channel, action, args) => { invokedActions.push({ action, args }); return { ok: true, value: action }; },
+        on() {}, removeListener() {},
+      },
+    };
+    new Function('require', await fs.readFile(path.join(root, 'src/preload.cjs'), 'utf8'))(name => {
+      if (name === 'electron') return preloadElectron;
+      return nativeRequire(name);
+    });
+    for (const action of ['openBackup', 'chooseSetupFolder', 'setup', 'verifySetup', 'showSetupFolder']) {
+      assert.deepEqual(await exposedOwnerApi.call(action, { test: true }), { ok: true, value: action });
+    }
+    assert.deepEqual(invokedActions.map(entry => entry.action), ['openBackup', 'chooseSetupFolder', 'setup', 'verifySetup', 'showSetupFolder']);
+    assert.deepEqual(invokedActions[0].args, { test: true });
+    assert.deepEqual(await exposedOwnerApi.call('unlistedAction'), { ok: false, error: 'Недоступное действие.' });
+    assert.equal(invokedActions.length, 5);
+
     // Создание, блокировка и запасной вход проходят через реальные действия программы.
     const nativeBackup = path.join(temp, '.flux-owner', 'vault.flux-owner');
     await ownerActions.create({ password: 'temporary-main-password', backupPassword });
@@ -105,6 +143,122 @@ async function main() {
     const reopened = await ownerActions.unlock({ password: 'temporary-main-password' });
     assert.equal(reopened.kind, 'main');
     assert.equal(reopened.backupSession, false);
+
+    // Настройка полного комплекта: отмена выбора/подтверждения не меняет рабочий файл.
+    const localVaultPath = path.join(temp, '.flux-owner', 'vault.flux-owner');
+    const beforeSetup = await fs.readFile(localVaultPath);
+    const beforeState = await ownerActions.state();
+    selectedDirectory = path.join(temp, 'setup-backups');
+    await fs.mkdir(selectedDirectory, { recursive: true });
+    cancelDirectoryDialog = true;
+    const canceledFolder = await ownerActions.chooseSetupFolder();
+    assert.equal(canceledFolder.canceled, true);
+    await assert.rejects(ownerActions.setup({ password: 'temporary-setup-password', confirmPassword: 'temporary-setup-password', replaceExisting: true }), /Сначала выберите папку/);
+    assert.deepEqual(await fs.readFile(localVaultPath), beforeSetup);
+    cancelDirectoryDialog = false;
+    // Первая попытка не подтверждает замену существующих ключей.
+    confirmationResponse = 0;
+    await ownerActions.chooseSetupFolder();
+    const canceledSetup = await ownerActions.setup({ password: 'temporary-setup-password', confirmPassword: 'temporary-setup-password', replaceExisting: true });
+    assert.equal(canceledSetup.canceled, true);
+    assert.deepEqual(await fs.readFile(localVaultPath), beforeSetup);
+    assert.equal((await ownerActions.state()).setupKitPath, '');
+    assert.deepEqual((await fs.readdir(selectedDirectory)), []);
+    assert.deepEqual((await ownerActions.state()).publicKeys, beforeState.publicKeys);
+
+    // Несовпадающее подтверждение пароля завершается до любых записей.
+    confirmationResponse = 1;
+    await assert.rejects(ownerActions.setup({ password: 'temporary-setup-password', confirmPassword: 'different-setup-password', replaceExisting: true }), /Пароли не совпадают/);
+    assert.deepEqual(await fs.readFile(localVaultPath), beforeSetup);
+    assert.deepEqual(await fs.readdir(selectedDirectory), []);
+
+    selectedDirectory = path.join(temp, 'setup-backups');
+    await ownerActions.chooseSetupFolder();
+    const setupState = await ownerActions.setup({ password: 'temporary-setup-password', confirmPassword: 'temporary-setup-password', replaceExisting: true });
+    assert.equal(setupState.kind, 'main');
+    assert.equal(setupState.setupVerified, false);
+    assert.ok(setupState.setupKitPath);
+    const fullKitFile = path.join(setupState.setupKitPath, 'Flux-Owner-Полная-копия.flux-owner');
+    const emergencyKitFile = path.join(setupState.setupKitPath, 'Flux-Owner-Аварийный-вход.flux-owner');
+    const fullKit = await vaultApi.readVault(fullKitFile, 'temporary-setup-password');
+    const emergencyKit = await vaultApi.readVault(emergencyKitFile, 'temporary-setup-password');
+    assert.equal(fullKit.kind, 'main');
+    assert.equal(emergencyKit.kind, 'backup');
+    const originalFullKitBytes = await fs.readFile(fullKitFile);
+    await assert.rejects(vaultApi.readVault(fullKitFile, 'wrong-temporary-setup-password'));
+    await assert.rejects(vaultApi.readVault(emergencyKitFile, 'wrong-temporary-setup-password'));
+    const archivedSetupVault = await fs.readFile(setupState.previousVaultPath);
+    assert.deepEqual(archivedSetupVault, beforeSetup);
+    await assert.rejects(ownerActions.verifySetup({ password: 'wrong-temporary-setup-password' }));
+    assert.equal((await ownerActions.state()).setupVerified, false);
+    assert.equal((await ownerActions.verifySetup({ password: 'temporary-setup-password' })).setupVerified, true);
+    await fs.writeFile(fullKitFile, 'damaged setup copy');
+    await assert.rejects(ownerActions.verifySetup({ password: 'temporary-setup-password' }));
+    assert.equal((await ownerActions.state()).setupVerified, false);
+    await fs.writeFile(fullKitFile, originalFullKitBytes);
+    assert.equal((await ownerActions.verifySetup({ password: 'temporary-setup-password' })).setupVerified, true);
+
+    // State exposed to the UI contains public material and status only.
+    const stateJson = JSON.stringify(await ownerActions.state());
+    assert.doesNotMatch(stateJson, /privatePem|privateKey|password|secret/i);
+    assert.doesNotMatch(stateJson, /BEGIN (?:ENCRYPTED )?PRIVATE KEY/);
+    assert.equal(Object.hasOwn(await ownerActions.state(), 'password'), false);
+
+    // Аварийный ключ остаётся read-only, даже когда открыт как временная сессия.
+    selectedOpenFile = emergencyKitFile;
+    const setupLocalBytes = await fs.readFile(localVaultPath);
+    await ownerActions.lock();
+    const backupOnly = await ownerActions.openBackup({ password: 'temporary-setup-password' });
+    assert.equal(backupOnly.kind, 'backup');
+    assert.equal(backupOnly.backupSession, true);
+    await assert.rejects(ownerActions.changePassword({ password: 'temporary-backup-replacement' }), /Основное хранилище не изменяется/);
+    assert.deepEqual(await fs.readFile(localVaultPath), setupLocalBytes);
+
+    // Восстановление полной копии сохраняет полный набор ключей и архивирует прежний файл побайтно.
+    selectedOpenFile = fullKitFile;
+    confirmationResponse = 1;
+    const archiveDir = path.join(temp, '.flux-owner', 'previous');
+    const archivesBeforeRestore = await fs.readdir(archiveDir);
+    const restored = await ownerActions.import({ importPassword: 'temporary-setup-password', password: 'temporary-restored-password' });
+    assert.equal(restored.kind, 'main');
+    assert.equal(restored.backupSession, false);
+    assert.deepEqual(restored.publicKeys, Object.fromEntries(Object.entries(fullKit.keys).map(([name, key]) => [name, key.publicHex])));
+    const archivesAfterRestore = await fs.readdir(archiveDir);
+    const newlyArchived = archivesAfterRestore.filter(name => !archivesBeforeRestore.includes(name));
+    assert.equal(newlyArchived.length, 1);
+    assert.deepEqual(await fs.readFile(path.join(archiveDir, newlyArchived[0])), setupLocalBytes);
+    assert.deepEqual((await vaultApi.readVault(localVaultPath, 'temporary-restored-password')).keys, fullKit.keys);
+
+    // Ни зашифрованный, ни публичный экспорт не могут перезаписать активное хранилище.
+    const restoredBytes = await fs.readFile(localVaultPath);
+    selectedSaveFile = localVaultPath;
+    await assert.rejects(ownerActions.export({ password: 'temporary-export-password' }), /Нельзя перезаписать рабочее хранилище экспортом/);
+    await assert.rejects(ownerActions.publicExport(), /Нельзя перезаписать рабочее хранилище экспортом/);
+    assert.deepEqual(await fs.readFile(localVaultPath), restoredBytes);
+
+    // Ошибка установки локальной копии не повреждает parent-файл и сохраняет уже готовый комплект.
+    const setupApi = require(path.join(root, 'src/setup.cjs'));
+    const failedParent = path.join(temp, 'not-a-directory');
+    const preservedParentBytes = crypto.randomBytes(73);
+    await fs.writeFile(failedParent, preservedParentBytes);
+    const failedSetupFolder = path.join(temp, 'failed-local-install-backups');
+    await fs.mkdir(failedSetupFolder);
+    let localInstallError;
+    try {
+      await setupApi.createSetup({
+        folder: failedSetupFolder,
+        localFile: path.join(failedParent, 'vault.flux-owner'),
+        password: 'temporary-failed-install-password',
+      });
+    } catch (error) { localInstallError = error; }
+    // mkdir под обычным файлом: Windows возвращает EEXIST, Linux — ENOTDIR.
+    assert.ok(['ENOTDIR', 'EEXIST'].includes(localInstallError?.code));
+    assert.deepEqual(await fs.readFile(failedParent), preservedParentBytes);
+    const retainedKits = await fs.readdir(failedSetupFolder);
+    assert.equal(retainedKits.length, 1);
+    const retainedKitPath = path.join(failedSetupFolder, retainedKits[0]);
+    assert.equal((await vaultApi.readVault(path.join(retainedKitPath, 'Flux-Owner-Полная-копия.flux-owner'), 'temporary-failed-install-password')).kind, 'main');
+    assert.equal((await vaultApi.readVault(path.join(retainedKitPath, 'Flux-Owner-Аварийный-вход.flux-owner'), 'temporary-failed-install-password')).kind, 'backup');
 
     const fluxSources = path.join(temp, 'flux-source-fixture');
     await fs.mkdir(path.join(fluxSources, 'license'), { recursive: true });

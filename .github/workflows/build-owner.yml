@@ -38,8 +38,8 @@ jobs:
         shell: pwsh
         run: |
           $ownerVersion = node -p "require('./package.json').version"
-          $fluxVersion = node -p "require('../../package.json').version"
-          "tag=v$fluxVersion" >> $env:GITHUB_OUTPUT
+          "tag=owner-v$ownerVersion" >> $env:GITHUB_OUTPUT
+          "version=$ownerVersion" >> $env:GITHUB_OUTPUT
           "file=tools/flux-owner/release/Flux-Owner-$ownerVersion-x64.exe" >> $env:GITHUB_OUTPUT
 
       - name: Файл сборки
@@ -50,19 +50,26 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Добавить программу владельца к выпуску Flux
+      - name: Отдельный выпуск программы владельца
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          OWNER_VERSION: ${{ steps.meta.outputs.version }}
           OWNER_FILE: ${{ steps.meta.outputs.file }}
         run: |
-          $ready = $false
-          for ($attempt = 0; $attempt -lt 40; $attempt++) {
-            gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName *> $null
-            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
-            Start-Sleep -Seconds 30
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName *> $null
+          if ($LASTEXITCODE -ne 0) {
+            @'
+          - Новый мастер настройки: один пароль и один комплект восстановления.
+          - Полная копия сохраняет все ключи; аварийный файл предназначен для запасного входа.
+          - Перед заменой старое хранилище сохраняется отдельно.
+          - Повторный ввод пароля проверяет фактические файлы хранилища и копий.
+          - Публичный JSON для сборки создаётся автоматически.
+          - Действия: создать комплект на своём компьютере и передать сборщику только flux-public-keys.json; затем отдельно собрать Flux с новыми ключами.
+          '@ | Set-Content -Path owner-release-notes.md -Encoding utf8
+            gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Flux-Owner $env:OWNER_VERSION" --notes-file owner-release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Не удалось создать выпуск Flux-Owner.' }
           }
-          if (-not $ready) { throw 'Выпуск Flux ещё не опубликован. Portable владельца сохранён в артефактах сборки.' }
           gh release upload $env:RELEASE_TAG "../../$env:OWNER_FILE" --repo $env:GITHUB_REPOSITORY --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Не удалось добавить Flux-Owner к выпуску Flux.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Не удалось опубликовать portable Flux-Owner.' }
