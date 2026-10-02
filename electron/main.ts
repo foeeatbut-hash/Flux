@@ -20,6 +20,7 @@ import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
+import { saveDatabaseConfig, validateDatabaseUri } from './connectionConfig';
 
 /**
  * Запуск с доводом подмены — это не запуск программы, а её установка.
@@ -232,21 +233,18 @@ app.whenReady().then(async () => {
    * а программа перезапускается — встроенный сервер стартует уже на новой базе
    * и сам сверит её схему. Пустая строка — база на этом компьютере.
    */
-  ipcMain.handle('app:set-database', (_event, url: string) => {
+  ipcMain.handle('app:set-database', (event, raw: unknown) => {
+    if (!trustedAuthSender(event)) return { success: false, error: 'Настройка доступна только из окна Flux.' };
+    if (typeof raw !== 'string') return { success: false, error: 'Введите строку подключения к базе.' };
+    const next = raw.trim();
+    const uri = next ? validateDatabaseUri(next) : '';
+    if (next && !uri) return { success: false, error: 'Проверьте тип, адрес, порт и имя базы данных.' };
     try {
-      const next = String(url || '').trim();
-      if (next && !/^(mysql|mariadb|postgres|postgresql):\/\//i.test(next)) {
-        return { success: false, error: 'Это не строка подключения к базе.' };
-      }
-      let parsed: any = {};
-      try { if (fs.existsSync(CONFIG_FILE)) parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {}; } catch (e) { parsed = {}; }
-      parsed.current_db_type = next ? 'REMOTE' : 'LOCAL';
-      parsed.database_url = next;
-      parsed.remote_server_url = '';
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      saveDatabaseConfig(CONFIG_FILE, uri || '');
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || String(err) };
+    } catch (_) {
+      // Ошибка диска/JSON не должна раскрыть путь или строку с паролем.
+      return { success: false, error: 'Не удалось сохранить настройки подключения. Проверьте доступность диска и повторите.' };
     }
   });
 

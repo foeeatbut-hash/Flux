@@ -10,8 +10,8 @@ const esbuild = require('esbuild');
 const root = path.resolve(__dirname, '..');
 const serviceRoot = path.resolve(root, '../..');
 
-function compile(entryPoint, outfile) {
-  esbuild.buildSync({ entryPoints: [entryPoint], outfile, bundle: true, platform: 'node', format: 'cjs', legalComments: 'none' });
+function compile(entryPoint, outfile, options = {}) {
+  esbuild.buildSync({ entryPoints: [entryPoint], outfile, bundle: true, platform: 'node', format: 'cjs', legalComments: 'none', ...options });
   return require(outfile);
 }
 
@@ -40,6 +40,71 @@ async function main() {
     assert.equal((await vaultApi.readVault(encryptedFile, 'temporary-test-passphrase')).kind, 'main');
     assert.equal(config.ownerBackup, backupVault.keys.owner.publicHex);
     assert.throws(() => ownerSigning.publicConfig(backupVault), /только для входа владельца/);
+
+    const backupPassword = 'отдельный пароль запасного ключа';
+    const encryptedBackup = await vaultApi.encrypt(backupVault, backupPassword);
+    assert.equal((await vaultApi.decrypt(encryptedBackup, backupPassword)).kind, 'backup');
+    await assert.rejects(vaultApi.decrypt(encryptedBackup, 'temporary-test-passphrase'), /пароль запасного ключа/);
+    await assert.rejects(vaultApi.decrypt(encrypted, backupPassword), /Проверьте пароль именно этого файла/);
+    await assert.rejects(vaultApi.decrypt(encryptedBackup, `${backupPassword} `), /расшифровать/);
+    assert.equal((await vaultApi.decrypt(`\uFEFF${encryptedBackup}`, backupPassword)).keys.owner.publicHex, config.ownerBackup);
+    const backupFile = path.join(temp, 'backup.flux-owner');
+    await vaultApi.atomicWrite(backupFile, `\uFEFF${encryptedBackup}`);
+    assert.equal((await vaultApi.readVault(backupFile, backupPassword)).kind, 'backup');
+    await assert.rejects(vaultApi.decrypt(JSON.stringify(config), backupPassword), /открытых ключей для сборки/);
+    await assert.rejects(vaultApi.decrypt('{', backupPassword), /прочитать JSON/);
+    const damaged = JSON.parse(encryptedBackup);
+    damaged.iv = 'broken';
+    await assert.rejects(vaultApi.decrypt(JSON.stringify(damaged), backupPassword), /Повреждённый файл/);
+
+    // Проверяем подпись из настоящего Electron-обработчика, заменяя только оболочку.
+    const electronStub = path.join(temp, 'electron-stub.cjs');
+    await fs.writeFile(electronStub, 'module.exports = {};');
+    const fluxLogin = compile(path.join(serviceRoot, 'electron/ownerLogin.ts'), path.join(temp, 'flux-login.cjs'), { alias: { electron: electronStub } });
+    const origin = 'https://flux.company.test';
+    const expiresAt = Date.now() + 60000;
+    const nonce = crypto.randomBytes(24).toString('base64url');
+    const packet = { nonce, expiresAt, message: JSON.stringify({ purpose: 'flux-owner-login', version: 1, nonce, origin, expiresAt, installationId: 'vault-login-test' }) };
+    for (const [file, phrase, hex] of [[encrypted, 'temporary-test-passphrase', config.owner], [`\uFEFF${encryptedBackup}`, backupPassword, config.ownerBackup]]) {
+      const signature = await fluxLogin.signOwnerChallenge(file, phrase, packet, origin);
+      const publicKey = crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(hex, 'hex')]), type: 'spki', format: 'der' });
+      assert.ok(crypto.verify(null, Buffer.from(packet.message), publicKey, Buffer.from(signature, 'base64')));
+    }
+    await assert.rejects(fluxLogin.signOwnerChallenge(encryptedBackup, 'temporary-test-passphrase', packet, origin), /пароль запасного ключа/);
+    await assert.rejects(fluxLogin.signOwnerChallenge(JSON.stringify(config), backupPassword, packet, origin), /открытых ключей для сборки/);
+    await assert.rejects(fluxLogin.signOwnerChallenge(encryptedBackup, backupPassword, packet, 'https://other.test'), /другому серверу/);
+
+    const sessionBackup = path.join(temp, 'first-run-backup.flux-owner');
+    const nativeRequire = require('node:module').createRequire(path.join(root, 'src/main.cjs'));
+    const testModule = { exports: {} };
+    const testRequire = name => {
+      if (name === 'node:os') return { homedir: () => temp };
+      if (name === './signing.cjs') return ownerSigning;
+      if (name === 'electron') return { app: { whenReady: () => ({ then() {} }), on() {} }, dialog: { showSaveDialog: async () => ({ filePath: sessionBackup, canceled: false }), showOpenDialog: async () => ({ filePaths: [sessionBackup], canceled: false }) } };
+      return nativeRequire(name);
+    };
+    new Function('require', 'module', '__dirname', `${await fs.readFile(path.join(root, 'src/main.cjs'), 'utf8')}\nmodule.exports = actions;`)(testRequire, testModule, path.join(root, 'src'));
+    const ownerActions = testModule.exports;
+    // Создание, блокировка и запасной вход проходят через реальные действия программы.
+    const nativeBackup = path.join(temp, '.flux-owner', 'vault.flux-owner');
+    await ownerActions.create({ password: 'temporary-main-password', backupPassword });
+    const mainBytes = await fs.readFile(nativeBackup, 'utf8');
+    const createdBackup = await vaultApi.readVault(sessionBackup, backupPassword);
+    assert.equal(createdBackup.kind, 'backup');
+    await ownerActions.lock();
+    await assert.rejects(ownerActions.openBackup({ password: 'temporary-main-password' }), /пароль запасного ключа/);
+    const opened = await ownerActions.openBackup({ password: backupPassword });
+    assert.equal(opened.backupSession, true);
+    assert.equal(opened.kind, 'backup');
+    assert.equal(opened.publicKeys.owner, createdBackup.keys.owner.publicHex);
+    assert.equal(await fs.readFile(nativeBackup, 'utf8'), mainBytes);
+    await assert.rejects(ownerActions.changePassword({ password: 'replacement-main-password' }), /Основное хранилище не изменяется/);
+    await assert.rejects(ownerActions.import({ importPassword: backupPassword, password: 'replacement-main-password' }), /Запасной ключ не заменяет/);
+    assert.equal(await fs.readFile(nativeBackup, 'utf8'), mainBytes);
+    await ownerActions.lock();
+    const reopened = await ownerActions.unlock({ password: 'temporary-main-password' });
+    assert.equal(reopened.kind, 'main');
+    assert.equal(reopened.backupSession, false);
 
     const fluxSources = path.join(temp, 'flux-source-fixture');
     await fs.mkdir(path.join(fluxSources, 'license'), { recursive: true });
