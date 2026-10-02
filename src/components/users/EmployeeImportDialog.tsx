@@ -62,7 +62,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
   useEffect(() => {
     if (!paneId.startsWith('win:')) return;
     return guardClose(paneId.slice(4), async () => {
-      if (busy) return false;
+      if (busy || useModalStore.getState().currentModal) return false;
       if (!credentials?.length || credentialsDownloaded) return true;
       return useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'Если закрыть окно, начальные пароли исчезнут и повторно не покажутся. Закрыть окно?', { confirmLabel: 'Закрыть', tone: 'danger' });
     });
@@ -70,7 +70,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
 
   const clearPreview = () => { setPreview([]); setSelected([]); };
   const requestClose = async () => {
-    if (busy) return;
+    if (busy || useModalStore.getState().currentModal) return;
     if (credentials?.length && !credentialsDownloaded) {
       const confirmed = await useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'Если закрыть окно, начальные пароли исчезнут и повторно не покажутся. Закрыть окно?', { confirmLabel: 'Закрыть', tone: 'danger' });
       if (!confirmed) return;
@@ -79,7 +79,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
   };
 
   const loadFile = async (file?: File) => {
-    if (!file || busy) return;
+    if (!file || busy || useModalStore.getState().currentModal) return;
     if (credentials?.length && !credentialsDownloaded) {
       const confirmed = await useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'При замене файла текущие начальные пароли исчезнут. Сначала скачайте их или подтвердите замену.', { confirmLabel: 'Заменить файл', tone: 'danger' });
       if (!confirmed) return;
@@ -161,7 +161,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
     XLSX.writeFile(book, 'Шаблон-импорта-сотрудников.xlsx');
   };
 
-  return <Dialog title="Импорт сотрудников" width="max-w-5xl" onClose={() => void requestClose()} busy={busy} footer={<><Btn disabled={busy} onClick={() => void requestClose()}>Закрыть</Btn>{!preview.length && <Btn tone="primary" disabled={busy || matrix.length < 2 || typeof mapping.symbol !== 'number' || (mode === 'create' && typeof mapping.name !== 'number' && (typeof mapping.lastName !== 'number' || typeof mapping.firstName !== 'number'))} onClick={() => void runPreview()}>Показать предпросмотр</Btn>}{preview.length > 0 && appliedCount === null && <Btn tone="primary" disabled={busy || !selected.length} onClick={() => void apply()}>Импортировать {selected.length}</Btn>}{credentials?.length ? <Btn tone="primary" disabled={busy} onClick={downloadCredentials}><Download />Скачать пароли CSV</Btn> : null}{undoToken && <Btn tone="danger" disabled={busy} onClick={() => void undo()}>Отменить импорт</Btn>}</>}>
+  return <Dialog title="Импорт сотрудников" width="max-w-5xl" scrollBody onClose={() => void requestClose()} busy={busy} footer={<><Btn disabled={busy} onClick={() => void requestClose()}>Закрыть</Btn>{!preview.length && <Btn tone="primary" disabled={busy || matrix.length < 2 || typeof mapping.symbol !== 'number' || (mode === 'create' && typeof mapping.name !== 'number' && (typeof mapping.lastName !== 'number' || typeof mapping.firstName !== 'number'))} onClick={() => void runPreview()}>Показать предпросмотр</Btn>}{preview.length > 0 && appliedCount === null && <Btn tone="primary" disabled={busy || !selected.length} onClick={() => void apply()}>Импортировать {selected.length}</Btn>}{credentials?.length ? <Btn tone="primary" disabled={busy} onClick={downloadCredentials}><Download />Скачать пароли CSV</Btn> : null}{undoToken && <Btn tone="danger" disabled={busy} onClick={() => void undo()}>Отменить импорт</Btn>}</>}>
     <div className="space-y-4">
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center"><Btn disabled={busy} onClick={downloadTemplate}><FileSpreadsheet />Скачать шаблон XLSX</Btn><label className={`fx-btn ${busy ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}><Upload />Выбрать XLSX или CSV<input type="file" accept=".xlsx,.xls,.csv" disabled={busy} className="hidden" onChange={(e) => { void loadFile(e.target.files?.[0]); e.currentTarget.value = ''; }} /></label><span className="text-xs text-slate-500 dark:text-slate-400">До 5000 строк и 10 МБ. Пароли не отправляются в журналы.</span></div>
       {headers.length > 0 && <>

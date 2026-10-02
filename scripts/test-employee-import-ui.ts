@@ -49,6 +49,15 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
     await page.getByRole('row', { name: /Иван Иванов/ }).waitFor();
     await page.screenshot({ path: '/tmp/employee-import-light.png' });
+    const narrowLayout = await page.evaluate(() => {
+      const dialog = document.querySelector<HTMLElement>('[aria-label="Импорт сотрудников"]')!;
+      const head = dialog.querySelector<HTMLElement>('.fx-dialog-head')!.getBoundingClientRect();
+      const body = dialog.querySelector<HTMLElement>('.fx-dialog-body')!;
+      const bodyRect = body.getBoundingClientRect();
+      const foot = dialog.querySelector<HTMLElement>('.fx-dialog-foot')!.getBoundingClientRect();
+      return { headTop: head.top, footBottom: foot.bottom, bodyClient: body.clientHeight, bodyScroll: body.scrollHeight, bodyBottom: bodyRect.bottom, viewport: window.innerHeight, docWidth: document.documentElement.scrollWidth };
+    });
+    ok('Предпросмотр в узком окне оставляет шапку и подвал видимыми, прокручивается только тело', narrowLayout.headTop >= 0 && narrowLayout.footBottom <= narrowLayout.viewport && narrowLayout.bodyScroll > narrowLayout.bodyClient && narrowLayout.docWidth <= 420);
     ok('Предпросмотр получает файл и сопоставления', requests.some((r) => r.url.endsWith('/preview') && r.body.mapping.email === 3));
     await page.getByRole('button', { name: /Импортировать 1/ }).click();
     await page.getByText(/Создано сотрудников: 1/).waitFor();
@@ -60,8 +69,13 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
 
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
     await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor({ state: 'detached' });
+    ok('Escape отменяет предупреждение закрытия и оставляет импорт открытым', await page.getByRole('dialog', { name: 'Импорт сотрудников' }).isVisible());
+    await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor();
     await page.getByRole('button', { name: 'Отмена' }).click();
-    ok('Закрытие с ещё не выгруженными паролями требует подтверждения', await page.getByRole('dialog', { name: 'Импорт сотрудников' }).isVisible());
+    ok('После Escape предупреждение закрытия можно открыть и отменить повторно', await page.getByRole('dialog', { name: 'Импорт сотрудников' }).isVisible());
     await page.locator('label.fx-btn').click();
     await page.locator('input[type=file]').setInputFiles(file);
     await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor();
@@ -83,6 +97,19 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.getByRole('button', { name: 'Отменить импорт' }).waitFor({ state: 'detached' });
     ok('Восстановленный токен принимается серверным undo endpoint', requests.some((r) => r.url.endsWith('/undo') && r.body.undoToken === 'opaque-undo-token') && await page.evaluate(() => localStorage.getItem('flux_employee_import_undo_employee-ui-actor') === null));
 
+    await page.evaluate(() => {
+      localStorage.setItem('flux_employee_import_undo_employee-ui-next-actor', JSON.stringify({ token: 'next-actor-undo-token', savedAt: Date.now() }));
+      (window as any).__setTestActor('employee-ui-next-actor');
+    });
+    const nextActorUndo = page.getByRole('button', { name: 'Отменить импорт' });
+    const actorRestore = await nextActorUndo.waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
+    ok('Смена актёра восстанавливает undo токен нового актёра', actorRestore);
+    if (actorRestore) {
+      await nextActorUndo.click();
+      await nextActorUndo.waitFor({ state: 'detached' });
+      ok('Отмена после смены актёра использует его собственный токен', requests.some((r) => r.url.endsWith('/undo') && r.body.undoToken === 'next-actor-undo-token'));
+    }
+
     await page.locator('input[type=file]').setInputFiles(file);
     await field(page, 'Роль по умолчанию для новых строк').waitFor();
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
@@ -101,6 +128,16 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     ok('Диалог остаётся в пределах широкого viewport в тёмной теме', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.classList.contains('dark')));
     await page.screenshot({ path: '/tmp/employee-import-dark.png' });
+    await page.setViewportSize({ width: 420, height: 850 });
+    const darkNarrowLayout = await page.evaluate(() => {
+      const dialog = document.querySelector<HTMLElement>('[aria-label="Импорт сотрудников"]')!;
+      const head = dialog.querySelector<HTMLElement>('.fx-dialog-head')!.getBoundingClientRect();
+      const body = dialog.querySelector<HTMLElement>('.fx-dialog-body')!;
+      const foot = dialog.querySelector<HTMLElement>('.fx-dialog-foot')!.getBoundingClientRect();
+      return { headTop: head.top, footBottom: foot.bottom, bodyClient: body.clientHeight, bodyScroll: body.scrollHeight, viewport: window.innerHeight, docWidth: document.documentElement.scrollWidth };
+    });
+    ok('Тёмный узкий диалог также удерживает шапку и подвал, прокручивая тело', darkNarrowLayout.headTop >= 0 && darkNarrowLayout.footBottom <= darkNarrowLayout.viewport && darkNarrowLayout.bodyScroll > darkNarrowLayout.bodyClient && darkNarrowLayout.docWidth <= 420);
+    await page.screenshot({ path: '/tmp/employee-import-dark-narrow.png' });
     ok('Нет ошибок React или браузера', errors.length === 0);
   } finally { await browser.close(); }
   console.log(`${passed} passed, ${failed} failed`);

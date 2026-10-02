@@ -13,6 +13,7 @@ const roles = [
   { id: 'owner', code: 'OWNER', name: 'Владелец', description: '', color: 'rose', icon: '', level: 0, isSystem: true, sortOrder: 3 },
 ];
 useStore.setState({ user: { id: 'employee-ui-actor', name: 'Тест', symbol: 'TEST', role: 'ADMIN' } as any });
+(window as any).__setTestActor = (id: string) => useStore.setState({ user: { id, name: 'Тест', symbol: 'TEST', role: 'ADMIN' } as any });
 
 function Fixture() {
   const [open, setOpen] = useState(true);
