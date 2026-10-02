@@ -45,13 +45,13 @@ jobs:
       # Vite кладёт public/ в dist, и окна редакторов едут в сборку с ним.
       # Их главные процессы и движок Excel (Rust, xlsx-sidecar.exe) — в
       # genoffice-server/, а он уходит в ресурсы программы (package.json).
-      # В кэше — исходники с правками и собранный движок: ключ меняется с
-      # коммитом, правками или модулями Flux внутри редакторов
-      - name: Кэш исходников редакторов
+      # Кэшируем только движок Rust. npm заново создаёт связи workspace:
+      # восстановленные из архива Windows junction могут быть недоступны.
+      - name: Кэш движка Excel
         uses: actions/cache@v4
         with:
-          path: .cache/genoffice
-          key: genoffice-${{ hashFiles('tools/genoffice/build.mjs', 'tools/genoffice/patches.mjs', 'tools/genoffice/inject/**', 'tools/genoffice/shims/**') }}
+          path: .cache/genoffice/apps/sheets/native/xlsx-engine/target
+          key: genoffice-sidecar-${{ runner.os }}-${{ hashFiles('tools/genoffice/build.mjs', 'tools/genoffice/patches.mjs', 'tools/genoffice/inject/**', 'tools/genoffice/shims/**') }}
 
       # Движок Excel собирается cargo; на windows-latest Rust уже стоит
       - name: Rust
@@ -62,6 +62,9 @@ jobs:
 
       - name: Сборка фронтенда и сервера
         run: npm run build
+
+      - name: Проверка типов
+        run: npm run lint
 
       - name: Сборка Electron
         run: npm run build:electron
