@@ -10,6 +10,7 @@ const REPLACE_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 $stage = 'compile'
 $guard = $null
+$writerLock = $null
 try {
 Add-Type -TypeDefinition @'
 using System;
@@ -20,6 +21,16 @@ public static class FluxFileReplacement {
   public static extern bool ReplaceFile(string replaced, string replacement, IntPtr backup, UInt32 flags, IntPtr exclude, IntPtr reserved);
 }
 '@
+$stage = 'lock'
+# The folder, rather than its UNC spelling, identifies this lock. A mapped drive
+# and an UNC path therefore serialize saves to the same physical file.
+$name = [IO.Path]::GetFileName($env:FLUX_REPLACE_ORIGINAL).ToUpperInvariant()
+$nameHasher = [Security.Cryptography.SHA256]::Create()
+try { $nameHash = [BitConverter]::ToString($nameHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($name))).Replace('-', '').ToLowerInvariant() } finally { $nameHasher.Dispose() }
+$lockPath = [IO.Path]::Combine([IO.Path]::GetDirectoryName($env:FLUX_REPLACE_ORIGINAL), '.flux-write-' + $nameHash + '.lock')
+# Windows releases the handle and deletes the lock after a crash, too. Never
+# expire or forcibly remove a live lock: it could overwrite another writer.
+$writerLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
 $stage = 'open'
 $guard = [IO.File]::Open($env:FLUX_REPLACE_ORIGINAL, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
 try {
@@ -45,7 +56,10 @@ try {
   [Console]::Error.WriteLine('FLUX_REPLACE_MANAGED=' + $exception.GetType().FullName)
   [Console]::Error.WriteLine('FLUX_REPLACE_HRESULT=' + $exception.HResult)
   exit 3
-} finally { if ($null -ne $guard) { $guard.Dispose() } }
+} finally {
+  if ($null -ne $guard) { $guard.Dispose() }
+  if ($null -ne $writerLock) { $writerLock.Dispose() }
+}
 
 `;
 export interface WindowsReplacementDiagnostic { stage?: string; win32?: string; managedType?: string; hResult?: string; exitCode?: number | string; timedOut?: boolean }
@@ -68,6 +82,7 @@ export async function replaceWindowsFile(temporary: string, original: string, ba
     });
   } catch (error: any) {
     if (String(error.stderr || '').includes('FLUX_REPLACE_CONFLICT')) throw replacementFailure('CONFLICT', 'Файл изменился перед записью Windows. Откройте свежую версию или сохраните копию.', error);
+    if (diagnosticOf(error).stage === 'lock') throw replacementFailure('EBUSY', 'Другой участник сохраняет файл или папка не разрешает запись. Ваши правки сохранены в редакторе; повторите сохранение или создайте копию.', error);
     const nativeCode = /FLUX_REPLACE_ERROR=(\d+)/u.exec(String(error.stderr || ''))?.[1];
     if (nativeCode === '5' || nativeCode === '32' || nativeCode === '33') throw replacementFailure('EBUSY', 'Windows не разрешила заменить занятый файл. Закройте его в другой программе и повторите сохранение.', error);
     throw replacementFailure('NATIVE_REPLACE_FAILED', 'Windows не выполнила сохранение с сохранением прав файла. Исходник и восстановимая версия сохранены; проверьте журнал Windows и повторите действие.', error);

@@ -1,8 +1,9 @@
 import type { Express, Request, Response } from 'express';
+import { shareOf, ensureSharing, forgetFileShare } from '../fileSharing.js';
 import { getPrisma } from '../context.js';
 import { ensureDiskProject, ensureDiskRoot } from '../systemFolders.js';
 import {
-  FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile, getMainAdminId,
+  FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile, canManageFile, getMainAdminId,
   hiddenProjectIds, isFileOwnerOrAdmin, patchFileFields, personalScopeWhere,
 } from '../fileAccess.js';
 
@@ -360,7 +361,7 @@ app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
     // Восстановить можно только то, что человеку видно; чужое — «не найдено»
-    if (!(await canWriteFile(prisma, (req as any).authUser, req.params.id))) {
+    if (!(await canManageFile(prisma, (req as any).authUser, req.params.id))) {
       return res.status(404).json({ error: FILE_NOT_FOUND });
     }
     const file = await prisma.fileNode.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
@@ -393,8 +394,14 @@ app.delete('/api/projects/:projectId/trash', async (req: Request, res: Response)
     const { projectId } = req.params;
     const w = await trashWhere(req, projectId);
     if (w.empty) return res.json({ success: true, files: 0, folders: 0 });
-    const files = await prisma.fileNode.deleteMany({ where: w.files });
-    const folders = await prisma.folder.deleteMany({ where: w.folders });
+    await ensureSharing(prisma);
+    const { files, folders } = await prisma.$transaction(async (tx: any) => {
+      const removing = await tx.fileNode.findMany({ where: w.files, select: { id: true } });
+      for (const file of removing) await forgetFileShare(tx, file.id);
+      const files = await tx.fileNode.deleteMany({ where: w.files });
+      const folders = await tx.folder.deleteMany({ where: w.folders });
+      return { files, folders };
+    });
     res.json({ success: true, files: files.count, folders: folders.count });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -466,9 +473,10 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
     for (const id of list) {
       const isFile = await prisma.fileNode.findUnique({ where: { id }, select: { id: true } });
       const okItem = isFile
-        ? (isCut ? await canWriteFile(prisma, me, id) : await canReadFile(prisma, me, id))
+        ? (isCut ? await canManageFile(prisma, me, id) : await canReadFile(prisma, me, id))
         : await canAccessFolder(prisma, me, id);
       if (!okItem) return res.status(404).json({ success: false, error: FILE_NOT_FOUND });
+      if (isCut && isFile && await shareOf(prisma, id)) return res.status(409).json({ success: false, error: 'Общая рабочая версия остаётся в папке «Общий доступ». Перемещайте локальный оригинал или создайте копию.' });
     }
     if (targetFolderId && !(await canAccessFolder(prisma, me, String(targetFolderId)))) {
       return res.status(404).json({ success: false, error: FOLDER_NOT_FOUND });
@@ -547,7 +555,7 @@ app.patch('/api/files/:id', async (req: Request, res: Response) => {
   const current = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
     id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
   } });
-  if (!current || !(await canWriteFile(prisma, me, current))) return res.status(404).json({ error: FILE_NOT_FOUND });
+  if (!current || !(await canManageFile(prisma, me, current))) return res.status(404).json({ error: FILE_NOT_FOUND });
   if (await deniedOnDisk(req, res, await projectOfFile(req.params.id))) return;
   // Только известные поля (server/fileAccess.ts): тело запроса раньше шло в
   // Prisma целиком, вместе со scope, ownerId и content
@@ -557,6 +565,7 @@ app.patch('/api/files/:id', async (req: Request, res: Response) => {
     actorIsMainAdmin: me.id === await getMainAdminId(prisma),
   });
   if (patch.error) return res.status(patch.error.status).json({ error: patch.error.message });
+  if (await shareOf(prisma, String(current.id)) && ('scope' in req.body || 'ownerId' in req.body)) return res.status(409).json({ error: 'Права опубликованного файла меняются через «Общий доступ»' });
   if (typeof patch.data.ownerId === 'string' && patch.data.ownerId !== me.id
     && !(await prisma.user.findUnique({ where: { id: patch.data.ownerId }, select: { id: true } }))) {
     return res.status(400).json({ error: 'Такого сотрудника нет' });
@@ -580,7 +589,7 @@ app.delete('/api/files/:id', async (req: Request, res: Response) => {
   const target = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
     id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
   } });
-  if (!target || !(await canWriteFile(prisma, (req as any).authUser, target))) {
+  if (!target || !(await canManageFile(prisma, (req as any).authUser, target))) {
     return res.status(404).json({ error: FILE_NOT_FOUND });
   }
   if (await deniedOnDisk(req, res, await projectOfFolder((target as any)?.folderId))) return;

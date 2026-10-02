@@ -2,6 +2,7 @@ import { app, dialog, ipcMain, shell, BrowserWindow, type IpcMainInvokeEvent } f
 import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
 import { WindowsFilesService } from './service';
 import { WindowsFilesError } from './paths';
+import { windowsPublicDesktopFolder } from '../desktopShell';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
@@ -37,6 +38,9 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
       for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && activeSenders.has(window.webContents.id)) window.webContents.send(WINDOWS_FILES_CHANGED, change);
     },
   });
+  // Общий Desktop входит в вид Shell, но не находится в личном Desktop пользователя.
+  const publicDesktop = await windowsPublicDesktopFolder();
+  if (publicDesktop) await service.addRoot(publicDesktop, 'Общий рабочий стол').catch(() => undefined);
   ipcMain.handle(WINDOWS_FILES_CHANNEL, async (event, request: WindowsFilesRequest): Promise<WindowsFilesResponse> => {
     try {
       if (!options.isTrusted(event) || !await options.mayRead(event)) throw new WindowsFilesError('UNAUTHORIZED', 'Войдите в Flux для работы с файлами этого компьютера.');

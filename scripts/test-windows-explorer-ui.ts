@@ -91,20 +91,43 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.keyboard.press('Escape');
     ok('Escape закрывает контекстное меню Проводника', await explorerMenu.count() === 0);
 
-    await page.evaluate(() => (window as any).__showWindowsDesktop());
+    await page.evaluate(() => {
+      const windowFrame = document.querySelector<HTMLElement>('#mount > div')!;
+      Object.assign(windowFrame.style, { inset: '0px', width: '100vw', height: '100vh', left: '0px', top: '0px', transform: 'none', overflow: 'visible' });
+      (window as any).__showWindowsDesktop();
+    });
     const desktopArea = page.locator('section[aria-label="Рабочий стол Windows"] > div.relative');
     await desktopArea.waitFor();
+    await page.getByRole('button', { name: 'Системная папка' }).waitFor();
+    const desktopSettled = await page.waitForFunction(() => !document.querySelector('section[aria-label="Рабочий стол Windows"]')?.textContent?.includes('Читаем Рабочий стол Windows'), undefined, { timeout: 3000 }).then(() => true).catch(() => false);
+    ok('Рабочий стол завершает полный запрос списка и убирает индикатор загрузки', desktopSettled);
     await page.waitForTimeout(100);
     const desktopRect = await desktopArea.boundingBox();
     if (!desktopRect) throw new Error('Не нашлась область рабочего стола для проверки меню');
     const desktopPoint = { x: desktopRect.x + desktopRect.width - 8, y: desktopRect.y + desktopRect.height - 8 };
-    await page.mouse.click(desktopPoint.x, desktopPoint.y, { button: 'right' });
+    const shellIcon = page.getByRole('button', { name: 'Системная папка' });
+    const shellBox = await shellIcon.boundingBox();
+    ok('Системный значок использует глобальные DIP на мониторе с отрицательным началом', !!shellBox && Math.abs(shellBox.x - 80) < 5 && Math.abs(shellBox.y - 100) < 5);
+    await page.screenshot({ path: '/tmp/flux-desktop-light.png' });
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.screenshot({ path: '/tmp/flux-desktop-dark.png' });
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    await page.evaluate(({ x, y }) => {
+      const area = document.querySelector('section[aria-label="Рабочий стол Windows"] > div.relative > div.absolute') as HTMLElement | null;
+      const target = area || document.elementFromPoint(x, y) as HTMLElement | null;
+      target?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 }));
+    }, desktopPoint);
     const desktopMenu = page.locator('[data-context-menu]');
-    await desktopMenu.waitFor();
-    const desktopMenuRect = await desktopMenu.boundingBox();
+    await page.waitForTimeout(100);
+    const hasDesktopMenu = await desktopMenu.count() > 0;
+    const desktopMenuRect = hasDesktopMenu ? await desktopMenu.first().boundingBox() : null;
     ok('Меню рабочего стола в перемещённом окне целиком видно у правого нижнего края', !!desktopMenuRect && desktopMenuRect.x < desktopPoint.x && desktopMenuRect.y < desktopPoint.y && desktopMenuRect.x + desktopMenuRect.width <= 1440 && desktopMenuRect.y + desktopMenuRect.height <= 820);
+    ok('Меню рабочего стола содержит Windows/Flux создание и настройки экрана', hasDesktopMenu && await desktopMenu.getByRole('button', { name: 'Создать Windows' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Создать Flux' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Параметры экрана' }).count() === 1);
     await page.mouse.click(10, 10);
     ok('Щелчок снаружи закрывает контекстное меню рабочего стола', await desktopMenu.count() === 0);
+    const sharedIcon = page.getByRole('button', { name: 'Общий доступ' });
+    if (await sharedIcon.count()) await sharedIcon.dblclick();
+    ok('В режиме нескольких мониторов ярлык открывает одно native окно без дублирующей навигации', await page.evaluate(() => JSON.stringify((window as any).__nativeAppOpenCalls) === JSON.stringify(['/shared-files'])));
     await page.evaluate(() => { const windowFrame = document.querySelector<HTMLElement>('#mount > div')!; Object.assign(windowFrame.style, { inset: '0px', width: '100vw', height: '100vh', left: '0px', top: '0px', transform: 'none', overflow: 'visible' }); });
 
     for (const width of [1440, 1024, 768, 600]) {

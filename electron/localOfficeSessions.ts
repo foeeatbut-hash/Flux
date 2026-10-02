@@ -7,16 +7,20 @@ import { randomUUID } from 'node:crypto';
 import type { WindowsFilesService } from './filesystem/service';
 import { WindowsFilesError, validateWindowsName } from './filesystem/paths';
 import type { WindowsFileRef } from '../filesystem/contracts';
+import { createLocalOfficeWorkerHost } from './localOfficeWorkerHost';
+import { isOfficeOperation, type OfficeHostDiagnostic } from '../diagnostics/officeOperations';
+import { safeError } from '../diagnostics/event';
 
 export type LocalOfficeApp = 'pdf' | 'sheets';
 export interface LocalOfficeHost {
   start(resources: string): void;
-  open(path: string, dataDir?: string): number;
-  setDataDir?(id: number, path: string): void;
+  open(path: string, dataDir?: string): number | Promise<number>;
+  setDataDir?(id: number, path: string): void | Promise<void>;
   invoke(id: number, channel: string, args: unknown[], saveTarget?: string, commit?: () => Promise<void>): Promise<any>;
-  send(id: number, channel: string, args: unknown[]): void;
+  send(id: number, channel: string, args: unknown[]): void | Promise<void>;
   onSend(fn: (id: number, channel: string, args: unknown[]) => void): void | (() => void);
-  close(id: number): void;
+  close(id: number): void | Promise<void>;
+  dispose?(): void | Promise<void>;
   requestCopy?(id: number, target: string): Promise<boolean>;
 }
 export type LocalOfficeRequest =
@@ -38,6 +42,7 @@ export interface LocalOfficeSessionOptions {
   loadHost?: (app: LocalOfficeApp) => LocalOfficeHost;
   onEvent(owner: number, event: LocalOfficeEvent): void;
   copyTimeoutMs?: number;
+  onDiagnostic?(event: OfficeHostDiagnostic): void;
 }
 interface CopyState { path: string; name: string; made?: unknown; cancel: () => void }
 interface Session {
@@ -88,7 +93,7 @@ export class LocalOfficeSessions {
   }
   private host(app: LocalOfficeApp): LocalOfficeHost {
     const have = this.hosts.get(app); if (have) return have;
-    const h = this.options.loadHost ? this.options.loadHost(app) : loadLocalOfficeHost(app, this.options.resourcesDir);
+    const h = this.options.loadHost ? this.options.loadHost(app) : createLocalOfficeWorkerHost(app, this.options.resourcesDir);
     const off = h.onSend((nativeId, channel, args) => {
       // Never broadcast contents, paths or editor messages to another native window.
       for (const s of this.sessions.values()) if (s.app === app && s.nativeId === nativeId && !s.closed &&
@@ -100,6 +105,28 @@ export class LocalOfficeSessions {
     this.hosts.set(app, h); return h;
   }
   async handle(owner: number, request: LocalOfficeRequest, auth: LocalOfficeAuthorization): Promise<any> {
+    const app = request?.action === 'open' ? request.app : this.sessions.get((request as any)?.session)?.app;
+    const action = request?.action;
+    const started = performance.now();
+    const candidate = (request as any)?.channel;
+    const operation = isOfficeOperation(candidate) ? candidate : 'windows-office:invoke';
+    const emit = (fields: Partial<OfficeHostDiagnostic>) => {
+      if ((app !== 'pdf' && app !== 'sheets') || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
+      try { this.options.onDiagnostic?.({ app, action, operation, phase: 'start', ...fields }); } catch { /* Запись не влияет на документ. */ }
+    };
+    emit({ phase: 'start' });
+    try {
+      const result = await this.handleInner(owner, request, auth);
+      emit({ phase: 'end', durationMs: performance.now() - started,
+        outcome: result?.ok === false ? 'error' : result?.canceled ? 'cancelled' : 'ok' });
+      return result;
+    } catch (error: any) {
+      emit({ phase: 'end', durationMs: performance.now() - started,
+        outcome: error?.code === 'CONFLICT' ? 'conflict' : 'error', ...safeError(error) });
+      throw error;
+    }
+  }
+  private async handleInner(owner: number, request: LocalOfficeRequest, auth: LocalOfficeAuthorization): Promise<any> {
     await this.readPermission(auth);
     if (this.disposed || this.closedOwners.has(owner)) fail('SESSION_CLOSED', 'Окно Flux уже закрыто.');
     if (!request || typeof request !== 'object') fail('INVALID_REQUEST', 'Некорректная команда редактора.');
@@ -108,7 +135,7 @@ export class LocalOfficeSessions {
     if (request.action === 'close') { await this.closeSession(s); return { closed: true }; }
     if (request.action === 'send') {
       if (!SEND.has(request.channel) || (s.app === 'pdf') !== request.channel.startsWith('pdf:')) fail('CHANNEL_DISABLED', 'Команда локального редактора недоступна.');
-      s.host.send(s.nativeId, request.channel, this.args(request.args)); return { sent: true };
+      await s.host.send(s.nativeId, request.channel, this.args(request.args)); return { sent: true };
     }
     if (request.action === 'copy') return this.pdfCopy(s, request.name, auth);
     if (request.action !== 'invoke') fail('INVALID_ACTION', 'Команда локального редактора неизвестна.');
@@ -144,13 +171,15 @@ export class LocalOfficeSessions {
       await writeFile(path, bytes, { mode: 0o600, flag: 'wx' });
       await this.readPermission(auth);
       if (this.closedOwners.has(owner) || this.disposed) fail('SESSION_CLOSED', 'Окно Flux уже закрыто.');
-      host = this.host(app); nativeId = host.open(path, dir); host.setDataDir?.(nativeId, dir);
+      host = this.host(app); nativeId = await host.open(path, dir); await host.setDataDir?.(nativeId, dir);
+      await this.readPermission(auth);
+      if (this.closedOwners.has(owner) || this.disposed) fail('SESSION_CLOSED', 'Окно Flux уже закрыто.');
       const id = this.nextId++;
       this.sessions.set(id, { id, owner, app, host, nativeId, ref: { ...ref }, fileId: original.fileId,
         sha: original.sha256, dir, path, closed: false, queue: Promise.resolve(), inFlight: new Set() });
       return { session: id, name: original.name };
     } catch (e) {
-      if (nativeId !== undefined) try { host?.close(nativeId); } catch { /* clean up below */ }
+      if (nativeId !== undefined) try { await host?.close(nativeId); } catch { /* clean up below */ }
       if (dir) await rm(dir, { force: true, recursive: true }); throw e;
     } finally { const left = (this.opening.get(owner) || 1) - 1; if (left) this.opening.set(owner, left); else this.opening.delete(owner); }
   }
@@ -267,7 +296,7 @@ export class LocalOfficeSessions {
         const ok = await Promise.race([s.host.requestCopy!(s.nativeId, copy.path), canceled, deadline]);
         if (!ok) {
           // Resolve the native waiter's timer as well; cancellation never creates a file.
-          try { s.host.send(s.nativeId, 'pdf:save-as-result', [false]); } catch { /* closed host */ }
+          try { await s.host.send(s.nativeId, 'pdf:save-as-result', [false]); } catch { /* closed host */ }
         }
         return copy.made ? { copy: copy.made } : { canceled: true };
       } finally {
@@ -282,7 +311,7 @@ export class LocalOfficeSessions {
   private async closeSession(s: Session) {
     if (s.closed) return;
     s.closed = true; this.sessions.delete(s.id); s.copy?.cancel();
-    try { s.host.close(s.nativeId); } catch { /* cleanup is mandatory */ }
+    try { await s.host.close(s.nativeId); } catch { /* cleanup is mandatory */ }
     await Promise.allSettled([...s.inFlight]);
     await rm(s.dir, { recursive: true, force: true });
   }
@@ -294,6 +323,8 @@ export class LocalOfficeSessions {
     this.disposed = true;
     await Promise.allSettled([...this.sessions.values()].map(s => this.closeSession(s)));
     this.offs.splice(0).forEach(off => off());
+    await Promise.allSettled([...this.hosts.values()].map(host => host.dispose?.()));
+    this.hosts.clear();
   }
 }
 

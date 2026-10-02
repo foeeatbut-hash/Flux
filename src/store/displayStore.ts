@@ -1,10 +1,9 @@
 import { create } from 'zustand';
 import { EMPTY_WORKSPACE, localDisplayAreas, type DisplayWorkspace } from '../../workspace/displays';
-import { BAR_H } from '../lib/metrics';
-
 interface DisplayState {
   workspace: DisplayWorkspace; available: boolean; busy: boolean; error: string;
   init: () => (() => void); setAllMonitors: (enabled: boolean) => Promise<void>;
+  setShowWindowsTaskbar: (visible: boolean) => Promise<void>;
 }
 const bridge = () => (window as any).electron?.displays;
 export const useDisplayStore = create<DisplayState>((set, get) => ({
@@ -25,5 +24,13 @@ export const useDisplayStore = create<DisplayState>((set, get) => ({
     catch (e) { set({ error: e instanceof Error ? e.message : 'Не удалось изменить режим мониторов.' }); }
     finally { set({ busy: false }); }
   },
+  setShowWindowsTaskbar: async visible => {
+    if (get().busy) return;
+    set({ busy: true, error: '' });
+    try { set({ workspace: await bridge().preferences({ showWindowsTaskbar: visible }) }); }
+    catch (e) { set({ error: e instanceof Error ? e.message : 'Не удалось изменить видимость панели задач Windows.' }); }
+    finally { set({ busy: false }); }
+  },
 }));
-export const workspaceAreas = (workspace: DisplayWorkspace) => localDisplayAreas(workspace, BAR_H);
+/** Taskbars auto-hide, so maximized Flux windows use the selected OS work area. */
+export const workspaceAreas = (workspace: DisplayWorkspace) => localDisplayAreas(workspace, 0);

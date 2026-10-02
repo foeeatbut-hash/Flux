@@ -6,10 +6,10 @@ export interface WorkspaceDisplay {
 }
 export interface DisplayWorkspace {
   enabled: boolean; displays: WorkspaceDisplay[]; bounds: DisplayRect;
-  primaryId: number; mixedScale: boolean;
+  primaryId: number; mixedScale: boolean; showWindowsTaskbar?: boolean;
 }
 export const EMPTY_WORKSPACE: DisplayWorkspace = {
-  enabled: false, displays: [], bounds: { x: 0, y: 0, w: 1280, h: 800 }, primaryId: 0, mixedScale: false,
+  enabled: false, displays: [], bounds: { x: 0, y: 0, w: 1280, h: 800 }, primaryId: 0, mixedScale: false, showWindowsTaskbar: true,
 };
 export function unionDisplays(displays: WorkspaceDisplay[]): DisplayRect {
   if (!displays.length) return { ...EMPTY_WORKSPACE.bounds };
@@ -18,12 +18,15 @@ export function unionDisplays(displays: WorkspaceDisplay[]): DisplayRect {
   return { x, y, w: Math.max(...displays.map(d => d.bounds.x + d.bounds.w)) - x,
     h: Math.max(...displays.map(d => d.bounds.y + d.bounds.h)) - y };
 }
-export function localDisplayAreas(state: DisplayWorkspace, taskbarHeight: number): WorkspaceDisplay[] {
-  return state.displays.map(d => ({ ...d,
-    bounds: { ...d.bounds, x: d.bounds.x - state.bounds.x, y: d.bounds.y - state.bounds.y },
-    workArea: { ...d.workArea, x: d.workArea.x - state.bounds.x, y: d.workArea.y - state.bounds.y,
-      h: Math.max(1, d.workArea.h - taskbarHeight) },
-  }));
+export function localDisplayAreas(state: DisplayWorkspace, reservedTaskbarHeight = 0): WorkspaceDisplay[] {
+  return state.displays.map(d => {
+    const area = state.showWindowsTaskbar === false ? d.bounds : d.workArea;
+    return { ...d,
+      bounds: { ...d.bounds, x: d.bounds.x - state.bounds.x, y: d.bounds.y - state.bounds.y },
+      workArea: { ...area, x: area.x - state.bounds.x, y: area.y - state.bounds.y,
+        h: Math.max(1, area.h - reservedTaskbarHeight) },
+    };
+  });
 }
 export function containsPoint(r: DisplayRect, x: number, y: number): boolean {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;

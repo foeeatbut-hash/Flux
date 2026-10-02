@@ -27,6 +27,7 @@
  * старше уже применённого.
  */
 import type { Socket } from 'socket.io';
+import { SHARE_WRITE_GUARD, type ShareWriteGuard } from './fileSharing.js';
 import { createHash } from 'node:crypto';
 import { officeHub, type OfficeRoomHub } from './officeRooms.js';
 import { officeBus, BusFull, IDLE_MS, type OfficeBus, type SessionRow } from './officeBus.js';
@@ -91,12 +92,12 @@ export class SheetShared {
   }
 
   /** Правка участника: номер по порядку и в журнал. null — не принята, причина в error */
-  async push(fileId: string, key: string, op: SheetOp, fromSocket: string): Promise<{ seq: number } | { error: string; key?: string }> {
+  async push(fileId: string, key: string, op: SheetOp, fromSocket: string, guard?: ShareWriteGuard): Promise<{ seq: number } | { error: string; key?: string }> {
     const row = await this.bus.session(fileId);
     if (!row) return { error: 'Сеанс общей книги не открыт' };
     if (key !== row.key) return { error: 'session', key: row.key };
     try {
-      const seq = await this.bus.publish(fileId, { kind: 'x', fromSocket, data: Buffer.from(JSON.stringify(op)), app: 'sheets' }, { maxSeq: MAX_OPS });
+      const seq = await this.bus.publish(fileId, { kind: 'x', fromSocket, data: Buffer.from(JSON.stringify(op)), app: 'sheets' }, { maxSeq: MAX_OPS, guard });
       return { seq };
     } catch (e) {
       if (e instanceof BusFull) return { error: 'Журнал общей книги переполнен: откройте её заново' };
@@ -149,7 +150,8 @@ export function setupOfficeSheetCollab(
   });
 
   /** Правка участника: номер по порядку, в журнал, остальным */
-  socket.on('office:x-op', async ({ fileId, key, op }: { fileId: string; key: string; op: unknown }, ack?: (r: any) => void) => {
+  socket.on('office:x-op', async (payload: { fileId: string; key: string; op: unknown }, ack?: (r: any) => void) => {
+    const { fileId, key, op } = payload;
     const reply = typeof ack === 'function' ? ack : () => {};
     const id = String(fileId || '');
     const peer = member(id);
@@ -157,7 +159,7 @@ export function setupOfficeSheetCollab(
     if (!peer?.mayWrite) return reply({ error: 'Эту книгу вам можно только смотреть' });
     const clean = cleanOp(op);
     if (!clean) return reply({ error: 'Правка не принята' });
-    try { reply(await shared.push(id, String(key || ''), clean, socket.id)); }
+    try { reply(await shared.push(id, String(key || ''), clean, socket.id, (payload as any)[SHARE_WRITE_GUARD])); }
     catch (e: any) { reply({ error: `Правка не записана в общую базу: ${e?.message || e}` }); }
   });
 

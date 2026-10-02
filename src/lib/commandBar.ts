@@ -26,7 +26,6 @@ export type BarRun =
   | { kind: 'changes' }
   | { kind: 'remind'; at: number; text: string }
   | { kind: 'note'; text: string }
-  | { kind: 'desk'; index: number }
   | { kind: 'fill'; text: string }
   | { kind: 'translate'; text: string }
   | { kind: 'meeting'; at: number; title: string };
@@ -65,7 +64,6 @@ export const SLASH: SlashCmd[] = [
   { name: 'встреча', hint: 'когда и о чём', about: 'Откроется окно события — останется позвать людей', icon: 'calendar', needsRest: true },
   { name: 'заметка', hint: 'текст', about: 'Новая заметка в Блокноте', icon: 'note', needsRest: true },
   { name: 'переведи', hint: 'текст', about: 'Перевести в Переводчике', icon: 'translate', needsRest: true },
-  { name: 'стол', hint: 'номер', about: 'Перейти на рабочий стол', icon: 'desk', needsRest: true },
   { name: 'проверка', hint: '', about: 'Проверка проекта перед выпуском', icon: 'check', needsRest: false },
   { name: 'изменения', hint: '', about: 'Что изменилось в оборудовании', icon: 'history', needsRest: false },
 ];
@@ -294,7 +292,6 @@ function runOf(cmd: SlashCmd, rest: string, src: BarSource, now: number): BarRun
     case 'найди': return { kind: 'ask', query: rest };
     case 'заметка': return { kind: 'note', text: rest };
     case 'переведи': return { kind: 'translate', text: rest };
-    case 'стол': return { kind: 'desk', index: Math.max(1, Number(rest) || 1) - 1 };
     case 'открой': {
       const s = sectionByWord(rest, src.sections);
       return s ? { kind: 'navigate', route: s.path } : { kind: 'ask', query: rest };

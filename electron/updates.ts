@@ -102,6 +102,8 @@ export interface ApplyPlan {
   target: string;
   /** Процесс, который должен сначала уйти; 0 — ждать некого */
   waitPid: number;
+  signature?: string;
+  previousVersion?: string;
 }
 
 /**
@@ -109,8 +111,9 @@ export interface ApplyPlan {
  * написание должны совпадать с разбором — а разбор живёт этажом ниже и
  * проверяется тем же скриптом.
  */
-export const applyArgs = (target: string, pid: number): string[] =>
-  [APPLY_FLAG, String(target || ''), WAIT_FLAG, String(pid | 0)];
+export const applyArgs = (target: string, pid: number, verified?: { signature: string; current: string }): string[] =>
+  [APPLY_FLAG, String(target || ''), WAIT_FLAG, String(pid | 0),
+    ...(verified ? ['--flux-update-signature', verified.signature, '--flux-previous-version', verified.current] : [])];
 
 /**
  * Разбор доводов. Пустой ответ значит «это обычный запуск программы».
@@ -127,7 +130,11 @@ export function parseApplyArgs(argv: string[]): ApplyPlan | null {
   if (!target || target.startsWith('--')) return null;
   const pidAt = list.indexOf(WAIT_FLAG);
   const waitPid = pidAt >= 0 ? Math.max(0, parseInt(list[pidAt + 1] || '0', 10) || 0) : 0;
-  return { target, waitPid };
+  const plan: ApplyPlan = { target, waitPid };
+  const sigAt = list.indexOf('--flux-update-signature'), previousAt = list.indexOf('--flux-previous-version');
+  if (sigAt >= 0) plan.signature = list[sigAt + 1] || '';
+  if (previousAt >= 0) plan.previousVersion = list[previousAt + 1] || '';
+  return plan;
 }
 
 /** Сколько ждать ухода старой программы, прежде чем считать её зависшей */

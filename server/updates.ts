@@ -1,32 +1,14 @@
-/**
- * Публикация и отзыв обновлений доступны только владельцу Flux.
- * Подписанный exe хранится целиком в общей БД, поэтому сотрудники скачивают
- * проверенные байты независимо от дискового кэша. Внешние ссылки не публикуются.
- */
+/** Immutable update generations live in the shared database; only the Owner publishes them. */
 import { requireOwnerMiddleware } from './accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import { CHUNK_MAX, CHUNK_MIN, chunkSizeFor } from './limits.js';
 import express from 'express';
 import crypto from 'crypto';
 import { readUpdateSignature } from '../electron/updateSignature.js';
-import path from 'path';
-import fs from 'fs';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
+import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
 
-/**
- * Какой релиз предлагать и о каких сказать, что они пусты.
- *
- * Отдельной функцией, потому что это и есть суть починки: до неё предлагался
- * просто последний по дате, и одна неудачная публикация закрывала обновления
- * всему отделу — у всех горело «доступна новая версия», а нажатие отвечало
- * «файла этой версии нет».
- *
- * `list` — релизы от свежего к старому, `ok` — есть ли у релиза файл.
- */
-export function pickRelease<T extends { version: string }>(
-  list: T[],
-  ok: (r: T) => { ok: boolean; why: string },
-): { release: T | null; broken: { version: string; why: string }[] } {
+export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T) => { ok: boolean; why: string }) {
   const broken: { version: string; why: string }[] = [];
   for (const r of list) {
     const a = ok(r);
@@ -36,416 +18,231 @@ export function pickRelease<T extends { version: string }>(
   return { release: null, broken };
 }
 
-// Размер куска переехал в server/limits.ts: им пользуются и обновления, и
-// файлы Проводника, а два одинаковых расчёта однажды разошлись бы
-
 export interface UpdateDeps {
-  /** Клиент базы берётся лениво: он пересоздаётся при переключении базы */
   getPrisma: () => any;
-  /** Папка данных сервера — там же лежит быстрый диск-кэш файлов */
   dataDir: string;
   notifyAll: (category: string, title: string, body: string, route: string, by: string) => Promise<void>;
   broadcast: (event: string, payload: unknown) => void;
+  /** Internal dependency for isolated fixtures. HTTP requests never select a verification key. */
+  updatePublicKeyHex?: string;
+}
+const validVersion = (v: unknown): string => typeof v === 'string' && v.length <= 40 && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/.test(v) ? v : '';
+const validGeneration = (v: unknown): string => typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v) ? v : '';
+const isPublished = (r: any) => r && (r.state === 'published' || !r.state || r.state === 'legacy');
+
+/** Upgrade existing databases before the regenerated Prisma client selects release fields. */
+export async function ensureUpdatePublicationSchema(db: any): Promise<void> {
+  const why = await ensureDbTables(db, [{ table: 'AppUpdate', existingOnly: true, cols: [
+    { name: 'id', kind: 'text', pk: true },
+    { name: 'version', kind: 'text', notNull: true, def: '', indexed: true },
+    { name: 'generation', kind: 'text', notNull: true, def: '' },
+    { name: 'state', kind: 'text', notNull: true, def: 'legacy' },
+    { name: 'signature', kind: 'longtext', notNull: true, def: '' },
+    { name: 'size', kind: 'int', notNull: true, def: 0 },
+    { name: 'sha256', kind: 'text', notNull: true, def: '' },
+    { name: 'chunkCount', kind: 'int', notNull: true, def: 0 },
+  ], indexes: [{ name: 'AppUpdate_version_key', cols: ['version'], unique: true }] }]);
+  if (why) throw new Error(why);
 }
 
-/**
- * Проверочный ключ наборов (scripts/fixtures/update-test-key.txt) — только для
- * сервера, запущенного из исходников. Собранный server.cjs его не принимает, а
- * программа сотрудника не примет выпуск с ним ни при каком сервере: окончательно
- * подпись проверяет она, своим зашитым ключом (electron/updateSignature.ts).
- */
-const TEST_UPDATE_KEY_HEX = '9d155f2aa7bb2b9ec4b8e271c8181cd9d289b2c4e264fec77848963e1a6b0215';
-const FROM_SOURCE = /\.ts$/.test(__filename);
-
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
-  const ventAppDataPath = deps.dataDir;
-  // ── Обновления приложения: публикация и раздача через сервер ────────────────
-  // Владелец загружает exe в общую базу. Подпись проверяется до публикации;
-  // сотрудники получают только опубликованный выпуск с того же сервера.
-  const updatesDir = path.join(ventAppDataPath, 'updates');
-  const sanitizeVersion = (v: unknown): string => String(v || '').trim().replace(/[^0-9a-zA-Z.\-]/g, '').slice(0, 40);
-  const updateFilePath = (version: string) => path.join(updatesDir, `Flux-${version}.exe`);
-  const pending = new Set<string>();
-  const mutationLock = (req: Request, res: Response, next: () => void) => {
-    const version = sanitizeVersion(req.params.version || req.query.version || req.body?.version);
-    if (pending.has(version)) return res.status(409).json({ error: 'Выпуск уже обрабатывается. Дождитесь окончания операции.' });
-    pending.add(version);
-    const release = () => pending.delete(version);
-    res.once('finish', release); res.once('close', release);
-    next();
-  };
-
-
-  /**
-   * Есть ли у релиза файл, который сотрудник действительно получит.
-   *
-   * Проверять приходится потому, что запись о релизе и файл живут порознь:
-   * запись создаётся отдельным запросом и остаётся в общей базе навсегда, даже
-   * если загрузка файла не удалась или её вовсе не делали. Тогда у всех горит
-   * «доступно обновление», а нажатие отвечает «файла этой версии нет» — и так
-   * до тех пор, пока запись не уберут руками. Именно в этом состоянии отдел и
-   * просидел два выпуска.
-   */
-  const availability = async (version: string, _fileUrl: string): Promise<{ ok: boolean; size: number; why: string }> => {
-    try {
-      await ensureUpdateChunks();
-      const n = await deps.getPrisma().appUpdateChunk.count({ where: { version } });
-      if (n > 0) return { ok: true, size: await chunkedSize(version), why: '' };
-      return {
-        ok: false, size: 0,
-        why: 'файл не загружен в общую базу — сотрудники его не скачают',
-      };
-    } catch (e: any) {
-      return { ok: false, size: 0, why: `файл недоступен: ${e?.message || e}` };
+  app.use('/api/updates', async (_req, res, next) => {
+    try { await ensureUpdatePublicationSchema(deps.getPrisma()); next(); }
+    catch (e: any) { res.status(503).json({ error: e?.message || 'Схема обновлений недоступна' }); }
+  });
+  const signatureManifest = (signature: string) => readUpdateSignature(signature, deps.updatePublicKeyHex);
+  // Readiness belongs to the current database client, not to this server process forever.
+  let readyClient: any = null;
+  const ensureUpdateChunks = async (db: any) => {
+    if (readyClient === db) return;
+    try { await db.appUpdateChunk.findFirst({ select: { data: true } }); }
+    catch (_) {
+      const why = await ensureDbTables(db, [{ table: 'AppUpdateChunk', cols: [
+        { name: 'id', kind: 'text', pk: true },
+        { name: 'version', kind: 'text', notNull: true, def: '', indexed: true },
+        { name: 'idx', kind: 'int', notNull: true, def: 0 },
+        { name: 'data', kind: 'blob', notNull: true },
+      ], indexes: [{ name: 'AppUpdateChunk_version_idx_key', cols: ['version', 'idx'], unique: true }] }], m => console.error('[Обновление]', m));
+      if (why) throw new Error(why);
     }
+    readyClient = db;
+  };
+  const packetLimit = async (db: any): Promise<number> => {
+    if (clientDialect(db, getDialect()) !== 'mysql') return 0;
+    try { const rows = await db.$queryRawUnsafe('SELECT @@max_allowed_packet AS n'); return Number(rows?.[0]?.n || 0); }
+    catch (_) { return 0; }
+  };
+  const releaseSignature = async (db: any, r: any): Promise<string> => r.signature || (await db.appSetting.findFirst({ where: { key: `update.sig.${r.version}`, userId: null } }))?.value || '';
+  /** Read every byte before advertising/serving a release. Count alone cannot detect truncated chunks. */
+  const verifiedParts = async (db: any, generation: string, expected: { size: number; sha256: string; chunkCount?: number }) => {
+    await ensureUpdateChunks(db);
+    const parts = await db.appUpdateChunk.findMany({ where: { version: generation }, orderBy: { idx: 'asc' }, select: { idx: true, data: true } });
+    if (!parts.length || (expected.chunkCount && parts.length !== expected.chunkCount)) throw new Error('В базе неполный файл обновления. Загрузите новый выпуск.');
+    const hash = crypto.createHash('sha256'); let size = 0;
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].idx !== i || !parts[i].data) throw new Error('В базе пропущен кусок обновления.');
+      const bytes = Buffer.from(parts[i].data);
+      if (!bytes.length) throw new Error('В базе пустой кусок обновления.');
+      parts[i].data = bytes; hash.update(bytes); size += bytes.length;
+    }
+    if (size !== expected.size || hash.digest('hex') !== expected.sha256) throw new Error('Файл в общей базе не совпадает с подписанным выпуском.');
+    return parts;
+  };
+  const availability = async (db: any, r: any) => {
+    if (!isPublished(r)) return { ok: false, size: 0, why: 'Выпуск не опубликован или отозван' };
+    try {
+      const signature = await releaseSignature(db, r), signed = signatureManifest(signature);
+      if (!signed || signed.version !== r.version) throw new Error('Подпись выпуска не подтверждена');
+      if (r.generation && (r.size !== signed.size || r.sha256 !== signed.sha256)) throw new Error('Описание выпуска не совпадает с подписью');
+      await verifiedParts(db, r.generation || r.version, { ...signed, chunkCount: r.chunkCount });
+      return { ok: true, size: signed.size, why: '', signature };
+    } catch (e: any) { return { ok: false, size: 0, why: String(e?.message || e) }; }
   };
 
-  /**
-   * Последний релиз, который РЕАЛЬНО можно поставить.
-   *
-   * Не просто последний по дате: если у самого свежего нет файла, предлагается
-   * предыдущий рабочий, а про пропущенные говорится отдельным списком. Иначе
-   * одна неудачная публикация закрывает обновления всему отделу.
-   */
   app.get('/api/updates/latest', async (_req: Request, res: Response) => {
     try {
-      const list = await deps.getPrisma().appUpdate.findMany({ orderBy: { createdAt: 'desc' }, take: 10 });
-      // Наличие файла спрашивается заранее: выбор релиза — правило, и живёт оно
-      // отдельной функцией, которую можно проверить скриптом
-      const state = new Map<string, { ok: boolean; size: number; why: string }>();
-      for (const upd of list) state.set(upd.version, await availability(upd.version, upd.fileUrl));
-      const { release, broken } = pickRelease(list, (r: any) => state.get(r.version)!);
+      const db = deps.getPrisma();
+      const list: any[] = await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } }, orderBy: { createdAt: 'desc' }, take: 10 });
+      const states = new Map<string, Awaited<ReturnType<typeof availability>>>();
+      for (const r of list) states.set(r.version, await availability(db, r));
+      const { release, broken } = pickRelease(list, r => states.get(r.version)!);
       if (!release) return res.json({ version: null, broken });
-      const sig = await deps.getPrisma().appSetting.findFirst({ where: { key: `update.sig.${release.version}`, userId: null } }).catch(() => null);
-      res.json({
-        version: release.version, changelog: release.changelog, fileUrl: `/api/updates/download/${release.version}`,
-        size: state.get(release.version)?.size || 0, createdAt: release.createdAt, broken,
-        signature: sig?.value || '',
-      });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Не удалось получить сведения об обновлении' });
-    }
+      // Recheck lifecycle after the potentially long full-file validation.
+      const active = await db.appUpdate.findUnique({ where: { version: release.version } });
+      if (!isPublished(active) || active.generation !== release.generation) return res.json({ version: null, broken });
+      const a = states.get(release.version)!;
+      res.json({ version: release.version, generation: release.generation || '', changelog: release.changelog,
+        fileUrl: `/api/updates/download/${release.version}`, size: a.size, createdAt: release.createdAt, signature: a.signature, broken });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось проверить обновления' }); }
   });
-
-  /**
-   * Дошёл ли файл этой версии до сервера — вопросом, а не скачиванием.
-   *
-   * Публикация обязана проверять себя: раньше она этого не делала, и о том, что
-   * релиз опубликован без файла, узнавали через день от сотрудников. Проверять
-   * запросом самого файла нельзя — это 130 мегабайт по сети ради двух байтов.
-   */
   app.get('/api/updates/check/:version', async (req: Request, res: Response) => {
-    const version = sanitizeVersion(req.params.version);
-    if (!version) return res.status(400).json({ error: 'Не указана версия' });
-    const upd = await deps.getPrisma().appUpdate.findFirst({ where: { version } }).catch(() => null);
-    const a = await availability(version, upd?.fileUrl || '');
-    res.json({ version, ...a });
+    const version = validVersion(req.params.version);
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
+    try {
+      const db = deps.getPrisma(), r = await db.appUpdate.findUnique({ where: { version } });
+      const a = await availability(db, r);
+      const active = await db.appUpdate.findUnique({ where: { version } });
+      if (!isPublished(active) || active?.generation !== r?.generation) return res.json({ version, ok: false, size: 0, why: 'Выпуск отозван' });
+      res.json({ version, generation: r?.generation || '', ...a });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
   });
 
-  // Загрузка файла exe на сервер (только владелец). Тело запроса — сырые байты файла,
-  // потому что base64-через-JSON упирается в лимит парсера, а exe весит >100 МБ.
-  /**
-   * Загрузка exe: на диск этого сервера И В ОБЩУЮ БАЗУ.
-   *
-   * База — единственное, что есть общего у всех сотрудников: сервера приложения
-   * у них нет, программа каждого поднимает свой встроенный. Пока запись о релизе
-   * ложилась в общую базу, а сам файл — на диск того, кто публиковал, все
-   * остальные видели «доступна новая версия» и получали «файла этой версии нет».
-   *
-   * Кусками, потому что целиком 130 МБ одним запросом не проходят — у MariaDB
-   * есть предел размера пакета (`max_allowed_packet`).
-   *
-   * Размер куска НЕ ВЫБИРАЕТСЯ НАУГАД. Двух мегабайтов хватало в проверках, но
-   * у живого сервера отдела предел оказался меньше — и MariaDB на слишком
-   * большой пакет не отвечает ошибкой, а РАЗРЫВАЕТ СОЕДИНЕНИЕ. Со стороны
-   * программы это выглядело как «Cannot execute new commands: connection
-   * closed» — сообщение, по которому причину не угадать никогда. Поэтому предел
-   * спрашивается у самой базы, а если куски всё равно не проходят, они
-   * уменьшаются вдвое и попытка повторяется.
-   */
-  /** Предел размера пакета у сервера базы; 0 — спросить не удалось */
-  const packetLimit = async (): Promise<number> => {
-    if (getDialect() !== 'mysql') return 0;
+  app.post('/api/updates/upload', requireOwnerMiddleware, express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
+    const version = validVersion(req.query.version), body = req.body;
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
+    if (!Buffer.isBuffer(body) || body.length < 5 * 1024 * 1024 || body[0] !== 0x4d || body[1] !== 0x5a) return res.status(400).json({ error: 'Передайте Windows EXE (MZ) размером не менее 5 МБ' });
+    const db = deps.getPrisma(), generation = crypto.randomUUID();
+    const sha256 = crypto.createHash('sha256').update(body).digest('hex');
+    let reserved = false;
     try {
-      const rows: any = await deps.getPrisma().$queryRawUnsafe('SELECT @@max_allowed_packet AS n');
-      return Number(rows?.[0]?.n || 0);
-    } catch (_) {
-      return 0;
-    }
-  };
-
-
-  /**
-   * Таблица кусков может отсутствовать — или быть НЕПОЛНОЙ.
-   *
-   * Второе и случилось: автомиграция общей базы не знала двоичного типа и
-   * создала таблицу без самой колонки с файлом. Проверка «сколько строк»
-   * при этом проходила успешно — таблица-то есть, — а вставка падала на «нет
-   * такой колонки», и файл обновления не попадал в общую базу никогда.
-   *
-   * Поэтому спрашивается именно колонка с данными: она и есть смысл таблицы.
-   */
-  let updateChunksReady = false;
-  const ensureUpdateChunks = async (): Promise<void> => {
-    if (updateChunksReady) return;
-    try {
-      await deps.getPrisma().appUpdateChunk.findFirst({ select: { data: true } });
-      updateChunksReady = true;
-    } catch (_) {
-      const why = await ensureDbTables(deps.getPrisma(), [{
-        table: 'AppUpdateChunk',
-        cols: [
-          { name: 'id', kind: 'text', pk: true },
-          { name: 'version', kind: 'text', notNull: true, def: '', indexed: true },
-          { name: 'idx', kind: 'int', notNull: true, def: 0 },
-          { name: 'data', kind: 'blob', notNull: true },
-        ],
-        indexes: [{ name: 'AppUpdateChunk_version_idx_key', cols: ['version', 'idx'], unique: true }],
-      }], (m) => console.error('[Обновление]', m));
-      if (why) throw new Error(why);
-      updateChunksReady = true;
-    }
-  };
-
-  /**
-   * Размер файла, собранного из кусков. Нужен, чтобы человек видел, сколько
-   * качается, а не полосу, стоящую на нуле: у потока из базы нет заголовка с
-   * длиной, взять её больше неоткуда.
-   */
-  const chunkedSize = async (version: string): Promise<number> => {
-    const len = getDialect() === 'postgresql' ? 'octet_length("data")' : 'LENGTH(`data`)';
-    const table = getDialect() === 'postgresql' ? '"AppUpdateChunk"' : '`AppUpdateChunk`';
-    const col = getDialect() === 'postgresql' ? '"version"' : '`version`';
-    try {
-      const rows: any = await deps.getPrisma().$queryRawUnsafe(
-        `SELECT SUM(${len}) AS total FROM ${table} WHERE ${col} = ?`.replace('?', `'${version.replace(/'/g, "''")}'`),
-      );
-      return Number(rows?.[0]?.total || 0);
-    } catch (_) {
-      return 0;
-    }
-  };
-
-  app.post('/api/updates/upload', requireOwnerMiddleware, express.raw({ type: () => true, limit: '800mb' }), mutationLock, async (req: Request, res: Response) => {
-    const u = (req as any).authUser;
-    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Публикация обновлений доступна только владельцу программы' });
-    const version = sanitizeVersion(req.query.version);
-    if (!version) return res.status(400).json({ error: 'Укажите версию (?version=1.2.3)' });
-    try {
-      const alreadyPublished = await deps.getPrisma().appUpdate.findUnique({ where: { version } });
-      if (alreadyPublished) return res.status(409).json({ error: 'Опубликованный выпуск нельзя перезаписать. Выпустите новую версию.' });
-    } catch (_) { return res.status(503).json({ error: 'База обновлений временно недоступна' }); }
-    const body = req.body as Buffer;
-    if (!Buffer.isBuffer(body) || body.length < 1024) return res.status(400).json({ error: 'Файл обновления пуст или не передан' });
-    try {
-      if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
-      fs.writeFileSync(updateFilePath(version), body);
-    } catch (e: any) {
-      return res.status(500).json({ error: e?.message || 'Не удалось сохранить файл обновления' });
-    }
-    try {
-      await ensureUpdateChunks();
-      const limit = await packetLimit();
-      let piece = chunkSizeFor(limit);
-      let lastErr: any = null;
-
-      // Попытки с уменьшающимся куском. Разрыв соединения на большом пакете
-      // ошибкой о размере не сопровождается — только «соединение закрыто», —
-      // поэтому единственный надёжный ответ на неудачу: взять кусок поменьше
-      for (let attempt = 0; attempt < 4; attempt++) {
+      // Unique version is a database-wide fence across all embedded servers.
+      await db.appUpdate.create({ data: { version, generation, state: 'uploading', signature: '', size: body.length, sha256, chunkCount: 0, changelog: '', fileUrl: `/api/updates/download/${version}` } });
+      reserved = true;
+      await ensureUpdateChunks(db);
+      let piece = chunkSizeFor(await packetLimit(db)), lastErr: any, chunkCount = 0;
+      for (let attempt = 0; attempt < 6; attempt++) {
         try {
-          await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } });
-          for (let i = 0, idx = 0; i < body.length; i += piece, idx++) {
-            await deps.getPrisma().appUpdateChunk.create({
-              data: { version, idx, data: body.subarray(i, Math.min(i + piece, body.length)) },
-            });
-          }
-          // Записанное перечитывается: «вставка не упала» и «файл в базе
-          // целиком» — разные вещи, а сотруднику достанется то, что в базе
-          const stored = await chunkedSize(version);
-          if (stored !== body.length) throw new Error(`в общую базу дошло ${stored} байт из ${body.length}`);
-          lastErr = null;
-          break;
+          // Cleanup only this upload's immutable generation; never another version or publisher.
+          await db.appUpdateChunk.deleteMany({ where: { version: generation } });
+          chunkCount = 0;
+          for (let i = 0; i < body.length; i += piece) await db.appUpdateChunk.create({ data: { version: generation, idx: chunkCount++, data: body.subarray(i, Math.min(i + piece, body.length)) } });
+          await verifiedParts(db, generation, { size: body.length, sha256, chunkCount });
+          lastErr = null; break;
         } catch (e: any) {
           lastErr = e;
-          console.error(`[Обновление] Кусок ${Math.round(piece / 1024)} КБ не прошёл: ${e?.message || e}`);
-          // Таблица могла испортиться уже ПОСЛЕ проверки — например, её правили
-          // руками при работающем сервере. Пока «проверено» помнилось до
-          // перезапуска, починка в таком случае не запускалась никогда, и
-          // каждая следующая загрузка падала одинаково. Забываем и проверяем
-          // заново — это дешевле перезапуска сервера
           if (/no such column|Unknown column|does not exist|no such table/i.test(String(e?.message || ''))) {
-            updateChunksReady = false;
-            await ensureUpdateChunks().catch(() => {});
-            continue;
+            readyClient = null; resetSchemaPreparations(db); await ensureUpdateChunks(db).catch(() => {});
           }
           if (piece <= CHUNK_MIN) break;
           piece = Math.max(CHUNK_MIN, Math.floor(piece / 2));
-          // База после разрыва соединения приходит в себя не мгновенно
-          await new Promise((r) => setTimeout(r, 700));
         }
       }
-      if (lastErr) {
-        const hint = limit
-          ? ` У сервера базы предел размера пакета — ${Math.round(limit / 1024)} КБ.`
-          : '';
-        throw new Error(`${lastErr?.message || lastErr}.${hint}`);
-      }
-
-      // Старые версии из базы убираем: держать по 130 МБ на каждый выпуск
-      // незачем, а место в общей базе — общее
-      const keep = await deps.getPrisma().appUpdate.findMany({ orderBy: { createdAt: 'desc' }, take: 2, select: { version: true } });
-      const keepList = [version, ...keep.map((k: any) => k.version)];
-      await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version: { notIn: keepList } } });
-      // В журнал — чтобы в следующий раз было видно, каким куском прошло и
-      // какой предел у базы: по одному «соединение закрыто» этого не понять
-      console.log(`[Обновление] Версия ${version} (${body.length} Б) записана в общую базу `
-        + `кусками по ${Math.round(piece / 1024)} КБ; предел пакета у базы `
-        + `${limit ? Math.round(limit / 1024) + ' КБ' : 'неизвестен'}`);
-      res.json({ success: true, version, size: body.length, shared: true, chunk: piece });
+      if (lastErr) throw lastErr;
+      const changed = await db.appUpdate.updateMany({ where: { version, generation, state: 'uploading' }, data: { state: 'ready', chunkCount } });
+      if (changed.count !== 1) throw new Error('Загрузка отозвана во время записи');
+      res.json({ success: true, version, generation, size: body.length, sha256, shared: true, chunk: piece });
     } catch (e: any) {
-      // Недописанное убираем сразу. Обрезанный exe хуже отсутствующего: он
-      // выглядит как файл, скачивается и ложится на место работающей программы
-      try { await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } }); } catch (_) {}
-      try { fs.unlinkSync(updateFilePath(version)); } catch (_) {}
+      if (!reserved) return res.status(e?.code === 'P2002' ? 409 : 503).json({ error: e?.code === 'P2002' ? 'Эта версия уже загружается, опубликована или отозвана. Выпустите новую версию.' : 'База обновлений недоступна' });
+      // This cleanup cannot delete a published release or a competing upload.
+      await db.appUpdate.deleteMany({ where: { version, generation, state: 'uploading' } }).catch(() => {});
+      await db.appUpdateChunk.deleteMany({ where: { version: generation } }).catch(() => {});
       res.status(503).json({ success: false, version, shared: false, error: 'Файл не записан полностью в общую базу. Публикация отменена; повторите загрузку.' });
     }
   });
 
-  // Владелец публикует только подписанный exe, целиком записанный в общую базу.
-  app.post('/api/updates', requireOwnerMiddleware, mutationLock, async (req: Request, res: Response) => {
-    const u = (req as any).authUser;
-    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Публикация обновлений доступна только владельцу программы' });
-    const version = sanitizeVersion(req.body?.version);
-    if (!version) return res.status(400).json({ error: 'Укажите номер версии' });
-    // «90» вместо «0.90.0» — это не придирка к форме записи: файл на сервере
-    // лежит под настоящим номером, и по выдуманному его не найдёт никто
-    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {
-      return res.status(400).json({
-        error: `«${version}» — не номер версии. Версия пишется тремя числами через точку: 0.90.0.`,
-      });
-    }
-    const changelog = String(req.body?.changelog || '').slice(0, 20000);
-    // Сотрудники получают именно проверенные байты из общей базы.
+  app.post('/api/updates', requireOwnerMiddleware, async (req: Request, res: Response) => {
+    const version = validVersion(req.body?.version), generation = validGeneration(req.body?.generation);
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
     if (req.body?.fileUrl) return res.status(400).json({ error: 'Обновление публикуется только через общую базу; внешние ссылки не принимаются' });
-    const inDb = await deps.getPrisma().appUpdateChunk.count({ where: { version } }).catch(() => 0);
-    if (!inDb) return res.status(400).json({ error: 'Сначала загрузите файл обновления в общую базу' });
-    const fileUrl = `/api/updates/download/${version}`;
-    /**
-     * Подпись владельца обязательна. Проверяет её главный процесс каждого
-     * сотрудника перед запуском — здесь она сверяется заранее, чтобы
-     * публикующий узнал о негодной подписи сразу, а не от всего отдела.
-     * Хранится рядом с выпуском: подделать её, дописав в базу, нельзя — нужен
-     * закрытый ключ, которого на сервере нет.
-     */
-    const signature = String(req.body?.signature || '').trim();
-    const signed = readUpdateSignature(signature) || (FROM_SOURCE ? readUpdateSignature(signature, TEST_UPDATE_KEY_HEX) : null);
-    if (!signed) {
-      return res.status(400).json({ error: 'Нужна подпись выпуска владельца программы (файл .flux-sig из tools/update-sign.mjs). Без неё обновление никто не поставит.' });
-    }
-    if (signed.version !== version) {
-      return res.status(400).json({ error: `Подпись относится к версии ${signed.version}, а публикуется ${version}.` });
-    }
-    const hash = crypto.createHash('sha256');
-    let size = 0;
-    const parts = await deps.getPrisma().appUpdateChunk.findMany({ where: { version }, orderBy: { idx: 'asc' }, select: { idx: true, data: true } });
-    for (let i = 0; i < parts.length; i++) {
-      if (parts[i].idx !== i) return res.status(400).json({ error: 'В базе неполный файл обновления. Загрузите его заново.' });
-      const bytes = Buffer.from(parts[i].data); hash.update(bytes); size += bytes.length;
-    }
-    if (size !== signed.size || hash.digest('hex') !== signed.sha256) return res.status(400).json({ error: 'Подпись не подходит к файлу в общей базе' });
-
+    const signature = String(req.body?.signature || '').trim(), signed = signatureManifest(signature);
+    if (!signed || signed.version !== version) return res.status(400).json({ error: 'Нужна действительная подпись выпуска владельца программы для этой версии' });
+    if (!generation) return res.status(400).json({ error: 'Сначала загрузите файл и передайте номер поколения загрузки' });
+    const db = deps.getPrisma();
     try {
-      // Уникальность по (key, userId=NULL) базы понимают по-разному — поэтому
-      // не upsert, а «убрать прежнюю и записать»
-      await deps.getPrisma().appSetting.deleteMany({ where: { key: `update.sig.${version}`, userId: null } });
-      await deps.getPrisma().appSetting.create({ data: { key: `update.sig.${version}`, userId: null, value: signature } });
-      const update = await deps.getPrisma().appUpdate.upsert({
-        where: { version },
-        update: { changelog, fileUrl },
-        create: { version, changelog, fileUrl },
-      });
-      // Мгновенное оповещение всем, кто сейчас онлайн
+      const r = await db.appUpdate.findUnique({ where: { version } });
+      if (!r || r.generation !== generation) return res.status(400).json({ error: 'Загрузка этой версии не найдена' });
+      if (r.state !== 'ready') return res.status(409).json({ error: 'Выпуск уже опубликован, отозван или ещё загружается' });
+      if (r.size !== signed.size || r.sha256 !== signed.sha256) return res.status(400).json({ error: 'Подпись не подходит к файлу в общей базе' });
+      try { await verifiedParts(db, generation, { ...signed, chunkCount: r.chunkCount }); }
+      catch (e: any) { return res.status(400).json({ error: e.message }); }
+      const changelog = String(req.body?.changelog || '').slice(0, 20000);
+      // One compare-and-set publishes signature and manifest together. Revocation wins over stale work.
+      const changed = await db.appUpdate.updateMany({ where: { version, generation, state: 'ready' }, data: { signature, changelog, state: 'published', createdAt: new Date() } });
+      if (changed.count !== 1) return res.status(409).json({ error: 'Выпуск изменился или отозван во время проверки' });
+      const update = await db.appUpdate.findUnique({ where: { version } });
       deps.broadcast('app:update-published', { version, changelog });
-      // И запись в уведомления — чтобы узнал и тот, кто был не в программе
-      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`,
-        String(changelog || '').split('\n')[0].slice(0, 120),
-        '/settings?section=updates', String(u.id || ''));
+      // Notification failure does not turn a successful atomic publication into a failed upload.
+      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`, changelog.split('\n')[0].slice(0, 120), '/settings?section=updates', String((req as any).authUser.id || '')).catch(e => console.error('[Обновление] Уведомление не доставлено:', e?.message));
       res.json({ success: true, update });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Не удалось опубликовать релиз' });
-    }
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось опубликовать релиз' }); }
   });
 
-  /**
-   * Отозвать опубликованный релиз (только владелец).
-   *
-   * Опубликовать не тот файл или не ту версию — обычное дело, а до этой правки
-   * отозвать публикацию было нечем: запись жила в базе навсегда, и у всех
-   * сотрудников горел значок обновления, которое ставить не надо.
-   */
-  app.delete('/api/updates/:version', requireOwnerMiddleware, mutationLock, async (req: Request, res: Response) => {
-    const u = (req as any).authUser;
-    if (!u || u.role !== 'OWNER') return res.status(403).json({ error: 'Отзыв релиза доступен только владельцу программы' });
-    const version = sanitizeVersion(req.params.version);
-    if (!version) return res.status(400).json({ error: 'Не указана версия' });
+  app.delete('/api/updates/:version', requireOwnerMiddleware, async (req: Request, res: Response) => {
+    const version = validVersion(req.params.version);
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
+    const db = deps.getPrisma();
     try {
-      await deps.getPrisma().appUpdate.deleteMany({ where: { version } });
-      // Файл убираем вместе с записью: раздавать его больше некому. И с диска,
-      // и из общей базы — иначе отозванный релиз так и лежит там сотней
-      // мегабайт, а место в общей базе общее
-      try { if (fs.existsSync(updateFilePath(version))) fs.unlinkSync(updateFilePath(version)); } catch (_) {}
-      try {
-        await ensureUpdateChunks();
-        await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } });
-      } catch (_) { /* таблицы кусков может не быть — тогда и убирать нечего */ }
-      res.json({ success: true, version });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Не удалось отозвать релиз' });
-    }
-  });
-
-  // Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
-  /**
-   * Раздача опубликованного exe только из общей базы. Дисковый кэш
-   * не участвует: публикация сверила подпись именно с байтами в БД.
-   */
-  app.get('/api/updates/download/:version', async (req: Request, res: Response) => {
-    const version = sanitizeVersion(req.params.version);
-    if (!version) return res.status(404).json({ error: 'Версия не указана' });
-
-    try {
-      const published = await deps.getPrisma().appUpdate.findUnique({ where: { version } });
-      if (!published) return res.status(404).json({ error: 'Выпуск не опубликован или отозван' });
-      await ensureUpdateChunks();
-      const parts = await deps.getPrisma().appUpdateChunk.findMany({
-        where: { version }, orderBy: { idx: 'asc' }, select: { idx: true },
-      });
-      if (!parts.length) {
-        return res.status(404).json({
-          error: 'Файла этой версии нет ни на этом сервере, ни в общей базе. '
-            + 'Администратору нужно опубликовать релиз заново.',
-        });
+      const r = await db.appUpdate.findUnique({ where: { version } });
+      if (r) {
+        // Preserve the tombstone: an in-flight publisher cannot resurrect a withdrawn version.
+        await db.appUpdate.updateMany({ where: { version, generation: r.generation }, data: { state: 'revoked' } });
+        await db.appUpdateChunk.deleteMany({ where: { version: r.generation || version } });
+        await db.appSetting.deleteMany({ where: { key: `update.sig.${version}`, userId: null } });
       }
+      res.json({ success: true, version });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось отозвать релиз' }); }
+  });
+
+  app.get('/api/updates/download/:version', async (req: Request, res: Response) => {
+    const version = validVersion(req.params.version);
+    if (!version) return res.status(404).json({ error: 'Версия не указана' });
+    try {
+      const db = deps.getPrisma(), r = await db.appUpdate.findUnique({ where: { version } });
+      if (!isPublished(r)) return res.status(404).json({ error: 'Выпуск не опубликован или отозван' });
+      const signature = await releaseSignature(db, r), signed = signatureManifest(signature);
+      if (!signed || signed.version !== version) return res.status(409).json({ error: 'Подпись выпуска не подтверждена' });
+      if (r.generation && (r.size !== signed.size || r.sha256 !== signed.sha256)) return res.status(409).json({ error: 'Описание выпуска повреждено' });
+      // Hold verified bytes as a snapshot. Never re-read or silently skip chunks after headers are sent.
+      const parts = await verifiedParts(db, r.generation || version, { ...signed, chunkCount: r.chunkCount });
+      const active = await db.appUpdate.findUnique({ where: { version } });
+      if (!isPublished(active) || active.generation !== r.generation || (active.signature && active.signature !== signature)) return res.status(404).json({ error: 'Выпуск отозван во время проверки' });
       res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="Flux ${version}.exe"`);
-      // Длина потока — чтобы у человека шла полоса загрузки, а не стояла на нуле
-      const total = await chunkedSize(version);
-      if (total > 0) res.setHeader('Content-Length', String(total));
-      // По куску за раз: 130 МБ целиком в память сервера класть незачем
+      res.setHeader('Content-Disposition', `attachment; filename="Flux-${version}.exe"`);
+      res.setHeader('Content-Length', String(signed.size));
+      res.setHeader('X-Flux-Update-Generation', r.generation || '');
       for (const p of parts) {
-        const row = await deps.getPrisma().appUpdateChunk.findFirst({
-          where: { version, idx: p.idx }, select: { data: true },
+        if (res.destroyed) return;
+        if (!res.write(p.data)) await new Promise<void>((resolve, reject) => {
+          const clean = () => { res.off('drain', drained); res.off('close', closed); };
+          const drained = () => { clean(); resolve(); }, closed = () => { clean(); reject(new Error('Загрузка прервана')); };
+          res.once('drain', drained); res.once('close', closed);
         });
-        if (row?.data) res.write(Buffer.from(row.data));
       }
       res.end();
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Не удалось отдать файл обновления' });
+      if (res.headersSent) res.destroy(e);
+      else res.status(409).json({ error: e?.message || 'Не удалось отдать полный файл обновления' });
     }
   });
-
 }
-
-// Прежние имена остаются: проверки обновлений спрашивают их отсюда
 export { CHUNK_MAX, CHUNK_MIN, chunkSizeFor };

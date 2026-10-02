@@ -12,6 +12,7 @@ import Login from './screens/Login';
 // Стикер открывается отдельным окном Electron — вне рабочего стола
 const StickerWindow = lazy(() => import('./screens/StickerWindow'));
 const CapturePult = lazy(() => import('./screens/CapturePult'));
+const NativeAppHost = lazy(() => import('./components/NativeAppHost'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -29,7 +30,9 @@ import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
 import { useDisplayStore } from './store/displayStore';
 import { SECTIONS } from './workspace/sections';
+import { mayClose } from './lib/closeGuard';
 import PlayInviteWatcher from './play/InviteWatcher';
+import OwnedFileShareSync from './components/explorer/OwnedFileShareSync';
 
 function ScreenLoader() {
   return (
@@ -123,7 +126,7 @@ function ElectronTitleBar() {
 
   // Отдельные окна рисуют себя сами: у стикера своя шапка, у пульта захвата
   // её нет вовсе — он и так 306×150 без рамок
-  if (location.pathname === '/sticker' || location.pathname === '/capture') return null;
+  if (location.pathname === '/sticker' || location.pathname === '/capture' || location.pathname === '/native-app') return null;
 
   // В браузере кнопок окна нет — окном распоряжается браузер. Панелька при
   // этом остаётся: журнал нужен и там, а другого места у него больше нет
@@ -351,6 +354,9 @@ function AnimatedRoutes() {
   if (!user) {
     return <Login />;
   }
+  if (location.pathname === '/native-app') {
+    return <Suspense fallback={<ScreenLoader />}><NativeAppHost /></Suspense>;
+  }
 
   // Разделы держит «живыми» рабочий стол внутри Layout (keep-alive + панели),
   // поэтому здесь один маршрут: Layout сам решает, какой раздел показать по URL.
@@ -368,6 +374,17 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    const controls = (window as any).electron?.windowControls;
+    if (!controls?.onCloseRequest) return;
+    return controls.onCloseRequest(async (token: string) => {
+      let allowed = true;
+      for (const entry of useWindowStore.getState().windows) {
+        if (!await mayClose(entry.id)) { allowed = false; break; }
+      }
+      try { await controls.closeConfirm(token, allowed); } catch { /* Сохранение остаётся в открытом окне. */ }
+    });
+  }, []);
   return (
     <Router>
       <SocketProvider>
@@ -381,6 +398,7 @@ export default function App() {
                 <PlayInviteWatcher />
                 <TagNavigationPanel />
                 <AutomaticIncidentWatcher />
+                <OwnedFileShareSync />
               </LicenseGate>
             </ServerGate>
           </div>

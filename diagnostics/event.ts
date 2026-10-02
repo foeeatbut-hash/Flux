@@ -13,6 +13,7 @@
  */
 
 import { specOf, type FieldKind, type EventName, type SafeFields } from './contracts';
+import { isOfficeOperation } from './officeOperations';
 
 // ── Идентификаторы ──────────────────────────────────────────────────────────
 
@@ -236,6 +237,8 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
     }
     case 'flag': return typeof value === 'boolean' ? value : null;
     case 'phase': return value === 'start' || value === 'end' ? value : null;
+    case 'app': return value === 'pdf' || value === 'sheets' ? value : null;
+    case 'action': return ['open', 'invoke', 'send', 'copy', 'close'].includes(String(value)) ? String(value) : null;
     case 'outcome':
       return value === 'ok' || value === 'error' || value === 'cancelled' || value === 'conflict' || value === 'skipped'
         ? value : null;
@@ -256,6 +259,7 @@ export function cleanFields(event: string, fields: Record<string, unknown> | und
   if (!fields) return out;
   for (const [key, kind] of Object.entries(spec)) {
     if (!(key in fields)) continue;
+    if (event === 'office.host' && key === 'operation' && !isOfficeOperation(fields[key])) continue;
     const value = byKind(kind, (fields as Record<string, unknown>)[key]);
     if (value !== null && value !== '') out[key] = value;
   }

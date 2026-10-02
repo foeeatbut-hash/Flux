@@ -20,7 +20,7 @@
 /** Новее ли выложенная версия той, что запущена */
 export function isNewer(latest: string, current: string): boolean {
   // Суффиксы вроде «-beta» дают NaN при Number() — оставляем цифры и точки
-  const parts = (v: string) => String(v || '').replace(/[^0-9.]/g, '').split('.').map((x) => Number(x) || 0);
+  const parts = (v: string) => String(v || '').split('-')[0].split('.').map((x) => Number(x) || 0);
   const l = parts(latest);
   const c = parts(current);
   for (let i = 0; i < Math.max(l.length, c.length); i++) {
@@ -51,7 +51,7 @@ export function blocker(o: {
   }
   if (!o.packaged) return 'Это режим разработки — обновление здесь не ставится.';
   if (!o.fileUrl) {
-    return 'У релиза нет файла. Администратору нужно загрузить exe или указать прямую ссылку.';
+    return 'У релиза нет файла. Владельцу Flux нужно загрузить подписанный exe в общую базу.';
   }
   if (!o.portable) {
     return 'Программа запущена не портативным файлом — обновление поставит обычный установщик.';
@@ -83,7 +83,7 @@ export function versionFromFileName(name: string): string {
 export function versionProblem(version: string, current?: string): string {
   const v = String(version || '').trim();
   if (!v) return 'Укажите номер версии';
-  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(v)) {
+  if (v.length > 40 || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(v)) {
     return `«${v}» — не номер версии. Версия пишется тремя числами через точку: 0.90.0.`;
   }
   if (current && !isNewer(v, current) && v !== current) {

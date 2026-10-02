@@ -56,8 +56,8 @@ import WindowsDesktop from './desktop/WindowsDesktop';
 /** Корзина — это вид Проводника, поэтому и открывается им */
 const BIN_HREF = '/explorer?folder=trash%3Aroot';
 
-export default function Desktop() {
-  return (window as any).electron?.windowsFiles ? <WindowsDesktop /> : <ProjectDesktop />;
+export default function Desktop({ screenOrigin }: { screenOrigin?: { x: number; y: number } } = {}) {
+  return (window as any).electron?.windowsFiles ? <WindowsDesktop screenOrigin={screenOrigin} /> : <ProjectDesktop />;
 }
 function ProjectDesktop() {
   const activeProject = useStore((s) => s.activeProject);

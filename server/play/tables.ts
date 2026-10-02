@@ -25,6 +25,7 @@
  */
 
 import { ensureTables, type Col, type TableSpec } from '../ddl.js';
+import { resetSchemaPreparations } from '../schemaRuntime.js';
 import { getPrisma, onDatabaseSwapped } from '../context.js';
 
 const id = (): Col => ({ name: 'id', kind: 'text', pk: true, indexed: true });
@@ -240,8 +241,6 @@ export const PLAY_TABLES: TableSpec[] = [
   },
 ];
 
-let ready = false;
-
 /**
  * Один раз за жизнь клиента базы убедиться, что таблицы на месте.
  *
@@ -250,12 +249,9 @@ let ready = false;
  * значит «дальше упадёт вставка».
  */
 export async function ensurePlayTables(prisma: any, log?: (m: string) => void): Promise<string> {
-  if (ready) return '';
   // Проба двух таблиц недостаточна: они могли быть созданы автомиграцией без
   // индексов. Здесь уникальные ограничения — часть корректности игры.
-  const failure = await ensureTables(prisma, PLAY_TABLES, log, true);
-  if (!failure) ready = true;
-  return failure;
+  return ensureTables(prisma, PLAY_TABLES, log, true);
 }
 
 /**
@@ -273,7 +269,7 @@ export async function ensurePlayReady(log?: (m: string) => void): Promise<string
 
 /** Смена базы: у новой свои таблицы, и проверять их надо заново. */
 export function resetPlayTables(): void {
-  ready = false;
+  resetSchemaPreparations();
 }
 
 onDatabaseSwapped(resetPlayTables);

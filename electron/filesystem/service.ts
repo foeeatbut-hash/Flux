@@ -7,6 +7,7 @@ import { WindowsFilesError, resolveSafePath, validateWindowsName, joinRelative, 
 import { inspectWindowsTree, copyWindowsTree, cleanCreatedWindowsTree } from './tree';
 import { WindowsFilesState, type StoredDraft } from './state';
 import { replaceWindowsFile } from './replace';
+import { isNetworkFolder } from './network';
 
 export interface WindowsFilesDependencies {
   userData: string;
@@ -86,16 +87,34 @@ export class WindowsFilesService {
     return { name: path.posix.basename(ref.relativePath) || path.basename(filename), relativePath: ref.relativePath, storage: ref.draftId ? 'flux' : 'windows', ...(ref.draftId ? { draftId: ref.draftId } : {}), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other', fileId: ref.draftId ? this.draftFileId(ref.draftId) : await this.identity(filename), size: stat.size, modifiedAt: stat.mtime.toISOString(), linked: stat.isSymbolicLink() };
   }
   async roots() {
-    return Promise.all(this.state.data.roots.map(async root => ({ id: root.id, name: root.name, kind: root.kind, available: await fs.stat(root.path).then(stat => stat.isDirectory()).catch(() => false) })));
+    return Promise.all(this.state.data.roots.map(async root => ({ id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: await fs.stat(root.path).then(stat => stat.isDirectory()).catch(() => false) })));
   }
-  async addRoot(filename: string) { const root = await this.state.addRoot(filename, 'custom'); return { id: root.id, name: root.name, kind: root.kind, available: true }; }
+  async addRoot(filename: string, name?: string) { const root = await this.state.addRoot(filename, 'custom', name); return { id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: true }; }
+  /** Только main передаёт путь из Shell; renderer не умеет выдавать себе новый корень. */
+  async refForShellPath(filename: string): Promise<WindowsFileRef | null> {
+    if (typeof filename !== 'string' || !path.isAbsolute(filename) || filename.length > 32767 || /[\u0000-\u001f]/u.test(filename)) return null;
+    for (const root of this.state.data.roots) {
+      if (!isContained(root.path, filename)) continue;
+      const relativePath = path.relative(root.path, filename).split(path.sep).join('/');
+      const ref = { rootId: root.id, relativePath };
+      try {
+        const safe = await this.filename(ref);
+        const stat = await fs.lstat(safe);
+        if (stat.isFile() || stat.isDirectory()) return ref;
+      } catch { /* Junction и изменённый корень не получают capability даже из Shell. */ }
+    }
+    return null;
+  }
   async list(ref: WindowsFileRef, offset = 0, limit = 250) {
     const filename = await this.filename(ref);
     if (!(await fs.stat(filename)).isDirectory()) throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку.');
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new WindowsFilesError('INVALID_RANGE', 'Некорректный диапазон списка.');
     const directory = await fs.opendir(filename);
     const names: string[] = [];
-    for await (const item of directory) { names.push(item.name); if (names.length >= MAX_LIST) break; }
+    for await (const item of directory) {
+      if (/^\.flux-write-[0-9a-f]{64}\.lock$/u.test(item.name)) continue;
+      names.push(item.name); if (names.length >= MAX_LIST) break;
+    }
     for (const draft of Object.values(this.state.data.drafts)) if (!draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId) await this.reconcileDraftParent(draft).catch(() => undefined);
     const virtual = Object.values(this.state.data.drafts).filter(draft => !draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId && draft.parent.relativePath === ref.relativePath);
     const candidates = [...names.map(name => ({ name, draftId: undefined as string | undefined })), ...virtual.map(draft => ({ name: draft.name, draftId: draft.id }))];

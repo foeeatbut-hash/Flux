@@ -1,5 +1,6 @@
 import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
+import { ensureUserProfileSchema } from './server/userProfileSchema.js';
 import { traceRequest, traceDatabase, traceSockets } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
@@ -61,6 +62,7 @@ import { registerSettingsRoutes } from './server/routes/settings.js';
 import { registerImportDictRoutes } from './server/routes/importDict.js';
 import { registerEquipmentDraftRoutes } from './server/routes/equipmentDraft.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
+import { registerFileSharingRoutes } from './server/routes/fileSharing.js';
 import { registerDesktopRoutes } from './server/routes/desktop.js';
 import { registerMailRoutes } from './server/routes/mail.js';
 import { registerMailSharedRoutes } from './server/routes/mailShared.js';
@@ -605,6 +607,7 @@ setSessionForget(invalidateAuthUser);
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < 30000) return hit.user;
+  await ensureUserProfileSchema(prisma);
   const user = await prisma.user.findUnique({ where: { id: userId } });
   authUserCache.set(userId, { user, at: Date.now() });
   return user;
@@ -980,6 +983,7 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 const limits = registerLimitRoutes(app, () => prisma);
+registerFileSharingRoutes(app, { chunkBytes: limits.chunkBytes });
 /**
  * Доступ к встроенным программам: свой запрос и свой заслон.
  *

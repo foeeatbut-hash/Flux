@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getPrisma } from '../context.js';
 import { loginWait, loginFailed, loginSucceeded, LOGIN_REFUSED, waitText } from '../security.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from '../legacyIdentity.js';
+import { ensureUserProfileSchema } from '../userProfileSchema.js';
 
 // Вход, проверка сессии и начальное заполнение базы.
 //
@@ -53,6 +54,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
 
     // Попытка авторизации через локальную БД, если БД вообще была создана/готова
     try {
+      await ensureUserProfileSchema(prisma);
       // Логин сравнивается без учёта регистра.
       let user = await prisma.user.findUnique({
         where: { symbol: normSymbol },

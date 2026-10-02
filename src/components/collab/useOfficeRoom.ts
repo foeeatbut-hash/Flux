@@ -23,7 +23,7 @@ export interface OfficeRoster {
  * edit — правлю я (один); view — смотрю; alone — связи нет, правлю под
  * сверкой хеша; together — общий файл, правим все вместе
  */
-export type OfficeMode = 'pending' | 'edit' | 'view' | 'alone' | 'together';
+export type OfficeMode = 'pending' | 'edit' | 'view' | 'alone' | 'together' | 'revoked';
 
 /** Сколько ждать сокет, прежде чем править без комнаты */
 const NO_LINK_MS = 6000;
@@ -59,6 +59,8 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
   const [linked, setLinked] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
   const [socketId, setSocketId] = useState('');
+  const [accessError, setAccessError] = useState('');
+  const accessErrorRef = useRef('');
   const sockRef = useRef<Socket | null>(null);
   // Окно одно и то же после переподключения сокета: по нему сервер
   // возвращает правку тому, у кого она была до обрыва
@@ -70,6 +72,7 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
 
   useEffect(() => {
     if (!fileId) return undefined;
+    accessErrorRef.current = ''; setAccessError('');
     const sock = io(ENV_CONFIG.socketUrl, {
       auth: { token: getAuthToken() },
       withCredentials: usesCookieTransport(),
@@ -86,6 +89,13 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     });
     sock.on('disconnect', () => { setLinked(false); setGaveUp(true); });
     sock.on('office:roster', (r: OfficeRoster) => { if (r?.fileId === fileId) setRoster(r); });
+    sock.on('office:access-revoked', (m: { fileId: string; error?: string }) => {
+      if (m?.fileId !== fileId) return;
+      const error = m.error || 'Доступ к файлу отозван';
+      accessErrorRef.current = error;
+      setAccessError(error); setRoster(null);
+      sock.emit('office:leave', { fileId });
+    });
     sock.on('office:saved', (m: { fileId: string; sha256: string }) => {
       if (m?.fileId === fileId) savedRef.current(String(m.sha256 || ''));
     });
@@ -110,6 +120,7 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
   /** Взять свободную правку. '' — взял, иначе причина */
   const take = useCallback(() => new Promise<string>((resolve) => {
     const sock = sockRef.current;
+    if (accessErrorRef.current) return resolve(accessErrorRef.current);
     if (!sock?.connected) return resolve('Нет связи с сервером');
     sock.timeout(5000).emit('office:take', { fileId }, (err: unknown, r: { error: string }) =>
       resolve(err ? 'Сервер не ответил' : String(r?.error || '')));
@@ -117,17 +128,20 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
 
   /** Я записал файл — зрителям пора взять свежую версию */
   const saved = useCallback((sha256: string) => {
+    if (accessErrorRef.current) return;
     sockRef.current?.emit('office:saved', { fileId, sha256 });
   }, [fileId]);
 
   /** Сказать серверу (совместная правка) */
   const emit = useCallback((event: string, payload: object) => {
+    if (accessErrorRef.current && event !== 'office:host-close' && event !== 'office:leave') return;
     sockRef.current?.emit(event, { fileId, ...payload });
   }, [fileId]);
 
   /** Спросить сервер и дождаться ответа (редакторы на сервере: PDF, Таблица) */
   const request = useCallback(<T = any,>(event: string, payload: object, ms = 120_000) => new Promise<T>((resolve, reject) => {
     const sock = sockRef.current;
+    if (accessErrorRef.current) return reject(new Error(accessErrorRef.current));
     if (!sock?.connected) return reject(new Error('Нет связи с сервером'));
     sock.timeout(ms).emit(event, { fileId, ...payload }, (err: unknown, r: T) => (err ? reject(new Error('Сервер не ответил')) : resolve(r)));
   }), [fileId]);
@@ -140,8 +154,8 @@ export function useOfficeRoom(fileId: string, onPeerSaved: (sha256: string) => v
     return () => { set.delete(fn); };
   }, []);
 
-  const mode = officeMode(roster, clientId.current, linked, gaveUp);
+  const mode = accessError ? 'revoked' : officeMode(roster, clientId.current, linked, gaveUp);
   /** Я записываю файл: держатель — тот, кто сохраняет за всех */
-  const holding = !!roster?.holder && roster.holder.clientId === clientId.current && !roster.holder.lost;
-  return { roster, socketId, clientId: clientId.current, mode, holding, linked, take, saved, emit, listen, request };
+  const holding = !accessError && !!roster?.holder && roster.holder.clientId === clientId.current && !roster.holder.lost;
+  return { roster, socketId, clientId: clientId.current, mode: mode as OfficeMode, holding, linked, accessError, take, saved, emit, listen, request };
 }

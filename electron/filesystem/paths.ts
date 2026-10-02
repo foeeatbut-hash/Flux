@@ -23,12 +23,18 @@ export function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
+function sameRootPath(root: string, canonicalRoot: string): boolean {
+  if (process.platform === 'win32') {
+    return path.win32.normalize(root).toLowerCase() === path.win32.normalize(canonicalRoot).toLowerCase();
+  }
+  return canonicalRoot === root;
+}
 export async function resolveSafePath(root: string, relative: unknown, allowMissingLeaf = false): Promise<string> {
   const parts = relativeSegments(relative);
   let current = root;
   const canonicalRoot = await fs.realpath(root);
   // Корень тоже проверяется заново: его могли заменить junction после подключения.
-  if (canonicalRoot !== root || (await fs.lstat(root)).isSymbolicLink()) {
+  if (!sameRootPath(root, canonicalRoot) || (await fs.lstat(root)).isSymbolicLink()) {
     throw new WindowsFilesError('ROOT_CHANGED', 'Подключённая папка перенесена или заменена ссылкой. Подключите её заново.');
   }
   for (let i = 0; i < parts.length; i++) {

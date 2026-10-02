@@ -9,6 +9,8 @@ import { bytesToBase64, fileRefHref, folderRefHref, onWindowsFilesChanged, windo
 import { Btn, Chip, Dialog, Empty, Field, IconBtn, Input, Select } from '../ui';
 import FileBadge from '../ui/FileBadge';
 import ContextMenu from '../ContextMenu';
+import FileShareDialog from './FileShareDialog';
+import { sourceBindings, sharedSourceHref } from '../../services/fileSharingService';
 
 type Listing = { root?: WindowsRoot; entries: WindowsFileEntry[]; nextOffset: number | null; truncated: boolean };
 type RenameTarget = { ref: WindowsFileRef; name: string } | null;
@@ -31,6 +33,10 @@ async function requestData<T>(request: Parameters<typeof windowsFilesRequest>[0]
 
 export default function WindowsExplorer() {
   const navigate = useNavigate();
+  const user = useStore((state) => state.user);
+  const [shareEntry, setShareEntry] = useState<WindowsFileEntry | null>(null);
+  const [sharingGeneration, setSharingGeneration] = useState(0);
+  const sharedSources = user?.id ? sourceBindings(user.id).filter(source => source.audience !== 'NONE') : [];
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeProject = useStore((state) => state.activeProject);
@@ -69,6 +75,7 @@ export default function WindowsExplorer() {
   const projectFiles = searchParams.get('projectFiles') === '1';
   const folderRef = useMemo(() => rootId ? { rootId, relativePath: path } : null, [rootId, path]);
   const root = roots.find((item) => item.id === rootId);
+  useEffect(() => { if (root?.network) setShareEntry(null); }, [root?.network]);
   const crumbs = path ? path.split('/').filter(Boolean) : [];
   const visibleEntries = useMemo(() => (listing?.entries || []).filter((entry) => entry.name.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru'))), [listing, query]);
 
@@ -186,7 +193,10 @@ export default function WindowsExplorer() {
     if (!rootId) return;
     const ref = entryRef(entry, rootId);
     if (entry.kind === 'directory') goTo(ref);
-    else if (entry.kind === 'file') navigate(fileRefHref(ref));
+    else if (entry.kind === 'file') {
+      if (user?.id && !root?.network) void sharedSourceHref(user.id, ref, entry.name).then(href => navigate(href || fileRefHref(ref))).catch(cause => addToast(cause?.message || 'Не удалось проверить общий доступ', 'error'));
+      else navigate(fileRefHref(ref));
+    }
     else void action({ action: 'open', ref });
   };
 
@@ -261,7 +271,7 @@ export default function WindowsExplorer() {
   };
 
   const table = <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400"><tr><th className="h-7 px-2 font-medium">Имя</th><th className="h-7 px-2 font-medium hidden @[700px]:table-cell">Изменён</th><th className="h-7 px-2 font-medium text-right hidden @[620px]:table-cell">Размер</th><th className="h-7 px-2 font-medium hidden @[860px]:table-cell">Хранение</th><th className="w-8" /></tr></thead><tbody>{visibleEntries.map((entry) => <tr key={`${entry.relativePath}:${entry.draftId || ''}`} aria-selected={selected?.fileId === entry.fileId} onClick={() => setSelected(entry)} onDoubleClick={() => openEntry(entry)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelected(entry); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }} className="h-8 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 aria-selected:bg-slate-100 dark:aria-selected:bg-slate-800 cursor-default">
-    <td className="px-2"><button type="button" className="flex min-w-0 items-center gap-2 text-left w-full" onClick={() => entry.kind === 'directory' && openEntry(entry)}><EntryIcon entry={entry} /><span className="truncate">{entry.name}</span>{entry.storage === 'flux' && <Chip tone="sky">Только в Flux</Chip>}{entry.linked && <span className="text-xs text-slate-500 dark:text-slate-400">ссылка</span>}</button></td><td className="px-2 text-slate-500 dark:text-slate-400 hidden @[700px]:table-cell">{dateLabel(entry.modifiedAt)}</td><td className="px-2 text-right tabular-nums text-slate-500 dark:text-slate-400 hidden @[620px]:table-cell">{entry.kind === 'directory' ? '—' : fileSize(entry.size)}</td><td className="px-2 text-slate-500 dark:text-slate-400 hidden @[860px]:table-cell">{entry.storage === 'flux' ? 'Черновик Flux' : 'Windows'}</td><td className="px-1"><IconBtn label={`Свойства ${entry.name}`} onClick={(e) => { e.stopPropagation(); void openProperties(entry); }}><MoreHorizontal className="w-4 h-4" /></IconBtn></td></tr>)}</tbody></table>;
+    <td className="px-2"><button type="button" className="flex min-w-0 items-center gap-2 text-left w-full" onClick={() => entry.kind === 'directory' && openEntry(entry)}><EntryIcon entry={entry} /><span className="truncate">{entry.name}</span>{sharedSources.some((source) => source.ref.rootId === rootId && source.ref.relativePath === entry.relativePath && source.ref.draftId === entry.draftId) && <span title="Общий файл · состояние доступа в команде «Общий доступ»" className="text-xs text-slate-500 dark:text-slate-400">общий</span>}{entry.storage === 'flux' && <Chip tone="sky">Только в Flux</Chip>}{entry.linked && <span className="text-xs text-slate-500 dark:text-slate-400">ссылка</span>}</button></td><td className="px-2 text-slate-500 dark:text-slate-400 hidden @[700px]:table-cell">{dateLabel(entry.modifiedAt)}</td><td className="px-2 text-right tabular-nums text-slate-500 dark:text-slate-400 hidden @[620px]:table-cell">{entry.kind === 'directory' ? '—' : fileSize(entry.size)}</td><td className="px-2 text-slate-500 dark:text-slate-400 hidden @[860px]:table-cell">{entry.storage === 'flux' ? 'Черновик Flux' : 'Windows'}</td><td className="px-1"><IconBtn label={`Свойства ${entry.name}`} onClick={(e) => { e.stopPropagation(); void openProperties(entry); }}><MoreHorizontal className="w-4 h-4" /></IconBtn></td></tr>)}</tbody></table>;
 
   return <div className="h-full min-h-0 flex flex-col @container text-slate-800 dark:text-slate-100">
     <header className="min-h-11 flex items-center gap-2 flex-wrap border-b border-slate-200 dark:border-slate-800 px-2">
@@ -282,11 +292,13 @@ export default function WindowsExplorer() {
     <div className="flex-1 min-h-0 flex">
       <aside className="w-44 shrink-0 overflow-auto border-r border-slate-200 dark:border-slate-800 py-2 px-1.5 flex flex-col gap-1" aria-label="Папки Windows">
         {(['desktop', 'documents', 'downloads'] as const).map((kind) => { const item = roots.find((candidate) => candidate.kind === kind); return <button key={kind} type="button" disabled={!item?.available} aria-current={item?.id === rootId ? 'page' : undefined} onClick={() => item && selectRoot(item)} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-current:bg-slate-100 dark:aria-current:bg-slate-800 disabled:opacity-40"><Home className="w-4 h-4 text-slate-500 dark:text-slate-400" />{ROOT_LABEL[kind]}</button>; })}
+        <button type="button" onClick={() => navigate('/shared-files')} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"><Folder className="w-4 h-4 text-slate-500 dark:text-slate-400" />Общий доступ</button>
         <div className="mt-2 px-2 text-xs font-medium text-slate-500 dark:text-slate-400">Подключённые папки</div>
         {roots.filter((item) => item.kind === 'custom').map((item) => <button key={item.id} type="button" disabled={!item.available} aria-current={item.id === rootId ? 'page' : undefined} onClick={() => selectRoot(item)} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-current:bg-slate-100 dark:aria-current:bg-slate-800 disabled:opacity-40"><HardDrive className="w-4 h-4 text-slate-500 dark:text-slate-400" /><span className="truncate">{item.name}</span></button>)}
         <button type="button" onClick={() => void addRoot()} disabled={busy} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"><FolderPlus className="w-4 h-4" /> Подключить папку…</button>
       </aside>
       <main className="min-w-0 flex-1 flex flex-col" onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-entry]') && clipboard && folderRef) { e.preventDefault(); void paste(); } }}>
+        {root?.network && <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" role="status">Общая сетевая папка. Чтение и сохранение доступны по вашим правам Windows.</p>}
         {error && <div role="alert" className="m-3 px-3 py-2 rounded border border-rose-200 bg-rose-50 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
         {portable ? <div className="p-4"><Empty title="Папки Windows доступны в приложении Flux" text="В браузере здесь нет доступа к файлам устройства. Откройте архив файлов проекта, чтобы продолжить работу." ><Btn onClick={() => navigate('/explorer?projectFiles=1')}><Folder className="w-3.5 h-3.5" /> Файлы проекта</Btn></Empty></div>
           : !rootId ? <div className="p-4"><Empty title="Подключите папку Windows" text="Выберите Рабочий стол, Документы, Загрузки или добавьте другую папку." ><Btn onClick={() => void addRoot()}><FolderPlus className="w-3.5 h-3.5" /> Подключить папку</Btn></Empty></div>
@@ -302,12 +314,14 @@ export default function WindowsExplorer() {
     <footer className="min-h-8 border-t border-slate-200 dark:border-slate-800 px-2 py-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
       <span>{visibleEntries.length}{listing?.truncated ? '+' : ''} объектов{query ? ' по запросу' : ''}</span><span className="flex-1" />
       {clipboard && <><span>{clipboard.cut ? 'Вырезан' : 'Скопирован'}: {clipboard.name}</span><Btn tone="ghost" onClick={() => void paste()} disabled={!folderRef || busy}><Clipboard className="w-3.5 h-3.5" /> Вставить</Btn><Btn tone="ghost" onClick={() => setClipboard(null)}>Отмена</Btn></>}
-      {selected && <div className="flex items-center gap-1 overflow-auto"><Btn tone="ghost" onClick={() => void openProperties(selected)}>Свойства</Btn><Btn tone="ghost" onClick={() => openEntry(selected)}>Открыть</Btn><Btn tone="ghost" onClick={() => setRename({ ref: entryRef(selected, rootId), name: selected.name })}>Переименовать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, false)}><Copy className="w-3.5 h-3.5" /> Копировать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, true)}><Scissors className="w-3.5 h-3.5" /> Вырезать</Btn>{selected.storage === 'flux' && <Btn tone="ghost" onClick={() => void publishDraft(selected)}><Upload className="w-3.5 h-3.5" /> Опубликовать</Btn>}<Btn tone="ghost" onClick={() => void action({ action: 'reveal', ref: entryRef(selected, rootId) }, 'Папка открыта в Windows')}><ExternalLink className="w-3.5 h-3.5" /> Показать</Btn><Btn tone="danger" onClick={() => void trashSelected(selected)}><Trash2 className="w-3.5 h-3.5" /> В корзину</Btn></div>}
+      {selected && <div className="flex items-center gap-1 overflow-auto">{selected.kind === 'file' && user?.id && !root?.network && <Btn tone="ghost" onClick={() => setShareEntry(selected)}>Общий доступ…</Btn>}<Btn tone="ghost" onClick={() => void openProperties(selected)}>Свойства</Btn><Btn tone="ghost" onClick={() => openEntry(selected)}>Открыть</Btn><Btn tone="ghost" onClick={() => setRename({ ref: entryRef(selected, rootId), name: selected.name })}>Переименовать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, false)}><Copy className="w-3.5 h-3.5" /> Копировать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, true)}><Scissors className="w-3.5 h-3.5" /> Вырезать</Btn>{selected.storage === 'flux' && <Btn tone="ghost" onClick={() => void publishDraft(selected)}><Upload className="w-3.5 h-3.5" /> Опубликовать</Btn>}<Btn tone="ghost" onClick={() => void action({ action: 'reveal', ref: entryRef(selected, rootId) }, 'Папка открыта в Windows')}><ExternalLink className="w-3.5 h-3.5" /> Показать</Btn><Btn tone="danger" onClick={() => void trashSelected(selected)}><Trash2 className="w-3.5 h-3.5" /> В корзину</Btn></div>}
     </footer>
 
     {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)} items={[
       { label: 'Открыть', onClick: () => openEntry(contextMenu.entry) },
       { label: 'Свойства', onClick: () => void openProperties(contextMenu.entry) },
+      ...(contextMenu.entry.kind === 'file' && user?.id && !root?.network ? [{ label: 'Общий доступ…', onClick: () => setShareEntry(contextMenu.entry) }] : []),
+      ...(root?.network ? [{ label: 'Общая папка в Windows', onClick: () => void action({ action: 'reveal', ref: entryRef(contextMenu.entry, rootId) }) }] : []),
       { label: 'Переименовать', onClick: () => setRename({ ref: entryRef(contextMenu.entry, rootId), name: contextMenu.entry.name }) },
       { label: 'Копировать', onClick: () => useClipboard(contextMenu.entry, false) },
       { label: 'Вырезать', onClick: () => useClipboard(contextMenu.entry, true) },
@@ -315,6 +329,7 @@ export default function WindowsExplorer() {
       { label: 'Переместить в корзину', danger: true, separated: true, onClick: () => void trashSelected(contextMenu.entry) },
     ]} />}
 
+    {shareEntry && user?.id && !root?.network && <FileShareDialog actorId={user.id} source={entryRef(shareEntry, rootId)} name={shareEntry.name} onClose={() => setShareEntry(null)} onChanged={() => setSharingGeneration((value) => value + 1)} />}
     {propertiesOpen && selected && <PropertiesDialog entry={selected} rootId={rootId} metadata={metadata} projects={projects} tags={tags} activeProjectId={activeProject?.id || ''} draftTags={draftTags} setDraftTags={setDraftTags} draftProjects={draftProjects} setDraftProjects={setDraftProjects} revision={revision} setRevision={setRevision} responsible={responsible} setResponsible={setResponsible} tagQuery={tagQuery} setTagQuery={setTagQuery} busy={busy} onClose={() => { metadataRequest.current++; setPropertiesOpen(false); setMetadata(null); setBusy(false); }} onSave={() => void saveProperties()} />}
     {rename && <Dialog title="Переименовать" onClose={() => setRename(null)} footer={<><Btn onClick={() => setRename(null)}>Отмена</Btn><Btn tone="primary" onClick={() => void renameSelected()} disabled={!rename.name.trim() || busy}>Переименовать</Btn></>}><Field label="Новое имя"><Input autoFocus value={rename.name} onChange={(e) => setRename({ ...rename, name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void renameSelected(); }} /></Field></Dialog>}
     {newFolderOpen && <Dialog title="Новая папка" onClose={() => setNewFolderOpen(false)} footer={<><Btn onClick={() => setNewFolderOpen(false)}>Отмена</Btn><Btn tone="primary" onClick={() => void makeFolder()} disabled={!newName.trim() || busy}>Создать папку</Btn></>}><Field label="Название папки"><Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void makeFolder(); }} placeholder="Например, Чертежи" /></Field></Dialog>}

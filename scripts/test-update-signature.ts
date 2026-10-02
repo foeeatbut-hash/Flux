@@ -47,6 +47,12 @@ const parts = good.split('.');
 const forged = `${parts[0]}.${b64url(JSON.stringify({ version: '1.18.0', size: 1, sha256: 'c'.repeat(64) }))}.${parts[2]}`;
 eq('исправленное описание при старой подписи не проходит', readUpdateSignature(forged, owner.hex), null);
 eq('мусор вместо подписи не проходит', readUpdateSignature('FLUXUPD1.abc.def', owner.hex), null);
+for (const manifest of [
+  { version: '../1.18.0', ...file }, { version: '1.18.0', ...file, size: -1 },
+  { version: '1.18.0', ...file, size: 1024.5 }, { version: '1.18.0', ...file, size: 900 * 1024 * 1024 },
+  { version: '1.18.0', ...file, sha256: 'not-a-hash' }, { version: '1.18.0', ...file, iat: -1 },
+]) eq('подписанное некорректное описание не принимается', readUpdateSignature(signWith(owner.priv, manifest), owner.hex), null);
+eq('неканоническое кодирование подписи не принимается', readUpdateSignature(good + '=', owner.hex), null);
 eq('сравнение версий: 1.10.0 новее 1.9.9', compareVersions('1.10.0', '1.9.9'), 1);
 eq('сравнение версий: равные', compareVersions('1.2.3', '1.2.3'), 0);
 

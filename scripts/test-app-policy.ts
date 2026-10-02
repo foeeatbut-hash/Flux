@@ -16,6 +16,7 @@ import {
   type PlatformState, type PolicyMap, type PolicySubject,
 } from '../play/policy';
 import { APP_PLAY, PLAY_GAMES, gameEntitlement, gameOfEntitlement, isPlayKey } from '../play/features';
+import { sectionAccess } from '../src/lib/appPolicy';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -128,6 +129,17 @@ ok('голое true означает «выдано»', entryMode(true as any) =
 ok('голое false означает «не сказано»', entryMode(false as any) === 'INHERIT');
 ok('мусор не роняет разбор', Object.keys(toMap('не json')).length === 0);
 ok('null даёт пустую карту', Object.keys(toMap(null)).length === 0);
+
+console.log('\n9. Роль владельца открывает административный раздел без обхода Flux Play');
+const administrativeSection = { path: '/users', adminOnly: true };
+const unlicensedPlaySection = { path: '/play', entitlement: APP_PLAY, accessMode: 'normal' as const };
+const appCtx = (role: string) => ({ user: { role, isActive: true }, platform: ON });
+ok('OWNER проходит adminOnly', sectionAccess(administrativeSection, appCtx('OWNER')) === 'open');
+ok('ADMIN проходит adminOnly', sectionAccess(administrativeSection, appCtx('ADMIN')) === 'open');
+ok('USER остаётся закрыт на adminOnly', sectionAccess(administrativeSection, appCtx('USER')) === 'hide');
+for (const role of ['OWNER', 'ADMIN', 'USER']) {
+  ok(`${role} без app.play остаётся без Flux Play`, sectionAccess(unlicensedPlaySection, appCtx(role)) === 'explain');
+}
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

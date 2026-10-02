@@ -9,7 +9,12 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
   const preference = path.join(app.getPath('userData'), 'display-workspace.json');
   let enabled = false;
   let requested = false;
-  try { requested = JSON.parse(fs.readFileSync(preference, 'utf8'))?.allMonitors === true; } catch {}
+  let showWindowsTaskbar = true;
+  try {
+    const saved = JSON.parse(fs.readFileSync(preference, 'utf8'));
+    requested = saved?.allMonitors === true;
+    showWindowsTaskbar = saved?.showWindowsTaskbar !== false;
+  } catch {}
   let attachedId = 0;
   let previous: { bounds: Electron.Rectangle; maximized: boolean; movable: boolean; resizable: boolean; minimum: number[] } | null = null;
   let adjusting = false;
@@ -21,7 +26,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
   }));
   const snapshot = (): DisplayWorkspace => {
     const list = displays();
-    return { enabled, displays: list, bounds: unionDisplays(list), primaryId: screen.getPrimaryDisplay().id,
+    return { enabled, showWindowsTaskbar, displays: list, bounds: unionDisplays(list), primaryId: screen.getPrimaryDisplay().id,
       mixedScale: new Set(list.map(d => d.scaleFactor)).size > 1 };
   };
   const broadcast = () => {
@@ -70,7 +75,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     }
     requested = value;
     // Ошибка записи настроек не должна удерживать пользователя в этом режиме.
-    try { fs.writeFileSync(preference, JSON.stringify({ allMonitors: value }), { mode: 0o600 }); } catch {}
+    try { fs.writeFileSync(preference, JSON.stringify({ allMonitors: value, showWindowsTaskbar }), { mode: 0o600 }); } catch {}
     broadcast();
     return snapshot();
   };
@@ -97,6 +102,16 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     guard(event);
     if (typeof value !== 'boolean') throw new Error('Неверный режим мониторов.');
     return change(value);
+  });
+  ipcMain.handle('workspace:displays-preferences', (event, value) => {
+    guard(event);
+    if (!value || typeof value.showWindowsTaskbar !== 'boolean') throw new Error('Неверные настройки экрана.');
+    const previousValue = showWindowsTaskbar;
+    showWindowsTaskbar = value.showWindowsTaskbar;
+    try { fs.writeFileSync(preference, JSON.stringify({ allMonitors: requested, showWindowsTaskbar }), { mode: 0o600 }); }
+    catch { showWindowsTaskbar = previousValue; throw new Error('Не удалось сохранить настройки экрана.'); }
+    broadcast();
+    return snapshot();
   });
   const updated = () => {
     if (enabled) {

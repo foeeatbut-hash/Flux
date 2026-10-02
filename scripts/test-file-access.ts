@@ -15,6 +15,7 @@ import {
 } from '../server/fileAccess';
 import { setPrisma } from '../server/context';
 import { setupOfficeRooms } from '../server/officeRooms';
+import { SHARING_TABLES } from '../server/fileSharing';
 
 let ok = 0, fail = 0;
 function eq(name: string, got: any, want: any) {
@@ -119,6 +120,15 @@ const folders: Record<string, any> = {
 };
 const members = [{ projectId: 'pClosed', userId: ANNA.id }];
 const fake = {
+  // Снимок метаданных: отдельный тест общего доступа проверяет настоящую базу.
+  $queryRawUnsafe: async (sql: string) => {
+    const table = SHARING_TABLES.find(table => sql.includes(`"${table.table}"`));
+    if (/PRAGMA table_info/.test(sql)) return table?.cols.map(column => ({ name: column.name })) || [];
+    if (/PRAGMA index_list/.test(sql)) return table?.indexes?.map(index => ({ name: index.name, unique: Number(index.unique), partial: 0 })) || [];
+    if (/PRAGMA index_info/.test(sql)) return SHARING_TABLES.flatMap(table => table.indexes || []).find(index => sql.includes(`"${index.name}"`))?.cols.map(name => ({ name })) || [];
+    return [];
+  },
+  $executeRawUnsafe: async () => 0,
   fileNode: { findUnique: async ({ where }: any) => files[where.id] || null },
   folder: { findUnique: async ({ where }: any) => folders[where.id] || null },
   user: { findFirst: async () => ({ id: MAIN }) },

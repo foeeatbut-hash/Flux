@@ -19,6 +19,7 @@
  */
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
+import { shareOf } from '../fileSharing.js';
 import { FILE_NOT_FOUND, canReadFile, canWriteFile } from '../fileAccess.js';
 
 export interface FileChunkDeps {
@@ -75,6 +76,7 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
       // Чужого личного файла для вошедшего нет: писать в него куски по номеру
       // значило подменить содержимое чужого документа
       if (!(await canWriteFile(prisma, (req as any).authUser, fileId))) return res.status(404).json({ error: FILE_NOT_FOUND });
+      if (await shareOf(prisma, fileId)) return res.status(409).json({ error: 'Общий файл сохраняется через редактор со сверкой версии' });
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
 
@@ -105,6 +107,7 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
     try {
       const fileId = String(req.params.id);
       if (!(await canWriteFile(prisma, (req as any).authUser, fileId))) return res.status(404).json({ error: FILE_NOT_FOUND });
+      if (await shareOf(prisma, fileId)) return res.status(409).json({ error: 'Общий файл сохраняется через редактор со сверкой версии' });
       const denied = await deps.mayWrite(req, fileId);
       if (denied) return res.status(403).json({ error: denied });
 

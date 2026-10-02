@@ -26,6 +26,8 @@ import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWrit
 import { fileBytes } from './fileChunks.js';
 import { collabShared } from '../officeCollab.js';
 import { officeBus } from '../officeBus.js';
+import { shareOf, authorizedShareWrite, ShareDenied } from '../fileSharing.js';
+import { oncePerDatabase } from '../schemaRuntime.js';
 import { cleanName, createFileFromBytes, deskHome, exportsHome, homeOfFile, homeOfFolder, type FileHome } from '../officeStore.js';
 
 export interface OfficeFileDeps {
@@ -43,6 +45,11 @@ const AUTOSAVE_VERSION_MS = 10 * 60_000;
 
 /** Файл в общем доступе — правят вместе; личный правит только хозяин */
 export const isSharedFile = (file: { scope?: string | null }): boolean => file.scope !== 'PERSONAL';
+export async function isCollaborativeFile(file: { id: string; scope?: string | null }): Promise<boolean> {
+  if (isSharedFile(file)) return true;
+  const share = await shareOf(getPrisma(), file.id);
+  return !!share && share.state === 'READY' && share.audience !== 'NONE';
+}
 
 /** Сколько прежних версий файла держим для отката */
 const KEEP = 20;
@@ -51,13 +58,11 @@ const LIMIT = '256mb';
 
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 
-let ensured = false;
 async function ensureVersionTable(): Promise<string> {
-  if (ensured) return '';
   const prisma = getPrisma();
+  try { return await oncePerDatabase(prisma, 'office-file-versions', async () => {
   try {
     await (prisma as any).fileVersion.count();
-    ensured = true;
     return '';
   } catch (_) {
     const why = await ensureDbTables(prisma, [{
@@ -74,9 +79,10 @@ async function ensureVersionTable(): Promise<string> {
       ],
       indexes: [{ name: 'FileVersion_file_version_idx', cols: ['fileId', 'version'] }],
     }]);
-    if (!why) ensured = true;
-    return why;
+    if (why) throw Error(why);
+    return '';
   }
+  }); } catch (err: any) { return err?.message || String(err); }
 }
 
 /**
@@ -86,7 +92,7 @@ async function ensureVersionTable(): Promise<string> {
  * хеша, откат до записи, кто сохранил — из сессии.
  */
 export async function writeOfficeFile(a: {
-  fileId: string; body: Buffer; baseSha: string; user: { id: string } | null; autosave?: boolean; sessionKey?: string;
+  fileId: string; body: Buffer; baseSha: string; user: { id: string } | null; autosave?: boolean; sessionKey?: string; shareEpoch?: number;
   /**
    * Пишет сервер, а не окно держателя: восстановление версии, «Обновить поля»,
    * английская версия. Сеанс совместной правки после такой записи забывается —
@@ -105,6 +111,7 @@ export async function writeOfficeFile(a: {
   // Общее ядро записи для всех редакторов: чужой личный файл и файл закрытого
   // проекта для вошедшего «не найден», как и в Проводнике
   if (!(await canWriteFile(prisma, user, fileId))) return reply(404, { error: FILE_NOT_FOUND });
+  const shareAtStart = await shareOf(prisma, fileId);
   const denied = await deps.mayWrite({ authUser: user } as any, fileId);
   if (denied) return reply(403, { error: denied });
   // Файл открыт и правится другим — его сохранение и есть правда;
@@ -130,7 +137,7 @@ export async function writeOfficeFile(a: {
     // смениться, и записал прежний), окно вправе взять этот хеш и записать ещё
     // раз — содержимое общее, и в нём уже есть всё записанное. Если же файл
     // менял кто-то в обход сеанса, повторять вслепую нельзя: затрёшь чужое
-    const session = isSharedFile(file as any) ? await officeBus.session(fileId).catch(() => null) : null;
+    const session = await isCollaborativeFile(file) ? await officeBus.session(fileId).catch(() => null) : null;
     return reply(409, {
       error: 'Файл изменили после того, как вы его открыли. Ваши правки не записаны.',
       currentSha256: beforeSha,
@@ -141,13 +148,25 @@ export async function writeOfficeFile(a: {
   if (afterSha === beforeSha) return reply(200, { sha256: afterSha, size: body.length, unchanged: true });
 
   const step = Math.max(64 * 1024, await deps.chunkBytes());
+  if (shareAtStart && !a.sessionKey && !a.server) {
+    const why = await officeBus.ready();
+    if (why) return reply(500, { error: why });
+  }
   // Сверка и захват строки в одной транзакции: два окна с одинаковым
   // исходным хешем не могут оба затереть файл. Метка монотонна даже при
   // двух сохранениях в одну миллисекунду.
-  const saved = await prisma.$transaction(async (tx: any) => {
+  let saved: any;
+  try { saved = await authorizedShareWrite(prisma, fileId, user.id, async (tx: any) => {
+    if (shareAtStart && !a.sessionKey && !a.server) {
+      // Локальная синхронизация не затирает принятые, но ещё не сохранённые
+      // правки соавторов. Блокировка держится до записи вместе с правом доступа.
+      await tx.officeSession.updateMany({ where: { fileId }, data: { lastSeq: { increment: 0 } } });
+      const session = await tx.officeSession.findUnique({ where: { fileId }, select: { dataSeq: true, savedSeq: true } });
+      if (session && session.dataSeq > session.savedSeq) return { pendingSharedEdits: true };
+    }
     const stamp = new Date(Math.max(Date.now(), new Date(file.updatedAt).getTime() + 1));
     const claimed = await tx.fileNode.updateMany({
-      where: { id: fileId, updatedAt: file.updatedAt },
+      where: { id: fileId, updatedAt: file.updatedAt, deletedAt: null },
       data: { updatedAt: stamp },
     });
     if (!claimed.count) return null;
@@ -171,7 +190,8 @@ export async function writeOfficeFile(a: {
       data: { size: body.length, content: null, updatedById: user.id, updatedAt: stamp },
     });
     return { version: keepVersion ? version : last?.version ?? 0 };
-  }, { timeout: 120_000 });
+  }, a.shareEpoch ?? (shareAtStart ? Number(shareAtStart.epoch) : undefined)); } catch (err) { if (err instanceof ShareDenied) return reply(403, { error: err.message, accessRevoked: true }); throw err; }
+  if (saved?.pendingSharedEdits) return reply(409, { error: 'В общей версии есть несохранённые правки сотрудников. Дождитесь сохранения; исходник не перезаписан.', pendingSharedEdits: true });
   if (!saved) {
     const current = await prisma.fileNode.findUnique({ where: { id: fileId } });
     if (!current) return reply(404, { error: FILE_NOT_FOUND });
@@ -187,9 +207,9 @@ export async function writeOfficeFile(a: {
   });
   if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
   // Сеанс общий для всех серверов: сбрасывается в базе, а не в памяти этого
-  if (a.server) await officeBus.dropSession(fileId);
+  if (a.server || shareAtStart && !a.sessionKey) await officeBus.dropSession(fileId);
   // Что записано последним: по этому хешу отличают «записал держатель» от «изменили в обход»
-  else if (isSharedFile(file as any) && a.sessionKey) await officeBus.patchSession({ fileId, key: a.sessionKey }, { savedSha: afterSha }).catch(() => 0);
+  else if (await isCollaborativeFile(file) && a.sessionKey) await officeBus.patchSession({ fileId, key: a.sessionKey }, { savedSha: afterSha }).catch(() => 0);
 
   return reply(200, { sha256: afterSha, size: body.length, version: saved.version });
 }
@@ -221,9 +241,12 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const bytes = await fileBytes(file);
       const folder = file.folderId ? await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } }) : null;
+      const session = await officeBus.session(file.id).catch(() => null);
       res.json({
         id: file.id, name: file.name, folderId: file.folderId, projectId: folder?.projectId || null, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
+        canWrite: await canWriteFile(prisma, (req as any).authUser, file),
+        pendingSharedEdits: !!session && session.dataSeq > session.savedSeq,
       });
     } catch (err: any) { sendError(res, err); }
   });
@@ -240,7 +263,7 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
       if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const current = await fileBytes(file);
-      const shared = isSharedFile(file as any);
+      const shared = await isCollaborativeFile(file);
       // Исходник сеанса берётся из общей базы: его записал тот, кто открыл файл
       // первым, на любом сервере, и у всех участников он один
       const session = shared ? await collabShared.base(file.id, async () => current) : null;

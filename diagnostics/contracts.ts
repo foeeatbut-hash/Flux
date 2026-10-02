@@ -51,7 +51,7 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
 export type FieldKind =
   | 'id' | 'name' | 'route' | 'pattern' | 'frame' | 'code'
   | 'ms' | 'bytes' | 'chars' | 'count'
-  | 'flag' | 'phase' | 'outcome';
+  | 'flag' | 'phase' | 'outcome' | 'app' | 'action';
 
 /** Какой тип в TypeScript отвечает виду поля. */
 export interface KindType {
@@ -67,6 +67,8 @@ export interface KindType {
   count: number;
   flag: boolean;
   phase: 'start' | 'end';
+  app: 'pdf' | 'sheets';
+  action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
   outcome: Outcome;
 }
 
@@ -128,8 +130,8 @@ export const EVENTS = {
   // ── Мост между окном и главным процессом ──────────────────────────────────
   // Ожидание и выполнение разделены: время в обработчике — не то же самое,
   // что время, которое прождало окно.
-  'ipc.call': { channel: 'name', ok: 'flag', error: 'name', waitMs: 'ms' },
-  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name' },
+  'ipc.call': { channel: 'name', ok: 'flag', error: 'name', code: 'code', waitMs: 'ms' },
+  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name', code: 'code' },
 
   // ── Процесс ───────────────────────────────────────────────────────────────
   'process.start': { pid: 'count', node: 'name', platform: 'name', arch: 'name' },
@@ -153,6 +155,7 @@ export const EVENTS = {
   'renderer.error': { error: 'name', frame1: 'frame', frame2: 'frame', frame3: 'frame' },
   'renderer.rejection': { error: 'name', frame1: 'frame', frame2: 'frame', frame3: 'frame' },
   'ui.stall': {},
+  'ui.framegap': {},
   'ui.longtask': { startMs: 'ms' },
   'ui.event': { name: 'name', startMs: 'ms' },
   'ui.click': { tag: 'name', action: 'name' },
@@ -163,8 +166,8 @@ export const EVENTS = {
   // ── Журнал программы ──────────────────────────────────────────────────────
   // Из старого журнала берутся только место и код: свободный текст сообщения
   // и стек могут содержать имя документа и данные проекта.
-  'log.warn': { context: 'name', code: 'code', frame1: 'frame' },
-  'log.error': { context: 'name', code: 'code', frame1: 'frame', frame2: 'frame', frame3: 'frame' },
+  'log.warn': { context: 'name', error: 'name', code: 'code', frame1: 'frame' },
+  'log.error': { context: 'name', error: 'name', code: 'code', frame1: 'frame', frame2: 'frame', frame3: 'frame' },
 
   // ── Офисный движок ────────────────────────────────────────────────────────
   // Ни книги, ни текста: только сколько знаков вышло и сколько это заняло.
@@ -174,6 +177,7 @@ export const EVENTS = {
   'office.export': { section: 'name', documentRef: 'id', format: 'name', resultBytes: 'bytes' },
   'office.import': { section: 'name', documentRef: 'id', format: 'name', sourceBytes: 'bytes' },
   'office.dispose': { section: 'name', documentRef: 'id' },
+  'office.host': { app: 'app', action: 'action', operation: 'name', error: 'name', code: 'code' },
 
   // ── Свёрнутый повтор ──────────────────────────────────────────────────────
   // Опрос уведомлений идёт раз в минуту у каждого окна и в разборе не нужен

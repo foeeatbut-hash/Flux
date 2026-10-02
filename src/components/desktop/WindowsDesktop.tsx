@@ -2,8 +2,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import {
-  Archive, FileSpreadsheet, FileText, Folder, FolderPlus, MoreVertical,
-  Plus, RefreshCw, Shapes, Trash2, ExternalLink,
+  Archive, ArrowUpDown, FileSpreadsheet, FileText, Folder, FolderPlus,
+  Monitor, MoreVertical, Palette, RefreshCw, Rows3, Shapes, Trash2, ExternalLink,
 } from 'lucide-react';
 import { SECTIONS } from '../../workspace/sections';
 import { visibleSections } from '../../lib/appPolicy';
@@ -12,6 +12,11 @@ import { useDesktopStore } from '../../store/desktopStore';
 import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
 import { blankBytes } from '../../lib/blankFiles';
+import type { ShellDesktopSnapshot, ShellDesktopItem, ShellDesktopBridge } from '../../../filesystem/shellDesktop';
+import FileShareDialog from '../explorer/FileShareDialog';
+import { useStore } from '../../store/store';
+import { useDisplayStore } from '../../store/displayStore';
+import { sharedSourceHref } from '../../services/fileSharingService';
 import {
   bytesToBase64, fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
@@ -19,13 +24,24 @@ import {
 
 type Cell = { col: number; row: number };
 type DesktopItem =
-  | { id: string; kind: 'app'; path: string; title: string; icon?: React.ComponentType<any> }
-  | { id: string; kind: 'file'; entry: WindowsFileEntry };
-type CreateKind = 'folder' | 'doc' | 'sheet' | 'markdown';
+  | { id: string; kind: 'app'; path: string; title: string; icon?: React.ComponentType<any>; system?: boolean }
+  | { id: string; kind: 'file'; entry: WindowsFileEntry }
+  | { id: string; kind: 'shell'; item: ShellDesktopItem };
+type CreateKind = 'windows-folder' | 'windows-doc' | 'windows-sheet' | 'windows-text' | 'flux-doc' | 'flux-sheet' | 'flux-markdown';
 const LAYOUT_PREFIX = 'flux_windows_desktop_cells_v1:';
 const CELL_WIDTH = 104;
 const CELL_HEIGHT = 100;
 const ROOT_REF = (rootId: string): WindowsFileRef => ({ rootId, relativePath: '' });
+const shellBridge = () => (window as any).electron?.desktopShell as ShellDesktopBridge | undefined;
+
+export function sortWindowsDesktopEntries(entries: WindowsFileEntry[], by: 'name' | 'type' | 'modified'): WindowsFileEntry[] {
+  const compare = (a: WindowsFileEntry, b: WindowsFileEntry) => by === 'modified'
+    ? b.modifiedAt.localeCompare(a.modifiedAt)
+    : by === 'type'
+      ? (a.kind === 'directory' ? 0 : 1) - (b.kind === 'directory' ? 0 : 1) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      : a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  return [...entries].sort(compare);
+}
 
 /** Клетки принадлежат локальной раскладке этого корня, ключ элемента — только fileId. */
 export function layoutWindowsDesktop(ids: string[], saved: Record<string, Cell>, columns: number): Record<string, Cell> {
@@ -74,7 +90,7 @@ const fileIcon = (entry: WindowsFileEntry) => {
   return Archive;
 };
 
-export default function WindowsDesktop() {
+export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: number; y: number } } = {}) {
   const navigate = useNavigate();
   const context = useAppContext();
   const allowedSections = React.useMemo(() => visibleSections(SECTIONS, context).filter((section) => !section.fileOnly), [context]);
@@ -83,41 +99,72 @@ export default function WindowsDesktop() {
   const unpinApp = useDesktopStore((state) => state.unpinApp);
   const openConfirm = useModalStore((state) => state.openConfirm);
   const addToast = useToastStore((state) => state.addToast);
+  const userId = useStore((state) => state.user?.id);
   const areaRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef<HTMLInputElement>(null);
   const [root, setRoot] = React.useState<WindowsRoot | null>(null);
   const [entries, setEntries] = React.useState<WindowsFileEntry[]>([]);
+  const [shellDesktop, setShellDesktop] = React.useState<ShellDesktopSnapshot | null>(null);
   const [cells, setCells] = React.useState<Record<string, Cell>>({});
   const [area, setArea] = React.useState({ width: 900, height: 600 });
+  const [areaOffset, setAreaOffset] = React.useState({ x: 0, y: 0 });
   const [selected, setSelected] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
   const [creating, setCreating] = React.useState<CreateKind | null>(null);
   const [name, setName] = React.useState('');
   const [menu, setMenu] = React.useState<{ x: number; y: number; itemId: string | null } | null>(null);
+  const [sortBy, setSortBy] = React.useState<'name' | 'type' | 'modified'>('name');
+  const [iconScale, setIconScale] = React.useState<'small' | 'medium' | 'large'>('medium');
+  const [shareEntry, setShareEntry] = React.useState<WindowsFileEntry | null>(null);
   const dragged = React.useRef<string | null>(null);
+  const refreshEpoch = React.useRef(0);
+  const refreshFlight = React.useRef<{ pending: boolean; rootId?: string; promise: Promise<void> } | null>(null);
 
   const refresh = React.useCallback(async (rootId?: string) => {
+    if (refreshFlight.current) {
+      refreshFlight.current.pending = true;
+      refreshFlight.current.rootId = rootId;
+      refreshEpoch.current++;
+      return refreshFlight.current.promise;
+    }
     setLoading(true);
     setError('');
-    const rootsResult = await windowsFilesRequest<WindowsRoot[]>({ action: 'roots' });
-    if ('error' in rootsResult) { setError(rootsResult.error.message); setLoading(false); return; }
-    const desktop = rootsResult.data.find((item) => item.kind === 'desktop');
-    if (!desktop) { setRoot(null); setEntries([]); setError('Папка «Рабочий стол» Windows не подключена.'); setLoading(false); return; }
-    if (!desktop.available) { setRoot(desktop); setEntries([]); setError('Папка «Рабочий стол» Windows сейчас недоступна.'); setLoading(false); return; }
-    setRoot(desktop);
-    if (rootId !== desktop.id) setCells(readCells(desktop.id));
-    const allEntries: WindowsFileEntry[] = [];
-    let offset = 0;
-    while (true) {
-      const listed = await windowsFilesRequest<{ entries: WindowsFileEntry[]; nextOffset: number | null }>({ action: 'list', ref: ROOT_REF(desktop.id), offset, limit: 500 });
-      if ('error' in listed) { setError(listed.error.message); setEntries([]); setLoading(false); return; }
-      allEntries.push(...(listed.data.entries || []));
-      if (listed.data.nextOffset === null) break;
-      offset = listed.data.nextOffset;
-    }
-    setEntries(allEntries);
-    setLoading(false);
+    const flight: { pending: boolean; rootId?: string; epoch: number; promise: Promise<void> } = { pending: false, rootId, epoch: ++refreshEpoch.current, promise: Promise.resolve() };
+    flight.promise = (async () => {
+      try {
+        const rootsResult = await windowsFilesRequest<WindowsRoot[]>({ action: 'roots' });
+        if ('error' in rootsResult) { setError(rootsResult.error.message); return; }
+        const desktop = rootsResult.data.find((item) => item.kind === 'desktop');
+        if (!desktop) { setError('Папка «Рабочий стол» Windows не подключена.'); return; }
+        if (!desktop.available) { setError('Папка «Рабочий стол» Windows сейчас недоступна.'); return; }
+        const allEntries: WindowsFileEntry[] = [];
+        let offset = 0;
+        while (true) {
+          const listed = await windowsFilesRequest<{ entries: WindowsFileEntry[]; nextOffset: number | null }>({ action: 'list', ref: ROOT_REF(desktop.id), offset, limit: 500 });
+          if ('error' in listed) { setError(listed.error.message); return; }
+          allEntries.push(...(listed.data.entries || []));
+          if (listed.data.nextOffset === null) break;
+          offset = listed.data.nextOffset;
+        }
+        // Swap only a complete scan into view; a failed refresh leaves the last
+        // known list, including Flux drafts, visible.
+        if (refreshEpoch.current !== flight.epoch) return;
+        setRoot(desktop);
+        if (rootId !== desktop.id) setCells(readCells(desktop.id));
+        setEntries(allEntries);
+      } catch (cause: any) {
+        if (refreshEpoch.current === flight.epoch) setError(cause?.message || 'Не удалось обновить Рабочий стол Windows.');
+      } finally {
+        if (!flight.pending && refreshEpoch.current === flight.epoch) setLoading(false);
+        if (refreshFlight.current === flight) {
+          refreshFlight.current = null;
+          if (flight.pending) queueMicrotask(() => { void refresh(flight.rootId); });
+        }
+      }
+    })();
+    refreshFlight.current = flight;
+    return flight.promise;
   }, []);
 
   React.useEffect(() => { void refresh(); }, [refresh]);
@@ -127,6 +174,7 @@ export default function WindowsDesktop() {
     const observer = new ResizeObserver(() => {
       const rect = element.getBoundingClientRect();
       setArea({ width: rect.width, height: rect.height });
+      setAreaOffset({ x: rect.left, y: rect.top });
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -145,6 +193,19 @@ export default function WindowsDesktop() {
     if (creating) nameRef.current?.focus();
   }, [creating]);
   React.useEffect(() => {
+    const api = shellBridge();
+    if (!api) return;
+    let alive = true;
+    let epoch = 0;
+    const load = () => {
+      const request = ++epoch;
+      void api.snapshot().then((snapshot) => { if (alive && request === epoch) setShellDesktop(snapshot); }).catch(() => {});
+    };
+    load();
+    const off = api.onChanged(load);
+    return () => { alive = false; off(); };
+  }, []);
+  React.useEffect(() => {
     const close = () => setMenu(null);
     window.addEventListener('click', close);
     window.addEventListener('scroll', close, true);
@@ -153,14 +214,17 @@ export default function WindowsDesktop() {
 
   const allowedByPath = React.useMemo(() => new Map(allowedSections.map((section) => [section.path, section])), [allowedSections]);
   const pinnedApps = apps.filter((path) => allowedByPath.has(path));
-  const fileItems: DesktopItem[] = entries.map((entry) => ({ id: entry.fileId, kind: 'file', entry }));
-  const appItems: DesktopItem[] = pinnedApps.map((path) => {
+  const shellReady = !!screenOrigin && shellDesktop?.status === 'ready' && !!shellDesktop.view?.iconsVisible;
+  const fluxEntries = shellReady ? entries.filter((entry) => entry.storage === 'flux') : entries;
+  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entry.fileId, kind: 'file', entry }));
+  const shellItems: Extract<DesktopItem, { kind: 'shell' }>[] = shellReady ? shellDesktop!.items.map((item) => ({ id: `shell:${item.id}`, kind: 'shell', item })) : [];
+  const appItems: Extract<DesktopItem, { kind: 'app' }>[] = pinnedApps.map((path) => {
     const section = allowedByPath.get(path)!;
     return { id: `app:${path}`, kind: 'app', path, title: section.title, icon: section.icon as React.ComponentType<any> };
   });
-  const items = [...appItems, ...fileItems];
-  const columns = Math.max(1, Math.floor((area.width - 24) / CELL_WIDTH));
-  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.id), cells, columns), [items.map((item) => item.id).join('|'), cells, columns]);
+  const sharedFiles: DesktopItem = { id: 'system:shared-files', kind: 'app', path: '/shared-files', title: 'Общий доступ', icon: Folder, system: true };
+  const items = [sharedFiles, ...appItems, ...fileItems];
+  const contextualItems: DesktopItem[] = [...items, ...shellItems];
 
   const placeCells = (patch: Record<string, Cell>) => {
     if (!root) return;
@@ -170,11 +234,33 @@ export default function WindowsDesktop() {
   };
 
   const openItem = (item: DesktopItem) => {
-    if (item.kind === 'app') { navigate(item.path); return; }
+    if (item.kind === 'shell') {
+      if (item.item.fileRef) {
+        const ref = item.item.fileRef;
+        if (item.item.kind === 'directory') navigate(folderRefHref(ref));
+        else if (userId) void sharedSourceHref(userId, ref, item.item.name).then((href) => navigate(href || fileRefHref(ref)))
+          .catch((cause: any) => addToast(cause?.message || 'Не удалось проверить общий доступ', 'error'));
+        else navigate(fileRefHref(ref));
+        return;
+      }
+      void shellBridge()?.open(item.item.id).then((result) => { if (result && !result.ok) addToast(result.message || 'Не удалось открыть элемент рабочего стола Windows', 'error'); });
+      return;
+    }
+    if (item.kind === 'app') {
+      const api = (window as any).electron?.nativeApps;
+      if (useDisplayStore.getState().workspace.enabled && api?.open) {
+        void api.open(item.path).catch((cause: any) => addToast(cause?.message || 'Не удалось открыть отдельное окно', 'error'));
+      } else navigate(item.path);
+      return;
+    }
     if (!root) return;
     const ref = entryRef(root.id, item.entry);
     if (item.entry.kind === 'directory') navigate(folderRefHref(ref));
-    else if (item.entry.kind === 'file') navigate(fileRefHref(ref));
+    else if (item.entry.kind === 'file') {
+      if (userId) void sharedSourceHref(userId, ref, item.entry.name).then((href) => navigate(href || fileRefHref(ref)))
+        .catch((cause: any) => addToast(cause?.message || 'Не удалось проверить общий доступ', 'error'));
+      else navigate(fileRefHref(ref));
+    }
     else void windowsFilesRequest({ action: 'open', ref }).then((result) => { if ('error' in result) addToast(result.error.message, 'error'); });
   };
 
@@ -186,7 +272,11 @@ export default function WindowsDesktop() {
 
   const beginCreate = (kind: CreateKind) => {
     setMenu(null);
-    const defaults: Record<CreateKind, string> = { folder: 'Новая папка', doc: 'Новый документ.docx', sheet: 'Новая таблица.xlsx', markdown: 'Новая заметка.md' };
+    const defaults: Record<CreateKind, string> = {
+      'windows-folder': 'Новая папка', 'windows-doc': 'Новый документ.docx',
+      'windows-sheet': 'Новая таблица.xlsx', 'windows-text': 'Новый текстовый документ.txt',
+      'flux-doc': 'Новый документ.docx', 'flux-sheet': 'Новая таблица.xlsx', 'flux-markdown': 'Новая заметка.md',
+    };
     setName(defaults[kind]);
     setCreating(kind);
   };
@@ -197,16 +287,37 @@ export default function WindowsDesktop() {
     if (!cleanName || /[\\/:*?"<>|]/u.test(cleanName)) { addToast('Укажите имя без символов \\/ : * ? " < > |', 'error'); return; }
     const parent = ROOT_REF(root.id);
     try {
-      if (creating === 'folder') {
+      if (creating === 'windows-folder') {
         const result = await invoke({ action: 'mkdir', parent, name: cleanName });
         if (result) { setCreating(null); await refresh(root.id); addToast('Папка создана на рабочем столе Windows', 'success'); }
         return;
       }
-      const extension = creating === 'doc' ? '.docx' : creating === 'sheet' ? '.xlsx' : '.md';
+      const windowsNative = creating.startsWith('windows-');
+      const kind = creating.endsWith('doc') ? 'doc' : creating.endsWith('sheet') ? 'sheet' : null;
+      const extension = creating.endsWith('doc') ? '.docx' : creating.endsWith('sheet') ? '.xlsx' : creating.endsWith('text') ? '.txt' : '.md';
       const finalName = cleanName.toLowerCase().endsWith(extension) ? cleanName : `${cleanName}${extension}`;
-      const bytes = creating === 'doc' ? await blankBytes('doc') : creating === 'sheet' ? await blankBytes('sheet') : new TextEncoder().encode('# Новая заметка\n');
-      const result = await invoke({ action: 'createDraft', parent, name: finalName, base64: bytesToBase64(bytes) }) as { ref?: WindowsFileRef } | null;
-      if (result?.ref) { setCreating(null); await refresh(root.id); navigate(fileRefHref(result.ref)); addToast('Черновик создан в Flux', 'success'); }
+      const bytes = kind ? await blankBytes(kind) : creating.endsWith('text') ? new TextEncoder().encode('') : new TextEncoder().encode('# Новая заметка\n');
+      let result: any;
+      if (windowsNative) {
+        // Reuse the guarded draft publication path to create real Windows bytes.
+        const draft = await invoke({ action: 'createDraft', parent, name: finalName, base64: bytesToBase64(bytes) }) as { ref?: WindowsFileRef } | null;
+        if (!draft?.ref) return;
+        result = await invoke({ action: 'publishDraft', ref: draft.ref });
+      } else {
+        result = await invoke({ action: 'createDraft', parent, name: finalName, base64: bytesToBase64(bytes) });
+      }
+      result = result as { ref?: WindowsFileRef } | null;
+      if (result?.ref) {
+        setCreating(null);
+        await refresh(root.id);
+        if (!windowsNative) navigate(fileRefHref(result.ref));
+        addToast(windowsNative ? 'Файл создан на рабочем столе Windows' : 'Черновик создан в Flux', 'success');
+      } else if (windowsNative) {
+        // Публикация могла завершиться ошибкой после создания черновика; он
+        // остаётся видимым, чтобы повторная попытка не затёрла пользовательские данные.
+        setCreating(null);
+        await refresh(root.id);
+      }
     } catch (cause: any) { addToast(cause?.message || 'Не удалось создать файл', 'error'); }
   };
 
@@ -232,36 +343,53 @@ export default function WindowsDesktop() {
   const contextMenu = (event: React.MouseEvent, itemId: string | null) => {
     event.preventDefault(); event.stopPropagation();
     if (itemId) setSelected(itemId);
-    setMenu({ x: Math.min(event.clientX, window.innerWidth - 230), y: Math.min(event.clientY, window.innerHeight - 240), itemId });
+    setMenu({ x: event.clientX, y: event.clientY, itemId });
   };
-  const current = items.find((item) => item.id === menu?.itemId);
+  const current = contextualItems.find((item) => item.id === menu?.itemId);
   const select = (event: React.MouseEvent, item: DesktopItem) => {
     setSelected((old) => event.ctrlKey || event.metaKey ? old === item.id ? null : item.id : item.id);
   };
+  const arrange = (by: 'name' | 'type' | 'modified') => {
+    setSortBy(by);
+    if (!root) return;
+    const ordered = [sharedFiles.id, ...appItems.map((item) => item.id), ...sortWindowsDesktopEntries(fluxEntries, by).map((entry) => entry.fileId)];
+    placeCells(Object.fromEntries(ordered.map((id, index) => [id, { col: index % columns, row: Math.floor(index / columns) }])));
+  };
 
   const addableApps = allowedSections.filter((section) => !section.fileOnly && !pinnedApps.includes(section.path));
-  const contents = items.length === 0 && !loading && !error;
+  const contents = items.length === 0 && shellItems.length === 0 && !loading && !error;
+  const cellSize = iconScale === 'small' ? { width: 88, height: 84, icon: 24 } : iconScale === 'large' ? { width: 120, height: 116, icon: 44 } : { width: CELL_WIDTH, height: CELL_HEIGHT, icon: 32 };
+  const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
+  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.id), cells, columns), [items.map((item) => item.id).join('|'), cells, columns]);
+  const shellBottom = shellReady ? Math.max(0, ...shellDesktop!.items.map((item) => item.position.y - screenOrigin!.y - areaOffset.y + (shellDesktop!.view?.iconSize || 32) + 48)) : 0;
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-slate-800 dark:border-dark-border dark:bg-dark-bg dark:text-slate-100" aria-label="Рабочий стол Windows">
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white/80 px-3 py-2 dark:border-dark-border dark:bg-dark-surface/80">
-        <div className="mr-auto min-w-0"><h1 className="truncate text-base font-semibold">Рабочий стол</h1><p className="truncate text-xs text-slate-500 dark:text-slate-400">{root?.name || 'Файлы с этого компьютера'}</p></div>
-        <button type="button" onClick={() => void refresh(root?.id)} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-100 dark:border-dark-border dark:hover:bg-dark-surface" aria-label="Обновить файлы Windows"><RefreshCw size={15} />Обновить</button>
-        <button type="button" onClick={(event) => contextMenu(event as any, null)} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-100 dark:border-dark-border dark:hover:bg-dark-surface"><Plus size={15} />Создать</button>
-      </header>
-      {error && <div role="status" className="m-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">{error}</div>}
-      {loading && <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">Читаем Рабочий стол Windows…</div>}
-      <div ref={areaRef} className="relative min-h-0 flex-1 overflow-auto p-3" onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left - 12) / CELL_WIDTH))); const row = Math.max(0, Math.floor((event.clientY - rect.top - 12) / CELL_HEIGHT)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
+    <section className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100 text-slate-800 dark:bg-dark-bg dark:text-slate-100" aria-label="Рабочий стол Windows">
+      {error && <div role="status" className="absolute left-3 top-3 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">{error}</div>}
+      {loading && <div className="absolute left-4 top-3 z-10 text-sm text-slate-500 dark:text-slate-400">Читаем Рабочий стол Windows…</div>}
+      <div className="relative h-full min-h-0 w-full">
+      <div ref={areaRef} className="absolute inset-0 overflow-hidden" onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / cellSize.width))); const row = Math.max(0, Math.floor((event.clientY - rect.top - shellBottom) / cellSize.height)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
         {!error && !loading && contents && <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">На Рабочем столе Windows пока пусто. Создайте папку или документ либо закрепите ярлык Flux.</div>}
+        {shellItems.map((desktopItem) => {
+          const left = desktopItem.item.position.x - screenOrigin!.x - areaOffset.x;
+          const top = desktopItem.item.position.y - screenOrigin!.y - areaOffset.y;
+          return <button key={desktopItem.id} type="button" aria-label={desktopItem.item.name} title={desktopItem.item.name}
+            onDoubleClick={() => openItem(desktopItem)} onContextMenu={(event) => contextMenu(event, desktopItem.id)}
+            className="absolute z-[1] flex flex-col items-center gap-1 rounded-md p-1 text-center text-xs hover:bg-sky-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-sky-900/40"
+            style={{ left, top, width: Math.max(80, shellDesktop?.view?.spacing.x || 96), minHeight: shellDesktop?.view?.iconSize || 48 }}>
+            {desktopItem.item.icon ? <img src={desktopItem.item.icon.dataUrl} alt="" draggable={false} style={{ width: desktopItem.item.icon.width, height: desktopItem.item.icon.height, objectFit: 'contain' }} /> : <Shapes size={shellDesktop?.view?.iconSize || 32} />}
+            <span className="line-clamp-2 break-words leading-4 [text-shadow:0_1px_2px_white] dark:[text-shadow:0_1px_2px_black]">{desktopItem.item.name}</span>
+          </button>;
+        })}
         {!error && !loading && items.length > 0 && (
-          <div className="grid min-h-full auto-rows-[92px] gap-1" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, ${CELL_WIDTH}px))`, gridAutoRows: `${CELL_HEIGHT}px` }}>
+          <div className="grid gap-1" style={{ marginTop: shellBottom, gridTemplateColumns: `repeat(${columns}, ${cellSize.width}px)`, gridAutoRows: `${cellSize.height}px` }}>
             {items.map((item) => {
               const cell = positions[item.id] || { col: 0, row: 0 };
               const Icon = item.kind === 'app' ? item.icon || Shapes : fileIcon(item.entry);
               const title = item.kind === 'app' ? item.title : fileTitle(item.entry.name);
               const isSelected = selected === item.id;
-              return <div key={item.id} role="button" tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
-                <Icon size={32} className={`shrink-0 ${item.kind === 'app' ? 'text-slate-600 dark:text-slate-300' : item.entry.kind === 'directory' ? 'text-amber-600 dark:text-amber-400' : 'text-sky-700 dark:text-sky-300'}`} />
+              return <div key={item.id} role="button" tabIndex={0} draggable={!(item.kind === 'app' && item.system)} onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { if (item.kind === 'app' && item.system) { event.preventDefault(); return; } dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
+                <Icon size={cellSize.icon} className={`shrink-0 ${item.kind === 'app' ? 'text-slate-600 dark:text-slate-300' : item.entry.kind === 'directory' ? 'text-amber-600 dark:text-amber-400' : 'text-sky-700 dark:text-sky-300'}`} />
                 <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.kind === 'app' ? item.title : item.entry.name}>{title}</span>
                 {item.kind === 'file' && item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}
               </div>;
@@ -269,24 +397,46 @@ export default function WindowsDesktop() {
           </div>
         )}
       </div>
+      </div>
 
-      {creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(null); }}><div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface"><h2 id="windows-create-title" className="text-lg font-semibold">{creating === 'folder' ? 'Новая папка Windows' : 'Новый файл на рабочем столе'}</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{creating === 'folder' ? 'Папка появится в настоящем каталоге Windows.' : 'Flux создаст зашифрованно отслеживаемый черновик и откроет его в редакторе.'}</p><label className="mt-4 block text-sm">Имя<input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); if (event.key === 'Escape') setCreating(null); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCreating(null)} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button><button type="button" onClick={() => void create()} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button></div></div></div>}
+      {creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(null); }}><div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface"><h2 id="windows-create-title" className="text-lg font-semibold">{creating === 'windows-folder' ? 'Новая папка Windows' : creating.startsWith('windows-') ? 'Новый файл Windows' : 'Новый документ Flux'}</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{creating === 'windows-folder' || creating.startsWith('windows-') ? 'Файл появится в настоящем каталоге Windows.' : 'Flux создаст черновик и откроет его в редакторе.'}</p><label className="mt-4 block text-sm">Имя<input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); if (event.key === 'Escape') setCreating(null); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCreating(null)} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button><button type="button" onClick={() => void create()} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button></div></div></div>}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={current?.kind === 'file' ? [
         { label: current.entry.kind === 'directory' ? 'Открыть папку' : 'Открыть в Flux', icon: <ExternalLink />, onClick: () => openItem(current) },
         { label: 'Открыть в Windows', icon: <ExternalLink />, onClick: () => void invoke({ action: 'open', ref: entryRef(root!.id, current.entry) }) },
         { label: 'Показать в Проводнике', icon: <Folder />, onClick: () => void invoke({ action: 'reveal', ref: entryRef(root!.id, current.entry) }) },
         { label: 'Свойства файла', icon: <MoreVertical />, onClick: () => void doProperties(current.entry) },
+        ...(current.entry.kind === 'file' ? [{ label: 'Общий доступ…', icon: <Folder />, onClick: () => setShareEntry(current.entry) }] : []),
         { label: current.entry.draftId ? 'Удалить черновик' : 'В Корзину Windows', icon: <Trash2 />, danger: true, onClick: () => void doTrash(current.entry) },
       ] satisfies MenuItem[] : current?.kind === 'app' ? [
-        { label: 'Убрать ярлык Flux', icon: <Trash2 />, onClick: () => unpinApp(current.path) },
+        { label: 'Открыть', icon: <ExternalLink />, onClick: () => openItem(current) },
+        ...(!current.system ? [{ label: 'Убрать ярлык Flux', icon: <Trash2 />, onClick: () => unpinApp(current.path) }] : []),
+      ] : current?.kind === 'shell' ? [
+        { label: 'Открыть', icon: <ExternalLink />, onClick: () => openItem(current) },
       ] : [
-        { label: 'Создать папку', icon: <FolderPlus />, onClick: () => beginCreate('folder') },
-        { label: 'Документ Flux', icon: <FileText />, onClick: () => beginCreate('doc') },
-        { label: 'Таблица Flux', icon: <FileSpreadsheet />, onClick: () => beginCreate('sheet') },
-        { label: 'Заметка Markdown', icon: <FileText />, onClick: () => beginCreate('markdown') },
-        ...addableApps.slice(0, 12).map((section, index) => ({ label: section.title, separated: index === 0, onClick: () => pinApp(section.path) })),
+        { label: 'Вид', icon: <Rows3 />, items: [
+          ...(['small', 'medium', 'large'] as const).map((size) => ({ label: size === 'small' ? 'Мелкие значки' : size === 'large' ? 'Крупные значки' : 'Обычные значки', checked: iconScale === size, onClick: () => setIconScale(size) })),
+        ] },
+        { label: 'Сортировка', icon: <ArrowUpDown />, items: [
+          ...([{ key: 'name', label: 'По имени' }, { key: 'type', label: 'По типу' }, { key: 'modified', label: 'По дате изменения' }] as const).map(({ key, label }) => ({ label, checked: sortBy === key, onClick: () => arrange(key) })),
+        ] },
+        { label: 'Обновить', icon: <RefreshCw />, onClick: () => { setMenu(null); void refresh(root?.id); } },
+        { label: 'Создать Windows', icon: <FolderPlus />, items: [
+          { label: 'Папку', icon: <Folder />, onClick: () => beginCreate('windows-folder') },
+          { label: 'Документ Word', icon: <FileText />, onClick: () => beginCreate('windows-doc') },
+          { label: 'Книгу Excel', icon: <FileSpreadsheet />, onClick: () => beginCreate('windows-sheet') },
+          { label: 'Текстовый файл', icon: <FileText />, onClick: () => beginCreate('windows-text') },
+        ] },
+        { label: 'Создать Flux', icon: <Shapes />, items: [
+          { label: 'Документ', icon: <FileText />, onClick: () => beginCreate('flux-doc') },
+          { label: 'Таблицу', icon: <FileSpreadsheet />, onClick: () => beginCreate('flux-sheet') },
+          { label: 'Заметку Markdown', icon: <FileText />, onClick: () => beginCreate('flux-markdown') },
+          ...addableApps.slice(0, 12).map((section) => ({ label: `Закрепить: ${section.title}`, onClick: () => pinApp(section.path) })),
+        ] },
+        { label: 'Параметры экрана', icon: <Monitor />, onClick: () => navigate('/settings?section=general#monitors') },
+        { label: 'Персонализация', icon: <Palette />, onClick: () => navigate('/settings?section=general#appearance') },
       ]} />}
+      {shareEntry && userId && root && <FileShareDialog actorId={userId} name={shareEntry.name} source={entryRef(root.id, shareEntry)} onClose={() => setShareEntry(null)} onChanged={() => void refresh(root.id)} />}
     </section>
   );
 }

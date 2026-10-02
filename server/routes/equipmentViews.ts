@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, onDatabaseSwapped, sendError } from '../context.js';
+import { getPrisma, sendError } from '../context.js';
 import { ensureTables, type TableSpec } from '../ddl.js';
 
 /**
@@ -44,13 +44,9 @@ const TABLES: TableSpec[] = [
   },
 ];
 
-let ready = false;
-onDatabaseSwapped(() => { ready = false; });
-
 async function ensure(prisma: any): Promise<void> {
-  if (ready) return;
-  await ensureTables(prisma, TABLES);
-  ready = true;
+  const failure = await ensureTables(prisma, TABLES, undefined, true);
+  if (failure) throw new Error(failure);
 }
 
 const authUserOf = (req: Request) => (req as any).authUser || null;

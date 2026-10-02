@@ -1,0 +1,43 @@
+name: Проверка оболочки Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - electron/**
+      - filesystem/**
+      - tools/windows-notification-bridge/**
+      - scripts/test-*windows*.ts
+      - scripts/test-desktop-shell-native.ts
+      - .github/workflows/verify-windows-shell.yml
+
+permissions:
+  contents: read
+
+jobs:
+  windows-shell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Зависимости
+        run: npm ci
+      - name: Файловые права, конфликт сохранения и мост оболочки
+        run: |
+          $checks = @('test-windows-files', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          foreach ($check in $checks) {
+            node --import tsx "scripts/$check.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Компиляция компонента уведомлений и проверка MSIX
+        shell: powershell
+        run: tools/windows-notification-bridge/build.ps1 -OutputDirectory "$env:RUNNER_TEMP\flux-notifications"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-notification-bridge-unsigned
+          path: ${{ runner.temp }}/flux-notifications/Flux.NotificationBridge.msix

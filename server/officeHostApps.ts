@@ -27,7 +27,8 @@ import { createHash } from 'node:crypto';
 import { getPrisma } from './context.js';
 import { canReadFile } from './fileAccess.js';
 import { fileBytes } from './routes/fileChunks.js';
-import { writeOfficeFile, isSharedFile, copyOfficeFile } from './routes/officeFiles.js';
+import { writeOfficeFile, isCollaborativeFile, copyOfficeFile } from './routes/officeFiles.js';
+import { shareOf } from './fileSharing.js';
 import { sheetShared } from './officeSheetCollab.js';
 import { officeBus } from './officeBus.js';
 import { officeHub } from './officeRooms.js';
@@ -73,6 +74,10 @@ const SAVES: Record<HostApp, (channel: string) => boolean> = {
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const hosts = new Map<HostApp, Host>();
 const sessions = new Map<number, Session>();
+export function officeHostFileId(socketId: string, session: unknown): string {
+  const s = sessions.get(Number(session));
+  return s?.socketId === socketId ? s.fileId : '';
+}
 let io: Server | null = null;
 
 /** Где лежат серверные сборки редакторов: рядом с программой или в ресурсах */
@@ -139,7 +144,7 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
       const h = host(app);
       // Общая книга открывается с исходника сеанса: у всех участников одно и
       // то же начало, свежее — в журнале правок сеанса
-      const collab = app === 'sheets' && isSharedFile(file as any);
+      const collab = app === 'sheets' && await isCollaborativeFile(file);
       const book = collab ? await sheetShared.open(file.id, () => fileBytes(file)) : null;
       const bytes = book ? (book.baseData as Buffer) : await fileBytes(file);
       const dir = await mkdtemp(join(tmpdir(), 'flux-office-'));
@@ -161,6 +166,8 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
     if (s.copy) return reply({ error: 'Копия уже сохраняется' });
     s.copy = { path: join(s.dir, `copy-${Date.now()}.pdf`), name: safeName(String(name || 'Копия.pdf')) };
     try {
+      const currentUser = await deps.getAuthUser(s.userId);
+      if (!(await canReadFile(getPrisma(), currentUser, s.fileId))) return reply({ error: 'Доступ к файлу отозван' });
       const ok = await host(s.app).requestCopy?.(Number(session), s.copy.path);
       reply(ok && s.copy.made ? { copy: s.copy.made } : { error: 'Копия PDF не сохранена. Правки остаются в исходном окне' });
     } catch (_) { reply({ error: 'Не удалось сохранить копию PDF' }); }
@@ -174,6 +181,9 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
     const ch = String(channel || '');
     if (!ALLOWED[s.app](ch)) return reply({ error: 'Во Flux Office это отключено' });
     try {
+      const currentUser = await deps.getAuthUser(s.userId);
+      if (!(await canReadFile(getPrisma(), currentUser, s.fileId))) return reply({ error: 'Доступ к файлу отозван' });
+      const accessAtStart = await shareOf(getPrisma(), s.fileId);
       // Что из журнала общей книги окно уже включило в эту запись: номер до записи,
       // а не после — правка, пришедшая во время записи, в файл не попадёт
       const seqAtSave = s.collab && SAVES[s.app](ch) ? ((await officeBus.session(s.fileId))?.dataSeq ?? 0) : 0;
@@ -203,14 +213,14 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
         // окна при открытии (в отделе прежний держатель мог быть на другом сервере)
         const book = s.collab ? await officeBus.session(s.fileId) : null;
         const shared = !!book && book.key === s.key;
-        let w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: shared ? book!.savedSha : s.sha, user, autosave: auto, sessionKey: s.key });
+        let w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: shared ? book!.savedSha : s.sha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined });
         // Держатель успел смениться между «взял слово» и записью, и файл уже записал прежний. Содержимое
         // общее — в нём есть всё записанное, — поэтому сверяемся заново, но только если файл
         // менял именно сеанс (хеш совпал с записанным в базе), а не кто-то в обход него
         if (w.status === 409 && shared && w.json?.currentSha256) {
           const now = await officeBus.session(s.fileId);
           if (now && now.key === s.key && now.savedSha === w.json.currentSha256) {
-            w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: now.savedSha, user, autosave: auto, sessionKey: s.key });
+            w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: now.savedSha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined });
           }
         }
         // Правку держит другой (список успел устареть): записывает он, а мы просим его

@@ -1,6 +1,6 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
 export type WindowsKnownFolder = 'desktop' | 'documents' | 'downloads' | 'custom';
-export interface WindowsRoot { id: string; name: string; kind: WindowsKnownFolder; available: boolean }
+export interface WindowsRoot { id: string; name: string; kind: WindowsKnownFolder; available: boolean; network?: boolean }
 export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;

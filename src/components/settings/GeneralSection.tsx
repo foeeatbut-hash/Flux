@@ -16,7 +16,7 @@ import DisplaySettings from '../shell/DisplaySettings';
 export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
-      <div className="fx-set-group">
+      <div id="appearance" className="fx-set-group">
         <h3 className="fx-group-title">Вид</h3>
         <SettingRow title="Тема интерфейса">
           <Seg label="Тема интерфейса" value={theme === 'dark' ? 'dark' : 'light'}

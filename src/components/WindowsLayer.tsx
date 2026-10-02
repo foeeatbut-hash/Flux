@@ -19,7 +19,6 @@ import { layoutsFor, otherShares, panelSpot, shareStyle, type Layout, type Share
 import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
 import SnapAssist from './SnapAssist';
 import { deskAction, isTyping, nextInCycle } from '../lib/deskKeys';
-import { stepDesk } from '../lib/desks';
 import { sectionAccess } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import SectionFrame, { asHref } from './SectionFrame';
@@ -230,7 +229,11 @@ export default function WindowsLayer() {
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, []);
-  const primary = displays.find(d => d.primary) || displays[0];
+  const desktopBounds = displays.length ? displays.reduce((r, d) => ({
+    x: Math.min(r.x, d.workArea.x), y: Math.min(r.y, d.workArea.y),
+    w: Math.max(r.x + r.w, d.workArea.x + d.workArea.w) - Math.min(r.x, d.workArea.x),
+    h: Math.max(r.y + r.h, d.workArea.y + d.workArea.h) - Math.min(r.y, d.workArea.y),
+  }), { ...displays[0].workArea }) : { x: 0, y: 0, w: area.w, h: area.h };
   const snapBounds = displays.find(d => d.id === snappingDisplayId)?.workArea || { x: 0, y: 0, ...area };
 
   // Стол меряем сами и сообщаем геометрии: она не должна знать про DOM
@@ -405,22 +408,6 @@ export default function WindowsLayer() {
     setAssist(others.length && rest.length ? { shares: rest, skip: [id], displayId: snap?.displayId } : null);
   }, [snap, closeSnap]);
 
-  /**
-   * Соседний стол. Ctrl+Alt+стрелка — то же сочетание, что в системе; окна
-   * при этом не двигаются, меняется только то, какой набор показан.
-   */
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey && e.altKey) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-      const st = useWindowStore.getState();
-      if (st.desks.length < 2) return;
-      e.preventDefault();
-      st.goToDesk(stepDesk(st.desk, e.key === 'ArrowRight' ? 1 : -1, st.desks.length));
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
   // Win+Z — панель долей у верхнего окна, как в системе
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -449,9 +436,11 @@ export default function WindowsLayer() {
       className="relative w-full h-full overflow-hidden bg-slate-100 dark:bg-dark-bg"
     >
       {/* Значки живут под окнами: стол — это фон, а не ещё одно окно */}
-      {primary ? <div className="absolute overflow-hidden" style={{ left: primary.workArea.x, top: primary.workArea.y, width: primary.workArea.w, height: primary.workArea.h }}><Desktop /></div> : <Desktop />}
+      <div className="absolute overflow-hidden" style={{ left: desktopBounds.x, top: desktopBounds.y, width: desktopBounds.w, height: desktopBounds.h }}>
+        <Desktop screenOrigin={workspace.enabled ? { x: workspace.bounds.x, y: workspace.bounds.y } : undefined} />
+      </div>
       {displays.map(d => <div key={d.id} data-display-taskbar={d.id}
-        className="absolute" style={{ left: d.workArea.x, top: d.workArea.y + d.workArea.h, width: d.workArea.w, height: BAR_H, zIndex: Z.taskbar }}>
+        className="absolute" style={{ left: d.workArea.x, top: d.workArea.y + d.workArea.h - BAR_H, width: d.workArea.w, height: BAR_H, zIndex: Z.taskbar }}>
         <Taskbar displayId={d.id} />
       </div>)}
 

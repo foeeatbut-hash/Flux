@@ -3,6 +3,7 @@ import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
 import { updateRefusal, sha256File } from './updateSignature';
+import { downloadVerifiedUpdate, assertUpdatePublished, type VerifiedDownload } from './updateDownload';
 import { setupCapture } from './capture';
 import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
@@ -12,13 +13,17 @@ import { setupGames } from './games';
 import { setupOwnerLogin } from './ownerLogin';
 import { setupAuthStorage, trustedAuthSender, readNativeSession } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
+import { setupDesktopShell } from './desktopShell';
+import { setupNativeAppWindows } from './nativeApps';
+import { setupMainWindowClose } from './windowClose';
+import { setupWindowsNotifications } from './windowsNotifications';
 import { registerWindowsFilesIpc } from './filesystem/ipc';
 import { createLocalFileAccess } from './localFileAccess';
 import { registerLocalOfficeIpc } from './localOfficeIpc';
 import { startCompanyServer } from './companyServer';
 import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
-import { sameServer, badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
+import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
 import { saveDatabaseConfig, validateDatabaseUri } from './connectionConfig';
 
@@ -191,12 +196,18 @@ app.whenReady().then(async () => {
 
   setupOwnerLogin(() => readAppConfig().remoteServerUrl);
   setupAuthStorage(() => readAppConfig().remoteServerUrl);
+  const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
   const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender);
   displayWorkspace.attach();
   const localAccess = createLocalFileAccess({ server: () => readAppConfig().remoteServerUrl,
     token: readNativeSession, fetch: globalThis.fetch });
   const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess });
   registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
+  setupDesktopShell({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
+  setupWindowsNotifications({ isTrusted: trustedAuthSender, ...localAccess });
+  const nativeAppWindows = setupNativeAppWindows({ isTrusted: trustedAuthSender, mayRead: localAccess.mayRead,
+    getMainWindow: () => mainWindow, preload: path.join(__dirname, 'preload.js'),
+    rendererFile: path.join(__dirname, '../dist/index.html'), onClosed: win => disposeBrowserFor(win.id) });
 
   // Смена адреса сервера из интерфейса (экран входа): пусто = встроенный.
   // Пишем в config.json, не трогая остальные ключи; применяется при
@@ -470,37 +481,6 @@ app.whenReady().then(async () => {
       const s = app.getLoginItemSettings(loginItemFor(args));
       return { enabled: !!s.openAtLogin, minimized: !!opts?.minimized, path: startupExe() };
     } catch (_) { return { enabled: false, minimized: false, path: '' }; }
-  });
-
-  // Вынести раздел в отдельное окно (мультимонитор): полноценное главное окно,
-  // открытое на нужном разделе. Своё меню, свои панели, тоже делится на панели.
-  ipcMain.on('window:open-main', (_event, route: string) => {
-    const win = new BrowserWindow({
-      width: 1280,
-      height: 800,
-      minWidth: 960,
-      minHeight: 620,
-      backgroundColor: '#0f172a',
-      autoHideMenuBar: true,
-      frame: false,
-      titleBarStyle: 'hidden',
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js'),
-      },
-    });
-    const hash = `#${route && route.startsWith('/') ? route : '/' + (route || '')}`;
-    if (app.isPackaged) {
-      win.loadURL(`file://${path.join(__dirname, '../dist/index.html')}${hash}`);
-    } else {
-      win.loadURL(`http://localhost:3000/${hash}`);
-    }
-    win.once('ready-to-show', () => win.show());
-    setTimeout(() => { try { win.show(); } catch (_) {} }, 10000);
-    win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
-    win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
   });
 
   ipcMain.handle('database:select-file', async () => {
@@ -801,7 +781,8 @@ app.whenReady().then(async () => {
   // рендерер сам знает адрес сервера и токен сессии. Главному процессу остаются
   // две вещи, которые из рендерера не сделать: скачать большой exe на диск и
   // подменить работающий портативный exe новым.
-  let latestCachedUpdate: { version: string; installerPath: string } | null = null;
+  let latestCachedUpdate: (VerifiedDownload & { installerPath: string }) | null = null;
+  let updateInProgress = false;
 
   /** Отказ — словами, а не кодом: человек читает это в окне и в журнале */
   const errorText = (err: any, from = ''): string => {
@@ -809,91 +790,6 @@ app.whenReady().then(async () => {
     if (status) return downloadError(status, String(err?.message || ''), from);
     return String(err?.message || err || 'Неизвестная ошибка');
   };
-
-  function downloadUpdate(
-    url: string, dest: string, onProgress: (percent: number) => void, headers?: Record<string, string>,
-  ): Promise<void> {
-    const fs = require('fs');
-    const https = require('https');
-    const http = require('http');
-
-    return new Promise((resolve, reject) => {
-      let redirectCount = 0;
-
-      function startGet(requestUrl: string) {
-        let parsed: URL;
-        try {
-          parsed = new URL(requestUrl);
-        } catch (_) {
-          reject(new Error(`Адрес обновления не разобрать: ${requestUrl}`));
-          return;
-        }
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          reject(new Error(`Обновление можно скачать только по http или https, а адрес такой: ${requestUrl}`));
-          return;
-        }
-
-        const protocol = parsed.protocol === 'https:' ? https : http;
-        const req = protocol.get(requestUrl, { headers: headers || {} }, (res: any) => {
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            if (redirectCount > 5) { reject(new Error('Сервер уводит запрос по кругу.')); return; }
-            redirectCount++;
-            const nextUrl = new URL(res.headers.location, requestUrl);
-            res.resume();
-            // Перенаправление не должно уносить токен на чужой адрес и уводить
-            // с https на http: раньше заголовок входа ехал за любым редиректом
-            if (parsed.protocol === 'https:' && nextUrl.protocol !== 'https:') {
-              reject(new Error('Сервер перенаправил скачивание с https на незащищённый адрес — отказ.'));
-              return;
-            }
-            if (nextUrl.origin !== parsed.origin && headers) {
-              delete headers['Authorization'];
-            }
-            startGet(nextUrl.toString());
-            return;
-          }
-
-          if (res.statusCode !== 200) {
-            /**
-             * Тело отказа читаем и передаём наверх. Сервер Flux объясняет
-             * причину словами («Файл этой версии не найден»), и потерять это
-             * объяснение ради «status code 404» — значит оставить человека
-             * гадать, что делать.
-             */
-            let said = '';
-            res.setEncoding('utf8');
-            res.on('data', (c: string) => { if (said.length < 400) said += c; });
-            res.on('end', () => {
-              let text = said;
-              try { text = JSON.parse(said)?.error || said; } catch (_) { /* не JSON — как есть */ }
-              const err: any = new Error(text);
-              err.statusCode = res.statusCode;
-              reject(err);
-            });
-            return;
-          }
-
-          const total = parseInt(res.headers['content-length'] || '0', 10);
-          let got = 0;
-          const fileStream = fs.createWriteStream(dest);
-          res.on('data', (chunk: any) => {
-            got += chunk.length;
-            if (total > 0) onProgress(Math.min(100, Math.round((got / total) * 100)));
-          });
-          res.pipe(fileStream);
-          fileStream.on('finish', () => { fileStream.close(); resolve(); });
-          fileStream.on('error', (err: any) => { fs.unlink(dest, () => {}); reject(err); });
-        });
-
-        req.on('error', (err: any) => reject(err));
-        // Сервер, который принял соединение и замолчал, иначе держал бы окно
-        // «Скачиваю… 0 %» бесконечно
-        req.setTimeout(120000, () => { req.destroy(new Error('Сервер обновлений не отвечает.')); });
-      }
-
-      startGet(url);
-    });
-  }
 
   /** Первые два байта файла: у любой программы Windows это «MZ» */
   function headBytes(file: string, n = 2): number[] {
@@ -917,33 +813,37 @@ app.whenReady().then(async () => {
    * действительно программа, — страница с ошибкой приходит с кодом 200 и без
    * проверки легла бы на место работающего exe.
    */
-  ipcMain.handle('updater:start-download', async (_event, payload: {
+  ipcMain.handle('updater:start-download', async (event, payload: {
     url: string; version: string; token?: string; server?: string; signature?: string;
   }) => {
     const path = require('path');
     const fs = require('fs');
 
+    if (!trustedAuthSender(event) || !await localAccess.mayRead(event)) throw new Error('Войдите в Flux для обновления.');
+    if (updateInProgress) throw new Error('Дождитесь текущего обновления.');
+    latestCachedUpdate = null;
     const url = String(payload?.url || '');
-    const version = String(payload?.version || '').replace(/[^0-9a-zA-Z.\-]/g, '');
+    const version = String(payload?.version || '');
+    if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(version)) throw new Error('Неверная версия обновления.');
     if (!url || !version) throw new Error('Не переданы адрес или версия обновления.');
 
-    const installerPath = path.join(app.getPath('temp'), `Flux-${version}.exe`);
+    updateInProgress = true;
+    let installerPath = '';
+    let temporaryFolder = '';
+    const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:readAppConfig().remoteServerUrl || 'http://localhost:3000',token:readNativeSession(readAppConfig().remoteServerUrl) || ''};
     appendLog('INFO', 'Обновление', `Скачиваю ${version}: ${url}`);
     mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
 
-    const headers: Record<string, string> = {};
-    if (payload?.token && sameServer(url, String(payload?.server || ''))) {
-      headers['Authorization'] = `Bearer ${payload.token}`;
-    }
-
     try {
+      temporaryFolder = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'flux-update-'));
+      installerPath = path.join(temporaryFolder, `Flux-${version}.exe`);
       let lastPercent = -1;
-      await downloadUpdate(url, installerPath, (percent) => {
+      await downloadVerifiedUpdate(url, installerPath, {...verified, onProgress: (percent) => {
         if (percent !== lastPercent) {
           lastPercent = percent;
           mainWindow?.webContents.send('updater:status', 'downloading', { percent });
         }
-      }, headers);
+      }});
 
       mainWindow?.webContents.send('updater:status', 'verifying', {});
       const size = fs.existsSync(installerPath) ? fs.statSync(installerPath).size : 0;
@@ -963,7 +863,7 @@ app.whenReady().then(async () => {
         throw new Error(refusal);
       }
 
-      latestCachedUpdate = { version, installerPath };
+      latestCachedUpdate = { ...verified, installerPath };
       appendLog('INFO', 'Обновление', `Скачано ${version}, ${Math.round(size / 1048576)} МБ`);
       mainWindow?.webContents.send('updater:status', 'downloaded', { version });
       return { success: true };
@@ -975,8 +875,10 @@ app.whenReady().then(async () => {
       const text = errorText(err, host);
       appendLog('ERROR', 'Обновление', `Не скачалось ${version} с ${host}: ${text}`);
       mainWindow?.webContents.send('updater:error', text);
+      latestCachedUpdate = null;
+      if (temporaryFolder) await fs.promises.rm(temporaryFolder,{recursive:true,force:true}).catch(() => {});
       throw new Error(text);
-    }
+    } finally { updateInProgress = false; }
   });
 
   /**
@@ -994,7 +896,9 @@ app.whenReady().then(async () => {
    * место и запускает. Это графическая программа — консоли у неё не бывает
    * никогда, а повторы и внятный отказ живут в electron/applyUpdate.ts.
    */
-  ipcMain.handle('updater:quitAndInstall', () => {
+  ipcMain.handle('updater:quitAndInstall', async (event) => {
+    if (!trustedAuthSender(event) || !await localAccess.mayRead(event)) return {success:false,error:'Войдите в Flux для обновления.'};
+    if (updateInProgress) return {success:false,error:'Дождитесь завершения скачивания.'};
     const fs = require('fs');
     const { spawn } = require('child_process');
 
@@ -1006,33 +910,38 @@ app.whenReady().then(async () => {
       return { success: false, error: 'Файл обновления не найден на диске — скачайте заново.' };
     }
 
+    updateInProgress = true;
+    const cached = latestCachedUpdate;
     try {
+      const refusal = updateRefusal({...cached,current:app.getVersion(),size:fs.statSync(installerPath).size,sha256:await sha256File(installerPath)});
+      if (refusal) throw new Error(refusal);
+      await assertUpdatePublished({...cached,token:readNativeSession(cached.server) || ''});
+      if (!await nativeAppWindows.approveCloseAll() || !await mainClose.approveClose()) return {success:false,error:'Обновление отложено: сохраните изменения в открытых окнах.'};
       // Тот файл, который человек запускал (у portable-сборки это не execPath)
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
         // Синхронно: следом программа выходит, сбросить очередь будет негде
         appendLogNow('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
-        const child = spawn(installerPath, applyArgs(portableExe, process.pid), {
+        const child = spawn(installerPath, applyArgs(portableExe, process.pid, {signature:cached.signature,current:app.getVersion()}), {
           detached: true, stdio: 'ignore', windowsHide: true,
         });
-        child.unref();
+        await new Promise<void>((resolve,reject) => { child.once('spawn', () => { child.unref(); resolve(); }); child.once('error',reject); });
       } else {
         appendLogNow('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
         const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true });
-        child.unref();
+        await new Promise<void>((resolve,reject) => { child.once('spawn', () => { child.unref(); resolve(); }); child.once('error',reject); });
       }
 
-      // Окно убираем сразу, не дожидаясь выхода: человек нажал одну кнопку и
-      // должен увидеть, что дело пошло, а не гадать, услышали ли его
-      try { mainWindow?.hide(); } catch (_) { /* окна может уже не быть */ }
-      // Выходим следом: помощник ждёт именно этого, чтобы освободить файл
-      setTimeout(() => app.exit(0), 400);
+      // Обычный выход повторно проверяет редакторы, если между проверкой и
+      // запуском помощника успели появиться новые правки. Помощник ждёт PID.
+      setTimeout(() => app.quit(), 0);
       return { success: true };
     } catch (err: any) {
       appendLog('ERROR', 'Обновление', `Не удалось запустить подмену: ${err?.message || err}`);
+      latestCachedUpdate = null;
       return { success: false, error: errorText(err) };
-    }
+    } finally { updateInProgress = false; }
   });
 
   /** Портативная ли сборка: от этого зависит, что обещать человеку */

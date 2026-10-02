@@ -23,6 +23,7 @@ import { cleanFields, newTraceId, routeName } from '../../diagnostics/event';
 import { SCHEMA_VERSION, type DiagnosticEvent, type EventName, type SafeFields } from '../../diagnostics/contracts';
 import { RateLimit, RepeatFilter, isFailure, passesMode } from '../../diagnostics/policy';
 import { SOURCE_BYTES, WINDOW_BEFORE_MS, WINDOW_TOTAL_MS, missingSource, type SourceReport } from '../../feedback/bundleSpec';
+import { armVisibleTimer, frameGap, tickVisibleTimer } from '../../diagnostics/uiTiming';
 
 /**
  * Хвост окна ограничен временем И байтами, а не числом записей.
@@ -231,13 +232,36 @@ export function startDiagnostics(): void {
   // Задержка таймера при видимой странице — самый честный признак «окно
   // задумалось»: в скрытой вкладке браузер сам замедляет таймеры, и мерить
   // там нечего
-  let expected = performance.now() + 1000;
+  let visibleTimer = armVisibleTimer(performance.now(), document.visibilityState === 'visible');
   setInterval(() => {
     const now = performance.now();
-    const lag = now - expected;
-    expected = now + 1000;
-    if (lag > 150 && document.visibilityState === 'visible') diagnostic('ui.stall', { durationMs: lag });
+    const tick = tickVisibleTimer(visibleTimer, now, document.visibilityState === 'visible');
+    visibleTimer = tick.state;
+    if (tick.lagMs !== null && tick.lagMs > 150) diagnostic('ui.stall', { durationMs: tick.lagMs });
   }, 1000);
+
+  // Re-arm on visibility transitions so time spent suspended in the background
+  // is never reported as a renderer stall. RAF bookkeeping is active only while
+  // visible and emits only unusually large frame gaps.
+  let previousFrame: number | null = null;
+  let raf = 0;
+  const sampleFrame = (now: number) => {
+    const sample = frameGap(previousFrame, now, document.visibilityState === 'visible');
+    previousFrame = sample.previousAt;
+    if (sample.gapMs !== null && sample.gapMs > 120) diagnostic('ui.framegap', { durationMs: sample.gapMs });
+    if (document.visibilityState === 'visible') raf = requestAnimationFrame(sampleFrame);
+  };
+  const visibilityChanged = () => {
+    const visible = document.visibilityState === 'visible';
+    visibleTimer = armVisibleTimer(performance.now(), visible);
+    previousFrame = null;
+    if (raf) cancelAnimationFrame(raf);
+    raf = visible ? requestAnimationFrame(sampleFrame) : 0;
+  };
+  document.addEventListener('visibilitychange', visibilityChanged);
+  window.addEventListener('pageshow', visibilityChanged);
+  window.addEventListener('pagehide', visibilityChanged);
+  if (document.visibilityState === 'visible') raf = requestAnimationFrame(sampleFrame);
 
   setInterval(() => {
     const memory = (performance as any).memory;

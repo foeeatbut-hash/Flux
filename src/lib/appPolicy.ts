@@ -121,7 +121,9 @@ export interface GuardedSection {
 export function sectionAccess(s: GuardedSection, ctx: AppContext): 'open' | 'explain' | 'hide' {
   const user = ctx.user;
   const isAdmin = user?.role === 'ADMIN';
-  if (s.adminOnly && !isAdmin) return 'hide';
+  // OWNER может открыть управление сотрудниками, но роль сама по себе не
+  // обходит проверку встроенных программ ниже.
+  if (s.adminOnly && !isAdmin && user?.role !== 'OWNER') return 'hide';
   if (s.entitlement && !canUseFeature(ctx, s.entitlement)) {
     return s.accessMode === 'stealth' ? 'hide' : 'explain';
   }
