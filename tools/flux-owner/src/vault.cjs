@@ -59,19 +59,31 @@ function decodeBase64(value, min, max) {
   if (b.length < min || b.length > max || b.toString('base64') !== value) throw new Error('Повреждённый файл хранилища.');
   return b;
 }
-async function decrypt(serialized, password) {
+function readEnvelope(serialized) {
   if (typeof serialized !== 'string' || serialized.length > MAX_VAULT * 1.5) throw new Error('Файл хранилища слишком велик.');
+  let envelope;
+  // Метка UTF-8 встречается после сохранения JSON средствами Windows и не меняет шифртекст.
+  try { envelope = JSON.parse(serialized.replace(/^\uFEFF/, '')); }
+  catch { throw new Error('Файл хранилища повреждён: не удалось прочитать JSON. Выберите другую копию .flux-owner.'); }
+  if (envelope?.format === 'FLUXPUBLIC1') throw new Error('Выбран файл открытых ключей для сборки. Для входа нужен основной или запасной файл .flux-owner.');
+  if (envelope?.format !== 'FLUXOWNER1') throw new Error('Этот файл не является зашифрованным хранилищем владельца Flux. Выберите файл .flux-owner.');
+  if (envelope.kdf !== 'scrypt-32768-8-1') throw new Error('Способ шифрования этого хранилища не поддерживается.');
+  const salt = decodeBase64(envelope.salt,32,32), iv=decodeBase64(envelope.iv,12,12), tag=decodeBase64(envelope.tag,16,16), data=decodeBase64(envelope.data,1,MAX_VAULT);
+  return {salt,iv,tag,data};
+}
+function inspectVault(serialized) { readEnvelope(serialized); }
+async function decrypt(serialized, password) {
+  const {salt,iv,tag,data} = readEnvelope(serialized);
   passwordCheck(password);
   let key, plain;
   try {
-    const envelope = JSON.parse(serialized);
-    if (envelope.format !== 'FLUXOWNER1' || envelope.kdf !== 'scrypt-32768-8-1') throw new Error('format');
-    const salt = decodeBase64(envelope.salt,32,32), iv=decodeBase64(envelope.iv,12,12), tag=decodeBase64(envelope.tag,16,16), data=decodeBase64(envelope.data,1,MAX_VAULT);
     key = await scrypt(password,salt,32,SCRYPT);
     const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv); decipher.setAAD(Buffer.from('FLUXOWNER1')); decipher.setAuthTag(tag);
-    plain=Buffer.concat([decipher.update(data),decipher.final()]);
-    return validatePayload(JSON.parse(plain.toString('utf8')));
-  } catch (_) { throw new Error('Файл повреждён или фраза-пароль неверна.'); }
+    try { plain=Buffer.concat([decipher.update(data),decipher.final()]); }
+    catch { throw new Error('Не удалось расшифровать хранилище. Проверьте пароль именно этого файла, раскладку и Caps Lock. Для запасного ключа нужен пароль запасного ключа. Файл также мог быть повреждён.'); }
+    try { return validatePayload(JSON.parse(plain.toString('utf8'))); }
+    catch { throw new Error('Хранилище расшифровано, но данные ключей повреждены. Выберите другую резервную копию.'); }
+  }
   finally { if(key)key.fill(0); if(plain)plain.fill(0); }
 }
 async function readVault(file,password) {
@@ -84,4 +96,4 @@ async function atomicWrite(file,text) {
   try { await fs.writeFile(tmp,text,{flag:'wx',mode:0o600}); await fs.rename(tmp,file); }
   finally { await fs.unlink(tmp).catch(()=>{}); }
 }
-module.exports={encrypt,decrypt,generateVaults,validatePayload,readVault,atomicWrite,passwordCheck,publicHex};
+module.exports={encrypt,decrypt,generateVaults,validatePayload,readVault,atomicWrite,passwordCheck,publicHex,inspectVault};

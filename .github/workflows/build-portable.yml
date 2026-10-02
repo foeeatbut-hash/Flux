@@ -35,6 +35,9 @@ jobs:
       - name: Зависимости
         run: npm ci
 
+      - name: Проверка подключения к общей базе данных
+        run: node --import tsx scripts/test-database-connection.ts
+
       # Проверка настоящих NTFS, junction и ReplaceFileW до смены ABI SQLite
       # на Electron; весь файловый стенд создаётся в одноразовой папке TEMP.
       - name: Проверка проводника Windows и сохранения оригиналов
