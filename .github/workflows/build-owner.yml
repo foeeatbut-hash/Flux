@@ -66,7 +66,7 @@ jobs:
           - Пароль базы скрыт при вводе и не отображается в статусе подключения.
           - Отмена подключения и выход останавливают локальный сервер.
           - Сохраняются созданное хранилище, единый пароль и резервные копии.
-          - Действия: положить Flux 1.20.3 и Flux-Owner 1.2.0 в одну папку, открыть существующее хранилище и указать адрес общей базы. Новые ключи повторно создавать не нужно.
+          - Действия: положить Flux 1.20.4 и Flux-Owner 1.2.1 в одну папку, открыть существующее хранилище и указать адрес общей базы. Новые ключи повторно создавать не нужно.
           '@ | Set-Content -Path owner-release-notes.md -Encoding utf8
             gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Flux-Owner $env:OWNER_VERSION" --notes-file owner-release-notes.md
             if ($LASTEXITCODE -ne 0) { throw 'Не удалось создать выпуск Flux-Owner.' }

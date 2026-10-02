@@ -39,6 +39,7 @@ jobs:
         run: |
           node --import tsx scripts/test-database-connection.ts
           node --import tsx scripts/test-database-client.ts
+          node --import tsx scripts/test-process-mode.ts
 
       # Проверка настоящих NTFS, junction и ReplaceFileW до смены ABI SQLite
       # на Electron; весь файловый стенд создаётся в одноразовой папке TEMP.
