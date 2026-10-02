@@ -61,7 +61,8 @@ async function main() {
     const state = path.join(sandbox, 'Packages', familyName, 'LocalState');
     await fs.mkdir(state, { recursive: true });
     await fs.writeFile(path.join(state, 'notifications.json'), JSON.stringify(raw));
-    check('Мост читает фиксированный LocalState установленного пакета', JSON.parse(await readWindowsNotificationsFile({ familyName, localAppData: sandbox })).schema === 1);
+    const localAppData = process.platform === 'win32' ? sandbox.toUpperCase() : sandbox;
+    check('Мост принимает регистр пути Windows, нормализованный файловой системой', JSON.parse(await readWindowsNotificationsFile({ familyName, localAppData })).schema === 1);
     const outside = path.join(sandbox, 'outside'); await fs.mkdir(outside);
     await fs.writeFile(path.join(outside, 'notifications.json'), JSON.stringify(raw));
     await fs.rename(state, state + '-old'); await fs.symlink(outside, state, 'junction');

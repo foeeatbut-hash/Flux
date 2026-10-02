@@ -304,7 +304,12 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       }, { maxWait: 10000, timeout: 60000 });
       invalidateAuthUser();
       res.json({ imported: chosen.length, credentials: mode === 'create' ? credentialRows : [], undoToken });
-    } catch (error: any) { res.status(500).json({ message: error?.message || 'Импорт не выполнен' }); }
+    } catch (error: any) {
+      const conflict = error?.status === 409 || ['P2002', 'P2034', 'P2028'].includes(error?.code);
+      res.status(conflict ? 409 : 500).json({ message: conflict
+        ? 'Список сотрудников изменился во время импорта. Повторите предпросмотр.'
+        : 'Импорт не выполнен. Изменения партии не сохранены.' });
+    }
   });
 
   app.post('/api/users/import/undo', async (req: Request, res: Response) => {

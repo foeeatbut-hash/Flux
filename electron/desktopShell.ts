@@ -1,17 +1,13 @@
 import { app, BrowserWindow, ipcMain, screen, type IpcMainInvokeEvent } from 'electron';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import {
   SHELL_DESKTOP_CHANGED, SHELL_DESKTOP_OPEN, SHELL_DESKTOP_SNAPSHOT,
   type ShellDesktopActionResult, type ShellDesktopSnapshot,
 } from '../filesystem/shellDesktop';
-import { NATIVE_DESKTOP_SCRIPT } from './nativeDesktopSource';
+import { runNativeDesktopScript } from './nativeDesktopRunner';
 import type { WindowsFileRef } from '../filesystem/contracts';
 import type { WindowsFilesService } from './filesystem/service';
 
-const runFile = promisify(execFile);
-const ENCODED_SCRIPT = Buffer.from(NATIVE_DESKTOP_SCRIPT, 'utf16le').toString('base64');
 export interface NativeDesktopItem {
   nativeId: string; name: string; kind: 'file' | 'directory' | 'shortcut' | 'virtual';
   x: number; y: number; icon: { base64: string; width: number; height: number } | null;
@@ -118,11 +114,7 @@ export class DesktopShellService {
 }
 
 async function runNativeDesktop(action: 'snapshot' | 'open' | 'public-desktop', nativeId?: string): Promise<unknown> {
-  const result = await runFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', ENCODED_SCRIPT], {
-    env: { ...process.env, FLUX_DESKTOP_ACTION: action, FLUX_DESKTOP_ITEM: nativeId || '' },
-    windowsHide: true, timeout: 25000, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8',
-  });
-  return JSON.parse(result.stdout.replace(/^\uFEFF/, '').trim());
+  return runNativeDesktopScript(action, nativeId);
 }
 
 export async function windowsPublicDesktopFolder(): Promise<string | null> {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Download, FileSpreadsheet, Upload } from 'lucide-react';
 import { Btn, Dialog, Select } from '../ui';
@@ -32,6 +32,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [credentials, setCredentials] = useState<Array<{ symbol: string; password: string }> | null>(null);
+  const [credentialsDownloaded, setCredentialsDownloaded] = useState(false);
   const [undoToken, setUndoToken] = useState('');
   const [appliedCount, setAppliedCount] = useState<number | null>(null);
   const selectable = useMemo(() => preview.filter((r) => !r.error).map((r) => r.row), [preview]);
@@ -46,23 +47,31 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
       const age = saved ? Date.now() - saved.savedAt : Infinity;
       if (saved && typeof saved.token === 'string' && saved.token && Number.isFinite(saved.savedAt) && age >= 0 && age < UNDO_LIFETIME) {
         setUndoToken(saved.token);
-      } else localStorage.removeItem(storageKey);
-    } catch { localStorage.removeItem(storageKey); }
+      } else { try { localStorage.removeItem(storageKey); } catch { /* Недоступное хранилище не мешает импорту. */ } }
+    } catch { try { localStorage.removeItem(storageKey); } catch { /* Недоступное хранилище не мешает импорту. */ } }
   }, [storageKey]);
 
+  const previousActor = useRef(actorId);
   useEffect(() => {
-    if (!paneId) return;
+    if (previousActor.current === actorId) return;
+    previousActor.current = actorId;
+    setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null); setUndoToken('');
+    setMatrix([]); setHeaders([]); setMapping({}); setPreview([]); setSelected([]);
+  }, [actorId]);
+
+  useEffect(() => {
+    if (!paneId.startsWith('win:')) return;
     return guardClose(paneId.slice(4), async () => {
       if (busy) return false;
-      if (!credentials?.length) return true;
+      if (!credentials?.length || credentialsDownloaded) return true;
       return useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'Если закрыть окно, начальные пароли исчезнут и повторно не покажутся. Закрыть окно?', { confirmLabel: 'Закрыть', tone: 'danger' });
     });
-  }, [paneId, busy, credentials]);
+  }, [paneId, busy, credentials, credentialsDownloaded]);
 
   const clearPreview = () => { setPreview([]); setSelected([]); };
   const requestClose = async () => {
     if (busy) return;
-    if (credentials?.length) {
+    if (credentials?.length && !credentialsDownloaded) {
       const confirmed = await useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'Если закрыть окно, начальные пароли исчезнут и повторно не покажутся. Закрыть окно?', { confirmLabel: 'Закрыть', tone: 'danger' });
       if (!confirmed) return;
     }
@@ -71,11 +80,11 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
 
   const loadFile = async (file?: File) => {
     if (!file || busy) return;
-    if (credentials?.length) {
+    if (credentials?.length && !credentialsDownloaded) {
       const confirmed = await useModalStore.getState().openConfirm('Не скачаны начальные пароли', 'При замене файла текущие начальные пароли исчезнут. Сначала скачайте их или подтвердите замену.', { confirmLabel: 'Заменить файл', tone: 'danger' });
       if (!confirmed) return;
     }
-    setBusy(true); setError(''); setMatrix([]); setHeaders([]); setMapping({}); clearPreview(); setCredentials(null); setAppliedCount(null);
+    setBusy(true); setError(''); setMatrix([]); setHeaders([]); setMapping({}); clearPreview(); setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null);
     if (file.size > 10 * 1024 * 1024) { setError('Файл больше 10 МБ'); setBusy(false); return; }
     try {
       const bytes = await file.arrayBuffer();
@@ -110,7 +119,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
       const r = await fetch('/api/users/import/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: matrix, mapping, selected, mode, defaultRole }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.message || 'Импорт не выполнен');
       const token = body.undoToken || '';
-      setCredentials(body.credentials || []); setUndoToken(token); setAppliedCount(body.imported ?? 0);
+      setCredentials(body.credentials || []); setCredentialsDownloaded(false); setUndoToken(token); setAppliedCount(body.imported ?? 0);
       if (token && storageKey) {
         try { localStorage.setItem(storageKey, JSON.stringify({ token, savedAt: Date.now() } satisfies SavedUndo)); }
         catch { /* Серверная отмена доступна до закрытия окна, даже если хранилище браузера недоступно. */ }
@@ -126,8 +135,8 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
     try {
       const r = await fetch('/api/users/import/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ undoToken }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.message || 'Отмена не выполнена');
-      if (storageKey) localStorage.removeItem(storageKey);
-      setUndoToken(''); setCredentials(null); setAppliedCount(null); setPreview([]); setSelected([]); onComplete();
+      if (storageKey) { try { localStorage.removeItem(storageKey); } catch { /* Повтор отмены больше не нужен после ответа сервера. */ } }
+      setUndoToken(''); setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null); setPreview([]); setSelected([]); onComplete();
     } catch (e: any) { setError(e?.message || 'Отмена не выполнена'); }
     finally { setBusy(false); }
   };
@@ -138,7 +147,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
     const csv = '\uFEFF' + ['Табельный номер;Начальный пароль', ...credentials.map((c) => `${cell(c.symbol)};${cell(c.password)}`)].join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a'); a.href = url; a.download = 'Начальные-пароли-сотрудников.csv'; a.click(); URL.revokeObjectURL(url);
-    setCredentials(null);
+    setCredentialsDownloaded(true);
   };
   const downloadTemplate = () => {
     const book = XLSX.utils.book_new();
@@ -150,8 +159,8 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
     <div className="space-y-4">
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center"><Btn disabled={busy} onClick={downloadTemplate}><FileSpreadsheet />Скачать шаблон XLSX</Btn><label className={`fx-btn ${busy ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}><Upload />Выбрать XLSX или CSV<input type="file" accept=".xlsx,.xls,.csv" disabled={busy} className="hidden" onChange={(e) => { void loadFile(e.target.files?.[0]); e.currentTarget.value = ''; }} /></label><span className="text-xs text-slate-500 dark:text-slate-400">До 5000 строк и 10 МБ. Пароли не отправляются в журналы.</span></div>
       {headers.length > 0 && <>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="fx-field"><span className="fx-label">Действие</span><select disabled={busy} className="fx-input" value={mode} onChange={(e) => { setMode(e.target.value as any); clearPreview(); }}><option value="create">Создать новых сотрудников</option><option value="update">Обновить существующих по логину</option></select></label><label className="fx-field"><span className="fx-label">Роль по умолчанию для новых строк</span><Select disabled={busy} value={defaultRole} onChange={(value) => { setDefaultRole(value); clearPreview(); }} options={roleOptions} /></label></div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{fields.map(({ key, label }) => <label key={key} className="fx-field"><span className="fx-label">{label}{['symbol', 'name', 'lastName', 'firstName'].includes(key) ? ' *' : ''}</span><select disabled={busy} className="fx-input" value={mapping[key] ?? ''} onChange={(e) => { setMapping((m) => ({ ...m, [key]: e.target.value === '' ? undefined : Number(e.target.value) })); clearPreview(); }}><option value="">Не использовать</option>{headers.map((h, i) => <option key={`${i}-${h}`} value={i}>{h}</option>)}</select></label>)}</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="fx-field"><span className="fx-label">Действие</span><select disabled={busy || appliedCount !== null} className="fx-input" value={mode} onChange={(e) => { setMode(e.target.value as any); clearPreview(); }}><option value="create">Создать новых сотрудников</option><option value="update">Обновить существующих по логину</option></select></label><label className="fx-field"><span className="fx-label">Роль по умолчанию для новых строк</span><Select disabled={busy || appliedCount !== null} value={defaultRole} onChange={(value) => { setDefaultRole(value); clearPreview(); }} options={roleOptions} /></label></div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{fields.map(({ key, label }) => <label key={key} className="fx-field"><span className="fx-label">{label}{['symbol', 'name', 'lastName', 'firstName'].includes(key) ? ' *' : ''}</span><select disabled={busy || appliedCount !== null} className="fx-input" value={mapping[key] ?? ''} onChange={(e) => { setMapping((m) => ({ ...m, [key]: e.target.value === '' ? undefined : Number(e.target.value) })); clearPreview(); }}><option value="">Не использовать</option>{headers.map((h, i) => <option key={`${i}-${h}`} value={i}>{h}</option>)}</select></label>)}</div>
         {preview.length > 0 && <><div className="text-sm text-slate-600 dark:text-slate-300">Строк к импорту: {preview.length}; корректных: {selectable.length}. Пустые ячейки при обновлении сохраняют прежние значения.</div><div className="max-h-72 overflow-auto rounded border border-slate-200 dark:border-slate-700"><table className="fx-table min-w-[640px]"><thead><tr><th><input aria-label="Выбрать все корректные строки" type="checkbox" disabled={busy || appliedCount !== null} checked={selected.length === selectable.length && selectable.length > 0} onChange={(e) => setSelected(e.target.checked ? selectable : [])} /></th><th>Строка</th><th>Логин</th><th>Сотрудник</th><th>Роль доступа</th><th>Результат</th></tr></thead><tbody>{preview.map((r) => <tr key={r.row}><td><input type="checkbox" aria-label={`Выбрать строку ${r.row}`} disabled={busy || !!r.error || appliedCount !== null} checked={selected.includes(r.row)} onChange={(e) => setSelected((s) => e.target.checked ? [...s, r.row] : s.filter((n) => n !== r.row))} /></td><td>{r.row}</td><td>{r.values.symbol}</td><td>{r.values.name || [r.values.lastName, r.values.firstName, r.values.middleName].filter(Boolean).join(' ')}</td><td>{r.values.role}</td><td className={r.error ? 'text-rose-600 dark:text-rose-400' : ''}>{r.error || (r.action === 'update' ? 'Обновить' : 'Создать')}</td></tr>)}</tbody></table></div></>}
       </>}
       {credentials?.length ? <p className="rounded bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">Создано сотрудников: {credentials.length}. Скачайте CSV с начальными паролями сейчас: повторно они не показываются.</p> : null}

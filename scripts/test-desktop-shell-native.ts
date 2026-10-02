@@ -59,8 +59,11 @@ async function main() {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-shell-ref-'));
   let files: WindowsFilesService | undefined;
   try {
-    const desktop = path.join(fixture, 'desktop'), shared = path.join(fixture, 'public-desktop'), outside = path.join(fixture, 'outside');
-    await Promise.all([desktop, shared, outside].map(folder => fs.mkdir(folder)));
+    const desktopInput = path.join(fixture, 'desktop'), sharedInput = path.join(fixture, 'public-desktop'), outsideInput = path.join(fixture, 'outside');
+    await Promise.all([desktopInput, sharedInput, outsideInput].map(folder => fs.mkdir(folder)));
+    // Service roots are persisted through realpath; use those same canonical paths
+    // for Shell fixture inputs on Windows, where temp paths may use an 8.3 alias.
+    const [desktop, shared, outside] = await Promise.all([desktopInput, sharedInput, outsideInput].map(folder => fs.realpath(folder)));
     const actual = path.join(desktop, 'Документ.md'), common = path.join(shared, 'Общий.md'), privateFile = path.join(outside, 'private.md');
     await Promise.all([fs.writeFile(actual, 'физический оригинал'), fs.writeFile(common, 'общий оригинал'), fs.writeFile(privateFile, 'вне корней')]);
     files = await WindowsFilesService.create({ userData: path.join(fixture, 'state'), knownFolders: { desktop },
