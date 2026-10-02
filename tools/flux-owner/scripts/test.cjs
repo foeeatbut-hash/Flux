@@ -251,7 +251,8 @@ async function main() {
         password: 'temporary-failed-install-password',
       });
     } catch (error) { localInstallError = error; }
-    assert.equal(localInstallError?.code, 'ENOTDIR');
+    // mkdir под обычным файлом: Windows возвращает EEXIST, Linux — ENOTDIR.
+    assert.ok(['ENOTDIR', 'EEXIST'].includes(localInstallError?.code));
     assert.deepEqual(await fs.readFile(failedParent), preservedParentBytes);
     const retainedKits = await fs.readdir(failedSetupFolder);
     assert.equal(retainedKits.length, 1);
