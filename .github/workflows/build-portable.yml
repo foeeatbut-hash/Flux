@@ -63,6 +63,9 @@ jobs:
       - name: Сборка фронтенда и сервера
         run: npm run build
 
+      - name: Проверка типов
+        run: npm run lint
+
       - name: Сборка Electron
         run: npm run build:electron
 

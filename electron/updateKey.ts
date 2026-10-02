@@ -10,4 +10,4 @@
  * обновления: неподписанное обновление — это exe от любого, кто дотянулся до
  * сервера или базы, и «пока ключа нет, пускаем всё» было бы той же дырой.
  */
-export const UPDATE_PUBLIC_KEY_HEX = '';
+export const UPDATE_PUBLIC_KEY_HEX = '228a6cf405eb3bac95af8d566945e9c59be18e231b38f10f0ef54cff420c9963';
