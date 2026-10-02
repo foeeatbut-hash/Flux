@@ -29,10 +29,11 @@ jobs:
         run: npm ci
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
-          node --import tsx scripts/test-windows-files.ts
-          node --import tsx scripts/test-desktop-shell-native.ts
-          node --import tsx scripts/test-windows-notifications.ts
-          node --import tsx scripts/test-native-desktop-compile.ts
+          $checks = @('test-windows-files', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          foreach ($check in $checks) {
+            node --import tsx "scripts/$check.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Компиляция компонента уведомлений и проверка MSIX
         shell: powershell
         run: tools/windows-notification-bridge/build.ps1 -OutputDirectory "$env:RUNNER_TEMP\flux-notifications"
@@ -40,4 +41,3 @@ jobs:
         with:
           name: Windows-notification-bridge-unsigned
           path: ${{ runner.temp }}/flux-notifications/Flux.NotificationBridge.msix
-

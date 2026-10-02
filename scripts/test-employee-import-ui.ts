@@ -24,6 +24,17 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     });
     await page.goto(`${BASE}/scripts/fixtures/employee-import-ui.html`);
     await page.getByRole('dialog', { name: 'Импорт сотрудников' }).waitFor();
+    await page.evaluate(() => {
+      const click = HTMLAnchorElement.prototype.click;
+      const createObjectURL = URL.createObjectURL;
+      HTMLAnchorElement.prototype.click = function () { (window as any).__download = { href: this.href, name: this.download }; };
+      URL.createObjectURL = (blob: Blob) => { (window as any).__downloadBlob = blob; return createObjectURL.call(URL, blob); };
+    });
+    await page.getByRole('button', { name: 'Скачать шаблон XLSX' }).click();
+    const templateBytes = await page.evaluate(async () => Array.from(new Uint8Array(await (window as any).__downloadBlob.arrayBuffer())));
+    const template = XLSX.read(Uint8Array.from(templateBytes), { type: 'array' });
+    const templateHeader = XLSX.utils.sheet_to_json<string[]>(template.Sheets[template.SheetNames[0]], { header: 1 })[0] || [];
+    ok('Шаблон XLSX содержит заголовок «Электронная почта»', templateHeader.includes('Электронная почта'));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['Табельный номер', 'Фамилия', 'Имя', 'Электронная почта'], ['001', 'Иванов', 'Иван', 'ivan@example.ru']]), 'Сотрудники');
     const file = { name: 'employees.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) };
@@ -37,6 +48,7 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
 
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
     await page.getByRole('row', { name: /Иван Иванов/ }).waitFor();
+    await page.screenshot({ path: '/tmp/employee-import-light.png' });
     ok('Предпросмотр получает файл и сопоставления', requests.some((r) => r.url.endsWith('/preview') && r.body.mapping.email === 3));
     await page.getByRole('button', { name: /Импортировать 1/ }).click();
     await page.getByText(/Создано сотрудников: 1/).waitFor();
@@ -56,13 +68,6 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.getByRole('button', { name: 'Отмена' }).click();
     ok('Замена файла также требует подтверждения и сохраняет пароли при отмене', await page.getByText(/Создано сотрудников: 1/).isVisible());
 
-    await page.evaluate(() => {
-      const click = HTMLAnchorElement.prototype.click;
-      const createObjectURL = URL.createObjectURL;
-      HTMLAnchorElement.prototype.click = function () { (window as any).__download = { href: this.href, name: this.download }; };
-      URL.createObjectURL = (blob: Blob) => { (window as any).__downloadBlob = blob; return createObjectURL.call(URL, blob); };
-      (window as any).__restoreAnchorClick = () => { HTMLAnchorElement.prototype.click = click; };
-    });
     await page.getByRole('button', { name: 'Скачать пароли CSV' }).click();
     const csv = await page.evaluate(async () => await (window as any).__downloadBlob.text());
     ok('CSV выгружает пароль без записи в localStorage', csv.includes('Start-Password-42') && await page.evaluate(() => !JSON.stringify(localStorage).includes('Start-Password-42')));
@@ -75,9 +80,11 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     const restoredUndo = await undoButton.waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
     ok(`При повторном открытии восстанавливается кнопка отмены импорта (есть token: ${await page.evaluate(() => !!localStorage.getItem('flux_employee_import_undo_employee-ui-actor'))})`, restoredUndo);
     await page.getByRole('button', { name: 'Отменить импорт' }).click();
-    await page.getByRole('status').waitFor();
+    await page.getByRole('button', { name: 'Отменить импорт' }).waitFor({ state: 'detached' });
     ok('Восстановленный токен принимается серверным undo endpoint', requests.some((r) => r.url.endsWith('/undo') && r.body.undoToken === 'opaque-undo-token') && await page.evaluate(() => localStorage.getItem('flux_employee_import_undo_employee-ui-actor') === null));
 
+    await page.locator('input[type=file]').setInputFiles(file);
+    await field(page, 'Роль по умолчанию для новых строк').waitFor();
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
     await page.getByRole('row', { name: /Иван Иванов/ }).waitFor();
     await page.evaluate(() => {
@@ -86,13 +93,14 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
       (window as any).__restoreStorage = () => { Storage.prototype.setItem = original; };
     });
     await page.getByRole('button', { name: /Импортировать 1/ }).click();
-    await page.getByRole('status').waitFor();
-    ok('Сбой localStorage не превращает успешный серверный импорт в ошибку', await page.getByRole('status').isVisible() && await page.getByRole('alert').count() === 0);
+    await page.getByText(/Создано сотрудников: 1/).waitFor();
+    ok('Сбой localStorage не превращает успешный серверный импорт в ошибку', await page.getByText(/Создано сотрудников: 1/).isVisible() && await page.getByRole('alert').count() === 0);
     await page.evaluate(() => (window as any).__restoreStorage());
 
     await page.setViewportSize({ width: 1280, height: 820 });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     ok('Диалог остаётся в пределах широкого viewport в тёмной теме', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.classList.contains('dark')));
+    await page.screenshot({ path: '/tmp/employee-import-dark.png' });
     ok('Нет ошибок React или браузера', errors.length === 0);
   } finally { await browser.close(); }
   console.log(`${passed} passed, ${failed} failed`);

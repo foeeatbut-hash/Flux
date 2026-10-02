@@ -55,7 +55,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
   useEffect(() => {
     if (previousActor.current === actorId) return;
     previousActor.current = actorId;
-    setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null); setUndoToken('');
+    setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null);
     setMatrix([]); setHeaders([]); setMapping({}); setPreview([]); setSelected([]);
   }, [actorId]);
 
@@ -103,10 +103,12 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
   };
 
   const runPreview = async () => {
+    const requestActor = actorId;
     setBusy(true); setError('');
     try {
       const r = await fetch('/api/users/import/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: matrix, mapping, mode, defaultRole }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.message || 'Предпросмотр не выполнен');
+      if (useStore.getState().user?.id !== requestActor) return;
       setPreview(body.rows); setSelected(body.rows.filter((x: PreviewRow) => !x.error).map((x: PreviewRow) => x.row));
     } catch (e: any) { setError(e?.message || 'Предпросмотр не выполнен'); }
     finally { setBusy(false); }
@@ -114,10 +116,12 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
 
   const apply = async () => {
     if (!selected.length || appliedCount !== null) return;
+    const requestActor = actorId;
     setBusy(true); setError('');
     try {
       const r = await fetch('/api/users/import/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: matrix, mapping, selected, mode, defaultRole }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.message || 'Импорт не выполнен');
+      if (useStore.getState().user?.id !== requestActor) return;
       const token = body.undoToken || '';
       setCredentials(body.credentials || []); setCredentialsDownloaded(false); setUndoToken(token); setAppliedCount(body.imported ?? 0);
       if (token && storageKey) {
@@ -131,10 +135,12 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
 
   const undo = async () => {
     if (!undoToken) return;
+    const requestActor = actorId;
     setBusy(true); setError('');
     try {
       const r = await fetch('/api/users/import/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ undoToken }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.message || 'Отмена не выполнена');
+      if (useStore.getState().user?.id !== requestActor) return;
       if (storageKey) { try { localStorage.removeItem(storageKey); } catch { /* Повтор отмены больше не нужен после ответа сервера. */ } }
       setUndoToken(''); setCredentials(null); setCredentialsDownloaded(false); setAppliedCount(null); setPreview([]); setSelected([]); onComplete();
     } catch (e: any) { setError(e?.message || 'Отмена не выполнена'); }

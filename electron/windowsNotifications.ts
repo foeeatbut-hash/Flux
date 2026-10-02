@@ -102,14 +102,20 @@ async function locatePackage(): Promise<PackageLocation | null> {
 export async function readWindowsNotificationsFile(location: PackageLocation): Promise<string> {
   if (!FAMILY.test(location.familyName)) throw new Error('Неподдерживаемый пакет.');
   const relative = `Packages/${location.familyName}/LocalState/notifications.json`;
-  const filename = await resolveSafePath(location.localAppData, relative);
+  // Known Folder может содержать короткое имя Windows (RUNNER~1). Это
+  // исходный доверенный корень, его канонизация предшествует обходу пакета.
+  if ((await fs.lstat(location.localAppData)).isSymbolicLink()) throw new Error('Корень LocalAppData заменён ссылкой.');
+  const root = await fs.realpath(location.localAppData);
+  const filename = await resolveSafePath(root, relative);
   const file = await fs.open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
     const before = await file.stat({ bigint: true });
     if (!before.isFile() || before.size > BigInt(MAX_BYTES)) throw new Error('Некорректный снимок.');
     const bytes = await file.readFile();
     if (bytes.byteLength > MAX_BYTES) throw new Error('Снимок слишком велик.');
-    await resolveSafePath(location.localAppData, relative);
+    if ((await fs.lstat(location.localAppData)).isSymbolicLink() || await fs.realpath(location.localAppData) !== root)
+      throw new Error('Корень LocalAppData изменился во время чтения.');
+    await resolveSafePath(root, relative);
     const after = await file.stat({ bigint: true }), named = await fs.lstat(filename, { bigint: true });
     if (before.ino !== named.ino || before.dev !== named.dev || before.mtimeNs !== after.mtimeNs || before.size !== after.size)
       throw new Error('Снимок изменился во время чтения.');

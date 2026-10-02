@@ -102,7 +102,9 @@ async function main() {
   trusted = true; licensed = false;
   await assert.rejects(() => handlers.get(SHELL_DESKTOP_OPEN)!({ sender }, key), /Войдите/); count++;
   licensed = true;
-  check('Разрешённый IPC на Linux сообщает ограничение платформы', (await handlers.get(SHELL_DESKTOP_SNAPSHOT)!({ sender })).status === 'unsupported');
+  if (process.platform !== 'win32') {
+    check('Разрешённый IPC вне Windows сообщает ограничение платформы', (await handlers.get(SHELL_DESKTOP_SNAPSHOT)!({ sender })).status === 'unsupported');
+  }
   app.emit('will-quit');
   check('При выходе снимаются наблюдения за экранами', screen.listenerCount('display-metrics-changed') === 0);
   console.log(`\nПроверено ${count} сценариев моста Shell Windows.`);
