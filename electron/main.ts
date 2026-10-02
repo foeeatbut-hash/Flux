@@ -33,7 +33,9 @@ const APPLY = parseApplyArgs(process.argv);
 const COMPANY_SERVER = process.argv.includes('--flux-company-server');
 
 const additionalData = { myKey: 'pdm-system' };
-if (!APPLY) {
+// Локальный API для владельца должен работать рядом с обычным Flux —
+// общая блокировка одного экземпляра здесь завершила бы серверный процесс.
+if (!APPLY && !COMPANY_SERVER) {
   const gotTheLock = app.requestSingleInstanceLock(additionalData);
   if (!gotTheLock) {
     app.quit();

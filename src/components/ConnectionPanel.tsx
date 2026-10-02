@@ -15,7 +15,7 @@ const isDatabaseUri = (value: string) => /^(mysql|mariadb|postgres|postgresql):\
 export default function ConnectionPanel() {
   const [serverUrl] = useState(() => getConfiguredServerUrl());
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<ConnectionMode>(() => isDatabaseUri(serverUrl) ? 'database' : 'server');
+  const [mode, setMode] = useState<ConnectionMode>(() => isDatabaseUri(serverUrl) || !serverUrl ? 'database' : 'server');
   const [draft, setDraft] = useState(serverUrl);
   const [busy, setBusy] = useState(false);
   const [pendingRestart, setPendingRestart] = useState(false);
@@ -82,11 +82,11 @@ export default function ConnectionPanel() {
         <button type="button" className="fx-seg" aria-pressed={mode === 'database'} disabled={busy || pendingRestart} onClick={() => switchMode('database')}><Database className="w-4 h-4" />Общая база данных</button>
       </div>
       <label className="fx-field block"><span className="fx-label block mb-1">{mode === 'server' ? 'Адрес сервера Flux' : 'URI общей базы данных'}</span>
-        <input className="fx-input w-full font-mono" type={mode === 'database' ? 'password' : 'text'} value={draft} autoFocus spellCheck={false} autoComplete={mode === 'database' ? 'new-password' : 'off'} disabled={busy || pendingRestart} placeholder={mode === 'server' ? 'https://flux.company.ru' : 'mysql://… или postgresql://…'} onChange={e => updateDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !busy && !pendingRestart) void connect(); }} />
+        <input className="fx-input w-full font-mono" type={mode === 'database' ? 'password' : 'text'} value={draft} autoFocus spellCheck={false} autoComplete={mode === 'database' ? 'new-password' : 'off'} disabled={busy || pendingRestart} placeholder={mode === 'server' ? 'https://flux.company.ru' : 'mysql://USER:PASSWORD@HOST:3306/Flux'} onChange={e => updateDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !busy && !pendingRestart) void connect(); }} />
       </label>
       <p className="fx-hint">{mode === 'server'
         ? 'Укажите HTTPS-адрес работающего сервера Flux. Он должен быть уже подключён к базе компании.'
-        : 'Flux сохранит адрес общей базы для встроенного сервера. Проверка доступности не выполняется; при запуске сервер сверит схему.'}</p>
+        : 'В общей базе компании работает MariaDB: её URI начинается с mysql://, порт обычно 3306. Flux сохранит адрес для встроенного сервера; при запуске он проверит схему.'}</p>
       {mode === 'server' && <details className="text-xs text-slate-600 dark:text-slate-400"><summary className="cursor-pointer">Как проверить сервер компании</summary><p className="pt-2 leading-relaxed">Откройте в браузере адрес сервера с окончанием /api/health. Рабочий сервер Flux возвращает ok: true и номер version.</p></details>}
       {error && <p className="fx-error" role="alert">{error}</p>}
       {pendingRestart && <p className="fx-hint" role="status">Настройки сохранены. Перезапустите Flux, чтобы применить их.</p>}

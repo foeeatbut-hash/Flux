@@ -1,8 +1,8 @@
 {
-  "name": "flux-owner", "version": "1.1.0", "private": true,
+  "name": "flux-owner", "version": "1.2.1", "private": true,
   "description": "Локальная программа владельца Flux", "author": "Flux",
   "main": "dist/main.cjs", "scripts": {
-    "build": "node scripts/build.cjs", "test": "node scripts/test.cjs", "start": "npm run build && electron .",
+    "build": "node scripts/build.cjs", "test": "node scripts/test.cjs && node scripts/test-database-runtime.cjs", "start": "npm run build && electron .",
     "portable": "npm run build && electron-builder --win portable -c.npmRebuild=false"
   }, "devDependencies": { "electron": "41.7.2", "electron-builder": "26.8.1", "esbuild": "0.25.12" },
   "build": { "appId": "ru.flux.owner", "productName": "Flux Владелец", "directories": {"output":"release"}, "files": ["dist/**","ui/**","package.json"], "win":{"target":[{"target":"portable","arch":["x64"]}], "artifactName":"Flux-Owner-${version}-${arch}.${ext}"}, "portable":{"requestExecutionLevel":"user"} }

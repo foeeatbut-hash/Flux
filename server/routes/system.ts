@@ -55,10 +55,12 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
   // Готовность сервера и его версия: сервер компании обновляют отдельно, и
   // программа должна сама заметить, что он старее её (см. server/presence.ts)
   app.get('/api/health', async (_req: Request, res: Response) => {
+    const databaseMode = loadAppConfig().current_db_type;
+    const dialect = getDialect();
     try {
       const needsSetup = await getPrisma().user.count() === 0;
-      res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion, needsSetup });
-    } catch (_) { res.status(503).json({ ok: false, version: appVersion, needsSetup: null, error: 'База временно недоступна' }); }
+      res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion, needsSetup, databaseMode, dialect });
+    } catch (_) { res.status(503).json({ ok: false, version: appVersion, needsSetup: null, databaseMode, dialect, error: 'База временно недоступна' }); }
   });
 
   // Ручная проверка/обновление структуры базы (только администратор). Проходит
