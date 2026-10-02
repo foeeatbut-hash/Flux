@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { ensureRemoteSchema, parsePrismaSchema } from '../server/schema-sync';
 
 let ok = 0, fail = 0;
@@ -36,6 +37,7 @@ const uniqueSets = (db: Database.Database, table: string) =>
 
 const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
 const dir = mkdtempSync(join(tmpdir(), 'flux-schema-sync-'));
+const require = createRequire(import.meta.url);
 const logs: string[] = [];
 const log = (m: string) => logs.push(m);
 
@@ -105,6 +107,28 @@ async function main() {
     .filter(({ table, key }) => !uniqueSets(fresh, table).includes(key))
     .map(({ table, key }) => `${table}(${key})`);
   eq('ни один составной ключ схемы не потерян', missing, []);
+
+  console.log('\n7. Неявные связи Prisma работают в новой базе');
+  const joins = models.filter(model => model.name.startsWith('_'));
+  eq('четыре таблицы связей найдены', joins.map(model => model.name).sort(),
+    ['_ComponentElementToTag', '_FileAdditionalTags', '_FileMainTags', '_GroupMembers']);
+  for (const join of joins) {
+    eq(`${join.name}: уникальный ключ A,B`, uniqueSets(fresh, join.name).includes('A,B'), true);
+    eq(`${join.name}: два каскадных внешних ключа`,
+      (fresh.prepare(`PRAGMA foreign_key_list("${join.name}")`).all() as any[]).filter(fk => fk.on_delete === 'CASCADE' && fk.on_update === 'CASCADE').length, 2);
+  }
+  const { PrismaClient } = require('@prisma/client-sqlite');
+  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+  const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${join(dir, 'fresh.sqlite')}` }) });
+  try {
+    const user = await prisma.user.create({ data: { symbol: 'fixture-member', name: 'Fixture', password: 'fixture-explicit-hash' } });
+    const group = await prisma.chatGroup.create({ data: { name: 'Fixture group', members: { connect: { id: user.id } } } });
+    const read = await prisma.user.findUnique({ where: { id: user.id }, include: { chatGroups: true } });
+    eq('Prisma читает связанную группу', read.chatGroups.map((g: any) => g.id), [group.id]);
+    await prisma.user.delete({ where: { id: user.id } });
+    eq('удаление сотрудника очищает только его связь', (fresh.prepare('SELECT COUNT(*) AS n FROM _GroupMembers').get() as any).n, 0);
+    eq('группа сохранена', await prisma.chatGroup.count(), 1);
+  } finally { await prisma.$disconnect(); }
 
   db.close(); dup.close(); fresh.close();
 }

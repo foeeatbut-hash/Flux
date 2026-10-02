@@ -42,9 +42,17 @@ export const useLogStore = create<LogState>((set, get) => ({
     // В подробную запись уходит место и кадры стека, но НЕ текст сообщения:
     // в нём бывает имя документа, строка поиска и ответ сервера целиком
     if (type !== 'INFO') {
-      const frames = String(stack || '').split('\n').slice(1, 4).map((l) => l.trim());
+      const stackLines = String(stack || '').split('\n');
+      const frames = stackLines.slice(1, 4).map((l) => l.trim());
+      // Keep only conventional runtime names and strongly shaped error codes.
+      // The message and arbitrary error text never enter diagnostics.
+      const header = stackLines[0] || '';
+      const error = /^(?:([A-Za-z]+Error|Error|AbortError|DOMException))(?::|$)/.exec(header)?.[1];
+      const code = /\b(P\d{4}|ERR_[A-Z0-9_]{2,32}|E[A-Z]{2,16})\b/.exec(header)?.[1];
       diagnostic(type === 'ERROR' ? 'log.error' : 'log.warn', {
         context,
+        ...(error ? { error } : {}),
+        ...(code ? { code } : {}),
         ...(frames[0] ? { frame1: frames[0] } : {}),
         ...(type === 'ERROR' && frames[1] ? { frame2: frames[1] } : {}),
         ...(type === 'ERROR' && frames[2] ? { frame3: frames[2] } : {}),

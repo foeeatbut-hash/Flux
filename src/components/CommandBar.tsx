@@ -181,7 +181,6 @@ export default function CommandBar() {
         useWindowStore.getState().open('/translate');
         return;
       }
-      case 'desk': close(); useWindowStore.getState().goToDesk(r.index); return;
       case 'remind': {
         close();
         addReminder({ at: r.at, text: r.text, href: window.location.hash.replace(/^#/, '') });

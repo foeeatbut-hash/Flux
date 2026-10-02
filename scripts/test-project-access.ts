@@ -87,6 +87,7 @@ async function main() {
   eq('обычная настройка — нет', isTrustKey('registry_link_mode'), false);
   eq('подписанты документа — служебный, но не тайна', [isServerKey('office_signers:abc'), isTrustKey('office_signers:abc')], [true, false]);
   eq('вид категории — обычный ключ', isServerKey('equip_view:AHU'), false);
+  eq('снимок отмены импорта не записывается через общие настройки', isServerKey('employee_import_batch:fixture'), true);
   eq('ключ с пробелом не проходит', validSettingKey('a b'), false);
   eq('слишком длинный ключ', validSettingKey('a'.repeat(121)), false);
   eq('ключ вида equip_view:AHU проходит', validSettingKey('equip_view:AHU'), true);

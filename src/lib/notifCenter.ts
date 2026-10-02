@@ -130,12 +130,12 @@ export function groupByDay<T extends { createdAt?: string }>(
  * поэтому лента одна, по дням, а вкладки превратились в фильтр из трёх слов:
  * посмотреть только своё можно, но по умолчанию видно всё.
  */
-export type FeedFilter = 'all' | 'personal' | 'system';
+export type FeedFilter = 'all' | 'personal' | 'system' | 'windows';
 
 export interface FeedItem {
   id: string;
   /** Личное адресовано мне, системное — событие программы или проекта */
-  kind: 'personal' | 'system';
+  kind: 'personal' | 'system' | 'windows';
   title: string;
   body: string;
   targetRoute?: string;
@@ -160,6 +160,7 @@ export function mergeFeed(
   logs: SystemLogLike[],
   filter: FeedFilter = 'all',
 ): FeedItem[] {
+  if (filter === 'windows') return [];
   const items: FeedItem[] = [];
   if (filter !== 'system') {
     for (const n of personal) {

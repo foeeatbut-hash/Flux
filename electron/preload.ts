@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { SHELL_DESKTOP_SNAPSHOT, SHELL_DESKTOP_OPEN, SHELL_DESKTOP_CHANGED } from '../filesystem/shellDesktop';
+import { NATIVE_APP_OPEN, NATIVE_APP_LIST, NATIVE_APP_ACTION, NATIVE_APP_CHANGED, NATIVE_APP_CLOSE_REQUEST, NATIVE_APP_CLOSE_REPLY, NATIVE_APP_LOCATION } from '../workspace/nativeApps';
+import { WINDOWS_NOTIFICATIONS_SNAPSHOT, WINDOWS_NOTIFICATIONS_CONSENT, WINDOWS_NOTIFICATIONS_CHANGED } from '../filesystem/windowsNotifications';
 import { INVOKE_CHANNELS, SEND_CHANNELS, LISTEN_CHANNELS, refused } from './ipcAllow';
 
 // ── Сколько окно ждало ответа от главного процесса ──────────────────────────
@@ -12,13 +15,13 @@ import { INVOKE_CHANNELS, SEND_CHANNELS, LISTEN_CHANNELS, refused } from './ipcA
 // сериализуются никогда — в них ездят содержимое документа и снимки.
 const rawInvoke = ipcRenderer.invoke.bind(ipcRenderer);
 const rawSend = ipcRenderer.send.bind(ipcRenderer);
-const spans: Array<{ channel: string; waitMs: number; ok: boolean; error?: string }> = [];
+const spans: Array<{ channel: string; waitMs: number; ok: boolean; error?: string; code?: string }> = [];
 let waiting: ReturnType<typeof setTimeout> | null = null;
 
-function noteIpc(channel: string, start: number, ok: boolean, error?: string): void {
+function noteIpc(channel: string, start: number, ok: boolean, error?: string, code?: string): void {
   try {
     if (channel.startsWith('diagnostics:')) return; // запись о записи не нужна
-    if (spans.length < 200) spans.push({ channel, waitMs: performance.now() - start, ok, ...(error ? { error } : {}) });
+    if (spans.length < 200) spans.push({ channel, waitMs: performance.now() - start, ok, ...(error ? { error } : {}), ...(code ? { code } : {}) });
     if (waiting) return;
     waiting = setTimeout(() => {
       waiting = null;
@@ -31,12 +34,30 @@ function noteIpc(channel: string, start: number, ok: boolean, error?: string): v
 (ipcRenderer as any).invoke = (channel: string, ...args: any[]) => {
   const start = performance.now();
   return rawInvoke(channel, ...args).then(
-    (result: any) => { noteIpc(channel, start, true); return result; },
+    (result: any) => {
+      // These APIs resolve business failures as values, so Promise rejection
+      // alone misses them. Inspect only the boolean contract and typed code.
+      const value = result?.data && typeof result.data === 'object' ? result.data : result;
+      const failed = (channel === 'windows-files:invoke' || channel === 'windows-office:invoke') && (value?.ok === false || value?.success === false);
+      const rawCode = value?.code ?? value?.error?.code;
+      const code = typeof rawCode === 'string' && /^(?:P\d{4}|ERR_[A-Z0-9_]{2,32}|E[A-Z]{2,16})$/.test(rawCode) ? rawCode : undefined;
+      noteIpc(channel, start, !failed, failed ? 'OperationFailed' : undefined, code);
+      return result;
+    },
     (error: any) => { noteIpc(channel, start, false, error?.name); throw error; },
   );
 };
 
 contextBridge.exposeInMainWorld('electron', {
+  windowsNotifications: {
+    snapshot: () => ipcRenderer.invoke(WINDOWS_NOTIFICATIONS_SNAPSHOT),
+    requestConsent: () => ipcRenderer.invoke(WINDOWS_NOTIFICATIONS_CONSENT),
+    onChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(WINDOWS_NOTIFICATIONS_CHANGED, listener);
+      return () => ipcRenderer.removeListener(WINDOWS_NOTIFICATIONS_CHANGED, listener);
+    },
+  },
   windowsFiles: {
     invoke: (request: unknown) => ipcRenderer.invoke('windows-files:invoke', request),
     onChanged: (callback: (change: unknown) => void) => {
@@ -53,9 +74,36 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('windows-office:event', listener);
     },
   },
+  desktopShell: {
+    snapshot: () => ipcRenderer.invoke(SHELL_DESKTOP_SNAPSHOT),
+    open: (id: string) => ipcRenderer.invoke(SHELL_DESKTOP_OPEN, id),
+    onChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(SHELL_DESKTOP_CHANGED, listener);
+      return () => ipcRenderer.removeListener(SHELL_DESKTOP_CHANGED, listener);
+    },
+  },
+  nativeApps: {
+    open: (href: string) => ipcRenderer.invoke(NATIVE_APP_OPEN, href),
+    list: () => ipcRenderer.invoke(NATIVE_APP_LIST),
+    location: (id: string, href: string) => ipcRenderer.invoke(NATIVE_APP_LOCATION, id, href),
+    action: (id: string, action: 'focus' | 'minimize' | 'close') => ipcRenderer.invoke(NATIVE_APP_ACTION, id, action),
+    closeReply: (id: string, accepted: boolean) => ipcRenderer.invoke(NATIVE_APP_CLOSE_REPLY, id, accepted),
+    onChanged: (callback: (windows: unknown[]) => void) => {
+      const listener = (_event: unknown, value: unknown[]) => callback(value);
+      ipcRenderer.on(NATIVE_APP_CHANGED, listener);
+      return () => ipcRenderer.removeListener(NATIVE_APP_CHANGED, listener);
+    },
+    onCloseRequest: (callback: (id: string) => void) => {
+      const listener = (_event: unknown, id: string) => callback(id);
+      ipcRenderer.on(NATIVE_APP_CLOSE_REQUEST, listener);
+      return () => ipcRenderer.removeListener(NATIVE_APP_CLOSE_REQUEST, listener);
+    },
+  },
   displays: {
     get: () => ipcRenderer.invoke('workspace:displays-get'),
     set: (enabled: boolean) => ipcRenderer.invoke('workspace:displays-set', enabled),
+    preferences: (value: { showWindowsTaskbar: boolean }) => ipcRenderer.invoke('workspace:displays-preferences', value),
     onChanged: (callback: (event: unknown) => void) => {
       const listener = (_event: unknown, value: unknown) => callback(value);
       ipcRenderer.on('workspace:displays-changed', listener);
@@ -267,7 +315,13 @@ contextBridge.exposeInMainWorld('electron', {
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
     // Вынести раздел в отдельное окно ОС (мультимонитор)
-    openWindow: (route: string) => ipcRenderer.send('window:open-main', route),
+    openWindow: (route: string) => ipcRenderer.invoke(NATIVE_APP_OPEN, route),
+    closeConfirm: (token: string, allowed: boolean) => ipcRenderer.invoke('window:close-confirm', token, allowed),
+    onCloseRequest: (callback: (token: string) => void) => {
+      const listener = (_event: unknown, token: string) => callback(token);
+      ipcRenderer.on('window:close-request', listener);
+      return () => ipcRenderer.removeListener('window:close-request', listener);
+    },
     onMaximizedChange: (callback: (val: boolean) => void) => {
       const subscription = (_event: any, val: boolean) => callback(val);
       ipcRenderer.on('window:maximized-changed', subscription);

@@ -3,6 +3,7 @@ import { LocalOfficeSessions, type LocalOfficeRequest } from './localOfficeSessi
 import type { WindowsFilesService } from './filesystem/service';
 import { WindowsFilesError } from './filesystem/paths';
 import { windowsFilesFailure } from './filesystem/ipc';
+import { recordOfficeHost } from './diagnostics';
 
 export interface LocalOfficeIpcOptions {
   files: WindowsFilesService;
@@ -17,6 +18,7 @@ export function registerLocalOfficeIpc(options: LocalOfficeIpcOptions): LocalOff
   const owners = new Set<number>();
   const manager = new LocalOfficeSessions({
     files: options.files, userData: options.userData || app.getPath('userData'), resourcesDir: options.resourcesDir,
+    onDiagnostic: recordOfficeHost,
     onEvent(owner, event) {
       const sender = webContents.fromId(owner);
       if (sender && !sender.isDestroyed()) sender.send('windows-office:event', event);
@@ -35,6 +37,6 @@ export function registerLocalOfficeIpc(options: LocalOfficeIpcOptions): LocalOff
       return { ok: true, data };
     } catch (error) { return windowsFilesFailure(error); }
   });
-  app.once('before-quit', () => { void manager.dispose(); });
+  app.once('will-quit', () => { void manager.dispose(); });
   return manager;
 }

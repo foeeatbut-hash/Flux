@@ -16,6 +16,8 @@ const state = { enabled: true, displays: [main, left, above], bounds: union, pri
 const local = localDisplayAreas(state, 48);
 equal(local[0].bounds, { x: 1280, y: 1100, w: 1920, h: 1080 }, 'Основной монитор сохраняет положение в виртуальном столе');
 equal(local[1].workArea, { x: 0, y: 900, w: 1280, h: 936 }, 'Резервированы панели Windows и Flux');
+equal(localDisplayAreas({ ...state, showWindowsTaskbar: true }, 0)[0].workArea.h, main.workArea.h, 'Обычная геометрия использует workArea Windows без резерва под скрывающуюся панель Flux');
+equal(localDisplayAreas({ ...state, showWindowsTaskbar: false }, 0)[0].workArea.h, main.bounds.h, 'Отключённая панель Windows отдаёт Flux всю физическую высоту экрана');
 equal(local[2].bounds.w, 1920, 'DIP не умножается повторно на DPI-масштаб');
 equal(displayAt(local, 10, 950)?.id, 2, 'Курсор выбирает левый монитор');
 equal(displayAt(local, 1800, 10)?.id, 3, 'Курсор выбирает монитор сверху');

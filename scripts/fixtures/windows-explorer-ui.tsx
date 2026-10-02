@@ -5,6 +5,8 @@ import WindowsExplorer from '../../src/components/explorer/WindowsExplorer';
 import WindowsDesktop from '../../src/components/desktop/WindowsDesktop';
 import '../../src/index.css';
 import { useStore } from '../../src/store/store';
+import { useDisplayStore } from '../../src/store/displayStore';
+import { useDesktopStore } from '../../src/store/desktopStore';
 import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
@@ -54,7 +56,20 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
 (window as any).__delayMetadataPath = (path: string) => { delayedMetadataPath = path; };
 (window as any).__failMetadataPath = (path: string) => { failedMetadataPath = path; };
 (window as any).__delayListPath = (path: string) => { delayedListPath = path; };
-(window as any).electron = { windowsFiles: { invoke, onChanged: () => () => undefined } };
+(window as any).__nativeAppOpenCalls = [];
+(window as any).electron = {
+  windowsFiles: { invoke, onChanged: () => () => undefined },
+  desktopShell: {
+    snapshot: async () => ({ status: 'ready', revision: 'fixture', items: [{ id: 'shell-folder', name: 'Системная папка', kind: 'directory', position: { x: -1200, y: -100 }, icon: null, monitorId: 2 }], view: { physicalBounds: { x: -1920, y: -300, width: 4800, height: 1920 }, iconSize: 32, spacing: { x: 96, y: 104 }, iconsVisible: true } }),
+    open: async () => ({ ok: true }), onChanged: () => () => undefined,
+  },
+  nativeApps: { open: async (href: string) => { (window as any).__nativeAppOpenCalls.push(href); return 'native-window-1'; }, list: async () => [], action: async () => true, onChanged: () => () => undefined },
+};
+useDisplayStore.setState({ workspace: { enabled: true, displays: [
+  { id: 2, label: 'Слева', primary: false, scaleFactor: 1.5, bounds: { x: -1280, y: -200, w: 1280, h: 1024 }, workArea: { x: -1280, y: -200, w: 1280, h: 984 } },
+  { id: 1, label: 'Основной', primary: true, scaleFactor: 1, bounds: { x: 0, y: 0, w: 1920, h: 1080 }, workArea: { x: 0, y: 0, w: 1920, h: 1040 } },
+], bounds: { x: -1280, y: -200, w: 3200, h: 1280 }, primaryId: 1, mixedScale: true, showWindowsTaskbar: true }, available: true });
+useDesktopStore.getState().pinApp('/registry');
 (window as any).fetch = async (url: string) => {
   const path = String(url);
   const body = path.includes('/tags') ? { tags: [{ id: 'tag-1', identifier: 'AHU-01' }, { id: 'tag-2', identifier: 'P-01' }] } : { projects: [{ id: 'project-1', name: 'Проект 1' }, { id: 'project-2', name: 'Проект 2' }] };
@@ -67,7 +82,7 @@ function Fixture() {
   const [desktop, setDesktop] = useState(false);
   (window as any).__showWindowsDesktop = () => setDesktop(true);
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
-    {desktop ? <WindowsDesktop /> : <div className="h-full"><LocationDebug /><WindowsExplorer /></div>}
+    {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><WindowsExplorer /></div>}
   </div>;
 }
 createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/windows-files?root=desktop-id&path=']}><Fixture /></MemoryRouter>);

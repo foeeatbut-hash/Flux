@@ -37,6 +37,7 @@
 import { randomUUID } from 'node:crypto';
 import { getPrisma, onDatabaseSwapped } from './context.js';
 import { ensureTables, getDialect, type Dialect, type TableSpec } from './ddl.js';
+import { ensureSharing, checkShareWrite, type ShareWriteGuard } from './fileSharing.js';
 
 /** Удар сердца сервера: раз в столько он отмечает своих участников */
 export const BEAT_MS = 5_000;
@@ -370,8 +371,14 @@ export class OfficeBus {
   }
 
   /** Условная правка строки сеанса; сколько строк изменилось */
-  async patchSession(where: Record<string, unknown>, data: Record<string, unknown>): Promise<number> {
-    const r = await this.prisma().officeSession.updateMany({ where, data });
+  async patchSession(where: Record<string, unknown>, data: Record<string, unknown>, guard?: ShareWriteGuard): Promise<number> {
+    const prisma = this.prisma();
+    if (guard) await ensureSharing(prisma);
+    const update = async (tx: any) => {
+      if (guard) await checkShareWrite(tx, String(where.fileId), guard);
+      return tx.officeSession.updateMany({ where, data });
+    };
+    const r = guard ? await prisma.$transaction(update) : await update(prisma);
     return r.count;
   }
 
@@ -403,10 +410,11 @@ export class OfficeBus {
    */
   async publish(fileId: string, e: {
     kind: EventKind; fromSocket?: string | null; toSocket?: string | null; data?: Uint8Array | null; app?: string;
-  }, opts: { maxSeq?: number; patch?: (seq: number) => Record<string, unknown> } = {}): Promise<number> {
+  }, opts: { maxSeq?: number; patch?: (seq: number) => Record<string, unknown>; guard?: ShareWriteGuard } = {}): Promise<number> {
     const why = await this.ready();
     if (why) throw new Error(why);
     const prisma = this.prisma();
+    if (opts.guard) await ensureSharing(prisma);
     // Строка сеанса нужна до транзакции, а не после её отказа: у SQLite запросы
     // вне транзакции выполняются внутри открытой, и созданное ими откатилось бы
     // вместе с ней (см. ensureSession)
@@ -419,6 +427,7 @@ export class OfficeBus {
     for (;;) {
       try {
         const seq: number = await prisma.$transaction(async (tx: any) => {
+          if (opts.guard) await checkShareWrite(tx, fileId, opts.guard);
           const row = await tx.officeSession.update({
             where: { fileId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date(this.now()) }, select: { lastSeq: true, key: true },
           });
@@ -710,8 +719,19 @@ export class OfficeBus {
    * первичный ключ), есть — обновление «где version прежняя». true — вышло;
    * false — опоздали: пересчитать по свежему.
    */
-  async casHolder(fileId: string, prev: number | null, next: Omit<HolderRow, 'fileId' | 'version' | 'updatedAt'> | null): Promise<boolean> {
-    const prisma = this.prisma();
+  async casHolder(fileId: string, prev: number | null, next: Omit<HolderRow, 'fileId' | 'version' | 'updatedAt'> | null, guard?: ShareWriteGuard): Promise<boolean> {
+    if (guard) {
+      const prisma = this.prisma();
+      await ensureSharing(prisma);
+      return prisma.$transaction(async (tx: any) => {
+        await checkShareWrite(tx, fileId, guard);
+        return this.writeHolder(tx, fileId, prev, next);
+      });
+    }
+    return this.writeHolder(this.prisma(), fileId, prev, next);
+  }
+
+  private async writeHolder(prisma: any, fileId: string, prev: number | null, next: Omit<HolderRow, 'fileId' | 'version' | 'updatedAt'> | null): Promise<boolean> {
     const at = new Date(this.now());
     const data = next ? {
       collab: next.collab, freed: next.freed, socketId: next.socketId, clientId: next.clientId, userId: next.userId,

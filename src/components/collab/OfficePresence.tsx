@@ -14,6 +14,7 @@ export function presenceLine(roster: OfficeRoster | null, clientId: string, mode
 } {
   const h = roster?.holder || null;
   const others = (roster?.peers || []).filter((p) => p.clientId !== clientId);
+  if (mode === 'revoked') return { text: 'Права доступа изменились: редактирование остановлено. Откройте файл заново', canTake: false };
   if (mode === 'pending') return { text: 'Подключение к серверу…', canTake: false };
   // Общий файл: правят все сразу
   if (roster?.collab) {

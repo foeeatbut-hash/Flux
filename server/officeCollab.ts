@@ -31,6 +31,7 @@
  * запишет.
  */
 import type { Socket } from 'socket.io';
+import { SHARE_WRITE_GUARD, type ShareWriteGuard } from './fileSharing.js';
 import { createHash, randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
@@ -304,6 +305,19 @@ export class CollabShared {
     if (!q.running) void this.flush(fileId, q);
   }
 
+  /** Сначала право и журнал одной транзакцией: отозванное окно не меняет даже память сервера. */
+  async accept(fileId: string, socketId: string, u: Uint8Array, guard: ShareWriteGuard): Promise<boolean> {
+    const s = this.book.get(fileId);
+    if (!s) throw Error('Сеанс документа не открыт');
+    // Проверка формата на отдельном документе не портит рабочий при отказе базы.
+    const probe = new Y.Doc();
+    try { Y.applyUpdate(probe, u); } finally { probe.destroy(); }
+    const seq = await this.bus.publish(fileId, { kind: 'y', fromSocket: socketId, data: u, app: 'docs' }, { guard });
+    const seeded = this.book.update(s, socketId, u);
+    if (seeded) await this.markSeeded(fileId, s, seq, guard);
+    return seeded;
+  }
+
   private async flush(fileId: string, q: { items: Outgoing[]; running: boolean }): Promise<void> {
     q.running = true;
     try {
@@ -328,11 +342,11 @@ export class CollabShared {
   }
 
   /** Засев дошёл до базы: сеанс готов, снимок — то, что засеяно, и оно уже лежит в файле */
-  private async markSeeded(fileId: string, s: CollabSession, seq: number): Promise<void> {
+  private async markSeeded(fileId: string, s: CollabSession, seq: number, guard?: ShareWriteGuard): Promise<void> {
     const state = Y.encodeStateAsUpdate(s.ydoc);
     await this.bus.patchSession({ fileId, key: s.key, seeded: false }, {
       seeded: true, snapshot: Buffer.from(state), snapshotSeq: seq, savedSeq: seq,
-    });
+    }, guard);
   }
 
   /** Курсор окна: своим — сразу (это делает вызывающий), базе — не чаще AWARE_MS на окно */
@@ -418,7 +432,7 @@ export class CollabShared {
    * Снимок пересчитывается после каждой записи, а журнал до него убирается —
    * опоздавшему не проигрывать всю историю.
    */
-  async saved(fileId: string): Promise<void> {
+  async saved(fileId: string, guard?: ShareWriteGuard): Promise<void> {
     const s = this.book.get(fileId);
     if (!s) return;
     this.book.markSaved(s);
@@ -426,8 +440,8 @@ export class CollabShared {
     const seen = this.bus.seen(fileId);
     const row = await this.bus.session(fileId);
     if (!row || row.key !== s.key) return;
-    await this.bus.patchSession({ fileId, key: s.key, snapshotSeq: { lt: seen } }, { snapshot: Buffer.from(Y.encodeStateAsUpdate(s.ydoc)), snapshotSeq: seen });
-    await this.bus.patchSession({ fileId, key: s.key, savedSeq: { lt: row.dataSeq } }, { savedSeq: row.dataSeq });
+    await this.bus.patchSession({ fileId, key: s.key, snapshotSeq: { lt: seen } }, { snapshot: Buffer.from(Y.encodeStateAsUpdate(s.ydoc)), snapshotSeq: seen }, guard);
+    await this.bus.patchSession({ fileId, key: s.key, savedSeq: { lt: row.dataSeq } }, { savedSeq: row.dataSeq }, guard);
     await this.bus.pruneEvents(fileId, 'y', seen);
   }
 
@@ -484,7 +498,8 @@ export function setupOfficeCollab(
     } catch (e: any) { console.error('[Office] Содержимое общего документа не отдано:', e?.message || e); }
   });
 
-  socket.on('office:y', ({ fileId, update }: { fileId: string; update: unknown }) => {
+  socket.on('office:y', async (payload: { fileId: string; update: unknown }) => {
+    const { fileId, update } = payload;
     const id = String(fileId || '');
     const peer = member(id);
     const s = collab.get(id);
@@ -492,10 +507,12 @@ export function setupOfficeCollab(
     // Правки шлёт только тот, кому файл можно писать
     if (!peer?.mayWrite || !s || !u) return;
     let seededNow = false;
-    try { seededNow = collab.update(s, socket.id, u); } catch (_) { return; }
+    const guard = (payload as any)[SHARE_WRITE_GUARD] as ShareWriteGuard | undefined;
+    try { seededNow = guard ? await collabShared.accept(id, socket.id, u, guard) : collab.update(s, socket.id, u); }
+    catch (e: any) { socket.emit('office:access-revoked', { fileId: id, error: e?.message || 'Правка не принята' }); return; }
     // Своим окнам — сразу, не дожидаясь базы: Y не боится порядка
     socket.to(roomOf(id)).emit('office:y', { fileId: id, update: u });
-    collabShared.push(id, u, seededNow ? s : undefined);
+    if (!guard) collabShared.push(id, u, seededNow ? s : undefined);
     if (seededNow) {
       const state = Y.encodeStateAsUpdate(s.ydoc);
       for (const sid of s.waiting) out.socket(sid, 'office:y-state', { fileId: id, session: s.key, state });
@@ -518,9 +535,10 @@ export function setupOfficeCollab(
   });
 
   /** Держатель записал: теперь в файле всё, что было в Y на этот момент */
-  socket.on('office:saved', ({ fileId }: { fileId: string }) => {
+  socket.on('office:saved', (payload: { fileId: string }) => {
+    const { fileId } = payload;
     const id = String(fileId || '');
-    if (hub.holds(id, socket.id)) void collabShared.saved(id).catch((e: any) => console.error('[Office] Снимок общего документа не записан:', e?.message || e));
+    if (hub.holds(id, socket.id)) void collabShared.saved(id, (payload as any)[SHARE_WRITE_GUARD]).catch((e: any) => console.error('[Office] Снимок общего документа не записан:', e?.message || e));
   });
 
   const leave = (id: string) => { void collabShared.leave(id, socket.id); };

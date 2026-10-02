@@ -10,6 +10,10 @@
 // Источник истины — файл prisma/schema.<движок>.prisma, который едет внутри
 // обновления программы.
 
+import { withSchemaConnection } from './schemaRuntime.js';
+import { createIndexSql, isDuplicateIndex } from './ddl.js';
+import { inspectSchema } from './schemaInspection.js';
+
 type Dialect = 'postgresql' | 'mysql' | 'sqlite';
 
 interface Column {
@@ -31,6 +35,8 @@ interface Model {
   name: string;
   columns: Column[];
   uniques: UniqueKey[];
+  indexes?: UniqueKey[];
+  foreignKeys?: Array<{ column: string; table: string; reference: string }>;
 }
 
 /**
@@ -201,7 +207,42 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
     }
     if (columns.length) models.push({ name, columns, uniques });
   }
-  return models;
+  return [...models, ...implicitRelationModels(dialect, text, models)];
+}
+
+/** Prisma хранит связи список↔список в отдельных _Relation(A,B) таблицах. */
+function implicitRelationModels(dialect: Dialect, text: string, models: Model[]): Model[] {
+  const lists: Array<{ model: string; field: string; target: string; relation: string }> = [];
+  for (const match of text.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\n\}/g)) {
+    for (const raw of match[2].split('\n')) {
+      const field = raw.replace(/\/\/.*$/, '').trim().match(/^(\w+)\s+(\w+)\[\](.*)$/);
+      if (!field || SCALARS.has(field[2])) continue;
+      const relation = field[3].match(/@relation\(\s*"([^"]+)"/)?.[1]
+        || [match[1], field[2]].sort().join('To');
+      lists.push({ model: match[1], field: field[1], target: field[2], relation });
+    }
+  }
+  const result = new Map<string, Model>();
+  for (const list of lists) {
+    const other = lists.find(candidate => candidate !== list && candidate.model === list.target
+      && candidate.target === list.model && candidate.relation === list.relation);
+    if (!other) continue; // список↔одна запись — обычный внешний ключ
+    const name = `_${list.relation}`;
+    if (result.has(name)) continue;
+    const owners = [list.model, list.target].sort();
+    const ids = owners.map(owner => models.find(model => model.name === owner)?.columns.find(column => column.isId));
+    if (ids.some(id => !id)) throw Error(`Не найден первичный ключ связи ${name}`);
+    const columns = ids.map((id, index): Column => ({
+      name: index === 0 ? 'A' : 'B', sqlType: id!.sqlType, nullable: false, isId: false, unique: false, defaultSql: null,
+    }));
+    result.set(name, {
+      name, columns,
+      uniques: [{ name: `${name}_AB_unique`, columns: ['A', 'B'] }],
+      indexes: [{ name: `${name}_B_index`, columns: ['B'] }],
+      foreignKeys: owners.map((owner, index) => ({ column: index === 0 ? 'A' : 'B', table: owner, reference: ids[index]!.name })),
+    });
+  }
+  return [...result.values()];
 }
 
 /** Текстовые типы MySQL, которым старые версии запрещают DEFAULT */
@@ -370,6 +411,10 @@ export async function ensureRemoteSchema(
   schemaText: string,
   log: (msg: string) => void
 ): Promise<string[]> {
+  return withSchemaConnection(prisma, connection => syncSchema(connection, dialect, schemaText, log));
+}
+
+async function syncSchema(prisma: any, dialect: Dialect, schemaText: string, log: (msg: string) => void): Promise<string[]> {
   const applied: string[] = [];
   let models: Model[];
   try {
@@ -403,6 +448,9 @@ export async function ensureRemoteSchema(
           });
           const idCol = model.columns.find(c => c.isId);
           if (idCol) defs.push(`PRIMARY KEY (${quoteId(dialect, idCol.name)})`);
+          for (const fk of model.foreignKeys || []) defs.push(
+            `FOREIGN KEY (${quoteId(dialect, fk.column)}) REFERENCES ${quoteId(dialect, fk.table)} (${quoteId(dialect, fk.reference)}) ON DELETE CASCADE ON UPDATE CASCADE`,
+          );
           const engine = dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
           return `CREATE TABLE IF NOT EXISTS ${quoteId(dialect, model.name)} (${defs.join(', ')})${engine}`;
         };
@@ -416,6 +464,7 @@ export async function ensureRemoteSchema(
         }
         applied.push(`создана таблица ${model.name}`);
         await ensureUniqueKeys(prisma, dialect, model, log, applied);
+        await ensureRelationIndexes(prisma, dialect, model, applied);
         continue;
       }
       // Таблица есть — добавляем недостающие колонки и расширяем узкие
@@ -442,6 +491,7 @@ export async function ensureRemoteSchema(
         }
       }
       await ensureUniqueKeys(prisma, dialect, model, log, applied);
+      await ensureRelationIndexes(prisma, dialect, model, applied);
     } catch (e: any) {
       log(`[Schema Sync] Ошибка при обработке ${model.name}: ${e.message}`);
     }
@@ -450,4 +500,23 @@ export async function ensureRemoteSchema(
   if (applied.length) log(`[Schema Sync] База приведена к схеме: ${applied.join(', ')}`);
   else log('[Schema Sync] Общая база уже соответствует схеме — изменений нет.');
   return applied;
+}
+
+async function ensureRelationIndexes(prisma: any, dialect: Dialect, model: Model, applied: string[]): Promise<void> {
+  if (!model.indexes?.length) return;
+  const spec = { table: model.name, cols: [] };
+  const existing = (await inspectSchema(prisma, dialect, [spec])).get(model.name)?.indexes;
+  for (const index of model.indexes) {
+    const current = existing?.get(index.name);
+    if (current) {
+      if (!current.valid || current.partial || current.columns.join(',') !== index.columns.join(',')) throw Error(`Индекс ${index.name} не соответствует схеме связи`);
+      continue;
+    }
+    try {
+      await prisma.$executeRawUnsafe(createIndexSql(dialect, model.name, index.name, index.columns));
+      applied.push(`индекс ${index.name}`);
+    } catch (error: any) {
+      if (!isDuplicateIndex(error?.message)) throw error;
+    }
+  }
 }

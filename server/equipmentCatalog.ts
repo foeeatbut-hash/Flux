@@ -5,12 +5,18 @@ import { modelOf } from '../equipment/classes.js';
 import { matchComponent } from '../catalog/componentCatalog.js';
 import type { Component } from '../catalog/model.js';
 import { sourceGroups, resolveCatalogSpecs, type CatalogBinding } from '../equipment/catalogSpecs.js';
-import { ensureCatalog, readCatalog } from './routes/catalog.js';
+import { ensureCatalog } from './routes/catalog.js';
 
 export const bindingKey = (id: string) => `equipment_catalog_binding:${id}`;
 export const catalogRevision = (c: Component) => createHash('sha256').update(JSON.stringify(c)).digest('hex');
-export async function catalogModels(): Promise<Component[]> {
-  const p = getPrisma(); await ensureCatalog(p); return (await readCatalog(p)).components;
+export async function catalogModels(p = getPrisma()): Promise<Component[]> {
+  await ensureCatalog(p);
+  const rows = await p.catalogComponent.findMany({ select: { id: true, classId: true, kind: true, code: true, dataJson: true } });
+  return rows.map((row: any) => {
+    let data = {};
+    try { data = JSON.parse(row.dataJson || '{}'); } catch { /* повреждённая карточка сохраняет свои ключи */ }
+    return { ...data, id: row.id, classId: row.classId, kind: row.kind, code: row.code };
+  });
 }
 export function matchesFor(el: any, models: Component[]): Component[] {
   const params = sourceGroups(el.specs).flatMap(g => g.params);
@@ -41,10 +47,11 @@ export async function sourceInfo(el: any, models?: Component[], stored?: any) {
 
 /** Одна загрузка справочника и привязок на весь срез, без N запросов на позицию. */
 export async function enrichEquipment(systems: any[]): Promise<void> {
-  const models = await catalogModels();
+  const prisma = getPrisma();
+  const models = await catalogModels(prisma);
   const elements = systems.flatMap(s => s.monoblocks.flatMap((m: any) => m.components));
   const keys = elements.map(e => bindingKey(e.id));
-  const saved = keys.length ? await getPrisma().appSetting.findMany({ where: { key: { in: keys }, userId: null } }) : [];
+  const saved = keys.length ? await prisma.appSetting.findMany({ where: { key: { in: keys }, userId: null } }) : [];
   const byKey = new Map(saved.map((r: any) => [r.key, r]));
   for (const el of elements) {
     const info = await sourceInfo(el, models, byKey.get(bindingKey(el.id)) || null);

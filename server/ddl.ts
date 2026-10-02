@@ -25,6 +25,9 @@
  * контейнере нет, а ошибиться в диалекте очень легко.
  */
 
+import { inspectSchema, type SchemaIndex } from './schemaInspection.js';
+import { clientDialect, oncePerDatabase, withSchemaConnection } from './schemaRuntime.js';
+
 export type Dialect = 'sqlite' | 'postgresql' | 'mysql';
 
 /** Из адреса базы понятно, какой это движок */
@@ -177,7 +180,7 @@ export interface IndexSpec {
   unique?: boolean;
   /**
    * Условие частичного индекса. Пишется на SQL и одинаково читается
-   * PostgreSQL и SQLite; на MySQL индекс с условием не создаётся вовсе.
+   * PostgreSQL и SQLite; на MySQL создаётся через вычисляемые колонки.
    */
   where?: string;
 }
@@ -186,6 +189,8 @@ export interface TableSpec {
   table: string;
   cols: Col[];
   indexes?: IndexSpec[];
+  /** Частичная спецификация обновляет только уже созданную основную таблицу. */
+  existingOnly?: boolean;
 }
 
 /**
@@ -195,34 +200,69 @@ export interface TableSpec {
  * почему, а не гадать.
  */
 export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: string) => void, strict = false): Promise<string> {
-  const d = getDialect();
+  const d = clientDialect(prisma, getDialect());
+  const key = `ddl:${d}:${strict}:${JSON.stringify(specs)}`;
+  try {
+    await oncePerDatabase(prisma, key, () => withSchemaConnection(prisma, async connection => {
+      const failure = await prepareTables(connection, d, specs, log, strict);
+      if (failure) throw new Error(failure);
+    }));
+    return '';
+  } catch (e: any) {
+    const message = String(e?.message || e);
+    log?.(message);
+    return message;
+  }
+}
+
+async function prepareTables(prisma: any, d: Dialect, specs: TableSpec[], log: ((m: string) => void) | undefined, strict: boolean): Promise<string> {
+  const schema = await inspectSchema(prisma, d, specs);
+  const changedIndexes: TableSpec[] = [];
+  const matches = (actual: SchemaIndex | undefined, expected: IndexSpec) => {
+    const columns = d === 'mysql' && expected.where ? expected.cols.map(col => conditionalColumnName(expected.name, col)) : expected.cols;
+    return !!actual && actual.valid && actual.unique === !!expected.unique
+      && actual.columns.join(',') === columns.join(',') && actual.partial === (d !== 'mysql' && !!expected.where);
+  };
   for (const spec of specs) {
-    try {
-      await prisma.$executeRawUnsafe(createTableSql(d, spec.table, spec.cols));
-    } catch (e: any) {
-      const msg = `Не удалось создать таблицу ${spec.table} (${d}): ${e?.message || e}`;
-      log?.(msg);
-      return msg;
+    let current = schema.get(spec.table);
+    if (!current) {
+      if (spec.existingOnly) return `Основная таблица ${spec.table} отсутствует; сначала подготовьте базу данных`;
+      try {
+        await prisma.$executeRawUnsafe(createTableSql(d, spec.table, spec.cols));
+      } catch (e: any) {
+        const msg = `Не удалось создать таблицу ${spec.table} (${d}): ${e?.message || e}`;
+        log?.(msg);
+        return msg;
+      }
+      // Второй процесс мог создать таблицу между снимком и CREATE IF NOT EXISTS.
+      // Перечитываем её вместо предположения, что все наши колонки уже есть.
+      current = (await inspectSchema(prisma, d, [spec])).get(spec.table);
+      if (!current) return `Таблица ${spec.table} недоступна после создания`;
     }
-    // Таблица могла остаться с прошлой версии программы неполной — тогда её
-    // надо не создать, а дополнить. Первичный ключ пропускаем: он есть всегда,
-    // и добавить его второй раз нельзя
     for (const col of spec.cols) {
-      if (col.pk) continue;
+      if (current.columns.has(col.name)) continue;
+      if (col.pk) return `В таблице ${spec.table} отсутствует первичный ключ ${col.name}`;
       try {
         await prisma.$executeRawUnsafe(addColumnSql(d, spec.table, col));
         log?.(`В таблицу ${spec.table} добавлена недостающая колонка ${col.name}`);
       } catch (e: any) {
         if (!isDuplicateColumn(e?.message)) {
           const msg = `Колонка ${spec.table}.${col.name} не добавлена: ${e?.message || e}`;
-          log?.(msg); if (strict) return msg;
+          log?.(msg); return msg;
         }
       }
+      current.columns.add(col.name);
     }
     for (const idx of spec.indexes || []) {
+      const existing = current.indexes.get(idx.name);
+      if (existing) {
+        if (!matches(existing, idx)) return `Индекс ${idx.name} не соответствует требуемому ограничению`;
+        continue;
+      }
       if (d === 'mysql' && idx.where) {
         if (!idx.unique) return `Условный индекс ${idx.name} должен быть уникальным`;
         for (const col of idx.cols) {
+          if (current.columns.has(conditionalColumnName(idx.name, col))) continue;
           try {
             await prisma.$executeRawUnsafe(createConditionalColumnSql(spec.table, idx.name, col, idx.where));
           } catch (e: any) {
@@ -235,12 +275,24 @@ export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: st
       }
       try {
         await prisma.$executeRawUnsafe(createIndexSql(d, spec.table, idx.name, idx.cols, idx.unique, idx.where));
+        if (!changedIndexes.includes(spec)) changedIndexes.push(spec);
       } catch (e: any) {
         if (!isDuplicateIndex(e?.message)) {
           const msg = `Индекс ${idx.name} не создан: ${e?.message || e}`;
-          log?.(msg); if (strict) return msg;
+          log?.(msg); return msg;
+        } else {
+          const reread = (await inspectSchema(prisma, d, [spec])).get(spec.table)?.indexes.get(idx.name);
+          if (!matches(reread, idx)) return `Индекс ${idx.name} не соответствует требуемому ограничению`;
         }
       }
+    }
+  }
+  // IF NOT EXISTS может ничего не создать, если это имя уже занято индексом
+  // другой таблицы. Успешный ответ DDL ещё не доказывает наличие ограничения.
+  if (changedIndexes.length) {
+    const verified = await inspectSchema(prisma, d, changedIndexes);
+    for (const spec of changedIndexes) for (const index of spec.indexes || []) {
+      if (!matches(verified.get(spec.table)?.indexes.get(index.name), index)) return `Индекс ${index.name} не соответствует требуемому ограничению`;
     }
   }
   return '';

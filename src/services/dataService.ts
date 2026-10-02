@@ -9,6 +9,9 @@ export interface User {
   lastName?: string;
   firstName?: string;
   middleName?: string;
+  position?: string | null;
+  department?: string | null;
+  email?: string | null;
   gender?: string;         // 'M' | 'F' | '' — нужен для склонения ФИО
   birthDate?: string | Date | null;
   symbol: string;

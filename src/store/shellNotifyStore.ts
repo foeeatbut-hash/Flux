@@ -32,6 +32,9 @@ export interface ShellToast {
   at: number;
 }
 
+/** Отложенная карточка хранится целиком: среди напоминаний бывают не только уведомления сервера. */
+export interface SnoozedToast { until: number; toast?: Omit<ShellToast, 'at'> }
+
 const QUIET_KEY = 'flux_quiet_until';
 const SNOOZE_KEY = 'flux_snoozed';
 
@@ -40,7 +43,7 @@ interface ShellNotifyState {
   /** До какого времени молчим; null — слышно всё */
   quiet: number | null;
   /** Отложенные: номер уведомления → до какого времени спрятано */
-  snoozed: Record<string, number>;
+  snoozed: Record<string, SnoozedToast>;
 
   /** Показать всплывашку. В тихом режиме — молча пропустить */
   push: (t: Omit<ShellToast, 'at'>) => void;
@@ -48,7 +51,7 @@ interface ShellNotifyState {
   /** Отложить: убрать с глаз и вернуть в назначенный час */
   snooze: (id: string, choice: SnoozeId) => void;
   /** Вернуть отложенное, которому пора */
-  releaseDue: () => string[];
+  releaseDue: () => { id: string; toast?: Omit<ShellToast, 'at'> }[];
   setQuiet: (choice: QuietId | null) => void;
 }
 
@@ -60,20 +63,25 @@ const num = (key: string): number | null => {
   } catch (_) { return null; }
 };
 
-const loadSnoozed = (): Record<string, number> => {
+const loadSnoozed = (): Record<string, SnoozedToast> => {
   try {
     const raw = localStorage.getItem(SNOOZE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     if (!parsed || typeof parsed !== 'object') return {};
-    const out: Record<string, number> = {};
-    for (const [id, until] of Object.entries(parsed)) {
-      if (typeof until === 'number' && until > Date.now()) out[id] = until;
+    const out: Record<string, SnoozedToast> = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      // Старые настройки хранили только срок. Сохраняем его до истечения;
+      // новую карточку целиком записываем при следующем откладывании.
+      const entry = typeof value === 'number' ? { until: value } : value as SnoozedToast;
+      if (typeof entry?.until === 'number' && entry.until > Date.now()) {
+        out[id] = { until: entry.until, ...(entry.toast ? { toast: entry.toast } : {}) };
+      }
     }
     return out;
   } catch (_) { return {}; }
 };
 
-const saveSnoozed = (v: Record<string, number>) => {
+const saveSnoozed = (v: Record<string, SnoozedToast>) => {
   try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(v)); } catch (_) { /* приватный режим */ }
 };
 
@@ -85,7 +93,7 @@ export const useShellNotifyStore = create<ShellNotifyState>((set, get) => ({
   push: (t) => {
     const { quiet, snoozed, toasts } = get();
     if (isQuiet(quiet)) return;
-    if (snoozed[t.id] && snoozed[t.id] > Date.now()) return;
+    if (snoozed[t.id]?.until > Date.now()) return;
     if (toasts.some((x) => x.id === t.id)) return;
     // Больше трёх на экране — это уже не уведомление, а стена: держим последние
     const next = [...toasts, { ...t, at: Date.now() }].slice(-3);
@@ -95,19 +103,25 @@ export const useShellNotifyStore = create<ShellNotifyState>((set, get) => ({
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   snooze: (id, choice) => {
-    const snoozed = { ...get().snoozed, [id]: snoozeUntil(choice) };
+    const toast = get().toasts.find((t) => t.id === id);
+    const snoozed = { ...get().snoozed, [id]: {
+      until: snoozeUntil(choice),
+      ...(toast ? { toast: (({ at: _at, ...payload }) => payload)(toast) } : {}),
+    } };
     saveSnoozed(snoozed);
     set((s) => ({ snoozed, toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
   releaseDue: () => {
-    const due = dueSnoozed(get().snoozed);
+    const entries = get().snoozed;
+    const due = dueSnoozed(Object.fromEntries(Object.entries(entries).map(([id, value]) => [id, value.until])));
     if (!due.length) return [];
     const snoozed = { ...get().snoozed };
+    const released = due.map((id) => ({ id, toast: snoozed[id]?.toast }));
     for (const id of due) delete snoozed[id];
     saveSnoozed(snoozed);
     set({ snoozed });
-    return due;
+    return released;
   },
 
   setQuiet: (choice) => {

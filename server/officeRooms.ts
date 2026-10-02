@@ -28,6 +28,7 @@
  * не назначили каждый своего. Память сервера — только кэш последнего списка.
  */
 import type { Socket } from 'socket.io';
+import { SHARE_WRITE_GUARD, type ShareWriteGuard } from './fileSharing.js';
 import { presenceColor } from './presenceColor.js';
 import { officeBus, STALE_MS, type OfficeBus, type PeerRow, type HolderRow } from './officeBus.js';
 import { officeOut, roomOf, type OfficeOut } from './officeIo.js';
@@ -334,7 +335,7 @@ export class OfficeRoomHub {
    * Своя запись участника — до расчёта (она ничьей не задевает), уход — после
    * успешного сравнения версии: при повторе книга должна снова увидеть уходящего.
    */
-  private async apply(fileId: string, fn: (b: OfficeRoomBook, now: number) => void, o: { upsert?: LocalPeer; remove?: string[]; collab?: boolean } = {}): Promise<Roster> {
+  private async apply(fileId: string, fn: (b: OfficeRoomBook, now: number) => void, o: { upsert?: LocalPeer; remove?: string[]; collab?: boolean; guard?: ShareWriteGuard } = {}): Promise<Roster> {
     if (o.upsert) await this.bus.upsertPeer(this.rowOf(fileId, o.upsert));
     const hint = o.collab ?? this.collabOfFile.get(fileId) ?? false;
     for (let i = 0; i < 8; i++) {
@@ -349,7 +350,7 @@ export class OfficeRoomHub {
           collab: cell.collab, freed: cell.freed, socketId: h?.peer.socketId || '', clientId: h?.peer.clientId || '',
           userId: h?.peer.userId || '', name: h?.peer.name || '', color: h?.peer.color || '', lostAt: h?.lostAt ?? null,
         } : null;
-        if (!(await this.bus.casHolder(fileId, s.prev ? s.prev.version : null, next))) continue;
+        if (!(await this.bus.casHolder(fileId, s.prev ? s.prev.version : null, next, o.guard))) continue;
       }
       const gone = [...(o.remove || []), ...s.stale];
       if (gone.length) await this.bus.deletePeers(gone);
@@ -422,9 +423,9 @@ export class OfficeRoomHub {
   }
 
   /** Взять свободную правку. '' — взял, иначе причина */
-  async take(fileId: string, socketId: string): Promise<string> {
+  async take(fileId: string, socketId: string, guard?: ShareWriteGuard): Promise<string> {
     let why = '';
-    const roster = await this.queue(fileId, () => this.apply(fileId, (b, now) => { why = b.take(fileId, socketId, now); }));
+    const roster = await this.queue(fileId, () => this.apply(fileId, (b, now) => { why = b.take(fileId, socketId, now); }, { guard }));
     if (!why) await this.announce(fileId, roster);
     return why;
   }
@@ -445,18 +446,18 @@ export class OfficeRoomHub {
   }
 
   /** «Сохрани сейчас» от соавтора: держателю, где бы его сервер ни был */
-  async requestSave(fileId: string, fromSocket: string): Promise<boolean> {
+  async requestSave(fileId: string, fromSocket: string, guard?: ShareWriteGuard): Promise<boolean> {
     const holder = await this.holderOf(fileId);
     if (!holder || !this.local.get(fileId)?.has(fromSocket)) return false;
+    await this.bus.publish(fileId, { kind: 'save-request', fromSocket, toSocket: holder.socketId }, { guard });
     this.out.socket(holder.socketId, 'office:save-request', { fileId });
-    await this.bus.publish(fileId, { kind: 'save-request', fromSocket, toSocket: holder.socketId });
     return true;
   }
 
   /** Держатель записал файл — остальным пора взять свежую версию */
-  async announceSaved(fileId: string, sha256: string, fromSocket: string | null): Promise<void> {
+  async announceSaved(fileId: string, sha256: string, fromSocket: string | null, guard?: ShareWriteGuard): Promise<void> {
+    await this.bus.publish(fileId, { kind: 'saved', fromSocket, data: Buffer.from(JSON.stringify({ sha256 })) }, { guard });
     this.out.room(fileId, 'office:saved', { fileId, sha256 }, fromSocket);
-    await this.bus.publish(fileId, { kind: 'saved', fromSocket, data: Buffer.from(JSON.stringify({ sha256 })) });
   }
 
   /** Пересчитать по базе и, если список изменился, разослать своим окнам */
@@ -558,9 +559,9 @@ export function setupOfficeRooms(socket: Socket, deps: OfficeRoomDeps, hub: Offi
     void hub.depart(socket.id, 'leave', id);
   });
 
-  socket.on('office:take', async ({ fileId }: { fileId: string }, ack?: (r: { error: string }) => void) => {
+  socket.on('office:take', async (payload: { fileId: string }, ack?: (r: { error: string }) => void) => {
     let error = '';
-    try { error = await hub.take(String(fileId || ''), socket.id); } catch (e: any) { error = `Правка не взята: ${e?.message || e}`; }
+    try { error = await hub.take(String(payload.fileId || ''), socket.id, (payload as any)[SHARE_WRITE_GUARD]); } catch (e: any) { error = `Правка не взята: ${e?.message || e}`; }
     if (typeof ack === 'function') ack({ error });
   });
 
@@ -568,8 +569,8 @@ export function setupOfficeRooms(socket: Socket, deps: OfficeRoomDeps, hub: Offi
    * «Сохрани сейчас» от соавтора (Ctrl+S): записывает только держатель, и
    * просьба уходит ему — на любой сервер. Ответ соавтор узнает по office:saved
    */
-  socket.on('office:save-request', ({ fileId }: { fileId: string }) => {
-    void hub.requestSave(String(fileId || ''), socket.id).catch((e: any) => console.error('[Office] Просьба сохранить не дошла:', e?.message || e));
+  socket.on('office:save-request', (payload: { fileId: string }) => {
+    void hub.requestSave(String(payload.fileId || ''), socket.id, (payload as any)[SHARE_WRITE_GUARD]).catch((e: any) => console.error('[Office] Просьба сохранить не дошла:', e?.message || e));
   });
 
   /**
@@ -577,10 +578,11 @@ export function setupOfficeRooms(socket: Socket, deps: OfficeRoomDeps, hub: Offi
    * только держатель: чужое «я сохранил» заставило бы всех перечитать файл
    * без причины
    */
-  socket.on('office:saved', ({ fileId, sha256 }: { fileId: string; sha256: string }) => {
+  socket.on('office:saved', (payload: { fileId: string; sha256: string }) => {
+    const { fileId, sha256 } = payload;
     const id = String(fileId || '');
     if (!hub.holds(id, socket.id)) return;
-    void hub.announceSaved(id, String(sha256 || ''), socket.id).catch((e: any) => console.error('[Office] «Записал» не разослано:', e?.message || e));
+    void hub.announceSaved(id, String(sha256 || ''), socket.id, (payload as any)[SHARE_WRITE_GUARD]).catch((e: any) => console.error('[Office] «Записал» не разослано:', e?.message || e));
   });
 
   return {

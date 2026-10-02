@@ -35,6 +35,8 @@ interface NotifState {
   /** Уведомление, пришедшее сокетом: тот же путь, что и у опроса */
   ingest: (list: AppNotification[]) => void;
   markAllRead: (userId: string) => Promise<void>;
+  /** Отметить прочитанным только уведомление, которое человек действительно увидел. */
+  markRead: (userId: string, id: string) => Promise<void>;
   markConversationRead: (userId: string, key: string) => Promise<void>;
   startPolling: (userId: string) => void;
   stopPolling: () => void;
@@ -119,6 +121,16 @@ export const useNotificationStore = create<NotifState>((set, get) => ({
     try {
       await dataService.markNotificationsRead(userId);
       const list = get().personal.map(n => ({ ...n, isRead: true }));
+      set({ personal: list, ...recompute(list) });
+    } catch {}
+  },
+  markRead: async (userId, id) => {
+    if (!userId || !id) return;
+    const current = get().personal.find((n) => n.id === id);
+    if (!current || current.isRead) return;
+    try {
+      await dataService.markNotificationsRead(userId, id);
+      const list = get().personal.map((n) => n.id === id ? { ...n, isRead: true } : n);
       set({ personal: list, ...recompute(list) });
     } catch {}
   },

@@ -225,8 +225,17 @@ export default function Layout() {
     const t = setInterval(() => {
       const due = useShellNotifyStore.getState().releaseDue();
       if (!due.length) return;
-      const back = useNotificationStore.getState().personal.filter((n) => due.includes(n.id));
-      for (const n of back) useShellNotifyStore.getState().push(toastOf(n));
+      const personal = new Map(useNotificationStore.getState().personal.map((n) => [n.id, n]));
+      for (const item of due) {
+        if (item.toast) useShellNotifyStore.getState().push(item.toast);
+        else {
+          // Старые версии сохраняли только срок откладывания. Уведомление ещё
+          // можно восстановить из ленты; напоминание без сохранённого payload
+          // восстановить невозможно.
+          const n = personal.get(item.id);
+          if (n) useShellNotifyStore.getState().push(toastOf(n));
+        }
+      }
     }, 60000);
     return () => clearInterval(t);
   }, []);

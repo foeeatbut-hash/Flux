@@ -102,11 +102,13 @@ function restored(): WinState[] {
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
     // Разбираем осторожно: в хранилище могло остаться что угодно от прошлых версий
-    return parsed.filter((w: any) => w && typeof w.id === 'string' && typeof w.path === 'string')
+    const windows = parsed.filter((w: any) => w && typeof w.id === 'string' && typeof w.path === 'string')
       .map((w: any): WinState => ({
         // Путь переименованной программы переводим на новый: иначе окно,
         // открытое до обновления, показало бы Главную вместо документа
-        id: w.id, path: resolveSectionPath(w.path), desk: Number(w.desk) || 0,
+        // Старые виртуальные столы сводим к одному, сохраняя сам экземпляр
+        // окна: в нём остаются документ, черновики редактора и геометрия.
+        id: w.id, path: resolveSectionPath(w.path), desk: 0,
         // Окна прошлых версий записаны без адреса: считаем адресом сам раздел.
         // Человек увидит привычные окна, просто без открытого документа
         href: resolveSectionHref(typeof w.href === 'string' && w.href ? w.href : w.path),
@@ -116,6 +118,8 @@ function restored(): WinState[] {
         minimized: !!w.minimized, maximized: !!w.maximized,
         restore: w.restore && typeof w.restore === 'object' ? w.restore : null,
       }));
+    if (parsed.some((window: any) => window && Number(window.desk || 0) !== 0)) persist(windows);
+    return windows;
   } catch (_) { return []; }
 }
 
@@ -143,7 +147,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
     windows: restored(),
     titles: {},
     peeked: null,
-    desks: restoredDesks(),
+    desks: [deskName(0)],
     desk: 0,
     area: { w: 1280, h: 720 },
     snapping: null,

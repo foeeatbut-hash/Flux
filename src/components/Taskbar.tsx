@@ -34,12 +34,12 @@ import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
-import DeskSwitcher from './DeskSwitcher';
 import ProjectSwitcher from './ProjectSwitcher';
 import ClockPanel from './calendar/ClockPanel';
 import { useUpdateStore, updateReady } from '../store/updateStore';
 import { displayForRect } from '../../workspace/displays';
 import { useDisplayStore } from '../store/displayStore';
+import type { NativeAppWindow } from '../../workspace/nativeApps';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -99,6 +99,34 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const [clockOpen, setClockOpen] = React.useState(false);
   const [width, setWidth] = React.useState(0);
   const [barWidth, setBarWidth] = React.useState(0);
+  const displayWorkspace = useDisplayStore(s => s.workspace);
+  const [nativeWindows, setNativeWindows] = React.useState<NativeAppWindow[]>([]);
+  React.useEffect(() => {
+    const api = (window as any).electron?.nativeApps;
+    if (!api?.list || !api?.onChanged) return;
+    let alive = true;
+    const update = (value?: NativeAppWindow[]) => {
+      if (value) { if (alive) setNativeWindows(value); return; }
+      void api.list().then((rows: NativeAppWindow[]) => { if (alive && Array.isArray(rows)) setNativeWindows(rows); }).catch(() => {});
+    };
+    update();
+    const off = api.onChanged((rows: NativeAppWindow[]) => update(rows));
+    return () => { alive = false; off(); };
+  }, []);
+  const [barRevealed, setBarRevealed] = React.useState(displayId === undefined);
+  const hideBarTimer = React.useRef<any>(null);
+  const keepBarOpen = startOpen || clockOpen || !!peek || !!moreMenu || !!menu || notifOpen || assistantOpen;
+  const revealBar = () => { clearTimeout(hideBarTimer.current); setBarRevealed(true); };
+  const scheduleHideBar = () => {
+    clearTimeout(hideBarTimer.current);
+    if (displayId !== undefined && !keepBarOpen) hideBarTimer.current = setTimeout(() => setBarRevealed(false), 900);
+  };
+  React.useEffect(() => () => clearTimeout(hideBarTimer.current), []);
+  React.useEffect(() => {
+    if (displayId === undefined) setBarRevealed(true);
+    else if (keepBarOpen) revealBar();
+    else scheduleHideBar();
+  }, [displayId, keepBarOpen]);
 
   // Ширина всей панели решает, что из необязательного показывать в трее
   React.useEffect(() => {
@@ -274,13 +302,15 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       aria-label="Панель задач"
       data-taskbar
       onPointerDownCapture={() => { if (displayId !== undefined) useWindowStore.getState().setActiveDisplay(displayId); }}
+      onMouseEnter={revealBar}
+      onMouseLeave={scheduleHideBar}
       /* Высота, рост кнопки и размер значка — общая мера оболочки
          (src/lib/metrics.ts): панель обязана быть того же роста, что и ряд
          значков в системе, иначе программа рядом с ней выглядит увеличенной */
       /* Справа без отступа: последняя в ряду полоска «показать стол» обязана
          доходить до самого края окна, иначе угол экрана перестаёт быть целью */
-      style={{ height: BAR_H, zIndex: Z.taskbar }}
-      className="relative shrink-0 flex items-center gap-1 pl-2
+      style={{ height: BAR_H, zIndex: Z.taskbar, transform: displayId !== undefined && !barRevealed ? 'translateY(calc(100% - 3px))' : undefined }}
+      className="relative shrink-0 flex items-center gap-1 pl-2 transition-transform duration-200
                  bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
       {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
@@ -305,13 +335,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
       </button>
 
-      {displayId !== undefined && <button type="button" aria-label="Вернуться в оконный режим"
-        title="Вернуться в оконный режим · Ctrl+Alt+M"
-        onClick={() => void useDisplayStore.getState().setAllMonitors(false)}
-        style={{ width: BAR_BTN, height: BAR_BTN }}
-        className="flex items-center justify-center rounded-lg shrink-0 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800">
-        <Monitor size={BAR_ICON} />
-      </button>}
       <div className="w-2 shrink-0" />
 
       {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во
@@ -411,6 +434,14 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
             </button>
           );
         })}
+        {nativeWindows.map((nativeWindow) => <button key={`native:${nativeWindow.id}`} type="button"
+          onClick={() => void (window as any).electron?.nativeApps?.action(nativeWindow.id, nativeWindow.focused ? 'minimize' : 'focus')}
+          onContextMenu={(event) => { event.preventDefault(); void (window as any).electron?.nativeApps?.action(nativeWindow.id, 'focus'); }}
+          title={nativeWindow.title || 'Окно Flux'} aria-label={nativeWindow.title || 'Окно Flux'} aria-pressed={nativeWindow.focused}
+          style={{ height: BAR_BTN }}
+          className={`relative max-w-48 px-2.5 rounded-lg shrink-0 flex items-center text-xs transition-colors ${nativeWindow.focused ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}>
+          <span className="block max-w-44 truncate">{nativeWindow.title || 'Окно Flux'}</span>
+        </button>)}
       </div>
 
       {view.hidden.length > 0 && (
@@ -477,8 +508,17 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
         </button>
 
-        {/* Столы: рабочих столов может быть несколько, как в системе */}
-        <DeskSwitcher />
+        {/* Physical display mode replaces the virtual-desk switcher in the tray. */}
+        {displayWorkspace.displays.length > 1 && <button
+          type="button"
+          aria-label={displayWorkspace.enabled ? 'Вернуться к одному монитору' : 'Рабочий стол на всех мониторах'}
+          title={displayWorkspace.enabled ? 'Отключить рабочую область на всех мониторах · Ctrl+Alt+M' : 'Включить рабочую область на всех мониторах · Ctrl+Alt+M'}
+          aria-pressed={displayWorkspace.enabled}
+          onClick={() => void useDisplayStore.getState().setAllMonitors(!displayWorkspace.enabled)}
+          style={{ width: BAR_BTN, height: BAR_BTN }}
+          className={trayBtn(displayWorkspace.enabled)}>
+          <Monitor size={BAR_ICON + 1} />
+        </button>}
 
         <button
           type="button"

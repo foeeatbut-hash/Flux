@@ -126,6 +126,8 @@ export default function SectionFrame({
    * после снятия права.
    */
   const access = sectionAccess(def, ctx);
+  const navContext = React.useMemo<any>(() => ({ basename: '', navigator: navigator as any, static: false }), [navigator]);
+  const locContext = React.useMemo(() => ({ location, navigationType: NavigationType.Pop }), [location]);
   if (access === 'hide') {
     return visible ? <Navigate to="/" replace /> : null;
   }
@@ -153,8 +155,6 @@ export default function SectionFrame({
   // <Router> в <Router>, поэтому подменяем location/navigator напрямую через
   // контексты react-router (ровно то, что делает <Router> внутри, но без запрета
   // на вложенность). Так скрытый раздел «заморожен» и не реагирует на смену URL.
-  const navContext = React.useMemo<any>(() => ({ basename: '', navigator: navigator as any, static: false }), [navigator]);
-  const locContext = React.useMemo(() => ({ location, navigationType: NavigationType.Pop }), [location]);
   return (
     <div
       /* Отступ уменьшен с 24 до 10 px: раздел — лист, а не карточка,

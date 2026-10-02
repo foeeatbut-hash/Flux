@@ -96,10 +96,12 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   check: async (silent) => {
+    if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
     if (!silent) set({ phase: 'checking', error: '' });
     try {
       const res = await fetch('/api/updates/latest');
       const d = await res.json().catch(() => ({}));
+      if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
       if (!res.ok) throw new Error(d.error || `Сервер ответил ${res.status}`);
       // Публикации без файла сервер не предлагает как обновление, но и не
       // прячет: администратор должен их увидеть и отозвать
@@ -115,6 +117,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         error: '',
       });
     } catch (err: any) {
+      if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
       set({ phase: 'idle', error: silent ? '' : (err?.message || 'Не удалось проверить обновления') });
     }
   },
@@ -135,6 +138,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   install: async () => {
+    if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
     const { latest, packaged, portable } = get();
     if (!latest) return;
     const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');

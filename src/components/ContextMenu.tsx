@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { Check, ChevronRight } from 'lucide-react';
 import { Z } from '../lib/layers';
+import { useWindowStore } from '../store/windowStore';
+import { displayAt } from '../../workspace/displays';
+import { placeContextMenu, placeSubmenu, type MenuBounds } from '../lib/contextMenu';
 
 /**
  * Контекстное меню (ПКМ) в стиле системы: портал поверх всего, закрывается по
@@ -28,14 +31,35 @@ export interface MenuItem {
   onClick?: () => void;
 }
 
-/** Высота строки и запас на рамку — по ним меню решает, куда ему открыться */
-const ROW = 30;
-const FRAME = 24;
 const MIN_W = 224;
 
-function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => void; depth: number }) {
+function SubmenuRows({ items, onClose, depth, bounds, parent }: {
+  items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds; parent: HTMLDivElement | null;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<{ side: 'left' | 'right'; left: number; top: number; maxHeight: number } | null>(null);
+  useLayoutEffect(() => {
+    const child = ref.current?.getBoundingClientRect();
+    const owner = parent?.getBoundingClientRect();
+    if (!child || !owner) return;
+    const p = placeSubmenu(
+      { x: owner.left, y: owner.top, w: owner.width, h: owner.height },
+      { x: child.left, y: child.top, w: child.width, h: child.height }, bounds,
+    );
+    setPlacement(p);
+  }, [bounds.x, bounds.y, bounds.w, bounds.h, parent]);
+  return createPortal(<div ref={ref} data-context-menu
+    className="fx-pop fixed min-w-52 select-none"
+    style={{ zIndex: Z.modal + depth + 1, left: placement?.left ?? bounds.x, top: placement?.top ?? bounds.y,
+      maxHeight: placement?.maxHeight ?? Math.max(1, bounds.h - 8), maxWidth: Math.max(1, bounds.w - 8), overflowY: 'auto' }}>
+    <Rows items={items} onClose={onClose} depth={depth} bounds={bounds} />
+  </div>, document.body);
+}
+
+function Rows({ items, onClose, depth, bounds }: { items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds }) {
   const [open, setOpen] = useState<number | null>(null);
   const timer = useRef<any>(null);
+  const rowRefs = useRef<Record<number, HTMLDivElement | null>>({});
   useEffect(() => () => clearTimeout(timer.current), []);
 
   return (
@@ -43,7 +67,7 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
       {items.map((it, i) => {
         const hasSub = !!it.items?.length;
         return (
-          <div key={i} className="relative">
+          <div key={i} ref={(node) => { rowRefs.current[i] = node; }} className="relative">
             {it.separated && <div className="fx-menu-sep" aria-hidden />}
             <button
               type="button"
@@ -74,13 +98,7 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
             </button>
 
             {hasSub && open === i && (
-              <div
-                onMouseEnter={() => clearTimeout(timer.current)}
-                className="fx-pop absolute top-[-5px] left-full ml-0.5 min-w-52 select-none"
-                style={{ zIndex: Z.modal + depth + 1 }}
-              >
-                <Rows items={it.items!} onClose={onClose} depth={depth + 1} />
-              </div>
+              <SubmenuRows items={it.items!} onClose={onClose} depth={depth + 1} bounds={bounds} parent={rowRefs.current[i]} />
             )}
           </div>
         );
@@ -96,6 +114,15 @@ export default function ContextMenu({ x, y, items, onClose }: {
   // выше любой разметки, и без этого панель оказалась бы под страницей
   useOverlay(true);
   const ref = useRef<HTMLDivElement>(null);
+  const displays = useWindowStore((s) => s.displays);
+  const activeDisplayId = useWindowStore((s) => s.activeDisplayId);
+  const active = displays.find((d) => d.id === activeDisplayId) || displayAt(displays, x, y);
+  const bounds: MenuBounds = active?.workArea || {
+    x: 0, y: 0,
+    w: typeof window === 'undefined' ? 9999 : window.innerWidth,
+    h: typeof window === 'undefined' ? 9999 : window.innerHeight,
+  };
+  const [position, setPosition] = useState(() => placeContextMenu(x, y, MIN_W, 1, bounds));
 
   useEffect(() => {
     const close = () => onClose();
@@ -105,6 +132,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
     function handleOutside(e: MouseEvent) {
+      if ((e.target as Element)?.closest?.('[data-context-menu]')) return;
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     return () => {
@@ -115,15 +143,19 @@ export default function ContextMenu({ x, y, items, onClose }: {
     };
   }, [onClose]);
 
-  // Не выезжаем за края окна. Подменю раскрывается вправо, поэтому справа
-  // оставляем место и под него: меню, упёршееся в край, открыло бы список
-  // за экраном
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
-  const deep = items.some((i) => i.items?.length);
+  // Замеряем готовую разметку: подписи, разделители и вложенные пункты делают
+  // высоту разной, поэтому оценка по числу строк обрезала длинные меню.
+  useLayoutEffect(() => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) setPosition(placeContextMenu(x, y, rect.width, rect.height, bounds));
+  }, [x, y, items, bounds.x, bounds.y, bounds.w, bounds.h]);
+
   const style: React.CSSProperties = {
-    left: Math.max(4, Math.min(x, vw - MIN_W - (deep ? MIN_W : 0))),
-    top: Math.max(4, Math.min(y, vh - items.length * ROW - FRAME)),
+    left: position.left,
+    top: position.top,
+    maxHeight: position.maxHeight,
+    maxWidth: position.maxWidth,
+    overflow: 'visible',
     zIndex: Z.modal,
   };
 
@@ -146,7 +178,9 @@ export default function ContextMenu({ x, y, items, onClose }: {
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <Rows items={items} onClose={onClose} depth={0} />
+      <div className="overflow-y-auto scrollbar-thin" style={{ maxHeight: position.maxHeight, maxWidth: position.maxWidth }}>
+        <Rows items={items} onClose={onClose} depth={0} bounds={bounds} />
+      </div>
     </div>,
     document.body,
   );

@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, onDatabaseSwapped, sendError, broadcast } from '../context.js';
+import { getPrisma, sendError, broadcast } from '../context.js';
 import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { seedCatalog, SEED_VERSION } from '../../catalog/seed.js';
 import { defaultBlankTemplate } from '../../catalog/blank/defaults.js';
@@ -7,6 +7,8 @@ import type { Catalog, Family } from '../../catalog/model.js';
 import { SIGNATURE_MAX } from '../../catalog/text.js';
 import { registerCatalogSpreadsheetRoutes } from './catalogSpreadsheet.js';
 import { templateProblem } from '../../catalog/blank/safe.js';
+import { oncePerDatabase } from '../schemaRuntime.js';
+import { syncCatalogSeed } from '../catalogSeed.js';
 
 /**
  * Каталог оборудования: справочник программы, а не проекта.
@@ -59,26 +61,12 @@ const TABLES: TableSpec[] = [
   { table: 'ImportProfile', cols: base([txt('name', { notNull: true }), txt('signature', { notNull: true, indexed: true }), long('mappingJson'), txt('createdById')]), indexes: [{ name: 'ImportProfile_signature_idx', cols: ['signature'] }] },
 ];
 
-let ready = false;
-let seeded = false;
-let pending: Promise<void> | null = null;
-onDatabaseSwapped(() => { ready = false; seeded = false; pending = null; });
-
-async function ensureInner(prisma: any): Promise<void> {
-  if (!ready) {
-    const err = await ensureTables(prisma, TABLES);
-    if (err) throw new Error(err);
-    ready = true;
-  }
-  if (!seeded) {
-    await syncSeed(prisma);
-    seeded = true;
-  }
-}
-
 export async function ensureCatalog(prisma: any): Promise<void> {
-  if (!pending) pending = ensureInner(prisma).finally(() => { pending = null; });
-  await pending;
+  return oncePerDatabase(prisma, `catalog:${SEED_VERSION}`, async () => {
+    const err = await ensureTables(prisma, TABLES, undefined, true);
+    if (err) throw new Error(err);
+    await syncSeed(prisma);
+  });
 }
 
 const parse = <T>(s: string | null | undefined, fallback: T): T => {
@@ -96,36 +84,7 @@ const me = (req: Request) => (req as any).authUser || null;
  * молча вернуть распознанные с ошибкой цифры.
  */
 async function syncSeed(prisma: any): Promise<void> {
-  const seed = seedCatalog();
-  for (const c of seed.classes) {
-    const row = await prisma.catalogClass.findUnique({ where: { id: c.id } });
-    if (!row) await prisma.catalogClass.create({ data: { id: c.id, code: c.code, dataJson: JSON.stringify(c), sort: c.sort || 0 } });
-  }
-  for (const m of seed.manufacturers) {
-    const row = await prisma.catalogManufacturer.findUnique({ where: { id: m.id } });
-    if (!row) await prisma.catalogManufacturer.create({ data: { id: m.id, name: m.name, dataJson: JSON.stringify(m) } });
-  }
-  const existing = await prisma.catalogFamily.findMany({ select: { id: true, seedVersion: true, edited: true } });
-  const byId = new Map<string, any>(existing.map((r: any) => [r.id, r]));
-  for (const f of seed.families) {
-    const row = byId.get(f.id);
-    const data = { classId: f.classId, manufacturerId: f.manufacturerId, code: f.code, dataJson: JSON.stringify(f), status: f.status, seedVersion: SEED_VERSION, sort: f.sort || 0 };
-    if (!row) await prisma.catalogFamily.create({ data: { id: f.id, ...data } });
-    else if (!row.edited && row.seedVersion < SEED_VERSION) await prisma.catalogFamily.update({ where: { id: f.id }, data });
-  }
-  for (const c of seed.components) {
-    const row = await prisma.catalogComponent.findUnique({ where: { id: c.id } });
-    if (!row) await prisma.catalogComponent.create({ data: { id: c.id, classId: c.classId, kind: c.kind, code: c.code, dataJson: JSON.stringify(c) } });
-  }
-  for (const r of seed.tagRules) {
-    const row = await prisma.catalogTagRule.findUnique({ where: { id: r.id } });
-    if (!row) await prisma.catalogTagRule.create({ data: { id: r.id, classId: r.classId, code: r.code, dataJson: JSON.stringify(r) } });
-  }
-  const templates = await prisma.blankTemplate.count();
-  if (!templates) {
-    const t = defaultBlankTemplate();
-    await prisma.blankTemplate.create({ data: { id: 'tpl-veza-order', name: t.name, scope: 'SHARED', layoutJson: JSON.stringify(t), isDefault: true } });
-  }
+  await syncCatalogSeed(prisma, seedCatalog(), SEED_VERSION, defaultBlankTemplate());
 }
 
 export async function readCatalog(prisma: any, withDeleted = false): Promise<Catalog & { meta: Record<string, any> }> {

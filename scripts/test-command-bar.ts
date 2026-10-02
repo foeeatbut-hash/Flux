@@ -36,6 +36,7 @@ console.log('Команды');
 {
   check('команд не меньше семи', SLASH.length >= 7, SLASH.length);
   check('имена команд не повторяются', new Set(SLASH.map((c) => c.name)).size === SLASH.length);
+  check('удалённые виртуальные рабочие столы не остаются командой', !SLASH.some((command) => command.name === 'стол') && parseSlash('/стол 2') === null);
   check('у каждой команды есть значок и объяснение',
     SLASH.every((c) => c.icon && c.about));
 

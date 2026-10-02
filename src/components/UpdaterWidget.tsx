@@ -214,7 +214,7 @@ export default function UpdaterWidget() {
         {broken.map((b) => (
           <div key={b.version} className="text-xs leading-snug bg-amber-500/10 rounded p-2 text-amber-700 dark:text-amber-300">
             <div>
-              Релиз <span className="font-medium">v{b.version}</span> опубликован без файла: {b.why}.
+              Релиз <span className="font-medium">v{b.version}</span> недоступен: {b.why}.
               {' Обновиться по нему нельзя — обратитесь к владельцу Flux.'}
             </div>
           </div>

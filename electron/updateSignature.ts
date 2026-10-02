@@ -49,10 +49,15 @@ export function readUpdateSignature(sig: string, keyHex = UPDATE_PUBLIC_KEY_HEX)
     const key = publicKey(keyHex);
     if (!key) return null;
     const parts = String(sig || '').trim().split('.');
-    if (parts.length !== 3 || parts[0] !== UPDATE_SIG_PREFIX) return null;
+    if (String(sig).length > 4096 || parts.length !== 3 || parts[0] !== UPDATE_SIG_PREFIX) return null;
+    if (!/^[A-Za-z0-9_-]+$/.test(parts[1]) || !/^[A-Za-z0-9_-]{86}$/.test(parts[2])) return null;
+    if (b64url(parts[1]).toString('base64url') !== parts[1] || b64url(parts[2]).toString('base64url') !== parts[2]) return null;
     if (!crypto.verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), key, b64url(parts[2]))) return null;
     const m = JSON.parse(b64url(parts[1]).toString('utf-8'));
-    if (!m || typeof m.version !== 'string' || typeof m.sha256 !== 'string' || typeof m.size !== 'number') return null;
+    if (!m || typeof m.version !== 'string' || m.version.length > 40 || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/.test(m.version)
+      || typeof m.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(m.sha256)
+      || !Number.isSafeInteger(m.size) || m.size < 1024 || m.size > 800 * 1024 * 1024
+      || (m.iat !== undefined && (!Number.isSafeInteger(m.iat) || m.iat < 0))) return null;
     return { version: m.version, size: m.size, sha256: m.sha256.toLowerCase(), iat: m.iat };
   } catch (_) {
     return null;

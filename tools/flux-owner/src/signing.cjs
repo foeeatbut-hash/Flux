@@ -34,7 +34,7 @@ function revokeLicenses(vault,{inst,ids}) {
 }
 async function inspectExe(file,onProgress=()=>{},signal=null) {
   const stat=await fs.stat(file);
-  if(!stat.isFile()||stat.size<1024||stat.size>800*1024*1024||!file.toLowerCase().endsWith('.exe'))throw new Error('Выберите EXE размером от 1 КБ до 800 МБ.');
+  if(!stat.isFile()||stat.size<5*1024*1024||stat.size>800*1024*1024||!file.toLowerCase().endsWith('.exe'))throw new Error('Выберите EXE размером от 5 до 800 МБ.');
   const handle=await fs.open(file,'r');try{const header=Buffer.alloc(2);await handle.read(header,0,2,0);if(header.toString('ascii')!=='MZ')throw new Error('Выбранный файл не является Windows EXE.');}finally{await handle.close();}
   const h=crypto.createHash('sha256'), stream=createReadStream(file);let read=0;
   const abort=()=>stream.destroy(new Error('Операция отменена.'));signal?.addEventListener('abort',abort,{once:true});
@@ -43,7 +43,7 @@ async function inspectExe(file,onProgress=()=>{},signal=null) {
   return {path:file,size:stat.size,mtimeMs:stat.mtimeMs,sha256:h.digest('hex')};
 }
 function signUpdate(vault,exe,version) {
-  if(!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(String(version))||version.length>80)throw new Error('Введите версию в виде 1.2.3.');
+  if(!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(String(version))||version.length>40)throw new Error('Введите версию в виде 1.2.3 (до 40 символов).');
   const payload={version,size:exe.size,sha256:exe.sha256,iat:Date.now()};
   const signed=`FLUXUPD1.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
   const signature=`${signed}.${crypto.sign(null,Buffer.from(signed),keyFor(vault,'update')).toString('base64url')}`;

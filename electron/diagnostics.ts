@@ -38,6 +38,15 @@ export function diagnosticsWriter(): FileWriter | null {
   return writer;
 }
 
+/** Record a bounded Office host phase without exposing document or payload data. */
+export function recordOfficeHost(fields: {
+  app: 'pdf' | 'sheets'; action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
+  operation: string; phase: 'start' | 'end'; durationMs?: number;
+  outcome?: 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped'; error?: string; code?: string;
+}): void {
+  try { writer?.record('office.host', fields as any); } catch (_) { /* diagnostics never affect host operation */ }
+}
+
 export function setupDiagnostics(logDir: string): void {
   const dir = path.join(logDir, 'diagnostics');
   // Встроенный сервер запускается отдельным процессом и берёт путь отсюда:
@@ -68,9 +77,11 @@ function wrapHandlers(sink: FileWriter): void {
       const start = performance.now();
       try {
         const result = await listener(event, ...args);
+        const businessFailure = businessFailureFor(channel, result);
         sink.record('ipc.handle', {
           channel: safeName(channel), sender: event?.sender?.id,
-          durationMs: performance.now() - start, ok: true, outcome: 'ok',
+          durationMs: performance.now() - start, ok: !businessFailure, outcome: businessFailure ? 'error' : 'ok',
+          ...(businessFailure ? { error: businessFailure.error, code: businessFailure.code } : {}),
         });
         return result;
       } catch (error: any) {
@@ -81,6 +92,16 @@ function wrapHandlers(sink: FileWriter): void {
         throw error; // поведение обработчика не меняется
       }
     });
+}
+
+function businessFailureFor(channel: string, result: any): { error: string; code?: string } | null {
+  if (channel !== 'windows-files:invoke' && channel !== 'windows-office:invoke') return null;
+  const value = result?.data && typeof result.data === 'object' ? result.data : result;
+  if (value?.ok !== false && value?.success !== false) return null;
+  const error = safeName(value?.error?.name || 'OperationFailed');
+  const rawCode = value?.code || value?.error?.code;
+  const code = rawCode ? safeName(rawCode) : undefined;
+  return { error, ...(code ? { code } : {}) };
 }
 
 /**
@@ -129,6 +150,7 @@ function registerBridge(sink: FileWriter, dir: string): void {
         ok: item.ok !== false,
         outcome: item.ok === false ? 'error' : 'ok',
         ...(typeof item.error === 'string' ? { error: safeName(item.error) } : {}),
+        ...(typeof item.code === 'string' ? { code: safeName(item.code) } : {}),
       });
     }
   });

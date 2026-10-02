@@ -13,12 +13,15 @@ datasource db {
 model User {
   id                String        @id @default(uuid())
   symbol            String        @unique // Табельный номер сотрудника, используемый как логин
-  password          String        @default("password") // Пароль доступа
+  password          String        // Пароль доступа
   name              String // ФИО сотрудника
   lastName          String        @default("") // Фамилия — храним по частям, в именительном падеже
   firstName         String        @default("") // Имя
   middleName        String        @default("") // Отчество
   gender            String        @default("") // "M" | "F" — нужен для склонения и поздравления
+  position          String? // Должность сотрудника
+  department        String? // Подразделение сотрудника
+  email             String? // Рабочая почта
   birthDate         DateTime? // День рождения: поздравление на главном экране
   role              String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
   isActive          Boolean       @default(true) // Профиль включен администратором
@@ -510,6 +513,12 @@ model AppUpdate {
   version   String   @unique
   changelog String
   fileUrl   String
+  generation String   @default("")
+  state      String   @default("legacy")
+  signature  String   @default("")
+  size       Int      @default(0)
+  sha256     String   @default("")
+  chunkCount Int      @default(0)
   createdAt DateTime @default(now())
 }
 

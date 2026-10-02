@@ -9,6 +9,7 @@ import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
+import EmployeeImportDialog from '../components/users/EmployeeImportDialog';
 import { cleanUserPermissions } from '../lib/userPermissions';
 import { canManagePlay, canOpenApp } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
@@ -46,6 +47,7 @@ export default function UsersManagement() {
   const [signFor, setSignFor] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   
   // New User Form State
   const [roles, setRoles] = useState<Role[]>([]);
@@ -413,7 +415,7 @@ export default function UsersManagement() {
       <SectionHead
         title="Сотрудники"
         count={countOf(counts.total, 'сотрудник')}
-        actions={mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}
+        actions={(mayCreate || mayManage) && <div className="flex gap-2">{(mayCreate || mayManage) && <Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</div>}
       />
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
@@ -544,6 +546,7 @@ export default function UsersManagement() {
           </form>
         </Dialog>
       )}
+      {isImportOpen && <EmployeeImportDialog roles={roles} onClose={() => setIsImportOpen(false)} onComplete={() => { void loadUsers(); }} />}
 
       {/* Карточка сотрудника: профиль, срок, права */}
       {editUser && (

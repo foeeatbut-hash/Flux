@@ -18,8 +18,10 @@ import { app, dialog } from 'electron';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { appendLog, appendLogNow } from './logs';
+import { stageExecutable, replaceExecutable, restoreExecutable } from './updateFiles';
+import { sha256File, updateRefusal } from './updateSignature';
 import {
-  WAIT_EXIT_MS, COPY_PAUSE_MS, retryCopy, type ApplyPlan,
+  WAIT_EXIT_MS, COPY_PAUSE_MS, retryCopy, badPackage, type ApplyPlan,
 } from './updates';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -41,9 +43,12 @@ async function waitGone(pid: number): Promise<boolean> {
 }
 
 /** Запустить программу и забыть о ней: помощник уходит следом */
-function launch(exe: string): void {
-  const child = spawn(exe, [], { detached: true, stdio: 'ignore' });
-  child.unref();
+function launch(exe: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, [], { detached: true, stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('spawn', () => { child.unref(); resolve(); });
+  });
 }
 
 /**
@@ -57,20 +62,40 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
   const self = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
   appendLog('INFO', 'Обновление', `Ставлю новую версию на место ${plan.target}`);
 
-  const gone = await waitGone(plan.waitPid);
-  if (!gone) appendLog('WARN', 'Обновление', 'Старая версия не завершилась вовремя — пробую всё равно');
+  let staged = '', backup = '';
+  try {
+    ({ staged, backup } = stageExecutable(self, plan.target));
+    const fd = fs.openSync(staged, 'r'), head = Buffer.alloc(2);
+    try { fs.readSync(fd, head, 0, 2, 0); } finally { fs.closeSync(fd); }
+    const bad = badPackage(Array.from(head), fs.statSync(staged).size);
+    if (bad) throw new Error(bad);
+    const refusal = updateRefusal({ signature: plan.signature || '', version: app.getVersion(),
+      current: plan.previousVersion || app.getVersion(), size: fs.statSync(staged).size, sha256: await sha256File(staged) });
+    if (refusal) throw new Error(refusal);
+    if (!await waitGone(plan.waitPid)) throw new Error('Старая программа не завершилась: файл не заменён');
+  } catch (e: any) {
+    try { if (staged) fs.unlinkSync(staged); } catch (_) {}
+    appendLogNow('ERROR', 'Обновление', e?.message || String(e));
+    try { dialog.showErrorBox('Обновление не установилось', e?.message || String(e)); } catch (_) {}
+    app.exit(1); return;
+  }
 
   let tried = 0;
   for (;;) {
     try {
-      fs.copyFileSync(self, plan.target);
+      replaceExecutable(plan.target, staged, backup);
       // Синхронно: сразу за этой строкой процесс уходит, и очереди сброситься
       // будет уже негде — а именно эта запись и объясняет, чем кончилось
       appendLogNow('INFO', 'Обновление', 'Файл программы заменён, запускаю новую версию');
-      launch(plan.target);
+      await launch(plan.target);
+      try { fs.unlinkSync(backup); } catch (_) {}
       app.exit(0);
       return;
     } catch (err: any) {
+      // A failed launch restores the old executable before recovery.
+      try { restoreExecutable(plan.target, backup); } catch (restoreError: any) {
+        appendLogNow('ERROR', 'Обновление', `Прежняя программа сохранена в ${backup}: ${restoreError?.message || restoreError}`);
+      }
       tried += 1;
       if (retryCopy(err?.code, tried)) { await sleep(COPY_PAUSE_MS); continue; }
       // Остаться без программы человек не должен: говорим, что случилось, и
@@ -85,7 +110,8 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
           + 'или замените файл вручную — новый лежит в папке загрузок.',
         );
       } catch (_) { /* окна может не быть вовсе */ }
-      try { if (fs.existsSync(plan.target)) launch(plan.target); } catch (_) { /* нечего запускать */ }
+      try { if (fs.existsSync(plan.target)) await launch(plan.target); } catch (_) { /* нечего запускать */ }
+      try { if (fs.existsSync(staged)) fs.unlinkSync(staged); } catch (_) {}
       app.exit(1);
       return;
     }

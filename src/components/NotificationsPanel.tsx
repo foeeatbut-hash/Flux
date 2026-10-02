@@ -12,16 +12,17 @@
  *
  * Счёт (когда вернуть, тихо ли сейчас, что показывать) — в src/lib/notifCenter.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, BellOff, X, Globe, UserCircle, Clock, ExternalLink, CheckCheck } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
 import { useShellNotifyStore } from '../store/shellNotifyStore';
 import { dataService, SystemChangeLog } from '../services/dataService';
+import type { WindowsNotificationsSnapshot } from '../../filesystem/windowsNotifications';
 import {
   groupByDay, visibleNow, isQuiet, untilLabel, mergeFeed, unreadIn,
-  SNOOZE_CHOICES, QUIET_CHOICES, type FeedFilter,
+  SNOOZE_CHOICES, QUIET_CHOICES, type FeedFilter, type FeedItem,
 } from '../lib/notifCenter';
 
 /** Фильтр ленты: три слова вместо двух вкладок */
@@ -29,6 +30,7 @@ const FILTERS: { id: FeedFilter; label: string; icon: React.ReactNode }[] = [
   { id: 'all', label: 'Все', icon: <Bell className="w-3.5 h-3.5" /> },
   { id: 'personal', label: 'Личные', icon: <UserCircle className="w-3.5 h-3.5" /> },
   { id: 'system', label: 'Система', icon: <Globe className="w-3.5 h-3.5" /> },
+  { id: 'windows', label: 'Windows', icon: <Globe className="w-3.5 h-3.5" /> },
 ];
 
 const catColor: Record<string, string> = {
@@ -42,7 +44,7 @@ const catColor: Record<string, string> = {
 
 export default function NotificationsPanel() {
   const user = useStore((s) => s.user);
-  const { panelOpen, setPanelOpen, personal, fetch, markAllRead } = useNotificationStore();
+  const { panelOpen, setPanelOpen, personal, fetch, markAllRead, markRead } = useNotificationStore();
   const quiet = useShellNotifyStore((s) => s.quiet);
   const setQuiet = useShellNotifyStore((s) => s.setQuiet);
   const snoozed = useShellNotifyStore((s) => s.snoozed);
@@ -51,21 +53,35 @@ export default function NotificationsPanel() {
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [logs, setLogs] = useState<SystemChangeLog[]>([]);
   const [snoozing, setSnoozing] = useState<string | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const [windows, setWindows] = useState<WindowsNotificationsSnapshot>({status:'unsupported',items:[]});
+  const [connectingWindows, setConnectingWindows] = useState(false);
+  const [windowsMessage, setWindowsMessage] = useState('');
+  useEffect(() => {
+    const bridge = (window as any).electron?.windowsNotifications;
+    if (!panelOpen || !user?.id || !bridge) { setWindows({status:'unsupported',items:[]}); return; }
+    let alive = true; let busy = false;
+    const refresh = async () => {
+      if (!alive || busy) return;
+      busy = true;
+      try { const snapshot = await bridge.snapshot(); if (alive) setWindows(snapshot); }
+      catch { if (alive) setWindows({status:'unavailable',items:[],message:'Не удалось прочитать уведомления Windows.'}); }
+      finally { busy = false; }
+    };
+    void refresh();
+    const off = bridge.onChanged?.(() => void refresh());
+    return () => { alive = false; off?.(); };
+  }, [panelOpen, user?.id]);
+  const windowsFeed = useMemo<FeedItem[]>(() => windows.items.map(item => ({
+    id:`w:${item.id}`,kind:'windows',title:item.title,body:item.body,who:item.appName,
+    category:'WINDOWS',isRead:true,createdAt:item.createdAt,
+  })), [windows.items]);
 
   useEffect(() => {
     if (!panelOpen) return;
     dataService.getLogs().then((l) => setLogs(l.slice(0, 60))).catch(() => {});
     if (user?.id) fetch(user.id);
   }, [panelOpen]);
-
-  // Открытую панель считаем прочитанной: человек её видит. Раньше это
-  // случалось только на вкладке «Личные», и счётчик горел, пока туда не зайдёшь
-  useEffect(() => {
-    if (panelOpen && user?.id) {
-      const t = setTimeout(() => markAllRead(user.id), 1200);
-      return () => clearTimeout(t);
-    }
-  }, [panelOpen, user?.id]);
 
   const fmt = (iso?: string) => {
     if (!iso) return '';
@@ -77,14 +93,43 @@ export default function NotificationsPanel() {
     if (route && route !== '#') { navigate(route); setPanelOpen(false); }
   };
 
-  const shown = useMemo(() => visibleNow(personal, snoozed), [personal, snoozed]);
+  const snoozedUntil = useMemo(() => Object.fromEntries(
+    Object.entries(snoozed).map(([id, entry]) => [id, entry.until]),
+  ), [snoozed]);
+  const shown = useMemo(() => visibleNow(personal, snoozedUntil), [personal, snoozedUntil]);
   // Одна лента вместо двух вкладок: правила слияния — в lib/notifCenter,
   // потому что «что и в каком порядке видно» имеет правильный ответ
-  const feedAll = useMemo(() => mergeFeed(shown, logs, 'all'), [shown, logs]);
-  const feed = useMemo(() => mergeFeed(shown, logs, filter), [shown, logs, filter]);
+  const feedAll = useMemo(() => [...mergeFeed(shown, logs, 'all'),...windowsFeed].sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt)), [shown, logs, windowsFeed]);
+  const feed = useMemo(() => filter === 'all' ? feedAll : filter === 'windows' ? windowsFeed : mergeFeed(shown, logs, filter), [shown, logs, filter, feedAll, windowsFeed]);
   const days = useMemo(() => groupByDay(feed), [feed]);
   const hidden = personal.length - shown.length;
   const quietNow = isQuiet(quiet);
+
+  // Одна открытая панель ещё не значит, что человек просмотрел каждую строку.
+  // Отмечаем только личные карточки, которые были видны почти целиком секунду.
+  useEffect(() => {
+    const root = feedRef.current;
+    if (!panelOpen || !root || !user?.id || typeof IntersectionObserver === 'undefined') return;
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.personalId;
+        if (!id) continue;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.8 && !document.hidden) {
+          if (!timers.has(id)) timers.set(id, setTimeout(() => {
+            timers.delete(id);
+            if (!document.hidden) void markRead(user.id, id);
+          }, 900));
+        } else {
+          const timer = timers.get(id);
+          if (timer) clearTimeout(timer);
+          timers.delete(id);
+        }
+      }
+    }, { root, threshold: [0, 0.8, 1] });
+    root.querySelectorAll<HTMLElement>('[data-personal-id]').forEach((node) => observer.observe(node));
+    return () => { observer.disconnect(); timers.forEach(clearTimeout); };
+  }, [panelOpen, user?.id, feed, markRead]);
 
   // Где стоит панель и сколько ей места — решает правая колонка
   // (components/RightDock): панелей две, и делить колонку они обязаны вместе.
@@ -148,8 +193,17 @@ export default function NotificationsPanel() {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin px-1 pb-2">
-          {days.length === 0 && <Empty text={filter === 'personal' ? 'Личных уведомлений нет' : 'Пока ничего не приходило'} />}
+        <div ref={feedRef} className="flex-1 overflow-y-auto scrollbar-thin px-1 pb-2">
+          {filter === 'windows' && windows.status !== 'ready' && <div className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">
+            <p className="break-words">{windowsMessage || windows.message || 'Для уведомлений Windows установите компонент Flux Notification Bridge и разрешите ему доступ. Уведомления Flux работают независимо.'}</p>
+            {(window as any).electron?.windowsNotifications && <button type="button" disabled={connectingWindows} className="fx-btn mt-2" onClick={async () => {
+              setConnectingWindows(true); setWindowsMessage('');
+              try { const result = await (window as any).electron.windowsNotifications.requestConsent(); setWindowsMessage(result.message || 'Разрешите доступ в открывшемся окне Windows.'); }
+              catch { setWindowsMessage('Компонент уведомлений Windows не удалось открыть.'); }
+              finally { setConnectingWindows(false); }
+            }}>{connectingWindows ? 'Открываю…' : 'Подключить уведомления Windows'}</button>}
+          </div>}
+          {days.length === 0 && <Empty text={filter === 'personal' ? 'Личных уведомлений нет' : filter === 'windows' ? 'Уведомлений Windows нет' : 'Пока ничего не приходило'} />}
           {days.map((day) => (
             <div key={day.title}>
               <div className="fx-gh sticky top-0 bg-white dark:bg-slate-900">
@@ -159,21 +213,21 @@ export default function NotificationsPanel() {
                 /* Непрочитанное отмечено точкой перед заголовком, а не заливкой и
                    не полосой слева: полоса по методологии — примета
                    сгенерированного интерфейса, заливка спорит с выделением */
-                <div key={n.id}
+                <div key={n.id} data-personal-id={n.kind === 'personal' && !n.isRead ? n.id.slice(2) : undefined}
                   className="px-2 py-2 rounded-md transition-colors hover:bg-slate-50 dark:hover:bg-slate-850 border-b border-slate-100 dark:border-slate-850 last:border-b-0">
                   <div className="flex items-start gap-1.5">
                     <span aria-label={n.isRead ? undefined : 'Не прочитано'} className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-emerald-500'}`} />
-                    <div className={`text-sm leading-snug flex-1 ${
+                    <div className={`min-w-0 flex-1 break-words text-sm leading-snug ${
                       n.kind === 'personal' ? 'font-medium text-slate-800 dark:text-slate-100' : 'text-slate-700 dark:text-slate-300'
                     }`}>{n.title}</div>
                     <span className={`text-2xs shrink-0 ${catColor[n.category] || 'text-slate-400'}`}>
-                      {n.kind === 'personal' ? 'вам' : ''}
+                      {n.kind === 'personal' ? 'вам' : n.kind === 'windows' ? 'Windows' : ''}
                     </span>
                   </div>
-                  {n.body && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</div>}
+                  {n.body && <div className="break-words text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</div>}
                   <div className="flex items-center gap-1 mt-1.5">
                     <span className="text-2xs text-slate-400 flex items-center gap-0.5 mr-auto">
-                      {n.who ? <span className="font-semibold text-slate-500 dark:text-slate-400 mr-1">{n.who}</span> : null}
+                      {n.who ? <span className="min-w-0 break-words font-semibold text-slate-500 dark:text-slate-400 mr-1">{n.who}</span> : null}
                       <Clock className="w-2.5 h-2.5" />{fmt(n.createdAt)}
                     </span>
                     {n.kind === 'personal' && (snoozing === n.id ? (

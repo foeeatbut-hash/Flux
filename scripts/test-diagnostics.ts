@@ -21,12 +21,27 @@ import { COMMON, EVENTS, EVENT_NAMES, specOf, type FieldKind } from '../diagnost
 import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, validBatch } from '../diagnostics/policy';
 import { FileWriter } from '../diagnostics/node/writer';
 import { summarize, parseJsonl } from '../diagnostics/summary';
+import { armVisibleTimer, frameGap, tickVisibleTimer } from '../diagnostics/uiTiming';
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
   cond
     ? console.log('  ✓', name)
     : (f++, console.error('  ✗', name, detail !== undefined ? JSON.stringify(detail).slice(0, 300) : ''));
+
+{
+  const hidden = armVisibleTimer(10, false);
+  const backgroundTick = tickVisibleTimer(hidden, 60_000, false);
+  const resumed = tickVisibleTimer(armVisibleTimer(60_000, true), 60_010, true);
+  ok('скрытая вкладка не создаёт задержку таймера', hidden.expectedAt === null && backgroundTick.lagMs === null);
+  ok('видимое окно начинает новый интервал после возврата', resumed.lagMs === 0);
+  ok('frame gap сбрасывается в фоне', frameGap(10, 60_000, false).gapMs === null && frameGap(null, 60_001, true).gapMs === null);
+  ok('frame gap считает только активные последовательные кадры', frameGap(100, 250, true).gapMs === 150);
+  const host = cleanFields('office.host', { app: 'pdf', action: 'open', operation: 'windows-office:invoke', phase: 'end', durationMs: 12, outcome: 'error', error: 'TypeError' });
+  ok('office host сохраняет разрешённую фазу и сводит лишние значения', host?.app === 'pdf' && host?.action === 'open' && host?.phase === 'end');
+  ok('office host отвергает неизвестное приложение или действие', cleanFields('office.host', { app: 'unknown', action: 'launch' })?.app === undefined);
+  ok('office host принимает только известный IPC канал', cleanFields('office.host', { operation: 'secret-channel' })?.operation === undefined);
+}
 
 const BAIT = 'NEVER_LOG_THIS';
 
@@ -172,7 +187,7 @@ console.log('\n4. Словарь событий: записать можно т�
 
 console.log('\n5. Словарь описан целиком');
 {
-  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome'];
+  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome', 'app', 'action'];
   const strange: string[] = [];
   for (const name of EVENT_NAMES) {
     const spec = specOf(name);

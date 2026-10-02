@@ -26,6 +26,7 @@ import { isPrivilegedUser } from './accessPolicy.js';
  * держать его в модуле нельзя (см. server/context.ts).
  */
 import { canSeeProject, hiddenProjectsOf } from './routes/members.js';
+import { shareAllows, shareOf } from './fileSharing.js';
 
 /** Кто действует. Берётся только из сессии (authUser), никогда из запроса */
 export interface Actor { id?: string | null; role?: string | null }
@@ -37,6 +38,7 @@ export interface FileFacts {
   folderId?: string | null;
   type?: string | null;
   createdById?: string | null;
+  deletedAt?: Date | string | null;
 }
 
 export interface FolderFacts {
@@ -109,7 +111,7 @@ export function decideFileAccess(a: {
   return a.projectVisible;
 }
 
-const FILE_SELECT = { id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true };
+const FILE_SELECT = { id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true, deletedAt: true };
 
 async function factsOf(prisma: any, file: FileFacts | string | null | undefined): Promise<FileFacts | null> {
   if (!file) return null;
@@ -127,7 +129,11 @@ async function folderFactsOf(prisma: any, folderId: string | null | undefined): 
 /** Читает ли пользователь файл. `file` — запись или просто номер */
 export async function canReadFile(prisma: any, user: Actor | null | undefined, file: FileFacts | string | null | undefined): Promise<boolean> {
   const f = await factsOf(prisma, file);
-  if (!f || !user?.id) return false;
+  if (!f || !user?.id || f.deletedAt) return false;
+  if (f.scope === 'PERSONAL' && f.ownerId !== user.id) {
+    const share = await shareOf(prisma, String(f.id || ''));
+    if (share) return !f.folderId && f.type !== 'CHAT_FILE' && shareAllows(share, user.id);
+  }
   const folder = await folderFactsOf(prisma, f.folderId);
   const projectVisible = folder?.projectId
     ? await canSeeProject(user.id, folder.projectId, isPrivilegedUser(user))
@@ -142,7 +148,13 @@ export async function canReadFile(prisma: any, user: Actor | null | undefined, f
  * Отдельной функцией, чтобы у записи было где ужесточиться, не трогая чтение.
  */
 export async function canWriteFile(prisma: any, user: Actor | null | undefined, file: FileFacts | string | null | undefined): Promise<boolean> {
-  return canReadFile(prisma, user, file);
+  const f = await factsOf(prisma, file);
+  if (!f || !user?.id || f.deletedAt) return false;
+  if (f.scope === 'PERSONAL' && f.ownerId !== user.id) {
+    const share = await shareOf(prisma, String(f.id || ''));
+    if (share) return !f.folderId && f.type !== 'CHAT_FILE' && shareAllows(share, user.id, true);
+  }
+  return canReadFile(prisma, user, f);
 }
 
 /** Видит и может ли класть в папку: чужая личная папка и скрытый проект — нет */
@@ -247,4 +259,12 @@ export function patchFileFields(
     out.additionalTagIds = ids;
   }
   return out;
+}
+
+/** Правка содержимого не разрешает получателю менять имя, владельца и жизненный цикл. */
+export async function canManageFile(prisma: any, user: Actor | null | undefined, file: FileFacts | string): Promise<boolean> {
+  const f = await factsOf(prisma, file);
+  if (!f || !user?.id) return false;
+  if (f.scope === 'PERSONAL') { const share = await shareOf(prisma, String(f.id || '')); if (share) return share.ownerId === user.id; }
+  return canWriteFile(prisma, user, { ...f, deletedAt: null });
 }

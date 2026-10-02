@@ -3,6 +3,9 @@ import { administratorPermission, requireOwnerMiddleware } from '../accessPolicy
 import { defaultPermissions } from '../../src/lib/permissions';
 import { getPrisma, notifyUser } from '../context.js';
 import { explainDbError } from '../dbError.js';
+import { randomBytes, scrypt } from 'node:crypto';
+import { ensureUserProfileSchema } from '../userProfileSchema.js';
+import { mapEmployeeRows, employeeImportName, USER_IMPORT_FIELDS, validateEmployeeImportMatrix, type UserImportMap } from '../usersImport.js';
 
 // Сотрудники, роли и личные настройки уведомлений.
 //
@@ -26,6 +29,41 @@ let deps: UserDeps = {
   invalidateRolePerms: () => {},
   invalidateAuthUser: () => {},
 };
+type EmployeeImportUndoItem = { kind: 'create'; id: string; after: Record<string, unknown> } | { kind: 'update'; id: string; before: Record<string, unknown>; after: Record<string, unknown> };
+
+function hashImportPassword(plain: string): Promise<string> {
+  const salt = randomBytes(16);
+  return new Promise((resolve, reject) => scrypt(String(plain), salt, 64, (error, derived) => {
+    if (error) reject(error);
+    else resolve(`scrypt$${salt.toString('hex')}$${derived.toString('hex')}`);
+  }));
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, work: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await work(items[index], index);
+    }
+  }));
+  return results;
+}
+
+async function hasEmployeeImportDependencies(tx: any, id: string): Promise<boolean> {
+  const [files, folders, markups, messages, membership, ownedGroups, notes] = await Promise.all([
+    tx.fileNode.count({ where: { OR: [{ createdById: id }, { updatedById: id }, { ownerId: id }] } }),
+    tx.folder.count({ where: { ownerId: id } }),
+    tx.pdfMarkup.count({ where: { createdById: id } }),
+    tx.chatMessage.count({ where: { OR: [{ senderId: id }, { receiverId: id }] } }),
+    tx.chatGroup.findFirst({ where: { members: { some: { id } } }, select: { id: true } }),
+    tx.chatGroup.findFirst({ where: { ownerId: id }, select: { id: true } }),
+    tx.userNote.count({ where: { ownerId: id } }),
+  ]);
+  return files > 0 || folders > 0 || markups > 0 || messages > 0 || !!membership || !!ownedGroups || notes > 0;
+}
 
 const hashPassword = (plain: string) => deps.hashPassword(plain);
 const invalidateRolePerms = () => deps.invalidateRolePerms();
@@ -154,6 +192,161 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
   app.use('/api/roles', (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return requireOwnerMiddleware(req, res, next);
     next();
+  });
+  app.use('/api/users', async (_req, res, next) => {
+    try { await ensureUserProfileSchema(getPrisma()); next(); }
+    catch (error: any) { res.status(503).json({ message: error?.message || 'Не удалось подготовить схему профиля сотрудника' }); }
+  });
+
+  // Preview is read-only. Apply revalidates the same payload, then commits all
+  // selected rows together. Passwords are never logged or persisted in plain text.
+  app.post('/api/users/import/preview', async (req: Request, res: Response) => {
+    try {
+      const actor = (req as any).authUser;
+      const mode = req.body?.mode === 'update' ? 'update' : 'create';
+      if (mode === 'create' ? !administratorPermission(actor, 'admin.users.create') : !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права выполнять это действие' });
+      const rows = req.body?.rows;
+      const mapping = req.body?.mapping as UserImportMap;
+      if (!validateEmployeeImportMatrix(rows)) return res.status(400).json({ message: 'Файл должен содержать от 1 до 5000 строк данных и иметь допустимый размер таблицы' });
+      if (typeof mapping?.symbol !== 'number' || (mode === 'create' && !(typeof mapping?.name === 'number' || (typeof mapping?.lastName === 'number' && typeof mapping?.firstName === 'number')))) return res.status(400).json({ message: mode === 'create' ? 'Назначьте колонки логина и ФИО' : 'Назначьте колонку логина' });
+      const prisma = getPrisma();
+      await ensureUserProfileSchema(prisma);
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
+      const validRoles = new Set(roles.map((r: any) => r.code));
+      const defaultRole = String(req.body?.defaultRole || 'ENGINEER_VENT').toUpperCase();
+      if (!validRoles.has(defaultRole)) return res.status(400).json({ message: 'Выберите существующую роль по умолчанию' });
+      if (actor.role !== 'OWNER' && defaultRole === 'ADMIN') return res.status(403).json({ message: 'Администратора назначает только владелец' });
+      const result = mapEmployeeRows(rows, mapping, existing, defaultRole, mode, actor.role).map((row) => {
+        if (!row.error && row.values.role && !validRoles.has(row.values.role)) row.error = `Неизвестная роль: ${row.values.role}`;
+        if (!row.error && actor.role !== 'OWNER' && row.values.role === 'ADMIN') row.error = 'Администратора назначает только владелец';
+        const { password, ...values } = row.values;
+        return { ...row, values, passwordProvided: !!password };
+      });
+      res.json({ rows: result, fields: USER_IMPORT_FIELDS });
+    } catch (error: any) { res.status(500).json({ message: error?.message || 'Не удалось проверить файл' }); }
+  });
+
+  app.post('/api/users/import/apply', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const actor = (req as any).authUser;
+      const mode = req.body?.mode === 'update' ? 'update' : 'create';
+      if (mode === 'create' ? !administratorPermission(actor, 'admin.users.create') : !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права выполнять это действие' });
+      const { rows, mapping, selected, defaultRole } = req.body || {};
+      if (!Array.isArray(selected) || !selected.length || selected.length > 5000 || !validateEmployeeImportMatrix(rows)) return res.status(400).json({ message: 'Выберите корректный список строк (до 5000)' });
+      await ensureUserProfileSchema(prisma);
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
+      const validRoles = new Set(roles.map((r: any) => r.code));
+      const preview = mapEmployeeRows(rows, mapping || {}, existing, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
+      const chosen = preview.filter((r) => selected.includes(r.row));
+      if (chosen.length !== selected.length || chosen.some((r) => r.error)) return res.status(409).json({ message: 'Список изменился или содержит ошибки. Повторите предпросмотр.' });
+      for (const row of chosen) {
+        if ((row.values.role && !validRoles.has(row.values.role)) || row.values.role === 'OWNER' || (actor.role !== 'OWNER' && row.values.role === 'ADMIN')) return res.status(403).json({ message: 'Импорт содержит роль, которую нельзя назначить' });
+        if (row.values.symbol.trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
+      }
+      const preparedPasswords = new Map<number, { plain: string; hash: string }>();
+      if (mode === 'create') {
+        const prepared = await mapWithConcurrency(chosen, 4, async (row) => {
+          const plain = row.values.password || randomBytes(18).toString('base64url');
+          return { row: row.row, plain, hash: await hashImportPassword(plain) };
+        });
+        for (const item of prepared) preparedPasswords.set(item.row, { plain: item.plain, hash: item.hash });
+      }
+      const credentialRows: Array<{ symbol: string; password: string }> = [];
+      const undoItems: EmployeeImportUndoItem[] = [];
+      const undoToken = randomBytes(24).toString('base64url');
+      const expiresAt = Date.now() + 60 * 60 * 1000;
+      await prisma.$transaction(async (tx: any) => {
+        // Reload inside the write transaction: the confirmation may have been
+        // open while another administrator changed the employee list.
+        const currentUsers = await tx.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } });
+        const currentRoles = await tx.role.findMany({ select: { code: true } });
+        const currentRoleCodes = new Set(currentRoles.map((r: any) => r.code));
+        const currentRows = mapEmployeeRows(rows, mapping || {}, currentUsers, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
+        const currentChosen = currentRows.filter((r) => selected.includes(r.row));
+        if (currentChosen.length !== selected.length || currentChosen.some((r) => r.error || (r.values.role && !currentRoleCodes.has(r.values.role)) || r.values.role === 'OWNER' || (actor.role !== 'OWNER' && r.values.role === 'ADMIN'))) throw Object.assign(new Error('Список сотрудников или ролей изменился после предпросмотра. Повторите предпросмотр.'), { status: 409 });
+        const oldBatches = await tx.appSetting.findMany({ where: { key: { startsWith: 'employee_import_batch:' } }, select: { id: true, value: true } });
+        for (const old of oldBatches) {
+          try { if (JSON.parse(old.value)?.expiresAt < Date.now()) await tx.appSetting.delete({ where: { id: old.id } }); } catch { /* malformed expired snapshots are safe to discard */ await tx.appSetting.delete({ where: { id: old.id } }); }
+        }
+        for (const row of currentChosen) {
+          const v = row.values;
+          const names = employeeImportName(row);
+          const existingUser = currentUsers.find((u: any) => u.id === row.existingId);
+          if (mode === 'create') {
+            const password = preparedPasswords.get(row.row)!;
+            const user = await tx.user.create({ data: {
+              symbol: v.symbol, ...names, gender: '', birthDate: null,
+              role: v.role, password: password.hash, isActive: true,
+              permissions: JSON.stringify(defaultPermissions()),
+              position: v.position || null, department: v.department || null, email: v.email || null,
+            }, select: { id: true, symbol: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, role: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true, signatureImage: true, signatureHeightMm: true, hideOnline: true, lastLoginAt: true, createdAt: true } });
+            credentialRows.push({ symbol: user.symbol, password: password.plain });
+            const { id, ...after } = user;
+            undoItems.push({ kind: 'create', id, after });
+          } else if (existingUser) {
+            const data: any = {};
+            // Empty cells carry no instruction: existing profile values and passwords remain intact.
+            if (v.symbol) data.symbol = v.symbol;
+            if (names.name) Object.assign(data, names);
+            if (v.role) data.role = v.role;
+            if (v.position) data.position = v.position;
+            if (v.department) data.department = v.department;
+            if (v.email) data.email = v.email;
+            const before = Object.fromEntries(Object.keys(data).map((key) => [key, existingUser[key]]));
+            const changed = await tx.user.updateMany({ where: { id: existingUser.id, ...before }, data });
+            if (changed.count !== 1) throw Object.assign(new Error('Сотрудник изменился во время импорта. Повторите предпросмотр.'), { status: 409 });
+            const after = Object.fromEntries(Object.keys(data).map((key) => [key, data[key]]));
+            undoItems.push({ kind: 'update', id: existingUser.id, before, after });
+          }
+        }
+        await tx.appSetting.create({ data: { key: `employee_import_batch:${undoToken}`, userId: String(actor.id), value: JSON.stringify({ actorId: String(actor.id), expiresAt, items: undoItems, undone: false }) } });
+      }, { maxWait: 10000, timeout: 60000 });
+      invalidateAuthUser();
+      res.json({ imported: chosen.length, credentials: mode === 'create' ? credentialRows : [], undoToken });
+    } catch (error: any) { res.status(500).json({ message: error?.message || 'Импорт не выполнен' }); }
+  });
+
+  app.post('/api/users/import/undo', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const actor = (req as any).authUser;
+      if (!administratorPermission(actor, 'admin.users.manage') && !administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права отменять импорт' });
+      const token = String(req.body?.undoToken || '');
+      if (!/^[A-Za-z0-9_-]{32}$/.test(token)) return res.status(404).json({ message: 'Партия отмены не найдена' });
+      const batchRow = await prisma.appSetting.findFirst({ where: { key: `employee_import_batch:${token}`, userId: String(actor.id) } });
+      if (!batchRow) return res.status(404).json({ message: 'Партия отмены не найдена' });
+      const batch = JSON.parse(batchRow.value);
+      if (batch.undone || batch.expiresAt < Date.now() || !Array.isArray(batch.items)) return res.status(404).json({ message: 'Срок отмены истёк или импорт уже отменён' });
+      if (batch.items.some((item: EmployeeImportUndoItem) => item.kind === 'update') && !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права отменять обновление сотрудников' });
+      if (batch.items.some((item: EmployeeImportUndoItem) => item.kind === 'create') && !administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права отменять создание сотрудников' });
+      await prisma.$transaction(async (tx: any) => {
+        for (const item of batch.items) {
+          const row = await tx.user.findUnique({ where: { id: item.id } });
+          if (!row) throw Object.assign(new Error('Сотрудник изменён или удалён после импорта; отмена не выполнена'), { status: 409 });
+          const expected = item.after;
+          for (const [key, value] of Object.entries(expected)) {
+            if (JSON.stringify(row[key] ?? null) !== JSON.stringify(value ?? null)) throw Object.assign(new Error('Данные изменились после импорта; отмена не выполнена'), { status: 409 });
+          }
+          if (item.kind === 'create' && await hasEmployeeImportDependencies(tx, item.id)) throw Object.assign(new Error('У импортированного сотрудника появились связанные данные; отмена не затронула партию.'), { status: 409 });
+        }
+        const claim = await tx.appSetting.updateMany({ where: { id: batchRow.id, value: batchRow.value }, data: { value: JSON.stringify({ ...batch, undone: true }) } });
+        if (claim.count !== 1) throw Object.assign(new Error('Импорт уже отменяют или его состояние изменилось'), { status: 409 });
+        for (const item of [...batch.items].reverse()) {
+          if (item.kind === 'create') {
+            const deleted = await tx.user.deleteMany({ where: { id: item.id, ...item.after } });
+            if (deleted.count !== 1) throw Object.assign(new Error('Профиль изменился во время отмены. Отмена не выполнена.'), { status: 409 });
+          } else {
+            const restored = await tx.user.updateMany({ where: { id: item.id, ...item.after }, data: item.before });
+            if (restored.count !== 1) throw Object.assign(new Error('Профиль изменился во время отмены. Отмена не выполнена.'), { status: 409 });
+          }
+        }
+      }, { maxWait: 10000, timeout: 60000 });
+      invalidateAuthUser();
+      res.json({ success: true, restored: batch.items.length });
+    } catch (error: any) {
+      res.status(error?.status || 409).json({ message: error?.message || 'Отмена не выполнена: профиль связан с другими данными' });
+    }
   });
 
   // ── Подпись сотрудника ────────────────────────────────────────────────────
@@ -301,7 +494,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
         gender: parts.gender,
         birthDate: parts.birthDate,
         role: role || 'ENGINEER_VENT',
-        password: hashPassword(String(password || 'password')),
+        password: hashPassword(String(password || randomBytes(18).toString('base64url'))),
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
         // По умолчанию сотруднику доступно всё, кроме управления проектами
