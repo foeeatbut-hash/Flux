@@ -1,3 +1,4 @@
+import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { traceRequest, traceDatabase, traceSockets } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
@@ -327,31 +328,9 @@ function createPrismaClient(dbType: string, dbUrl: string) {
 }
 
 function buildPrismaClient(dbType: string, dbUrl: string) {
-  // Движок базы запоминается здесь, а не угадывается на месте: маршруты,
-  // создающие недостающие таблицы, пишут SQL под конкретный движок
-  // (server/ddl.ts), и «почти правильный» SQL там бесполезен
-  setDialect(dialectOf(dbType, dbUrl));
-  try {
-    if (dbType === 'REMOTE') {
-      if (isMariaDbUrl(dbUrl)) {
-        const { PrismaClient: MariaPrisma } = require('@prisma/client-mysql');
-        const { PrismaMariaDb } = require('@prisma/adapter-mariadb');
-        const normalized = dbUrl.replace(/^mariadb:\/\//i, 'mysql://');
-        return new MariaPrisma({ adapter: new PrismaMariaDb(normalized) });
-      }
-      const { PrismaClient: RemotePrisma } = require('@prisma/client-pg');
-      const { PrismaPg } = require('@prisma/adapter-pg');
-      return new RemotePrisma({ adapter: new PrismaPg({ connectionString: dbUrl }) });
-    } else {
-      const { PrismaClient: LocalPrisma } = require('@prisma/client-sqlite');
-      return new LocalPrisma({ adapter: buildSqliteAdapter(dbUrl) });
-    }
-  } catch (err: any) {
-    logInit(`[Prisma Client Builder Exception] Error creating client for ${dbType}: ${err.message}\nStack: ${err.stack}`);
-    const { PrismaClient: LocalPrisma } = require('@prisma/client-sqlite');
-    const fallbackUrl = `file:${path.join(ventAppDataPath, 'database.sqlite')}`;
-    return new LocalPrisma({ adapter: buildSqliteAdapter(fallbackUrl) });
-  }
+  return buildDatabaseClient(dbType, dbUrl, {
+    load: require, sqliteAdapter: buildSqliteAdapter, selectDialect: setDialect,
+  });
 }
 
 interface AppConfig {
@@ -522,18 +501,16 @@ try {
     );
   } catch (fsErr) {}
   
-  try {
-    logInit('[Prisma Client Init Recovery] Attempting to construct fallback Local PrismaClient...');
-    prisma = createPrismaClient('LOCAL', `file:${path.join(ventAppDataPath, 'database.sqlite')}`);
-    setPrisma(prisma);
-    isPrismaAvailable = true;
-    logInit('[Prisma Client Init Recovery] Fallback PrismaClient constructed.');
-  } catch (fallbackErr: any) {
-    logInit(`[Prisma Client Init Recovery Exception] Failed to construct fallback PrismaClient: ${fallbackErr.message}\nStack: ${fallbackErr.stack}`);
-    prisma = null;
-    setPrisma(prisma);
-    isPrismaAvailable = false;
-  }
+  // Для общей БД остаёмся в отказе: локальная подмена создавала видимость
+  // успешного подключения и изолированный реестр вместо данных компании.
+  if (appConfig.current_db_type === 'LOCAL') {
+    try {
+      prisma = createPrismaClient('LOCAL', `file:${path.join(ventAppDataPath, 'database.sqlite')}`);
+      setPrisma(prisma);
+      isPrismaAvailable = true;
+    } catch (_) { prisma = null; setPrisma(null); isPrismaAvailable = false; }
+  } else { prisma = null; setPrisma(null); isPrismaAvailable = false; }
+
 }
 
 // Auto-seed user and structure if database is empty - securely wrapped to avoid startup crashes

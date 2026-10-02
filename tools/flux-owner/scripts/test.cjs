@@ -80,11 +80,57 @@ async function main() {
     let selectedSaveFile = sessionBackup;
     let confirmationResponse = 1;
     let cancelDirectoryDialog = false;
+    const realNetwork = require(path.join(root, 'src/network.cjs'));
+    const runtimeRecords = [];
+    let expectedConnectOwnerHex = '';
+    let nextChallengeError = '';
+    let challengeByOrigin = new Map();
+    let runtimeStartWaiter = null;
+    let deferredDatabaseStartup = null;
+    const fakeNetwork = {
+      ...realNetwork,
+      request: async (origin, route, options = {}) => {
+        if (route === '/api/owner/challenge') {
+          if (nextChallengeError) { const error = nextChallengeError; nextChallengeError = ''; throw new Error(error); }
+          const nonce = crypto.randomBytes(24).toString('base64url');
+          const expiresAt = Date.now() + 60000;
+          const message = JSON.stringify({ purpose: 'flux-owner-login', version: 1, nonce, origin, expiresAt, installationId: 'database-runtime-test' });
+          challengeByOrigin.set(origin, message);
+          return { nonce, expiresAt, message };
+        }
+        if (route === '/api/owner/login') {
+          const message = challengeByOrigin.get(origin);
+          assert.ok(message, 'login must follow an issued challenge');
+          const publicKey = crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(expectedConnectOwnerHex, 'hex')]), type: 'spki', format: 'der' });
+          assert.ok(crypto.verify(null, Buffer.from(message), publicKey, Buffer.from(options.body.sig, 'base64')), 'owner challenge signature must verify');
+          assert.equal(options.body.nonce, JSON.parse(message).nonce);
+          return { token: 'temporary-controller-token-123', user: { name: 'Test Owner', role: 'OWNER' } };
+        }
+        throw new Error(`Unexpected mocked request ${route}`);
+      },
+    };
+    const fakeStartDatabaseRuntime = async ({ uri, signal, onUnexpectedExit }) => {
+      const record = { uri, signal, onUnexpectedExit, stops: 0 };
+      runtimeRecords.push(record);
+      runtimeStartWaiter?.();
+      runtimeStartWaiter = null;
+      const startup = deferredDatabaseStartup;
+      deferredDatabaseStartup = null;
+      if (startup) await startup;
+      const index = runtimeRecords.length;
+      return {
+        origin: `http://127.0.0.1:${35000 + index}`,
+        display: `PostgreSQL · flux_test · localhost`,
+        stop: async () => { record.stops += 1; },
+      };
+    };
     const nativeRequire = require('node:module').createRequire(path.join(root, 'src/main.cjs'));
     const testModule = { exports: {} };
     const testRequire = name => {
       if (name === 'node:os') return { homedir: () => temp };
       if (name === './signing.cjs') return ownerSigning;
+      if (name === './network.cjs') return fakeNetwork;
+      if (name === './database-runtime.cjs') return { startDatabaseRuntime: fakeStartDatabaseRuntime };
       if (name === 'electron') return {
         app: { whenReady: () => ({ then() {} }), on() {} },
         BrowserWindow: class {}, ipcMain: { handle() {} }, clipboard: { writeText() {} },
@@ -228,6 +274,85 @@ async function main() {
     assert.equal(newlyArchived.length, 1);
     assert.deepEqual(await fs.readFile(path.join(archiveDir, newlyArchived[0])), setupLocalBytes);
     assert.deepEqual((await vaultApi.readVault(localVaultPath, 'temporary-restored-password')).keys, fullKit.keys);
+
+    // Controller lifecycle uses only a fake database runtime and mocked HTTP requests.
+    expectedConnectOwnerHex = fullKit.keys.owner.publicHex;
+    const databaseUri = 'mysql://test_owner:temporary-db-secret@db.invalid:3306/flux_test';
+    const databaseConnected = await ownerActions.connect({ server: databaseUri });
+    assert.equal(databaseConnected.connected, true);
+    assert.equal(databaseConnected.connectionKind, 'database');
+    assert.equal(databaseConnected.server, 'PostgreSQL · flux_test · localhost');
+    assert.doesNotMatch(JSON.stringify(databaseConnected), /temporary-db-secret|mysql:\/\//i);
+    assert.equal(runtimeRecords.length, 1);
+    assert.equal(runtimeRecords[0].uri, databaseUri);
+    assert.equal(runtimeRecords[0].stops, 0);
+    const disconnectedDatabase = await ownerActions.disconnect();
+    assert.equal(disconnectedDatabase.connected, false);
+    assert.equal(disconnectedDatabase.server, '');
+    assert.equal(disconnectedDatabase.connectionKind, 'server');
+    assert.equal(runtimeRecords[0].stops, 1);
+
+    const lockedDatabase = await ownerActions.connect({ server: databaseUri });
+    assert.equal(lockedDatabase.connected, true);
+    await ownerActions.lock();
+    assert.equal(runtimeRecords[1].stops, 1);
+    const lockedState = await ownerActions.state();
+    assert.equal(lockedState.connected, false);
+    assert.equal(lockedState.server, '');
+    assert.equal(lockedState.unlocked, false);
+    await ownerActions.unlock({ password: 'temporary-restored-password' });
+
+    nextChallengeError = 'temporary challenge failure';
+    await assert.rejects(ownerActions.connect({ server: databaseUri }), /temporary challenge failure/);
+    assert.equal(runtimeRecords[2].stops, 1);
+    const failedChallengeState = await ownerActions.state();
+    assert.equal(failedChallengeState.connected, false);
+    assert.equal(failedChallengeState.server, '');
+    assert.equal(failedChallengeState.connectionKind, 'server');
+
+    let finishDatabaseStartup;
+    const startupObserved = new Promise(resolve => { runtimeStartWaiter = resolve; });
+    deferredDatabaseStartup = new Promise(resolve => { finishDatabaseStartup = resolve; });
+    const canceledConnection = ownerActions.connect({ server: databaseUri });
+    await startupObserved;
+    assert.deepEqual(await ownerActions.cancel(), { canceled: true });
+    finishDatabaseStartup();
+    await assert.rejects(canceledConnection, /abort|cancel/i);
+    assert.equal(runtimeRecords[3].stops, 1);
+    const canceledConnectionState = await ownerActions.state();
+    assert.equal(canceledConnectionState.connected, false);
+    assert.equal(canceledConnectionState.server, '');
+    assert.equal(canceledConnectionState.connectionKind, 'server');
+
+    const beforeUnexpectedExit = await ownerActions.connect({ server: databaseUri });
+    assert.equal(beforeUnexpectedExit.connected, true);
+    assert.equal(runtimeRecords[4].stops, 0);
+    assert.equal(typeof runtimeRecords[4].onUnexpectedExit, 'function');
+    runtimeRecords[4].onUnexpectedExit();
+    const unexpectedExitState = await ownerActions.state();
+    assert.equal(unexpectedExitState.connected, false);
+    assert.equal(unexpectedExitState.server, '');
+    assert.equal(unexpectedExitState.connectionKind, 'server');
+    assert.equal(unexpectedExitState.unlocked, true);
+    assert.equal(runtimeRecords[4].stops, 1);
+    assert.doesNotMatch(JSON.stringify(unexpectedExitState), /temporary-db-secret|mysql:\/\//i);
+
+    const recoveredDatabase = await ownerActions.connect({ server: databaseUri });
+    assert.equal(recoveredDatabase.connected, true);
+    assert.equal(recoveredDatabase.connectionKind, 'database');
+    assert.equal(recoveredDatabase.unlocked, true);
+    assert.doesNotMatch(JSON.stringify(recoveredDatabase), /temporary-db-secret|mysql:\/\//i);
+    assert.equal(runtimeRecords.length, 6);
+    await ownerActions.disconnect();
+    assert.equal(runtimeRecords[5].stops, 1);
+
+    const startsBeforeLegacy = runtimeRecords.length;
+    const legacyConnection = await ownerActions.connect({ server: 'https://legacy.company.test' });
+    assert.equal(legacyConnection.connected, true);
+    assert.equal(legacyConnection.connectionKind, 'server');
+    assert.equal(legacyConnection.server, 'https://legacy.company.test');
+    assert.equal(runtimeRecords.length, startsBeforeLegacy);
+    assert.equal((await ownerActions.disconnect()).connected, false);
 
     // Ни зашифрованный, ни публичный экспорт не могут перезаписать активное хранилище.
     const restoredBytes = await fs.readFile(localVaultPath);
