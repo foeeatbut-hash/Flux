@@ -14,6 +14,10 @@ import { createSerializedStateWriter } from '../lib/serializedStateWriter';
 export default function WindowsFileHost() {
   const location = useLocation();
   const initial = useMemo(() => fileRefFromSearch(location.search), [location.search]);
+  return <WindowsFileSession key={JSON.stringify(initial)} initial={initial} />;
+}
+
+function WindowsFileSession({ initial }: { initial: WindowsFileRef | null }) {
   const ref = useRef<WindowsFileRef | null>(initial);
   const [file, setFile] = useState<WindowsFileContent | null>(null);
   const [error, setError] = useState('');
@@ -21,6 +25,9 @@ export default function WindowsFileHost() {
   const textCurrent = useRef(text); textCurrent.current = text;
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [acting, setActing] = useState(false);
+  const actionInFlight = useRef(false);
+  const loadSequence = useRef(0);
   const [generation, setGeneration] = useState(0);
   const [decodeError, setDecodeError] = useState(false);
   const paneId = usePaneId();
@@ -48,20 +55,25 @@ export default function WindowsFileHost() {
   useWindowTitle(file?.name || 'Файл Windows');
   const load = useCallback(async () => {
     if (!ref.current) throw new Error('Не указан файл Windows.');
+    const sequence = ++loadSequence.current;
+    const before = latestFile.current;
     const result = await windowsFilesRequest<WindowsFileContent>({ action: 'read', ref: ref.current });
     if ('error' in result) throw new Error(result.error.message);
-    latestFile.current = result.data;
-    setFile(result.data);
-    if (faceOf(result.data.name) === 'plain') {
+    if (sequence !== loadSequence.current) return result.data;
+    // Если запись завершилась во время чтения, сохраняем более новую версию.
+    const content = latestFile.current && latestFile.current !== before ? latestFile.current : result.data;
+    latestFile.current = content;
+    setFile(content);
+    if (faceOf(content.name) === 'plain') {
       try {
-        const decoded = new TextDecoder('utf-8', { fatal: true }).decode(base64ToBytes(result.data.base64));
+        const decoded = new TextDecoder('utf-8', { fatal: true }).decode(base64ToBytes(content.base64));
         setText(decoded); setDirty(false); setDecodeError(false);
       } catch {
         setText(''); setDirty(false); setDecodeError(true);
         setError('Этот файл не является корректным UTF‑8 текстом. Исходные байты сохранены; редактирование отключено.');
       }
     }
-    return result.data;
+    return content;
   }, []);
   useEffect(() => {
     ref.current = initial;
@@ -69,14 +81,14 @@ export default function WindowsFileHost() {
     setFile(null); setText(''); setDirty(false); setDecodeError(false); setError('');
     let alive = true;
     load().catch(e => { if (alive) setError(String(e.message)); });
-    return () => { alive = false; };
+    return () => { alive = false; loadSequence.current++; };
   }, [initial, generation, load]);
   const write = queuedWrite.current;
   const copy = useCallback(async (bytes: Uint8Array, requested?: string) => {
     if (!file || !ref.current) throw new Error('Файл не открыт.');
+    const parent = { rootId: ref.current.rootId, relativePath: ref.current.relativePath.split('/').slice(0, -1).join('/') };
     const name = await useModalStore.getState().openPrompt('Сохранить копию', 'Копия появится в этой же папке. Исходник останется без изменений.', 'Имя файла', requested || file.name.replace(/(\.[^.]+)$/, ' (копия)$1'));
     if (!name) return null;
-    const parent = { rootId: ref.current.rootId, relativePath: ref.current.relativePath.split('/').slice(0, -1).join('/') };
     const request = file.storage === 'flux'
       ? { action: 'createDraft' as const, parent, name, base64: bytesToBase64(bytes) }
       : { action: 'publish' as const, parent, name, base64: bytesToBase64(bytes), draftId: crypto.randomUUID() };
@@ -89,12 +101,10 @@ export default function WindowsFileHost() {
     try {
       // Сохраняем преобладающие окончания строк, чтобы Windows-текст не менялся целиком.
       if (decodeError) throw new Error('Нельзя перезаписать файл с некорректным UTF‑8.');
-      const old = file ? new TextDecoder('utf-8', { fatal: true }).decode(base64ToBytes(file.base64)) : '';
-      const next = old.includes('\r\n') ? text.replace(/\r?\n/g, '\r\n') : text;
-      const bom = file?.base64.startsWith('77u/') ? '\ufeff' : '';
-      await write(new TextEncoder().encode(bom + next));
-      setDirty(textCurrent.current !== text);
-      return true;
+      await write(encodePlainText(text, file));
+      const unchanged = textCurrent.current === text;
+      setDirty(!unchanged);
+      return unchanged;
     } catch { return false; }
   }, [text, file, write, decodeError]);
   useEffect(() => {
@@ -111,25 +121,42 @@ export default function WindowsFileHost() {
     latestFile.current = null;
     await load(); toast('Файл отображается в Windows', 'success');
   };
+  const runAction = async (action: () => Promise<unknown>) => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true; setActing(true);
+    try { await action(); }
+    catch (e: any) { setError(String(e.message || 'Действие не выполнено.')); }
+    finally { actionInFlight.current = false; setActing(false); }
+  };
   if (!initial) return <div className="p-6 text-sm text-slate-500 dark:text-slate-400">Откройте файл из Проводника Windows.</div>;
-  return <div className="flex h-full min-h-0 min-w-0 flex-col bg-white dark:bg-slate-900">
+  return <div className="flex h-full min-h-0 min-w-0 flex-col bg-white dark:bg-slate-900" onKeyDown={event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && face === 'plain' && !decodeError && file) {
+      event.preventDefault(); event.stopPropagation(); void runAction(savePlain);
+    }
+  }}>
     <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs dark:border-slate-700">
       <span className="mr-auto truncate text-slate-500 dark:text-slate-400">{file?.storage === 'flux' ? 'Только в Flux' : 'Файл Windows'}{dirty ? ' · есть изменения' : ''}</span>
-      {(document || nativeApp || (face === 'plain' && !decodeError)) && <button disabled={saving || decodeError} className="fx-btn fx-btn-sm" onClick={() => void (saveEditor.current ? saveEditor.current() : savePlain())}><Save className="h-3.5 w-3.5" />Сохранить</button>}
-      {file?.storage === 'flux' && <button className="fx-btn fx-btn-sm" onClick={() => void publish()}><Upload className="h-3.5 w-3.5" />Отобразить в Windows</button>}
-      <button className="fx-btn fx-btn-sm" title="Обновить без потери правок" onClick={async () => {
+      {(document || nativeApp || (face === 'plain' && !decodeError)) && <button disabled={acting || saving || decodeError} className="fx-btn fx-btn-sm" onClick={() => void runAction(() => saveEditor.current ? saveEditor.current() : savePlain())}><Save className="h-3.5 w-3.5" />Сохранить</button>}
+      {file?.storage === 'flux' && <button disabled={acting || saving} className="fx-btn fx-btn-sm" onClick={() => void runAction(publish)}><Upload className="h-3.5 w-3.5" />Отобразить в Windows</button>}
+      <button disabled={acting || saving || !file} className="fx-btn fx-btn-sm" title="Обновить без потери правок" onClick={() => void runAction(async () => {
         const save = saveEditor.current;
         if ((save && !await save()) || (dirty && !await savePlain())) return;
         setError(''); setGeneration(v => v + 1);
-      }}><RefreshCw className="h-3.5 w-3.5" /></button>
+      })}><RefreshCw className="h-3.5 w-3.5" /></button>
       <button className="fx-btn fx-btn-sm" onClick={() => ref.current && void windowsFilesRequest({ action: 'open', ref: ref.current }).then(r => { if ('error' in r) setError(r.error.message); })}><ExternalLink className="h-3.5 w-3.5" />В Windows</button>
     </div>
-    {error && <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300"><span className="mr-auto">{error}</span>{file && !nativeApp && !decodeError && face === 'plain' && <button className="fx-btn fx-btn-sm" onClick={() => void copy(new TextEncoder().encode(text)).catch(e => setError(e.message))}>Сохранить мою копию</button>}</div>}
+    {error && <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300"><span className="mr-auto">{error}</span>{file && !nativeApp && !decodeError && face === 'plain' && <button disabled={acting || saving} className="fx-btn fx-btn-sm" onClick={() => void runAction(() => copy(encodePlainText(text, file)))}>Сохранить мою копию</button>}</div>}
     {!file ? <div className="p-6 text-sm text-slate-500 dark:text-slate-400">Открытие файла…</div> : document || nativeApp ?
       <LocalOfficeEditor key={`${file.fileId}:${generation}`} app={nativeApp || 'docs'} file={file} fileRef={ref.current!} load={load} write={write} copy={copy} saveHandle={saveEditor} /> :
       face === 'plain' && !decodeError ? <textarea aria-label="Текст файла Windows" value={text} onChange={e => { textCurrent.current = e.target.value; setText(e.target.value); setDirty(true); }} spellCheck={false} className="min-h-0 flex-1 resize-none bg-white p-4 font-mono text-sm text-slate-800 outline-none dark:bg-slate-900 dark:text-slate-100" /> :
       <LocalImage file={file} />}
   </div>;
+}
+
+function encodePlainText(text: string, file: WindowsFileContent | null): Uint8Array {
+  const old = file ? new TextDecoder('utf-8', { fatal: true }).decode(base64ToBytes(file.base64)) : '';
+  const next = old.includes('\r\n') ? text.replace(/\r?\n/g, '\r\n') : text;
+  return new TextEncoder().encode((file?.base64.startsWith('77u/') ? '\ufeff' : '') + next);
 }
 
 function LocalImage({ file }: { file: WindowsFileContent }) {

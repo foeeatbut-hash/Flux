@@ -30,7 +30,7 @@ export interface MenuItem {
 
 /** Высота строки и запас на рамку — по ним меню решает, куда ему открыться */
 const ROW = 30;
-const FRAME = 16;
+const FRAME = 24;
 const MIN_W = 224;
 
 function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => void; depth: number }) {

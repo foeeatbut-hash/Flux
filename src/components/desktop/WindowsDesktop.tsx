@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import ContextMenu, { type MenuItem } from '../ContextMenu';
 import {
   Archive, FileSpreadsheet, FileText, Folder, FolderPlus, MoreVertical,
   Plus, RefreshCw, Shapes, Trash2, ExternalLink,
@@ -271,21 +272,21 @@ export default function WindowsDesktop() {
 
       {creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(null); }}><div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface"><h2 id="windows-create-title" className="text-lg font-semibold">{creating === 'folder' ? 'Новая папка Windows' : 'Новый файл на рабочем столе'}</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{creating === 'folder' ? 'Папка появится в настоящем каталоге Windows.' : 'Flux создаст зашифрованно отслеживаемый черновик и откроет его в редакторе.'}</p><label className="mt-4 block text-sm">Имя<input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); if (event.key === 'Escape') setCreating(null); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCreating(null)} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button><button type="button" onClick={() => void create()} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button></div></div></div>}
 
-      {menu && <div role="menu" className="fixed z-[110] min-w-52 rounded-lg border border-slate-200 bg-white p-1.5 shadow-md dark:border-dark-border dark:bg-dark-surface" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
-        {current?.kind === 'file' ? <>
-          <button role="menuitem" type="button" onClick={() => { setMenu(null); openItem(current); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><ExternalLink size={15} />{current.entry.kind === 'directory' ? 'Открыть папку' : 'Открыть в Flux'}</button>
-          <button role="menuitem" type="button" onClick={() => void invoke({ action: 'open', ref: entryRef(root!.id, current.entry) }).then(() => setMenu(null))} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><ExternalLink size={15} />Открыть в Windows</button>
-          <button role="menuitem" type="button" onClick={() => void invoke({ action: 'reveal', ref: entryRef(root!.id, current.entry) }).then(() => setMenu(null))} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><Folder size={15} />Показать в Проводнике</button>
-          <button role="menuitem" type="button" onClick={() => void doProperties(current.entry)} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><MoreVertical size={15} />Свойства файла</button>
-          <button role="menuitem" type="button" onClick={() => void doTrash(current.entry)} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"><Trash2 size={15} />{current.entry.draftId ? 'Удалить черновик' : 'В Корзину Windows'}</button>
-        </> : current?.kind === 'app' ? <button role="menuitem" type="button" onClick={() => { unpinApp(current.path); setMenu(null); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><Trash2 size={15} />Убрать ярлык Flux</button> : <>
-          <button role="menuitem" type="button" onClick={() => beginCreate('folder')} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><FolderPlus size={15} />Создать папку</button>
-          <button role="menuitem" type="button" onClick={() => beginCreate('doc')} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><FileText size={15} />Документ Flux</button>
-          <button role="menuitem" type="button" onClick={() => beginCreate('sheet')} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><FileSpreadsheet size={15} />Таблица Flux</button>
-          <button role="menuitem" type="button" onClick={() => beginCreate('markdown')} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg"><FileText size={15} />Заметка Markdown</button>
-          {addableApps.length > 0 && <div className="my-1 border-t border-slate-200 pt-1 dark:border-dark-border"><p className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400">Ярлыки Flux</p>{addableApps.slice(0, 12).map((section) => <button key={section.path} role="menuitem" type="button" onClick={() => { pinApp(section.path); setMenu(null); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-dark-bg">{section.title}</button>)}</div>}
-        </>}
-      </div>}
+      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={current?.kind === 'file' ? [
+        { label: current.entry.kind === 'directory' ? 'Открыть папку' : 'Открыть в Flux', icon: <ExternalLink />, onClick: () => openItem(current) },
+        { label: 'Открыть в Windows', icon: <ExternalLink />, onClick: () => void invoke({ action: 'open', ref: entryRef(root!.id, current.entry) }) },
+        { label: 'Показать в Проводнике', icon: <Folder />, onClick: () => void invoke({ action: 'reveal', ref: entryRef(root!.id, current.entry) }) },
+        { label: 'Свойства файла', icon: <MoreVertical />, onClick: () => void doProperties(current.entry) },
+        { label: current.entry.draftId ? 'Удалить черновик' : 'В Корзину Windows', icon: <Trash2 />, danger: true, onClick: () => void doTrash(current.entry) },
+      ] satisfies MenuItem[] : current?.kind === 'app' ? [
+        { label: 'Убрать ярлык Flux', icon: <Trash2 />, onClick: () => unpinApp(current.path) },
+      ] : [
+        { label: 'Создать папку', icon: <FolderPlus />, onClick: () => beginCreate('folder') },
+        { label: 'Документ Flux', icon: <FileText />, onClick: () => beginCreate('doc') },
+        { label: 'Таблица Flux', icon: <FileSpreadsheet />, onClick: () => beginCreate('sheet') },
+        { label: 'Заметка Markdown', icon: <FileText />, onClick: () => beginCreate('markdown') },
+        ...addableApps.slice(0, 12).map((section, index) => ({ label: section.title, separated: index === 0, onClick: () => pinApp(section.path) })),
+      ]} />}
     </section>
   );
 }

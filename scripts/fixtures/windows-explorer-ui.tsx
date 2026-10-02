@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import WindowsExplorer from '../../src/components/explorer/WindowsExplorer';
+import WindowsDesktop from '../../src/components/desktop/WindowsDesktop';
+import '../../src/index.css';
 import { useStore } from '../../src/store/store';
 import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot } from '../../filesystem/contracts';
 
@@ -18,14 +20,22 @@ const nested: WindowsFileEntry[] = [
 const metadata: WindowsFileMetadata = { fileId: 'file-3', tags: ['AHU-01'], projectIds: ['project-1'], revision: 'A', responsible: 'Иванов', history: [{ at: '2026-09-22T09:00:00.000Z', action: 'save', relativePath: 'Проекты/Отчёт.xlsx' }] };
 const calls: WindowsFilesRequest[] = [];
 const drafts: WindowsFileEntry[] = [];
+let delayedMetadataPath = '';
+let failedMetadataPath = '';
+let delayedListPath = '';
 
 function childPath(ref: WindowsFileRef) { return ref.relativePath === '' ? entries : ref.relativePath === 'Проекты' ? nested : []; }
 async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesResponse<any>> {
   calls.push(request);
+  if (request.action === 'list' && request.ref.relativePath === delayedListPath) await new Promise((resolve) => setTimeout(resolve, 350));
+  if (request.action === 'metadata' && request.ref.relativePath === delayedMetadataPath) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (request.ref.relativePath === failedMetadataPath) return { ok: false, error: { code: 'READ_FAILED', message: 'Тестовая ошибка устаревшего запроса.' } };
+  }
   switch (request.action) {
     case 'roots': return { ok: true, data: [root, { id: 'documents-id', name: 'Документы', kind: 'documents', available: true }, { id: 'downloads-id', name: 'Загрузки', kind: 'downloads', available: true }] };
     case 'list': return { ok: true, data: { root, entries: [...childPath(request.ref), ...drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1)], nextOffset: null, truncated: false } };
-    case 'metadata': return { ok: true, data: { ...metadata } };
+    case 'metadata': return { ok: true, data: { ...metadata, revision: request.ref.relativePath } };
     case 'read': return { ok: true, data: { name: request.ref.relativePath, base64: 'eA==', sha256: 'a'.repeat(64) } };
     case 'createDraft': {
       const ref = { rootId: request.parent.rootId, relativePath: request.parent.relativePath ? `${request.parent.relativePath}/${request.name}` : request.name, draftId: 'draft-1' };
@@ -41,6 +51,9 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
   }
 }
 (window as any).__windowsFilesCalls = calls;
+(window as any).__delayMetadataPath = (path: string) => { delayedMetadataPath = path; };
+(window as any).__failMetadataPath = (path: string) => { failedMetadataPath = path; };
+(window as any).__delayListPath = (path: string) => { delayedListPath = path; };
 (window as any).electron = { windowsFiles: { invoke, onChanged: () => () => undefined } };
 (window as any).fetch = async (url: string) => {
   const path = String(url);
@@ -50,4 +63,11 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
 useStore.getState().setActiveProject({ id: 'project-1', name: 'Проект 1' });
 
 function LocationDebug() { const location = useLocation(); const navigate = useNavigate(); (window as any).__go = navigate; return <output data-testid="route">{location.pathname}{location.search}</output>; }
-createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/windows-files?root=desktop-id&path=']}><div className="h-full"><LocationDebug /><WindowsExplorer /></div></MemoryRouter>);
+function Fixture() {
+  const [desktop, setDesktop] = useState(false);
+  (window as any).__showWindowsDesktop = () => setDesktop(true);
+  return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
+    {desktop ? <WindowsDesktop /> : <div className="h-full"><LocationDebug /><WindowsExplorer /></div>}
+  </div>;
+}
+createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/windows-files?root=desktop-id&path=']}><Fixture /></MemoryRouter>);

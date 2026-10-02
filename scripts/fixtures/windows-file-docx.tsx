@@ -1,4 +1,5 @@
 import React from 'react';
+import '../../src/index.css';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import WindowsFileHost from '../../src/screens/WindowsFileHost';
@@ -20,6 +21,7 @@ const invoke = async (request: WindowsFilesRequest): Promise<WindowsFilesRespons
   calls.push(request);
   if (request.action === 'read') return { ok: true, data: content() };
   if (request.action === 'write') {
+    if (disk.rejectWrites) return { ok: false, error: { code: 'CONFLICT', message: 'Test write rejected' } };
     if (request.baseSha256 !== sha()) return { ok: false, error: { code: 'CONFLICT', message: 'SHA mismatch' } };
     bytes = Uint8Array.from(atob(request.base64), (character) => character.charCodeAt(0)); revision++;
     return { ok: true, data: content() };
@@ -28,7 +30,8 @@ const invoke = async (request: WindowsFilesRequest): Promise<WindowsFilesRespons
   return { ok: false, error: { code: 'INVALID_ACTION', message: 'Unsupported test action' } };
 };
 const officeCalls: any[] = [];
-(window as any).__disk = { get content() { return content(); }, get calls() { return calls; }, get officeCalls() { return officeCalls; } };
+const disk = { rejectWrites: false, get content() { return content(); }, get calls() { return calls; }, get officeCalls() { return officeCalls; } };
+(window as any).__disk = disk;
 (window as any).electron = {
   windowsFiles: { invoke, onChanged: () => () => undefined },
   localOffice: {

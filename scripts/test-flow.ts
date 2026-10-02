@@ -57,7 +57,8 @@ const api = async (method: string, url: string, body?: any) => {
 
   token = (await api('POST', '/api/login', LOGIN)).json?.token || '';
   if (!token) { console.error('Не удалось войти администратором.'); process.exit(2); }
-  const projectId = (await api('GET', '/api/projects')).json?.projects?.[0]?.id;
+  const project = (await api('GET', '/api/projects')).json?.projects?.[0];
+  const projectId = project?.id;
   if (!projectId) { console.error('В базе нет проекта.'); process.exit(2); }
 
   const stamp = Date.now().toString(36).toUpperCase().slice(-4);
@@ -201,8 +202,7 @@ const api = async (method: string, url: string, body?: any) => {
     // сам предлагает список. Это же и есть человеческий путь
     ok('раздел «Теги» открылся', await clickByName('Теги'));
     await page.waitForTimeout(4000);
-    await page.locator('button', { hasText: /Технологический\s+проект\s+Альфа/i }).last()
-      .click({ timeout: 8000 }).catch(() => {});
+    await page.locator('button', { hasText: String(project.name) }).last().click({ timeout: 8000 });
     await page.waitForTimeout(3000);
     ok('проект выбран', !(await page.evaluate(() => /Сначала выберите проект/.test(document.body.innerText))));
 

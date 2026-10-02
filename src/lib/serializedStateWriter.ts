@@ -4,13 +4,15 @@ export function createSerializedStateWriter<State, Input, Output>(
   write: (input: Input, state: State) => Promise<Output>,
 ) {
   let pending: Promise<Output> | null = null;
-  return async (input: Input): Promise<Output> => {
-    if (pending) await pending.catch(() => undefined);
-    const state = readState();
-    if (state === null) throw new Error('Нечего сохранять: файл ещё не открыт.');
-    const operation = Promise.resolve().then(() => write(input, state));
+  return (input: Input): Promise<Output> => {
+    const previous = pending || Promise.resolve();
+    const operation = previous.catch(() => undefined).then(() => {
+      const state = readState();
+      if (state === null) throw new Error('Нечего сохранять: файл ещё не открыт.');
+      return write(input, state);
+    });
+    // Занимаем место в очереди до ожидания, иначе несколько вызовов стартуют вместе.
     pending = operation;
-    try { return await operation; }
-    finally { if (pending === operation) pending = null; }
+    return operation.finally(() => { if (pending === operation) pending = null; });
   };
 }

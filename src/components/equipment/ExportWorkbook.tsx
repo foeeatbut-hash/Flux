@@ -6,7 +6,7 @@ import { saveNewFile, type SavedFile } from '../../lib/officeFiles';
 import { exportName, type ExportGrid } from '../../lib/exportGrid';
 import { toCsv, toClipboard } from '../../lib/exchange';
 import { useStore } from '../../store/store';
-import { exportBookKey } from '../../lib/exportWorkspace';
+import { exportBookKey, saveAfterExportOperation } from '../../lib/exportWorkspace';
 import type { WorkbookTemplate } from '../../lib/exportSpec';
 
 export interface ExportWorkbookHandle { hasBook: () => boolean; save: () => Promise<boolean>; output: (kind: 'xlsx' | 'csv' | 'clipboard' | 'office') => Promise<void>; template: () => Promise<WorkbookTemplate | undefined>; applyTemplate: (t: WorkbookTemplate) => Promise<void> }
@@ -39,6 +39,7 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
   const storageKey = exportBookKey(projectId, userId);
   const [remembered, setRemembered] = useState<Remembered | null>(() => { try { const value = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof value?.file?.id === 'string' && Array.isArray(value?.baseline?.rows) && Array.isArray(value?.baseline?.headers) ? value : null; } catch { return null; } });
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const refreshPending = useRef<Promise<boolean> | null>(null);
   const valid = grid.headers.length > 0 && grid.rows.length > 0 && grid.rows.length * grid.headers.length <= 10000;
   const autoStarted = useRef(false);
   const remember = (value: Remembered) => { setRemembered(value); try { localStorage.setItem(storageKey, JSON.stringify(value)); } catch { /* книга уже сохранена на диске */ } };
@@ -63,7 +64,7 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
     const timer = window.setTimeout(() => { autoStarted.current = true; void create(); }, 300);
     return () => window.clearTimeout(timer);
   }, [remembered, valid, busy]);
-  const save = async () => !remembered || !!(await editor.current?.save());
+  const save = async () => saveAfterExportOperation(refreshPending.current, async () => !remembered || !!(await editor.current?.save()));
   const template = async (): Promise<WorkbookTemplate | undefined> => {
     if (!remembered) return undefined;
     if (!(await save())) throw new Error('Сначала дождитесь сохранения книги');
@@ -81,7 +82,7 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
     remember({ file, baseline: t.baseline });
     say('Создана копия книги шаблона. Нажмите «Обновить данные в листе» для текущего отбора', 'info');
   };
-  const refresh = async (): Promise<boolean> => {
+  const performRefresh = async (): Promise<boolean> => {
     if (!remembered) { await create(); return false; }
     if (!valid) { setError('Этот отбор превышает размер рабочей книги. Сократите его перед обновлением'); return false; }
     setBusy(true); setError('');
@@ -94,6 +95,12 @@ const ExportWorkbook = forwardRef<ExportWorkbookHandle, Props>(function ExportWo
       return true;
     } catch (err: any) { setError(err.message); return false; }
     finally { setBusy(false); }
+  };
+  const refresh = (): Promise<boolean> => {
+    if (refreshPending.current) return refreshPending.current;
+    const pending = performRefresh().finally(() => { if (refreshPending.current === pending) refreshPending.current = null; });
+    refreshPending.current = pending;
+    return pending;
   };
   const output = async (kind: 'xlsx' | 'csv' | 'clipboard' | 'office') => {
     if (!remembered) { await create(); return; }

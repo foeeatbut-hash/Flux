@@ -3,6 +3,7 @@ import { Flag, Loader2, RefreshCw } from 'lucide-react';
 import * as api from '../../services/playService';
 import { newKey } from '../../services/playService';
 import { boardFor } from './boards';
+import { coalesceRequest } from './matchRequests';
 
 /**
  * Рама матча встроенной игры: одна на все доски.
@@ -45,15 +46,27 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [failure, setFailure] = React.useState('');
+  const request = React.useRef(coalesceRequest());
+  const loadFailure = React.useRef(false);
 
-  const load = React.useCallback(async () => {
-    const res = await api.fetchMatch(sessionId);
-    if (!res.ok) setFailure(String(res.message || 'Не удалось обновить стол'));
-    if (res.ok) setMatch(previous => {
-      const next = (res.result || null) as MatchState | null;
-      return previous && next && previous.sessionId === next.sessionId && previous.revision > next.revision ? previous : next;
-    });
-    setLoading(false);
+  const load = React.useCallback(async (fresh = false) => {
+    const read = async () => {
+      const res = await api.fetchMatch(sessionId);
+      if (!res.ok) {
+        loadFailure.current = true;
+        setFailure(String(res.message || 'Не удалось обновить стол'));
+      }
+      if (res.ok) {
+        if (loadFailure.current) setFailure('');
+        loadFailure.current = false;
+        setMatch(previous => {
+          const next = (res.result || null) as MatchState | null;
+          return previous && next && previous.sessionId === next.sessionId && previous.revision > next.revision ? previous : next;
+        });
+      }
+      setLoading(false);
+    };
+    await (fresh ? request.current.runFresh(read) : request.current.run(read));
   }, [sessionId]);
 
   React.useEffect(() => { void load(); }, [load]);
@@ -76,21 +89,23 @@ export default function MatchFrame({ sessionId, meId, names, onLeave }: Props) {
     if (!match || busy) return;
     setBusy(true);
     setFailure('');
+    loadFailure.current = false;
     const res = await api.makeMove(sessionId, m, match.revision, newKey());
     setBusy(false);
     // Отказ показывается словами самой игры: «сюда нельзя, ничего не
     // переворачивается» человек понимает, а «ошибка хода» — нет
-    if (!res.ok) setFailure(String(res.message || 'Ход не принят'));
-    await load();
+    if (!res.ok) { loadFailure.current = false; setFailure(String(res.message || 'Ход не принят')); }
+    await load(true);
   };
 
   const giveUp = async () => {
     if (!match || busy) return;
     setBusy(true);
+    loadFailure.current = false;
     const result = await api.resignMatch(sessionId, newKey());
-    if (!result.ok) setFailure(String(result.message || 'Не удалось завершить партию'));
+    if (!result.ok) { loadFailure.current = false; setFailure(String(result.message || 'Не удалось завершить партию')); }
     setBusy(false);
-    await load();
+    await load(true);
   };
 
   if (loading) {

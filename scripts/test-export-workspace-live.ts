@@ -2,6 +2,7 @@
 import { testCredentials } from './testCredentials';
 import * as XLSX from 'xlsx';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { loginPage } from './officeHarness';
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
@@ -10,6 +11,7 @@ let passed = 0; let failed = 0;
 const ok = (name: string, value: boolean) => { if (value) { passed++; console.log('✓', name); } else { failed++; console.error('✗', name); } };
 (async () => {
   const { chromium } = await import('playwright-core');
+  const { createServer: createViteServer } = await import('vite');
   const auth = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(LOGIN) }).then(r => r.json());
   if (!auth.token) throw new Error('Не удалось войти в тестовый профиль');
   const api = (path: string, method = 'GET', body?: unknown) => fetch(BASE + path, { method, headers: { Authorization: `Bearer ${auth.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -22,28 +24,58 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
   if (!project) throw new Error('Нужен синтетический проект в изолированной тестовой БД');
   console.log('Синтетический профиль доступен, запускается браузер');
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  const portProbe = createServer();
+  await new Promise<void>(resolve => portProbe.listen(0, '127.0.0.1', resolve));
+  const uiPort = (portProbe.address() as any).port as number;
+  await new Promise<void>((resolve, reject) => portProbe.close(error => error ? reject(error) : resolve()));
+  const useTestOrigin = (proxy: any) => proxy.on('proxyReq', (request: any) => request.setHeader('origin', BASE));
+  const vite = await createViteServer({ server: { host: '127.0.0.1', port: uiPort, strictPort: true, hmr: false, watch: { ignored: ['**/*'] }, proxy: {
+    '/api': { target: BASE, changeOrigin: true, configure: useTestOrigin }, '/socket.io': { target: BASE, changeOrigin: true, ws: true, configure: useTestOrigin },
+  } } });
+  await vite.listen();
+  const UI_BASE = `http://127.0.0.1:${uiPort}`;
   const made: string[] = []; const errors: string[] = [];
+  let releaseTemplateRead!: () => void;
+  let templateReadStarted!: () => void;
+  const templateRead = new Promise<void>(resolve => { releaseTemplateRead = resolve; });
+  const templateReadEntered = new Promise<void>(resolve => { templateReadStarted = resolve; });
+  let releaseCloseTemplate!: () => void;
+  let closeTemplateStarted!: () => void;
+  const closeTemplate = new Promise<void>(resolve => { releaseCloseTemplate = resolve; });
+  const closeTemplateEntered = new Promise<void>(resolve => { closeTemplateStarted = resolve; });
   let page: any;
   try {
     page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     page.on('pageerror', e => errors.push(e.message));
     if (process.env.FLUX_EXPORT_DIAGNOSTIC) {
+      page.on('response', (r: any) => { if (r.url().includes('/api/login')) console.log('EXPORT-LOGIN', r.status(), r.url()); });
+      page.on('requestfailed', (r: any) => console.log('EXPORT-REQUEST-FAILED', r.url(), r.failure()?.errorText));
+    }
+    if (process.env.FLUX_EXPORT_DIAGNOSTIC) {
       page.on('console', (message: any) => { if (message.text().startsWith('EXPORT-DIAG')) console.log(message.text()); });
       await page.addInitScript(() => window.addEventListener('message', event => { if (JSON.stringify(event.data || {}).includes('refresh-export')) console.log('EXPORT-DIAG', JSON.stringify(event.data)); }));
     }
-    // Dev с отключённым HMR хранит warmup-модули; уникальный запрос читает текущий исходник.
-    await page.route(/\/src\/(?:components\/equipment\/Export(?:Builder|Workbook)|components\/office\/OfficeAppEditor|screens\/EquipmentExport)\.tsx$/, async route => {
-      const response = await route.fetch({ url: route.request().url() + '?export-test-fresh=' + Date.now() });
-      await route.fulfill({ response });
-    });
     page.on('response', async response => { if (response.url().includes('/api/office/files/new?') && response.ok()) { const value = await response.json().catch(() => null); if (value?.id) made.push(value.id); } });
     const fixture = { systems: [{ id: '__export_unit', name: 'Тестовая установка', category: 'AHU', monoblocks: [{ name: '', components: [1, 2].map(n => ({ id: `__export_drive_${n}`, itemCode: `drive${n}`, name: `Привод ${n}`, equipType: 'ПРИВОД', equipClass: 'ПРИВОД', tags: [{ identifier: `DRV-${n}` }], specs: JSON.stringify({ groups: [] }) })) }] }] };
+    await page.route('**/api/equipment/view-templates', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ views: [
+      { id: 'template-slow', name: 'Медленный шаблон', scope: 'PERSONAL', hasWorkbook: true, spec: {} },
+      { id: 'template-next', name: 'Следующий шаблон', scope: 'PERSONAL', hasWorkbook: false, spec: {} },
+      { id: 'template-fail', name: 'Недоступный шаблон', scope: 'PERSONAL', hasWorkbook: true, spec: {} },
+      { id: 'template-close', name: 'Шаблон для закрытия', scope: 'PERSONAL', hasWorkbook: true, spec: {} },
+    ] }) }));
+    await page.route('**/api/equipment/view-templates/template-slow/workbook', async route => {
+      templateReadStarted(); await templateRead; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
+    await page.route('**/api/equipment/view-templates/template-fail/workbook', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+    await page.route('**/api/equipment/view-templates/template-close/workbook', async route => {
+      closeTemplateStarted(); await closeTemplate; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
+    });
     await page.route(`**/api/projects/${project.id}/systems`, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) }));
-    await loginPage(page, BASE, LOGIN);
+    await loginPage(page, UI_BASE, LOGIN);
     await page.evaluate(`(() => { const u = JSON.parse(localStorage.getItem('pdm_session_user') || 'null'); if(u) localStorage.setItem('max_active_project_' + u.id, ${JSON.stringify(JSON.stringify(project))}); })()`);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-taskbar]', { timeout: 60000 });
-    await page.evaluate(`window.location.hash = '#/equipment-export?projectId=${project.id}&scope=all'`);
+    await page.evaluate(`window.location.hash = '#/equipment-export?scope=all'`);
     const root = page.locator('[aria-label="Выгрузка данных"]:not([data-win])');
     await root.waitFor({ timeout: 60000 });
     const frame = root.locator('xpath=ancestor::*[@data-win][1]');
@@ -105,17 +137,46 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: '/tmp/flux-export-workspace.png' });
     if (!secondProject) throw new Error('Не удалось подготовить проект B');
-    await page.evaluate(`(() => { const u = JSON.parse(localStorage.getItem('pdm_session_user') || 'null'); if(u) localStorage.setItem('max_active_project_' + u.id, ${JSON.stringify(JSON.stringify(secondProject))}); })()`);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await root.waitFor({ timeout: 60000 });
-    await root.frameLocator('iframe[title="Flux Office — Таблица"]').locator('input.univer-box-border').first().waitFor({ timeout: 60000 });
+    await page.locator(`[aria-label="Активный проект: ${project.name}. Сменить"]`).first().click();
+    await page.getByRole('option', { name: secondProject.name, exact: true }).click();
+    await page.locator(`[aria-label="Активный проект: ${secondProject.name}. Сменить"]`).first().waitFor();
+    const persistedResponse = await api(`/api/office/files/${made[0]}/open`);
+    const persistedAfterSwitch = XLSX.read(Buffer.from(await persistedResponse.arrayBuffer()), { type: 'buffer', sheetStubs: true });
+    const sheetAfterSwitch = persistedAfterSwitch.Sheets[persistedAfterSwitch.SheetNames[0]];
+    ok('Смена global project не размонтирует открытое окно выгрузки', await root.isVisible());
+    ok('При смене global project книга окна остаётся привязана к A с ручной формулой', sheetAfterSwitch.B2?.v === 'Привод вручную' && sheetAfterSwitch.K2?.f === 'LEN(A2)');
     const nextBook = page.waitForResponse(response => response.url().includes('/api/office/files/new?') && response.ok());
     await root.getByRole('button', { name: 'Новая книга', exact: true }).click();
     const nextFile = await (await nextBook).json();
     await root.frameLocator('iframe[title="Flux Office — Таблица"]').locator('input.univer-box-border').first().waitFor({ timeout: 60000 });
     await page.waitForFunction(() => document.querySelectorAll('iframe[title="Flux Office — Таблица"]').length > 0);
     const secondMetadata = await (await api(`/api/office/files/${nextFile.id}/meta`)).json();
-    ok('После смены активного проекта A→B новая книга окна A сохраняется в A', made.length === 2 && secondMetadata.projectId === project.id);
+    ok('После смены active project A→B новая книга окна A сохраняется в A', made.length === 2 && secondMetadata.projectId === project.id);
+    const templateSelect = root.getByLabel('Шаблон выгрузки');
+    await templateSelect.selectOption('template-slow');
+    await templateReadEntered;
+    ok('Пока читается шаблон, нельзя запустить второй выбор', await templateSelect.isDisabled());
+    ok('Пока читается шаблон, кнопка выхода отключена', await root.getByRole('button', { name: 'К оборудованию', exact: true }).isDisabled());
+    releaseTemplateRead();
+    await templateSelect.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => !(document.querySelector('[aria-label="Шаблон выгрузки"]') as HTMLSelectElement)?.disabled);
+    await templateSelect.selectOption('template-next');
+    ok('После завершения чтения следующий шаблон можно выбрать', await templateSelect.inputValue() === 'template-next');
+    await templateSelect.selectOption('template-fail');
+    await page.waitForFunction(() => !(document.querySelector('[aria-label="Шаблон выгрузки"]') as HTMLSelectElement)?.disabled);
+    ok('Ошибка чтения сохраняет прежний выбор шаблона', await templateSelect.inputValue() === 'template-next');
+    await templateSelect.selectOption('');
+    await root.getByRole('button', { name: 'Параметры выгрузки', exact: true }).click();
+    await root.getByRole('tab', { name: 'Столбцы', exact: true }).click();
+    ok('Возврат из шаблона восстанавливает текущий черновик с именем и формулой', await root.getByLabel('Заголовок столбца').first().inputValue() === 'Тег оборудования' && await root.getByLabel('Формула столбца').inputValue() === '=1+2');
+    await templateSelect.selectOption('template-close');
+    await closeTemplateEntered;
+    await frame.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.waitForTimeout(300);
+    ok('Крестик окна ждёт завершения загрузки шаблона', await frame.isVisible());
+    releaseCloseTemplate();
+    await frame.waitFor({ state: 'detached', timeout: 15000 });
+    ok('После выбора шаблона крестик закрывает окно', await frame.count() === 0);
     ok('Нет ошибок браузера', errors.length === 0);
     if (errors.length) console.error(errors.slice(0, 3));
   } catch (error) {
@@ -128,6 +189,7 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     throw error;
   } finally {
     await browser.close();
+    await vite.close();
     for (const id of made) await api(`/api/files/${id}`, 'DELETE');
     if (createdProject) await api(`/api/projects/${createdProject}`, 'DELETE');
   }

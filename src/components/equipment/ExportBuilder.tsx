@@ -3,7 +3,7 @@ import ExportWorkbook, { type ExportWorkbookHandle } from './ExportWorkbook';
 import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
 import { useStore } from '../../store/store';
-import { exportDraftKey, parseExportDraft, railWidth } from '../../lib/exportWorkspace';
+import { exportDraftKey, parseExportDraft, railWidth, saveAfterExportOperation } from '../../lib/exportWorkspace';
 import { exportGrid } from '../../lib/exportGrid';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -63,10 +63,12 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
   const navigate = useNavigate();
   const workbook = React.useRef<ExportWorkbookHandle>(null);
   const pane = usePaneId();
-  const close = async () => { if (!workbook.current || await workbook.current.save()) onClose(); else say('Книга не записана — окно остаётся открытым', 'error'); };
+  const viewPending = React.useRef<Promise<void> | null>(null);
+  const saveWorkbook = async () => saveAfterExportOperation(viewPending.current, async () => !workbook.current || await workbook.current.save());
+  const close = async () => { if (await saveWorkbook()) onClose(); else say('Книга не записана — окно остаётся открытым', 'error'); };
   React.useEffect(() => {
     if (!pane.startsWith('win:')) return;
-    return guardClose(pane.slice(4), async () => !workbook.current || await workbook.current.save());
+    return guardClose(pane.slice(4), saveWorkbook);
   }, [pane]);
   const userId = useStore(s => s.user?.id || 'anonymous');
   const draftKey = exportDraftKey(projectId, userId);
@@ -79,6 +81,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
   const [spec, setSpec] = React.useState<ExportSpec>(() => last?.spec ? specOf(last.spec) : defaultSpec());
   const [views, setViews] = React.useState<SavedView[]>([]);
   const [viewId, setViewId] = React.useState('');
+  const viewLoad = React.useRef(0);
+  const viewBusyRef = React.useRef(false);
+  const [viewBusy, setViewBusy] = React.useState(false);
   const [q, setQ] = React.useState('');
   const [drag, setDrag] = React.useState<string | null>(null);
   const [saveName, setSaveName] = React.useState(last?.name || 'Выгрузка данных');
@@ -91,8 +96,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
   }, []);
   React.useEffect(loadViews, [loadViews]);
   React.useEffect(() => {
+    if (viewId) return;
     try { localStorage.setItem(draftKey, JSON.stringify({ scope, spec, name: saveName, personal, tab, railOpen: showFilters, railWidth: rail })); } catch { /* исходная книга сохраняется отдельно от черновика */ }
-  }, [draftKey, scope, spec, saveName, personal, tab, showFilters, rail]);
+  }, [draftKey, scope, spec, saveName, personal, tab, showFilters, rail, viewId]);
 
   const items = React.useMemo(() => rowsOf(scope), [rowsOf, scope]);
   // Счётчики типов и видов — по охвату, без учёта уже выбранного отбора:
@@ -138,22 +144,52 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
   };
   const rename = (key: string, label: string) => set({ columns: spec.columns.map((c) => (c.key === key ? { ...c, label } : c)) });
 
-  const pickView = async (id: string) => {
-    setViewId(id);
-    const v = views.find((x) => x.id === id);
-    if (!v) { setSpec(defaultSpec()); return; }
-    const next = specOf(v.spec, v);
-    try {
-      if (v.hasWorkbook) {
-        const response = await fetch(`/api/equipment/view-templates/${encodeURIComponent(id)}/workbook`);
-        if (!response.ok) throw new Error('Не удалось прочитать книгу шаблона');
-        const data = await response.json();
-        if (data.workbookTemplate) await workbook.current?.applyTemplate(data.workbookTemplate);
+  const pickView = (id: string) => {
+    if (viewBusyRef.current) return;
+    viewBusyRef.current = true;
+    setViewBusy(true);
+    const request = ++viewLoad.current;
+    const previousViewId = viewId;
+    const pending = (async () => {
+      try {
+        setViewId(id);
+        const v = views.find((x) => x.id === id);
+        if (!v) {
+          let draft = null;
+          try { draft = parseExportDraft(localStorage.getItem(draftKey)); } catch { /* если хранилище недоступно, остаётся текущая настройка */ }
+          if (draft) {
+            setSpec(draft.spec); setSaveName(draft.name || 'Выгрузка данных'); setPersonal(draft.personal);
+            if (scopes.some((x) => x.id === draft.scope)) setScope(draft.scope);
+            setTab(draft.tab);
+          }
+          return;
+        }
+        const next = specOf(v.spec, v);
+        let workbookTemplate;
+        try {
+          if (v.hasWorkbook) {
+            const response = await fetch(`/api/equipment/view-templates/${encodeURIComponent(id)}/workbook`);
+            if (!response.ok) throw new Error('Не удалось прочитать книгу шаблона');
+            const data = await response.json();
+            workbookTemplate = data.workbookTemplate;
+          }
+        }
+        catch (e: any) { setViewId(previousViewId); say(e.message, 'error'); return; }
+        if (viewLoad.current !== request) return;
+        try { if (workbookTemplate) await workbook.current?.applyTemplate(workbookTemplate); }
+        catch (e: any) { setViewId(previousViewId); say(e.message, 'error'); return; }
+        if (viewLoad.current !== request) return;
+        setSpec(next);
+        setSaveName(v.name);
+      } finally {
+        viewBusyRef.current = false;
+        setViewBusy(false);
       }
-    }
-    catch (e: any) { say(e.message, 'error'); return; }
-    setSpec(next);
-    setSaveName(v.name);
+    })();
+    viewPending.current = pending;
+    const clearPending = () => { if (viewPending.current === pending) viewPending.current = null; };
+    void pending.then(clearPending, clearPending);
+    return pending;
   };
 
   const saveView = async (overwrite: boolean) => {
@@ -236,7 +272,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
         <span className="fx-head-title">Выгрузка данных</span>
         <span className="fx-head-count truncate" title={projectName}>{projectName || 'Оборудование проекта'}</span>
         <div className="fx-head-acts">
-          <button type="button" className="fx-btn fx-btn-quiet" onClick={() => void close()}>К оборудованию</button>
+          <button type="button" disabled={viewBusy} className="fx-btn fx-btn-quiet" onClick={() => void close()}>К оборудованию</button>
           <button type="button" disabled={busy || !table.count || !spec.columns.length} onClick={() => run('xlsx')} className="fx-btn fx-btn-primary"><Download className="w-4 h-4" />Скачать Excel</button>
         </div>
       </header>
@@ -244,7 +280,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
         <button type="button" className="fx-btn fx-btn-quiet" aria-expanded={showFilters} onClick={() => setShowFilters(v => !v)}>
           {showFilters ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}Параметры выгрузки
         </button>
-        <select value={viewId} onChange={e => void pickView(e.target.value)} aria-label="Шаблон выгрузки" className="fx-input min-w-0 max-w-[260px]">
+        <select value={viewId} disabled={viewBusy} onChange={e => void pickView(e.target.value)} aria-label="Шаблон выгрузки" className="fx-input min-w-0 max-w-[260px]">
           <option value="">Текущий черновик</option>
           {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.scope === 'PERSONAL' ? ' · личный' : ''}</option>)}
         </select>
@@ -399,16 +435,16 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
           <section hidden={tab !== 'templates'} className="p-3 space-y-3">
             <h2 className="fx-group-title">Сохранить состав выгрузки</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">Шаблон запоминает отбор, столбцы, формулы и оформление рабочей книги. Черновик этого проекта сохраняется автоматически.</p>
-          <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Имя книги и шаблона" aria-label="Имя книги и шаблона"
+          <input value={saveName} disabled={viewBusy} onChange={(e) => setSaveName(e.target.value)} placeholder="Имя книги и шаблона" aria-label="Имя книги и шаблона"
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 w-full" />
           <label className="flex items-center gap-1 text-2xs text-slate-500 cursor-pointer">
-            <input type="checkbox" className="accent-emerald-600" checked={personal} onChange={(e) => setPersonal(e.target.checked)} />личный
+            <input type="checkbox" disabled={viewBusy} className="accent-emerald-600" checked={personal} onChange={(e) => setPersonal(e.target.checked)} />личный
           </label>
-          <button type="button" onClick={() => saveView(false)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-emerald-400">
+          <button type="button" disabled={viewBusy} onClick={() => saveView(false)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-emerald-400">
             <Save className="w-3.5 h-3.5" />Сохранить шаблон
           </button>
           {viewId && (
-            <button type="button" onClick={() => saveView(true)} className="px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-emerald-600 cursor-pointer">
+            <button type="button" disabled={viewBusy} onClick={() => saveView(true)} className="px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-emerald-600 cursor-pointer disabled:opacity-40">
               перезаписать выбранный
             </button>
           )}

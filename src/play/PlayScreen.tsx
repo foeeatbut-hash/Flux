@@ -102,7 +102,7 @@ export default function PlayScreen() {
         if (sent) setPicking(false); await st.refresh();
       }} /> : st.loading && !st.at ? <Waiting /> : pastSession ? <MatchFrame key={pastSession} sessionId={pastSession} meId={meId} names={names} onLeave={() => setPastSession('')} />
         : tab === 'history' ? <HistoryTab names={names} onOpen={setPastSession} />
-          : playing && tab === 'prepare' ? <MatchFrame sessionId={String(st.session.id)} meId={meId} names={names} onLeave={() => { void st.refresh(); }} />
+          : playing && tab === 'prepare' ? <MatchFrame key={String(st.session.id)} sessionId={String(st.session.id)} meId={meId} names={names} onLeave={() => { void st.refresh(); }} />
             : tab === 'library' ? <LibraryTab games={games} selected={gameId} busy={mainBusy} active={playing} room={st.lobby ? { title: game?.title || 'Комната', players: slots.length, ready: slots.filter((slot: any) => slot.ready).length } : undefined} onSelect={async id => {
               const opened = await pending.run('lobby.open', key => api.openLobby(id, key), id);
               if (opened) { await st.refresh(); setTab('prepare'); }

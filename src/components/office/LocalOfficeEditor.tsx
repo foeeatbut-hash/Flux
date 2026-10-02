@@ -43,6 +43,22 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const [ready, setReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(360);
+  const editorArea = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
+  useEffect(() => {
+    const area = editorArea.current;
+    if (!area) return;
+    const measure = () => setAvailableWidth(area.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
+  const overlayPanel = availableWidth < 640;
+  const maximumPanelWidth = Math.max(0, Math.min(500, availableWidth - (overlayPanel ? 12 : 280)));
+  const minimumPanelWidth = Math.min(270, maximumPanelWidth);
+  const visiblePanelWidth = Math.max(minimumPanelWidth, Math.min(panelWidth, maximumPanelWidth));
+  const resizePanel = (width: number) => setPanelWidth(Math.max(minimumPanelWidth, Math.min(maximumPanelWidth, width)));
   const commandWaits = useRef(new Map<string, (value: any) => void>());
   const toast = useToastStore(s => s.addToast);
   const waits = useRef(new Map<string, (value: any) => void>());
@@ -93,7 +109,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           timer = setTimeout(() => done(false), 120_000);
           send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
         });
-        if (result) dirty.current = false;
+        if (result) { dirty.current = false; setError(''); }
         return result;
       } catch (e: any) { setError(e.message); return false; }
     })();
@@ -126,7 +142,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (m.op === 'open') { const f = await io.current.load(); reply({ fileId: f.fileId, name: f.name, sha256: f.sha256, bytes: base64ToBytes(f.base64).slice().buffer as ArrayBuffer }); }
           else if (m.op === 'theme') reply(themeRef.current);
           else if (m.op === 'isBlank') reply(false);
-          else if (m.op === 'save') { await io.current.write(new Uint8Array(m.payload.bytes)); dirty.current = false; reply({ ok: true }); }
+          else if (m.op === 'save') { await io.current.write(new Uint8Array(m.payload.bytes)); dirty.current = false; setError(''); reply({ ok: true }); }
           else if (m.op === 'saveCopy') {
             const made = await io.current.copy(new Uint8Array(m.payload.bytes), m.payload.name);
             reply(made ? { ok: true, path: pathOf(file.fileId) } : { ok: false, canceled: true });
@@ -152,7 +168,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
             const name = await useModalStore.getState().openPrompt('Сохранить копию PDF', 'Копия появится в этой же папке. Исходник останется без изменений.', 'Имя файла', file.name.replace(/\.pdf$/i, ' (копия).pdf'));
             if (!name) return;
             const result = await native({ action: 'copy', session: await ensure(), name });
-            if (result?.copy?.file?.name) toast(`Копия сохранена: ${result.copy.file.name}`, 'success');
+            if (result?.copy?.file?.name) { setError(''); toast(`Копия сохранена: ${result.copy.file.name}`, 'success'); }
             else if (!result?.canceled) throw new Error('Копия PDF не была создана. Правки остались в редакторе.');
           } catch (e: any) { setError(e.message); toast('Копия не сохранена. Правки остаются в редакторе.', 'error'); }
           finally {
@@ -170,7 +186,10 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
         if (isCopy && !copyName) { reply({ canceled: true }); return; }
         const result = await native({ action: 'invoke', session: await ensure(), channel, args, ...(copyName ? { copyName } : {}) });
         const confirmed = !!result && result.ok !== false && (!result.canceled || result.fluxCopySaved === true);
-        if ((channel === 'pdf:save' || channel === 'workbook:save') && !isCopy && confirmed) dirty.current = false;
+        if ((channel === 'pdf:save' || channel === 'workbook:save') && confirmed) {
+          setError('');
+          if (!isCopy) dirty.current = false;
+        }
         reply(result);
       } catch (e: any) {
         setError(String(e.message));
@@ -214,15 +233,23 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const insertText = async (text: string) => { if (app === 'docs') send({ event: 'insertText', payload: text }); };
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
-    <div className="flex min-h-0 min-w-0 flex-1">
+    <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
       <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} className="min-h-0 min-w-0 flex-1 border-0" />
-      {panelOpen && <><div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
-        const move = (next: PointerEvent) => setPanelWidth(Math.max(270, Math.min(500, window.innerWidth - 280, window.innerWidth - next.clientX)));
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-      }} onKeyDown={event => { if (event.key === 'ArrowLeft') setPanelWidth(w => Math.min(500, w + 20)); if (event.key === 'ArrowRight') setPanelWidth(w => Math.max(270, w - 20)); }} />
-        <div className="min-h-0 min-w-0 shrink-0" style={{ width: `min(${panelWidth}px, 70vw, calc(100vw - 280px))` }}><FluxPanel fileId="" fileName={file.name} projectId={activeProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={() => setPanelOpen(false)} onInsertTable={app === 'pdf' ? undefined : insertTable} onInsertField={app === 'sheets' ? insertField : undefined} onInsertText={app === 'docs' ? insertText : undefined} /></div>
-      </>}
+      {panelOpen && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
+        <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
+          event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+        }} onPointerMove={event => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          const edge = editorArea.current?.getBoundingClientRect().right;
+          if (edge !== undefined) resizePanel(edge - event.clientX);
+        }} onPointerUp={event => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        }} onKeyDown={event => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault(); resizePanel(visiblePanelWidth + (event.key === 'ArrowLeft' ? 20 : -20));
+        }} />
+        <div className="min-h-0 min-w-0 flex-1"><FluxPanel fileId="" fileName={file.name} projectId={activeProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={() => setPanelOpen(false)} onInsertTable={app === 'pdf' ? undefined : insertTable} onInsertField={app === 'sheets' ? insertField : undefined} onInsertText={app === 'docs' ? insertText : undefined} /></div>
+      </div>}
     </div>
     {!ready && <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">Открывается локальный редактор…</div>}
   </div>;

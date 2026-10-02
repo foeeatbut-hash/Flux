@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Clipboard, Copy, ExternalLink, FilePlus2, Folder, FolderPlus, HardDrive, List, MoreHorizontal, RefreshCw, Search, Trash2, Grid2X2, Home, Scissors, Upload } from 'lucide-react';
 import { blankBytes, BLANK_NAME, type BlankKind } from '../../lib/blankFiles';
@@ -8,6 +8,7 @@ import { useToastStore } from '../../store/toastStore';
 import { bytesToBase64, fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest, type WindowsFileEntry, type WindowsFileMetadata, type WindowsFileRef, type WindowsFilesChanged, type WindowsRoot } from '../../lib/windowsFiles';
 import { Btn, Chip, Dialog, Empty, Field, IconBtn, Input, Select } from '../ui';
 import FileBadge from '../ui/FileBadge';
+import ContextMenu from '../ContextMenu';
 
 type Listing = { root?: WindowsRoot; entries: WindowsFileEntry[]; nextOffset: number | null; truncated: boolean };
 type RenameTarget = { ref: WindowsFileRef; name: string } | null;
@@ -63,6 +64,8 @@ export default function WindowsExplorer() {
   const [newKind, setNewKind] = useState<BlankKind>('doc');
   const [history, setHistory] = useState<WindowsFileRef[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const listRequest = useRef(0);
+  const metadataRequest = useRef(0);
   const projectFiles = searchParams.get('projectFiles') === '1';
   const folderRef = useMemo(() => rootId ? { rootId, relativePath: path } : null, [rootId, path]);
   const root = roots.find((item) => item.id === rootId);
@@ -70,7 +73,9 @@ export default function WindowsExplorer() {
   const visibleEntries = useMemo(() => (listing?.entries || []).filter((entry) => entry.name.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru'))), [listing, query]);
 
   const syncLocation = useCallback((nextRoot: string, nextPath: string, replace = false) => {
-    setRootId(nextRoot); setPath(nextPath); setOffset(null); setSelected(null); setQuery('');
+    metadataRequest.current++;
+    setRootId(nextRoot); setPath(nextPath); setOffset(null); setListing(null); setSelected(null); setQuery('');
+    setPropertiesOpen(false); setMetadata(null); setBusy(false);
     const params = new URLSearchParams(); params.set('root', nextRoot); params.set('path', nextPath);
     setSearchParams(params, { replace });
   }, [setSearchParams]);
@@ -90,13 +95,16 @@ export default function WindowsExplorer() {
 
   const loadList = useCallback(async (nextOffset = 0, append = false) => {
     if (!folderRef) return;
+    const requestId = ++listRequest.current;
+    const requestedFolder = folderRef;
     setBusy(true); setError('');
     try {
-      const data = await requestData<Listing>({ action: 'list', ref: folderRef, offset: nextOffset, limit: LIMIT });
+      const data = await requestData<Listing>({ action: 'list', ref: requestedFolder, offset: nextOffset, limit: LIMIT });
+      if (requestId !== listRequest.current) return;
       setListing((previous) => append && previous ? { ...data, entries: [...previous.entries, ...data.entries] } : data);
       setOffset(data.nextOffset); setPortable(false);
-    } catch (cause: any) { setListing(null); setError(cause?.message || 'Не удалось прочитать папку'); }
-    finally { setBusy(false); }
+    } catch (cause: any) { if (requestId === listRequest.current) { setListing(null); setError(cause?.message || 'Не удалось прочитать папку'); } }
+    finally { if (requestId === listRequest.current) setBusy(false); }
   }, [folderRef]);
 
   useEffect(() => { void loadRoots(); }, [loadRoots]);
@@ -116,7 +124,20 @@ export default function WindowsExplorer() {
   useEffect(() => {
     const rootFromUrl = searchParams.get('root');
     const pathFromUrl = searchParams.get('path') || '';
-    if (rootFromUrl && (rootFromUrl !== rootId || pathFromUrl !== path)) { setRootId(rootFromUrl); setPath(pathFromUrl); setSelected(null); }
+    if (rootFromUrl && (rootFromUrl !== rootId || pathFromUrl !== path)) {
+      metadataRequest.current++;
+      setRootId(rootFromUrl); setPath(pathFromUrl); setListing(null); setSelected(null);
+      setPropertiesOpen(false); setMetadata(null); setBusy(false);
+    }
+    if (rootFromUrl) {
+      const matches = (item: WindowsFileRef | undefined) => item?.rootId === rootFromUrl && item.relativePath === pathFromUrl;
+      const index = matches(history[historyIndex]) ? historyIndex : history.findIndex(matches);
+      if (index >= 0 && index !== historyIndex) setHistoryIndex(index);
+      else if (index < 0) {
+        const next = [...history.slice(0, historyIndex + 1), { rootId: rootFromUrl, relativePath: pathFromUrl }];
+        setHistory(next); setHistoryIndex(next.length - 1);
+      }
+    }
     if (searchParams.get('properties') === '1' && selected) setPropertiesOpen(true);
   }, [location.search]);
   useEffect(() => {
@@ -124,11 +145,14 @@ export default function WindowsExplorer() {
     const wantedPath = searchParams.get('target') || searchParams.get('path') || '';
     const entry = listing.entries.find((candidate) => candidate.relativePath === wantedPath);
     if (!entry) return;
+    setMetadata(null); setDraftTags([]); setDraftProjects([]); setRevision(''); setResponsible(''); setTagQuery('');
     setSelected(entry); setPropertiesOpen(true);
     const targetRef = { ...entryRef(entry, rootId), ...(searchParams.get('targetDraft') ? { draftId: searchParams.get('targetDraft')! } : {}) };
+    const requestId = ++metadataRequest.current;
     void requestData<WindowsFileMetadata>({ action: 'metadata', ref: targetRef }).then((data) => {
+      if (requestId !== metadataRequest.current) return;
       setMetadata(data); setDraftTags(data.tags || []); setDraftProjects(data.projectIds || []); setRevision(data.revision || ''); setResponsible(data.responsible || '');
-    }).catch((cause) => setError(cause?.message || 'Не удалось загрузить свойства'));
+    }).catch((cause) => { if (requestId === metadataRequest.current) setError(cause?.message || 'Не удалось загрузить свойства'); });
     const next = new URLSearchParams(searchParams); next.delete('properties'); setSearchParams(next, { replace: true });
   }, [listing, location.search]);
   useEffect(() => {
@@ -175,10 +199,17 @@ export default function WindowsExplorer() {
 
   const openProperties = async (entry: WindowsFileEntry) => {
     if (!rootId) return;
+    const requestId = ++metadataRequest.current;
+    setMetadata(null); setDraftTags([]); setDraftProjects([]); setRevision(''); setResponsible(''); setTagQuery(''); setError('');
     setSelected(entry); setPropertiesOpen(true);
-    const result = await action<WindowsFileMetadata>({ action: 'metadata', ref: entryRef(entry, rootId) });
-    if (!result) return;
-    setMetadata(result); setDraftTags(result.tags || []); setDraftProjects(result.projectIds || []); setRevision(result.revision || ''); setResponsible(result.responsible || '');
+    setBusy(true);
+    try {
+      const result = await requestData<WindowsFileMetadata>({ action: 'metadata', ref: entryRef(entry, rootId) });
+      if (requestId !== metadataRequest.current) return;
+      setMetadata(result); setDraftTags(result.tags || []); setDraftProjects(result.projectIds || []); setRevision(result.revision || ''); setResponsible(result.responsible || '');
+    } catch (cause: any) {
+      if (requestId === metadataRequest.current) { const message = cause?.message || 'Не удалось загрузить свойства'; setError(message); addToast(message, 'error'); }
+    } finally { if (requestId === metadataRequest.current) setBusy(false); }
   };
   const saveProperties = async () => {
     if (!selected || !rootId) return;
@@ -274,18 +305,17 @@ export default function WindowsExplorer() {
       {selected && <div className="flex items-center gap-1 overflow-auto"><Btn tone="ghost" onClick={() => void openProperties(selected)}>Свойства</Btn><Btn tone="ghost" onClick={() => openEntry(selected)}>Открыть</Btn><Btn tone="ghost" onClick={() => setRename({ ref: entryRef(selected, rootId), name: selected.name })}>Переименовать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, false)}><Copy className="w-3.5 h-3.5" /> Копировать</Btn><Btn tone="ghost" onClick={() => useClipboard(selected, true)}><Scissors className="w-3.5 h-3.5" /> Вырезать</Btn>{selected.storage === 'flux' && <Btn tone="ghost" onClick={() => void publishDraft(selected)}><Upload className="w-3.5 h-3.5" /> Опубликовать</Btn>}<Btn tone="ghost" onClick={() => void action({ action: 'reveal', ref: entryRef(selected, rootId) }, 'Папка открыта в Windows')}><ExternalLink className="w-3.5 h-3.5" /> Показать</Btn><Btn tone="danger" onClick={() => void trashSelected(selected)}><Trash2 className="w-3.5 h-3.5" /> В корзину</Btn></div>}
     </footer>
 
-    {contextMenu && <><button type="button" aria-label="Закрыть меню файла" className="fixed inset-0 z-40 cursor-default" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} /><div role="menu" className="fixed z-50 min-w-44 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 shadow-md" style={{ left: Math.min(contextMenu.x, window.innerWidth - 190), top: Math.min(contextMenu.y, window.innerHeight - 300) }}>
-      <MenuAction label="Открыть" onClick={() => { setContextMenu(null); openEntry(contextMenu.entry); }} />
-      <MenuAction label="Свойства" onClick={() => { setContextMenu(null); void openProperties(contextMenu.entry); }} />
-      <MenuAction label="Переименовать" onClick={() => { setContextMenu(null); setRename({ ref: entryRef(contextMenu.entry, rootId), name: contextMenu.entry.name }); }} />
-      <MenuAction label="Копировать" onClick={() => { useClipboard(contextMenu.entry, false); setContextMenu(null); }} />
-      <MenuAction label="Вырезать" onClick={() => { useClipboard(contextMenu.entry, true); setContextMenu(null); }} />
-      {contextMenu.entry.storage === 'flux' && <MenuAction label="Опубликовать в Windows" onClick={() => { void publishDraft(contextMenu.entry); setContextMenu(null); }} />}
-      <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-      <MenuAction danger label="Переместить в корзину" onClick={() => { void trashSelected(contextMenu.entry); setContextMenu(null); }} />
-    </div></>}
+    {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)} items={[
+      { label: 'Открыть', onClick: () => openEntry(contextMenu.entry) },
+      { label: 'Свойства', onClick: () => void openProperties(contextMenu.entry) },
+      { label: 'Переименовать', onClick: () => setRename({ ref: entryRef(contextMenu.entry, rootId), name: contextMenu.entry.name }) },
+      { label: 'Копировать', onClick: () => useClipboard(contextMenu.entry, false) },
+      { label: 'Вырезать', onClick: () => useClipboard(contextMenu.entry, true) },
+      ...(contextMenu.entry.storage === 'flux' ? [{ label: 'Опубликовать в Windows', onClick: () => void publishDraft(contextMenu.entry) }] : []),
+      { label: 'Переместить в корзину', danger: true, separated: true, onClick: () => void trashSelected(contextMenu.entry) },
+    ]} />}
 
-    {propertiesOpen && selected && <PropertiesDialog entry={selected} rootId={rootId} metadata={metadata} projects={projects} tags={tags} activeProjectId={activeProject?.id || ''} draftTags={draftTags} setDraftTags={setDraftTags} draftProjects={draftProjects} setDraftProjects={setDraftProjects} revision={revision} setRevision={setRevision} responsible={responsible} setResponsible={setResponsible} tagQuery={tagQuery} setTagQuery={setTagQuery} busy={busy} onClose={() => { setPropertiesOpen(false); setMetadata(null); }} onSave={() => void saveProperties()} />}
+    {propertiesOpen && selected && <PropertiesDialog entry={selected} rootId={rootId} metadata={metadata} projects={projects} tags={tags} activeProjectId={activeProject?.id || ''} draftTags={draftTags} setDraftTags={setDraftTags} draftProjects={draftProjects} setDraftProjects={setDraftProjects} revision={revision} setRevision={setRevision} responsible={responsible} setResponsible={setResponsible} tagQuery={tagQuery} setTagQuery={setTagQuery} busy={busy} onClose={() => { metadataRequest.current++; setPropertiesOpen(false); setMetadata(null); setBusy(false); }} onSave={() => void saveProperties()} />}
     {rename && <Dialog title="Переименовать" onClose={() => setRename(null)} footer={<><Btn onClick={() => setRename(null)}>Отмена</Btn><Btn tone="primary" onClick={() => void renameSelected()} disabled={!rename.name.trim() || busy}>Переименовать</Btn></>}><Field label="Новое имя"><Input autoFocus value={rename.name} onChange={(e) => setRename({ ...rename, name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') void renameSelected(); }} /></Field></Dialog>}
     {newFolderOpen && <Dialog title="Новая папка" onClose={() => setNewFolderOpen(false)} footer={<><Btn onClick={() => setNewFolderOpen(false)}>Отмена</Btn><Btn tone="primary" onClick={() => void makeFolder()} disabled={!newName.trim() || busy}>Создать папку</Btn></>}><Field label="Название папки"><Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void makeFolder(); }} placeholder="Например, Чертежи" /></Field></Dialog>}
     {newFileOpen && <Dialog title="Новый файл Flux" onClose={() => setNewFileOpen(false)} footer={<><Btn onClick={() => setNewFileOpen(false)}>Отмена</Btn><Btn tone="primary" onClick={() => void createFile()} disabled={busy}>Создать черновик</Btn></>}><div className="flex flex-col gap-3"><Field label="Тип файла"><Select value={newKind} onChange={(v) => { const kind = v as BlankKind; setNewKind(kind); if (!newName || Object.values(BLANK_NAME).includes(newName)) setNewName(BLANK_NAME[kind]); }} options={[{ value: 'doc', label: 'Документ Word' }, { value: 'sheet', label: 'Таблица Excel' }]} /></Field><Field label="Имя файла"><Input autoFocus value={newName || BLANK_NAME[newKind]} onChange={(e) => setNewName(e.target.value)} placeholder={BLANK_NAME[newKind]} /></Field><p className="text-xs text-slate-500 dark:text-slate-400">Черновик хранится локально в Flux. Он не загружается в базу компании; опубликовать его в Windows можно из списка файлов.</p></div></Dialog>}
@@ -324,7 +354,3 @@ function PropertiesDialog({ entry, rootId, metadata, projects, tags, activeProje
 }
 
 function ReadOnly({ label, value }: { label: string; value: string }) { return <div className="fx-field"><span className="fx-label">{label}</span><span className="text-xs">{value}</span></div>; }
-
-function MenuAction({ label, onClick, danger = false }: { label: string; onClick: () => void; danger?: boolean }) {
-  return <button type="button" role="menuitem" onClick={onClick} className={`fx-menu-item w-full text-left ${danger ? 'is-danger' : ''}`}>{label}</button>;
-}
