@@ -1,5 +1,6 @@
 import { dialectOf, type Dialect } from './ddl';
 import { validateDatabaseUri } from '../shared/databaseUri';
+import { mariaDatabaseOptions } from '../shared/companyDatabase';
 import { mariaDbSchemaCoordinator, postgresSchemaCoordinator, registerSchemaClient } from './schemaRuntime';
 
 interface ClientDependencies {
@@ -19,9 +20,9 @@ export function buildDatabaseClient(mode: string, url: string, deps: ClientDepen
     if (dialect === 'mysql') {
       const { PrismaClient } = deps.load('@prisma/client-mysql');
       const { PrismaMariaDb } = deps.load('@prisma/adapter-mariadb');
-      const address = url.replace(/^mariadb:\/\//i, 'mysql://');
-      const client = new PrismaClient({ adapter: new PrismaMariaDb(address) });
-      registerSchemaClient(client, dialect, mariaDbSchemaCoordinator(() => deps.load('mariadb').createConnection(address.replace(/^mysql:\/\//i, 'mariadb://'))));
+      const options = mariaDatabaseOptions(url);
+      const client = new PrismaClient({ adapter: new PrismaMariaDb(options) });
+      registerSchemaClient(client, dialect, mariaDbSchemaCoordinator(() => deps.load('mariadb').createConnection(options)));
       return client;
     }
     const { PrismaClient } = deps.load('@prisma/client-pg');

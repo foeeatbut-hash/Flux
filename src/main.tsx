@@ -131,24 +131,7 @@ window.onunhandledrejection = (event) => {
 // Initial log
 useLogStore.getState().addLog('INFO', 'System', 'Система диагностического логирования успешно запущена');
 
-// Синхронизация адреса сервера между рендерером (localStorage) и главным
-// процессом Electron (config.json). Расхождение возможно, если localStorage
-// очистили: тогда принимаем значение из config.json и перезагружаемся один раз.
-(async () => {
-  try {
-    const win = window as any;
-    if (!win.electron?.ipcRenderer?.invoke) return;
-    const fromConfig = String((await win.electron.ipcRenderer.invoke('app:get-server-url')) || '').trim();
-    const fromLocal = (localStorage.getItem('flux_server_url') || '').trim();
-    if (fromConfig && !fromLocal) {
-      localStorage.setItem('flux_server_url', fromConfig);
-      window.location.reload();
-    } else if (!fromConfig && fromLocal) {
-      // config.json потерял настройку (или писался старой версией) — восстановим
-      await win.electron.ipcRenderer.invoke('app:set-server-url', fromLocal);
-    }
-  } catch (_) {}
-})();
+// Старые настройки HTTP-подключения удаляются в config/env до первого запроса.
 
 // Граница ошибок: вместо немого белого экрана показываем причину и пишем crash-лог
 class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {

@@ -5,9 +5,9 @@ import { spawnSync } from 'node:child_process';
 let checks = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); checks++; console.log('✓', name); };
 const remote = process.argv.includes('--remote');
-const apiOrigin = remote ? 'https://api.flux.test' : 'https://flux.test';
+const apiOrigin = 'https://flux.test';
 const storage = new Map([['flux_auth_token', 'legacy-unencrypted-token']]);
-if (remote) storage.set('flux_server_url', apiOrigin);
+if (remote) storage.set('flux_server_url', 'https://old-external.example.test');
 (globalThis as any).localStorage = {
   getItem: (key: string) => storage.get(key) ?? null,
   setItem: (key: string, value: string) => storage.set(key, value),
@@ -28,9 +28,10 @@ const windowMock: any = {
   const auth = await import('../src/config/env');
   (globalThis as any).fetch = windowMock.fetch;
   check('старый localStorage bearer удалён до первого запроса', !storage.has('flux_auth_token') && auth.getAuthToken() === '');
+  check('старый внешний адрес удалён до передачи учётных данных', !storage.has('flux_server_url') && auth.getConfiguredServerUrl() === '');
   await windowMock.fetch('/api/login', { method: 'POST' });
-  check(remote ? 'cross-origin browser login выбирает memory bearer без cookies' : 'same-origin browser login выбирает cookie transport', new Headers(last.init.headers).get('X-Flux-Auth-Transport') === (remote ? 'memory' : 'cookie') && last.init.credentials === (remote ? 'omit' : 'include'));
-  check(remote ? 'cross-origin bearer transport не получает чужой CSRF' : 'cookie browser mutation передаёт CSRF без bearer', (remote ? !new Headers(last.init.headers).has('X-Flux-CSRF') : new Headers(last.init.headers).get('X-Flux-CSRF') === 'csrf-test-value') && !new Headers(last.init.headers).has('Authorization'));
+  check(remote ? 'legacy external URL удаляется, login остается same-origin' : 'same-origin browser login выбирает cookie transport', new Headers(last.init.headers).get('X-Flux-Auth-Transport') === 'cookie' && last.init.credentials === 'include');
+  check(remote ? 'legacy external URL не меняет CSRF transport' : 'cookie browser mutation передаёт CSRF без bearer', new Headers(last.init.headers).get('X-Flux-CSRF') === 'csrf-test-value' && !new Headers(last.init.headers).has('Authorization'));
   await auth.setAuthToken('memory-session-token');
   check('временный bearer хранится только в памяти', auth.getAuthToken() === 'memory-session-token' && !storage.has('flux_auth_token'));
   await windowMock.fetch('/api/projects');

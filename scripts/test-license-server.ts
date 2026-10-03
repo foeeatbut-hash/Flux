@@ -81,13 +81,17 @@ async function middlewareResult(method: string, route: string, user = employee):
     check('отзыв лицензии сотрудника не ограничивает владельца', ownerAfterRevocation.licensed && !ownerAfterRevocation.readOnly);
     await assert.rejects(() => activateRevocations(signRevocations({ inst, ids: [], seq: 2, iat: now }, privateKey)), /вернуть/);
     check('новый список не возвращает ранее отозванные ключи', true);
-    await activateRevocations(signRevocations({ inst, ids: [id, 'другой'], seq: 2, iat: now }, privateKey));
+    const secondRevocation = signRevocations({ inst, ids: [id, 'другой'], seq: 2, iat: now }, privateKey);
+    await activateRevocations(secondRevocation);
     await assert.rejects(() => activateRevocations(revoke), /старый/);
     check('старый подписанный список не откатывает отзыв', true);
     await prisma.appSetting.delete({where:{id:'flux-license-revocations'}});
+    invalidateLicenseCache();
+    check('удаление проверенного отзыва из БД блокирует доступ в работающем процессе', await middlewareResult('PUT', '/api/tags/tag') === 503);
     process.env.FLUX_TEST_LICENSE_AUTO = '1';
     configureLicenseService({ trustedNow: () => now, fromSource: false, automaticTestLicense: true });
     check('переменная тестовой лицензии не действует в portable', !(await licenseForUser({ symbol: 'Петров' })).licensed);
+    await prisma.appSetting.create({ data: { id: 'flux-license-revocations', key: 'license.revocations', userId: null, value: secondRevocation } });
     setPrisma(prisma);
     configureLicenseService({ trustedNow: () => now, fromSource: true });
     check('смена БД перечитывает номер установки', await licenseInstallationId() === inst);

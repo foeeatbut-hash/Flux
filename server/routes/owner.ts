@@ -31,7 +31,7 @@ const originOf = (req: Request): string => {
   return `${protocol}://${String(req.get('host') || '').toLowerCase()}`;
 };
 
-export function registerOwnerRoutes(app: Express, deps: { issueAuthToken: (id: string) => string | Promise<string>; invalidateAuthUser?: (id?: string) => void }): void {
+export function registerOwnerRoutes(app: Express, deps: { issueOwnerAuthToken: (id: string) => string | Promise<string>; invalidateAuthUser?: (id?: string) => void }): void {
   // Проверочный ключ доступен исключительно серверу из исходников, не server.cjs.
   const testKey = /\.ts$/.test(__filename) && process.env.FLUX_TEST_OWNER === '1'
     ? 'ff87c9c4d4120c329064237c9ac0502540d0297406dd5e1118c11bfa66fd5340' : '';
@@ -68,7 +68,7 @@ export function registerOwnerRoutes(app: Express, deps: { issueAuthToken: (id: s
       loginSucceeded('owner');
       deps.invalidateAuthUser?.(user.id);
       const { password: _password, ...safeUser } = user;
-      res.json({ success: true, user: { ...safeUser, rolePermissions: '{}' }, token: await deps.issueAuthToken(user.id) });
+      res.json({ success: true, user: { ...safeUser, rolePermissions: '{}' }, token: await deps.issueOwnerAuthToken(user.id) });
     } catch (_) { res.status(503).json({ error: 'Не удалось подключиться к базе. Повторите вход после восстановления подключения.' }); }
   });
 }

@@ -1,0 +1,64 @@
+name: Проверка безопасности и MariaDB
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - server/**
+      - server.ts
+      - license/**
+      - electron/**
+      - shared/**
+      - tools/flux-owner/**
+      - src/config/env.ts
+      - src/components/ConnectionPanel.tsx
+      - scripts/test-*.ts
+      - package.json
+      - .github/workflows/verify-security-db.yml
+
+permissions:
+  contents: read
+
+jobs:
+  security-db:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: disposable-ci-fixture-password
+          MARIADB_DATABASE: flux_update_fixture
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости
+        run: npm ci
+      - name: Клиенты Prisma
+        run: |
+          npx prisma generate --schema=prisma/schema.prisma
+          npx prisma generate --schema=prisma/schema.mariadb.prisma
+          npx prisma generate --schema=prisma/schema.postgresql.prisma
+      - name: Сессии, лицензии, подписи, упаковка и сохранность базы
+        shell: bash
+        run: |
+          set -euo pipefail
+          for check in test-auth-sessions test-owner-auth test-company-database test-client-session test-license-core test-license-revocation test-license-server test-update-signature test-update-download test-session-storage test-security test-portable-resources test-startup-database-bootstrap; do
+            node --import tsx "scripts/$check.ts"
+          done
+      - name: Обновления через общую MariaDB 10.11
+        env:
+          FLUX_UPDATE_MARIA_FIXTURE_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_update_fixture
+        run: node --import tsx scripts/test-owner-updates.ts
+      - name: Проверка границ скомпилированного API
+        run: |
+          npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs
+          node --import tsx scripts/test-packaged-api-boundaries.ts
+      - name: Программа владельца
+        run: npm test --prefix tools/flux-owner

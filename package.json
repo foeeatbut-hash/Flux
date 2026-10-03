@@ -85,7 +85,12 @@
     "extraResources": [
       {
         "from": "prisma",
-        "to": "prisma"
+        "to": "prisma",
+        "filter": [
+          "**/*.prisma",
+          "migrations/**/migration.sql",
+          "migrations/migration_lock.toml"
+        ]
       },
       {
         "from": "genoffice-server",

@@ -1,4 +1,4 @@
-/** Two independently authenticated servers and two Prisma clients sharing an isolated SQLite database. */
+/** Two independently authenticated servers share an isolated SQLite or opted-in loopback MariaDB fixture. */
 import assert from 'node:assert/strict';
 import express from 'express';
 import crypto from 'node:crypto';
@@ -11,18 +11,41 @@ import { testSignature } from './fixtures/updateTestSign';
 import { downloadVerifiedUpdate, assertUpdatePublished } from '../electron/updateDownload';
 import { readUpdateSignature, updateRefusal } from '../electron/updateSignature';
 import { stageExecutable, replaceExecutable, restoreExecutable } from '../electron/updateFiles';
+import { buildDatabaseClient } from '../server/databaseClient';
+import { setDialect } from '../server/ddl';
 
 const Database = require('better-sqlite3');
 const { PrismaClient } = require('@prisma/client-sqlite');
 const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+const mariaFixtureUrl = String(process.env.FLUX_UPDATE_MARIA_FIXTURE_URL || '').trim();
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-update-cycle-'));
-const file = path.join(dir, 'updates.sqlite');
-const sql = new Database(file);
-// Deliberately old AppUpdate: route DDL must add publication metadata before Prisma SELECT.
-sql.exec(`CREATE TABLE AppUpdate (id TEXT PRIMARY KEY, version TEXT UNIQUE NOT NULL, changelog TEXT NOT NULL, fileUrl TEXT NOT NULL, createdAt DATETIME NOT NULL DEFAULT current_timestamp);
- CREATE TABLE AppSetting (id TEXT PRIMARY KEY, key TEXT NOT NULL, userId TEXT, value TEXT NOT NULL, updatedAt DATETIME NOT NULL DEFAULT current_timestamp);`);
-sql.close();
-const clients = [0, 1].map(() => new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${file}` }) }));
+let clients: any[] = [];
+function sqliteClients() {
+  const file = path.join(dir, 'updates.sqlite'), sql = new Database(file);
+  // Deliberately old AppUpdate: route DDL must add publication metadata before Prisma SELECT.
+  sql.exec(`CREATE TABLE AppUpdate (id TEXT PRIMARY KEY, version TEXT UNIQUE NOT NULL, changelog TEXT NOT NULL, fileUrl TEXT NOT NULL, createdAt DATETIME NOT NULL DEFAULT current_timestamp);
+   CREATE TABLE AppSetting (id TEXT PRIMARY KEY, key TEXT NOT NULL, userId TEXT, value TEXT NOT NULL, updatedAt DATETIME NOT NULL DEFAULT current_timestamp);`);
+  sql.close();
+  return [0, 1].map(() => new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${file}` }) }));
+}
+async function mariaClients() {
+  let url: URL;
+  try { url = new URL(mariaFixtureUrl); } catch { throw new Error('FLUX_UPDATE_MARIA_FIXTURE_URL must be a valid MariaDB fixture URI.'); }
+  if (!/^mysql:$/i.test(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !decodeURIComponent(url.pathname.slice(1)).toLowerCase().includes('fixture')) {
+    throw new Error('MariaDB update fixture must use mysql://, a loopback host, and a database name containing fixture.');
+  }
+  const mariadb = require('mariadb');
+  const connection = await mariadb.createConnection(mariaFixtureUrl.replace(/^mysql:\/\//i, 'mariadb://'));
+  try {
+    const tables = await connection.query('SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE()');
+    if (Number(tables[0]?.n) !== 0) throw new Error('MariaDB update fixture must be an empty disposable database.');
+    // These intentionally old tables exercise the production route migration against MySQL.
+    await connection.query('CREATE TABLE `AppUpdate` (`id` VARCHAR(191) NOT NULL, `version` VARCHAR(191) NOT NULL, `changelog` TEXT NOT NULL, `fileUrl` TEXT NOT NULL, `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`), UNIQUE KEY `AppUpdate_version_key` (`version`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    await connection.query('CREATE TABLE `AppSetting` (`id` VARCHAR(191) NOT NULL, `key` VARCHAR(191) NOT NULL, `userId` VARCHAR(191) NULL, `value` LONGTEXT NOT NULL, `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`), UNIQUE KEY `AppSetting_key_userId_key` (`key`, `userId`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  } finally { await connection.end(); }
+  const deps = { load: require, sqliteAdapter: () => { throw new Error('SQLite is disabled for MariaDB fixture clients.'); }, selectDialect: setDialect };
+  return [0, 1].map(() => buildDatabaseClient('REMOTE', mariaFixtureUrl, deps));
+}
 const ownerKey = crypto.createPrivateKey(fs.readFileSync(path.join(__dirname, 'fixtures/owner-test-key.txt')));
 const updateKey = crypto.createPrivateKey(fs.readFileSync(path.join(__dirname, 'fixtures/update-test-key.txt')));
 const publicHex = (key: crypto.KeyObject) => crypto.createPublicKey(key).export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex');
@@ -31,7 +54,8 @@ const body = Buffer.alloc(6 * 1024 * 1024, 72); body.write('MZ');
 let checks = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); checks++; };
 let pauseCreate: null | (() => Promise<void>) = null;
-const wrapped = new Proxy(clients[0], { get(db, name) {
+const wrapped = new Proxy({}, { get(_target, name) {
+  const db = clients[0];
   if (name === 'appUpdateChunk') return new Proxy(db.appUpdateChunk, { get(delegate, method) {
     if (method === 'create') return async (args: any) => { if (pauseCreate) await pauseCreate(); return delegate.create(args); };
     const value = delegate[method]; return typeof value === 'function' ? value.bind(delegate) : value;
@@ -67,6 +91,7 @@ async function server(db: any) {
   return { origin, listener, token, call };
 }
 async function run() {
+  clients = mariaFixtureUrl ? await mariaClients() : sqliteClients();
   const a = await server(wrapped), b = await server(clients[1]);
   const upload = async (s: typeof a, version: string) => {
     const r = await s.call(`/api/updates/upload?version=${version}`, 'POST', body);
@@ -138,4 +163,4 @@ async function run() {
     check('withdrawal tombstone survives late cleanup', (await clients[0].appUpdate.findUnique({ where: { version: '9.8.9' } })).state === 'revoked');
   } finally { for (const s of [a, b]) await new Promise<void>(r => s.listener.close(() => r())); }
 }
-run().then(() => console.log(`${checks} isolated update-cycle checks passed`)).catch(e => { console.error(e); process.exitCode = 1; }).finally(async () => { await Promise.all(clients.map(c => c.$disconnect())); fs.rmSync(dir, { recursive: true, force: true }); });
+run().then(() => console.log(`${checks} ${mariaFixtureUrl ? 'MariaDB' : 'SQLite'} update-cycle checks passed`)).catch(e => { console.error(e); process.exitCode = 1; }).finally(async () => { await Promise.all(clients.map(c => c.$disconnect())); fs.rmSync(dir, { recursive: true, force: true }); });

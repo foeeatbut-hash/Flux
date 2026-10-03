@@ -2,8 +2,28 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
+const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'ascii');
+
+/** Fast format check before passing an untrusted file to the native SQLite parser. */
+export function sqliteSignatureMatches(dbPath: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(dbPath, 'r');
+    const header = Buffer.alloc(SQLITE_HEADER.length);
+    return fs.readSync(fd, header, 0, header.length, 0) === header.length
+      && header.equals(SQLITE_HEADER);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 /** Ошибка чтения не доказывает порчу: база может быть занята или недоступна. */
 export function assertHealthySqlite(dbPath: string): void {
+  if (!sqliteSignatureMatches(dbPath)) {
+    throw new Error(`Не удалось проверить базу «${dbPath}»: неверная сигнатура SQLite. Исходная база сохранена.`);
+  }
   const Database = require('better-sqlite3');
   let db: any;
   try {

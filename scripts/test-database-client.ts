@@ -39,7 +39,9 @@ console.log('Выбор и создание драйвера');
   };
   const result = buildDatabaseClient('REMOTE', uri, deps);
   eq('REMOTE mysql возвращает свой PrismaClient', (result as any).kind, 'mysql');
-  eq('URI с encoded @ ^ и $ передан MariaDB адаптеру', result.options.adapter.url, uri);
+  eq('URI с encoded @ ^ и $ разобран без изменения пароля', result.options.adapter.url.password, 'p@ss^$');
+  eq('адаптер запрещает чтение локальных файлов через LOAD DATA', result.options.adapter.url.permitLocalInfile, false);
+  eq('адаптер запрещает перенаправление соединения', result.options.adapter.url.permitRedirect, false);
   eq('mysql модуль выбран', calls, ['@prisma/client-mysql', '@prisma/adapter-mariadb']);
   eq('запрошенный mysql диалект установлен', dialects, ['mysql']);
 

@@ -1,7 +1,8 @@
 /** Сессии проверяются с изолированными таблицами пользователя, роли и отзыва. */
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { setPrisma } from '../server/context';
-import { createAuthSessions, sessionClaims } from '../server/authSessions';
+import { createAuthSessions, sessionClaims, credentialStamp, SESSION_TTL_MS } from '../server/authSessions';
 
 let checks = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); checks++; console.log('✓', name); };
@@ -44,5 +45,29 @@ const sessions = createAuthSessions({ secret: 'test-only-session-secret', getUse
   users.set('u1', { ...users.get('u1'), isActive: false });
   await assert.rejects(() => sessions.issue('u1'), /Профиль недоступен/);
   check('деактивированному профилю нельзя выдать сессию', true);
+  const owner = { id: 'flux-owner', password: '', role: 'OWNER', isActive: true, validUntil: null };
+  users.set(owner.id, owner);
+  await assert.rejects(() => sessions.issue(owner.id), /вход по ключу/);
+  check('обычная выдача сессии не авторизует владельца', true);
+  const forge = (claims: any) => {
+    const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    return `${payload}.${crypto.createHmac('sha256', 'test-only-session-secret').update(payload).digest('base64url')}`;
+  };
+  const now = Date.now();
+  const forged = forge({ v: 2, uid: owner.id, iat: now, exp: now + SESSION_TTL_MS, stamp: credentialStamp(owner), sid: 'a'.repeat(32) });
+  check('знание локального HMAC-секрета не создаёт OWNER сессию', sessions.verify(forged) === null && await sessions.validate(forged) === null);
+  const ownerToken = await sessions.issueOwner(owner.id);
+  check('вход по проверенному ключу выдаёт рабочую сессию владельца', sessions.verify(ownerToken) === owner.id && (await sessions.validate(ownerToken))?.role === 'OWNER');
+  const ownerClaims = sessionClaims(ownerToken, 'test-only-session-secret')!;
+  const altered = forge({ ...ownerClaims, iat: ownerClaims.iat + 1, exp: ownerClaims.exp + 1 });
+  check('подпись HMAC с известным SID не меняет выданный OWNER токен', sessions.verify(altered) === null && await sessions.validate(altered) === null);
+  const restarted = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
+  check('новый локальный процесс требует повторного входа владельца по ключу', await restarted.validate(ownerToken) === null);
+  await sessions.revoke(ownerToken);
+  settings.clear();
+  check('удаление отзыва из БД не восстанавливает отозванный OWNER токен', await sessions.validate(ownerToken) === null);
+  const activeOwner = await sessions.issueOwner(owner.id);
+  setPrisma({ role: { findUnique: async () => null }, appSetting: { findUnique: async () => null } });
+  check('смена базы сбрасывает подтверждение входа владельца', await sessions.validate(activeOwner) === null);
   console.log(`${checks} проверок пройдено`);
 })().catch(err => { console.error(err); process.exitCode = 1; });

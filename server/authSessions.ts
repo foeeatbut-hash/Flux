@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { Express } from 'express';
-import { getPrisma } from './context.js';
+import { getPrisma, onDatabaseSwapped } from './context.js';
 import { authTokenFromRequest, createCookieAuth } from './authCookies.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from './legacyIdentity.js';
 
@@ -36,16 +36,37 @@ const revocationId = (c: Claims) => `auth.session.revoked.${crypto.createHash('s
 /** Проверка подписи остаётся синхронной для раннего шлюза тела, права сверяются отдельно. */
 export function createAuthSessions(deps: SessionDeps) {
   const getUser = deps.getUser || ((id: string) => getPrisma().user.findUnique({ where: { id } }));
-  const issue = async (userId: string): Promise<string> => {
+  // Локальный HMAC-секрет доступен владельцу компьютера. Одной его подписи
+  // недостаточно для OWNER: нужен вход по Ed25519 и выданная здесь сессия.
+  const ownerGrants = new Map<string, { token: string; exp: number }>();
+  onDatabaseSwapped(() => ownerGrants.clear());
+  const ownerConfirmed = (token: string, claims: Claims) => {
+    const grant = ownerGrants.get(claims.sid);
+    if (grant && grant.exp <= Date.now()) ownerGrants.delete(claims.sid);
+    return !!grant && grant.exp > Date.now() && same(grant.token, token);
+  };
+  const issueSession = async (userId: string, owner: boolean): Promise<string> => {
     const user = await getUser(userId);
     if (!user || user.isActive === false) throw new Error('Профиль недоступен');
     if (isLegacyBootstrapAdmin(user)) throw new Error(LEGACY_BOOTSTRAP_REFUSAL);
+    if ((user.role === 'OWNER') !== owner) throw new Error('Для владельца требуется вход по ключу');
     const now = Date.now();
+    for (const [sid, grant] of ownerGrants) if (grant.exp <= now) ownerGrants.delete(sid);
+    if (owner && ownerGrants.size >= 1000) throw new Error('Достигнут предел активных входов владельца');
     const claims: Claims = { v: 2, uid: userId, iat: now, exp: now + SESSION_TTL_MS, stamp: credentialStamp(user, await rolePermissions(user)), sid: crypto.randomBytes(16).toString('hex') };
     const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-    return `${payload}.${signature(payload, deps.secret)}`;
+    const token = `${payload}.${signature(payload, deps.secret)}`;
+    if (owner) ownerGrants.set(claims.sid, { token, exp: claims.exp });
+    return token;
   };
-  const verify = (token: string): string | null => sessionClaims(token, deps.secret)?.uid || null;
+  const issue = (userId: string) => issueSession(userId, false);
+  // Передаётся только маршруту с уже проверенным одноразовым вызовом владельца.
+  const issueOwner = (userId: string) => issueSession(userId, true);
+  const verify = (token: string): string | null => {
+    const c = sessionClaims(token, deps.secret);
+    if (!c || (c.uid === 'flux-owner' && !ownerConfirmed(token, c))) return null;
+    return c.uid;
+  };
   const validate = async (token: string): Promise<any | null> => {
     const c = sessionClaims(token, deps.secret);
     if (!c) return null;
@@ -53,6 +74,7 @@ export function createAuthSessions(deps: SessionDeps) {
     // принимать сессию после смены пароля, снятия права или выхода.
     const [user, revoked] = await Promise.all([getUser(c.uid), getPrisma().appSetting.findUnique({ where: { id: revocationId(c) }, select: { id: true } })]);
     if (!user || revoked || user.isActive === false || isLegacyBootstrapAdmin(user) || (user.role !== 'OWNER' && user.validUntil && new Date(user.validUntil).getTime() < Date.now())) return null;
+    if (user.role === 'OWNER' && !ownerConfirmed(token, c)) return null;
     if (!same(c.stamp, credentialStamp(user, await rolePermissions(user)))) return null;
     return user;
   };
@@ -60,9 +82,10 @@ export function createAuthSessions(deps: SessionDeps) {
     const c = sessionClaims(token, deps.secret);
     if (!c) return false;
     await getPrisma().appSetting.upsert({ where: { id: revocationId(c) }, create: { id: revocationId(c), key: 'auth.session.revoked', value: JSON.stringify({ until: c.exp }), userId: c.uid }, update: {} });
+    ownerGrants.delete(c.sid);
     return true;
   };
-  return { issue, verify, validate, revoke };
+  return { issue, issueOwner, verify, validate, revoke };
 }
 
 /** Выход отзывает именно эту сессию, остальные окна/машины продолжают работу. */

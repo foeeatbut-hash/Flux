@@ -6,6 +6,8 @@ dist-electron/
 release/
 *.sqlite-wal
 *.sqlite-shm
+prisma/**/*.sqlite
+*.flux-owner
 dist/
 coverage/
 .DS_Store

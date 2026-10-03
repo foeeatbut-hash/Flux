@@ -9,7 +9,6 @@ import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
-import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting, setSessionForget } from './server/context.js';
@@ -81,6 +80,7 @@ import { registerSystemRoutes } from './server/routes/system.js';
 import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
 import { assertHealthySqlite } from './server/sqliteSafety.js';
+import { bootstrapLocalDatabase, createEmptyLocalDatabase } from './server/databaseBootstrap.js';
 import { requiresOwner, requiresAdministrator, isPrivilegedUser, administratorPermission } from './server/accessPolicy.js';
 import { createAuthSessions, registerSessionRoutes } from './server/authSessions.js';
 import { registerOwnerRoutes } from './server/routes/owner.js';
@@ -204,50 +204,21 @@ let userDataPath = ventAppDataPath;
 
 const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
+type StartupDatabaseFailure = { code: 'LOCAL_DATABASE_UNAVAILABLE' | 'REMOTE_DATABASE_UNAVAILABLE'; message: string };
+let startupDatabaseFailure: StartupDatabaseFailure | null = null;
+let startupDatabaseReady: Promise<void> = Promise.resolve();
+const freshLocalDatabasePaths = new Set<string>();
+
 function ensureSQLiteDatabaseExists(targetPath: string): boolean {
   try {
-    if (fs.existsSync(targetPath)) {
-      logInit(`[SQLite Copy] Target database file already exists at: ${targetPath}. Skipping template copying.`);
-      return true; // Already exists
+    const created = createEmptyLocalDatabase(targetPath);
+    if (created) {
+      freshLocalDatabasePaths.add(path.resolve(targetPath));
+      logInit('[SQLite Bootstrap] Создана новая пустая база; таблицы будут созданы из схемы Flux.');
     }
-
-    const parentDir = path.dirname(targetPath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-
-    // Try to load the database template from extraResources/packaged folders or project folders
-    const possibleTemplatePaths = [
-      // Packaged app path (relative to packaged directory or resource path)
-      path.join((process as any).resourcesPath || '', 'prisma', 'prisma', 'database.sqlite'),
-      path.join((process as any).resourcesPath || '', 'prisma', 'database.sqlite'),
-      // Development path
-      path.join(__dirname, 'prisma', 'prisma', 'database.sqlite'),
-      path.join(__dirname, 'prisma', 'database.sqlite'),
-      path.join(__dirname, '../prisma', 'prisma', 'database.sqlite'),
-      path.join(__dirname, '../prisma', 'database.sqlite'),
-      path.join(__dirname, '..', 'prisma', 'prisma', 'database.sqlite'),
-      path.join(process.cwd(), 'prisma', 'prisma', 'database.sqlite'),
-      path.join(process.cwd(), 'prisma', 'database.sqlite')
-    ];
-
-    logInit(`[SQLite Copy] Looking for database template...`);
-    for (const templatePath of possibleTemplatePaths) {
-      logInit(` - Checking possible template path: ${templatePath}`);
-      if (fs.existsSync(templatePath)) {
-        logInit(`[SQLite Copy] Found template DB at ${templatePath}. Copying template DB to ${targetPath}`);
-        fs.copyFileSync(templatePath, targetPath);
-        logInit(`[SQLite Copy] Done cloning database.sqlite template.`);
-        return true;
-      }
-    }
-
-    // Fallback: Create empty file if absolutely nothing can be loaded, though printing a warning
-    logInit('[SQLite Copy Warning] SQLite template database not found. Creating empty sqlite file fallback.');
-    fs.writeFileSync(targetPath, '', 'utf-8');
-    return false;
+    return true;
   } catch (err: any) {
-    logInit(`[SQLite Copy Error] Exception copying SQLite database template: ${err.message}\nStack: ${err.stack}`);
+    logInit(`[SQLite Bootstrap Error] Не удалось создать пустой SQLite-файл: ${err.message}`);
     return false;
   }
 }
@@ -261,11 +232,15 @@ function buildSqliteAdapter(dbUrl: string) {
   return new PrismaBetterSqlite3({ url: cleanUrl, timeout: 15000 });
 }
 
-// Существующий файл никогда не заменяется шаблоном при ошибке чтения.
-function ensureHealthyLocalDb(dbPath: string) {
+// Существующая база никогда не заменяется автоматически при ошибке чтения.
+function ensureHealthyLocalDb(dbPath: string, schemaReady = false) {
   if (!fs.existsSync(dbPath) && !ensureSQLiteDatabaseExists(dbPath)) {
-    throw new Error('Не удалось создать локальную базу из шаблона. Проверьте установку программы.');
+    throw new Error('Не удалось создать новую локальную базу SQLite. Проверьте доступ к выбранной папке.');
   }
+  if (freshLocalDatabasePaths.has(path.resolve(dbPath)) && !schemaReady) {
+    return;
+  }
+  if (schemaReady) freshLocalDatabasePaths.delete(path.resolve(dbPath));
   assertHealthySqlite(dbPath);
   logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
   ensureSchemaColumns(dbPath);
@@ -424,8 +399,13 @@ if (appConfig.current_db_type === 'LOCAL') {
 
   startupDbUrl = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
 
-  // При ошибке проверки останавливаем запуск, сохраняя исходные данные
-  ensureHealthyLocalDb(dbPath);
+  // Новый файл будет инициализирован схемой ниже. Любой существующий файл
+  // проходит проверку и сохраняется при отказе.
+  try { ensureHealthyLocalDb(dbPath); }
+  catch (error: any) {
+    startupDatabaseFailure = { code: 'LOCAL_DATABASE_UNAVAILABLE', message: 'Локальная база недоступна. Исходный файл и журналы SQLite сохранены.' };
+    logInit(`[SQLite Startup Refusal] ${error?.message || 'Проверка локальной базы не пройдена.'}`);
+  }
 } else {
   startupDbUrl = appConfig.database_url;
 }
@@ -434,59 +414,14 @@ if (appConfig.current_db_type === 'LOCAL') {
 process.env.DATABASE_URL = startupDbUrl;
 logInit(`[Startup DB] Выбран тип базы: ${appConfig.current_db_type}`);
 
-// 3. Автоматическое развертывание таблиц (prisma db push) из кода - ИСКЛЮЧИТЕЛЬНО В РАЗРАБОТКЕ
-if (appConfig.current_db_type === 'LOCAL') {
-  const isProduction = 
-    process.env.NODE_ENV === 'production' || 
-    __dirname.includes('app.asar') || 
-    !!(process as any).resourcesPath;
-
-  if (!isProduction) {
-    try {
-      logInit('[Startup DB Schema Sync] Development environment detected. Running programmatic schema sync (prisma db push)...');
-      
-      // Находим schema.prisma в разных возможных местах
-      const possibleSchemaPaths = [
-        path.join(process.cwd(), 'prisma', 'schema.prisma'),
-        path.join(__dirname, 'prisma', 'schema.prisma'),
-        path.join(__dirname, '..', 'prisma', 'schema.prisma'),
-        path.join((process as any).resourcesPath || '', 'prisma', 'schema.prisma'),
-      ];
-      
-      let schemaPath = '';
-      for (const p of possibleSchemaPaths) {
-        if (fs.existsSync(p)) {
-          schemaPath = p;
-          break;
-        }
-      }
-      
-      if (schemaPath) {
-        logInit(`[Startup DB Schema Sync] Schema found. Running npx prisma db push --schema="${schemaPath}"...`);
-        const execOptions = {
-          env: {
-            ...process.env,
-            DATABASE_URL: startupDbUrl
-          }
-        };
-        execSync(`npx prisma db push --schema="${schemaPath}" --accept-data-loss`, execOptions);
-        logInit('[Startup DB Schema Sync] SQLite database structure has been successfully pushed and updated.');
-      } else {
-        logInit('[Startup DB Schema Sync Warning] Prisma schema.prisma path not found. Skipping schema push.');
-      }
-    } catch (pushErr: any) {
-      logInit(`[Startup DB Schema Sync Exception] Failed during npx prisma db push: ${pushErr.message}\nStack: ${pushErr.stack}`);
-    }
-  } else {
-    logInit('[Startup DB Schema Sync] Production mode / Packaged app detected. Skipping executing shell command "npx prisma db push" to avoid starting slow/crashing shells.');
-  }
-}
-
-// 4. Оборачиваем инициализацию PrismaClient в try/catch с подробным логированием
+// 3. Создание клиента без shell-команд или неявной потери данных.
 let prisma: any = null;
 let isPrismaAvailable = false;
 
-try {
+if (startupDatabaseFailure) {
+  setPrisma(null);
+  logInit('[Prisma Client Init] Клиент не создан: локальная база отказала при проверке.');
+} else try {
   logInit(`[Prisma Client Init] Creating PrismaClient instance for mode: ${appConfig.current_db_type}`);
   prisma = createPrismaClient(appConfig.current_db_type, startupDbUrl);
   setPrisma(prisma);
@@ -503,20 +438,20 @@ try {
     );
   } catch (fsErr) {}
   
-  // Для общей БД остаёмся в отказе: локальная подмена создавала видимость
-  // успешного подключения и изолированный реестр вместо данных компании.
-  if (appConfig.current_db_type === 'LOCAL') {
-    try {
-      prisma = createPrismaClient('LOCAL', `file:${path.join(ventAppDataPath, 'database.sqlite')}`);
-      setPrisma(prisma);
-      isPrismaAvailable = true;
-    } catch (_) { prisma = null; setPrisma(null); isPrismaAvailable = false; }
-  } else { prisma = null; setPrisma(null); isPrismaAvailable = false; }
+  startupDatabaseFailure = {
+    code: appConfig.current_db_type === 'LOCAL' ? 'LOCAL_DATABASE_UNAVAILABLE' : 'REMOTE_DATABASE_UNAVAILABLE',
+    message: appConfig.current_db_type === 'LOCAL'
+      ? 'Локальную базу не удалось открыть. Исходные файлы SQLite сохранены.'
+      : 'Не удалось подключиться к общей базе данных.',
+  };
+  prisma = null;
+  setPrisma(null);
+  isPrismaAvailable = false;
 
 }
 
 // Auto-seed user and structure if database is empty - securely wrapped to avoid startup crashes
-(async () => {
+startupDatabaseReady = (async () => {
   if (!prisma || !isPrismaAvailable) {
     logInit('[Startup DB Feed Skip] Prisma is not constructed; skipping auto-seed check.');
     return;
@@ -538,15 +473,25 @@ try {
     }
     
     // До первых запросов приводим схему базы к версии программы.
-    // Локальную проверяем тоже: база, созданная прежней версией (или из
-    // устаревшего шаблона), иначе падала на первом же запросе с
-    // «столбца не существует».
+    // Для нового локального файла создаём пустую структуру из схемы; для
+    // существующего сначала проверяем целостность и сохраняем его данные.
     if (appConfig.current_db_type === 'REMOTE') {
       logInit('[Schema Sync] Проверка схемы общей базы при старте...');
       await syncRemoteSchema(prisma, startupDbUrl);
     } else {
       logInit('[Schema Sync] Проверка схемы локальной базы при старте...');
-      const applied = await syncRemoteSchema(prisma, startupDbUrl, 'sqlite');
+      const dbPath = resolveLocalDbPath(appConfig);
+      const schemaPath = findRemoteSchemaFile('sqlite');
+      if (!schemaPath) throw new Error('Файл локальной схемы Prisma не найден.');
+      const result = await bootstrapLocalDatabase(
+        dbPath,
+        prisma,
+        fs.readFileSync(schemaPath, 'utf8'),
+        logInit,
+        { alreadyCreatedEmpty: freshLocalDatabasePaths.has(path.resolve(dbPath)) },
+      );
+      freshLocalDatabasePaths.delete(path.resolve(dbPath));
+      const applied = result.applied;
       if (applied.length) logInit(`[Schema Sync] Локальная база дополнена: ${applied.join('; ')}`);
     }
 
@@ -556,7 +501,17 @@ try {
     try { const n = await hashLegacyPasswords(prisma, hashPassword, isLegacyPassword); if (n) logInit(`[Security] Открытых паролей переведено в хеш: ${n}`); } catch (e: any) { logInit(`[Security] Перевод открытых паролей не выполнен: ${e?.message}`); }
     if (userCount === 0) logInit('[Setup] Пустая база: первый вход выполняет владелец с подписанным ключом.');
   } catch (err: any) {
+    startupDatabaseFailure = {
+      code: appConfig.current_db_type === 'LOCAL' ? 'LOCAL_DATABASE_UNAVAILABLE' : 'REMOTE_DATABASE_UNAVAILABLE',
+      message: appConfig.current_db_type === 'LOCAL'
+        ? 'Не удалось подготовить локальную базу. Исходные файлы SQLite сохранены.'
+        : 'Не удалось подключиться к общей базе данных.',
+    };
     logInit(`[Startup DB Seed Exception] Verifying / Seeding skipped or threw exception: ${err.message}\nStack: ${err.stack}`);
+    try { await prisma?.$disconnect(); } catch (_) {}
+    prisma = null;
+    isPrismaAvailable = false;
+    setPrisma(null);
   }
 })();
 
@@ -572,7 +527,7 @@ try {
   if (fs.existsSync(AUTH_SECRET_FILE)) authSecret = fs.readFileSync(AUTH_SECRET_FILE, 'utf-8').trim();
   if (!authSecret) {
     authSecret = crypto.randomBytes(48).toString('hex');
-    fs.writeFileSync(AUTH_SECRET_FILE, authSecret, 'utf-8');
+    fs.writeFileSync(AUTH_SECRET_FILE, authSecret, { encoding: 'utf-8', mode: 0o600 });
   }
 } catch (e) {
   // Файл недоступен (readonly-диск): секрет на время процесса — токены
@@ -748,6 +703,14 @@ function permAllows(perms: Record<string, any>, feature: string): boolean {
 }
 
 const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/owner/challenge', '/api/owner/login']);
+app.use('/api', (_req: Request, res: Response, next) => {
+  if (!startupDatabaseFailure) return next();
+  return res.status(503).json({
+    ok: false,
+    code: startupDatabaseFailure.code,
+    error: startupDatabaseFailure.message,
+  });
+});
 app.use(async (req: Request, res: Response, next) => {
   // Express принимает другой регистр и хвостовой слеш: защита должна видеть тот же маршрут.
   const route = req.path.toLowerCase().replace(/\/+$/, '');
@@ -960,7 +923,7 @@ registerAuthRoutes(app, {
   isClockTampered: () => timeTampered,
 });
 
-registerOwnerRoutes(app, { issueAuthToken, invalidateAuthUser });
+registerOwnerRoutes(app, { issueOwnerAuthToken: authSessions.issueOwner, invalidateAuthUser });
 registerSessionRoutes(app, authSessions, cookieAuth);
 
 // Словари импорта (выученные подписи и условные обозначения) вынесены
@@ -1224,6 +1187,7 @@ registerSettingsRoutes(app);
 
 
 async function startServer() {
+  await startupDatabaseReady;
   // Выводим полный путь к файлу БД, который пытается открыть Prisma при старте
   const defaultLocalDbPath = path.join(ventAppDataPath, 'database.sqlite');
   try {
@@ -1233,56 +1197,26 @@ async function startServer() {
     console.warn('[SQLite Startup Diagnostic] (ошибка логгирования)', diagErr.message);
   }
 
-  if (!prisma || !isPrismaAvailable) {
-    logInit('[startServer Warning] Prisma client is NOT constructed or not available. Skipping database self-healing checks. Moving straight to starting Express listener.');
+  if (!prisma || !isPrismaAvailable || startupDatabaseFailure) {
+    logInit('[startServer Warning] Prisma client is unavailable or database startup was refused. Starting the listener in recovery mode.');
   } else {
-    // SQLite dynamic DB integrity / corruption self-healing check
+    // Any failed final connection check enters recovery mode without replacing data.
     try {
       await prisma.$queryRawUnsafe('SELECT 1;');
       logInit('[SQLite] Integrity check: connection successfully verified with SELECT 1.');
     } catch (error: any) {
       const errorMsg = String(error.message || error || '');
-      logInit(`[SQLite Integrity Check failed] General SQLite connect check threw: ${errorMsg}`);
-      if (errorMsg.includes('malformed') || errorMsg.includes('disk image') || errorMsg.includes('SqliteError') || errorMsg.includes('database.sqlite is not stable')) {
-        logInit('[SQLite] Database corruption detected! Initiating dynamic self-healing...');
-        try {
-          await prisma.$disconnect();
-        } catch (e) {}
-
-        const dbPath = defaultLocalDbPath;
-        const shmPath = dbPath + '-shm';
-        const walPath = dbPath + '-wal';
-
-        [dbPath, shmPath, walPath].forEach(f => {
-          try {
-            if (fs.existsSync(f)) {
-              fs.unlinkSync(f);
-              logInit(`[SQLite Recovery] Deleted corrupt file: ${f}`);
-            }
-          } catch (delError: any) {
-            logInit(`[SQLite Recovery Exception] Failed to delete file ${f}: ${delError.message}`);
-          }
-        });
-
-        logInit('[SQLite Recovery] Copying fresh SQLite database template to recover from corruption...');
-        ensureSQLiteDatabaseExists(dbPath);
-
-        // Recreate client
-        process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
-        try {
-          prisma = createPrismaClient('LOCAL', process.env.DATABASE_URL);
-          setPrisma(prisma);
-          isPrismaAvailable = true;
-          logInit('[SQLite Recovery] Constructed fresh PrismaClient successfully.');
-        } catch (recreationErr: any) {
-          logInit(`[SQLite Recovery Failure] Critical error reconstructing client: ${recreationErr.message}`);
-          prisma = null;
-          setPrisma(prisma);
-          isPrismaAvailable = false;
-        }
-      } else {
-        logInit('[SQLite Startup Connection Error] Skipping self-healing as error is not structural corruption.');
-      }
+      logInit(`[Startup Connection Error] Проверка соединения отказала: ${errorMsg}`);
+      startupDatabaseFailure = {
+        code: appConfig.current_db_type === 'LOCAL' ? 'LOCAL_DATABASE_UNAVAILABLE' : 'REMOTE_DATABASE_UNAVAILABLE',
+        message: appConfig.current_db_type === 'LOCAL'
+          ? 'Локальная база повреждена или недоступна. Исходный файл и журналы SQLite сохранены.'
+          : 'Соединение с общей базой данных недоступно.',
+      };
+      try { await prisma.$disconnect(); } catch (_) {}
+      prisma = null;
+      setPrisma(null);
+      isPrismaAvailable = false;
     }
 
     if (prisma && isPrismaAvailable && appConfig.current_db_type === 'LOCAL') {
@@ -1305,7 +1239,7 @@ async function startServer() {
     const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
     let friendly = lines[lines.length - 1] || rawMsg;
     if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
-      friendly = 'База данных повреждена (database disk image is malformed). Перезапустите приложение — база будет автоматически восстановлена из шаблона.';
+      friendly = 'База данных повреждена (database disk image is malformed). Flux сохранил исходную базу и журналы SQLite.';
     } else if (rawMsg.includes('Foreign key constraint')) {
       friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
     } else if (!prisma || !isPrismaAvailable) {
