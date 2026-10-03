@@ -14,6 +14,7 @@ on:
       - src/components/ConnectionPanel.tsx
       - scripts/test-*.ts
       - package.json
+      - package-lock.json
       - .github/workflows/verify-security-db.yml
 
 permissions:
@@ -45,11 +46,13 @@ jobs:
           npx prisma generate --schema=prisma/schema.prisma
           npx prisma generate --schema=prisma/schema.mariadb.prisma
           npx prisma generate --schema=prisma/schema.postgresql.prisma
+      - name: Проверка типов
+        run: npm run lint
       - name: Сессии, лицензии, подписи, упаковка и сохранность базы
         shell: bash
         run: |
           set -euo pipefail
-          for check in test-auth-sessions test-owner-auth test-company-database test-client-session test-license-core test-license-revocation test-license-server test-update-signature test-update-download test-session-storage test-security test-portable-resources test-startup-database-bootstrap; do
+          for check in test-auth-sessions test-owner-auth test-company-database test-client-session test-license-core test-license-revocation test-license-server test-update-signature test-update-download test-session-storage test-security test-portable-resources test-startup-database-bootstrap test-veza-xml; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Обновления через общую MariaDB 10.11
