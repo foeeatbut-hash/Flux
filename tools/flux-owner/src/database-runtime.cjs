@@ -16,16 +16,17 @@ function parseDatabaseUri(value) {
   try {
     if (typeof value !== 'string' || value.length > 4096 || /[\\#\u0000-\u0020\u007f]/.test(value) || /%(?![\da-fA-F]{2})/.test(value)) throw new Error();
     const url = new URL(value);
-    const dialect = { 'mysql:': 'mysql', 'mariadb:': 'mysql', 'postgres:': 'postgresql', 'postgresql:': 'postgresql' }[url.protocol];
+    const dialect = { 'mysql:': 'mysql', 'mariadb:': 'mysql' }[url.protocol];
     const username = decodeURIComponent(url.username), password = decodeURIComponent(url.password);
     const database = decodeURIComponent(url.pathname.slice(1));
     if (!dialect || !url.hostname || !username || !password || !database || url.hash ||
         /[\u0000-\u001f\u007f]/.test(username + password + database) || database.includes('/') ||
         (url.port && (!/^\d+$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535))) throw new Error();
-    const port = url.port || (dialect === 'mysql' ? '3306' : '5432');
-    return { uri: url.toString(), dialect, display: `${dialect === 'mysql' ? 'MariaDB' : 'PostgreSQL'} · ${url.hostname}:${port}/${database}` };
+    for (const [name, value] of url.searchParams) if (name !== 'ssl' || !['true', 'false'].includes(value)) throw new Error();
+    const port = url.port || '3306';
+    return { uri: url.toString(), dialect, display: `MariaDB / MySQL · ${url.hostname}:${port}/${database}` };
   } catch {
-    throw failure('Введите адрес общей базы mysql:// или postgresql:// с пользователем, паролем и именем базы.');
+    throw failure('Введите адрес общей MariaDB / MySQL в формате mysql:// или mariadb:// с пользователем, паролем и именем базы.');
   }
 }
 

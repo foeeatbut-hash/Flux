@@ -208,7 +208,7 @@ export default function SettingsScreen() {
           </SectionShell>
         )}
         {section === 'license' && <LicenseSection />}
-        {section === 'database' && <DatabaseSection addToast={addToast} />}
+        {section === 'database' && <DatabaseSection />}
         {section === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
         {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'play' && <PlayPlatform addToast={addToast} />}

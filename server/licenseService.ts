@@ -21,6 +21,9 @@ let generation = 0;
 let trustedNow = () => Date.now();
 let testKey: string | null = null;
 let automaticTestLicense = false;
+// Уже проверенный отзыв нельзя откатить прямой правкой БД в работающем процессе.
+// Это локальное наблюдение: новый компьютер не знает ранее удалённых записей.
+const observedRevocations = new Map<string, string>();
 
 /** Разрешение тестового ключа передаётся исходным запуском, а не переменной среды portable. */
 export function configureLicenseService(deps: { trustedNow: () => number; fromSource?: boolean; automaticTestLicense?: boolean }): void {
@@ -67,6 +70,15 @@ async function snapshot(): Promise<Snapshot> {
     // Повреждённый подписанный список не превращается в пустой и не возвращает доступ.
     if (revokeRow?.value && !revoked) throw new Error('Не удалось проверить список отзыва лицензий');
     if (current !== generation) return snapshot();
+    const observedCode = observedRevocations.get(inst);
+    const observed = observedCode ? verifiedRevocations(observedCode) : null;
+    if (observed && (!revoked || (revokeRow.value !== observedCode && !acceptsRevocations(revoked, observed, inst)))) {
+      throw new Error('Из базы удалён или откатан ранее проверенный список отзыва лицензий');
+    }
+    if (revoked) {
+      if (!observedRevocations.has(inst) && observedRevocations.size >= 16) throw new Error('Слишком много установок в одном процессе проверки лицензий');
+      observedRevocations.set(inst, revokeRow.value);
+    }
     const value = { inst, keys, revoked };
     if (current === generation) cache = { at: performance.now(), value };
     return value;

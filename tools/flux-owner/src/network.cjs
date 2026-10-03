@@ -2,11 +2,10 @@
 const http=require('node:http'), https=require('node:https'), fs=require('node:fs');
 const crypto=require('node:crypto');
 function serverUrl(input) {
-  if (/^(mysql|mariadb|postgres|postgresql):/i.test(String(input).trim())) throw new Error('Это адрес базы данных. Настройте общую БД на экране входа Flux, перезапустите Flux и подключите Flux Owner к http://localhost:3000 на этом компьютере.');
-  let u; try { u=new URL(String(input)); } catch {throw new Error('Укажите адрес сервера, например https://flux.company.ru.');}
-  if (u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error('Адрес сервера должен содержать только протокол, имя и порт.');
+  let u; try { u=new URL(String(input)); } catch {throw new Error('Локальное соединение Flux настроено некорректно. Переподключитесь к общей БД.');}
+  if (u.username || u.password || u.search || u.hash || u.pathname !== '/') throw new Error('Локальное соединение Flux настроено некорректно.');
   const local=['localhost','127.0.0.1','[::1]'].includes(u.hostname);
-  if (u.protocol !== 'https:' && !(u.protocol==='http:'&&local)) throw new Error('Удалённый сервер должен использовать HTTPS. HTTP доступен только на этом компьютере.');
+  if (!local || !['http:','https:'].includes(u.protocol)) throw new Error('Обработчик Flux Owner должен работать только на этом компьютере. Подключитесь к общей БД.');
   return u.origin;
 }
 function endpointAllowed(route, method) {

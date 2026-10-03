@@ -53,7 +53,7 @@ async function main() {
     const error = await startDatabaseRuntime(options, f.deps).then(() => null, error => error);
     assert.ok(error instanceof Error, 'подключение должно завершиться ошибкой');
     if (pattern) assert.match(error.message, pattern);
-    assert.ok(!error.message.includes('temporary-test-pass') && !error.message.includes('mysql://'), 'ошибка не раскрывает пароль или URI');
+    assert.ok(!error.message.includes('temporary-test-pass') && !error.message.includes('@db.example.test'), 'ошибка не раскрывает пароль или реквизиты URI');
     await clean(); return error;
   }
   try {
@@ -61,15 +61,13 @@ async function main() {
       const raw = 'mysql://test-user:test@part@word^$@db.example.test/Flux';
       const parsed = parseDatabaseUri(raw), value = new URL(parsed.uri);
       assert.equal(decodeURIComponent(value.password), 'test@part@word^$');
-      assert.equal(parsed.display, 'MariaDB · db.example.test:3306/Flux');
+      assert.equal(parsed.display, 'MariaDB / MySQL · db.example.test:3306/Flux');
       assert.ok(!parsed.display.includes('test-user') && !parsed.display.includes('word'));
       assert.equal(parseDatabaseUri('mariadb://u:p@db.example.test:3307/Flux').dialect, 'mysql');
-      assert.equal(parseDatabaseUri('postgres://u:p@[::1]/Flux').display, 'PostgreSQL · [::1]:5432/Flux');
-      assert.equal(parseDatabaseUri('postgresql://u:p@db.example.test/Flux').dialect, 'postgresql');
       assert.equal(decodeURIComponent(new URL(parseDatabaseUri('mysql://u:p%2540@db.example.test/Flux').uri).password), 'p%40');
     });
     await test('Неверные URI отклоняются без раскрытия введённых данных', async () => {
-      for (const value of ['http://u:p@host/db', 'mysql://host/db', 'mysql://u:@host/db', 'mysql://u:p@host/', 'mysql://u:p@host:99999/db', 'mysql://u:%ZZ@host/db', 'mysql://u:p@host/db#secret', 'mysql://u:p@host/db#', 'mysql://u:p@host/db/other', 'mysql://u:p@host/db?option=%ZZ', 'mysql://u:p@host/db?option=%', 'mysql://u:p@host/db?option=%0', 'mysql://u:p@host/db?option=a\\b', 'mysql://u:p@host/db?option=' + 'x'.repeat(4096)]) {
+      for (const value of ['http://u:p@host/db', 'https://u:p@host/db', 'postgres://u:p@host/db', 'postgresql://u:p@host/db', 'mysql://host/db', 'mysql://u:@host/db', 'mysql://u:p@host/', 'mysql://u:p@host:99999/db', 'mysql://u:%ZZ@host/db', 'mysql://u:p@host/db#secret', 'mysql://u:p@host/db#', 'mysql://u:p@host/db/other', 'mysql://u:p@host/db?option=%ZZ', 'mysql://u:p@host/db?option=%', 'mysql://u:p@host/db?option=%0', 'mysql://u:p@host/db?option=a\\b', 'mysql://u:p@host/db?option=' + 'x'.repeat(4096)]) {
         assert.throws(() => parseDatabaseUri(value), error => !error.message.includes(value) && /Введите адрес/.test(error.message));
       }
     });
@@ -77,7 +75,7 @@ async function main() {
       const f = fixture(); const runtime = await startDatabaseRuntime(f.options, f.deps);
       try {
         assert.equal(runtime.origin, 'http://127.0.0.1:43210');
-        assert.equal(runtime.display, 'MariaDB · db.example.test:3306/Flux');
+        assert.equal(runtime.display, 'MariaDB / MySQL · db.example.test:3306/Flux');
         assert.deepEqual(f.progress, [['Подключение к общей базе', 0, 0]]);
         assert.equal(f.spawns[0].file, executable);
         assert.deepEqual(f.spawns[0].args, ['--flux-company-server']);
@@ -126,11 +124,12 @@ async function main() {
         await rejection(f, /не подтвердил/); assert.equal(f.kills.length, 1);
       }
     });
-    await test('PostgreSQL принимается только с подтверждённым PostgreSQL health', async () => {
-      const f = fixture({ requestHealth: async () => ({ statusCode: 200, body: { ok: true, databaseMode: 'REMOTE', dialect: 'postgresql' } }) });
-      f.options.uri = 'postgresql://test-user:temporary-test-pass@db.example.test/Flux';
-      const runtime = await startDatabaseRuntime(f.options, f.deps);
-      assert.equal(runtime.display, 'PostgreSQL · db.example.test:5432/Flux'); await runtime.stop(); await clean();
+    await test('HTTP и PostgreSQL URI отклоняются до запуска дочернего Flux', async () => {
+      for (const address of ['http://127.0.0.1:3000', 'https://flux.example.test', 'postgres://test-user:temporary-test-pass@db.example.test/Flux', 'postgresql://test-user:temporary-test-pass@db.example.test/Flux']) {
+        const f = fixture(); f.options.uri = address;
+        await rejection(f, /Введите адрес общей MariaDB \/ MySQL/);
+        assert.equal(f.spawns.length, 0, `дочерний Flux не запускается для ${new URL(address).protocol}`);
+      }
     });
     await test('HTTP 503 и недоступный health заканчиваются таймаутом с очисткой', async () => {
       for (const requestHealth of [async () => ({ ...goodHealth, statusCode: 503 }), async () => { throw new Error(uri); }, () => new Promise(() => {})]) {

@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import assert from 'node:assert/strict';
-import { assertHealthySqlite, snapshotSqlite } from '../server/sqliteSafety';
+import { assertHealthySqlite, snapshotSqlite, sqliteSignatureMatches } from '../server/sqliteSafety';
 import { initBackups } from '../server/backup';
 import { allowsLocalSetup, requiresAdministrator } from '../server/accessPolicy';
 
@@ -15,11 +15,12 @@ const Database = require('better-sqlite3');
   try {
     const broken = path.join(dir, 'broken.sqlite');
     fs.writeFileSync(broken, 'важные исходные данные');
+    assert.equal(sqliteSignatureMatches(broken), false);
     assert.throws(() => assertHealthySqlite(broken), /Исходная база сохранена/);
     assert.equal(fs.readFileSync(broken, 'utf8'), 'важные исходные данные');
     const empty = path.join(dir, 'empty.sqlite');
     fs.writeFileSync(empty, '');
-    assert.throws(() => assertHealthySqlite(empty), /отсутствуют таблицы/);
+    assert.throws(() => assertHealthySqlite(empty), /сигнатура SQLite/);
     assert.equal(fs.statSync(empty).size, 0);
     const missing = path.join(dir, 'missing.sqlite');
     assert.throws(() => assertHealthySqlite(missing));

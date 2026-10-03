@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { saveDatabaseConfig, validateDatabaseUri } from '../electron/connectionConfig';
+import { saveDatabaseConfig, saveLocalDatabasePathConfig, validateDatabaseUri } from '../electron/connectionConfig';
 
 let ok = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -51,6 +51,12 @@ function aSync() {
     saveDatabaseConfig(configPath, '');
     const local = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     eq('пустая строка совместимо возвращает LOCAL и сохраняет путь', [local.current_db_type, local.database_url, local.local_db_path], ['LOCAL', '', original.local_db_path]);
+
+    saveLocalDatabasePathConfig(configPath, path.join(dir, 'replacement.sqlite'));
+    const replacement = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    eq('путь, выбранный через IPC, переключает на локальную базу и сохраняет прочие настройки',
+      [replacement.current_db_type, replacement.database_url, replacement.local_db_path, replacement.display, replacement.keep],
+      ['LOCAL', '', path.join(dir, 'replacement.sqlite'), original.display, original.keep]);
 
     const malformed = '{broken config';
     fs.writeFileSync(configPath, malformed);

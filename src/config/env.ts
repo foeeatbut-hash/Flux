@@ -1,74 +1,18 @@
-/**
- * Конфигурация подключения клиента к серверу.
- *
- * Одна настройка — адрес сервера (localStorage `flux_server_url`):
- *  - пусто  → «встроенный» режим: в Electron это локальный Express на
- *    localhost:3000, в браузере — тот же origin, откуда открыта страница
- *    (сервер раздаёт фронтенд статикой). Так работает сегодняшний офлайн-тест.
- *  - задан  → «сервер компании»: ВСЕ запросы (fetch и socket.io) идут на него,
- *    встроенный сервер в Electron не запускается (см. electron/main.ts).
- *
- * Дублируется в config.json (remote_server_url) через IPC — чтобы главный
- * процесс Electron знал о выборе ещё до загрузки рендерера.
- */
-
-import { checkServerUrl, useSaved, maskSecrets } from '../lib/serverUrl';
+/** Клиенты используют встроенный API; общая MariaDB/MySQL настраивается через Electron. */
+import { maskSecrets } from '../lib/serverUrl';
 import { failureText } from '../lib/failureText';
 import { diagnosticFetch } from '../lib/diagnostics';
 
-const SERVER_URL_KEY = 'flux_server_url';
-
-/**
- * Негодный сохранённый адрес — почему об этом надо сказать вслух.
- *
- * Однажды в это поле вписали строку подключения к базе. После этого КАЖДЫЙ
- * запрос строился от неё, браузер такие запросы не выполняет вовсе, и
- * программа перестала отвечать — вместе с экраном входа, с которого это можно
- * было бы исправить. Теперь негодный адрес просто не применяется: программа
- * работает на встроенном сервере и объясняет, почему (правила — lib/serverUrl).
- */
+// Миграция: старый адрес не должен получить пароль или сессию после обновления.
+try { localStorage.removeItem('flux_server_url'); } catch (_) {}
 export let serverUrlWarning = '';
-
-// Нормализованный адрес сервера компании ('' = встроенный режим)
-export function getConfiguredServerUrl(): string {
-  try {
-    const saved = (localStorage.getItem(SERVER_URL_KEY) || '').trim();
-    const { url, warn } = useSaved(saved);
-    serverUrlWarning = warn;
-    return url;
-  } catch (_) {
-    return '';
-  }
-}
-
-// База для HTTP-запросов: '' означает «относительные пути от текущего origin»
+export function getConfiguredServerUrl(): string { return ''; }
 export function getServerBaseUrl(): string {
-  const configured = getConfiguredServerUrl();
-  if (configured) return configured;
-  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-    return 'http://localhost:3000'; // Electron: встроенный сервер
-  }
-  return '';
+  return typeof window !== 'undefined' && window.location.protocol === 'file:' ? 'http://localhost:3000' : '';
 }
-
-// Сохраняет выбор сервера (пустая строка = встроенный) и синхронизирует
-// config.json главного процесса Electron. Применяется после перезагрузки окна.
 export async function setConfiguredServerUrl(url: string): Promise<void> {
-  // Сохраняем только то, чем программа умеет пользоваться: пустое значение
-  // (встроенный сервер) или разобранный http(s)-адрес
-  const parsed = checkServerUrl(url);
-  if (parsed.error) throw new Error(parsed.error);
-  const clean = parsed.url;
-  try {
-    if (clean) localStorage.setItem(SERVER_URL_KEY, clean);
-    else localStorage.removeItem(SERVER_URL_KEY);
-  } catch (_) {}
-  try {
-    const win = window as any;
-    if (win.electron?.ipcRenderer?.invoke) {
-      await win.electron.ipcRenderer.invoke('app:set-server-url', clean);
-    }
-  } catch (_) {}
+  if (url.trim()) throw new Error('Flux подключается к общей MariaDB/MySQL через настройки базы.');
+  try { localStorage.removeItem('flux_server_url'); } catch (_) {}
 }
 
 // Browser sessions live in HttpOnly cookies; Electron keeps the encrypted token
@@ -131,7 +75,7 @@ export const ENV_CONFIG = {
 // сервер компании); (2) подробно логирует запросы/ответы в журнал — чтобы в
 // crash-логе было видно «что нажали → какой запрос → что ответил сервер».
 if (typeof window !== 'undefined') {
-  const needsRewrite = window.location.protocol === 'file:' || !!getConfiguredServerUrl();
+  const needsRewrite = window.location.protocol === 'file:';
   const baseUrl = SERVER_BASE_URL || 'http://localhost:3000';
   // Диагностика встаёт ВНУТРЬ этой обёртки, а не поверх неё: так она видит уже
   // переписанный адрес и уже подставленный токен — то есть то, что

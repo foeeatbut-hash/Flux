@@ -25,7 +25,15 @@ async function main() {
     const serviceRevocation = compile(path.join(serviceRoot, 'license/node/revocation.ts'), path.join(temp, 'service-revocation.cjs'));
     const serviceUpdate = compile(path.join(serviceRoot, 'electron/updateSignature.ts'), path.join(temp, 'service-update-signature.cjs'));
     const vaultApi = require(path.join(root, 'src/vault.cjs'));
+    const { parseDatabaseUri } = require(path.join(root, 'src/database-runtime.cjs'));
     const { applyPublicConfig } = require(path.join(root, 'src/public-config.cjs'));
+    const ownerNetwork = require(path.join(root, 'src/network.cjs'));
+    assert.equal(ownerNetwork.serverUrl('http://127.0.0.1:3001'), 'http://127.0.0.1:3001');
+    assert.equal(ownerNetwork.serverUrl('http://[::1]:3001'), 'http://[::1]:3001');
+    for (const remote of ['https://flux.company.test', 'http://remote.test', 'file:///tmp/flux', 'mysql://fixture:fixture@localhost/fixture']) {
+      assert.throws(() => ownerNetwork.serverUrl(remote));
+    }
+    assert.throws(() => ownerNetwork.serverUrl('http://fixture:fixture@127.0.0.1:3001'));
 
     const generated = vaultApi.generateVaults();
     const mainVault = generated.main;
@@ -110,6 +118,7 @@ async function main() {
       },
     };
     const fakeStartDatabaseRuntime = async ({ uri, signal, onUnexpectedExit }) => {
+      parseDatabaseUri(uri);
       const record = { uri, signal, onUnexpectedExit, stops: 0 };
       runtimeRecords.push(record);
       runtimeStartWaiter?.();
@@ -120,7 +129,7 @@ async function main() {
       const index = runtimeRecords.length;
       return {
         origin: `http://127.0.0.1:${35000 + index}`,
-        display: `PostgreSQL · flux_test · localhost`,
+        display: `MariaDB / MySQL · db.invalid:3306/flux_test`,
         stop: async () => { record.stops += 1; },
       };
     };
@@ -281,7 +290,7 @@ async function main() {
     const databaseConnected = await ownerActions.connect({ server: databaseUri });
     assert.equal(databaseConnected.connected, true);
     assert.equal(databaseConnected.connectionKind, 'database');
-    assert.equal(databaseConnected.server, 'PostgreSQL · flux_test · localhost');
+    assert.equal(databaseConnected.server, 'MariaDB / MySQL · db.invalid:3306/flux_test');
     assert.doesNotMatch(JSON.stringify(databaseConnected), /temporary-db-secret|mysql:\/\//i);
     assert.equal(runtimeRecords.length, 1);
     assert.equal(runtimeRecords[0].uri, databaseUri);
@@ -289,7 +298,7 @@ async function main() {
     const disconnectedDatabase = await ownerActions.disconnect();
     assert.equal(disconnectedDatabase.connected, false);
     assert.equal(disconnectedDatabase.server, '');
-    assert.equal(disconnectedDatabase.connectionKind, 'server');
+    assert.equal(disconnectedDatabase.connectionKind, 'database');
     assert.equal(runtimeRecords[0].stops, 1);
 
     const lockedDatabase = await ownerActions.connect({ server: databaseUri });
@@ -308,7 +317,7 @@ async function main() {
     const failedChallengeState = await ownerActions.state();
     assert.equal(failedChallengeState.connected, false);
     assert.equal(failedChallengeState.server, '');
-    assert.equal(failedChallengeState.connectionKind, 'server');
+    assert.equal(failedChallengeState.connectionKind, 'database');
 
     let finishDatabaseStartup;
     const startupObserved = new Promise(resolve => { runtimeStartWaiter = resolve; });
@@ -322,7 +331,7 @@ async function main() {
     const canceledConnectionState = await ownerActions.state();
     assert.equal(canceledConnectionState.connected, false);
     assert.equal(canceledConnectionState.server, '');
-    assert.equal(canceledConnectionState.connectionKind, 'server');
+    assert.equal(canceledConnectionState.connectionKind, 'database');
 
     const beforeUnexpectedExit = await ownerActions.connect({ server: databaseUri });
     assert.equal(beforeUnexpectedExit.connected, true);
@@ -332,7 +341,7 @@ async function main() {
     const unexpectedExitState = await ownerActions.state();
     assert.equal(unexpectedExitState.connected, false);
     assert.equal(unexpectedExitState.server, '');
-    assert.equal(unexpectedExitState.connectionKind, 'server');
+    assert.equal(unexpectedExitState.connectionKind, 'database');
     assert.equal(unexpectedExitState.unlocked, true);
     assert.equal(runtimeRecords[4].stops, 1);
     assert.doesNotMatch(JSON.stringify(unexpectedExitState), /temporary-db-secret|mysql:\/\//i);
@@ -346,13 +355,11 @@ async function main() {
     await ownerActions.disconnect();
     assert.equal(runtimeRecords[5].stops, 1);
 
-    const startsBeforeLegacy = runtimeRecords.length;
-    const legacyConnection = await ownerActions.connect({ server: 'https://legacy.company.test' });
-    assert.equal(legacyConnection.connected, true);
-    assert.equal(legacyConnection.connectionKind, 'server');
-    assert.equal(legacyConnection.server, 'https://legacy.company.test');
-    assert.equal(runtimeRecords.length, startsBeforeLegacy);
-    assert.equal((await ownerActions.disconnect()).connected, false);
+    const startsBeforeInvalidAddress = runtimeRecords.length;
+    for (const address of ['http://legacy.company.test', 'https://legacy.company.test', 'postgres://u:p@db.invalid/flux', 'postgresql://u:p@db.invalid/flux']) {
+      await assert.rejects(ownerActions.connect({ server: address }), /Введите адрес общей MariaDB \/ MySQL/);
+    }
+    assert.equal(runtimeRecords.length, startsBeforeInvalidAddress);
 
     // Ни зашифрованный, ни публичный экспорт не могут перезаписать активное хранилище.
     const restoredBytes = await fs.readFile(localVaultPath);

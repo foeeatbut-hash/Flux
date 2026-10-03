@@ -25,7 +25,8 @@ import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
-import { saveDatabaseConfig, validateDatabaseUri } from './connectionConfig';
+import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
+import { companyDatabaseUri, databaseSummary, probeCompanyDatabase } from './databaseConnection';
 
 /**
  * Запуск с доводом подмены — это не запуск программы, а её установка.
@@ -173,10 +174,9 @@ app.whenReady().then(async () => {
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
-  // Читает config.json: тип БД, удаленный URL, пользовательский путь SQLite,
-  // папку crash-логов и адрес сервера компании (пусто = встроенный сервер)
+  // Конфигурация базы. Старый внешний HTTP-адрес больше не применяется.
   const readAppConfig = () => {
-    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '', remoteServerUrl: '' };
+    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '' };
     try {
       if (fs.existsSync(CONFIG_FILE)) {
         const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
@@ -187,7 +187,6 @@ app.whenReady().then(async () => {
             result.localDbPath = parsed.local_db_path || '';
             result.crashLogDir = parsed.crash_log_dir || '';
           }
-          result.remoteServerUrl = String(parsed.remote_server_url || '').trim();
         }
       }
     } catch (e) {}
@@ -196,13 +195,55 @@ app.whenReady().then(async () => {
 
   // Renderer запрашивает адрес сразу при загрузке. Регистрируем обработчик
   // до ожидания файловой службы и PowerShell, иначе первый вход получает отказ IPC.
-  ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
-  setupOwnerLogin(() => readAppConfig().remoteServerUrl);
-  setupAuthStorage(() => readAppConfig().remoteServerUrl);
+  ipcMain.handle('app:get-server-url', () => '');
+  // Регистрация до файловых служб: экран настройки работает даже при отказе БД.
+  ipcMain.handle('app:get-database', event => {
+    if (!trustedAuthSender(event)) return { configured: false, provider: null, host: '', database: '' };
+    const config = readAppConfig();
+    return databaseSummary(config.currentDbType === 'REMOTE' ? config.databaseUrlSetting : '');
+  });
+  let changingDatabase = false;
+  const configureDatabase = async (event: Electron.IpcMainInvokeEvent, raw: unknown, save: boolean) => {
+    if (!trustedAuthSender(event)) return { success: false, error: 'Настройка доступна только из окна Flux.' };
+    if (changingDatabase) return { success: false, error: 'Проверка подключения уже выполняется. Дождитесь результата.' };
+    changingDatabase = true;
+    try {
+      const result = await probeCompanyDatabase(raw);
+      if (!result.success || !save) return result;
+      // При применении проверяем повторно: не сохраняем URI после отказа базы.
+      saveDatabaseConfig(CONFIG_FILE, companyDatabaseUri(raw)!);
+      return { ...result, restart: true };
+    } catch (_) {
+      return { success: false, error: 'Не удалось сохранить настройки подключения. Проверьте доступность диска и повторите.' };
+    } finally { changingDatabase = false; }
+  };
+  ipcMain.handle('app:probe-database', (event, raw: unknown) => configureDatabase(event, raw, false));
+  ipcMain.handle('app:set-database', (event, raw: unknown) => configureDatabase(event, raw, true));
+  ipcMain.handle('app:set-local-database-path', (event, rawPath: unknown) => {
+    if (!trustedAuthSender(event)) return { success: false, error: 'Настройка доступна только из окна Flux.' };
+    try {
+      if (typeof rawPath !== 'string' || !rawPath.trim()) return { success: false, error: 'Файл базы не выбран.' };
+      const selected = path.resolve(rawPath);
+      if (!['.sqlite', '.db'].includes(path.extname(selected).toLowerCase()) || !fs.statSync(selected).isFile()) {
+        return { success: false, error: 'Выберите существующий файл SQLite с расширением .sqlite или .db.' };
+      }
+      saveLocalDatabasePathConfig(CONFIG_FILE, selected);
+      return { success: true };
+    } catch (_) {
+      return { success: false, error: 'Не удалось сохранить новый путь базы. Исходные файлы не изменены.' };
+    }
+  });
+  ipcMain.handle('app:relaunch', event => {
+    if (!trustedAuthSender(event)) return { success: false };
+    app.relaunch(); app.exit(0);
+  });
+
+  setupOwnerLogin(() => '');
+  setupAuthStorage(() => '');
   const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
   const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender);
   displayWorkspace.attach();
-  const localAccess = createLocalFileAccess({ server: () => readAppConfig().remoteServerUrl,
+  const localAccess = createLocalFileAccess({ server: () => '',
     token: readNativeSession, fetch: globalThis.fetch });
   const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess });
   registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
@@ -211,61 +252,6 @@ app.whenReady().then(async () => {
   const nativeAppWindows = setupNativeAppWindows({ isTrusted: trustedAuthSender, mayRead: localAccess.mayRead,
     getMainWindow: () => mainWindow, preload: path.join(__dirname, 'preload.js'),
     rendererFile: path.join(__dirname, '../dist/index.html'), onClosed: win => disposeBrowserFor(win.id) });
-
-  // Смена адреса сервера из интерфейса (экран входа): пусто = встроенный.
-  // Пишем в config.json, не трогая остальные ключи; применяется при
-  // следующем запуске (рендерер сам перезагружается и читает localStorage)
-  ipcMain.handle('app:set-server-url', (_event, url: string) => {
-    try {
-      let parsed: any = {};
-      try {
-        if (fs.existsSync(CONFIG_FILE)) parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {};
-      } catch (e) { parsed = {}; }
-      // Адрес сервера решает, кому окно отдаст пароль при входе. Принимаем
-      // только http(s) без логина в адресе — иначе строку в конфиг могла бы
-      // подложить что угодно, от file: до чужой схемы
-      const next = String(url || '').trim();
-      if (next) {
-        let u: URL;
-        try { u = new URL(next); } catch (_) { return { success: false, error: 'Адрес сервера не похож на адрес.' }; }
-        if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) {
-          return { success: false, error: 'Адрес сервера должен начинаться с http:// или https://.' };
-        }
-      }
-      parsed.remote_server_url = next;
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || String(err) };
-    }
-  });
-
-  /**
-   * Подключение к базе с экрана входа, когда встроенный сервер не запущен.
-   *
-   * В режиме «сервер компании» встроенный Express не поднимается, и спросить
-   * его «переключи базу» некому. Поэтому настройка пишется прямо в config.json,
-   * а программа перезапускается — встроенный сервер стартует уже на новой базе
-   * и сам сверит её схему. Пустая строка — база на этом компьютере.
-   */
-  ipcMain.handle('app:set-database', (event, raw: unknown) => {
-    if (!trustedAuthSender(event)) return { success: false, error: 'Настройка доступна только из окна Flux.' };
-    if (typeof raw !== 'string') return { success: false, error: 'Введите строку подключения к базе.' };
-    const next = raw.trim();
-    const uri = next ? validateDatabaseUri(next) : '';
-    if (next && !uri) return { success: false, error: 'Проверьте тип, адрес, порт и имя базы данных.' };
-    try {
-      saveDatabaseConfig(CONFIG_FILE, uri || '');
-      return { success: true };
-    } catch (_) {
-      // Ошибка диска/JSON не должна раскрыть путь или строку с паролем.
-      return { success: false, error: 'Не удалось сохранить настройки подключения. Проверьте доступность диска и повторите.' };
-    }
-  });
-
-  // Смена режима подключения меняет то, какие процессы нужны (встроенный
-  // сервер или нет), — перезагрузки окна для этого мало
-  ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 
   // Лицензия: авторитетная проверка в главном процессе (отпечаток именно этой
   // машины). Папка пользователя — стандартная userData этого приложения.
@@ -294,18 +280,16 @@ app.whenReady().then(async () => {
   } else {
     // Адреса «по умолчанию» с паролем здесь быть не должно: исходник читают, и
     // пароль из него становится общим. Нет адреса — сервер скажет об этом сам
-    finalDbUrl = databaseUrlSetting;
+    finalDbUrl = companyDatabaseUri(databaseUrlSetting) || '';
   }
 
   process.env.DATABASE_URL = finalDbUrl;
   // Встроенный сервер слушает только этот компьютер (server/security.ts, listenHost)
   process.env.FLUX_EMBEDDED = '1';
+  process.env.FLUX_LISTEN_HOST = '127.0.0.1';
+  process.env.PORT = '3000';
 
-  if (app.isPackaged && startupConfig.remoteServerUrl) {
-    // Настроен сервер компании: встроенный Express не нужен — клиент ходит
-    // на удалённый адрес (fetch-прокси и socket.io в рендерере), старт мгновенный
-    console.log('[Electron Main] Режим сервера компании:', startupConfig.remoteServerUrl, '— встроенный сервер не запускается.');
-  } else if (app.isPackaged) {
+  if (app.isPackaged) {
     // Встроенный Express поднимаем СРАЗУ и в ОТДЕЛЬНОМ процессе (utilityProcess):
     // - сервер грузится параллельно с отрисовкой окна — интро короче;
     // - главный процесс не блокируется на секунды (раньше синхронный require
@@ -832,7 +816,7 @@ app.whenReady().then(async () => {
     updateInProgress = true;
     let installerPath = '';
     let temporaryFolder = '';
-    const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:readAppConfig().remoteServerUrl || 'http://localhost:3000',token:readNativeSession(readAppConfig().remoteServerUrl) || ''};
+    const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:'http://localhost:3000',token:readNativeSession('') || ''};
     appendLog('INFO', 'Обновление', `Скачиваю ${version}: ${url}`);
     mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
 

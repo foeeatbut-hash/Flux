@@ -1,108 +1,110 @@
-/** Панель подключения принимает адрес Flux и не отправляет реквизиты базы из браузера. */
-import { readConnection } from '../src/lib/connection';
+/** Проверяет подключение к MariaDB через mock Electron IPC без живой базы. */
+import { readDatabaseConnection } from '../src/lib/connection';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const DATABASE_URL = 'mysql://synthetic_user:synthetic-secret@127.0.0.1:1/Flux';
+const DATABASE_URL = 'mysql://synthetic_user:synthetic-secret@db.example.test:3306/Flux';
 
-let f = 0;
-const ok = (n: string, c: boolean, d?: any) =>
-  c ? console.log('  ✓', n) : (f++, console.error('  ✗', n, d !== undefined ? JSON.stringify(d).slice(0, 240) : ''));
+let failures = 0;
+const ok = (name: string, condition: boolean, details?: unknown) =>
+  condition ? console.log('  ✓', name) : (failures++, console.error('  ✗', name, details === undefined ? '' : String(details).slice(0, 240)));
 
 (async () => {
   let chromium: any;
   try { ({ chromium } = await import('playwright-core')); }
   catch { console.error('playwright-core не установлен.'); process.exit(2); }
   try {
-    const h = await fetch(BASE + '/api/health');
-    if (!h.ok) throw new Error('health ' + h.status);
-  } catch (e: any) {
-    console.error(`Сервер на ${BASE} не отвечает (${e?.message || e}).`);
+    const response = await fetch(BASE + '/api/health');
+    if (!response.ok) throw new Error(`health ${response.status}`);
+  } catch (error: any) {
+    console.error(`Сервер на ${BASE} не отвечает (${error?.message || error}).`);
     process.exit(2);
   }
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const errors: string[] = [];
   const requests: string[] = [];
-  page.on('pageerror', (e: any) => errors.push('исключение: ' + String(e.message).slice(0, 140)));
+  page.on('pageerror', (error: any) => errors.push(String(error.message).slice(0, 140)));
+  page.on('console', (message: any) => { if (message.type() === 'error') errors.push(message.text().slice(0, 140)); });
   page.on('request', (request: any) => requests.push(request.url()));
-
-  // Компания отвечает HTML вместо контракта API Flux. Перехват исключает
-  // внешний запрос и проверяет реальный отказ от неподходящего сервера.
-  await page.route('**/api/health', (route: any) => {
-    if (route.request().url().startsWith('https://not-flux.example.test/api/health')) {
-      return route.fulfill({ status: 200, contentType: 'text/html', body: '<html>Другой сайт</html>' });
-    }
-    return route.continue();
-  });
+  await page.addInitScript(`(() => {
+    const state = { calls: [], failProbe: false, configured: false };
+    window.__mockDatabaseIpc = state;
+    Object.defineProperty(window, 'electron', { configurable: true, writable: true, value: { ipcRenderer: { invoke: async (channel, uri) => {
+      state.calls.push({ channel, uri });
+      if (channel === 'app:get-database') return state.configured
+        ? { configured: true, provider: 'mysql', host: 'db.example.test', database: 'Flux' }
+        : { configured: false, provider: null, host: '', database: '' };
+      if (channel === 'app:probe-database') return state.failProbe
+        ? { success: false, error: 'Не удалось подключиться к базе. Проверьте доступ пользователя.' }
+        : { success: true, provider: 'mysql', database: 'Flux' };
+      if (channel === 'app:set-database') { state.configured = true; return { success: true, restart: true }; }
+      if (channel === 'app:relaunch') return true;
+      return undefined;
+    } } } });
+  })();`);
 
   try {
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(1200);
+    ok('mock Electron IPC доступен странице', await page.evaluate(() => typeof (window as any).electron?.ipcRenderer?.invoke === 'function'));
+    const panel = page.getByRole('button', { name: 'Подключение к общей базе', exact: true });
+    ok('панель общей базы показана на форме входа', await panel.isVisible().catch(() => false));
+    await panel.click();
+    const input = page.getByLabel('URI базы MariaDB/MySQL');
+    ok('открывается поле URI MariaDB/MySQL', await input.isVisible().catch(() => false));
+    ok('секрет URI скрыт полем ввода', await input.getAttribute('type') === 'password');
 
-    console.log('1. Клиент принимает только адрес сервера Flux');
-    const connectionButton = page.getByRole('button', { name: 'Подключение · Этот компьютер', exact: true });
-    ok('панель подключения видна под формой входа', await connectionButton.isVisible().catch(() => false));
-    await connectionButton.click();
-    const input = page.getByLabel('Адрес сервера Flux');
-    ok('поле адреса сервера открылось', await input.isVisible().catch(() => false));
-    ok('поле не скрывает адрес сервера', (await input.getAttribute('type')) !== 'password');
-    ok('подсказка объясняет, что базу настраивает владелец',
-      await page.getByText(/сама база данных не предоставляет интерфейс программы/i).isVisible().catch(() => false));
+    console.log('1. Отклоняется неподдерживаемый URI без IPC-вызова');
+    const initialCalls = await page.evaluate(() => (window as any).__mockDatabaseIpc.calls.length);
+    await input.fill('postgresql://synthetic_user:synthetic-secret@db.example.test:5432/Flux');
+    await page.getByRole('button', { name: 'Проверить и подключить' }).click();
+    const invalidMessage = await page.getByRole('alert').innerText();
+    ok('ошибка предлагает MariaDB/MySQL', /MariaDB\/MySQL/i.test(invalidMessage), invalidMessage);
+    ok('некорректная строка не передана в IPC', await page.evaluate((before: number) => (window as any).__mockDatabaseIpc.calls.length === before, initialCalls));
 
-    console.log('2. Адрес базы отклоняется без сетевого запроса и утечки пароля');
-    const beforeDbProbe = requests.length;
+    console.log('2. Ошибка пробы не сохраняет URI и не раскрывает пароль');
+    await page.evaluate(() => { (window as any).__mockDatabaseIpc.failProbe = true; });
     await input.fill(DATABASE_URL);
-    await page.getByRole('button', { name: 'Проверить и подключиться', exact: true }).click();
-    await page.waitForTimeout(300);
-    const databaseError = await page.getByRole('alert').innerText().catch(() => '');
-    ok('показано безопасное объяснение', /адрес базы данных/i.test(databaseError), databaseError);
-    ok('пароль и строка подключения не показаны в ошибке',
-      !databaseError.includes('synthetic-secret') && !databaseError.includes(DATABASE_URL));
-    ok('проверка базы не отправляла браузерный запрос',
-      requests.slice(beforeDbProbe).every((url) => !/127\.0\.0\.1:1|synthetic_user|synthetic-secret/i.test(url)));
-    ok('адрес сервера не сохранился',
-      await page.evaluate(() => localStorage.getItem('flux_server_url') || '') === '');
+    const beforeProbe = requests.length;
+    await page.getByRole('button', { name: 'Проверить и подключить' }).click();
+    await page.getByRole('alert').waitFor({ state: 'visible' });
+    const probeError = await page.getByRole('alert').innerText();
+    ok('показана безопасная ошибка подключения', /не удалось подключиться к базе/i.test(probeError), probeError);
+    ok('ошибка не содержит пароль или URI', !probeError.includes('synthetic-secret') && !probeError.includes(DATABASE_URL));
+    ok('ошибка пробы не вызывает apply', await page.evaluate(() => !(window as any).__mockDatabaseIpc.calls.some((call: any) => call.channel === 'app:set-database')));
+    ok('браузер не отправляет URI сетевым запросом', requests.slice(beforeProbe).every(url => !/synthetic_user|synthetic-secret|db\.example\.test/i.test(url)));
 
-    console.log('3. Отмена оставляет человека на форме входа');
-    const beforeCancel = page.url();
-    await page.getByRole('button', { name: 'Отмена', exact: true }).click();
-    ok('панель закрылась без перехода', await input.isVisible().catch(() => false) === false && page.url() === beforeCancel);
-    ok('форма входа осталась на месте', await page.getByRole('button', { name: 'Войти', exact: true }).isVisible().catch(() => false));
-    ok('выбранный сервер не изменился', await connectionButton.innerText() === 'Подключение · Этот компьютер');
+    console.log('3. Успешная проверка применяет URI и показывает только сведения без секрета');
+    await page.evaluate(() => { (window as any).__mockDatabaseIpc.failProbe = false; });
+    await page.getByRole('button', { name: 'Закрыть' }).click();
+    await panel.click();
+    await input.fill(DATABASE_URL);
+    await page.getByRole('button', { name: 'Проверить и подключить' }).click();
+    await page.getByRole('status').waitFor({ state: 'visible' });
+    const body = await page.locator('body').innerText();
+    ok('сохранённые реквизиты показаны без имени пользователя и пароля', body.includes('db.example.test/Flux') && !body.includes('synthetic_user') && !body.includes('synthetic-secret'));
+    ok('URI отсутствует в localStorage', await page.evaluate(() => !Object.values(localStorage).some(value => /synthetic-secret|synthetic_user/.test(value))));
+    const calls = await page.evaluate(() => (window as any).__mockDatabaseIpc.calls);
+    ok('сначала вызвана probe, затем apply', calls.findIndex((call: any) => call.channel === 'app:probe-database') < calls.findIndex((call: any) => call.channel === 'app:set-database'));
+    ok('оба вызова получили URI только через Electron IPC', calls.some((call: any) => call.channel === 'app:probe-database' && call.uri === DATABASE_URL) && calls.some((call: any) => call.channel === 'app:set-database' && call.uri === DATABASE_URL));
+    ok('кнопка перезапуска появилась после успешного применения', await page.getByRole('button', { name: 'Перезапустить Flux' }).isVisible());
 
-    console.log('4. Без схемы для компании предполагается HTTPS, локальный адрес остаётся HTTP');
-    ok('адрес компании по умолчанию получает HTTPS',
-      JSON.stringify(readConnection('flux.company.test:3000')) === JSON.stringify({ kind: 'server', url: 'https://flux.company.test:3000' }));
-    ok('localhost разрешает HTTP',
-      JSON.stringify(readConnection('localhost:3000')) === JSON.stringify({ kind: 'server', url: 'http://localhost:3000' }));
-    ok('127.0.0.1 разрешает HTTP', readConnection('http://127.0.0.1:3000').kind === 'server');
-    ok('обычный адрес компании с HTTP отклоняется', readConnection('http://flux.company.test:3000').kind === 'error');
+    for (const width of [1440, 1024]) {
+      await page.setViewportSize({ width, height: 950 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((dark: boolean) => document.documentElement.classList.toggle('dark', dark), theme === 'dark');
+        await page.waitForTimeout(150);
+        const sizing = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
+        ok(`${theme} тема при ${width}px не прокручивается по горизонтали`, sizing.document <= sizing.viewport, sizing);
+        await page.screenshot({ path: `/tmp/login-database-${theme}-${width}.png` });
+      }
+    }
+    const appErrors = errors.filter(message => !/^\[vite\] failed to connect to websocket|^WebSocket connection to 'ws:\/\/localhost:24678|^WebSocket closed without opened\./.test(message));
+    ok('в консоли нет ошибок приложения', appErrors.length === 0, appErrors.slice(0, 3));
+  } finally { await browser.close(); }
 
-    console.log('5. Адрес без API Flux не сохраняется');
-    await connectionButton.click();
-    await input.fill('https://not-flux.example.test');
-    const beforeCompanyProbe = requests.length;
-    await page.getByRole('button', { name: 'Проверить и подключиться', exact: true }).click();
-    await page.getByRole('alert').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    const serverError = await page.getByRole('alert').innerText().catch(() => '');
-    ok('проверка объясняет, что на адресе нет API Flux', /нет API Flux/i.test(serverError), serverError);
-    ok('единственный запрос проверки ушёл на заданный адрес',
-      requests.slice(beforeCompanyProbe).some((url) => url === 'https://not-flux.example.test/api/health'));
-    ok('неподходящий адрес не сохранился',
-      await page.evaluate(() => localStorage.getItem('flux_server_url') || '') === '');
-    ok('страница входа остаётся доступна', await page.getByRole('button', { name: 'Войти', exact: true }).isVisible().catch(() => false));
-
-    ok('в консоли нет ошибок', errors.length === 0, errors.slice(0, 3));
-    await page.screenshot({ path: '/tmp/login-connection-light.png' });
-    await page.evaluate(() => document.documentElement.classList.add('dark'));
-    await page.waitForTimeout(200);
-    await page.screenshot({ path: '/tmp/login-connection-dark.png' });
-  } finally {
-    await browser.close();
-  }
-
-  console.log(f ? `\nПровалено проверок: ${f}` : '\nПроверка экрана входа пройдена');
-  process.exit(f ? 1 : 0);
+  console.log(failures ? `\nПровалено проверок: ${failures}` : '\nПроверка подключения к общей базе пройдена');
+  process.exit(failures ? 1 : 0);
 })();

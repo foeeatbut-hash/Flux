@@ -32,7 +32,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-async-errors": "^3.1.1",
-    "fast-xml-parser": "5.10.0",
+    "fast-xml-parser": "5.10.1",
     "imapflow": "^1.7.1",
     "lucide-react": "^0.546.0",
     "mailparser": "^3.9.15",
@@ -85,7 +85,12 @@
     "extraResources": [
       {
         "from": "prisma",
-        "to": "prisma"
+        "to": "prisma",
+        "filter": [
+          "**/*.prisma",
+          "migrations/**/migration.sql",
+          "migrations/migration_lock.toml"
+        ]
       },
       {
         "from": "genoffice-server",
@@ -120,5 +125,11 @@
       ],
       "icon": "build/icon.png"
     }
+  },
+  "overrides": {
+    "mariadb": "3.4.7",
+    "engine.io": "6.6.10",
+    "socket.io-parser": "4.2.7",
+    "ws": "8.21.0"
   }
 }

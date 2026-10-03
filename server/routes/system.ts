@@ -34,7 +34,7 @@ interface SystemDeps {
   saveAppConfig: (config: AppConfigLike) => void;
   resolveLocalDbPath: (config: AppConfigLike) => string;
   createPrismaClient: (dbType: string, dbUrl: string) => any;
-  ensureHealthyLocalDb: (dbFile: string) => void;
+  ensureHealthyLocalDb: (dbFile: string, schemaReady?: boolean) => void;
   ensureSchemaColumns: (dbFile: string) => void;
   syncRemoteSchema: (client: any, dbUrl: string, forceDialect?: 'sqlite') => Promise<string[]>;
   hashPassword: (plain: string) => string;
@@ -206,8 +206,9 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
       }
 
       let targetDbUrl = '';
+      let dbFile = '';
       if (current_db_type === 'LOCAL') {
-        const dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(appDataPath, 'database.sqlite');
+        dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(appDataPath, 'database.sqlite');
         const parentDir = path.dirname(dbFile);
         if (!fs.existsSync(parentDir)) {
           fs.mkdirSync(parentDir, { recursive: true });
@@ -251,8 +252,10 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
 
       // Общая база: приводим схему к версии программы (создаёт недостающие
       // таблицы/колонки) до автозаполнения и первых запросов
-      if (current_db_type === 'REMOTE') {
-        await syncRemoteSchema(prisma, targetDbUrl);
+      if (current_db_type === 'REMOTE') await syncRemoteSchema(prisma, targetDbUrl);
+      else {
+        await syncRemoteSchema(prisma, targetDbUrl, 'sqlite');
+        ensureHealthyLocalDb(dbFile, true);
       }
 
       // Save configuration settings
@@ -314,6 +317,9 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
           await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
           await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
         } catch (e) {}
+
+        await syncRemoteSchema(prisma, targetDbUrl, 'sqlite');
+        ensureHealthyLocalDb(resolved, true);
 
         saveAppConfig({
           ...loadAppConfig(),

@@ -18,12 +18,11 @@ import { getServerBaseUrl } from '../config/env';
 import { useUpdateStore } from '../store/updateStore';
 import { phaseLabel, fileUrlOf } from '../lib/updates';
 
-// ── Автообновления через сервер ──
+// ── Автообновления через локальный API Flux ──
 // Владелец публикует подписанный релиз через отдельную программу владельца,
-// запись попадает в AppUpdate. Сотрудники проверяют /api/updates/latest на том
-// сервере, с которым работают (встроенный или сервер компании), качают exe
-// оттуда же и портативное приложение подменяет само себя. Никакого стороннего
-// хостинга и прямых подключений клиента к базе.
+// запись попадает в AppUpdate общей БД. Настольный Flux обращается к своему
+// локальному API, который работает с общей базой; внешний Flux HTTP-сервер и
+// сторонний хостинг не нужны.
 
 // Сравнение версий, адрес файла и разбор отказов — в src/lib/updates.ts:
 // теми же правилами пользуется главный процесс, который и качает файл
@@ -127,7 +126,7 @@ export default function UpdaterWidget() {
         <div className="fx-set-row">
           <span className="fx-set-text">Источник обновлений</span>
           <span className="text-sm text-slate-500 dark:text-slate-400">
-            {getServerBaseUrl() && !getServerBaseUrl().includes('localhost') ? 'Сервер компании' : 'Встроенный сервер'}
+            {getServerBaseUrl() && !getServerBaseUrl().includes('localhost') ? 'API Flux' : 'Встроенная часть Flux'}
           </span>
         </div>
 
@@ -237,7 +236,7 @@ export default function UpdaterWidget() {
             {latest.changelog || 'Описание изменений не указано.'}
           </div>
           <p className="fx-hint mt-3">
-            Файл скачивается с вашего сервера Flux. После загрузки приложение закроется,
+            Файл обновления загружается через Flux из общей базы. После загрузки приложение закроется,
             обновление подменит exe и программа запустится уже новой версии — данные не затрагиваются.
           </p>
         </Dialog>

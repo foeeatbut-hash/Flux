@@ -11,14 +11,14 @@ export function startCompanyServer(): void {
   const write = (value: string) => fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${value}\n`);
   try {
     const child = utilityProcess.fork(path.join(__dirname, '../dist/server.cjs'), [], {
-      env: { ...process.env, NODE_ENV: 'production', FLUX_RESOURCES_PATH: process.resourcesPath, VENT_APP_DATA: data, FLUX_EMBEDDED: '0', FLUX_LISTEN_HOST: process.env.FLUX_LISTEN_HOST || '127.0.0.1' },
+      env: { ...process.env, NODE_ENV: 'production', FLUX_RESOURCES_PATH: process.resourcesPath, VENT_APP_DATA: data, FLUX_EMBEDDED: '0', FLUX_LISTEN_HOST: '127.0.0.1' },
       stdio: 'pipe', serviceName: 'flux-company-server',
     });
     child.stdout?.on('data', value => write(String(value).trimEnd()));
     child.stderr?.on('data', value => write(String(value).trimEnd()));
     child.once('exit', code => { write(`Сервер завершился: ${code}`); app.exit(code || 0); });
     app.on('will-quit', () => child.kill());
-    write('Запуск API компании. Внешний HTTPS обслуживает обратный прокси; окна Flux не открываются.');
+    write('Запуск локального обработчика общей БД для владельца. Подключения только с этого компьютера.');
   } catch (error: any) {
     write(`Не удалось запустить API: ${error.message}`);
     app.exit(1);

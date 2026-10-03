@@ -1,10 +1,8 @@
 /**
  * Проверки строки подключения к базе.
  *
- * Написано по живому паролю отдела: он содержит `$`, `!`, `@`, `+` и `=`.
- * Строка, собранная без экранирования, разбирается не туда — «сервером»
- * становится кусок пароля, — и человек видит «не удалось подключиться» без
- * малейшего намёка на причину.
+ * Синтетический fixture проверяет пароль со знаками `$`, `!`, `@`, `+` и `=`.
+ * Без экранирования часть таких знаков может изменить разбор адреса базы.
  *
  * Запуск: npx tsx scripts/test-db-url.ts
  */
@@ -20,8 +18,8 @@ const check = (name: string, cond: boolean, got?: unknown) => {
 };
 
 const maria: DbParts = {
-  engine: 'MARIADB', host: '192.168.120.14', port: '3306',
-  database: 'Flux', user: 'Flux', password: 'l!e41!rB@VxZ+8M=Ior8',
+  engine: 'MARIADB', host: 'db.example.test', port: '3306',
+  database: 'flux_test', user: 'fixture_user', password: 'fixture!@+:=$test',
 };
 
 console.log('Сборка строки подключения');
@@ -47,7 +45,7 @@ console.log('Пароль со знаками, которые ломают ад�
   const nasty = { ...maria, password: 'a@b:c/d?e#f&g' };
   const url = buildDbUrl(nasty);
   check('решётка и вопрос не рвут адрес', parseDbUrl(url).password === nasty.password, parseDbUrl(url).password);
-  check('сервер не подменился куском пароля', parseDbUrl(url).host === '192.168.120.14', parseDbUrl(url).host);
+  check('сервер не подменился куском пароля', parseDbUrl(url).host === 'db.example.test', parseDbUrl(url).host);
 
   const spaced = { ...maria, user: 'учётка отдела', password: 'про бел' };
   check('пробелы в имени и пароле переживают сборку',
@@ -70,13 +68,13 @@ console.log('Строка на экране входа');
 {
   const label = dbLabel(maria);
   check('назван движок', label.includes('MariaDB'), label);
-  check('назван сервер и порт', label.includes('192.168.120.14:3306'), label);
-  check('названа база', label.includes('Flux'), label);
+  check('назван сервер и порт', label.includes('db.example.test:3306'), label);
+  check('названа база', label.includes('flux_test'), label);
   check('ПАРОЛЯ В СТРОКЕ НЕТ', !label.includes(maria.password), label);
-  check('имени пользователя в строке нет', !label.includes('Flux:'), label);
+  check('имени пользователя в строке нет', !label.includes('fixture_user:'), label);
   check('локальная база названа просто', dbLabel(emptyParts('LOCAL')) === 'База: на этом компьютере');
   check('строка собирается и по настройке сервера',
-    labelOfUrl('REMOTE', buildDbUrl(maria)).includes('192.168.120.14'),
+    labelOfUrl('REMOTE', buildDbUrl(maria)).includes('db.example.test'),
     labelOfUrl('REMOTE', buildDbUrl(maria)));
   check('локальный тип не показывает чужой адрес',
     labelOfUrl('LOCAL', buildDbUrl(maria)) === 'База: на этом компьютере');
@@ -86,8 +84,8 @@ console.log('Разбор чужой и битой строки');
 {
   check('битая строка не роняет разбор', parseDbUrl('не адрес').engine === 'POSTGRES');
   check('пустая строка — это локальная база', parseDbUrl('').engine === 'LOCAL');
-  const old = parseDbUrl('postgresql://user@10.0.0.5/flux');
-  check('строка без пароля разбирается', old.user === 'user' && old.password === '' && old.host === '10.0.0.5');
+  const old = parseDbUrl('postgresql://fixture_user@db.example.test/flux_test');
+  check('строка без пароля разбирается', old.user === 'fixture_user' && old.password === '' && old.host === 'db.example.test');
   check('порт по умолчанию подставляется при разборе', old.port === '5432', old.port);
 }
 

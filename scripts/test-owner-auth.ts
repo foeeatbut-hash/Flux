@@ -52,6 +52,9 @@ async function runHttp() {
   ]);
   const settings = new Map<string, any>();
   setPrisma({
+    // Isolated schema metadata used by the profile-column preflight.
+    $queryRawUnsafe: async (sql: string) => sql.startsWith('PRAGMA table_info') ? ['id', 'position', 'department', 'email'].map(name => ({ name })) : [],
+    $executeRawUnsafe: async () => 0,
     user: {
       findUnique: async ({ where }: any) => [...users.values()].find(u => where.id ? u.id === where.id : u.symbol === where.symbol) || null,
       findFirst: async ({ where }: any) => [...users.values()].find(u => u.symbol === where.symbol && u.role === where.role) || null,
@@ -73,7 +76,7 @@ async function runHttp() {
   registerUserRoutes(app, { hashPassword: p => `hash-${p}`, invalidateRolePerms: () => {}, invalidateAuthUser: () => {} });
   registerAuthRoutes(app, { hashPassword: p => `hash-${p}`, verifyPassword: () => true, issueAuthToken: id => id, rolePermissionsOf: async () => ({}), trustedNowFull: async () => ({ now: Date.now(), tampered: false, source: 'test' }), trustedNowSync: Date.now, isClockTampered: () => false });
   process.env.FLUX_TEST_OWNER = '1';
-  registerOwnerRoutes(app, { issueAuthToken: id => `token-${id}` });
+  registerOwnerRoutes(app, { issueOwnerAuthToken: id => `token-${id}` });
   const server = await new Promise<import('http').Server>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
   const call = (url: string, method: string, user: string, body?: unknown) => fetch(base + url, { method, headers: { 'Content-Type': 'application/json', 'X-Test-User': user }, body: body === undefined ? undefined : JSON.stringify(body) });
