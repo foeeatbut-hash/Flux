@@ -89,6 +89,12 @@ export class WindowsFilesService {
   async roots() {
     return Promise.all(this.state.data.roots.map(async root => ({ id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: await fs.stat(root.path).then(stat => stat.isDirectory()).catch(() => false) })));
   }
+  /** Только проверенный capability может запрашивать системный значок. */
+  async iconPath(ref: WindowsFileRef): Promise<string | null> {
+    const resolved = this.resolveRef(ref);
+    if (resolved.draftId) return null;
+    return this.filename(resolved);
+  }
   async addRoot(filename: string, name?: string) { const root = await this.state.addRoot(filename, 'custom', name); return { id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: true }; }
   /** Только main передаёт путь из Shell; renderer не умеет выдавать себе новый корень. */
   async refForShellPath(filename: string): Promise<WindowsFileRef | null> {

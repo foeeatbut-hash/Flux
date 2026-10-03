@@ -129,7 +129,7 @@ export default function BlockCard(props: any) {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 @container">
-        <CatalogSourcePanel componentId={comp.id} onChanged={() => onReload?.()} />
+        <div className="mb-6"><CatalogSourcePanel componentId={comp.id} onChanged={() => onReload?.()} /></div>
         {/* Состав — первым: у секции это и есть её содержание, у вентилятора —
             его двигатель. Тег каждой позиции виден сразу, строка открывает её */}
         {(props.composition?.children?.length || 0) > 0 && (
@@ -160,9 +160,8 @@ export default function BlockCard(props: any) {
         {specs.groups.length === 0 && (
           <div className="text-xs text-slate-400 text-center py-6">У этого элемента нет параметров.</div>
         )}
-        {/* Разделы — столбцами, когда карточке хватает ширины: ключ и значение
-            стоят рядом, а не через всю панель от края до края */}
-        <div className="@[760px]:columns-2 gap-4">
+        {/* Группы читаются сверху вниз; сетка не разрывает одну группу между колонками. */}
+        <div className="grid grid-cols-1 @[1200px]:grid-cols-2 gap-x-6">
         {/* Порядок разделов и параметров — по виду категории для этого типа */}
         {(props.arrangeGroups ? props.arrangeGroups(specs.groups) : specs.groups).map((g: any) => {
           if (!showAllParams && props.composition?.hiddenGroups?.includes(g.title)) return null;
@@ -171,16 +170,17 @@ export default function BlockCard(props: any) {
           const visibleParams = (g.params || []).filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
           if (visibleParams.length === 0 && !showAllParams) return null;
           return (
-            <div key={g.title} className="break-inside-avoid mb-4">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-slate-400">{g.title}</span>
+            <section key={g.title} className="mb-4 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-1.5 border-b border-slate-200 dark:border-slate-800 pb-1">
+                <h4 className="min-w-0 truncate text-xs font-medium text-slate-600 dark:text-slate-300" title={g.title}>{g.title}</h4>
+                <span className="text-2xs tabular-nums text-slate-500 dark:text-slate-400">{visibleParams.length}</span>
                 {showAllParams && (
                   <button type="button" onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
                     {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   </button>
                 )}
               </div>
-              <div className="rounded-lg border border-slate-150 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-850">
+              <div className="divide-y divide-slate-200 dark:divide-slate-800">
                 {(showAllParams ? g.params : visibleParams).map(p => {
                   const token = `p:${g.title}||${p.key}`;
                   const pHidden = isHidden(comp.equipType, token);
@@ -190,7 +190,7 @@ export default function BlockCard(props: any) {
                   const isHl = !!hlNorm && String(p.key || '').trim().toLowerCase() === hlNorm;
                   return (
                     <div key={p.key} {...(isHl ? { 'data-hl-param': '1' } : {})}
-                      className={`grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-2 px-2.5 py-1.5 text-xs transition-colors duration-500 ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''} ${isHl ? 'bg-emerald-100 dark:bg-emerald-900/40 ring-2 ring-inset ring-emerald-400 animate-pulse rounded-md' : ''}`}>
+                      className={`grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-2 px-1.5 py-2 text-xs transition-colors duration-500 ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''} ${isHl ? 'bg-emerald-100 dark:bg-emerald-900/40 ring-2 ring-inset ring-emerald-400 animate-pulse rounded-md' : ''}`}>
                       {/* Ключ и значение переносятся, а не обрываются многоточием:
                           «Температура воздуха в помещении» читается целиком */}
                       <span className="u-sel text-slate-500 dark:text-slate-400 min-w-0 break-words">{p.key}</span>
@@ -231,7 +231,7 @@ export default function BlockCard(props: any) {
                   );
                 })}
               </div>
-            </div>
+            </section>
           );
         })}
         </div>

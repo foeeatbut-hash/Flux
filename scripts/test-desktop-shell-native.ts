@@ -15,7 +15,7 @@ async function main() {
     platform: 'node', format: 'cjs', plugins: [{ name: 'electron-fixture', setup(builder) {
       builder.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'mock' }));
       builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents:
-        'export const {app,screen,ipcMain,BrowserWindow}=globalThis.__mock;', loader: 'js' }));
+        'export const {app,screen,ipcMain,BrowserWindow,shell}=globalThis.__mock;', loader: 'js' }));
     } }] });
   const module = { exports: {} as any };
   vm.runInNewContext(bundled.outputFiles[0].text, { module, exports: module.exports, require, Buffer, process,
@@ -42,6 +42,7 @@ async function main() {
   check('Виртуальный значок сохраняется без выдуманного файла', first.items[0].kind === 'virtual' && !('path' in first.items[0]));
   check('Отрицательное начало монитора преобразуется Electron, без деления абсолютного x', first.items[0].position.x === -1280 + 170 / 1.5 && first.items[0].position.y === 0);
   check('Размер native-изображения преобразуется один раз', first.items[0].icon.width === 32 && first.items[0].monitorId === 2);
+  check('Подписи значков используют размер клетки собственного DPI монитора', first.items[0].cell.width === raw.spacing.x / 1.5 && first.items[0].cell.height === raw.spacing.y / 1.5);
   check('Renderer получает непрозрачный ID вместо PIDL', first.items[0].id !== key && !JSON.stringify(first).includes(key));
   check('Путь и команда не могут стать действием открытия', !(await service.open('C:\\Windows\\System32\\cmd.exe')).ok && calls === 1);
   check('Известный значок открывается только по сохранённому native ID', (await service.open(first.items[0].id)).ok && opened[0] === key);

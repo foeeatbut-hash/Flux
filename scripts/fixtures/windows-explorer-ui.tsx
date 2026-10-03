@@ -58,9 +58,18 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
 (window as any).__delayListPath = (path: string) => { delayedListPath = path; };
 (window as any).__nativeAppOpenCalls = [];
 (window as any).electron = {
-  windowsFiles: { invoke, onChanged: () => () => undefined },
+  windowsFiles: { invoke, getIcon: async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#2563eb'; context.fillRect(6, 3, 20, 26);
+    context.fillStyle = '#fff'; context.fillRect(10, 10, 12, 2); context.fillRect(10, 16, 12, 2);
+    return canvas.toDataURL('image/png');
+  }, onChanged: () => () => undefined },
   desktopShell: {
-    snapshot: async () => ({ status: 'ready', revision: 'fixture', items: [{ id: 'shell-folder', name: 'Системная папка', kind: 'directory', position: { x: -1200, y: -100 }, icon: null, monitorId: 2 }], view: { physicalBounds: { x: -1920, y: -300, width: 4800, height: 1920 }, iconSize: 32, spacing: { x: 96, y: 104 }, iconsVisible: true } }),
+    snapshot: async () => ({ status: 'ready', revision: 'fixture', items: [
+      { id: 'shell-folder', name: 'Системная папка', kind: 'directory', position: { x: -1200, y: -100 }, icon: null, monitorId: 2 },
+      { id: 'shell-file', name: 'План.xlsx', kind: 'file', position: { x: -1104, y: -100 }, icon: null, monitorId: 2, fileRef: { rootId: 'desktop-id', relativePath: 'План.xlsx' } },
+    ], view: { physicalBounds: { x: -1920, y: -300, width: 4800, height: 1920 }, iconSize: 32, spacing: { x: 96, y: 104 }, iconsVisible: true } }),
     open: async () => ({ ok: true }), onChanged: () => () => undefined,
   },
   nativeApps: { open: async (href: string) => { (window as any).__nativeAppOpenCalls.push(href); return 'native-window-1'; }, list: async () => [], action: async () => true, onChanged: () => () => undefined },

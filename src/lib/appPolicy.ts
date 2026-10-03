@@ -53,6 +53,7 @@ function subjectOf(user: PermUser | null | undefined): PolicySubject | null {
   if (!user) return null;
   const v = user.validUntil;
   return {
+    owner: user.role === 'OWNER',
     active: user.isActive !== false,
     validUntil: typeof v === 'string' ? v : v instanceof Date ? v.toISOString() : null,
     personal: parsePermissions(user.permissions),

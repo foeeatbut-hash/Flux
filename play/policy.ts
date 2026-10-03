@@ -53,6 +53,8 @@ export const PLATFORM_OFF: PlatformState = { enabled: false, supported: false };
 
 /** Всё, что нужно знать о человеке, чтобы ответить. */
 export interface PolicySubject {
+  /** Роль из проверенного профиля; на сервере она берётся из сессии. */
+  owner?: boolean;
   /** Профиль включён администратором */
   active: boolean;
   /** Срок действия профиля; пусто — бессрочный */
@@ -148,6 +150,11 @@ export function decide(
   if (!p.enabled && !opts.ignoreSwitch) {
     return { allowed: false, source: 'platform', note: p.note || 'Платформа выключена в настройках компании' };
   }
+
+  // Владелец управляет всей программой, включая встроенные приложения. Общий
+  // выключатель и неподдержанная база всё ещё сильнее роли: это состояние
+  // самой платформы, а не выданное человеку право.
+  if (subject.owner) return { allowed: true, source: 'default', note: 'Полный доступ владельца' };
 
   const own = entryMode(subject.personal[key]);
   if (own === 'DENY') return { allowed: false, source: 'personal', note: 'Запрещено этому сотруднику' };

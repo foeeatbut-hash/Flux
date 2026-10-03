@@ -37,13 +37,22 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     const win = getMainWindow();
     if (!win || win.isDestroyed() || !enabled || adjusting) return;
     const r = unionDisplays(displays());
-    const current = win.getBounds();
-    if (!win.isFullScreen() && !win.isMaximized() && current.x === r.x && current.y === r.y && current.width === r.w && current.height === r.h) return;
     adjusting = true;
     try {
       if (win.isFullScreen()) win.setFullScreen(false);
       if (win.isMaximized()) win.unmaximize();
-      win.setBounds({ x: r.x, y: r.y, width: r.w, height: r.h });
+      const current = win.getBounds();
+      if (current.x !== r.x || current.y !== r.y || current.width !== r.w || current.height !== r.h)
+        win.setBounds({ x: r.x, y: r.y, width: r.w, height: r.h });
+      // CSS-отступ оставляет поверх Пуска непрозрачное окно. Нативная форма
+      // исключает панели Windows и промежутки между мониторами из самого HWND:
+      // эти области видны и получают мышь, независимо от порядка окон.
+      if (process.platform === 'win32' || process.platform === 'linux') {
+        win.setShape(displays().map(d => {
+          const area = showWindowsTaskbar ? d.workArea : d.bounds;
+          return { x: area.x - r.x, y: area.y - r.y, width: area.w, height: area.h };
+        }));
+      }
     } finally { adjusting = false; }
   };
   const change = (value: boolean) => {
@@ -62,6 +71,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
       win.setResizable(false);
     } else {
       enabled = false;
+      if (process.platform === 'win32' || process.platform === 'linux') win.setShape([]);
       win.setMovable(previous?.movable ?? true);
       win.setResizable(previous?.resizable ?? true);
       if (previous) win.setMinimumSize(previous.minimum[0], previous.minimum[1]);
@@ -110,6 +120,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     showWindowsTaskbar = value.showWindowsTaskbar;
     try { fs.writeFileSync(preference, JSON.stringify({ allMonitors: requested, showWindowsTaskbar }), { mode: 0o600 }); }
     catch { showWindowsTaskbar = previousValue; throw new Error('Не удалось сохранить настройки экрана.'); }
+    fit();
     broadcast();
     return snapshot();
   });

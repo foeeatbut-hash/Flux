@@ -20,6 +20,7 @@ import { visibleSections } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
+import { hasAdminRole } from '../lib/permissions';
 import { useNotificationStore } from '../store/notificationStore';
 import { useFeedbackStore } from '../store/feedbackStore';
 import { useShellNotifyStore } from '../store/shellNotifyStore';
@@ -203,7 +204,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       open,
       activePath: highlighted,
       counts: { mail, chat: chatUnread, feedback: feedbackUnread },
-      isAdmin: user?.role === 'ADMIN',
+      isAdmin: hasAdminRole(user as any),
       width,
     }),
     [sources, open, highlighted, mail, chatUnread, feedbackUnread, user?.role, width],

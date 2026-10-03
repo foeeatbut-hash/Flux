@@ -12,6 +12,7 @@ import { rowsOfProject } from '../../lib/equipmentRows';
 import { normalizeSpecs } from '../../lib/specs';
 import { buildEquipmentExchange, equipmentColumns } from '../../lib/equipmentExchange';
 import { classifyAll } from '../../../equipment/classes';
+import { dataService } from '../../services/dataService';
 
 export interface ProjectField {
   key: string;
@@ -41,7 +42,7 @@ export interface FluxPanelProps {
 }
 
 type SourceTab = 'tags' | 'equipment' | 'procurement' | 'docs' | 'catalog';
-type PanelTab = SourceTab | 'data' | 'translation';
+type PanelTab = SourceTab | 'data' | 'translation' | 'export';
 type DataRow = { id: string; cells: (string | number)[]; haystack: string };
 type Column = { key: string; title: string };
 type ColumnChoiceState = Partial<Record<SourceTab, { selected: string[]; known: string[] }>>;
@@ -215,15 +216,15 @@ function rowsOfCatalog(data: any): { columns: Column[]; rows: DataRow[] } {
 
 function useSource(tab: SourceTab, projectId: string) {
   const [result, setResult] = useState<{ columns: Column[]; rows: DataRow[] } | null>(null);
-  const [loadedSource, setLoadedSource] = useState<SourceTab | null>(null);
+  const [loaded, setLoaded] = useState<{ source: SourceTab; projectId: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let live = true;
-    setResult(null); setLoadedSource(null); setError(''); setLoading(false);
+    setResult(null); setLoaded(null); setError(''); setLoading(false);
     if (!projectId && tab !== 'catalog') {
-      setError('Выберите проект, чтобы загрузить его данные.'); setLoadedSource(tab);
+      setError('Выберите проект, чтобы загрузить его данные.'); setLoaded({ source: tab, projectId });
       return () => { live = false; };
     }
     setLoading(true);
@@ -254,9 +255,9 @@ function useSource(tab: SourceTab, projectId: string) {
           const data = await fetch('/api/catalog').then(failResponse);
           next = rowsOfCatalog(data);
         }
-        if (live) { setResult(next); setLoadedSource(tab); }
+        if (live) { setResult(next); setLoaded({ source: tab, projectId }); }
       } catch (e: any) {
-        if (live) { setError(String(e?.message || e)); setLoadedSource(tab); }
+        if (live) { setError(String(e?.message || e)); setLoaded({ source: tab, projectId }); }
       } finally {
         if (live) setLoading(false);
       }
@@ -265,12 +266,16 @@ function useSource(tab: SourceTab, projectId: string) {
     return () => { live = false; };
   }, [tab, projectId]);
 
-  return { result, loadedSource, error, loading };
+  return { result, loadedSource: loaded?.source, loadedProjectId: loaded?.projectId, error, loading };
 }
 
 export default function FluxPanel(props: FluxPanelProps) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<PanelTab>('tags');
+  const [exportSource, setExportSource] = useState<SourceTab>('tags');
+  const [selectedProjectId, setSelectedProjectId] = useState(props.projectId || '');
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [projectsError, setProjectsError] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [columnsBySource, setColumnsBySource] = useState<ColumnChoiceState>({});
@@ -278,15 +283,23 @@ export default function FluxPanel(props: FluxPanelProps) {
   const [insertMessage, setInsertMessage] = useState('');
   const [panelError, setPanelError] = useState('');
   const [resolvedFileName, setResolvedFileName] = useState(props.fileName || '');
-  const sourceTab: SourceTab = tab === 'data' || tab === 'translation' ? 'tags' : tab;
-  const { result, loadedSource, error, loading } = useSource(sourceTab, props.projectId);
-  const currentResult = loadedSource === sourceTab ? result : null;
+  const sourceTab: SourceTab = tab === 'data' || tab === 'translation' ? 'tags' : tab === 'export' ? exportSource : tab;
+  const { result, loadedSource, loadedProjectId, error, loading } = useSource(sourceTab, selectedProjectId);
+  const currentResult = loadedSource === sourceTab && loadedProjectId === selectedProjectId ? result : null;
   const filtered = useMemo(() => (currentResult?.rows || []).filter((row) => row.haystack.includes(query.trim().toLowerCase())), [currentResult, query]);
   const chosenColumns = columnsBySource[sourceTab]?.selected || currentResult?.columns.map((column) => column.key) || [];
   const activeColumns = useMemo(() => currentResult?.columns.filter((column) => chosenColumns.includes(column.key)) || [], [currentResult, chosenColumns]);
   const activeCellIndexes = useMemo(() => activeColumns.map((column) => currentResult?.columns.findIndex((item) => item.key === column.key) ?? -1), [activeColumns, currentResult]);
 
-  useEffect(() => { setSelected([]); setQuery(''); setInsertMessage(''); setPanelError(''); }, [tab]);
+  useEffect(() => { setSelected([]); setQuery(''); setInsertMessage(''); setPanelError(''); }, [tab, selectedProjectId, exportSource]);
+  useEffect(() => { setSelectedProjectId(props.projectId || ''); }, [props.projectId]);
+  useEffect(() => {
+    let live = true;
+    dataService.getProjects()
+      .then((list: any[]) => { if (live) setProjects((list || []).map((project) => ({ id: String(project.id), name: String(project.name || 'Без названия') }))); })
+      .catch((error: any) => { if (live) setProjectsError(String(error?.message || 'Не удалось загрузить список проектов.')); });
+    return () => { live = false; };
+  }, []);
   useEffect(() => {
     if (!currentResult) return;
     setColumnsBySource((previous) => {
@@ -405,14 +418,37 @@ export default function FluxPanel(props: FluxPanelProps) {
         <h2 className="fx-head-title">Flux</h2>
         <div className="fx-head-acts"><IconBtn label="Закрыть панель Flux" onClick={props.onClose}><X /></IconBtn></div>
       </header>
-      <nav aria-label="Разделы Flux" className="fx-tabs shrink-0 overflow-x-auto">
-        {TABS.map((item) => <button key={item.key} type="button" className="fx-tab whitespace-nowrap" aria-selected={tab === item.key} onClick={() => setTab(item.key)}>{item.title}</button>)}
-        <button type="button" className="fx-tab whitespace-nowrap" aria-selected={tab === 'data'} onClick={() => setTab('data')}>Данные проекта</button>
-        <button type="button" className="fx-tab whitespace-nowrap" aria-selected={tab === 'translation'} onClick={() => setTab('translation')}>Перевод</button>
+      <nav aria-label="Разделы Flux" className="shrink-0 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <label className="block text-xs text-slate-600 dark:text-slate-300" htmlFor="flux-section-picker">Раздел</label>
+        <select id="flux-section-picker" value={tab} onChange={(event) => setTab(event.target.value as PanelTab)} className="fx-input mt-1 w-full">
+          <optgroup label="Данные проекта">
+            <option value="tags">Теги</option>
+            <option value="equipment">Оборудование</option>
+            <option value="procurement">Менеджмент · закупки</option>
+            <option value="docs">Менеджмент · документация</option>
+            <option value="catalog">Каталог оборудования</option>
+          </optgroup>
+          <optgroup label="Работа с документом">
+            <option value="data">Поля проекта</option>
+            <option value="translation">Перевод</option>
+          </optgroup>
+          <optgroup label="Выгрузка">
+            <option value="export">Экспорт данных</option>
+          </optgroup>
+        </select>
       </nav>
       {panelError && <p role="alert" className="mx-3 mt-2 text-xs text-rose-600 dark:text-rose-400">{panelError}</p>}
+      <div className="shrink-0 space-y-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <label className="block text-xs text-slate-600 dark:text-slate-300" htmlFor="flux-project-picker">Проект</label>
+        <select id="flux-project-picker" value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)} className="fx-input w-full" aria-label="Выбрать проект для данных Flux">
+          <option value="">{projectsError ? 'Список проектов недоступен' : 'Выберите проект'}</option>
+          {selectedProjectId && !projects.some((project) => project.id === selectedProjectId) && <option value={selectedProjectId}>Текущий проект</option>}
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </select>
+        {projectsError && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{projectsError}</p>}
+      </div>
       {tab === 'data' && props.localFile ? <div className="min-h-0 flex-1 overflow-auto p-4"><Empty title="Поля локального файла" text="Локальный файл не связан с облачной карточкой документа. Данные проекта можно выгрузить или вставить в таблицу; обновление полей в исходном файле недоступно." /></div> : tab === 'data' && <div className="min-h-0 flex-1 overflow-auto">
-        <ProjectDataPanel fileId={props.fileId} projectId={props.projectId} kind={props.editorKind === 'sheets' ? 'sheet' : 'doc'} onInsert={props.onInsertField || (() => {})} onUpdate={async () => {
+        <ProjectDataPanel fileId={props.fileId} projectId={selectedProjectId} kind={props.editorKind === 'sheets' ? 'sheet' : 'doc'} onInsert={props.onInsertField || (() => {})} onUpdate={async () => {
           setPanelError('');
           try {
             if (props.onUpdateFields) { await props.onUpdateFields(); return; }
@@ -427,6 +463,11 @@ export default function FluxPanel(props: FluxPanelProps) {
       </div>}
       {tab === 'translation' && (props.localFile ? <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} /> : ['docs', 'sheets'].includes(props.editorKind) ? <FileEnglishVersion fileId={props.fileId} name={resolvedFileName || 'Документ'} onClose={() => setTab('tags')} beforeIssue={props.beforeTranslate} /> : <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} />)}
       {tab !== 'data' && tab !== 'translation' && <section className="flex min-h-0 flex-1 flex-col">
+        {tab === 'export' && <label className="shrink-0 px-3 pt-2 text-xs text-slate-600 dark:text-slate-300">Источник для экспорта
+          <select value={exportSource} onChange={(event) => setExportSource(event.target.value as SourceTab)} className="fx-input mt-1 w-full">
+            {TABS.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}
+          </select>
+        </label>}
         {sourcePanel()}
       </section>}
     </aside>

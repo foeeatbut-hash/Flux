@@ -41,6 +41,10 @@ const ok = (name: string, cond: boolean, detail?: unknown) =>
   ok('office host сохраняет разрешённую фазу и сводит лишние значения', host?.app === 'pdf' && host?.action === 'open' && host?.phase === 'end');
   ok('office host отвергает неизвестное приложение или действие', cleanFields('office.host', { app: 'unknown', action: 'launch' })?.app === undefined);
   ok('office host принимает только известный IPC канал', cleanFields('office.host', { operation: 'secret-channel' })?.operation === undefined);
+  ok('office host показывает имя неизвестного канала с безопасным форматом',
+    cleanFields('office.host', { unknownChannel: 'sheets:mcp-ready' })?.unknownChannel === 'sheets:mcp-ready');
+  ok('office host не записывает произвольный ввод как имя канала',
+    cleanFields('office.host', { unknownChannel: 'sheets:C:\\Users\\Jane\\book.xlsx' })?.unknownChannel === undefined);
 }
 
 const BAIT = 'NEVER_LOG_THIS';
@@ -187,7 +191,7 @@ console.log('\n4. Словарь событий: записать можно т�
 
 console.log('\n5. Словарь описан целиком');
 {
-  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome', 'app', 'action'];
+  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome', 'app', 'action', 'channel'];
   const strange: string[] = [];
   for (const name of EVENT_NAMES) {
     const spec = specOf(name);

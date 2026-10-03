@@ -5,6 +5,8 @@ import {
   type ShellDesktopActionResult, type ShellDesktopSnapshot,
 } from '../filesystem/shellDesktop';
 import { runNativeDesktopScript } from './nativeDesktopRunner';
+import { diagnosticsWriter } from './diagnostics';
+import { safeError } from '../diagnostics/event';
 import type { WindowsFileRef } from '../filesystem/contracts';
 import type { WindowsFilesService } from './filesystem/service';
 
@@ -25,6 +27,7 @@ interface NativeDesktopDependencies {
   displayAt: (point: { x: number; y: number }) => { id: number; scaleFactor: number };
   fileRefForPath?: (filename: string) => Promise<WindowsFileRef | null>;
   now?: () => number;
+  onFailure?: (error: unknown) => void;
 }
 const unavailable = (status: 'unavailable' | 'unsupported', message: string): ShellDesktopSnapshot => ({
   status, message, revision: '', items: [], view: null,
@@ -89,6 +92,7 @@ export class DesktopShellService {
         const fileRef = item.fileSystemPath && (item.kind === 'file' || item.kind === 'directory')
           ? await this.deps.fileRefForPath?.(item.fileSystemPath).catch(() => null) : null;
         return { id, name: item.name, kind: item.kind, position, monitorId: display.id,
+          cell: { width: raw.spacing.x / display.scaleFactor, height: raw.spacing.y / display.scaleFactor },
           ...(fileRef ? { fileRef } : {}),
           icon: item.icon ? { dataUrl: `data:image/png;base64,${item.icon.base64}`,
             width: item.icon.width / display.scaleFactor, height: item.icon.height / display.scaleFactor } : null };
@@ -97,7 +101,8 @@ export class DesktopShellService {
       return { status: 'ready', revision: randomUUID(), items,
         ...(raw.skipped > 0 ? { message: `Windows не вернула данные для ${raw.skipped} значков. Обновите рабочий стол.` } : {}),
         view: { physicalBounds: raw.physicalBounds, iconSize: raw.iconSize, spacing: raw.spacing, iconsVisible: raw.iconsVisible } };
-    } catch {
+    } catch (error) {
+      try { this.deps.onFailure?.(error); } catch { /* Отказ диагностики не влияет на список файлов. */ }
       this.byId.clear(); this.byNativeId.clear();
       return unavailable('unavailable', 'Windows не предоставила вид Проводника. Проверьте, что Проводник запущен и политика Windows разрешает локальный помощник; файлы сохранены.');
     }
@@ -132,7 +137,8 @@ export function setupDesktopShell(options: {
 }) {
   const service = new DesktopShellService({ platform: process.platform, run: runNativeDesktop,
     screenToDipPoint: point => screen.screenToDipPoint(point), displayAt: point => screen.getDisplayNearestPoint(point),
-    fileRefForPath: filename => options.files?.refForShellPath(filename) || Promise.resolve(null) });
+    fileRefForPath: filename => options.files?.refForShellPath(filename) || Promise.resolve(null),
+    onFailure: error => diagnosticsWriter()?.record('desktop.snapshot', { outcome: 'error', ...safeError(error) }) });
   const subscribers = new Set<number>();
   const guard = async (event: IpcMainInvokeEvent) => {
     if (!options.isTrusted(event) || !await options.mayRead(event)) throw new Error('Войдите в Flux для работы с рабочим столом этого компьютера.');

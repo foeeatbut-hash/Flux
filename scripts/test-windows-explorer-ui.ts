@@ -15,6 +15,8 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.getByRole('heading', { name: 'Файлы Windows' }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
     ok('Нативный sidebar загружает подключённые папки и список', await page.getByRole('button', { name: 'Документы' }).isVisible() && await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    await page.getByRole('row', { name: /Проекты/ }).locator('img[src^="data:image/png;"]').waitFor();
+    ok('Папка использует PNG из нативного моста', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
 
     await page.getByRole('row', { name: /Проекты/ }).dblclick();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
@@ -25,6 +27,13 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.getByRole('button', { name: 'Назад' }).click();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
     ok('Назад после повторного перехода возвращает к последней посещённой папке', await page.getByRole('row', { name: /Отчёт\.xlsx/ }).isVisible());
+    for (let step = 0; step < 5; step++) {
+      await page.getByLabel('Путь').getByRole('button', { name: 'Рабочий стол', exact: true }).click();
+      await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
+      await page.getByRole('button', { name: 'Назад' }).click();
+      await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    }
+    ok('Быстрые повторные переходы не теряют историю', await page.getByRole('button', { name: 'Вперёд' }).isEnabled());
     await page.getByRole('textbox', { name: 'Поиск по имени' }).fill('Отчёт');
     ok('Поиск по имени оставляет совпадение', await page.getByRole('row', { name: /Отчёт\.xlsx/ }).count() === 1 && await page.getByRole('row', { name: /Архив/ }).count() === 0);
 

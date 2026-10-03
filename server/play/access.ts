@@ -136,6 +136,8 @@ export async function subjectOf(user: any): Promise<PolicySubject | null> {
   if (!user) return null;
   const v = user.validUntil;
   return {
+    // `user` — только что проверенный authUser из сессии, не данные запроса.
+    owner: user.role === 'OWNER',
     active: user.isActive !== false,
     validUntil: v ? (typeof v === 'string' ? v : new Date(v).toISOString()) : null,
     personal: toMap(user.permissions || null),

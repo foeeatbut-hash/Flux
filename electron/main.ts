@@ -194,6 +194,9 @@ app.whenReady().then(async () => {
     return result;
   };
 
+  // Renderer запрашивает адрес сразу при загрузке. Регистрируем обработчик
+  // до ожидания файловой службы и PowerShell, иначе первый вход получает отказ IPC.
+  ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
   setupOwnerLogin(() => readAppConfig().remoteServerUrl);
   setupAuthStorage(() => readAppConfig().remoteServerUrl);
   const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
@@ -236,7 +239,6 @@ app.whenReady().then(async () => {
       return { success: false, error: err?.message || String(err) };
     }
   });
-  ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
 
   /**
    * Подключение к базе с экрана входа, когда встроенный сервер не запущен.

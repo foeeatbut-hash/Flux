@@ -16,7 +16,9 @@ import {
   type PlatformState, type PolicyMap, type PolicySubject,
 } from '../play/policy';
 import { APP_PLAY, PLAY_GAMES, gameEntitlement, gameOfEntitlement, isPlayKey } from '../play/features';
-import { sectionAccess } from '../src/lib/appPolicy';
+import { sectionAccess, visibleSections } from '../src/lib/appPolicy';
+import { SECTIONS } from '../src/workspace/sections';
+import { hasAdminRole } from '../src/lib/permissions';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -84,6 +86,27 @@ console.log('\n3. Должность доступа не даёт');
   ok('личный запрет действует и на администратора', !allows(adminDenied, ON, APP_PLAY));
 }
 
+console.log('\n3а. Владелец получает полные права встроенных программ');
+{
+  const owner = who({}, {}, { owner: true });
+  ok('OWNER получает Flux Play без личной или ролевой выдачи', allows(owner, ON, APP_PLAY));
+  for (const game of PLAY_GAMES) {
+    ok(`OWNER получает игру «${game.title}»`, allows(owner, ON, gameEntitlement(game.id)));
+  }
+  ok('общий выключатель всё ещё выключает Flux Play владельцу',
+    !allows(owner, { enabled: false, supported: true }, APP_PLAY));
+  ok('неподдержанная база блокирует Flux Play владельцу',
+    !allows(owner, { enabled: true, supported: false }, APP_PLAY));
+  ok('отключённый профиль владельца не получает доступа',
+    !allows({ ...owner, active: false }, ON, APP_PLAY));
+  ok('истёкший профиль владельца не получает доступа',
+    !allows({ ...owner, validUntil: ago }, ON, APP_PLAY));
+  ok('ADMIN с выданным доступом сохраняет явную выдачу',
+    allows(who({ [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY));
+  ok('личный запрет сотрудника сохраняет приоритет',
+    !allows(who({ [APP_PLAY]: { mode: 'DENY' } }, { [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY));
+}
+
 console.log('\n4. Выключенную платформу есть кому включить');
 {
   const manager = who({ 'play.admin': { mode: 'ALLOW' } });
@@ -130,14 +153,22 @@ ok('голое false означает «не сказано»', entryMode(false 
 ok('мусор не роняет разбор', Object.keys(toMap('не json')).length === 0);
 ok('null даёт пустую карту', Object.keys(toMap(null)).length === 0);
 
-console.log('\n9. Роль владельца открывает административный раздел без обхода Flux Play');
+console.log('\n9. Роль владельца открывает административные разделы и Flux Play');
 const administrativeSection = { path: '/users', adminOnly: true };
 const unlicensedPlaySection = { path: '/play', entitlement: APP_PLAY, accessMode: 'normal' as const };
 const appCtx = (role: string) => ({ user: { role, isActive: true }, platform: ON });
 ok('OWNER проходит adminOnly', sectionAccess(administrativeSection, appCtx('OWNER')) === 'open');
 ok('ADMIN проходит adminOnly', sectionAccess(administrativeSection, appCtx('ADMIN')) === 'open');
 ok('USER остаётся закрыт на adminOnly', sectionAccess(administrativeSection, appCtx('USER')) === 'hide');
-for (const role of ['OWNER', 'ADMIN', 'USER']) {
+ok('OWNER и ADMIN открывают UI-функции уровня управления', hasAdminRole({ role: 'OWNER' }) && hasAdminRole({ role: 'ADMIN' }));
+ok('обычный сотрудник не получает UI-функции уровня управления', !hasAdminRole({ role: 'ENGINEER' }));
+ok('OWNER открывает Flux Play и игру', sectionAccess(unlicensedPlaySection, appCtx('OWNER')) === 'open');
+const ownerCtx = { user: { role: 'OWNER', isActive: true }, platform: ON };
+const ownerVisible = visibleSections(SECTIONS, ownerCtx);
+ok('OWNER видит все разделы при включённой и поддерживаемой Flux Play',
+  ownerVisible.length === SECTIONS.length && ownerVisible.every(section => sectionAccess(section, ownerCtx) === 'open'),
+  { visible: ownerVisible.map(section => section.path), total: SECTIONS.length });
+for (const role of ['ADMIN', 'USER']) {
   ok(`${role} без app.play остаётся без Flux Play`, sectionAccess(unlicensedPlaySection, appCtx(role)) === 'explain');
 }
 
