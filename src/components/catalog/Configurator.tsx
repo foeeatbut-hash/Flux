@@ -76,7 +76,7 @@ export default function Configurator({ family, values, onChange, sources = {}, s
   };
 
   const steps = WIZARD_STEPS.map((s) => ({ ...s, params: family.params.filter((p) => stepOf(p) === s.id && !p.size) }))
-    .filter((s) => s.id === 'size' || s.params.length);
+    .filter((s) => s.params.length || (s.id === 'size' && family.params.some(p => p.size)));
 
   return (
     <div className="flex flex-col gap-2 min-w-0">
@@ -86,7 +86,7 @@ export default function Configurator({ family, values, onChange, sources = {}, s
           <span className="flex-1" />
           {violations.some((v) => v.level === 'error')
             ? <Chip tone="rose"><AlertTriangle className="w-3 h-3" /> {violations.filter((v) => v.level === 'error').length} ошиб.</Chip>
-            : <Chip tone="emerald"><CircleCheck className="w-3 h-3" /> по каталогу</Chip>}
+            : <Chip tone={family.status === 'full' ? 'emerald' : 'amber'}><CircleCheck className="w-3 h-3" /> {family.status === 'full' ? 'по каталогу' : 'требует сверки'}</Chip>}
         </div>
         <div className="mt-1"><DesignationView family={family} values={values} onPick={readOnly ? undefined : pickPosition} active={active} sizeSep={sizeSep} /></div>
         {!readOnly && (
@@ -114,7 +114,7 @@ export default function Configurator({ family, values, onChange, sources = {}, s
       {steps.map((s) => (
         <div key={s.id} ref={(el) => { stepRefs.current[s.id] = el; }}>
           <SectionTitle>{textOf(s.title)}</SectionTitle>
-          {s.id === 'size' && (
+          {s.id === 'size' && family.params.some(p => p.size) && (
             <SizeStep family={family} full={full} shape={shape} limits={limits} readOnly={readOnly} set={set} setShape={setShape} sources={sources} />
           )}
           <div className={`grid gap-2 ${compact ? 'grid-cols-1' : 'grid-cols-1 @[640px]:grid-cols-2'}`}>

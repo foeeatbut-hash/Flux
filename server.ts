@@ -660,7 +660,6 @@ const PERM_ROUTES: PermRule[] = [
     perm: 'vdr.manage', title: 'Реестр ВДР' },
   // Каталог правят немногие, а учится он у всех: запомненный выбор подбора —
   // побочный продукт работы в Конструкторе, а не правка справочника
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/catalog\/(?!learn)/, perm: 'catalog.manage', title: 'Правка Каталога' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },
   { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues/, perm: 'builder.issue', title: 'Выпуск бланков' },
   // Связь с тегами проекта заводит теги — это право на теги, а не на ведомость
@@ -1145,7 +1144,7 @@ registerMailComposeRoutes(app, { userDataPath });
 registerMailLinkRoutes(app, { userDataPath });
 registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
-registerCatalogRoutes(app);
+registerCatalogRoutes(app, userCan);
 registerBuilderRoutes(app);
 registerEquipmentViewRoutes(app);
 registerImportJobRoutes(app);

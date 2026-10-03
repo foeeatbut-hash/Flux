@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import type { Catalog, Component, FamilyStatus } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
 import { catalogService } from '../../services/catalogService';
-import { useCatalogStore } from '../../store/catalogStore';
 import { useToastStore } from '../../store/toastStore';
 import { factsToText, textToFacts } from './ParamsEditor';
 import { Btn, Chip, Empty, Field, Input, Select, confirmAsk } from './ui';
@@ -16,22 +15,36 @@ const STATUSES: Array<{ value: FamilyStatus; label: string }> = [
   { value: 'draft', label: 'черновик' }, { value: 'partial', label: 'сверить' }, { value: 'full', label: 'сверено' },
 ];
 type ListMode = 'class' | 'all';
+type VersionedComponent = Component & { _draftVersion?: string; _publishedHash?: string };
+const componentContent = (item: VersionedComponent) => {
+  const { _draftVersion: _version, _publishedHash: _hash, ...content } = item;
+  return content;
+};
 
 const applicableClasses = (component: Component) => [...new Set([component.classId, ...(component.classIds || [])].filter(Boolean))];
 const knownManufacturer = (catalog: Catalog, value: string) => catalog.manufacturers.find((m) => m.name === value || m.shortName === value);
 
 function blankComponent(classId: string): Component {
-  return { id: `cmp-${Math.random().toString(36).slice(2, 9)}`, classId, classIds: [classId], kind: 'actuator', code: '', title: { ru: '' }, specs: [] };
+  return { id: `cmp-${Math.random().toString(36).slice(2, 9)}`, classId, classIds: [classId], kind: 'other', code: '', title: { ru: '' }, specs: [] };
 }
 
 export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalog; classId: string; canEdit: boolean }) {
-  const load = useCatalogStore((s) => s.load);
   const addToast = useToastStore((s) => s.addToast);
-  const [edit, setEdit] = useState<Component | null>(null);
+  const [edit, setEdit] = useState<VersionedComponent | null>(null);
+  const [savedEdit, setSavedEdit] = useState<VersionedComponent | null>(null);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('');
   const [mode, setMode] = useState<ListMode>('class');
   const [familyPicker, setFamilyPicker] = useState(false);
+  const dirty = !!edit && !!savedEdit && JSON.stringify(componentContent(edit)) !== JSON.stringify(componentContent(savedEdit));
+  const freshComponent = edit ? catalog.components.find((item) => item.id === edit.id) as VersionedComponent | undefined : undefined;
+  const incomingFingerprint = JSON.stringify([edit?.id || null, freshComponent || null]);
+  const lastObservedProps = useRef(incomingFingerprint);
+  const lastAppliedProps = useRef(incomingFingerprint);
+  const ownSaveBlockedProps = useRef<string | null>(null);
+  const selectionId = useRef<string | null>(edit?.id || null);
 
   const list = useMemo(() => catalog.components.filter((c) => {
     if (mode === 'class' && !applicableClasses(c).includes(classId)) return false;
@@ -43,8 +56,40 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
 
   // При смене выбранного типа не оставляем форму модели, которая пропала из списка.
   useEffect(() => {
-    if (mode === 'class' && edit && !applicableClasses(edit).includes(classId)) setEdit(null);
+    if (mode === 'class' && edit && !applicableClasses(edit).includes(classId)) { setEdit(null); setSavedEdit(null); }
   }, [classId, edit, mode]);
+
+  useEffect(() => {
+    if (!edit) return;
+    const fresh = freshComponent;
+    if (selectionId.current !== edit.id) {
+      selectionId.current = edit.id;
+      lastObservedProps.current = incomingFingerprint;
+      lastAppliedProps.current = incomingFingerprint;
+      ownSaveBlockedProps.current = null;
+      return;
+    }
+    if (incomingFingerprint !== lastObservedProps.current) lastObservedProps.current = incomingFingerprint;
+    if (incomingFingerprint === ownSaveBlockedProps.current) return;
+    if (incomingFingerprint === lastAppliedProps.current) return;
+    if (!fresh) {
+      if (dirty) setSaveError('Комплектующее удалено или скрыто после начала правки. Ваши значения сохранены; проверьте актуальный каталог.');
+      else { setEdit(null); setSavedEdit(null); lastAppliedProps.current = incomingFingerprint; }
+      return;
+    }
+    if (dirty) {
+      setSaveError('Данные изменились после начала правки. Ваши значения сохранены; сверите изменения перед повторным сохранением.');
+      return;
+    }
+    const replacement = {
+      ...fresh,
+      manufacturer: fresh.manufacturer || catalog.manufacturers.find((item) => item.id === fresh.manufacturerId)?.name || '',
+    } as VersionedComponent;
+    setEdit(replacement);
+    setSavedEdit(replacement);
+    lastAppliedProps.current = incomingFingerprint;
+    setSaveError('');
+  }, [incomingFingerprint, dirty, edit?.id, catalog.manufacturers]);
 
   const update = (patch: Partial<Component>) => setEdit((current) => current ? { ...current, ...patch } : current);
   const toggleClass = (id: string, checked: boolean) => {
@@ -69,19 +114,32 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
     const match = knownManufacturer(catalog, value);
     update({ manufacturer: value, manufacturerId: match?.id });
   };
-  const selectComponent = (component: Component) => setEdit({
+  const selectComponent = (component: Component) => { setSaveError(''); const selected = {
     ...component,
     manufacturer: component.manufacturer || catalog.manufacturers.find((m) => m.id === component.manufacturerId)?.name || '',
-  });
+  } as VersionedComponent; setEdit(selected); setSavedEdit(selected); };
+  const startNewComponent = () => { const fresh = blankComponent(classId); setSaveError(''); setEdit(fresh); setSavedEdit(fresh); };
   const save = async () => {
-    if (!edit) return;
+    if (!edit || saving) return;
+    setSaving(true);
     try {
-      const normalized = { ...edit, classIds: [...new Set([edit.classId, ...(edit.classIds || [])])] };
-      await catalogService.save('component', normalized);
-      await load(true);
-      setEdit(null);
+      const normalized = { ...edit, classIds: [...new Set([edit.classId, ...(edit.classIds || [])])] } as VersionedComponent;
+      const result = await catalogService.save('component', normalized);
+      ownSaveBlockedProps.current = incomingFingerprint;
+      lastAppliedProps.current = incomingFingerprint;
+      setEdit((current) => {
+        if (current?.id !== normalized.id) return current;
+        const saved = { ...current, _draftVersion: result.revision };
+        delete saved._publishedHash;
+        return saved;
+      });
+      const committed = { ...normalized, _draftVersion: result.revision };
+      delete committed._publishedHash;
+      setSavedEdit(committed);
+      setSaveError('');
       addToast('Сохранено', 'success');
-    } catch (e: any) { addToast(e?.message || 'Не сохранилось', 'error'); }
+    } catch (e: any) { setSaveError(e?.message || 'Не сохранилось'); addToast(e?.message || 'Не сохранилось', 'error'); }
+    finally { setSaving(false); }
   };
 
   const mfListId = 'catalog-component-manufacturers';
@@ -95,7 +153,7 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
             <button type="button" aria-pressed={mode === 'class'} onClick={() => setMode('class')}>Для выбранного типа</button>
             <button type="button" aria-pressed={mode === 'all'} onClick={() => setMode('all')}>Все комплектующие</button>
           </div>
-          {canEdit && <Btn onClick={() => setEdit(blankComponent(classId))}><Plus className="w-3.5 h-3.5" /> Комплектующее</Btn>}
+          {canEdit && <Btn onClick={startNewComponent}><Plus className="w-3.5 h-3.5" /> Комплектующее</Btn>}
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {!list.length ? <Empty title="Комплектующие не найдены" text={query || kind ? 'Измените условия поиска или фильтр.' : 'Добавьте комплектующее для этого типа оборудования.'} /> : (
@@ -168,9 +226,10 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
           {canEdit && <Btn onClick={() => update({ specs: [...(edit.specs || []), { label: { ru: '' }, value: '' }] })}><Plus className="w-3 h-3" /> Характеристика</Btn>}
         </div>
 
+        {saveError && <div role="alert" className="text-xs text-rose-600 dark:text-rose-400">{saveError}</div>}
         {canEdit && <div className="flex gap-2 mt-auto pt-2">
-          {!edit.id.startsWith('cmp-') && <Btn tone="danger" onClick={async () => { if (await confirmAsk('Удалить комплектующее?', edit.code, { confirmLabel: 'Удалить', tone: 'danger' })) { await catalogService.remove('component', edit.id).catch(() => undefined); await load(true); setEdit(null); } }}><Trash2 className="w-3.5 h-3.5" /> Удалить</Btn>}
-          <span className="flex-1" /><Btn tone="primary" onClick={save}><Save className="w-3.5 h-3.5" /> Сохранить</Btn>
+          {!edit.id.startsWith('cmp-') && <Btn tone="danger" disabled={saving} onClick={async () => { if (await confirmAsk('Удалить комплектующее?', edit.code, { confirmLabel: 'Удалить', tone: 'danger' })) { try { await catalogService.remove('component', edit.id, edit._draftVersion); setSaveError(''); setEdit(null); setSavedEdit(null); } catch (e: any) { setSaveError(e?.message || 'Не удалось удалить комплектующее'); addToast(e?.message || 'Не удалось удалить комплектующее', 'error'); } } }}><Trash2 className="w-3.5 h-3.5" /> Удалить</Btn>}
+          <span className="flex-1" /><Btn tone="primary" onClick={save} disabled={saving}><Save className="w-3.5 h-3.5" /> {saving ? 'Сохраняем…' : 'Сохранить'}</Btn>
         </div>}
       </section> : <section className="hidden @[900px]:flex items-start justify-center border-l border-slate-200 dark:border-slate-800 pl-3 text-xs text-slate-500 dark:text-slate-400"><Empty title="Выберите комплектующее" text="Нажмите строку, чтобы посмотреть или изменить модель." /></section>}
     </div>

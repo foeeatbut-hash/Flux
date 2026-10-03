@@ -98,6 +98,9 @@ export function submitHashOf(v: SubmitFeedbackV1): string {
     v.incidentAt, v.frequency, v.impact,
     (v.reproduction || []).join('\n'), v.expected || '', v.actual || '', v.benefit || '',
     [...v.uploadIds].sort().join(','),
+    // Контекст входит в отпечаток: повтор с тем же ключом, но иной привязкой
+    // к каталогу — другое обращение, а не повтор уже принятого.
+    v.dataIssue || null,
   ]);
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -208,7 +211,10 @@ export async function createReport(
     await tx.feedbackEvent.create({
       data: {
         reportId: made.id, actorId: actor.id, kind: 'created', visibility: 'PUBLIC',
-        revision: 1, dataJson: JSON.stringify({ type: submit.type, attachments: uploads.length }),
+        revision: 1, dataJson: JSON.stringify({
+          type: submit.type, attachments: uploads.length,
+          ...(submit.dataIssue ? { dataIssue: submit.dataIssue } : {}),
+        }),
       },
     });
     await tx.feedbackChange.create({ data: { reportId: made.id, revision: 1, visibility: 'PUBLIC' } });

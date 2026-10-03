@@ -34,6 +34,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     err.status = res.status;
     throw err;
   }
+  if (method !== 'GET' && path.startsWith('/catalog/')) window.dispatchEvent(new Event('catalog:workspace-changed'));
   return data as T;
 }
 
@@ -88,15 +89,15 @@ export const catalogService = {
   catalog: () => call<Catalog & { meta: CatalogMeta; stamp: string }>('GET', '/catalog'),
   stamp: () => call<{ stamp: string }>('GET', '/catalog/stamp'),
   save: (entity: CatalogEntity, item: Family | Component | TagRule | EquipmentClass | Manufacturer) =>
-    call<{ ok: true; id: string }>('PUT', `/catalog/${entity}/${encodeURIComponent(item.id)}`, item),
-  remove: (entity: CatalogEntity, id: string) => call<{ ok: true }>('DELETE', `/catalog/${entity}/${encodeURIComponent(id)}`),
+    call<{ ok: true; id: string; revision: string }>('PUT', `/catalog/${entity}/${encodeURIComponent(item.id)}`, item),
+  remove: (entity: CatalogEntity, id: string, revision?: string) => call<{ ok: true }>('DELETE', `/catalog/${entity}/${encodeURIComponent(id)}`, { _draftVersion: revision }),
   revisions: (entity: CatalogEntity | 'template', id: string) =>
     call<{ revisions: Array<{ id: string; action: string; userId: string | null; createdAt: string }> }>('GET', `/catalog/${entity}/${encodeURIComponent(id)}/revisions`),
   restore: (revisionId: string) => call<{ ok: true }>('POST', `/catalog/revisions/${revisionId}/restore`),
   reseed: (familyId: string) => call<{ ok: true }>('POST', `/catalog/family/${encodeURIComponent(familyId)}/reseed`),
   exportCatalog: () => call<Record<string, unknown>>('GET', '/catalog/export'),
   importCatalog: (file: Record<string, unknown>, mode: 'plan' | 'apply') =>
-    call<{ plan: Array<{ entity: string; id: string; code: string; action: 'new' | 'update' | 'same' }>; applied: boolean }>('POST', '/catalog/import', { ...file, mode }),
+    call<{ plan: Array<{ entity: string; id: string; code: string; action: 'new' | 'update' | 'same' }>; applied: boolean; preview: string }>('POST', '/catalog/import', { ...file, mode }),
 
   learned: (classId?: string) => call<{ learned: Array<Learned & { id: string; classId: string; updatedAt: string }> }>('GET', `/catalog/learn${classId ? `?classId=${encodeURIComponent(classId)}` : ''}`),
   learn: (entry: { classId: string; signature: string; familyId: string; values: Record<string, unknown> }) => call<{ ok: true }>('POST', '/catalog/learn', entry),

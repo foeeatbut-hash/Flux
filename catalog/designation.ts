@@ -57,7 +57,8 @@ function hasValue(p: ParamDef | undefined, key: string, values: ValveValues): bo
     // Пустой код — законное значение: «без взрывозащиты» пишется ничем
     return !!p?.values?.some((x) => x.code === '');
   }
-  if (p?.kind === 'number' || p?.size) return num(v) > 0;
+  if (p?.size) return num(v) > 0;
+  if (p?.kind === 'number') return v !== '' && Number.isFinite(Number(String(v).replace(',', '.')));
   if (v === '') return !!p?.values?.some((x) => x.code === '');
   return true;
 }
@@ -87,6 +88,8 @@ export interface BuildResult {
 export function buildDesignation(f: Family, rawValues: ValveValues, opts: BuildOptions = {}): BuildResult {
   const values = withDefaults(f, rawValues);
   const sizeSep = opts.sizeSep ?? f.sizeSep ?? '*';
+  if (f.designationMode === 'article' || f.designationMode === 'free') return { text: String(rawValues.article ?? f.article ?? f.code), missing: [], spans: [] };
+  const separator = f.designationSeparator ?? '-';
   const parts: string[] = [];
   const missing: BuildResult['missing'] = [];
   const spans: BuildResult['spans'] = [];
@@ -101,15 +104,15 @@ export function buildDesignation(f: Family, rawValues: ValveValues, opts: BuildO
       missing.push({ position: pos.key, params: need });
       parts.push('?');
       spans.push({ position: pos.key, from: at, to: at + 1 });
-      at += 2;
+      at += 1 + separator.length;
       continue;
     }
     const piece = renderFormat(f, format, values, sizeSep);
     parts.push(piece);
     spans.push({ position: pos.key, from: at, to: at + piece.length });
-    at += piece.length + 1;
+    at += piece.length + separator.length;
   }
-  return { text: parts.join('-'), missing, spans };
+  return { text: parts.join(separator), missing, spans };
 }
 
 // ── Разбор ──────────────────────────────────────────────────────────────────
@@ -164,17 +167,19 @@ function* matchTokens(ctx: Ctx, tokens: Token[], ti: number, off: number, values
   const p = paramOf(ctx.f, tok.param);
   if (!p) return;
   if (p.kind === 'number' || p.size) {
-    const m = /^\d+(?:[.,]\d+)?/.exec(s.slice(off));
+    const m = (p.size ? /^\d+(?:[.,]\d+)?/ : /^-?\d+(?:[.,]\d+)?/).exec(s.slice(off));
     // Нулевое число — не размер и не диаметр: «1*000» — это код «без вылета»,
     // и если прочитать его как переходник диаметром 0, код потеряется
-    if (m && parseFloat(m[0].replace(',', '.')) > 0) {
+    if (m && !/^0{2,}$/.test(m[0]) && (!p.size || parseFloat(m[0].replace(',', '.')) > 0)) {
       yield* matchTokens(ctx, tokens, ti + 1, off + m[0].length, { ...values, [tok.param]: parseFloat(m[0].replace(',', '.')) });
     }
     return;
   }
   if (p.kind === 'text') {
-    const m = /^[^-_]+/.exec(s.slice(off));
-    if (m) yield* matchTokens(ctx, tokens, ti + 1, off + m[0].length, { ...values, [tok.param]: m[0] });
+    // Текст перед литералом (например индекс/полюсы) не должен поглощать его.
+    for (let end = Math.min(s.length, off + 512); end > off && ctx.budget > 0; end--) {
+      yield* matchTokens(ctx, tokens, ti + 1, end, { ...values, [tok.param]: s.slice(off, end) });
+    }
     return;
   }
   for (const c of choicesOf(p)) {
@@ -195,17 +200,18 @@ function* matchPositions(ctx: Ctx, pi: number, off: number, values: ValveValues)
   const pos: Position = positions[pi];
   let start = off;
   if (pi > 0) {
-    if (ctx.s[off] !== '-') {
+    const separator = foldCode(ctx.f.designationSeparator ?? '-');
+    if (!ctx.s.startsWith(separator, off)) {
       if (pos.optional) yield* matchPositions(ctx, pi + 1, off, values);
       return;
     }
-    start = off + 1;
+    start = off + foldCode(ctx.f.designationSeparator ?? '-').length;
   }
   for (let fi = 0; fi < pos.formats.length; fi++) {
     for (const [end, v2] of matchTokens(ctx, tokensOf(pos.formats[fi]), 0, start, values)) {
       // Позиция кончается на дефисе или на конце строки — иначе «МН220» съел бы
       // начало «МН220-Т» и оставил разбор на полуслове
-      if (end !== ctx.s.length && ctx.s[end] !== '-') continue;
+      if (end !== ctx.s.length && !ctx.s.startsWith(foldCode(ctx.f.designationSeparator ?? '-'), end)) continue;
       yield* matchPositions(ctx, pi + 1, end, pos.rememberFormat ? { ...v2, [formatKey(pos.key)]: fi } : v2);
     }
   }
@@ -215,6 +221,11 @@ function* matchPositions(ctx: Ctx, pi: number, off: number, values: ValveValues)
 /** Разобрать строку по одному семейству */
 export function parseWithFamily(f: Family, text: string): ParseResult {
   const s = foldCode(stripDecor(text));
+  if (f.designationMode === 'article' || f.designationMode === 'free') {
+    const complete = [f.article || f.code, ...(f.aliases || [])].some(code => foldCode(code) === s);
+    return { familyId: f.id, values: { article: text.trim() }, complete, positionsMatched: complete ? 1 : 0, rest: complete ? '' : text };
+  }
+  if (s.length > 4096 || f.positions.length > 100) return { familyId: f.id, values: {}, complete: false, positionsMatched: 0, rest: text.slice(0, 4096) };
   const ctx: Ctx = { f, s, budget: 60000, best: { pi: 0, off: 0, values: {} } };
   for (const values of matchPositions(ctx, 0, 0, {})) {
     return { familyId: f.id, values, complete: true, positionsMatched: f.positions.length, rest: '' };
@@ -243,7 +254,7 @@ export function parseDesignation(families: Family[], text: string): ParseResult[
   if (!s) return [];
   const candidates = families.filter((f) => {
     const series = f.positions[0]?.formats.map((fmt) => foldCode(fmt.replace(/\{[^}]+\}/g, ''))) || [];
-    return series.some((code) => code && s.startsWith(code)) ||
+    return ((f.designationMode === 'article' || f.designationMode === 'free') && [f.article || f.code, ...(f.aliases || [])].some(code => foldCode(code) === s)) || series.some((code) => code && s.startsWith(code)) ||
       (f.aliases || []).some((a) => s.startsWith(foldCode(a)));
   });
   const results = candidates.map((f) => parseWithFamily(f, text));

@@ -1,9 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { Download, FileSpreadsheet, RotateCcw, Upload } from 'lucide-react';
 import type { Catalog } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
-import { useCatalogStore } from '../../store/catalogStore';
 import { saveBytes } from '../../lib/saveToWindows';
 import { Btn, Chip } from './ui';
 
@@ -42,19 +42,76 @@ async function api<T>(url: string, body: unknown): Promise<T> {
   return value as T;
 }
 
-function workbookRows(ws: XLSX.WorkSheet): unknown[][] {
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' });
-  // SheetJS omits formulas with no cached result from sheet_to_json. Preserve
-  // their location so the server can reject the source row with an explanation.
-  for (const [address, cell] of Object.entries(ws)) {
-    if (address.startsWith('!') || !cell || typeof cell !== 'object') continue;
-    const c = cell as XLSX.CellObject;
-    if (!c.f || c.v !== undefined) continue;
-    const at = XLSX.utils.decode_cell(address);
-    if (!rows[at.r]) rows[at.r] = [];
-    rows[at.r][at.c] = '__FORMULA_NO_RESULT__';
+function csvRows(source: string): unknown[][] {
+  const firstLine = source.split(/\r?\n/, 1)[0] || '';
+  const delimiterCounts = new Map([[',', 0], [';', 0], ['\t', 0]]);
+  let sniffQuoted = false;
+  for (let i = 0; i < firstLine.length; i++) {
+    if (firstLine[i] === '"' && firstLine[i + 1] === '"' && sniffQuoted) { i++; continue; }
+    if (firstLine[i] === '"') sniffQuoted = !sniffQuoted;
+    else if (!sniffQuoted && delimiterCounts.has(firstLine[i])) delimiterCounts.set(firstLine[i], delimiterCounts.get(firstLine[i])! + 1);
   }
+  const delimiter = [...delimiterCounts].sort((a, b) => b[1] - a[1])[0][0];
+  const rows: string[][] = [[]];
+  let field = ''; let quoted = false;
+  const pushField = () => { if (field.length > 1_000_000) throw new Error('Ячейка CSV превышает 1 МБ'); rows[rows.length - 1].push(field); field = ''; };
+  const pushRow = () => {
+    pushField();
+    if (rows[rows.length - 1].length > 100) throw new Error('В CSV допускается не более 100 столбцов');
+    if (rows.length > 50_000) throw new Error('В CSV допускается не более 50 000 строк');
+    rows.push([]);
+  };
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (quoted) {
+      if (ch === '"' && source[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+      continue;
+    }
+    if (ch === '"' && field.length === 0) quoted = true;
+    else if (ch === delimiter) pushField();
+    else if (ch === '\n') pushRow();
+    else if (ch !== '\r') field += ch;
+  }
+  if (quoted) throw new Error('В CSV не закрыты кавычки');
+  if (field || rows[rows.length - 1].length) pushRow();
+  if (!rows[rows.length - 1].length) rows.pop();
   return rows;
+}
+
+function excelCellValue(raw: ExcelJS.CellValue): unknown {
+  if (raw === null || raw === undefined) return '';
+  if (raw instanceof Date) return raw.toISOString();
+  if (typeof raw !== 'object') return raw;
+  if ('formula' in raw || 'sharedFormula' in raw) {
+    const result = 'result' in raw ? raw.result : undefined;
+    return result === undefined ? '__FORMULA_NO_RESULT__' : excelCellValue(result as ExcelJS.CellValue);
+  }
+  if ('richText' in raw) return raw.richText.map((part) => part.text).join('');
+  if ('text' in raw && typeof raw.text === 'string') return raw.text;
+  return String(raw);
+}
+
+async function xlsxSheets(file: File): Promise<SheetInput[]> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await file.arrayBuffer());
+  if (workbook.worksheets.length > 50) throw new Error('Допускается не более 50 листов');
+  let totalRows = 0;
+  return workbook.worksheets.map((worksheet) => {
+    const rowCount = worksheet.rowCount;
+    const columnCount = worksheet.columnCount;
+    if (rowCount > 50_000) throw new Error(`Лист «${worksheet.name}»: более 50 000 строк`);
+    if (columnCount > 100) throw new Error(`Лист «${worksheet.name}»: более 100 столбцов`);
+    totalRows += rowCount;
+    if (totalRows > 50_000) throw new Error('Во всём файле допускается до 50 000 строк');
+    const rows: unknown[][] = [];
+    for (let r = 1; r <= rowCount; r++) {
+      const row = worksheet.getRow(r);
+      rows.push(Array.from({ length: columnCount }, (_, c) => excelCellValue(row.getCell(c + 1).value)));
+    }
+    return { name: worksheet.name, rows };
+  });
 }
 
 function templateBytes(catalog: Catalog): Uint8Array {
@@ -101,7 +158,6 @@ function exportBytes(catalog: Catalog, classId: string): Uint8Array {
 }
 
 export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: { catalog: Catalog; classId: string; canEdit: boolean }) {
-  const load = useCatalogStore((s) => s.load);
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -128,10 +184,10 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
     if (!file) return;
     setBusy(true); setError(''); setMessage(''); setPlan(null); setBatchId('');
     try {
+      if (file.size > 15 * 1024 * 1024) throw new Error('Файл больше 15 МБ. Разделите таблицу на несколько файлов.');
       const ext = file.name.split('.').pop()?.toLowerCase();
-      if (!['xlsx', 'xls', 'csv'].includes(ext || '')) throw new Error('Поддерживаются только .xlsx, .xls и .csv');
-      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-      const parsed = wb.SheetNames.map((name) => ({ name, rows: workbookRows(wb.Sheets[name]) }));
+      if (!['xlsx', 'csv'].includes(ext || '')) throw new Error('Поддерживаются .xlsx и .csv. Сохраните книгу .xls в формате .xlsx.');
+      const parsed = ext === 'csv' ? [{ name: file.name, rows: csvRows(await file.text()) }] : await xlsxSheets(file);
       for (const sh of parsed) {
         const width = sh.rows.reduce((n, row) => Math.max(n, row.length), 0);
         const height = sh.rows.length;
@@ -201,7 +257,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
     setBusy(true); setError(''); setMessage('');
     try {
       const result = await api<{ batchId: string; count: number }>('/api/catalog/spreadsheet/apply', { planId: plan.planId, indices: selected });
-      setBatchId(result.batchId); await load(true); setMessage(`Загружено ${result.count}`);
+      setBatchId(result.batchId); setMessage(`Создан черновик для ${result.count} моделей. Опубликованные данные пока не изменены.`);
     } catch (e: any) { setError(e?.message || 'Не удалось загрузить данные'); }
     finally { setBusy(false); }
   };
@@ -210,11 +266,9 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
     if (!batchId || busy) return;
     setBusy(true); setError('');
     try {
-      const result = await api<{ retainedManufacturers?: string[] }>('/api/catalog/spreadsheet/undo', { batchId });
-      await load(true); setBatchId('');
-      setMessage(result.retainedManufacturers?.length
-        ? `Загрузка отменена. Изготовители оставлены, так как используются или были изменены: ${result.retainedManufacturers.join(', ')}`
-        : 'Загрузка отменена');
+      const result = await api<{ undoneDrafts?: number }>('/api/catalog/spreadsheet/undo', { batchId });
+      setBatchId('');
+      setMessage(`Черновик отменён. Отменено записей: ${result.undoneDrafts || 0}. Опубликованный каталог не затронут.`);
     }
     catch (e: any) { setError(e?.message || 'Не удалось отменить загрузку'); }
     finally { setBusy(false); }
@@ -240,10 +294,11 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
       <div className="mr-auto flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-emerald-600" /><b className="text-sm">Обмен с Excel</b></div>
       <Btn tone="ghost" disabled={busy} onClick={() => void download('template')}><Download className="h-3.5 w-3.5" /> Скачать шаблон</Btn>
       <Btn tone="ghost" disabled={busy} onClick={() => void download('export')}><Download className="h-3.5 w-3.5" /> Выгрузить Excel</Btn>
-      {canEdit && <><input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => void readFile(e.target.files?.[0])} />
+      {canEdit && <><input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => void readFile(e.target.files?.[0])} />
         <Btn disabled={busy} onClick={() => inputRef.current?.click()}><Upload className="h-3.5 w-3.5" /> Загрузить Excel</Btn></>}
     </div>
     <div className="text-xs text-slate-500 dark:text-slate-400">Тип оборудования: <span className="font-medium text-slate-700 dark:text-slate-300">{textOf(catalog.classes.find((c) => c.id === classId)?.title) || classId || 'не выбран'}</span></div>
+    <div className="text-xs text-slate-500 dark:text-slate-400">Импорт создаёт черновики компонентов и изготовителей. В общий Каталог они попадут только после публикации.</div>
     {error && <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
     {message && <div role="status" className="rounded-md bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
     {sheets.length > 0 && canEdit && <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -259,7 +314,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
           {mapping[h] === 'param' && <div className="flex items-center gap-1.5"><input aria-label={`Название характеристики для ${h}`} value={paramNames[h]?.label || ''} disabled={busy} onChange={(e) => setParamNames((old) => ({ ...old, [h]: { label: e.target.value, unit: old[h]?.unit || '' } }))} placeholder="Название характеристики" className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-2xs dark:border-slate-700 dark:bg-slate-800" /><input aria-label={`Единица измерения для ${h}`} value={paramNames[h]?.unit || ''} disabled={busy} onChange={(e) => setParamNames((old) => ({ ...old, [h]: { label: old[h]?.label || h, unit: e.target.value } }))} placeholder="Единица" className="w-20 rounded border border-slate-200 bg-white px-1.5 py-1 text-2xs dark:border-slate-700 dark:bg-slate-800" /></div>}
         </div>)}
       </div>
-      <div className="flex items-center gap-2"><Btn disabled={busy || !headers.length} onClick={() => void makePlan()}>{busy ? 'Проверяю…' : 'Проверить и показать план'}</Btn><span className="text-2xs text-slate-400">До 50 000 строк и 100 столбцов</span></div>
+      <div className="flex items-center gap-2"><Btn disabled={busy || !headers.length} onClick={() => void makePlan()}>{busy ? 'Проверяю…' : 'Проверить и показать план'}</Btn><span className="text-2xs text-slate-400">До 50 000 строк и 100 столбцов. Формулы не вычисляются.</span></div>
     </div>}
     {plan && <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs"><b>Предпросмотр</b><Chip tone="emerald">Выбрано: {selected.length}</Chip><Chip tone={conflicts ? 'rose' : 'slate'}>Конфликтов: {conflicts}</Chip><Chip>Без изменений: {unchanged}</Chip>{Object.entries(plan.counts || {}).map(([k, v]) => <Chip key={k} tone={k === 'error' || k === 'conflict' ? 'rose' : 'slate'}>{k}: {v}</Chip>)}<span className="flex-1" /><label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={allSelected} disabled={!eligible.length || busy} onChange={() => setSelected(allSelected ? [] : eligible.map(({ i }) => i))} />Выбрать допустимые ({eligible.length})</label></div>
@@ -269,7 +324,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
           {!plan.rows.length && <tr><td colSpan={6} className="p-5 text-center text-slate-400">Строк для проверки нет</td></tr>}
         </tbody></table>
       </div>
-      <div className="flex flex-wrap items-center gap-2"><Btn disabled={busy || !selected.length || !canEdit} onClick={() => void apply()}>{busy ? 'Загружаю…' : `Загрузить выбранные (${selected.length})`}</Btn>{batchId && <Btn tone="ghost" disabled={busy} onClick={() => void undo()}><RotateCcw className="h-3.5 w-3.5" /> Отменить загрузку</Btn>}</div>
+      <div className="flex flex-wrap items-center gap-2"><Btn disabled={busy || !selected.length || !canEdit} onClick={() => void apply()}>{busy ? 'Создаю черновик…' : `Создать черновик (${selected.length})`}</Btn>{batchId && <Btn tone="ghost" disabled={busy} onClick={() => void undo()}><RotateCcw className="h-3.5 w-3.5" /> Отменить черновик</Btn>}</div>
     </div>}
   </section>;
 }

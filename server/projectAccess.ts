@@ -145,7 +145,7 @@ const SERVER_OWNED: RegExp[] = [
 ];
 
 export const isTrustKey = (key: string): boolean => TRUST_KEYS.some((re) => re.test(key));
-export const isServerKey = (key: string): boolean => isTrustKey(key) || SERVER_OWNED.some((re) => re.test(key));
+export const isServerKey = (key: string): boolean => /^catalog_/i.test(key) || isTrustKey(key) || SERVER_OWNED.some((re) => re.test(key));
 
 export const validSettingKey = (key: unknown): key is string =>
   typeof key === 'string' && key.length > 0 && key.length <= 120 && /^[\w.:\-]+$/.test(key);

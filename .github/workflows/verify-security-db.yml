@@ -6,6 +6,14 @@ on:
     paths:
       - server/**
       - server.ts
+      - catalog/**
+      - equipment/**
+      - feedback/**
+      - src/components/catalog/**
+      - src/components/builder/**
+      - src/screens/CatalogScreen.tsx
+      - src/screens/BuilderScreen.tsx
+      - src/services/catalog*.ts
       - license/**
       - electron/**
       - shared/**
@@ -63,5 +71,30 @@ jobs:
         run: |
           npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs
           node --import tsx scripts/test-packaged-api-boundaries.ts
+      - name: Каталог, независимые маркировки и проектные снимки
+        shell: bash
+        run: |
+          set -euo pipefail
+          for check in test-catalog-core test-catalog-review test-catalog-sources test-catalog-interaction-matrix test-catalog-import test-catalog-blank test-catalog-pack-veza2026 test-catalog-query test-catalog-seed-sql test-catalog-spreadsheet test-catalog-spreadsheet-routes test-equipment-catalog-sources test-equipment-catalog-family-sources test-builder-perms test-feedback-contracts; do
+            node --import tsx "scripts/$check.ts"
+          done
+      - name: Публикации и права каталога через MariaDB 10.11
+        env:
+          FLUX_CATALOG_FIXTURE_BASE: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_catalog_fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const mariadb = require('mariadb');
+          (async () => {
+            const u = new URL(process.env.FLUX_CATALOG_FIXTURE_BASE);
+            const db = await mariadb.createConnection({ host: u.hostname, port: Number(u.port), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) });
+            try { for (const suffix of ['publication', 'http', 'review']) await db.query('CREATE DATABASE `flux_catalog_fixture_' + suffix + '`'); }
+            finally { await db.end(); }
+          })().catch(e => { console.error(e.message); process.exit(1); });
+          NODE
+          FLUX_CATALOG_FIXTURE_URL="${FLUX_CATALOG_FIXTURE_BASE}_publication" node --import tsx scripts/test-catalog-publication.ts
+          FLUX_CATALOG_FIXTURE_URL="${FLUX_CATALOG_FIXTURE_BASE}_http" node --import tsx scripts/test-catalog-workspace-http.ts
+          FLUX_CATALOG_FIXTURE_URL="${FLUX_CATALOG_FIXTURE_BASE}_review" node --import tsx scripts/test-catalog-second-review-http.ts
       - name: Программа владельца
         run: npm test --prefix tools/flux-owner

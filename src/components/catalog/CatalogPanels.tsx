@@ -2,7 +2,7 @@
  * Вкладки Каталога помимо моделей: комплектующие, правила тегов, выученное,
  * проверка каталога целиком и обмен каталогом между серверами.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Save, Download, Upload, CircleCheck, AlertTriangle } from 'lucide-react';
 import type { Catalog, TagRule } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
@@ -19,21 +19,73 @@ export { ComponentsPanel } from './ComponentsPanel';
 
 // ── Правила тегов ───────────────────────────────────────────────────────────
 
+type VersionedTagRule = TagRule & { _draftVersion?: string; _publishedHash?: string };
+const ruleContent = (rule: VersionedTagRule) => {
+  const { _draftVersion: _version, _publishedHash: _hash, ...content } = rule;
+  return content;
+};
+
 export function TagRulesPanel({ catalog, classId, canEdit }: { catalog: Catalog; classId: string; canEdit: boolean }) {
-  const load = useCatalogStore((s) => s.load);
   const addToast = useToastStore((s) => s.addToast);
-  const [rows, setRows] = useState<TagRule[]>(catalog.tagRules.filter((r) => r.classId === classId));
-  const dirty = JSON.stringify(rows) !== JSON.stringify(catalog.tagRules.filter((r) => r.classId === classId));
+  const initialRows = catalog.tagRules.filter((r) => r.classId === classId) as VersionedTagRule[];
+  const initialFingerprint = JSON.stringify([classId, initialRows]);
+  const [rows, setRows] = useState<VersionedTagRule[]>(initialRows);
+  const [savedRows, setSavedRows] = useState<VersionedTagRule[]>(initialRows);
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const lastObservedProps = useRef(initialFingerprint);
+  const lastAppliedProps = useRef(initialFingerprint);
+  const ownSaveBlockedProps = useRef<string | null>(null);
+  const dirty = JSON.stringify(rows.map(ruleContent)) !== JSON.stringify(savedRows.map(ruleContent));
+  const incoming = catalog.tagRules.filter((r) => r.classId === classId) as VersionedTagRule[];
+  const incomingFingerprint = JSON.stringify([classId, incoming]);
+  useEffect(() => {
+    if (incomingFingerprint !== lastObservedProps.current) lastObservedProps.current = incomingFingerprint;
+    if (incomingFingerprint === ownSaveBlockedProps.current) return;
+    if (!dirty && incomingFingerprint !== lastAppliedProps.current) {
+      setRows(incoming);
+      setSavedRows(incoming);
+      lastAppliedProps.current = incomingFingerprint;
+      setSaveError('');
+      return;
+    }
+    if (!dirty) return;
+    const changedRemotely = savedRows.some((row) => {
+      const fresh = incoming.find((item) => item.id === row.id);
+      return fresh && ((fresh._draftVersion && fresh._draftVersion !== row._draftVersion) || (fresh._publishedHash && fresh._publishedHash !== row._publishedHash));
+    });
+    if (changedRemotely) setSaveError('Черновик изменён другим сотрудником. Ваши значения сохранены; сверите изменения перед повторным сохранением.');
+  }, [incomingFingerprint, dirty]);
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
-      const before = catalog.tagRules.filter((r) => r.classId === classId);
-      for (const r of rows) if (JSON.stringify(r) !== JSON.stringify(before.find((x) => x.id === r.id))) await catalogService.save('tagRule', r);
-      for (const r of before) if (!rows.some((x) => x.id === r.id)) await catalogService.remove('tagRule', r.id);
-      await load(true);
+      setSaveError('');
+      for (const row of rows) {
+        const before = savedRows.find((item) => item.id === row.id);
+        if (before && JSON.stringify(ruleContent(row)) === JSON.stringify(ruleContent(before))) continue;
+        const result = await catalogService.save('tagRule', row);
+        const committed = { ...row, _draftVersion: result.revision };
+        delete committed._publishedHash;
+        ownSaveBlockedProps.current = incomingFingerprint;
+        lastAppliedProps.current = incomingFingerprint;
+        setRows((current) => current.map((item) => item.id === row.id ? { ...item, _draftVersion: result.revision, _publishedHash: undefined } : item));
+        setSavedRows((current) => current.some((item) => item.id === row.id)
+          ? current.map((item) => item.id === row.id ? committed : item)
+          : [...current, committed]);
+      }
+      for (const before of savedRows) {
+        if (rows.some((item) => item.id === before.id)) continue;
+        await catalogService.remove('tagRule', before.id, before._draftVersion);
+        ownSaveBlockedProps.current = incomingFingerprint;
+        lastAppliedProps.current = incomingFingerprint;
+        setSavedRows((current) => current.filter((item) => item.id !== before.id));
+      }
       addToast('Правила тегов сохранены', 'success');
-    } catch (e: any) { addToast(e?.message || 'Не сохранилось', 'error'); }
+    } catch (e: any) { setSaveError(e?.message || 'Не сохранилось'); addToast(e?.message || 'Не сохранилось', 'error'); }
+    finally { setSaving(false); }
   };
-  const set = (i: number, r: TagRule) => setRows(rows.map((x, j) => (j === i ? r : x)));
+  const set = (i: number, r: VersionedTagRule) => setRows((current) => current.map((x, j) => (j === i ? r : x)));
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-2xs text-slate-400">Код типа — буквы перед номером в теге: 3700-B01-<b>DF</b>-001. Правило связывает код с видом изделия, признаками для подбора и тегом связанного привода. Неиспользуемые строки можно пропускать при импорте.</div>
@@ -47,17 +99,18 @@ export function TagRulesPanel({ catalog, classId, canEdit }: { catalog: Catalog;
               <td className="p-1"><Input value={factsToText(r.facts)} onChange={(e) => set(i, { ...r, facts: textToFacts(e.target.value) })} className="font-mono" disabled={!canEdit} /></td>
               <td className="p-1 w-24"><Input value={r.actuatorCode || ''} onChange={(e) => set(i, { ...r, actuatorCode: e.target.value.toUpperCase() || undefined })} className="font-mono" disabled={!canEdit} /></td>
               <td className="p-1 text-center"><input type="checkbox" checked={!!r.skip} onChange={(e) => set(i, { ...r, skip: e.target.checked })} disabled={!canEdit} /></td>
-              <td className="p-1">{canEdit && <Btn tone="ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="Удалить"><Trash2 className="w-3 h-3" /></Btn>}</td>
+              <td className="p-1">{canEdit && <Btn tone="ghost" onClick={() => setRows((current) => current.filter((_, j) => j !== i))} aria-label="Удалить"><Trash2 className="w-3 h-3" /></Btn>}</td>
             </tr>
           ))}
         </tbody>
       </table>
       {canEdit && (
         <div className="flex gap-1.5">
-          <Btn onClick={() => setRows([...rows, { id: `tr-${Math.random().toString(36).slice(2, 9)}`, classId, code: '', label: { ru: '' }, facts: {} }])}><Plus className="w-3 h-3" /> Правило</Btn>
-          <Btn tone="primary" onClick={save} disabled={!dirty}><Save className="w-3.5 h-3.5" /> Сохранить</Btn>
+          <Btn onClick={() => setRows((current) => [...current, { id: `tr-${Math.random().toString(36).slice(2, 9)}`, classId, code: '', label: { ru: '' }, facts: {} }])}><Plus className="w-3 h-3" /> Правило</Btn>
+          <Btn tone="primary" onClick={save} disabled={!dirty || saving}><Save className="w-3.5 h-3.5" /> {saving ? 'Сохраняем…' : 'Сохранить'}</Btn>
         </div>
       )}
+      {saveError && <div role="alert" className="text-xs text-rose-600 dark:text-rose-400">{saveError}</div>}
     </div>
   );
 }
@@ -150,13 +203,14 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
   const pick = async (f: File) => {
     try {
       const data = JSON.parse(await f.text());
-      setFile(data);
-      setPlan((await catalogService.importCatalog(data, 'plan')).plan);
+      const preview = await catalogService.importCatalog(data, 'plan');
+      setFile({ ...data, preview: preview.preview });
+      setPlan(preview.plan);
     } catch (e: any) { addToast(e?.message || 'Файл не читается', 'error'); }
   };
   return (
     <div className="flex flex-col gap-2 max-w-3xl">
-      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог живёт на сервере программы. Чтобы перенести его на другой сервер, выгрузите файл и загрузите его там. Перед записью покажется, что добавится и что изменится; изменённое сохраняется снимком и откатывается.</div>
+      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог хранится в общей БД компании. Загрузите пакет и проверьте разницу перед сохранением черновиков. Опубликованные данные сотрудников изменятся только после публикации.</div>
       <div className="flex gap-2 flex-wrap">
         <Btn onClick={exportAll}><Download className="w-3.5 h-3.5" /> Выгрузить каталог</Btn>
         {canEdit && (
@@ -177,7 +231,7 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
             {plan.filter((p) => p.action !== 'same').map((p, i) => <div key={i}><Chip tone={p.action === 'new' ? 'emerald' : 'sky'}>{p.action === 'new' ? 'новое' : 'изменится'}</Chip> {p.entity}: <span className="font-mono">{p.code}</span></div>)}
           </div>
           <div className="flex gap-2">
-            <Btn tone="primary" onClick={async () => { try { await catalogService.importCatalog(file!, 'apply'); await load(true); setPlan(null); addToast('Каталог загружен', 'success'); } catch (e: any) { addToast(e?.message || 'Не записалось', 'error'); } }}>Записать</Btn>
+            <Btn tone="primary" onClick={async () => { try { await catalogService.importCatalog(file!, 'apply'); await load(true); setPlan(null); addToast('Черновики каталога сохранены. Проверьте и опубликуйте их', 'success'); } catch (e: any) { addToast(e?.message || 'Не записалось', 'error'); } }}>Сохранить черновики</Btn>
             <Btn tone="ghost" onClick={() => setPlan(null)}>Отмена</Btn>
           </div>
         </div>
