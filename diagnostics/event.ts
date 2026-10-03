@@ -216,6 +216,13 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
       return UUID.test(text) ? text : text.replace(/[^A-Za-z0-9-]/g, '').slice(0, 64) || null;
     }
     case 'name': return safeName(value) || null;
+    // IPC channel labels have a fixed namespace:operation shape. Keep only
+    // bounded token names so diagnostics can identify a new route without
+    // storing arbitrary renderer input or payloads.
+    case 'channel': {
+      const text = String(value ?? '');
+      return /^[a-z][a-z0-9-]{0,23}:[a-z][a-z0-9-]{0,47}$/.test(text) ? text : null;
+    }
     case 'code': return safeCode(value) || null;
     case 'route': return routeName(String(value ?? ''));
     // Шаблон приходит из нашего кода, а не от человека: словарь к нему не

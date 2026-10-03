@@ -18,6 +18,7 @@ export type WindowsFilesRequest =
   | { action: 'addRoot' }
   | { action: 'list'; ref: WindowsFileRef; offset?: number; limit?: number }
   | { action: 'read'; ref: WindowsFileRef }
+  | { action: 'icon'; ref: WindowsFileRef }
   | { action: 'write'; ref: WindowsFileRef; base64: string; baseSha256: string }
   | { action: 'publish'; parent: WindowsFileRef; name: string; base64: string; draftId: string }
   | { action: 'createDraft'; parent: WindowsFileRef; name: string; base64: string }

@@ -15,6 +15,7 @@ import { useBrowserStore } from '../../store/browserStore';
 import { useStore } from '../../store/store';
 import { useToastStore } from '../../store/toastStore';
 import { hostOf } from '../../lib/browserUrl';
+import { hasAdminRole } from '../../lib/permissions';
 
 export default function BrowserSection() {
   const user = useStore((s) => s.user);
@@ -24,7 +25,7 @@ export default function BrowserSection() {
   const projectId = useStore((s) => s.activeProject?.id) || '';
   const { addToast } = useToastStore();
   const [draft, setDraft] = React.useState('');
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = hasAdminRole(user as any);
 
   React.useEffect(() => { void load(projectId); }, [projectId, load]);
 

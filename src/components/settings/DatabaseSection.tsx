@@ -4,6 +4,7 @@ import SectionShell from './SectionShell';
 import { ENV_CONFIG } from '../../config/env';
 import { Status } from '../ui';
 import { useModalStore } from '../../store/modalStore';
+import { hasAdminRole } from '../../lib/permissions';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert } = useModalStore.getState();
@@ -11,7 +12,7 @@ const { openConfirm, openAlert } = useModalStore.getState();
 // ── База данных (перенесено из профиля) ────────────────────────────────────────
 export default function DatabaseSection({ addToast }: any) {
   const user = useStore((s) => s.user);
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = hasAdminRole(user as any);
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
   const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');

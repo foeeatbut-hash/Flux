@@ -11,6 +11,7 @@ import { countOf } from '../lib/plural';
 import { editorHref } from '../lib/officeFiles';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
+import { hasAdminRole } from '../lib/permissions';
 
 // Диалоги программы вместо системных окон Windows
 const { openPrompt } = useModalStore.getState();
@@ -61,7 +62,7 @@ export default function VdrPanel() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const projectId = activeProject?.id || 'default';
-  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canManage = hasAdminRole(user as any) || user?.role === 'MANAGER';
 
   const [registers, setRegisters] = useState<Register[]>([]);
   const [regId, setRegId] = useState<string>(searchParams.get('vdr') || '');

@@ -27,6 +27,7 @@ export function windowsFilesFailure(error: any): WindowsFilesResponse {
 }
 export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): Promise<WindowsFilesService> {
   const activeSenders = new Set<number>();
+  const icons = new Map<string, { at: number; value: Promise<string | null> }>();
   const service = await WindowsFilesService.create({
     userData: app.getPath('userData'),
     knownFolders: { desktop: app.getPath('desktop'), documents: app.getPath('documents'), downloads: app.getPath('downloads') },
@@ -63,6 +64,19 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         }
         case 'list': data = await service.list(request.ref, request.offset, request.limit); break;
         case 'read': data = await service.read(request.ref); break;
+        case 'icon': {
+          const filename = await service.iconPath(request.ref);
+          if (!filename) { data = null; break; }
+          let cached = icons.get(filename);
+          if (!cached || Date.now() - cached.at > 60000) {
+            if (icons.size >= 512) icons.delete(icons.keys().next().value!);
+            cached = { at: Date.now(), value: app.getFileIcon(filename, { size: 'large' })
+              .then(icon => icon.isEmpty() ? null : icon.toDataURL()).catch(() => null) };
+            icons.set(filename, cached);
+          }
+          data = await cached.value;
+          break;
+        }
         case 'write': data = await service.write(request.ref, request.base64, request.baseSha256); break;
         case 'publish': data = await service.publish(request.parent, request.name, request.base64, request.draftId); break;
         case 'createDraft': data = await service.createDraft(request.parent, request.name, request.base64); break;

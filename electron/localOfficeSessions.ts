@@ -61,7 +61,7 @@ const SHEET_READ = new Set(['workbook:select', 'workbook:read-range', 'workbook:
   'sheets:consume-new-blank', 'sheets:has-queued-workbook', 'sheets:consume-headless-export']);
 const SHEET_EDIT = new Set(['workbook:save', 'workbook:save-edits-begin', 'workbook:save-edits-chunk', 'workbook:save-edits-abort', 'workbook:write-recovery']);
 const SEND = new Set(['pdf:dirty-changed', 'pdf:close-save-result', 'pdf:save-as-result',
-  'workbook:pending-edits', 'workbook:close-save-result', 'workbook:recovery-prompt-reply']);
+  'workbook:pending-edits', 'workbook:close-save-result', 'workbook:recovery-prompt-reply', 'sheets:mcp-ready']);
 function fail(code: string, message: string): never { throw new WindowsFilesError(code, message); }
 
 /** Native bundles have independent webContents counters: expose our own, globally unique IDs. */
@@ -110,9 +110,12 @@ export class LocalOfficeSessions {
     const started = performance.now();
     const candidate = (request as any)?.channel;
     const operation = isOfficeOperation(candidate) ? candidate : 'windows-office:invoke';
+    // Unknown channel names can explain a denied send; args may contain workbook
+    // data, so diagnostics receive only the tightly validated channel token.
+    const unknownChannel = typeof candidate === 'string' && !isOfficeOperation(candidate) ? candidate : undefined;
     const emit = (fields: Partial<OfficeHostDiagnostic>) => {
       if ((app !== 'pdf' && app !== 'sheets') || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
-      try { this.options.onDiagnostic?.({ app, action, operation, phase: 'start', ...fields }); } catch { /* Запись не влияет на документ. */ }
+      try { this.options.onDiagnostic?.({ app, action, operation, ...(unknownChannel ? { unknownChannel } : {}), phase: 'start', ...fields }); } catch { /* Запись не влияет на документ. */ }
     };
     emit({ phase: 'start' });
     try {
@@ -135,7 +138,15 @@ export class LocalOfficeSessions {
     if (request.action === 'close') { await this.closeSession(s); return { closed: true }; }
     if (request.action === 'send') {
       if (!SEND.has(request.channel) || (s.app === 'pdf') !== request.channel.startsWith('pdf:')) fail('CHANNEL_DISABLED', 'Команда локального редактора недоступна.');
-      await s.host.send(s.nativeId, request.channel, this.args(request.args)); return { sent: true };
+      const args = this.args(request.args);
+      // The packaged Sheets renderer signals MCP readiness on every mount.
+      // Local Office has no MCP command bridge, so consume this empty signal
+      // here; MCP results and all other unlisted channels remain disabled.
+      if (request.channel === 'sheets:mcp-ready') {
+        if (args.length) fail('INVALID_REQUEST', 'Некорректная команда редактора.');
+        return { sent: true };
+      }
+      await s.host.send(s.nativeId, request.channel, args); return { sent: true };
     }
     if (request.action === 'copy') return this.pdfCopy(s, request.name, auth);
     if (request.action !== 'invoke') fail('INVALID_ACTION', 'Команда локального редактора неизвестна.');

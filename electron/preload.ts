@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
   windowsFiles: {
+    getIcon: async (ref: unknown) => {
+      const result = await ipcRenderer.invoke('windows-files:invoke', { action: 'icon', ref });
+      return result?.ok === true && typeof result.data === 'string' ? result.data : null;
+    },
     invoke: (request: unknown) => ipcRenderer.invoke('windows-files:invoke', request),
     onChanged: (callback: (change: unknown) => void) => {
       const listener = (_event: unknown, change: unknown) => callback(change);

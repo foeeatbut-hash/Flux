@@ -64,6 +64,8 @@ async function middlewareResult(method: string, route: string, user = employee):
     invalidateLicenseCache();
     now += 11000;
     check('истечение срока проверяется при каждом запросе без истечения кэша', (await licenseForUser(employee)).readOnly);
+    const ownerAfterExpiry = await licenseForUser({ role: 'OWNER' });
+    check('истечение лицензии сотрудника не ограничивает владельца', ownerAfterExpiry.licensed && !ownerAfterExpiry.readOnly);
     check('просроченный сотрудник читает', await middlewareResult('GET', '/api/tags') === 200);
     check('просроченный сотрудник не пишет', await middlewareResult('PUT', '/api/tags/tag') === 402);
     check('RPC чтения разрешён явным списком', await middlewareResult('POST', '/api/office/read') === 200);
@@ -75,6 +77,8 @@ async function middlewareResult(method: string, route: string, user = employee):
     const revoke = signRevocations({ inst, ids: [id], seq: 1, iat: now }, privateKey);
     await activateRevocations(revoke);
     check('отозванная действующая лицензия больше не работает', !(await licenseForUser(employee)).licensed);
+    const ownerAfterRevocation = await licenseForUser({ role: 'OWNER' });
+    check('отзыв лицензии сотрудника не ограничивает владельца', ownerAfterRevocation.licensed && !ownerAfterRevocation.readOnly);
     await assert.rejects(() => activateRevocations(signRevocations({ inst, ids: [], seq: 2, iat: now }, privateKey)), /вернуть/);
     check('новый список не возвращает ранее отозванные ключи', true);
     await activateRevocations(signRevocations({ inst, ids: [id, 'другой'], seq: 2, iat: now }, privateKey));

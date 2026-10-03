@@ -21,6 +21,7 @@ import { rememberSectionUse } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
+import { hasAdminRole } from '../lib/permissions';
 import { groupSections, countFound, pinnedTiles, stepFocus } from '../lib/startMenu';
 import FileBadge from './ui/FileBadge';
 import { recentBadge } from '../lib/fileBadge';
@@ -62,7 +63,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   /** Пока значок тянут из меню, закрывать его нельзя: ронять будет некуда */
   const dragging = React.useRef(false);
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = hasAdminRole(user as any);
 
   React.useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -381,7 +382,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         <span className="min-w-0 flex-1">
           <b className="block text-sm font-medium text-slate-800 dark:text-slate-150 truncate">{user?.name || 'Профиль'}</b>
           <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
-            {isAdmin ? 'Администратор' : 'Сотрудник'}
+            {user?.role === 'OWNER' ? 'Владелец Flux' : isAdmin ? 'Администратор' : 'Сотрудник'}
           </span>
         </span>
         {/* Главная — в подвале, рядом с Параметрами.

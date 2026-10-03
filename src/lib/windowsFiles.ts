@@ -3,6 +3,7 @@ import type { WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '
 export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged } from '../../filesystem/contracts';
 
 type WindowsFilesBridge = {
+  getIcon?: (ref: WindowsFileRef) => Promise<string | null>;
   invoke: (request: WindowsFilesRequest) => Promise<WindowsFilesResponse>;
   onChanged: (callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void) => () => void;
 };

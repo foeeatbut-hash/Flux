@@ -11,6 +11,8 @@ export interface ShellDesktopItem {
   position: ShellDesktopPoint;
   icon: ShellDesktopIcon | null;
   monitorId: number | null;
+  /** Размер клетки в DIP монитора этого значка. */
+  cell?: { width: number; height: number };
   /** Физический файл открывается редакторами через уже разрешённую папку. */
   fileRef?: WindowsFileRef;
 }

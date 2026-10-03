@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import {
-  Archive, ArrowUpDown, FileSpreadsheet, FileText, Folder, FolderPlus,
+  ArrowUpDown, FileSpreadsheet, FileText, Folder, FolderPlus,
   Monitor, MoreVertical, Palette, RefreshCw, Rows3, Shapes, Trash2, ExternalLink,
 } from 'lucide-react';
 import { SECTIONS } from '../../workspace/sections';
@@ -21,6 +21,7 @@ import {
   bytesToBase64, fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
 } from '../../lib/windowsFiles';
+import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
 
 type Cell = { col: number; row: number };
 type DesktopItem =
@@ -82,14 +83,6 @@ function writeCells(rootId: string, cells: Record<string, Cell>) {
 
 const entryRef = (rootId: string, entry: WindowsFileEntry): WindowsFileRef => ({ rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) });
 const fileTitle = (name: string) => name.replace(/\.[^.]+$/u, '');
-const fileIcon = (entry: WindowsFileEntry) => {
-  if (entry.kind === 'directory') return Folder;
-  const extension = entry.name.split('.').pop()?.toLowerCase();
-  if (['doc', 'docx', 'odt', 'rtf', 'md', 'txt'].includes(extension || '')) return FileText;
-  if (['xls', 'xlsx', 'csv', 'ods'].includes(extension || '')) return FileSpreadsheet;
-  return Archive;
-};
-
 export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: number; y: number } } = {}) {
   const navigate = useNavigate();
   const context = useAppContext();
@@ -100,6 +93,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const openConfirm = useModalStore((state) => state.openConfirm);
   const addToast = useToastStore((state) => state.addToast);
   const userId = useStore((state) => state.user?.id);
+  const workspace = useDisplayStore((state) => state.workspace);
   const areaRef = React.useRef<HTMLDivElement>(null);
   const nameRef = React.useRef<HTMLInputElement>(null);
   const [root, setRoot] = React.useState<WindowsRoot | null>(null);
@@ -117,6 +111,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const [sortBy, setSortBy] = React.useState<'name' | 'type' | 'modified'>('name');
   const [iconScale, setIconScale] = React.useState<'small' | 'medium' | 'large'>('medium');
   const [shareEntry, setShareEntry] = React.useState<WindowsFileEntry | null>(null);
+  const [programsOpen, setProgramsOpen] = React.useState(true);
   const dragged = React.useRef<string | null>(null);
   const refreshEpoch = React.useRef(0);
   const refreshFlight = React.useRef<{ pending: boolean; rootId?: string; promise: Promise<void> } | null>(null);
@@ -194,12 +189,12 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   }, [creating]);
   React.useEffect(() => {
     const api = shellBridge();
-    if (!api) return;
+    if (!api) { setShellDesktop({ status: 'unsupported', message: 'Native shell bridge unavailable', revision: 'unavailable', items: [], view: null }); return; }
     let alive = true;
     let epoch = 0;
     const load = () => {
       const request = ++epoch;
-      void api.snapshot().then((snapshot) => { if (alive && request === epoch) setShellDesktop(snapshot); }).catch(() => {});
+      void api.snapshot().then((snapshot) => { if (alive && request === epoch) setShellDesktop(snapshot); }).catch(() => { if (alive && request === epoch) setShellDesktop({ status: 'unavailable', message: 'Native shell snapshot unavailable', revision: 'unavailable', items: [], view: null }); });
     };
     load();
     const off = api.onChanged(load);
@@ -215,7 +210,8 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const allowedByPath = React.useMemo(() => new Map(allowedSections.map((section) => [section.path, section])), [allowedSections]);
   const pinnedApps = apps.filter((path) => allowedByPath.has(path));
   const shellReady = !!screenOrigin && shellDesktop?.status === 'ready' && !!shellDesktop.view?.iconsVisible;
-  const fluxEntries = shellReady ? entries.filter((entry) => entry.storage === 'flux') : entries;
+  const nativeIconsHidden = shellDesktop?.status === 'ready' && !!screenOrigin && !shellDesktop.view?.iconsVisible;
+  const fluxEntries = shellReady || nativeIconsHidden ? entries.filter((entry) => entry.storage === 'flux') : entries;
   const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entry.fileId, kind: 'file', entry }));
   const shellItems: Extract<DesktopItem, { kind: 'shell' }>[] = shellReady ? shellDesktop!.items.map((item) => ({ id: `shell:${item.id}`, kind: 'shell', item })) : [];
   const appItems: Extract<DesktopItem, { kind: 'app' }>[] = pinnedApps.map((path) => {
@@ -223,8 +219,10 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     return { id: `app:${path}`, kind: 'app', path, title: section.title, icon: section.icon as React.ComponentType<any> };
   });
   const sharedFiles: DesktopItem = { id: 'system:shared-files', kind: 'app', path: '/shared-files', title: 'Общий доступ', icon: Folder, system: true };
-  const items = [sharedFiles, ...appItems, ...fileItems];
-  const contextualItems: DesktopItem[] = [...items, ...shellItems];
+  // Windows shell entries stay at their exact reported coordinates. Flux files
+  // use their own local layout; application shortcuts live in the launcher.
+  const items = fileItems;
+  const contextualItems: DesktopItem[] = [sharedFiles, ...appItems, ...items, ...shellItems];
 
   const placeCells = (patch: Record<string, Cell>) => {
     if (!root) return;
@@ -352,7 +350,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const arrange = (by: 'name' | 'type' | 'modified') => {
     setSortBy(by);
     if (!root) return;
-    const ordered = [sharedFiles.id, ...appItems.map((item) => item.id), ...sortWindowsDesktopEntries(fluxEntries, by).map((entry) => entry.fileId)];
+    const ordered = sortWindowsDesktopEntries(fluxEntries, by).map((entry) => entry.fileId);
     placeCells(Object.fromEntries(ordered.map((id, index) => [id, { col: index % columns, row: Math.floor(index / columns) }])));
   };
 
@@ -361,37 +359,55 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const cellSize = iconScale === 'small' ? { width: 88, height: 84, icon: 24 } : iconScale === 'large' ? { width: 120, height: 116, icon: 44 } : { width: CELL_WIDTH, height: CELL_HEIGHT, icon: 32 };
   const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
   const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.id), cells, columns), [items.map((item) => item.id).join('|'), cells, columns]);
-  const shellBottom = shellReady ? Math.max(0, ...shellDesktop!.items.map((item) => item.position.y - screenOrigin!.y - areaOffset.y + (shellDesktop!.view?.iconSize || 32) + 48)) : 0;
+  const filesHiddenByShell = nativeIconsHidden && fluxEntries.length === 0;
+  const primary = workspace.displays.find((display) => display.primary);
+  const launcherPosition = screenOrigin && primary ? {
+    left: Math.max(0, primary.workArea.x - screenOrigin.x - areaOffset.x + primary.workArea.w - 236),
+    top: Math.max(0, primary.workArea.y - screenOrigin.y - areaOffset.y + 12),
+  } : undefined;
 
   return (
     <section className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100 text-slate-800 dark:bg-dark-bg dark:text-slate-100" aria-label="Рабочий стол Windows">
       {error && <div role="status" className="absolute left-3 top-3 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">{error}</div>}
+      {screenOrigin && shellDesktop?.status !== 'ready' && shellDesktop && <div role="status" className="pointer-events-none absolute bottom-3 left-3 z-[2] rounded-md border border-slate-300/70 bg-white/80 px-2.5 py-1.5 text-xs text-slate-600 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/80 dark:text-slate-300">Расположение Windows недоступно. Отображаются файлы.</div>}
       {loading && <div className="absolute left-4 top-3 z-10 text-sm text-slate-500 dark:text-slate-400">Читаем Рабочий стол Windows…</div>}
+      <div className="absolute right-3 top-3 z-20 w-56" style={launcherPosition}>
+        <button type="button" aria-expanded={programsOpen} onClick={() => setProgramsOpen((open) => !open)} className="flex w-full items-center justify-between rounded-lg border border-slate-300/80 bg-white/90 px-3 py-2 text-left text-sm font-medium text-slate-800 shadow-sm backdrop-blur hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-dark-border dark:bg-dark-surface/90 dark:text-slate-100 dark:hover:bg-dark-surface">
+          <span className="flex items-center gap-2"><Shapes size={16} className="text-sky-700 dark:text-sky-300" />Программы Flux</span><span className="text-xs text-slate-500 dark:text-slate-400">{programsOpen ? 'Скрыть' : `${appItems.length + 1}`}</span>
+        </button>
+        {programsOpen && <div className="mt-1 overflow-hidden rounded-lg border border-slate-300/80 bg-white/95 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/95">
+          <div className="border-b border-slate-200 px-3 py-2 dark:border-dark-border"><div className="text-xs font-medium text-slate-500 dark:text-slate-400">Ярлыки</div><div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Программы рядом, файлы на рабочем столе</div></div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {[sharedFiles, ...appItems].map((item) => { const Icon = item.kind === 'app' ? item.icon || Shapes : Shapes; return <button key={item.id} type="button" aria-label={item.title} onClick={(event) => { if (event.detail < 2) openItem(item); }} onContextMenu={(event) => contextMenu(event, item.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-dark-bg"><Icon size={17} className="shrink-0 text-slate-600 dark:text-slate-300" /><span className="min-w-0 flex-1 truncate">{item.title}</span><span className="text-xs text-slate-400">Flux</span></button>; })}
+            {appItems.length === 0 && <div className="px-2 py-3 text-xs text-slate-500 dark:text-slate-400">Закреплённых программ пока нет.</div>}
+          </div>
+          {addableApps.length > 0 && <button type="button" onClick={(event) => setMenu({ x: event.clientX, y: event.clientY, itemId: 'apps:add' })} className="w-full border-t border-slate-200 px-3 py-2 text-left text-xs font-medium text-sky-700 hover:bg-slate-50 dark:border-dark-border dark:text-sky-300 dark:hover:bg-dark-bg">Закрепить программу…</button>}
+        </div>}
+      </div>
       <div className="relative h-full min-h-0 w-full">
-      <div ref={areaRef} className="absolute inset-0 overflow-hidden" onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / cellSize.width))); const row = Math.max(0, Math.floor((event.clientY - rect.top - shellBottom) / cellSize.height)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
-        {!error && !loading && contents && <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">На Рабочем столе Windows пока пусто. Создайте папку или документ либо закрепите ярлык Flux.</div>}
+      <div ref={areaRef} className="absolute inset-0 overflow-hidden" style={{ right: !shellReady && programsOpen ? 248 : 0 }} onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / cellSize.width))); const row = Math.max(0, Math.floor((event.clientY - rect.top) / cellSize.height)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
+        {!error && !loading && contents && !filesHiddenByShell && <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">На Рабочем столе Windows пока пусто. Создайте папку или документ.</div>}
         {shellItems.map((desktopItem) => {
           const left = desktopItem.item.position.x - screenOrigin!.x - areaOffset.x;
           const top = desktopItem.item.position.y - screenOrigin!.y - areaOffset.y;
           return <button key={desktopItem.id} type="button" aria-label={desktopItem.item.name} title={desktopItem.item.name}
             onDoubleClick={() => openItem(desktopItem)} onContextMenu={(event) => contextMenu(event, desktopItem.id)}
             className="absolute z-[1] flex flex-col items-center gap-1 rounded-md p-1 text-center text-xs hover:bg-sky-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-sky-900/40"
-            style={{ left, top, width: Math.max(80, shellDesktop?.view?.spacing.x || 96), minHeight: shellDesktop?.view?.iconSize || 48 }}>
-            {desktopItem.item.icon ? <img src={desktopItem.item.icon.dataUrl} alt="" draggable={false} style={{ width: desktopItem.item.icon.width, height: desktopItem.item.icon.height, objectFit: 'contain' }} /> : <Shapes size={shellDesktop?.view?.iconSize || 32} />}
+            style={{ left, top, width: Math.max(60, desktopItem.item.cell?.width || 96), minHeight: (desktopItem.item.icon?.height || 32) + 40 }}>
+            {desktopItem.item.fileRef ? <NativeWindowsFileIcon entry={{ fileId: desktopItem.item.id, name: desktopItem.item.name, relativePath: desktopItem.item.fileRef.relativePath, kind: desktopItem.item.kind === 'directory' ? 'directory' : 'file', modifiedAt: '', size: 0, storage: 'windows' } as WindowsFileEntry} fileRef={desktopItem.item.fileRef} size={shellDesktop?.view?.iconSize || 32} /> : desktopItem.item.icon ? <img src={desktopItem.item.icon.dataUrl} alt="" draggable={false} style={{ width: desktopItem.item.icon.width, height: desktopItem.item.icon.height, objectFit: 'contain' }} /> : <Shapes size={shellDesktop?.view?.iconSize || 32} />}
             <span className="line-clamp-2 break-words leading-4 [text-shadow:0_1px_2px_white] dark:[text-shadow:0_1px_2px_black]">{desktopItem.item.name}</span>
           </button>;
         })}
         {!error && !loading && items.length > 0 && (
-          <div className="grid gap-1" style={{ marginTop: shellBottom, gridTemplateColumns: `repeat(${columns}, ${cellSize.width}px)`, gridAutoRows: `${cellSize.height}px` }}>
+          <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize.width}px)`, gridAutoRows: `${cellSize.height}px` }}>
             {items.map((item) => {
               const cell = positions[item.id] || { col: 0, row: 0 };
-              const Icon = item.kind === 'app' ? item.icon || Shapes : fileIcon(item.entry);
-              const title = item.kind === 'app' ? item.title : fileTitle(item.entry.name);
+              const title = fileTitle(item.entry.name);
               const isSelected = selected === item.id;
-              return <div key={item.id} role="button" tabIndex={0} draggable={!(item.kind === 'app' && item.system)} onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { if (item.kind === 'app' && item.system) { event.preventDefault(); return; } dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
-                <Icon size={cellSize.icon} className={`shrink-0 ${item.kind === 'app' ? 'text-slate-600 dark:text-slate-300' : item.entry.kind === 'directory' ? 'text-amber-600 dark:text-amber-400' : 'text-sky-700 dark:text-sky-300'}`} />
-                <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.kind === 'app' ? item.title : item.entry.name}>{title}</span>
-                {item.kind === 'file' && item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}
+              return <div key={item.id} role="button" tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
+                <NativeWindowsFileIcon entry={item.entry} fileRef={entryRef(root!.id, item.entry)} size={cellSize.icon} />
+                <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.entry.name}>{title}</span>
+                {item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}
               </div>;
             })}
           </div>
@@ -401,7 +417,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
 
       {creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(null); }}><div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface"><h2 id="windows-create-title" className="text-lg font-semibold">{creating === 'windows-folder' ? 'Новая папка Windows' : creating.startsWith('windows-') ? 'Новый файл Windows' : 'Новый документ Flux'}</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{creating === 'windows-folder' || creating.startsWith('windows-') ? 'Файл появится в настоящем каталоге Windows.' : 'Flux создаст черновик и откроет его в редакторе.'}</p><label className="mt-4 block text-sm">Имя<input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); if (event.key === 'Escape') setCreating(null); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCreating(null)} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button><button type="button" onClick={() => void create()} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button></div></div></div>}
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={current?.kind === 'file' ? [
+      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={menu.itemId === 'apps:add' ? addableApps.map(section => ({ label: section.title, onClick: () => pinApp(section.path) })) : current?.kind === 'file' ? [
         { label: current.entry.kind === 'directory' ? 'Открыть папку' : 'Открыть в Flux', icon: <ExternalLink />, onClick: () => openItem(current) },
         { label: 'Открыть в Windows', icon: <ExternalLink />, onClick: () => void invoke({ action: 'open', ref: entryRef(root!.id, current.entry) }) },
         { label: 'Показать в Проводнике', icon: <Folder />, onClick: () => void invoke({ action: 'reveal', ref: entryRef(root!.id, current.entry) }) },
@@ -431,7 +447,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
           { label: 'Документ', icon: <FileText />, onClick: () => beginCreate('flux-doc') },
           { label: 'Таблицу', icon: <FileSpreadsheet />, onClick: () => beginCreate('flux-sheet') },
           { label: 'Заметку Markdown', icon: <FileText />, onClick: () => beginCreate('flux-markdown') },
-          ...addableApps.slice(0, 12).map((section) => ({ label: `Закрепить: ${section.title}`, onClick: () => pinApp(section.path) })),
+          ...addableApps.map((section) => ({ label: `Закрепить: ${section.title}`, onClick: () => pinApp(section.path) })),
         ] },
         { label: 'Параметры экрана', icon: <Monitor />, onClick: () => navigate('/settings?section=general#monitors') },
         { label: 'Персонализация', icon: <Palette />, onClick: () => navigate('/settings?section=general#appearance') },

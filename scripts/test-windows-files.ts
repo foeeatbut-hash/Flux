@@ -25,6 +25,10 @@ try {
   const roots = await service.roots(); const rootId = roots[0].id;
   check(roots.length === 1 && roots[0].kind === 'desktop' && !('path' in roots[0]), 'Корень отдаёт capability без абсолютного пути');
   const project = { rootId, relativePath: 'Проект' }; const original = { rootId, relativePath: 'Проект/Исходный.md' };
+  check(await service.iconPath(original) === path.join(desktop, 'Проект', 'Исходный.md'), 'Системный значок получает только проверенный путь оригинала');
+  check(await service.iconPath(project) === path.join(desktop, 'Проект'), 'Папка тоже получает настоящий системный значок');
+  await rejects(() => service.iconPath({ rootId: 'unknown', relativePath: '' }), 'UNKNOWN_ROOT', 'Запрос значка не выдаёт доступ к неизвестному корню');
+  await rejects(() => service.iconPath({ rootId, relativePath: '../outside/private.txt' }), 'INVALID_NAME', 'Запрос значка не обходит границу подключённой папки');
   const listing = await service.list(project); check(listing.entries[0].name === 'Исходный.md', 'Перечисляются реальные файлы с кириллицей');
   const read = await service.read(original); check(Buffer.from(read.base64, 'base64').toString() === 'оригинал', 'Чтение возвращает настоящие байты');
   await rejects(() => service.read({ rootId: 'unknown', relativePath: '' }), 'UNKNOWN_ROOT', 'Произвольный корень отклонён');
@@ -34,6 +38,7 @@ try {
   await rejects(() => service.read({ rootId, relativePath: '\\\\server\\share' }), 'INVALID_PATH', 'Неподключённый UNC отклонён');
   for (const name of ['CON', 'con.txt', 'COM1.txt', 'LPT9', 'NUL', 'bad.', 'bad ', 'a/b', 'a\\b', 'a:b', '..', '', 'a\u0000b']) { assert.throws(() => validateWindowsName(name)); passed++; }
   await fs.symlink(outside, path.join(desktop, 'link'), 'junction');
+  await rejects(() => service.iconPath({ rootId, relativePath: 'link/private.txt' }), 'LINK_BLOCKED', 'Получение значка тоже отклоняет внешний junction');
   await rejects(() => service.read({ rootId, relativePath: 'link/private.txt' }), 'LINK_BLOCKED', 'Junction не даёт читать внешний файл');
   check((await service.list({ rootId, relativePath: '' })).entries.some(item => item.kind === 'link' && item.name === 'link'), 'Ссылка показана без обхода содержимого');
   const update = Buffer.from('новая версия').toString('base64');

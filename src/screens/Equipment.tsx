@@ -13,6 +13,7 @@ import UnitSchematic from '../components/equipment/UnitSchematic';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
+import { hasAdminRole } from '../lib/permissions';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -56,7 +57,7 @@ const api = (p: string) => `/api${p}`;
 export default function Equipment() {
   const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = hasAdminRole(user as any);
 
   const [categories, setCategories] = useState<Category[]>([
     { id: 'AHU', label: 'Центральные кондиционеры', composite: true },
@@ -488,19 +489,19 @@ export default function Equipment() {
       )}
       <div className="flex-1 min-h-0 flex overflow-x-auto">
       {/* Категории — боковой список; подсказка о форматах — в подвале списка */}
-      <nav className="fx-side w-12 @[820px]:w-44 @[1060px]:w-56 shrink-0 flex flex-col overflow-hidden" aria-label="Категории оборудования">
+      <nav className="fx-side w-44 @[1060px]:w-56 shrink-0 flex flex-col overflow-hidden" aria-label="Категории оборудования">
         <div className="flex-1 overflow-y-auto p-2">
           <div className="hidden @[820px]:block fx-gh">Категории</div>
           {categories.map(c => {
             const n = catCount(c.id);
             return (
-              <button type="button" key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); }}
+              <button type="button" key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); setSelectedUnitId(null); setListMode(false); }}
                 title={n > 0 ? `${c.label} · ${n}` : c.label}
                 aria-current={c.id === activeCat ? 'true' : undefined}
-                className="fx-li justify-center @[820px]:justify-start">
+                className="fx-li justify-start">
                 {catIcon(c.id)}
-                <span className="hidden @[820px]:block flex-1 min-w-0 truncate">{c.label}</span>
-                {n > 0 && <span className="hidden @[820px]:inline fx-n">{n}</span>}
+                <span className="flex-1 min-w-0 truncate">{c.label}</span>
+                {n > 0 && <span className="fx-n">{n}</span>}
               </button>
             );
           })}

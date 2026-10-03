@@ -41,7 +41,7 @@ export function diagnosticsWriter(): FileWriter | null {
 /** Record a bounded Office host phase without exposing document or payload data. */
 export function recordOfficeHost(fields: {
   app: 'pdf' | 'sheets'; action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
-  operation: string; phase: 'start' | 'end'; durationMs?: number;
+  operation: string; unknownChannel?: string; phase: 'start' | 'end'; durationMs?: number;
   outcome?: 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped'; error?: string; code?: string;
 }): void {
   try { writer?.record('office.host', fields as any); } catch (_) { /* diagnostics never affect host operation */ }

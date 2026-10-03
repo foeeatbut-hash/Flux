@@ -8,6 +8,7 @@ import { LocalOfficeSessions, type LocalOfficeHost, type LocalOfficeEvent } from
 
 class TestHost implements LocalOfficeHost {
   paths = new Map<number, string>();
+  sent: { id: number; channel: string; args: unknown[] }[] = [];
   private next = 1;
   private sinks = new Set<(id: number, channel: string, args: unknown[]) => void>();
   private copies = new Map<number, (ok: boolean) => void>();
@@ -15,7 +16,10 @@ class TestHost implements LocalOfficeHost {
   start() {}
   open(path: string) { const id = this.next++; this.paths.set(id, path); return id; }
   onSend(fn: (id: number, channel: string, args: unknown[]) => void) { this.sinks.add(fn); return () => { this.sinks.delete(fn); }; }
-  send(id: number, channel: string, args: unknown[]) { if (channel === 'pdf:save-as-result') { this.copies.get(id)?.(args[0] === true); this.copies.delete(id); } }
+  send(id: number, channel: string, args: unknown[]) {
+    this.sent.push({ id, channel, args });
+    if (channel === 'pdf:save-as-result') { this.copies.get(id)?.(args[0] === true); this.copies.delete(id); }
+  }
   emit(id: number, channel: string, args: unknown[]) { for (const fn of this.sinks) fn(id, channel, args); }
   async invoke(id: number, channel: string, args: any[], saveTarget?: string, commit?: () => Promise<void>) {
     if (channel === 'pdf:consume-pending') return this.paths.get(id);
@@ -43,8 +47,9 @@ const files = await WindowsFilesService.create({ userData, knownFolders: { deskt
 const rootId = (await files.roots())[0].id;
 const pdf = new TestHost(); const sheets = new TestHost();
 const events: {owner: number; event: LocalOfficeEvent}[] = [];
+const officeDiagnostics: any[] = [];
 const manager = new LocalOfficeSessions({ files, userData, loadHost: app => app === 'pdf' ? pdf : sheets,
-  onEvent: (owner, event) => { events.push({owner,event}); }, copyTimeoutMs: 50 });
+  onEvent: (owner, event) => { events.push({owner,event}); }, onDiagnostic: event => officeDiagnostics.push(event), copyTimeoutMs: 50 });
 let licensed = true;
 const auth = { mayRead: () => true, mayWrite: () => licensed };
 const ref = (name: string) => ({ rootId, relativePath: name });
@@ -68,6 +73,20 @@ try {
   await rejected('Forged save target denied','PATH_NOT_GRANTED',()=>manager.handle(10,{action:'invoke',session:p.session,channel:'pdf:save',args:[{path:originalPath,targetPath:join(desktop,'source.xlsx')}]},auth));
   await rejected('Generated/arbitrary file operations denied','CHANNEL_DISABLED',()=>manager.handle(20,{action:'invoke',session:x.session,channel:'workbook:open-for-merge',args:[[join(desktop,'source.pdf')]]},auth));
   await rejected('External printer denied','CHANNEL_DISABLED',()=>manager.handle(20,{action:'invoke',session:x.session,channel:'workbook:print'},auth));
+  for (const [channel, args] of [
+    ['workbook:pending-edits', [3]], ['workbook:close-save-result', [true]], ['workbook:recovery-prompt-reply', [false]],
+  ] as [string, unknown[]][]) {
+    const before = sheets.sent.length;
+    const sent = await manager.handle(20, { action: 'send', session: x.session, channel, args }, auth);
+    check(`Known Sheets lifecycle send reaches its native session (${channel})`, sent.sent && sheets.sent.length === before + 1 && sheets.sent.at(-1)?.channel === channel);
+  }
+  const sendsBeforeReady = sheets.sent.length;
+  const ready = await manager.handle(20,{action:'send',session:x.session,channel:'sheets:mcp-ready'},auth);
+  check('Sheets startup readiness is consumed locally without native forwarding', ready.sent && sheets.sent.length === sendsBeforeReady);
+  await rejected('MCP result send stays disabled in local mode','CHANNEL_DISABLED',()=>manager.handle(20,{action:'send',session:x.session,channel:'sheets:mcp-result',args:[{requestId:'x',result:'data'}]},auth));
+  check('Rejected send never reaches the native session', sheets.sent.length === sendsBeforeReady);
+  check('Rejected send diagnostic identifies channel without arguments', officeDiagnostics.at(-1)?.action === 'send' && officeDiagnostics.at(-1)?.unknownChannel === 'sheets:mcp-result' && !('args' in officeDiagnostics.at(-1)));
+  await rejected('Readiness signal cannot smuggle a payload','INVALID_REQUEST',()=>manager.handle(20,{action:'send',session:x.session,channel:'sheets:mcp-ready',args:['unexpected']},auth));
   pdf.emit(1,'pdf:save-as-flow',[true]); sheets.emit(1,'workbook:pending-edits',[3]);
   check('Events stay with app+native ID owner', events.at(-2)?.owner === 10 && events.at(-1)?.owner === 20 && events.at(-2)?.event.session === p.session);
   await manager.handle(10,{action:'invoke',session:p.session,channel:'pdf:save',args:[{path:originalPath,bytes:'saved pdf'}]},auth);

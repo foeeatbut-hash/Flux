@@ -11,10 +11,11 @@ const OPERATIONS = new Set([
   'sheets:consume-new-blank', 'sheets:has-queued-workbook', 'sheets:consume-headless-export',
   'workbook:save', 'workbook:save-edits-begin', 'workbook:save-edits-chunk', 'workbook:save-edits-abort',
   'workbook:write-recovery', 'workbook:pending-edits', 'workbook:close-save-result', 'workbook:recovery-prompt-reply',
+  'sheets:mcp-ready',
 ]);
 export const isOfficeOperation = (value: unknown): value is string => typeof value === 'string' && OPERATIONS.has(value);
 export interface OfficeHostDiagnostic {
   app: 'pdf' | 'sheets'; action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
-  operation: string; phase: 'start' | 'end'; durationMs?: number;
+  operation: string; unknownChannel?: string; phase: 'start' | 'end'; durationMs?: number;
   outcome?: 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped'; error?: string; code?: string;
 }

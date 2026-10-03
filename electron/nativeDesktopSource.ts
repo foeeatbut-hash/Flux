@@ -11,6 +11,7 @@ using System.Security.Cryptography;
 using System.Web.Script.Serialization;
 
 public static class FluxExplorerDesktop {
+  public static string Stage = "initialize";
   [StructLayout(LayoutKind.Sequential)] public struct Point { public int x, y; }
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
   [StructLayout(LayoutKind.Sequential)] public struct Size { public int x, y; }
@@ -116,29 +117,37 @@ public static class FluxExplorerDesktop {
     IntPtr browser=IntPtr.Zero, view=IntPtr.Zero, folderView=IntPtr.Zero;
     IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     try {
+      Stage = "shell-windows";
       windows = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("9BA05972-F6A8-11CF-A442-00A0C90A8F39")));
       object[] args = new object[] { 0, null, 8, 0, 1 };
       ParameterModifier modifier = new ParameterModifier(5); modifier[0]=true; modifier[1]=true; modifier[3]=true;
+      Stage = "find-desktop";
       dispatch = windows.GetType().InvokeMember("FindWindowSW", BindingFlags.InvokeMethod, null, windows, args, new ParameterModifier[] { modifier }, null, null);
       if (dispatch == null) throw new InvalidOperationException("EXPLORER_DESKTOP_UNAVAILABLE");
       Guid service = new Guid("4C96BE40-915C-11CF-99D3-00AA004AE837"), browserId = new Guid("000214E2-0000-0000-C000-000000000046");
+      Stage = "query-browser";
       Check(((IServiceProvider)dispatch).QueryService(ref service, ref browserId, out browser));
       // Номера соответствуют vtable Windows SDK: IOleWindow + IShellBrowser.
+      Stage = "query-view";
       Check(Method<OutPointer>(browser, 15)(browser, out view));
       Guid folderId = new Guid("1AF3A467-214F-4298-908E-06B03E0B39F9");
+      Stage = "query-folder";
       Check(Marshal.QueryInterface(view, ref folderId, out folderView));
       IntPtr window; Check(Method<OutPointer>(view, 3)(view, out window));
       uint mode, flags; int iconSize;
       // IFolderView содержит 14 методов; GetViewModeAndIconSize — слот 36.
+      Stage = "view-options";
       Check(Method<OutMode>(folderView, 36)(folderView, out mode, out iconSize));
       Check(Method<OutFlags>(folderView, 25)(folderView, out flags));
       if (iconSize < 8 || iconSize > 1024) throw new InvalidDataException("DESKTOP_ICON_SIZE");
       Point spacing; Check(Method<OutPoint>(folderView, 12)(folderView, out spacing));
+      Stage = "coordinates";
       Rect bounds; if (!GetClientRect(window, out bounds)) throw new InvalidOperationException("DESKTOP_BOUNDS");
       Point origin = ToPhysical(window, new Point { x=bounds.left, y=bounds.top });
       Point end = ToPhysical(window, new Point { x=bounds.right, y=bounds.bottom });
       IntPtr list = FindWindowEx(window, IntPtr.Zero, "SysListView32", null);
       bool visible = (flags & 0x1000) == 0 && IsWindowVisible(list == IntPtr.Zero ? window : list);
+      Stage = "enumerate";
       int count; Check(Method<OutNumber>(folderView, 7)(folderView, 2, out count));
       if (count < 0 || count > 10000) throw new InvalidDataException("DESKTOP_ITEM_COUNT");
       List<object> items = new List<object>(); int skipped=0;
@@ -203,7 +212,11 @@ ${NATIVE_DESKTOP_SOURCE}
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::WriteLine([FluxExplorerDesktop]::Run($env:FLUX_DESKTOP_ACTION, $env:FLUX_DESKTOP_ITEM))
 } catch {
-[Console]::Error.WriteLine('FLUX_DESKTOP_NATIVE_FAILED')
+$failure = $_.Exception
+while ($failure.InnerException) { $failure = $failure.InnerException }
+$stage = 'compile'
+if ('FluxExplorerDesktop' -as [type]) { $stage = [FluxExplorerDesktop]::Stage }
+[Console]::Error.WriteLine(('FLUX_DESKTOP_NATIVE_FAILED:{0}:{1}:{2:X8}' -f $stage, $failure.GetType().Name, $failure.HResult))
 exit 1
 }
 `;

@@ -22,6 +22,7 @@ async function main() {
     bounds = { x: 100, y: 100, width: 1280, height: 800 };
     normal = { ...this.bounds };
     minimum = [960, 620];
+    shape: any[] = [];
     movable = true; resizable = true; maximized = false; fullscreen = false;
     isDestroyed() { return false; }
     getNormalBounds() { return { ...this.normal }; }
@@ -32,6 +33,7 @@ async function main() {
     isFullScreen() { return this.fullscreen; }
     getMinimumSize() { return this.minimum; }
     setMinimumSize(w: number, h: number) { this.minimum = [w, h]; }
+    setShape(rectangles: any[]) { this.shape = JSON.parse(JSON.stringify(rectangles)); }
     setFullScreen(v: boolean) { this.fullscreen = v; }
     setMovable(v: boolean) { this.movable = v; }
     setResizable(v: boolean) { this.resizable = v; }
@@ -51,7 +53,7 @@ async function main() {
           'export const { app, screen, ipcMain } = globalThis.__mock;', loader: 'js' }));
       } }] });
     const module = { exports: {} as any };
-    vm.runInNewContext(bundled.outputFiles[0].text, { module, exports: module.exports, require,
+    vm.runInNewContext(bundled.outputFiles[0].text, { module, exports: module.exports, require, process: { platform: 'win32' },
       __mock: { app, screen, ipcMain: { handle: (name: string, fn: any) => handlers.set(name, fn) } } });
     const api = module.exports.setupDisplayWorkspace(() => win, () => trusted);
     api.attach();
@@ -64,9 +66,21 @@ async function main() {
     check('Число и DPI мониторов не потеряны', get().mixedScale, true);
     set(true);
     check('Native bounds включают левый экран и отрицательную высоту', win.bounds, { x: -1280, y: -200, width: 3200, height: 1280 });
+    check('Нативная форма оставляет Пуск и промежутки мониторов доступными Windows', win.shape, [
+      { x: 1280, y: 200, width: 1920, height: 1040 }, { x: 0, y: 0, width: 1280, height: 984 },
+    ]);
     check('Режим временно снимает ограничение минимального размера', win.minimum, [1, 1]);
     check('Native перемещение в общем режиме отключено', win.movable, false);
     check('Режим сохраняется отдельно от ключей и БД', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true, showWindowsTaskbar: true });
+    preferences({ showWindowsTaskbar: false });
+    check('Без панели Windows рабочий стол покрывает весь каждый монитор', win.shape, [
+      { x: 1280, y: 200, width: 1920, height: 1080 }, { x: 0, y: 0, width: 1280, height: 1024 },
+    ]);
+    preferences({ showWindowsTaskbar: true });
+    check('Повторное включение Пуска меняет HWND без изменения внешних bounds', win.shape[0].height, 1040);
+    monitors[0] = { ...monitors[0], workArea: { x: 48, y: 0, width: 1872, height: 1080 } };
+    screen.emit('display-metrics-changed');
+    check('Вертикальная панель Windows тоже не закрывается окном Flux', win.shape[0], { x: 1328, y: 200, width: 1872, height: 1080 });
     preferences({ showWindowsTaskbar: false });
     check('Скрытие панели Windows сохраняется отдельно от режима мониторов', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true, showWindowsTaskbar: false });
     check('Настройка панели отражается в геометрии для renderer', get().showWindowsTaskbar, false);
@@ -75,6 +89,7 @@ async function main() {
     check('Отключение экрана пересчитывает native bounds', win.bounds, { x: 0, y: 0, width: 1920, height: 1080 });
     check('После hotplug renderer получает новый состав экранов', win.sent.at(-1)?.[1]?.displays.length, 1);
     set(false);
+    check('Обычное окно восстанавливает полную нативную форму', win.shape, []);
     check('Выключение общего режима сохраняет настройку панели', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: false, showWindowsTaskbar: false });
     check('Обычный размер и положение возвращаются', win.bounds, { x: 100, y: 100, width: 1280, height: 800 });
     check('Минимальный размер восстанавливается', win.minimum, [960, 620]);

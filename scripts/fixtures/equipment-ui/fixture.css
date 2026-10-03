@@ -1,0 +1,8 @@
+@import '../../../src/index.css';
+@source '../../../src';
+@source '.';
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}

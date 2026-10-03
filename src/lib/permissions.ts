@@ -207,6 +207,10 @@ export interface PermUser {
   rolePermissions?: string | PermMap | null;
 }
 
+/** Роль владельца и администратора открывает UI-функции уровня управления. */
+export const hasAdminRole = (user: PermUser | null | undefined): boolean =>
+  user?.role === 'OWNER' || user?.role === 'ADMIN';
+
 export function parsePermissions(raw: string | PermMap | null | undefined): PermMap {
   if (!raw) return {};
   if (typeof raw === 'object') return raw as PermMap;

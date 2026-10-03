@@ -14,6 +14,7 @@ import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { decodeShare } from '../lib/shareLink';
 import { openInProject } from '../lib/projectScope';
+import { hasAdminRole } from '../lib/permissions';
 import { useTagNavigationStore } from '../store/tagNavigationStore';
 import MessageBubble, { DayDivider } from '../components/chat/MessageBubble';
 import { markGroups } from '../components/chat/grouping';
@@ -595,7 +596,7 @@ export default function ChatManagement() {
 
   const pinnedMessages = messages.filter(m => m.pinned);
   const isChannel = activeGroup?.type === 'CHANNEL';
-  const canPostInActive = !isChannel || (activeGroup?.ownerId === user?.id) || user?.role === 'ADMIN';
+  const canPostInActive = !isChannel || (activeGroup?.ownerId === user?.id) || hasAdminRole(user as any);
 
   const EMOJIS = ['👍','✅','❌','🔥','⚠️','📐','🔧','⚙️','📊','📁','💡','🚀','👌','🙏','😀','😄','😅','🤔','😐','😢','💪','🤝','📌','⏰','❗','❓','🟢','🔴'];
 
@@ -1035,7 +1036,7 @@ export default function ChatManagement() {
                         <button type="button" onClick={handleClearHistory} className="fx-menu-item">
                           <Trash2 className="w-3.5 h-3.5" /> Очистить историю
                         </button>
-                        {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || user?.role === 'ADMIN') && (
+                        {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || hasAdminRole(user as any)) && (
                           <button type="button" onClick={async () => { setShowChatMenu(false); if (await openConfirm(`Удалить ${activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'} «${activeGroup.name}»?`, 'Вся переписка и вложения будут удалены у всех участников. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' }) && user) { try { await deleteGroup(activeGroup.id, user.id); setActiveGroupId(null); addToast('Удалено', 'success'); } catch (e: any) { addToast(e.message, 'error'); } } }} className="fx-menu-item is-danger">
                             <Trash className="w-3.5 h-3.5" /> Удалить {activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'}
                           </button>

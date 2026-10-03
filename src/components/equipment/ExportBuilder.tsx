@@ -8,7 +8,7 @@ import { exportGrid } from '../../lib/exportGrid';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
-  ArrowDown, ArrowUp, ClipboardCopy, Download, FileSpreadsheet, GripVertical, Plus, Save, Search, Table2, X, PanelLeftClose, PanelLeftOpen,
+  ArrowDown, ArrowUp, ChevronRight, ClipboardCopy, Download, FileSpreadsheet, GripVertical, Plus, Save, Search, Table2, X, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { classById, classOrder } from '../../../equipment/classes';
 import { equipmentColumns, type ExchangeComponent } from '../../lib/equipmentExchange';
@@ -74,7 +74,7 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
   const draftKey = exportDraftKey(projectId, userId);
   const last = React.useMemo(() => { try { return parseExportDraft(localStorage.getItem(draftKey)); } catch { return null; } }, [draftKey]);
   const [showFilters, setShowFilters] = React.useState(last?.railOpen ?? true);
-  const [rail, setRail] = React.useState(last?.railWidth || 320);
+  const [rail, setRail] = React.useState(last?.railWidth || 288);
   const [tab, setTab] = React.useState<'source' | 'columns' | 'group' | 'templates'>(last?.tab || 'source');
   const body = React.useRef<HTMLDivElement>(null);
   const [scope, setScope] = React.useState(() => scopes.some(s => s.id === initialScope) ? initialScope! : scopes.some(s => s.id === last?.scope) ? last!.scope : scopes[0]?.id || 'all');
@@ -291,9 +291,9 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
       </div>
       <div ref={body} className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         {showFilters && <>
-        <aside aria-label="Параметры выгрузки" className="fx-side flex min-h-0 shrink-0 flex-col" style={{ width: `min(${rail}px, 58cqw)` }}>
-          <div role="tablist" aria-label="Настройки выгрузки" className="fx-tabs h-10 shrink-0 overflow-x-auto px-2">
-            {([['source', 'Данные'], ['columns', 'Столбцы'], ['group', 'Объединение'], ['templates', 'Шаблоны']] as const).map(([id, title]) => <button type="button" key={id} role="tab" aria-selected={tab === id} className="fx-tab whitespace-nowrap" onClick={() => setTab(id)}>{title}</button>)}
+        <aside aria-label="Параметры выгрузки" className="fx-side flex min-h-0 shrink-0 flex-col" style={{ width: `min(${rail}px, max(184px, 30cqw))` }}>
+          <div role="tablist" aria-label="Шаги выгрузки" className="fx-tabs grid h-auto shrink-0 grid-cols-2 gap-1 px-2 py-1.5">
+            {([['source', 'Данные', 'Данные'], ['columns', 'Столбцы', 'Столбцы'], ['group', 'Объединение', 'Группы'], ['templates', 'Шаблоны', 'Шаблоны']] as const).map(([id, title, shortTitle], index) => <button type="button" key={id} role="tab" aria-label={title} aria-selected={tab === id} className="fx-tab min-h-8 justify-center whitespace-nowrap" onClick={() => setTab(id)}><span aria-hidden="true" className="mr-1 tabular-nums text-slate-500 dark:text-slate-400">{index + 1}.</span>{shortTitle}</button>)}
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           {/* 1. Что */}
@@ -361,49 +361,55 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
             <div className="p-3 space-y-1">
               <div className={label}>Быстрые наборы</div>
               <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => setSpec(s => ({ ...applyPreset(s, 'tree'), classes: ['КЛАПАН', 'ПРИВОД'], taggedOnly: false }))}>Клапаны и их приводы</button>
-              <div className="flex flex-wrap gap-1 pb-2">
+              <div className="flex flex-col items-stretch gap-1 pb-2">
                 {PRESETS.map((p) => (
-                  <button key={p.id} type="button" className={chip(false)} onClick={() => setSpec((s) => applyPreset(s, p.id))}
+                  <button key={p.id} type="button" className={`${chip(false)} w-full text-left`} onClick={() => setSpec((s) => applyPreset(s, p.id))}
                     title="Поставить эти служебные столбцы; выбранные характеристики останутся">{p.title}</button>
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <div className={`${label} flex-1`}>Столбцы — порядок перетаскиванием</div>
+                <div className={`${label} flex-1`}>Столбцы</div>
                 {spec.columns.length > 0 && (
                   <button type="button" onClick={() => set({ columns: [] })} className="text-2xs text-slate-400 hover:text-rose-500 cursor-pointer">очистить</button>
                 )}
               </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Перетаскивайте для изменения порядка.</p>
               {spec.columns.length === 0 && <div className="text-2xs text-slate-400 py-2">Выберите быстрый набор или добавьте столбцы ниже.</div>}
               {spec.columns.map((c) => (
                 <div key={c.key} draggable onDragStart={() => setDrag(c.key)} onDragEnd={() => setDrag(null)}
                   onDragOver={(e) => { if (drag && drag !== c.key) e.preventDefault(); }}
                   onDrop={() => { if (drag) moveCol(drag, c.key); setDrag(null); }}
                   className={`flex flex-wrap items-center gap-1 px-1.5 py-1 rounded-lg border ${drag === c.key ? 'border-emerald-400' : 'border-slate-150 dark:border-slate-800'}`}>
+                  <div className="flex w-full min-w-0 items-center gap-1">
                   <GripVertical className="w-3.5 h-3.5 text-slate-300 cursor-grab shrink-0" aria-hidden />
                   <span className="flex-1 min-w-0">
-                    <input value={c.label} onChange={(e) => rename(c.key, e.target.value)} aria-label="Заголовок столбца"
-                      className="w-full bg-transparent text-xs outline-none focus:ring-1 focus:ring-emerald-400 rounded px-1" />
-                    {c.key.startsWith('param:') && <span className="block px-1 text-2xs text-slate-400 truncate">{c.key.slice(6).split('|')[0]}</span>}
+                    <input value={c.label} onChange={(e) => rename(c.key, e.target.value)} aria-label="Заголовок столбца" title={c.label}
+                      className="w-full min-w-0 bg-transparent text-xs outline-none focus:ring-1 focus:ring-emerald-400 rounded px-1" />
                   </span>
+                  </div>
                   {c.key.startsWith('formula:') && <input aria-label="Формула столбца" className="fx-input order-last w-full text-xs" placeholder="=SUM(D{row}:F{row})" value={c.formula || ''} onChange={e => set({ columns: spec.columns.map(x => x.key === c.key ? { ...x, formula: e.target.value } : x) })} />}
-                  {c.unit ? <span className="text-2xs text-slate-400 shrink-0">{c.unit}</span> : null}
-                  <button type="button" onClick={() => stepCol(c.key, -1)} aria-label="Левее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowUp className="w-3 h-3" /></button>
-                  <button type="button" onClick={() => stepCol(c.key, 1)} aria-label="Правее" className="p-0.5 text-slate-400 hover:text-emerald-600 cursor-pointer"><ArrowDown className="w-3 h-3" /></button>
-                  <button type="button" onClick={() => dropCol(c.key)} aria-label="Убрать столбец" className="p-0.5 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+                  <span className="min-w-0 flex-1 truncate pl-5 text-2xs text-slate-500 dark:text-slate-400" title={c.key.startsWith('param:') ? c.key.slice(6).split('|')[0] : undefined}>
+                    {c.key.startsWith('param:') ? c.key.slice(6).split('|')[0] : ''}{c.unit ? ` · ${c.unit}` : ''}
+                  </span>
+                  <button type="button" onClick={() => stepCol(c.key, -1)} aria-label="Левее" className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-400 cursor-pointer"><ArrowUp className="w-3 h-3" /></button>
+                  <button type="button" onClick={() => stepCol(c.key, 1)} aria-label="Правее" className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-400 cursor-pointer"><ArrowDown className="w-3 h-3" /></button>
+                  <button type="button" onClick={() => dropCol(c.key)} aria-label="Убрать столбец" className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 cursor-pointer"><X className="w-3 h-3" /></button>
                 </div>
               ))}
             </div>
-            <div className="border-t border-slate-100 dark:border-slate-800 p-3 space-y-2 ">
-              <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => addCol({ key: `formula:${crypto.randomUUID()}`, label: 'Расчёт', formula: '=SUM(D{row}:F{row})' })}>+ Столбец с формулой</button>
-              <div className={label}>Служебные</div>
-              <div className="flex flex-wrap gap-1">
-                {SERVICE_COLUMNS.map((c) => (
-                  <button key={c.key} type="button" disabled={hasCol(c.key)} onClick={() => addCol({ ...c })}
-                    className={`${chip(false)} disabled:opacity-35 disabled:cursor-default`}>
-                    <Plus className="inline w-2.5 h-2.5" /> {c.label}
-                  </button>
-                ))}
-              </div>
+              <div className="border-t border-slate-100 dark:border-slate-800 p-3 space-y-2 ">
+                <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => addCol({ key: `formula:${crypto.randomUUID()}`, label: 'Расчёт', formula: '=SUM(D{row}:F{row})' })}>+ Столбец с формулой</button>
+              <details>
+                <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">Служебные поля · {SERVICE_COLUMNS.length}</summary>
+                <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-800">
+                  {SERVICE_COLUMNS.map((c) => (
+                    <button key={c.key} type="button" disabled={hasCol(c.key)} onClick={() => addCol({ ...c })}
+                      className="flex min-h-8 w-full items-center gap-2 px-1 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default">
+                      <Plus className="w-3 h-3 shrink-0 text-emerald-700 dark:text-emerald-400" /><span className="min-w-0 flex-1 truncate">{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
               <div className={label}>Характеристики {spec.classes.length ? 'выбранных типов' : ''}</div>
               <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
                 <Search className="w-3.5 h-3.5 text-slate-400" />
@@ -411,22 +417,24 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
               </label>
               <div className="space-y-2">
                 {sectionsShown.map((sec) => (
-                  <div key={sec.title}>
-                    <div className="flex items-center gap-2 px-1">
-                      <span className="flex-1 min-w-0 text-xs font-medium text-slate-500 dark:text-slate-400 break-words">{sec.title}</span>
+                  <details key={sec.title} className="group/section border-b border-slate-100 dark:border-slate-800" open={!!needle || undefined}>
+                      <summary className="flex min-h-8 min-w-0 list-none items-center gap-2 px-1 cursor-pointer [&::-webkit-details-marker]:hidden">
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-400 transition-transform group-open/section:rotate-90" />
+                        <span className="min-w-0 flex-1 text-xs text-slate-600 dark:text-slate-300 truncate" title={sec.title}>{sec.title}</span>
+                        <span className="text-2xs text-slate-400 tabular-nums">{sec.params.length}</span>
+                      </summary>
                       <button type="button" onClick={() => addSection(sec)} disabled={sec.params.every((x) => hasCol(x.key))}
-                        className="shrink-0 text-2xs text-emerald-600 hover:text-emerald-700 cursor-pointer disabled:opacity-35 disabled:cursor-default">+ весь раздел</button>
-                    </div>
+                        className="shrink-0 text-2xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 cursor-pointer disabled:opacity-35 disabled:cursor-default">Добавить</button>
                     {sec.params.slice(0, 120).map((x) => (
                       <button key={x.key} type="button" disabled={hasCol(x.key)}
                         onClick={() => addCol({ key: x.key, label: x.label, unit: x.unit })}
-                        className="w-full flex items-start gap-1.5 text-left px-2 py-1 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:opacity-35 disabled:cursor-default">
-                        <Plus className="w-3 h-3 mt-0.5 text-emerald-600 shrink-0" />
-                        <span className="flex-1 min-w-0 break-words">{x.label}{x.unit ? <span className="text-slate-400">, {x.unit}</span> : null}</span>
-                        <span className="text-2xs text-slate-400 shrink-0 tabular-nums" title="У скольких позиций значение заполнено">у {x.count}</span>
+                        className="w-full flex items-start gap-1.5 text-left px-2 py-1 rounded text-xs hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-35 disabled:cursor-default">
+                        <Plus className="w-3 h-3 mt-0.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                        <span className="flex-1 min-w-0 break-words">{x.label}{x.unit ? <span className="text-slate-500 dark:text-slate-400">, {x.unit}</span> : null}</span>
+                        <span className="text-2xs text-slate-500 dark:text-slate-400 shrink-0 tabular-nums" title="У скольких позиций значение заполнено">{x.count}</span>
                       </button>
                     ))}
-                  </div>
+                  </details>
                 ))}
                 {sectionsShown.length === 0 && <div className="text-2xs text-slate-400">Нет характеристик{needle ? ' по запросу' : ''}.</div>}
               </div>

@@ -12,7 +12,7 @@
 import {
   visibleByMembers, hiddenProjectIds, projectIdsOfRequest, isRealProjectId, actorMay,
   judgeMembersChange, isTrustKey, isServerKey, validSettingKey, globalWriteRule,
-  bookmarksProjectOf, settingScope, mayEditGroup, ownerForNewGroup,
+  bookmarksProjectOf, settingScope, mayEditGroup, ownerForNewGroup, isAdminActor,
 } from '../server/projectAccess';
 
 let ok = 0;
@@ -26,6 +26,7 @@ const eq = (name: string, got: unknown, want: unknown) => {
 async function main() {
   console.log('Видимость проекта по составу');
   eq('администратор видит закрытый', visibleByMembers(['a'], 'x', true), true);
+  eq('владелец проходит тот же серверный доступ ко всем проектам', isAdminActor({ role: 'OWNER' }) && visibleByMembers(['a'], 'x', isAdminActor({ role: 'OWNER' })), true);
   eq('администратор видит и при сбое', visibleByMembers(null, 'x', true), true);
   eq('пустой состав — виден всем', visibleByMembers([], 'x', false), true);
   eq('участник видит', visibleByMembers(['a', 'x'], 'x', false), true);

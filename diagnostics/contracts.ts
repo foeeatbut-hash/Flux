@@ -51,7 +51,7 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
 export type FieldKind =
   | 'id' | 'name' | 'route' | 'pattern' | 'frame' | 'code'
   | 'ms' | 'bytes' | 'chars' | 'count'
-  | 'flag' | 'phase' | 'outcome' | 'app' | 'action';
+  | 'flag' | 'phase' | 'outcome' | 'app' | 'action' | 'channel';
 
 /** Какой тип в TypeScript отвечает виду поля. */
 export interface KindType {
@@ -69,6 +69,7 @@ export interface KindType {
   phase: 'start' | 'end';
   app: 'pdf' | 'sheets';
   action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
+  channel: string;
   outcome: Outcome;
 }
 
@@ -144,6 +145,7 @@ export const EVENTS = {
   // ── Electron ──────────────────────────────────────────────────────────────
   'electron.process': { pid: 'count', type: 'name', cpuPercent: 'count', workingSetKB: 'count', peakWorkingSetKB: 'count' },
   'window.state': { id: 'count', state: 'name' },
+  'desktop.snapshot': { error: 'name', code: 'code' },
   'window.load-error': { id: 'count', code: 'code', mainFrame: 'flag' },
   'renderer.gone': { id: 'count', reason: 'name', exitCode: 'code' },
   'child.gone': { type: 'name', reason: 'name', exitCode: 'code' },
@@ -177,7 +179,7 @@ export const EVENTS = {
   'office.export': { section: 'name', documentRef: 'id', format: 'name', resultBytes: 'bytes' },
   'office.import': { section: 'name', documentRef: 'id', format: 'name', sourceBytes: 'bytes' },
   'office.dispose': { section: 'name', documentRef: 'id' },
-  'office.host': { app: 'app', action: 'action', operation: 'name', error: 'name', code: 'code' },
+  'office.host': { app: 'app', action: 'action', operation: 'name', unknownChannel: 'channel', error: 'name', code: 'code' },
 
   // ── Свёрнутый повтор ──────────────────────────────────────────────────────
   // Опрос уведомлений идёт раз в минуту у каждого окна и в разборе не нужен
