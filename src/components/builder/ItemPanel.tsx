@@ -1,35 +1,52 @@
 /**
- * Карточка позиции: всё об одном клапане (или другом изделии) ведомости.
+ * Карточка выбранной позиции: конфигурация изделия, количество и источник.
  *
  * Правка идёт в черновик и записывается кнопкой — поля, которые человек
  * поменял, отмечаются в `overrides`, и повторный импорт новой ревизии MTO их
  * не перезапишет, а покажет расхождение (flux-data-safety, п. 3).
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Save, X, RefreshCcw, Undo2, Pencil } from 'lucide-react';
-import type { Catalog, ValveValues } from '../../../catalog/model';
+import { Save, X, RefreshCcw, Undo2, Pencil, Sparkles } from 'lucide-react';
+import type { Catalog, Family, ValveValues } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
 import type { SelectionItemData } from '../../../catalog/selection';
 import { buildDesignation, parseWithFamily } from '../../../catalog/designation';
 import { splitTagCell, derivedTag, tagRuleOf, tagTypeOf } from '../../../catalog/tags';
 import Configurator from '../catalog/Configurator';
 import FamilyPicker from '../catalog/FamilyPicker';
+import DescribeMatch, { type Accepted } from '../catalog/DescribeMatch';
+import type { Learned } from '../../../catalog/match';
 import { Area, Btn, Chip, Confidence, Field, Input, SectionTitle } from '../catalog/ui';
+import DataIssueDialog from '../catalog/DataIssueDialog';
+import type { CatalogDataIssueContext } from '../../../feedback/catalogDataIssue';
 
-export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }: {
+function parseQtyInput(raw: string): number | null {
+  const normalized = raw.replace(/[\s\u00a0\u202f]/g, '').replace(',', '.');
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+export default function ItemPanel({ catalog, item, learned, onSave, onClose, onRematch, onMatch }: {
   catalog: Catalog;
   item: SelectionItemData;
+  learned: Learned[];
   /** Записанная позиция — или undefined, если не записалось */
   onSave: (next: SelectionItemData, title: string) => Promise<SelectionItemData | undefined>;
   onClose: () => void;
   onRematch: (id: string) => void;
+  onMatch: (id: string, accepted: Accepted) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<SelectionItemData>(item);
   const [tagsText, setTagsText] = useState(item.tags.join(', '));
+  const [qtyText, setQtyText] = useState(String(item.qty));
   const [picking, setPicking] = useState(!item.familyId);
   const [saving, setSaving] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
   const draftRef = React.useRef(draft); draftRef.current = draft;
   const tagsRef = React.useRef(tagsText); tagsRef.current = tagsText;
+  const qtyRef = React.useRef(qtyText); qtyRef.current = qtyText;
   /**
    * Позиция перечиталась (своё сохранение, чужая правка, отмена). Несохранённый
    * черновик при этом не перетираем: человек его набирал. Он уйдёт с прежней
@@ -40,7 +57,8 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
   useEffect(() => {
     const prev = shown.current;
     shown.current = item;
-    const wasDirty = prev.id === item.id && (JSON.stringify(draftRef.current) !== JSON.stringify(prev) || tagsRef.current !== prev.tags.join(', '));
+    const wasDirty = prev.id === item.id && (JSON.stringify(draftRef.current) !== JSON.stringify(prev) || tagsRef.current !== prev.tags.join(', ') || qtyRef.current !== String(prev.qty));
+    if (prev.id !== item.id) setMatching(false);
     if (wasDirty) {
       // Правки остаются, версия — свежая: следующее «Сохранить» запишет своё
       // уже осознанно, поверх показанного предупреждения
@@ -48,11 +66,15 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
       setChangedMeanwhile(true);
       return;
     }
-    setDraft(item); setTagsText(item.tags.join(', ')); setPicking(!item.familyId); setChangedMeanwhile(false);
+    setDraft(item); setTagsText(item.tags.join(', ')); setQtyText(String(item.qty)); setPicking(!item.familyId); setChangedMeanwhile(false);
   }, [item]);
 
   const family = draft.familyId ? catalog.families.find((f) => f.id === draft.familyId) : undefined;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(item) || tagsText !== item.tags.join(', ');
+  const equipmentClass = catalog.classes.find((c) => c.id === draft.classId);
+  const hasActuatorFields = equipmentClass?.code === 'valve';
+  const parsedTags = splitTagCell(tagsText);
+  const qtyValue = parseQtyInput(qtyText);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(item) || tagsText !== item.tags.join(', ') || qtyText !== String(item.qty);
   const auto = family ? buildDesignation(family, draft.values).text : '';
   const rule = draft.tags[0] ? tagRuleOf(catalog.tagRules, draft.tags[0]) : undefined;
   const derived = useMemo(() => draft.tags.map((t) => derivedTag(t, tagTypeOf(t), rule?.actuatorCode)).filter(Boolean), [draft.tags, rule]);
@@ -62,18 +84,24 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
   };
 
   const save = async () => {
-    const tags = splitTagCell(tagsText).tags;
+    if (qtyValue === null || parsedTags.rest.length) return;
+    const tags = parsedTags.tags;
     const next: SelectionItemData = {
       ...draft,
       tags,
-      overrides: tags.join(',') !== item.tags.join(',') ? [...new Set([...(draft.overrides || []), 'tags'])] : draft.overrides,
+      qty: qtyValue,
+      overrides: [...new Set([
+        ...(draft.overrides || []),
+        ...(tags.join(',') !== item.tags.join(',') ? ['tags'] : []),
+        ...(qtyValue !== item.qty ? ['qty'] : []),
+      ])],
       designation: draft.designationManual ? draft.designation : auto,
       status: draft.familyId ? (draft.status === 'draft' ? 'matched' : draft.status) : 'draft',
     };
     setSaving(true);
     try {
       const saved = await onSave(next, `Правка позиции ${tags[0] || ''}`.trim());
-      if (saved) { shown.current = saved; setDraft(saved); setTagsText(saved.tags.join(', ')); setChangedMeanwhile(false); }
+      if (saved) { shown.current = saved; setDraft(saved); setTagsText(saved.tags.join(', ')); setQtyText(String(saved.qty)); setChangedMeanwhile(false); }
     } finally { setSaving(false); }
   };
 
@@ -90,24 +118,36 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
             <Area rows={2} value={tagsText} onChange={(e) => setTagsText(e.target.value)} className="font-mono" />
           </Field>
           <Field label="Кол-во">
-            <Input type="number" min={0} value={draft.qty} onChange={(e) => mark('qty', { qty: Number(e.target.value) || 0 })} className="tabular-nums" />
+            <Input type="text" inputMode="decimal" value={qtyText} onChange={(e) => setQtyText(e.target.value)} className="tabular-nums" aria-invalid={qtyValue === null} />
           </Field>
         </div>
+        {qtyValue === null && <div className="text-2xs text-rose-600 dark:text-rose-400">Количество не распознано. Исправьте значение; исходный ввод сохранён.</div>}
+        {parsedTags.rest.length > 0 && <div className="text-2xs text-rose-600 dark:text-rose-400">Не распознаны части тега: {parsedTags.rest.join(', ')}. Исправьте ввод; эти фрагменты не будут отброшены молча.</div>}
 
-        <SectionTitle right={family && <Btn tone="ghost" onClick={() => setPicking(!picking)}>{picking ? 'Отмена' : 'Сменить'}</Btn>}>
-          Изделие{family ? `: ${family.code}` : ''}
+        <SectionTitle right={<div className="flex gap-1">
+          <Btn tone="ghost" onClick={() => setMatching((v) => !v)} disabled={dirty}><Sparkles className="w-3.5 h-3.5" /> {matching ? 'К модели' : 'Подбор по описанию'}</Btn>
+          {family && !matching && <Btn tone="ghost" onClick={() => setPicking(!picking)}>{picking ? 'Отмена' : 'Сменить'}</Btn>}
+        </div>}>
+          {equipmentClass?.itemName ? textOf(equipmentClass.itemName) : 'Изделие'}{family ? `: ${family.code}` : ''}
         </SectionTitle>
-        {(picking || !family) && (
+        {matching && <div className="mt-2">
+          {catalog.classes.some((c) => c.id === draft.classId) && <DescribeMatch catalog={catalog} classId={draft.classId} learned={learned}
+            initialText={item.sourceText || ''} acceptLabel="Применить к позиции"
+            onAccept={(accepted) => { void onMatch(item.id, accepted).then((saved) => { if (saved) setMatching(false); }); }} />}
+        </div>}
+        {!matching && (picking || !family) && (
           <FamilyPicker catalog={catalog} classId={draft.classId} value={draft.familyId} compact
             onPick={(f) => {
-              // При смене семейства коды прежнего теряют смысл, а размер — нет
+              // Сохраняются общие параметры семейств одного класса; чужие коды
+              // остаются за пределами новой конфигурации.
               const keep: ValveValues = {};
-              for (const k of ['W', 'H', 'D']) if (draft.values[k] !== undefined) keep[k] = draft.values[k];
+              const keys = new Set(f.params.map((p) => p.key));
+              for (const [key, value] of Object.entries(draft.values)) if (keys.has(key)) keep[key] = value;
               mark('familyId', { familyId: f.id, values: keep, designationManual: false });
               setPicking(false);
             }} />
         )}
-        {family && !picking && (
+        {!matching && family && !picking && (
           <>
             <Configurator family={family} values={draft.values} onChange={(values) => mark('values', { values })} />
             <SectionTitle>Обозначение для бланка</SectionTitle>
@@ -119,12 +159,13 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
             {draft.designationManual ? (
               <div className="flex flex-col gap-1 mt-1">
                 <Input value={draft.designation} onChange={(e) => mark('designation', { designation: e.target.value })} className="font-mono" />
-                {!parseWithFamily(family, draft.designation).complete && <span className="text-2xs text-amber-700 dark:text-amber-400">Строка не разбирается по позициям {family.code} — проверьте перед выпуском.</span>}
+                {family.designationMode !== 'free' && !parseWithFamily(family, draft.designation).complete && <span className="text-2xs text-amber-700 dark:text-amber-400">Строка не разбирается по позициям {family.code} — проверьте перед выпуском.</span>}
               </div>
             ) : <div className="font-mono text-xs mt-1 break-all u-sel">{auto}</div>}
           </>
         )}
 
+        {hasActuatorFields && <>
         <SectionTitle>Привод и коробка</SectionTitle>
         <div className="grid grid-cols-1 @[480px]:grid-cols-2 gap-2">
           <Field label="Марка привода" hint="Пусто — из обозначения">
@@ -144,6 +185,7 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
             <Input value={draft.actuator?.glands || ''} onChange={(e) => mark('actuator', { actuator: { ...draft.actuator, glands: e.target.value } })} />
           </Field>
         </div>
+        </>}
 
         {(family?.facts?.heating || draft.values.heating || draft.heating?.voltage || family?.params.some((p) => p.values?.some((v) => v.facts?.heating))) && (
           <>
@@ -187,15 +229,34 @@ export default function ItemPanel({ catalog, item, onSave, onClose, onRematch }:
         {(draft.overrides || []).length > 0 && (
           <div className="mt-2 text-2xs text-slate-400">Правлено руками: {(draft.overrides || []).join(', ')} — импорт эти поля не перезапишет.</div>
         )}
-        {family && <div className="mt-2 text-2xs text-slate-400">{textOf(family.title)}{family.catalog ? ` · ${family.catalog.file}, стр. ${family.catalog.pages || '—'}` : ''}</div>}
+        {family && <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <span className="text-2xs text-slate-400">{textOf(family.title)}{family.catalog ? ` · ${family.catalog.file}, стр. ${family.catalog.pages || '—'}` : ''}</span>
+          <span className="flex-1" />
+          <Btn tone="ghost" onClick={() => setIssueOpen(true)}>Сообщить о неточности</Btn>
+        </div>}
       </div>
       <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-        <Btn tone="primary" onClick={save} disabled={!dirty || saving}><Save className="w-3.5 h-3.5" /> {saving ? 'Сохраняю…' : 'Сохранить'}</Btn>
-        <Btn tone="ghost" onClick={() => { setDraft(item); setTagsText(item.tags.join(', ')); setChangedMeanwhile(false); }} disabled={!dirty}><Undo2 className="w-3.5 h-3.5" /> Вернуть</Btn>
+        <Btn tone="primary" onClick={save} disabled={!dirty || saving || qtyValue === null || parsedTags.rest.length > 0}><Save className="w-3.5 h-3.5" /> {saving ? 'Сохраняю…' : 'Сохранить'}</Btn>
+        <Btn tone="ghost" onClick={() => { setDraft(item); setTagsText(item.tags.join(', ')); setQtyText(String(item.qty)); setChangedMeanwhile(false); }} disabled={!dirty}><Undo2 className="w-3.5 h-3.5" /> Вернуть</Btn>
         {changedMeanwhile && dirty
           ? <span className="text-2xs text-rose-600 dark:text-rose-400">позицию изменили, пока вы правили: «Сохранить» запишет ваше, «Вернуть» покажет свежее</span>
           : dirty && <span className="text-2xs text-amber-700 dark:text-amber-400">есть несохранённые правки</span>}
       </div>
+      {issueOpen && family && <DataIssueDialog context={dataIssueContext(family, draft.values, item.tags)} onClose={() => setIssueOpen(false)} />}
     </div>
   );
+}
+
+function dataIssueContext(family: Family, values: SelectionItemData['values'], tags: string[]): CatalogDataIssueContext {
+  const designation = buildDesignation(family, values).text;
+  const catalog = family.catalog;
+  return {
+    program: 'builder',
+    entityId: family.id,
+    entityTitle: `${family.code} · ${textOf(family.title)}${tags.length ? ` · позиция ${tags.slice(0, 3).join(', ')}${tags.length > 3 ? ` и ещё ${tags.length - 3}` : ''}` : ''}`.slice(0, 400),
+    field: [family.designationMode === 'article' || family.designationMode === 'free' ? 'Артикул или марка' : 'Обозначение изделия', tags.length ? `позиция ${tags.slice(0, 3).join(', ')}` : ''].filter(Boolean).join(' · ').slice(0, 200),
+    currentValue: designation,
+    ...(family.version !== undefined ? { revision: String(family.version) } : {}),
+    ...(catalog?.file?.trim() ? { source: { file: catalog.file, ...(catalog.pages ? { pages: catalog.pages } : {}), ...(catalog.edition ? { edition: catalog.edition } : {}) } } : {}),
+  };
 }

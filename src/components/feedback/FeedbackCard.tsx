@@ -13,6 +13,7 @@ import {
   PRIORITIES, PRIORITY_NAMES, STATUS_NAMES, TYPE_NAMES, FREQUENCY_NAMES, IMPACT_NAMES,
   reportNumber, newRequestId, type Status,
 } from '../../../feedback/contracts';
+import type { CatalogDataIssue } from '../../../feedback/catalogDataIssue';
 
 export interface Card {
   id: string;
@@ -34,6 +35,7 @@ export interface Card {
   expected?: string;
   actual?: string;
   benefit?: string;
+  dataIssue?: CatalogDataIssue;
   attachments?: Array<{ id: string; displayName: string; byteLength: number; kind: string; mime?: string }>;
 }
 
@@ -62,7 +64,7 @@ function Line({ name, value }: { name: string; value?: string }) {
   return (
     <div className="flex gap-3 py-1">
       <span className="w-32 shrink-0 text-xs text-slate-500 dark:text-slate-400">{name}</span>
-      <span className="min-w-0 flex-1 text-xs text-slate-800 dark:text-slate-150 whitespace-pre-wrap break-words">{value}</span>
+      <span className="min-w-0 flex-1 text-xs text-slate-800 dark:text-slate-300 whitespace-pre-wrap break-words">{value}</span>
     </div>
   );
 }
@@ -128,9 +130,30 @@ export default function FeedbackCard({
         <Line name="Исполнитель" value={card.assigneeId ? (names[card.assigneeId] || 'Сотрудник') : ''} />
       </div>
 
+      {card.dataIssue?.namespace === 'catalogDataIssue' && (() => {
+        const issue = card.dataIssue;
+        const context = issue.context;
+        const source = context.source
+          ? [context.source.file, context.source.pages && `с. ${context.source.pages}`, context.source.edition].filter(Boolean).join(' · ')
+          : '';
+        return (
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <div className="mb-1 text-xs font-medium text-slate-800 dark:text-slate-300">Неточность данных каталога</div>
+            <Line name="Раздел" value={{ catalog: 'Каталог', equipment: 'Оборудование', builder: 'Сборщик' }[context.program]} />
+            <Line name="Элемент" value={`${context.entityTitle} · ${context.entityId}`} />
+            <Line name="Поле" value={context.field} />
+            <Line name="Текущее значение" value={context.currentValue} />
+            <Line name="Предлагается" value={issue.proposedValue} />
+            <Line name="Редакция" value={context.revision} />
+            <Line name="Источник" value={source} />
+            <Line name="Подтверждение" value={issue.sourceText} />
+          </div>
+        );
+      })()}
+
       {!!card.attachments?.length && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
-          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Вложения</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-300">Вложения</div>
           {card.attachments.map((one) => {
             // Картинки и PDF открываются в окне, остальное сохраняется: открыть
             // присланный файл в браузере — самый дешёвый способ выполнить чужую
@@ -158,7 +181,7 @@ export default function FeedbackCard({
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
           <div className="flex items-center gap-2">
             <UserIcon className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Важность</span>
+            <span className="text-xs font-medium text-slate-800 dark:text-slate-300">Важность</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {PRIORITIES.map((one) => (
@@ -178,7 +201,7 @@ export default function FeedbackCard({
 
       {actions.length > 0 && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
-          <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Что можно сделать</div>
+          <div className="text-xs font-medium text-slate-800 dark:text-slate-300">Что можно сделать</div>
           {picked ? (
             <ActionForm
               action={picked} assignees={assignees} candidates={candidates} busy={busy} failure={failure}

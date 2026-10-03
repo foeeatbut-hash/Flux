@@ -22,7 +22,7 @@ export function registerSettingsRoutes(app: Express): void {
       if (!me?.id) return res.status(401).json({ error: 'Требуется вход' });
       const { key } = req.params;
       if (!validSettingKey(key)) return res.status(400).json({ error: 'Некорректный ключ настройки' });
-      if (/^employee_import_batch:/i.test(key)) return res.status(403).json({error:'Служебные данные импорта доступны только через его команды.'});
+      if (/^(employee_import_batch:|catalog_)/i.test(key)) return res.status(403).json({error:'Служебные данные импорта доступны только через его команды.'});
       const admin = isAdminActor(me);
       // Ключи доверия постороннему не показываем: по ним видно, чем защищена программа
       if (isTrustKey(key) && !admin) return res.status(403).json({ error: 'Недостаточно прав' });

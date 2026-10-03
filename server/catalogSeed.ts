@@ -30,18 +30,13 @@ export async function syncCatalogSeed(prisma: any, seed: Catalog, version: numbe
     prisma.catalogTagRule.findMany({ select: { id: true } }),
     prisma.blankTemplate.count(),
   ]);
+  // Предметные данные загружаются только при первом заполнении. Новый EXE не публикует изменения.
+  if (classes.length || manufacturers.length || families.length || components.length || rules.length) return;
   const ids = (rows: any[]): Set<string> => new Set(rows.map(row => row.id));
   await insertMissing(prisma.catalogClass, seed.classes.map(c => ({ id: c.id, code: c.code, dataJson: JSON.stringify(c), sort: c.sort || 0 })), ids(classes));
   await insertMissing(prisma.catalogManufacturer, seed.manufacturers.map(m => ({ id: m.id, name: m.name, dataJson: JSON.stringify(m) })), ids(manufacturers));
   const familyRows = seed.families.map(f => ({ id: f.id, classId: f.classId, manufacturerId: f.manufacturerId, code: f.code, dataJson: JSON.stringify(f), status: f.status, seedVersion: version, sort: f.sort || 0 }));
   await insertMissing(prisma.catalogFamily, familyRows, ids(families));
-  const byId = new Map<string, any>(families.map((row: any) => [row.id, row]));
-  for (const { id, ...data } of familyRows) {
-    const row = byId.get(id);
-    if (row && !row.edited && row.seedVersion < version) {
-      await prisma.catalogFamily.updateMany({ where: { id, edited: false, seedVersion: { lt: version } }, data });
-    }
-  }
   await insertMissing(prisma.catalogComponent, seed.components.map(c => ({ id: c.id, classId: c.classId, kind: c.kind, code: c.code, dataJson: JSON.stringify(c) })), ids(components));
   await insertMissing(prisma.catalogTagRule, seed.tagRules.map(r => ({ id: r.id, classId: r.classId, code: r.code, dataJson: JSON.stringify(r) })), ids(rules));
   if (!templateCount) await prisma.blankTemplate.upsert({

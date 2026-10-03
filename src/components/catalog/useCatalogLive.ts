@@ -4,7 +4,7 @@
  * Сервер рассылает «catalog:changed» и «builder:list», но на общей базе у
  * каждого сотрудника свой встроенный сервер, и событие до чужого окна не
  * доходит. Поэтому вдобавок к сокету — перечитывание при возврате фокуса и
- * раз в минуту, пока окно видно. Каталог перечитывается только по смене
+ * раз в 20 секунд, пока окно видно. Каталог перечитывается только по смене
  * метки версии (одним коротким запросом), ведомость — тихо, без «Загружаю…».
  */
 import { useEffect } from 'react';
@@ -12,7 +12,7 @@ import { useRealTimeSync } from '../SocketProvider';
 import { useCatalogStore } from '../../store/catalogStore';
 import { useBuilderStore } from '../../store/builderStore';
 
-const POLL_MS = 60_000;
+const POLL_MS = 20_000;
 
 export function useCatalogLive(opts: { list?: boolean } = {}): void {
   const { socket } = useRealTimeSync();

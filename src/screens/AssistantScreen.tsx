@@ -16,9 +16,10 @@
  * спрашивали.
  */
 import React from 'react';
-import { MessageCircleQuestion, Trash2, PanelLeft } from 'lucide-react';
+import { MessageCircleQuestion, Trash2, PanelLeft, Search } from 'lucide-react';
 import Chat from '../components/assistant/Chat';
 import ChatHistory from '../components/assistant/ChatHistory';
+import CatalogAnswer from '../components/assistant/CatalogAnswer';
 import { useAssistantStore } from '../store/assistantStore';
 import { useAssistantChatsStore } from '../store/assistantChatsStore';
 import { useStore } from '../store/store';
@@ -31,6 +32,7 @@ export default function AssistantScreen() {
   const loadChats = useAssistantChatsStore((s) => s.load);
   const startNew = useAssistantChatsStore((s) => s.startNew);
   const [listOpen, setListOpen] = React.useState(true);
+  const [catalogOpen, setCatalogOpen] = React.useState(false);
 
   // Разговоры привязаны к проекту: вернувшись к нему через неделю, человек
   // находит, о чём спрашивал именно здесь, а не пятьсот бесед по всем проектам
@@ -62,22 +64,33 @@ export default function AssistantScreen() {
       <div className="shrink-0 flex items-center gap-2 px-3 h-10 border-b border-slate-200 dark:border-slate-800">
         <button type="button" onClick={() => setListOpen((v) => !v)}
           title={listOpen ? 'Скрыть историю разговоров' : 'Показать историю разговоров'}
-          className={`shrink-0 p-1 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850
+          className={`shrink-0 p-1 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800
                       ${listOpen ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}>
           <PanelLeft className="w-4 h-4" />
         </button>
         <MessageCircleQuestion className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-        <span className="text-xs font-medium text-slate-800 dark:text-slate-150">Помощник</span>
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-300">Помощник</span>
         <span className="text-2xs text-slate-400 dark:text-slate-500 truncate hidden @[560px]:inline">
           работает без сети: отвечает по данным этого проекта и по руководству
         </span>
         <span className="flex-1" />
+        <button type="button" onClick={() => setCatalogOpen((v) => !v)} aria-expanded={catalogOpen}
+          aria-controls={catalogOpen ? 'catalog-answer-pane' : undefined}
+          title={catalogOpen ? 'Скрыть поиск по Каталогу оборудования' : 'Искать в Каталоге оборудования'}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800
+                      ${catalogOpen ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500'}`}>
+          <Search className="w-3 h-3" /> Каталог оборудования
+        </button>
         <button type="button" onClick={clear} title="Очистить то, что на экране. Разговор останется в истории слева"
           className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold text-slate-500
                      hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer">
           <Trash2 className="w-3 h-3" /> Заново
         </button>
       </div>
+
+      {catalogOpen && <div id="catalog-answer-pane" className="shrink-0 max-h-[42%] overflow-y-auto border-b border-slate-200 dark:border-slate-800">
+        <CatalogAnswer />
+      </div>}
 
       <div className="flex-1 min-h-0 flex">
         {/* История прячется на узкой панели: в 372 пикселя список и разговор

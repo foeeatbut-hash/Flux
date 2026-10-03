@@ -140,7 +140,7 @@ export default function ItemsTable({ catalog, items, problems, openId, actions }
 
       <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
         {!items.length ? (
-          <Empty title="Ведомость пуста" text="Импортируйте MTO или спецификацию, подберите изделие по описанию или вставьте строки из Excel (Ctrl+V): тег, описание, количество.">
+          <Empty title="Спецификация пуста" text="Загрузите ведомость, добавьте позицию и выберите изделие в панели справа или вставьте строки из Excel (Ctrl+V): тег, описание, количество.">
             <span className="inline-flex items-center gap-1 text-2xs text-slate-400"><ClipboardPaste className="w-3.5 h-3.5" /> Вставка работает прямо в эту область</span>
           </Empty>
         ) : !shown.length ? (

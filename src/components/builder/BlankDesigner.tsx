@@ -2,8 +2,7 @@
  * Конструктор бланков: шаблоны, листы, блоки, страница — и живой предпросмотр.
  *
  * Шаблон общий на программу (или личный), а предпросмотр строится на данных
- * открытой ведомости: так видно, как бланк ляжет на настоящие позиции, а не на
- * выдуманный пример. Если ведомость пуста — на примере из трёх клапанов.
+ * открытой спецификации: так видно, как бланк ляжет на настоящие позиции.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, FilePlus2, Plus, Save, Star, Trash2, ArrowUp, ArrowDown, History, RotateCcw } from 'lucide-react';
@@ -20,12 +19,6 @@ import BlankPreview from './BlankPreview';
 import { BlockEditor, PageEditor, BLOCK_TYPES } from './BlockEditor';
 import { Btn, Chip, Field, Input, Seg, Select, SectionTitle, confirmAsk as openConfirm, promptAsk as openPrompt } from '../catalog/ui';
 
-const SAMPLE: SelectionItemData[] = [
-  { id: 's1', classId: 'cls-valve', familyId: 'veza-kpu-1n', values: { purpose: 'О', exec: 'В', W: 900, H: 400, type: '2*ф', drive: 'ЭПВ24', terminals: 'КК' }, tags: ['3700-B02-DF-001', '3700-B02-DF-004'], qty: 2, designation: '', status: 'matched', sort: 1 },
-  { id: 's2', classId: 'cls-valve', familyId: 'veza-germik-p', values: { H: 600, W: 1000, exec: 'Н', drive: 'РУЧКА', driveCount: 1 }, tags: ['3700-C01-DV-001'], qty: 1, designation: '', status: 'matched', sort: 2 },
-  { id: 's3', classId: 'cls-valve', familyId: 'veza-tulpan-1', values: { H: 500, W: 800, exec: 'В' }, tags: ['3700-B03-DN-001'], qty: 1, designation: '', status: 'matched', sort: 3 },
-];
-
 const newId = () => `tpl-${Math.random().toString(36).slice(2, 10)}`;
 
 export default function BlankDesigner({ catalog, items, header, orderNos, canEdit }: {
@@ -41,7 +34,6 @@ export default function BlankDesigner({ catalog, items, header, orderNos, canEdi
   const [blockId, setBlockId] = useState('');
   const [panel, setPanel] = useState<'block' | 'page' | 'history'>('block');
   const [lang, setLang] = useState<BlankLang>('ru');
-  const [useSample, setUseSample] = useState(false);
   const [revs, setRevs] = useState<Array<{ id: string; action: string; createdAt: string }>>([]);
 
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
@@ -67,11 +59,10 @@ export default function BlankDesigner({ catalog, items, header, orderNos, canEdi
 
   const grids = useMemo(() => {
     if (!draft) return [];
-    const src = useSample || !items.length ? SAMPLE : items;
     const repeat = draft.sheets.find((s) => s.repeat !== 'none')?.repeat || 'family';
-    const data = buildBlankData({ catalog, header: useSample || !items.length ? { docNo: 'ПРИМЕР-0001', object: 'Объект', customer: 'Заказчик', executor: 'Исполнитель', ...header } : header, items: src, orderNos, issue: { rev: '0', date: new Date().toISOString(), reason: 'Предпросмотр' } }, repeat);
+    const data = buildBlankData({ catalog, header, items, orderNos, issue: { rev: '0', date: new Date().toISOString(), reason: 'Предпросмотр' } }, repeat);
     try { return renderBlank(draft, data, lang); } catch { return []; }
-  }, [draft, items, header, orderNos, catalog, lang, useSample]);
+  }, [draft, items, header, orderNos, catalog, lang]);
 
   const setSheet = (s: SheetTemplate) => draft && setDraft({ ...draft, sheets: draft.sheets.map((x) => (x.id === s.id ? s : x)) });
   const setBlock = (b: Block) => sheet && setSheet({ ...sheet, blocks: sheet.blocks.map((x) => (x.id === b.id ? b : x)) });
@@ -217,7 +208,7 @@ export default function BlankDesigner({ catalog, items, header, orderNos, canEdi
       <div className="flex flex-col min-h-0 gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <Seg label="Язык" value={lang} onChange={setLang} options={[{ value: 'ru', label: 'RU' }, { value: 'en', label: 'EN' }, { value: 'ru+en', label: 'RU+EN' }]} />
-          <label className="inline-flex items-center gap-1 text-2xs cursor-pointer"><input type="checkbox" checked={useSample || !items.length} disabled={!items.length} onChange={(e) => setUseSample(e.target.checked)} /> на примере</label>
+          {!items.length && <span className="text-xs text-slate-400">Добавьте позиции, чтобы увидеть пример заполнения</span>}
           <span className="text-2xs text-slate-400">{grids.length} лист.</span>
           {dirty && <Chip tone="amber">не сохранён</Chip>}
         </div>

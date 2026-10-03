@@ -1,14 +1,10 @@
 /**
- * Конструктор — подбор оборудования по проекту и выпуск бланков.
- *
- * Путь инженера: MTO или спецификация → ведомость (строка = тег) → подбор
- * изделия из Каталога по описанию или мастером → проверка → бланки заказа в
- * Excel и PDF с ревизией. Первый класс оборудования — клапаны; следующий
- * добавится в Каталог данными, и Конструктор подберёт его тем же путём.
+ * Конструктор — проектная спецификация, подбор изделий и выпуск документов.
+ * Каталог задаёт доступные классы и модели; здесь хранятся решения проекта.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, Sparkles, Upload, LayoutTemplate, Send, Plus, Pencil, Trash2, Undo2, Link2, Download, BookOpen, AlertTriangle } from 'lucide-react';
+import { BookOpen, Download, FileOutput, Link2, Plus, Upload, Undo2 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useCatalogStore } from '../store/catalogStore';
 import { useBuilderStore } from '../store/builderStore';
@@ -26,20 +22,13 @@ import ImportWizard from '../components/builder/ImportWizard';
 import BlankDesigner from '../components/builder/BlankDesigner';
 import IssuePanel from '../components/builder/IssuePanel';
 import TagLinksPanel from '../components/builder/TagLinksPanel';
-import DescribeMatch from '../components/catalog/DescribeMatch';
 import { itemOps, exportListXlsx } from '../components/builder/useItemOps';
 import { checkList } from '../../catalog/checks';
-import { Btn, Chip, Empty, Select, confirmAsk, promptAsk, plural } from '../components/catalog/ui';
+import { textOf } from '../../catalog/model';
+import { Btn, Empty, Select, confirmAsk, promptAsk, plural } from '../components/catalog/ui';
+import { newItemId, nextSort } from '../store/builderStore';
 
-type Tab = 'list' | 'match' | 'import' | 'blanks' | 'issue';
-
-const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'list', label: 'Ведомость', icon: ClipboardList },
-  { id: 'match', label: 'Подбор', icon: Sparkles },
-  { id: 'import', label: 'Импорт MTO', icon: Upload },
-  { id: 'blanks', label: 'Бланки', icon: LayoutTemplate },
-  { id: 'issue', label: 'Выпуск', icon: Send },
-];
+type Action = 'import' | 'templates' | 'issue' | null;
 
 export default function BuilderScreen() {
   const navigate = useNavigate();
@@ -52,23 +41,23 @@ export default function BuilderScreen() {
   const learned = useCatalogStore((s) => s.learned);
   const loadLearned = useCatalogStore((s) => s.loadLearned);
   const addToast = useToastStore((s) => s.addToast);
-  // Селектором, а не всем хранилищем: экран перерисовывается от того, что
-  // показывает, а не от каждого флажка стора
   const b = useBuilderStore(useShallow((s) => ({
     lists: s.lists, listId: s.listId, list: s.list, items: s.items, loading: s.loading, saving: s.saving, undoStack: s.undoStack,
     loadLists: s.loadLists, openList: s.openList, reload: s.reload, createList: s.createList, updateList: s.updateList,
     removeList: s.removeList, apply: s.apply, undo: s.undo,
   })));
-  const [tab, setTab] = useState<Tab>('list');
   const [openId, setOpenId] = useState('');
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [action, setAction] = useState<Action>(null);
+  const [newClassId, setNewClassId] = useState('');
 
   useEffect(() => { loadCatalog(); loadLearned(); }, [loadCatalog, loadLearned]);
   useCatalogLive({ list: true });
   useEffect(() => { b.loadLists(project?.id || ''); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!newClassId && catalog.classes[0]) setNewClassId(catalog.classes[0].id); }, [catalog.classes, newClassId]);
 
-  // Ctrl+Z — отмена последнего действия ведомости. В полях ввода у Ctrl+Z своя
-  // работа (отмена набора), её не перехватываем
+  // Ctrl+Z — отмена записи спецификации. В полях ввода сочетание остаётся
+  // обычной отменой набора, чтобы не потерять незаписанные значения.
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
@@ -82,10 +71,11 @@ export default function BuilderScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, [addToast]);
 
-  const classId = b.list?.classId || catalog.classes[0]?.id || 'cls-valve';
+  const classId = b.list?.classId || newClassId || catalog.classes[0]?.id || 'cls-valve';
   const problems = useMemo(() => (catLoaded ? checkList(catalog, b.items) : []), [catalog, b.items, catLoaded]);
   const canEdit = can(user as any, 'builder.edit');
-  const ops = useMemo(() => itemOps(catalog, classId, b.items, learned, b.apply), [catalog, classId, b.items, learned, b.apply]);
+  const canLearn = can(user as any, 'catalog.edit') || can(user as any, 'catalog.manage');
+  const ops = useMemo(() => itemOps(catalog, classId, b.items, learned, b.apply, canLearn), [catalog, classId, b.items, learned, b.apply, canLearn]);
   const openItem = b.items.find((i) => i.id === openId);
 
   const run = async <T,>(what: string, fn: () => Promise<T>): Promise<T | undefined> => {
@@ -95,18 +85,30 @@ export default function BuilderScreen() {
   if (!project) return <NoProject what="Конструктор" />;
 
   const newList = async () => {
-    const name = await promptAsk('Новая ведомость', 'Как назвать ведомость? Например, «Клапаны — ДГП-2, E06»', `Клапаны — ${project.name}`);
+    const targetClassId = newClassId || classId;
+    const cls = catalog.classes.find((c) => c.id === targetClassId);
+    const className = cls ? textOf(cls.title) : 'оборудование';
+    const name = await promptAsk('Новая спецификация', 'Как назвать спецификацию?', `${className} — ${project.name}`);
     if (!name) return;
-    await run('Ведомость не создалась', () => b.createList(name, classId));
+    await run('Спецификация не создалась', () => b.createList(name, targetClassId));
+  };
+  const addItem = async () => {
+    if (!b.list || !canEdit) return;
+    try {
+      const created = await b.apply('Добавление позиции', [{
+        id: newItemId(), classId: b.list.classId, tags: [], qty: 1, values: {}, designation: '', status: 'draft', sort: nextSort(b.items),
+      }]);
+      if (created[0]) setOpenId(created[0].id);
+    } catch (e: any) { addToast(`Позиция не добавилась: ${e?.message || e}`, 'error'); }
   };
   const renameList = async () => {
     if (!b.list) return;
-    const name = await promptAsk('Переименовать ведомость', undefined, b.list.name);
+    const name = await promptAsk('Переименовать спецификацию', undefined, b.list.name);
     if (name && name !== b.list.name) await run('Не переименовалось', () => b.updateList({ name }));
   };
   const deleteList = async () => {
     if (!b.list) return;
-    if (!(await confirmAsk('Удалить ведомость?', `«${b.list.name}» и её ${b.items.length} поз. пропадут из проекта. Выпущенные файлы в Проводнике останутся.`, { confirmLabel: 'Удалить', tone: 'danger' }))) return;
+    if (!(await confirmAsk('Удалить спецификацию?', `«${b.list.name}» и её ${b.items.length} поз. пропадут из проекта. Выпущенные файлы в Проводнике останутся.`, { confirmLabel: 'Удалить', tone: 'danger' }))) return;
     await run('Не удалилось', () => b.removeList(b.list!.id));
   };
   const undo = async () => {
@@ -115,110 +117,114 @@ export default function BuilderScreen() {
   };
   const exportList = async () => {
     try {
-      const bytes = await exportListXlsx(catalog, b.items, b.list?.name || 'Ведомость');
-      const name = `${(b.list?.name || 'Ведомость').replace(/[\\/:*?"<>|]+/g, '-')}.xlsx`;
+      const bytes = await exportListXlsx(catalog, b.items, b.list?.name || 'Спецификация');
+      const name = `${(b.list?.name || 'Спецификация').replace(/[\\/:*?"<>|]+/g, '-')}.xlsx`;
       const made = await saveNewFile(bytes, name);
-      addToast(`Ведомость выгружена: ${made.name}`, 'success');
+      addToast(`Спецификация выгружена: ${made.name}`, 'success');
       navigate(editorHref(made));
     } catch (e: any) { addToast(e?.message || 'Не выгрузилось', 'error'); }
   };
 
   return (
-    <SectionErrorBoundary title="Конструктор">
-      <div className="h-full flex flex-col min-h-0 @container gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <b className="text-base font-bold">Конструктор</b>
-          <span className="text-2xs text-slate-400">подбор по Каталогу и бланки заказа</span>
+    <SectionErrorBoundary title="Конструктор оборудования">
+      <div className="relative h-full min-h-0 flex flex-col @container gap-2">
+        <div className="flex items-center gap-2 flex-wrap min-h-11">
+          <span className="text-[15px] leading-5 font-semibold">Спецификация</span>
+          <span className="text-xs text-slate-400 tabular-nums">{b.items.length} поз.</span>
           <span className="flex-1" />
           {b.lists.length > 0 && (
-            <Select value={b.listId} onChange={(id) => { setOpenId(''); b.openList(id); }} className="!w-auto max-w-[280px]" aria-label="Ведомость"
+            <Select value={b.listId} onChange={(id) => { setOpenId(''); b.openList(id); }} className="!w-auto max-w-[280px]" aria-label="Спецификация"
               options={b.lists.map((l) => ({ value: l.id, label: `${l.name}${l.items !== undefined ? ` · ${l.items} поз.` : ''}` }))} />
           )}
-          {canEdit && <Btn onClick={newList}><Plus className="w-3.5 h-3.5" /> Ведомость</Btn>}
-          {b.list && canEdit && <Btn tone="ghost" onClick={renameList} aria-label="Переименовать"><Pencil className="w-3.5 h-3.5" /></Btn>}
-          {b.list && canEdit && <Btn tone="ghost" onClick={deleteList} aria-label="Удалить ведомость"><Trash2 className="w-3.5 h-3.5" /></Btn>}
+          {canEdit && catalog.classes.length > 1 && <Select value={newClassId} onChange={setNewClassId} className="!w-auto max-w-[220px]" aria-label="Вид оборудования для новой спецификации"
+            options={catalog.classes.map((c) => ({ value: c.id, label: textOf(c.title) }))} />}
+          {canEdit && <Btn tone="primary" onClick={b.list ? addItem : newList}><Plus className="w-3.5 h-3.5" /> {b.list ? 'Добавить позицию' : 'Создать спецификацию'}</Btn>}
+          {b.list && canEdit && <Btn tone="ghost" onClick={newList}><Plus className="w-3.5 h-3.5" /> Спецификация</Btn>}
+          {b.list && canEdit && <Btn onClick={() => setAction('import')}><Upload className="w-3.5 h-3.5" /> Загрузить ведомость</Btn>}
+          {b.list && <Btn onClick={() => setAction('issue')} disabled={!b.items.length}><FileOutput className="w-3.5 h-3.5" /> Выпустить документы</Btn>}
+          {b.list && <Btn tone="ghost" onClick={() => setAction('templates')} title="Выбрать или настроить шаблоны документов">Шаблоны</Btn>}
+          {b.list && canEdit && <Btn tone="ghost" onClick={renameList} aria-label="Переименовать спецификацию">Переименовать</Btn>}
+          {b.list && canEdit && <Btn tone="ghost" onClick={deleteList} aria-label="Удалить спецификацию">Удалить</Btn>}
           <Btn tone="ghost" onClick={() => useWindowStore.getState().open('/catalog')} title="Открыть Каталог оборудования"><BookOpen className="w-3.5 h-3.5" /> Каталог</Btn>
         </div>
 
-        {catError && <div className="text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {catError}</div>}
+        {catError && <div className="text-xs text-rose-600 dark:text-rose-400">{catError}</div>}
 
         {!b.list ? (
           b.loading ? <div className="text-xs text-slate-400">Загружаю…</div> : (
-            <Empty title="В проекте ещё нет ведомостей подбора" text="Ведомость — это список позиций с тегами из MTO или спецификации. Из неё собираются бланки заказа.">
-              {canEdit && <Btn tone="primary" onClick={newList}><Plus className="w-3.5 h-3.5" /> Создать ведомость</Btn>}
+            <Empty title="В проекте ещё нет спецификаций" text="Создайте спецификацию или выберите вид оборудования. В неё можно загрузить ведомость, добавить позиции вручную и выпустить документы.">
+              {canEdit && <Btn tone="primary" onClick={newList}><Plus className="w-3.5 h-3.5" /> Создать спецификацию</Btn>}
             </Empty>
           )
         ) : (
           <>
-            <div className="flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 flex-wrap">
-              {TABS.map((t) => (
-                <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={tab === t.id}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-b-2 -mb-px cursor-pointer ${tab === t.id ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-emerald-700'}`}>
-                  <t.icon className="w-3.5 h-3.5" /> {t.label}
-                  {t.id === 'list' && <span className="tabular-nums text-slate-400">{b.items.length}</span>}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-1.5">
+              <span className="text-xs font-medium truncate">{b.list.name}</span>
+              {b.saving && <span className="text-xs text-slate-400">Сохраняю…</span>}
               <span className="flex-1" />
-              {b.saving && <Chip tone="sky">сохраняю…</Chip>}
               {b.undoStack.length > 0 && <Btn tone="ghost" onClick={undo} title={`Отменить: ${b.undoStack[0].title} (Ctrl+Z)`}><Undo2 className="w-3.5 h-3.5" /> Отменить</Btn>}
-              {tab === 'list' && canEdit && <Btn tone="ghost" onClick={() => setTagsOpen(true)} title="Связать позиции с тегами проекта"><Link2 className="w-3.5 h-3.5" /> Теги проекта</Btn>}
-              {tab === 'list' && <Btn tone="ghost" onClick={exportList} disabled={!b.items.length}><Download className="w-3.5 h-3.5" /> Ведомость в Excel</Btn>}
+              {canEdit && <Btn tone="ghost" onClick={() => setTagsOpen(true)} title="Связать позиции с тегами проекта"><Link2 className="w-3.5 h-3.5" /> Теги проекта</Btn>}
+              <Btn tone="ghost" onClick={exportList} disabled={!b.items.length}><Download className="w-3.5 h-3.5" /> Excel</Btn>
             </div>
 
             <div className="flex-1 min-h-0">
-              {tab === 'list' && (
-                tagsOpen ? <TagLinksPanel listId={b.list.id} onClose={() => setTagsOpen(false)} onDone={() => { setTagsOpen(false); b.reload(); }} /> : (
-                  <div className={`h-full min-h-0 grid gap-3 ${openItem ? 'grid-cols-1 @[1000px]:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]' : 'grid-cols-1'}`}>
-                    <div className={`min-h-0 ${openItem ? 'hidden @[1000px]:block' : ''}`}>
-                      <ItemsTable catalog={catalog} items={b.items} problems={problems} openId={openId} actions={{
-                        onOpen: setOpenId,
-                        onRematch: async (ids) => { const r = await run('Подбор', () => ops.rematch(ids)); if (r) addToast(`Подобрано заново: ${r.done}${r.skipped ? `, пропущено ${r.skipped} (правлены руками или без описания)` : ''}`, 'info'); },
-                        onSplit: (ids) => { run('Разбиение', () => ops.split(ids)); },
-                        onMerge: async (ids) => { const r = await run('Объединение', () => ops.merge(ids)); if (r && !r.merged) addToast('Объединяются только позиции с одинаковым изделием', 'info'); },
-                        onRemove: async (ids) => {
-                          if (await confirmAsk(`Удалить ${ids.length} ${plural(ids.length, 'позицию', 'позиции', 'позиций')}?`, 'Удаление отменяется кнопкой «Отменить» или Ctrl+Z.', { confirmLabel: 'Удалить', tone: 'danger' })) {
-                            if (ids.includes(openId)) setOpenId('');
-                            run('Удаление', () => ops.remove(ids));
-                          }
-                        },
-                        onBulkSet: (ids, key, value) => { run('Групповая правка', () => ops.bulkSet(ids, key, value)); },
-                        onPaste: async (text) => { if (!canEdit) return; const n = await run('Вставка', () => ops.paste(text)); if (n) addToast(`Вставлено ${n} поз.`, 'success'); },
-                      }} />
-                    </div>
-                    {openItem && (
-                      <div className="min-h-0 rounded-lg border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-900">
-                        <ItemPanel catalog={catalog} item={openItem} onClose={() => setOpenId('')}
-                          onRematch={(id) => { run('Подбор', () => ops.rematch([id])); }}
-                          onSave={async (next, title) => (await run('Не сохранилось', () => b.apply(title, [next])))?.[0]} />
-                      </div>
-                    )}
+              {tagsOpen ? <TagLinksPanel listId={b.list.id} onClose={() => setTagsOpen(false)} onDone={() => { setTagsOpen(false); b.reload(); }} /> : (
+                <div className={`h-full min-h-0 grid gap-3 ${openItem ? 'grid-cols-1 @[1000px]:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]' : 'grid-cols-1'}`}>
+                  <div className={`min-h-0 ${openItem ? 'hidden @[1000px]:block' : ''}`}>
+                    <ItemsTable catalog={catalog} items={b.items} problems={problems} openId={openId} actions={{
+                      onOpen: setOpenId,
+                      onRematch: async (ids) => { const r = await run('Подбор', () => ops.rematch(ids)); if (r) addToast(`Подобрано заново: ${r.done}${r.skipped ? `, пропущено ${r.skipped} (правлены руками или без описания)` : ''}`, 'info'); },
+                      onSplit: (ids) => { run('Разбиение', () => ops.split(ids)); },
+                      onMerge: async (ids) => { const r = await run('Объединение', () => ops.merge(ids)); if (r && !r.merged) addToast('Объединяются только позиции с одинаковым изделием', 'info'); },
+                      onRemove: async (ids) => {
+                        if (await confirmAsk(`Удалить ${ids.length} ${plural(ids.length, 'позицию', 'позиции', 'позиций')}?`, 'Удаление отменяется кнопкой «Отменить» или Ctrl+Z.', { confirmLabel: 'Удалить', tone: 'danger' })) {
+                          if (ids.includes(openId)) setOpenId('');
+                          run('Удаление', () => ops.remove(ids));
+                        }
+                      },
+                      onBulkSet: (ids, key, value) => { run('Групповая правка', () => ops.bulkSet(ids, key, value)); },
+                      onPaste: async (text) => {
+                        if (!canEdit) return;
+                        const result = await run('Вставка', () => ops.paste(text));
+                        if (result?.inserted) addToast(`Вставлено ${result.inserted} поз.`, 'success');
+                        if (result?.invalidQtyRows) addToast(`Не добавлено строк с нераспознанным количеством: ${result.invalidQtyRows}. Исправьте ввод и вставьте снова.`, 'error');
+                      },
+                    }} />
                   </div>
-                )
-              )}
-              {tab === 'match' && (
-                <div className="h-full overflow-auto">
-                  {catLoaded
-                    ? <DescribeMatch catalog={catalog} classId={classId} learned={learned} onAccept={async (a) => { await run('Не добавилось', () => ops.accept(a)); addToast(`Добавлено в ведомость: ${a.tags[0] || catalog.families.find((f) => f.id === a.familyId)?.code}`, 'success'); }} />
-                    : <div className="text-xs text-slate-400">Загружаю Каталог…</div>}
-                </div>
-              )}
-              {tab === 'import' && (
-                <div className="h-full min-h-0">
-                  <ImportWizard catalog={catalog} classId={classId} items={b.items} learned={learned}
-                    onApply={async (title, upserts, removeIds) => { await b.apply(title, upserts, removeIds); }}
-                    onDone={() => { setTab('list'); addToast('Импорт записан. Отменить можно кнопкой «Отменить».', 'success'); }} />
-                </div>
-              )}
-              {tab === 'blanks' && (
-                <BlankDesigner catalog={catalog} items={b.items} header={b.list.header} orderNos={b.list.orderNos} canEdit={can(user as any, 'blanks.manage')} />
-              )}
-              {tab === 'issue' && (
-                <div className="h-full overflow-auto">
-                  <IssuePanel catalog={catalog} list={b.list} items={b.items} canIssue={can(user as any, 'builder.issue')} onUpdateList={(patch) => b.updateList(patch)} />
+                  {openItem && (
+                    <div className="min-h-0 border-l border-slate-200 dark:border-slate-800 pl-3">
+                      <ItemPanel catalog={catalog} item={openItem} learned={learned} onClose={() => setOpenId('')}
+                        onRematch={(id) => { run('Подбор', () => ops.rematch([id])); }}
+                        onMatch={async (id, accepted) => {
+                          try { await ops.matchItem(id, accepted); return true; }
+                          catch (e: any) { addToast(`Подбор не сохранился: ${e?.message || e}`, 'error'); return false; }
+                        }}
+                        onSave={async (next, title) => (await run('Не сохранилось', () => b.apply(title, [next])))?.[0]} />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </>
+        )}
+
+        {action && b.list && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 p-3" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setAction(null); }}>
+            <section className="flex flex-col min-h-0 w-full h-full max-w-[1400px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm" role="dialog" aria-modal="true" aria-label={action === 'import' ? 'Загрузить ведомость' : action === 'issue' ? 'Выпустить документы' : 'Шаблоны документов'}>
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-200 dark:border-slate-700">
+                <span className="text-sm font-semibold">{action === 'import' ? 'Загрузить ведомость' : action === 'issue' ? 'Выпустить документы' : 'Шаблоны документов'}</span>
+                <span className="flex-1" />
+                <Btn tone="ghost" onClick={() => setAction(null)}>К спецификации</Btn>
+              </div>
+              <div className="flex-1 min-h-0 overflow-auto p-3">
+                {action === 'import' && <ImportWizard catalog={catalog} classId={classId} items={b.items} learned={learned} canLearn={canLearn}
+                  onApply={async (title, upserts, removeIds) => { await b.apply(title, upserts, removeIds); }}
+                  onDone={() => { setAction(null); addToast('Импорт записан. Отменить можно кнопкой «Отменить».', 'success'); }} />}
+                {action === 'templates' && <BlankDesigner catalog={catalog} items={b.items} header={b.list.header} orderNos={b.list.orderNos} canEdit={can(user as any, 'blanks.manage')} />}
+                {action === 'issue' && <IssuePanel catalog={catalog} list={b.list} items={b.items} canIssue={can(user as any, 'builder.issue')} onUpdateList={(patch) => b.updateList(patch)} />}
+              </div>
+            </section>
+          </div>
         )}
       </div>
     </SectionErrorBoundary>

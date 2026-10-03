@@ -244,6 +244,25 @@ export interface CatalogRef {
   file: string;
   pages?: string;
   edition?: string;
+  /** Идентификатор общедоступного вложения в БД, а не путь компьютера автора. */
+  assetId?: string;
+  physicalPage?: number;
+  printedPage?: string;
+}
+
+export interface CatalogDocument extends CatalogRef {
+  id: string;
+  label: string;
+  kind: 'manual' | 'image' | 'drawing' | 'curve';
+}
+
+/** Многомерная таблица: только точное совпадение входных осей, без интерполяции. */
+export interface CatalogTable {
+  id: string;
+  title: string;
+  columns: Array<{ key: string; label: string; unit?: string; role: 'input' | 'output' }>;
+  rows: Array<{ id: string; values: Record<string, string | number | null>; verified: boolean; source?: CatalogRef }>;
+  source?: CatalogRef;
 }
 
 export type FamilyStatus = 'full' | 'partial' | 'draft';
@@ -266,6 +285,10 @@ export interface Family {
   shapes: Array<'rect' | 'round'>;
   params: ParamDef[];
   positions: Position[];
+  /** У артикула или свободной марки нет обязательной клапанной грамматики. */
+  designationMode?: 'structured' | 'article' | 'free';
+  designationSeparator?: string;
+  article?: string;
   rules: Rule[];
   match: MatchProfile;
   specs: SpecDefault[];
@@ -276,6 +299,10 @@ export interface Family {
   /** Старые обозначения и другие имена семейства */
   aliases?: string[];
   catalog?: CatalogRef;
+  documents?: CatalogDocument[];
+  tables?: CatalogTable[];
+  /** Одна идентичность изделия, в том числе при использовании как компонента. */
+  componentRoles?: string[];
   status: FamilyStatus;
   /** Что сверить с каталогом, если статус не full */
   todo?: string[];
@@ -313,7 +340,7 @@ export interface Component {
   status?: FamilyStatus;
   todo?: string[];
   facts?: Facts;
-  specs?: Array<{ label: Text2; value: string; unit?: string }>;
+  specs?: Array<{ label: Text2; value: string; unit?: string; sourceRef?: CatalogRef }>;
 }
 
 /** Правило тега: код типа в теге → что это за изделие */

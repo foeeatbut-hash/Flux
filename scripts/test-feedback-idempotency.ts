@@ -43,7 +43,7 @@ async function api(method: string, path: string, token: string, body?: any) {
 const stamp = Date.now().toString(36).slice(-6);
 let deploymentId = '';
 
-const submit = (over: Record<string, any> = {}) => ({
+const submit = (over: Record<string, any> = {}): Record<string, any> => ({
   schemaVersion: 1,
   clientRequestId: randomUUID(),
   deploymentId,
@@ -75,19 +75,33 @@ async function main() {
   ok('признак контура получен', !!deploymentId);
 
   console.log('\n1. Обращение заводится');
-  const first = submit();
+  const first = submit({
+    type: 'QUESTION',
+    dataIssue: {
+      namespace: 'catalogDataIssue',
+      context: {
+        program: 'catalog', entityId: `catalog-item-${stamp}`, entityTitle: 'Насос П-42',
+        field: 'Мощность', currentValue: '4 кВт', revision: 'редакция 2026',
+        source: { file: 'Каталог насосов.pdf', pages: '18', edition: '2026' },
+      },
+      proposedValue: '5 кВт', sourceText: 'Таблица 3, строка 4',
+    },
+  });
   const made = await api('POST', '/api/feedback/reports', admin, first);
   ok('карточка создана', made.status === 201, made.json);
   const reportId = made.json?.data?.id;
   ok('номер выдан', Number(made.json?.data?.number) > 0, made.json?.data?.number);
   ok('состояние — новое', made.json?.data?.status === 'NEW', made.json?.data?.status);
   ok('автор проставлен сервером', made.json?.data?.author?.id, made.json?.data?.author);
+  ok('контекст неточности включён в ответ создания', made.json?.data?.dataIssue?.context?.entityId === first.dataIssue.context.entityId,
+    made.json?.data?.dataIssue);
 
   console.log('\n2. Повтор возвращает ту же карточку');
   const again = await api('POST', '/api/feedback/reports', admin, first);
   ok('второй раз — не создание, а возврат', again.status === 200, again.status);
   ok('и карточка та же', again.json?.data?.id === reportId, [again.json?.data?.id, reportId]);
   ok('повтор назван повтором', again.json?.meta?.repeat === true, again.json?.meta);
+  ok('повтор возвращает исходный контекст', again.json?.data?.dataIssue?.proposedValue === '5 кВт', again.json?.data?.dataIssue);
 
   // Одновременная отправка из двух окон: без уникального индекса в базе прошли
   // бы обе, и в очереди оказалось бы два одинаковых обращения
@@ -105,6 +119,12 @@ async function main() {
   const changed = await api('POST', '/api/feedback/reports', admin, { ...first, title: `__совсем другое ${stamp}` });
   ok('отвергнуто', changed.status === 409, changed.status);
   ok('и названо по имени', changed.json?.error?.code === 'IDEMPOTENCY_CONFLICT', changed.json?.error);
+  const changedContext = await api('POST', '/api/feedback/reports', admin, {
+    ...first,
+    dataIssue: { ...first.dataIssue, context: { ...first.dataIssue.context, entityTitle: 'Другой насос' } },
+  });
+  ok('изменение только контекста с тем же ключом тоже отвергнуто', changedContext.status === 409,
+    [changedContext.status, changedContext.json?.error]);
 
   console.log('\n4. Ответ на «дошло ли»');
   const asked = await api('GET', `/api/feedback/reports/by-request/${first.clientRequestId}`, admin);
@@ -149,6 +169,8 @@ async function main() {
   ok('свой список открыт и пуст', own.status === 200 && (own.json?.data || []).length === 0, own.json?.meta);
   const adminSees = await api('GET', `/api/feedback/reports/${reportId}`, admin);
   ok('администратор карточку видит', adminSees.status === 200, adminSees.status);
+  ok('контекст пережил запись и читается карточкой из базы',
+    adminSees.json?.data?.dataIssue?.context?.source?.file === 'Каталог насосов.pdf', adminSees.json?.data?.dataIssue);
 
   console.log('\n8. Предел частоты считается в базе, а не в памяти');
   // Занимаем предел от имени второго сотрудника, чтобы не тратить час

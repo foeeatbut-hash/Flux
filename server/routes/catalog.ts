@@ -8,6 +8,9 @@ import { SIGNATURE_MAX } from '../../catalog/text.js';
 import { registerCatalogSpreadsheetRoutes } from './catalogSpreadsheet.js';
 import { templateProblem } from '../../catalog/blank/safe.js';
 import { oncePerDatabase } from '../schemaRuntime.js';
+import { registerCatalogAssetRoutes } from './catalogAssets.js';
+import { registerCatalogWorkspaceRoutes } from './catalogWorkspace.js';
+import { catalogSetting } from '../catalogWorkspace.js';
 import { syncCatalogSeed } from '../catalogSeed.js';
 
 /**
@@ -65,7 +68,7 @@ export async function ensureCatalog(prisma: any): Promise<void> {
   return oncePerDatabase(prisma, `catalog:${SEED_VERSION}`, async () => {
     const err = await ensureTables(prisma, TABLES, undefined, true);
     if (err) throw new Error(err);
-    await syncSeed(prisma);
+    await prisma.$transaction((db: any) => syncSeed(db), { timeout: 60000 });
   });
 }
 
@@ -77,11 +80,9 @@ const me = (req: Request) => (req as any).authUser || null;
 /**
  * Затравка из кода — в базу.
  *
- * Пустой каталог заполняется целиком. Потом при каждом обновлении программы
- * докладываются новые семейства и обновляются те, что пришли из затравки и
- * НЕ правлены человеком (`edited`). Правленое не трогаем никогда: инженер
- * сверил семейство со страницей каталога, и обновление программы не должно
- * молча вернуть распознанные с ошибкой цифры.
+ * Пустой каталог заполняется целиком. Обновление программы больше не меняет
+ * предметные данные. Новые редакции загружаются как черновики и публикуются
+ * отдельно, с автором, проверкой конфликтов и общей версией в БД.
  */
 async function syncSeed(prisma: any): Promise<void> {
   await syncCatalogSeed(prisma, seedCatalog(), SEED_VERSION, defaultBlankTemplate());
@@ -98,17 +99,18 @@ export async function readCatalog(prisma: any, withDeleted = false): Promise<Cat
   const meta: Record<string, any> = {};
   for (const r of fams) meta[r.id] = { edited: r.edited, seedVersion: r.seedVersion, updatedAt: r.updatedAt, deleted: !!r.deletedAt };
   return {
-    classes: classes.map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, code: r.code })),
-    manufacturers: mfs.map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, name: r.name })),
+    classes: classes.filter((r: any) => parse<any>(r.dataJson, {}).publicationState !== 'archived').map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, code: r.code })),
+    manufacturers: mfs.filter((r: any) => parse<any>(r.dataJson, {}).publicationState !== 'archived').map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, name: r.name })),
     families: fams.map((r: any) => ({ ...parse<Family>(r.dataJson, {} as Family), id: r.id, classId: r.classId, manufacturerId: r.manufacturerId, code: r.code, status: r.status })),
-    components: comps.map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, classId: r.classId, kind: r.kind, code: r.code })),
-    tagRules: rules.map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, classId: r.classId, code: r.code })),
+    components: comps.filter((r: any) => parse<any>(r.dataJson, {}).publicationState !== 'archived').map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, classId: r.classId, kind: r.kind, code: r.code })),
+    tagRules: rules.filter((r: any) => parse<any>(r.dataJson, {}).publicationState !== 'archived').map((r: any) => ({ ...parse(r.dataJson, {}), id: r.id, classId: r.classId, code: r.code })),
     meta,
   };
 }
 
 /** Метка версии каталога: окно перечитывает каталог, только когда она сменилась */
 async function stampOf(prisma: any): Promise<string> {
+  const publication = await catalogSetting(prisma, 'catalog_publication', { number: 0 });
   const parts = await Promise.all([
     prisma.catalogFamily.aggregate({ _max: { updatedAt: true }, _count: true }),
     prisma.catalogComponent.aggregate({ _max: { updatedAt: true }, _count: true }),
@@ -116,37 +118,17 @@ async function stampOf(prisma: any): Promise<string> {
     prisma.catalogClass.aggregate({ _max: { updatedAt: true }, _count: true }),
     prisma.catalogManufacturer.aggregate({ _max: { updatedAt: true }, _count: true }),
   ]);
-  return parts.map((p: any) => `${p._count}:${p._max?.updatedAt ? new Date(p._max.updatedAt).getTime() : 0}`).join('/');
+  return `${publication.number}/` + parts.map((p: any) => `${p._count}:${p._max?.updatedAt ? new Date(p._max.updatedAt).getTime() : 0}`).join('/');
 }
-
-const ENTITY: Record<string, { model: string; fields: (d: any) => Record<string, unknown> }> = {
-  family: { model: 'catalogFamily', fields: (d) => ({ classId: String(d.classId || ''), manufacturerId: String(d.manufacturerId || ''), code: String(d.code || '').trim(), status: String(d.status || 'draft'), sort: Number(d.sort) || 0 }) },
-  component: { model: 'catalogComponent', fields: (d) => ({ classId: String(d.classId || ''), kind: String(d.kind || 'other'), code: String(d.code || '').trim() }) },
-  tagRule: { model: 'catalogTagRule', fields: (d) => ({ classId: String(d.classId || ''), code: String(d.code || '').trim().toUpperCase() }) },
-  class: { model: 'catalogClass', fields: (d) => ({ code: String(d.code || '').trim(), sort: Number(d.sort) || 0 }) },
-  manufacturer: { model: 'catalogManufacturer', fields: (d) => ({ name: String(d.name || '').trim() }) },
-};
 
 async function snapshot(prisma: any, entity: string, entityId: string, action: string, row: any, userId?: string) {
   await prisma.catalogRevision.create({ data: { entity, entityId, action, snapshotJson: JSON.stringify(row || {}), userId: userId || null } });
 }
 
-/** Что не так с записью — до записи, а не после */
-function whyNot(entity: string, d: any): string {
-  if (entity === 'family') {
-    if (!String(d.code || '').trim()) return 'У семейства нет кода';
-    if (!d.classId) return 'Не указан класс оборудования';
-    if (!Array.isArray(d.positions) || !d.positions.length) return 'У семейства нет ни одной позиции обозначения';
-    if (!Array.isArray(d.params)) return 'Параметры семейства испорчены';
-  }
-  if ((entity === 'component' || entity === 'tagRule') && !String(d.code || '').trim()) return 'Нет кода';
-  if (entity === 'class' && !String(d.code || '').trim()) return 'У класса нет кода';
-  if (entity === 'manufacturer' && !String(d.name || '').trim()) return 'У производителя нет названия';
-  return '';
-}
-
-export function registerCatalogRoutes(app: Express): void {
-  registerCatalogSpreadsheetRoutes(app, { ensure: ensureCatalog, readCatalog });
+export function registerCatalogRoutes(app: Express, can: (user: any, feature: string) => boolean): void {
+  registerCatalogAssetRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
+  registerCatalogWorkspaceRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
+  registerCatalogSpreadsheetRoutes(app, { ensure: ensureCatalog, readCatalog, can });
   app.get('/api/catalog', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
@@ -164,63 +146,6 @@ export function registerCatalogRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
-  /**
-   * Сохранить запись каталога (создать или изменить).
-   *
-   * Семейство, пришедшее из затравки, после правки помечается `edited` — и с
-   * этого момента обновление программы его не трогает.
-   */
-  app.put('/api/catalog/:entity/:id', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      await ensureCatalog(prisma);
-      const entity = String(req.params.entity);
-      const spec = ENTITY[entity];
-      if (!spec) return res.status(404).json({ error: 'Нет такого вида записи' });
-      const body = (req.body || {}) as any;
-      const why = whyNot(entity, body);
-      if (why) return res.status(400).json({ error: why });
-      const id = String(req.params.id);
-      const model = prisma[spec.model];
-      const before = await model.findUnique({ where: { id } });
-      const userId = me(req)?.id;
-      const data: any = { ...spec.fields(body), dataJson: JSON.stringify({ ...body, id }) };
-      if (entity === 'family') { data.edited = true; data.updatedById = userId || null; data.deletedAt = null; }
-      let row;
-      if (before) {
-        await snapshot(prisma, entity, id, 'update', before, userId);
-        row = await model.update({ where: { id }, data });
-      } else {
-        row = await model.create({ data: { id, ...data } });
-      }
-      broadcast('catalog:changed', { entity, id });
-      res.json({ ok: true, id: row.id });
-    } catch (err: any) { sendError(res, err); }
-  });
-
-  /**
-   * Удаление. Семейство удаляется мягко: на него ссылаются позиции ведомостей
-   * всех проектов, и жёсткое удаление оставило бы их без описания.
-   */
-  app.delete('/api/catalog/:entity/:id', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      await ensureCatalog(prisma);
-      const entity = String(req.params.entity);
-      const spec = ENTITY[entity];
-      if (!spec) return res.status(404).json({ error: 'Нет такого вида записи' });
-      const id = String(req.params.id);
-      const model = prisma[spec.model];
-      const before = await model.findUnique({ where: { id } });
-      if (!before) return res.json({ ok: true });
-      await snapshot(prisma, entity, id, 'delete', before, me(req)?.id);
-      if (entity === 'family') await model.update({ where: { id }, data: { deletedAt: new Date(), edited: true } });
-      else await model.delete({ where: { id } });
-      broadcast('catalog:changed', { entity, id });
-      res.json({ ok: true });
-    } catch (err: any) { sendError(res, err); }
-  });
-
   app.get('/api/catalog/:entity/:id/revisions', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
@@ -233,111 +158,13 @@ export function registerCatalogRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
-  /** Вернуть запись к снимку. Текущее состояние перед этим тоже снимается — откат отменяем */
-  app.post('/api/catalog/revisions/:id/restore', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      await ensureCatalog(prisma);
-      const rev = await prisma.catalogRevision.findUnique({ where: { id: String(req.params.id) } });
-      if (!rev) return res.status(404).json({ error: 'Снимок не найден' });
-      // Шаблоны бланков откатываются тем же снимком, но правятся своим
-      // маршрутом — поэтому их модель здесь, а не в ENTITY
-      const modelName = rev.entity === 'template' ? 'blankTemplate' : ENTITY[rev.entity]?.model;
-      if (!modelName) return res.status(400).json({ error: 'Этот снимок не восстанавливается' });
-      const model = prisma[modelName];
-      const snap = parse<any>(rev.snapshotJson, null);
-      if (!snap?.id) return res.status(400).json({ error: 'Снимок испорчен' });
-      const cur = await model.findUnique({ where: { id: snap.id } });
-      if (cur) await snapshot(prisma, rev.entity, snap.id, 'restore', cur, me(req)?.id);
-      // Снимок «создано» (загрузка каталога из файла): вернуть к нему — значит
-      // снять запись. Семейство — мягко: на него могут ссылаться ведомости
-      if (rev.action === 'create') {
-        if (cur && rev.entity === 'family') await model.update({ where: { id: snap.id }, data: { deletedAt: new Date(), edited: true } });
-        else if (cur) await model.delete({ where: { id: snap.id } });
-        broadcast('catalog:changed', { entity: rev.entity, id: snap.id });
-        return res.json({ ok: true, removed: true });
-      }
-      const { id, createdAt, updatedAt, ...fields } = snap;
-      if (rev.entity === 'family') fields.edited = true;
-      if (cur) await model.update({ where: { id }, data: fields });
-      else await model.create({ data: { id, ...fields } });
-      broadcast('catalog:changed', { entity: rev.entity, id });
-      res.json({ ok: true });
-    } catch (err: any) { sendError(res, err); }
-  });
-
-  /**
-   * Вернуть семейство к затравке: снять пометку «правлено» и переписать из
-   * кода. Нужна, когда правка оказалась ошибкой, а снимков уже много.
-   */
-  app.post('/api/catalog/family/:id/reseed', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      await ensureCatalog(prisma);
-      const f = seedCatalog().families.find((x) => x.id === req.params.id);
-      if (!f) return res.status(404).json({ error: 'Этого семейства нет в затравке программы' });
-      const before = await prisma.catalogFamily.findUnique({ where: { id: f.id } });
-      if (before) await snapshot(prisma, 'family', f.id, 'seed', before, me(req)?.id);
-      const data = { classId: f.classId, manufacturerId: f.manufacturerId, code: f.code, dataJson: JSON.stringify(f), status: f.status, seedVersion: SEED_VERSION, edited: false, deletedAt: null, sort: f.sort || 0 };
-      if (before) await prisma.catalogFamily.update({ where: { id: f.id }, data });
-      else await prisma.catalogFamily.create({ data: { id: f.id, ...data } });
-      broadcast('catalog:changed', { entity: 'family', id: f.id });
-      res.json({ ok: true });
-    } catch (err: any) { sendError(res, err); }
-  });
-
-  // ── Обмен каталогом между серверами ──────────────────────────────────────
-
+  // Экспорт всегда содержит только опубликованные данные.
   app.get('/api/catalog/export', async (_req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
       await ensureCatalog(prisma);
       const cat = await readCatalog(prisma);
       res.json({ format: 'flux-catalog', version: 1, exportedAt: new Date().toISOString(), ...cat, meta: undefined });
-    } catch (err: any) { sendError(res, err); }
-  });
-
-  /**
-   * Загрузить каталог из файла. Режим `plan` ничего не пишет и отвечает, что
-   * будет добавлено и что изменится; запись — вторым запросом с `apply`.
-   */
-  app.post('/api/catalog/import', async (req: Request, res: Response) => {
-    try {
-      const prisma = getPrisma();
-      await ensureCatalog(prisma);
-      const body = (req.body || {}) as any;
-      if (body.format !== 'flux-catalog') return res.status(400).json({ error: 'Это не файл каталога Flux' });
-      const apply = body.mode === 'apply';
-      const plan: Array<{ entity: string; id: string; code: string; action: 'new' | 'update' | 'same' }> = [];
-      const lists: Array<[string, any[]]> = [['class', body.classes], ['manufacturer', body.manufacturers], ['family', body.families], ['component', body.components], ['tagRule', body.tagRules]];
-      /**
-       * Загрузка — одна транзакция: половина чужого каталога хуже, чем ни
-       * одной записи. У каждой записи остаётся снимок, у новой — снимок
-       * «создано», по которому история её и снимет: загрузку можно отменить
-       * запись за записью, а не только поправленные
-       */
-      const run = async (db: any) => {
-        for (const [entity, list] of lists) {
-          const spec = ENTITY[entity];
-          for (const d of Array.isArray(list) ? list : []) {
-            if (!d?.id || whyNot(entity, d)) continue;
-            const model = db[spec.model];
-            const before = await model.findUnique({ where: { id: String(d.id) } });
-            const json = JSON.stringify(d);
-            const action = !before ? 'new' : before.dataJson === json ? 'same' : 'update';
-            plan.push({ entity, id: d.id, code: d.code || d.name || d.id, action });
-            if (!apply || action === 'same') continue;
-            const data: any = { ...spec.fields(d), dataJson: json };
-            if (entity === 'family') data.edited = true;
-            if (before) { await snapshot(db, entity, d.id, 'update', before, me(req)?.id); await model.update({ where: { id: d.id }, data }); }
-            else { await model.create({ data: { id: d.id, ...data } }); await snapshot(db, entity, d.id, 'create', { id: d.id }, me(req)?.id); }
-          }
-        }
-      };
-      if (apply) await prisma.$transaction(run, { maxWait: 20_000, timeout: 120_000 });
-      else await run(prisma);
-      if (apply) broadcast('catalog:changed', { entity: 'all' });
-      res.json({ plan, applied: apply });
     } catch (err: any) { sendError(res, err); }
   });
 

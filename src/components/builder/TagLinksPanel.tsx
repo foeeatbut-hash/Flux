@@ -73,7 +73,7 @@ export default function TagLinksPanel({ listId, onClose, onDone }: { listId: str
       </div>
       <div className="flex gap-2 items-center">
         <Btn tone="primary" onClick={apply} disabled={busy || !links}><Link2 className="w-3.5 h-3.5" /> Привязать {counts.link || 0}, <Plus className="w-3 h-3" /> завести {counts.create || 0}</Btn>
-        <span className="text-2xs text-slate-400">Новые теги появятся в разделе «Теги» с маркой — обозначением клапана</span>
+        <span className="text-2xs text-slate-400">Новые теги появятся в разделе «Теги» со связанным обозначением изделия</span>
       </div>
     </div>
   );

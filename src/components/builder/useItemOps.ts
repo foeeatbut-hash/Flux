@@ -27,7 +27,7 @@ function matchInfo(c: ReturnType<typeof matchDescription>[number], rest: ReturnT
   };
 }
 
-export function itemOps(catalog: Catalog, classId: string, items: SelectionItemData[], learned: Learned[], apply: Apply) {
+export function itemOps(catalog: Catalog, classId: string, items: SelectionItemData[], learned: Learned[], apply: Apply, canLearn = false) {
   const cls = catalog.classes.find((c) => c.id === classId);
   const det = detectorsFor(cls?.code || 'valve');
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -37,6 +37,21 @@ export function itemOps(catalog: Catalog, classId: string, items: SelectionItemD
   };
 
   return {
+    /** Подбор из карточки обновляет выбранную позицию, сохраняя её теги и количество */
+    matchItem: async (id: string, a: Accepted) => {
+      const it = byId.get(id);
+      if (!it) return;
+      const designation = designationOf(a.familyId, a.values);
+      await apply(`Подбор по описанию: ${it.tags[0] || ''}`.trim(), [{
+        ...it, familyId: a.familyId, values: a.values, sourceText: a.text || it.sourceText,
+        designation, match: { confidence: a.corrected ? 1 : a.candidate.confidence, reasons: a.candidate.reasons }, status: 'matched',
+        overrides: [...new Set([...(it.overrides || []), 'familyId', 'values'])],
+      }]);
+      if (canLearn && a.corrected && a.text.trim()) {
+        catalogService.learn({ classId: it.classId, signature: signatureOf(a.text), familyId: a.familyId, values: a.values }).catch(() => undefined);
+      }
+    },
+
     /** Подобрать заново по исходному тексту */
     rematch: async (ids: string[]) => {
       const up: SelectionItemData[] = [];
@@ -117,24 +132,30 @@ export function itemOps(catalog: Catalog, classId: string, items: SelectionItemD
     paste: async (text: string) => {
       let sort = nextSort(items);
       const up: Array<Partial<SelectionItemData>> = [];
+      let invalidQtyRows = 0;
       for (const line of text.split(/\r?\n/)) {
         const cells = line.split('\t').map((c) => c.trim()).filter(Boolean);
         if (!cells.length) continue;
         const tags = cells.flatMap((c) => splitTagCell(c).tags);
-        const qtyCell = cells.find((c) => /^\d{1,4}([.,]0+)?$/.test(c));
+        const qtyCell = cells.find((c) => /^\d+(?:[.,]\d+)?$/.test(c));
+        const invalidQty = cells.find((c) => !qtyCell && (
+          /^[+-]?\d[\d\s.,/+\-]*$/.test(c) && !/[xх×*]/i.test(c)
+          || /^\d[\d\s.,]*\s*(?:шт\.?|штук(?:а|и|у)?|pcs?|units?|ед\.?|единиц(?:а|ы|у)?)$/i.test(c)
+        ));
+        if (invalidQty) { invalidQtyRows++; continue; }
         const desc = [...cells].filter((c) => c !== qtyCell && !splitTagCell(c).tags.length).sort((a, b) => b.length - a.length)[0] || '';
         if (!desc && !tags.length) continue;
         const d = describe(desc, det, { tags });
         const list = desc ? matchDescription(catalog, d, { classId, learned, limit: 3 }) : [];
         const top = list.find((c) => !c.rejected);
         up.push({
-          id: newItemId(), classId, tags, qty: (qtyCell ? parseNum(qtyCell) : null) || tags.length || 1, sourceText: desc,
+          id: newItemId(), classId, tags, qty: (qtyCell ? parseNum(qtyCell) : null) ?? (tags.length || 1), sourceText: desc,
           familyId: top?.familyId, values: top?.values || {}, designation: top?.designation || '',
           match: top ? matchInfo(top, list.slice(1)) : undefined, status: top ? 'matched' : 'draft', sort: sort++,
         });
       }
       if (up.length) await apply(`Вставка из буфера: ${up.length} поз.`, up);
-      return up.length;
+      return { inserted: up.length, invalidQtyRows };
     },
 
     /** Кандидат подбора → новая позиция; поправленное человеком запоминается */
@@ -146,7 +167,7 @@ export function itemOps(catalog: Catalog, classId: string, items: SelectionItemD
         match: { confidence: a.corrected ? 1 : a.candidate.confidence, reasons: a.candidate.reasons },
         status: 'matched', sort: nextSort(items),
       }]);
-      if (a.corrected && a.text.trim()) {
+      if (canLearn && a.corrected && a.text.trim()) {
         catalogService.learn({ classId, signature: signatureOf(a.text), familyId: a.familyId, values }).catch(() => undefined);
       }
     },

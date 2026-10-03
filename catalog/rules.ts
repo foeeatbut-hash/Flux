@@ -8,7 +8,7 @@
  */
 import {
   type Cond, type Family, type Rule, type ValveValues, type ParamValue,
-  factsOfConfig, shapeOf, num, withDefaults, paramOf,
+  factsOfConfig, shapeOf, num, withDefaults, textOf, paramOf,
 } from './model';
 
 export function evalCond(f: Family, c: Cond | undefined, values: ValveValues): boolean {
@@ -87,16 +87,25 @@ export function checkConfig(f: Family, rawValues: ValveValues): Violation[] {
     const v = violationOf(f, r, values);
     if (v) out.push(v);
   }
-  // Размер обязателен всегда: без него обозначения нет
+  // Геометрия обязательна только для семейств, которые объявляют размер сечения.
   const shape = shapeOf(values);
-  if (!shape) out.push({ ruleId: 'size', level: 'error', message: 'Не задан размер', param: 'W' });
-  else if (!f.shapes.includes(shape)) {
+  if (f.params.some(p => p.size) && !shape) out.push({ ruleId: 'size', level: 'error', message: 'Не задан размер', param: 'W' });
+  else if (shape && f.shapes.length && !f.shapes.includes(shape)) {
     out.push({
       ruleId: 'shape', level: 'error', param: shape === 'round' ? 'D' : 'W',
       message: shape === 'round' ? 'Семейство не бывает круглым' : 'Семейство не бывает прямоугольным',
     });
   } else if (shape === 'rect' && (!num(values.W) || !num(values.H))) {
     out.push({ ruleId: 'size', level: 'error', message: 'Нужны и ширина, и высота', param: num(values.W) ? 'H' : 'W' });
+  }
+  for (const p of f.params) {
+    const value = values[p.key];
+    if (value === undefined || value === '') continue;
+    if (p.kind === 'choice' && !p.values?.some(v => v.code === String(value))) out.push({ ruleId: `param:${p.key}`, level: 'error', param: p.key, message: `Неизвестный код: ${String(value)}` });
+    if (p.kind === 'number') {
+      const n = Number(String(value).replace(',', '.'));
+      if (!Number.isFinite(n) || (p.min !== undefined && n < p.min) || (p.max !== undefined && n > p.max)) out.push({ ruleId: `param:${p.key}`, level: 'error', param: p.key, message: `Значение «${textOf(p.label)}» вне допустимого диапазона` });
+    }
   }
   return out;
 }

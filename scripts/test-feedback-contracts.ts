@@ -79,6 +79,31 @@ console.log('\n1.1. Короткое сообщение принимается, 
     titleFrom('я'.repeat(400)).length === LIMITS.title.max);
 }
 
+console.log('\n1.2. Контекст неточности каталога проходит как структурированные данные');
+{
+  const dataIssue = {
+    namespace: 'catalogDataIssue',
+    context: {
+      program: 'catalog', entityId: 'pump-42', entityTitle: 'Насос П-42',
+      field: 'Мощность', currentValue: '4 кВт', revision: '2026.2',
+      source: { file: 'Каталог насосов.pdf', pages: '18', edition: '2026' },
+    },
+    proposedValue: '5 кВт', sourceText: 'Таблица 3, строка 4',
+  };
+  const r = validateSubmit({ ...good(), dataIssue }, NOW);
+  ok('структурированное сообщение принято', r.ok, r.error);
+  ok('namespace и весь контекст сохранены', JSON.stringify(r.value?.dataIssue) === JSON.stringify(dataIssue), r.value?.dataIssue);
+  ok('неизвестные поля контекста отвергнуты', !validateSubmit({ ...good(), dataIssue: {
+    ...dataIssue, context: { ...dataIssue.context, secret: 'не должно пройти' },
+  } }, NOW).ok);
+  ok('неизвестная программа отвергнута', !validateSubmit({ ...good(), dataIssue: {
+    ...dataIssue, context: { ...dataIssue.context, program: 'settings' },
+  } }, NOW).ok);
+  ok('слишком длинное подтверждение отвергнуто', !validateSubmit({ ...good(), dataIssue: {
+    ...dataIssue, sourceText: 'x'.repeat(4001),
+  } }, NOW).ok);
+}
+
 console.log('\n2. Лишние поля не проезжают');
 {
   // Самое опасное: клиент присылает себя администратором или чужим автором

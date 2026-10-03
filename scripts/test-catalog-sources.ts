@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { attachCatalogSource, sourcePhysicalPage } from '../catalog/sources';
+import { veza2026Pack } from '../catalog/packs/veza2026';
+const original = veza2026Pack.families.find(f => f.id === 'veza-osa-300')!;
+const snapshot = JSON.stringify(original);
+const attached = attachCatalogSource(original, original.catalog, 'fixture-pdf-asset');
+assert.equal(attached.catalog?.assetId, 'fixture-pdf-asset');
+assert.ok(attached.documents?.every(d => d.assetId === 'fixture-pdf-asset'), 'загрузка PDF привязывает все страницы той же редакции');
+assert.ok(attached.tables?.every(t => t.source?.assetId === 'fixture-pdf-asset' && t.rows.every(r => r.source?.assetId === 'fixture-pdf-asset')), 'таблица и её проверенные строки получают исходник');
+assert.equal(JSON.stringify(original), snapshot, 'опубликованный объект не изменяется при подготовке черновика');
+const future = { ...original, documents: [...(original.documents || []), { id: 'future', file: original.catalog!.file, edition: '2030', label: 'Будущая редакция', kind: 'manual' as const }] };
+assert.equal(attachCatalogSource(future, original.catalog, 'fixture-pdf-asset').documents?.at(-1)?.assetId, undefined, 'другая редакция не подменяется этим файлом');
+assert.equal(sourcePhysicalPage({ file: 'PDF', physicalPage: 10, printedPage: '9' }), 10);
+assert.equal(sourcePhysicalPage({ file: 'PDF', pages: '9–10', printedPage: '9' }), undefined, 'из неоднозначного старого номера нельзя угадывать физическую страницу');
+assert.equal(sourcePhysicalPage({ file: 'PDF', physicalPage: -1 }), undefined);
+assert.equal(sourcePhysicalPage({ file: 'PDF', physicalPage: 1.5 }), undefined);
+console.log('9 проверок источников прошли');

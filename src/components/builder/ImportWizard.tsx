@@ -29,6 +29,14 @@ const ACTION: Record<string, { label: string; tone: 'emerald' | 'sky' | 'slate' 
   conflict: { label: 'конфликт', tone: 'rose' }, skip: { label: 'пропуск', tone: 'slate' },
 };
 
+/** Количество не разбираем частично: «2 шт.» нельзя превращать в 2 молча. */
+function parseQuantity(raw: string): number | null {
+  const normalized = raw.replace(/[\s\u00a0\u202f]/g, '').replace(',', '.');
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 async function readBook(file: File): Promise<Book> {
   const XLSX: any = await import('xlsx');
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
@@ -42,8 +50,9 @@ async function readBook(file: File): Promise<Book> {
   };
 }
 
-export default function ImportWizard({ catalog, classId, items, learned, onApply, onDone }: {
+export default function ImportWizard({ catalog, classId, items, learned, canLearn = false, onApply, onDone }: {
   catalog: Catalog; classId: string; items: SelectionItemData[]; learned: Learned[];
+  canLearn?: boolean;
   onApply: (title: string, upserts: Array<Partial<SelectionItemData>>, removeIds: string[]) => Promise<void>;
   onDone: () => void;
 }) {
@@ -106,7 +115,20 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
     setTimeout(() => {
       try {
         const guess = { headerRow, columns: cols, signature: signatureOfHeader(rows[headerRow] || []) };
-        const parsed = readRows(rows, guess, tagRules, { onlyTagged });
+        const blockedRows = new Map<number, string>();
+        const parsed = readRows(rows, guess, tagRules, { onlyTagged }).map((row) => {
+          const rawQty = cols.qty === undefined ? '' : String(rows[row.row - 1]?.[cols.qty] ?? '').trim();
+          const issues: string[] = [];
+          if (row.tagRest.length) issues.push(`Тег не распознан: «${row.tagRest.join(', ')}»`);
+          let qty: number | null = null;
+          if (rawQty) {
+            qty = parseQuantity(rawQty);
+            if (qty === null) issues.push(`Количество не распознано: «${rawQty}»`);
+          }
+          if (issues.length) blockedRows.set(row.row, [row.skip, ...issues].filter(Boolean).join(' · '));
+          if (row.skip || !rawQty || qty === null) return row;
+          return { ...row, qty };
+        });
         const det = detectorsFor(cls?.code || 'valve');
         let sort = nextSort(items);
         const propose = (r: SheetRow): Partial<SelectionItemData> => {
@@ -126,7 +148,23 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
             status: top ? 'matched' : 'draft', sort: sort++,
           };
         };
-        const p = planSheetImport(items, parsed, propose, { fullDocument: fullDoc });
+        const basePlan = planSheetImport(items, parsed, propose, { fullDocument: fullDoc });
+        const planEntries = basePlan.entries.map((entry) => {
+          const reason = blockedRows.get(entry.row.row);
+          return reason === undefined ? entry : { ...entry, action: 'skip' as const, note: reason };
+        });
+        const blockedEntries = basePlan.entries.filter((entry) => blockedRows.has(entry.row.row));
+        const newlyBlocked = blockedEntries.filter((entry) => entry.action !== 'skip');
+        const totals = {
+          ...basePlan.totals,
+          new: basePlan.totals.new - newlyBlocked.filter((entry) => entry.action === 'new').length,
+          update: basePlan.totals.update - newlyBlocked.filter((entry) => entry.action === 'update').length,
+          same: basePlan.totals.same - newlyBlocked.filter((entry) => entry.action === 'same').length,
+          conflict: basePlan.totals.conflict - newlyBlocked.filter((entry) => entry.action === 'conflict').length,
+          skip: basePlan.totals.skip + newlyBlocked.length,
+          qty: Math.max(0, basePlan.totals.qty - newlyBlocked.reduce((sum, entry) => sum + entry.row.qty, 0)),
+        };
+        const p = { ...basePlan, entries: planEntries, totals, missing: basePlan.entries.some((entry) => entry.action === 'skip') ? [] : basePlan.missing };
         setPlan(p);
         setTake(new Set(p.entries.map((e, i) => (e.action === 'new' || e.action === 'update' ? i : -1)).filter((i) => i >= 0)));
         setRemoveTake(new Set());
@@ -154,6 +192,7 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
     setBusy('Записываю…');
     try {
       const upserts: Array<Partial<SelectionItemData>> = [];
+      const learnedChoices: Array<{ signature: string; familyId: string; values: Record<string, string | number> }> = [];
       for (const i of take) {
         const e = plan.entries[i];
         const prop = proposedOf(i);
@@ -180,10 +219,11 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
         }
         // Семейство сменили руками — стоит запомнить, чтобы в следующий раз не спрашивать
         if (famOverride[i] && famOverride[i] !== e.proposed.familyId && e.row.description) {
-          catalogService.learn({ classId, signature: signatureOf(textForMatch(e.row)), familyId: famOverride[i], values: prop.values || {} }).catch(() => undefined);
+          learnedChoices.push({ signature: signatureOf(textForMatch(e.row)), familyId: famOverride[i], values: prop.values || {} });
         }
       }
       await onApply(`Импорт ${book?.name || 'таблицы'}${rev ? ` (рев. ${rev})` : ''}: ${upserts.length} поз.`, upserts, [...removeTake]);
+      if (canLearn) for (const choice of learnedChoices) catalogService.learn({ classId, ...choice }).catch(() => undefined);
       onDone();
     } catch (e: any) { setError(e?.message || String(e)); } finally { setBusy(''); }
   };
@@ -258,13 +298,16 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
 
   if (step === 'plan' && plan) {
     const t = plan.totals;
-    const shown = plan.entries.map((e, i) => ({ e, i })).filter(({ e }) => view === 'all' || e.action !== 'skip');
+    const shown = plan.entries.map((e, i) => ({ e, i })).filter(({ e }) =>
+      view === 'all' || e.action !== 'skip' || !!e.note?.includes('не распознан'),
+    );
     const famOpts = [{ value: '', label: '— не подобрано —' }, ...catalog.families.filter((f) => f.classId === classId).map((f) => ({ value: f.id, label: f.code }))];
     return (
       <div className="flex flex-col gap-2 min-h-0 h-full">
         <div className="flex items-center gap-2 flex-wrap">
           <Chip tone="emerald">новых {t.new}</Chip><Chip tone="sky">изменится {t.update}</Chip><Chip>без изменений {t.same}</Chip>
           {t.conflict > 0 && <Chip tone="rose">конфликтов {t.conflict}</Chip>}<Chip>пропущено {t.skip}</Chip><Chip>штук {t.qty}</Chip>
+          {fullDoc && plan.entries.some((entry) => entry.action === 'skip') && <span className="text-2xs text-amber-700 dark:text-amber-400">Есть пропущенные строки; снятие отсутствующих позиций не предлагается.</span>}
           {plan.missing.length > 0 && <Chip tone="amber">нет в файле {plan.missing.length}</Chip>}
           <span className="flex-1" />
           <Seg label="Показать" value={view} onChange={setView} options={[{ value: 'act', label: 'позиции' }, { value: 'all', label: 'с пропущенными' }]} />
@@ -288,7 +331,9 @@ export default function ImportWizard({ catalog, classId, items, learned, onApply
                       <td className="px-2 py-1.5 tabular-nums text-slate-400">{e.row.row}</td>
                       <td className="px-2 py-1.5"><Chip tone={ACTION[e.action].tone}>{ACTION[e.action].label}</Chip>{e.note && <div className="text-2xs text-slate-400 mt-0.5 max-w-[180px]">{e.note}</div>}</td>
                       <td className="px-2 py-1.5 font-mono whitespace-nowrap">{e.row.tags.slice(0, 3).map((x) => <div key={x}>{x}</div>)}{e.row.tags.length > 3 && <div className="text-2xs text-slate-400">ещё {e.row.tags.length - 3}</div>}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{e.row.qty}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">
+                        {e.note?.includes('Количество не распознано:') ? rows[e.row.row - 1]?.[cols.qty ?? -1] || '—' : e.row.qty}
+                      </td>
                       <td className="px-2 py-1.5 min-w-[14rem]">
                         {e.action !== 'skip' && (
                           <>

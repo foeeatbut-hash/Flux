@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, LoaderCircle, RefreshCw, Search, X } from 'lucide-react';
+import DataIssueDialog from '../catalog/DataIssueDialog';
+import type { CatalogDataIssueContext } from '../../../feedback/catalogDataIssue';
 
 type Mode = 'hybrid' | 'xml' | 'catalog';
 type Source = 'xml' | 'catalog' | 'manual';
@@ -10,17 +12,25 @@ interface Model {
   manufacturerSearch?: string;
   title?: { ru?: string } | string;
   specs?: Array<{ label?: { ru?: string } | string; value: string; unit?: string }>;
+  effectiveSpecs?: Array<{ label?: { ru?: string } | string; value: string; unit?: string }>;
   catalog?: unknown;
+  sourceType?: 'component' | 'family';
+  sourceRevision?: string;
+  parsedValues?: Record<string, string | number>;
+  status?: string;
 }
 interface Snapshot {
   mode: Mode;
-  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; at?: string };
+  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family'; at?: string; snapshot?: Model };
   matches: Model[];
-  effective: Array<{ group?: string; key: string; value: string; unit?: string; source: Source }>;
+  updateAvailable?: Model;
+  effective: Array<{ group?: string; key: string; value: string; unit?: string; source: Source; revision?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
   warnings: string[];
 }
 interface CatalogIndex {
   components?: Model[];
+  families?: Model[];
+  meta?: Record<string, { updatedAt?: string }>;
   manufacturers?: Array<{ id: string; name: string; shortName?: string }>;
 }
 
@@ -47,6 +57,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [mode, setMode] = useState<Mode>('hybrid');
   const [selectedId, setSelectedId] = useState('');
+  const [selectedType, setSelectedType] = useState<'component' | 'family'>('component');
   const [query, setQuery] = useState('');
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
@@ -56,6 +67,9 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
+  const [reviewUpdate, setReviewUpdate] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [issueField, setIssueField] = useState<{ key?: string; value?: string; source?: { file: string; pages?: string; edition?: string } } | null>(null);
 
   const load = async (signal?: AbortSignal) => {
     setLoading(true);
@@ -65,6 +79,8 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       setSnapshot(data);
       setMode(data.mode);
       setSelectedId((current) => current || data.binding?.modelId || '');
+      setSelectedType(data.binding?.sourceType || 'component');
+      setReviewUpdate(false);
       setConflict(false);
     } catch (e: any) {
       if (e?.name !== 'AbortError') setError(e?.message || 'Не удалось загрузить источник параметров');
@@ -77,6 +93,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
     const controller = new AbortController();
     setSnapshot(null);
     setSelectedId('');
+    setSelectedType('component');
     void load(controller.signal);
     return () => controller.abort();
   }, [componentId]);
@@ -101,11 +118,20 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
           name: maker.name || maker.shortName || '',
           search: [maker.name, maker.shortName].filter(Boolean).join(' '),
         }]));
-        setAllModels((body.components || []).map((model: any) => ({
+        const components = (body.components || []).map((model: any) => ({
           ...model,
           manufacturer: model.manufacturer || manufacturers.get(model.manufacturerId)?.name || '',
           manufacturerSearch: manufacturers.get(model.manufacturerId)?.search || model.manufacturer || '',
-        })));
+          sourceType: 'component' as const,
+          sourceRevision: body.meta?.[model.id]?.updatedAt,
+        }));
+        const families = (body.families || []).map((family: any) => ({
+          ...family, kind: 'other', sourceType: 'family' as const, sourceRevision: body.meta?.[family.id]?.updatedAt,
+          manufacturer: manufacturers.get(family.manufacturerId)?.name || '',
+          manufacturerSearch: manufacturers.get(family.manufacturerId)?.search || '',
+          specs: (family.specs || []).map((spec: any) => ({ label: spec.label, value: spec.value?.ru || '', unit: spec.unit })),
+        }));
+        setAllModels([...components, ...families]);
         setCatalogLoaded(true);
       } catch (e: any) {
         if (e?.name !== 'AbortError') setError(e?.message || 'Не удалось найти модель в каталоге');
@@ -118,10 +144,10 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
 
   const candidates = useMemo(() => {
     const byId = new Map<string, Model>();
-    for (const item of [...(snapshot?.matches || []), ...searchResults]) byId.set(item.id, item);
+    for (const item of [...(snapshot?.matches || []), ...searchResults]) byId.set(`${item.sourceType || 'component'}:${item.id}`, item);
     return [...byId.values()];
   }, [snapshot?.matches, searchResults]);
-  const chosen = candidates.find((item) => item.id === selectedId);
+  const chosen = candidates.find((item) => item.id === selectedId && (item.sourceType || 'component') === selectedType);
 
   const save = async (refresh: boolean) => {
     if ((mode === 'catalog' || mode === 'hybrid') && !selectedId && !snapshot?.binding?.modelId) {
@@ -136,7 +162,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode,
-          ...(selectedId || snapshot?.binding?.modelId ? { modelId: selectedId || snapshot?.binding?.modelId } : {}),
+          ...(selectedId || snapshot?.binding?.modelId ? { modelId: selectedId || snapshot?.binding?.modelId, sourceType: chosen?.sourceType || snapshot?.binding?.sourceType || 'component' } : {}),
           ...(refresh ? { refresh: true } : {}),
           ...(snapshot?.binding?.revision ? { expectedRevision: snapshot.binding.revision } : {}),
         }),
@@ -151,6 +177,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       // PUT возвращает только новую привязку; эффективные значения и revision
       // читаются заново тем же способом, что и после обновления карточки.
       await load();
+      setReviewUpdate(false);
       onChanged();
     } catch (e: any) {
       setError(e?.message || 'Не удалось сохранить источник параметров');
@@ -181,7 +208,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
 
       {(mode === 'hybrid' || mode === 'catalog') && <div className="space-y-2 py-2">
         {snapshot?.matches.length ? <div className="space-y-1" role="group" aria-label="Подходящие модели каталога">
-          {snapshot.matches.map((model) => <ModelChoice key={model.id} model={model} selected={selectedId === model.id} onSelect={() => setSelectedId(model.id)} />)}
+          {snapshot.matches.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => { setSelectedId(model.id); setSelectedType(model.sourceType || 'component'); }} />)}
         </div> : <div className="fx-note">Автоматических совпадений нет. Найдите модель и выберите её вручную.</div>}
         <div className="flex items-center gap-2">
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
@@ -189,7 +216,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
           {query && <button type="button" onClick={() => setQuery('')} className="fx-btn fx-btn-quiet fx-btn-sm" aria-label="Очистить поиск"><X className="w-3.5 h-3.5" /></button>}
         </div>
         {query.trim().length >= 2 && <div className="space-y-1" role="group" aria-label="Результаты поиска каталога">
-          {searchResults.map((model) => <ModelChoice key={model.id} model={model} selected={selectedId === model.id} onSelect={() => setSelectedId(model.id)} />)}
+          {searchResults.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => { setSelectedId(model.id); setSelectedType(model.sourceType || 'component'); }} />)}
           {searchLoading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Поиск в каталоге…</div>}
           {catalogLoaded && !searchResults.length && !error && <div className="fx-note">Модели не найдены.</div>}
         </div>}
@@ -198,7 +225,18 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
 
       {snapshot?.binding && <div className="fx-note border-y border-slate-200 dark:border-slate-800">
         Источник: {mode === 'xml' ? 'XML' : 'каталог'}{snapshot.binding.code && <> · <span className="font-mono">{snapshot.binding.code}</span></>}{snapshot.binding.manufacturer ? ` · ${snapshot.binding.manufacturer}` : ''}
-        {snapshot.binding.at && <> · снимок от {new Date(snapshot.binding.at).toLocaleString('ru-RU')}</>}
+        {snapshot.binding.sourceRevision && <> · ревизия каталога {snapshot.binding.sourceRevision}</>}{snapshot.binding.at && <> · снимок от {new Date(snapshot.binding.at).toLocaleString('ru-RU')}</>}
+      </div>}
+
+      {snapshot?.updateAvailable && <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/30">
+        <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" /><span className="flex-1">Опубликована новая ревизия {snapshot.updateAvailable.sourceRevision}. Снимок проекта не изменён.</span>
+          <button type="button" className="fx-btn fx-btn-sm" onClick={() => setReviewUpdate(v => !v)}>{reviewUpdate ? 'Скрыть изменения' : 'Посмотреть изменения'}</button></div>
+        {reviewUpdate && <>
+          <div className="grid grid-cols-3 gap-2 font-medium"><span>Характеристика</span><span>Снимок проекта</span><span>Новая ревизия</span></div>
+          {diffSpecs(snapshot.binding?.snapshot?.effectiveSpecs || snapshot.binding?.snapshot?.specs || [], snapshot.updateAvailable.specs || []).map((change, index) =>
+            <div key={`${change.label}/${index}`} className="grid grid-cols-3 gap-2 border-t border-amber-200 pt-1 dark:border-amber-900"><span>{change.label}</span><span>{change.before || '—'}</span><span>{change.after || '—'}</span></div>)}
+          <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy} onClick={() => void save(true)}>Применить новую ревизию</button>
+        </>}
       </div>}
 
       {snapshot?.warnings?.length > 0 && <div className="py-1">
@@ -212,6 +250,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
             <span className="fx-set-text min-w-0 truncate" title={[param.group, param.key].filter(Boolean).join(' · ')}>{param.group ? `${param.group} · ` : ''}{param.key}</span>
             <span className="text-xs text-slate-800 dark:text-slate-300 shrink-0">{param.value}{param.unit ? ` ${param.unit}` : ''}</span>
             <span className="fx-badge">{sourceLabel[param.source]}</span>
+            <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => { setIssueField({ key: [param.group, param.key].filter(Boolean).join(' · '), value: `${param.value}${param.unit ? ` ${param.unit}` : ''}`, source: param.sourceRef }); setIssueOpen(true); }}>Сообщить</button>
           </div>)}
         </div>
       </div> : null}
@@ -219,13 +258,34 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       <div className="flex items-center gap-2 pt-2">
         <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy} onClick={() => void save(mode === 'hybrid' || mode === 'catalog')}>
           {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : snapshot?.binding ? <RefreshCw className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
-          {mode === 'xml' ? 'Сохранить источник' : snapshot?.binding ? 'Привязать / обновить снимок' : 'Привязать модель'}
+          {mode === 'xml' ? 'Сохранить источник' : snapshot?.binding ? 'Сохранить источник' : 'Привязать модель'}
         </button>
+        {snapshot?.binding && <button type="button" className="fx-btn fx-btn-sm" onClick={() => { setIssueField(null); setIssueOpen(true); }}>Сообщить о неточности</button>}
         {conflict && <button type="button" className="fx-btn fx-btn-sm" disabled={busy} onClick={() => void load()}><RefreshCw className="w-3.5 h-3.5" />Обновить данные</button>}
       </div>
       {error && <div className="fx-error mt-2" role="alert">{error}</div>}
     </>}
+    {issueOpen && snapshot?.binding && <DataIssueDialog context={issueContext(snapshot.binding, issueField || undefined)} onClose={() => setIssueOpen(false)} />}
   </section>;
+}
+
+function diffSpecs(before: Model['specs'], after: Model['specs']) {
+  const asText = (spec?: NonNullable<Model['specs']>[number]) => spec ? `${spec.value}${spec.unit ? ` ${spec.unit}` : ''}` : '';
+  const previous = new Map((before || []).map(spec => [text(spec.label), spec]));
+  const next = new Map((after || []).map(spec => [text(spec.label), spec]));
+  return [...new Set([...previous.keys(), ...next.keys()])].map(label => ({ label, before: asText(previous.get(label)), after: asText(next.get(label)) }))
+    .filter(change => change.before !== change.after);
+}
+
+function issueContext(binding: NonNullable<Snapshot['binding']>, field?: { key?: string; value?: string; source?: { file: string; pages?: string; edition?: string } }): CatalogDataIssueContext {
+  const model = binding.snapshot;
+  const catalog = model?.catalog as any;
+  return {
+    program: 'equipment', entityId: binding.modelId, entityTitle: [binding.code, binding.manufacturer].filter(Boolean).join(' · ') || binding.modelId,
+    revision: binding.sourceRevision || binding.catalogRevision || binding.revision,
+    ...(field?.key ? { field: field.key } : {}), ...(field?.value ? { currentValue: field.value } : {}),
+    ...(field?.source?.file ? { source: field.source } : catalog?.file ? { source: { file: catalog.file, pages: catalog.pages, edition: catalog.edition } } : {}),
+  };
 }
 
 function ModelChoice({ model, selected, onSelect }: { model: Model; selected: boolean; onSelect: () => void }) {

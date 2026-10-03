@@ -14,6 +14,8 @@
  * Модуль чистый: ни React, ни node:, ни express.
  */
 
+import { validateCatalogDataIssue, type CatalogDataIssue } from './catalogDataIssue';
+
 export const SCHEMA_VERSION = 1;
 
 // ── Перечисления ────────────────────────────────────────────────────────────
@@ -213,6 +215,8 @@ export interface SubmitFeedbackV1 {
   impact: Impact;
   uploadIds: string[];
   consent: { technicalEvents: boolean; appContext: boolean; reviewedAt: string };
+  /** Структурная привязка для сообщений о неточности данных каталога. */
+  dataIssue?: CatalogDataIssue;
 }
 
 /**
@@ -289,6 +293,13 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
   const benefit = optionalText(r.benefit, 'Польза', LIMITS.benefit);
   if (!benefit.ok) return { ok: false, error: benefit.error };
 
+  let dataIssue: CatalogDataIssue | undefined;
+  if (r.dataIssue !== undefined) {
+    const checkedIssue = validateCatalogDataIssue(r.dataIssue);
+    if (!checkedIssue.ok) return { ok: false, error: checkedIssue.error };
+    dataIssue = checkedIssue.value;
+  }
+
   const steps: string[] = [];
   if (r.reproduction !== undefined) {
     if (!Array.isArray(r.reproduction)) return { ok: false, error: 'Шаги: ожидался список' };
@@ -349,6 +360,7 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
         appContext: consent.appContext !== false,
         reviewedAt: isString(consent.reviewedAt) ? consent.reviewedAt : new Date(now).toISOString(),
       },
+      ...(dataIssue ? { dataIssue } : {}),
     },
   };
 }

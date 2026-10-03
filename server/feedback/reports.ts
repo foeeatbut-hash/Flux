@@ -21,7 +21,7 @@ export interface ReportDeps {
 }
 
 /** Что из карточки видно этому человеку. */
-function visible(report: any, actor: Actor, triage: boolean) {
+function visible(report: any, actor: Actor, triage: boolean, dataIssue?: unknown) {
   const mine = report.authorId === actor.id;
   return {
     id: report.id,
@@ -52,6 +52,9 @@ function visible(report: any, actor: Actor, triage: boolean) {
     // Проект называется только тем, кому он и так доступен: карточка не должна
     // выдавать права на связанный проект
     projectId: mine || triage ? report.projectId : null,
+    // Поле передаётся только после авторизации карточки; детали источника
+    // каталога видны автору собственного обращения и сотруднику триажа.
+    ...(dataIssue ? { dataIssue } : {}),
     capabilities: { mine, triage },
   };
 }
@@ -69,6 +72,23 @@ function safeList(json: string): string[] {
     const parsed = JSON.parse(json || '[]');
     return Array.isArray(parsed) ? parsed.map((s) => String(s)).slice(0, LIMITS.steps) : [];
   } catch (_) { return []; }
+}
+
+/** Контекст кладётся в уже существующее событие создания, чтобы не мигрировать таблицу. */
+async function issueContexts(prisma: any, reportIds: string[]): Promise<Map<string, unknown>> {
+  const found = new Map<string, unknown>();
+  if (!reportIds.length) return found;
+  const events = await prisma.feedbackEvent.findMany({
+    where: { reportId: { in: reportIds }, kind: 'created' },
+    select: { reportId: true, dataJson: true },
+  });
+  for (const event of events) {
+    const issue = safeParse(event.dataJson).dataIssue;
+    if (issue && typeof issue === 'object' && (issue as any).namespace === 'catalogDataIssue') {
+      found.set(event.reportId, issue);
+    }
+  }
+  return found;
 }
 
 export function registerReportRoutes(app: Express, deps: ReportDeps): void {
@@ -119,7 +139,7 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
       // не соберётся уже никогда
       if (!made.repeat) await scheduleBundle(made.report.id);
       res.status(made.repeat ? 200 : 201);
-      return ok(res, visible(made.report, actor, base.triage), { repeat: made.repeat });
+      return ok(res, visible(made.report, actor, base.triage, submit.dataIssue), { repeat: made.repeat });
     } catch (error: any) {
       await refundRate(prisma, actor.id, 'report');
       const code = error?.code;
@@ -145,7 +165,8 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     // Ответ на «дошло ли»: связь оборвалась, и окно спрашивает, что вышло
     const found = await prisma.feedbackReport.findFirst({ where: { authorId: actor.id, clientRequestId: key } });
     if (!found) return fail(res, ERRORS.NOT_FOUND, 'Такого обращения нет');
-    ok(res, visible(found, actor, base.triage));
+    const contexts = await issueContexts(prisma, [found.id]);
+    ok(res, visible(found, actor, base.triage, contexts.get(found.id)));
   });
 
   // ── Список ────────────────────────────────────────────────────────────────
@@ -179,7 +200,8 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
         : [{ priority: 'asc' }, { createdAt: 'asc' }],
       take: limit,
     });
-    ok(res, rows.map((r: any) => visible(r, actor, triage)), { count: rows.length, scope });
+    const contexts = await issueContexts(prisma, rows.map((r: any) => r.id));
+    ok(res, rows.map((r: any) => visible(r, actor, triage, contexts.get(r.id))), { count: rows.length, scope });
   });
 
   // ── Одна карточка ─────────────────────────────────────────────────────────
@@ -242,8 +264,9 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     const publicRevision = Number(publicChange?.revision || 0);
     const internalRevision = triage ? Number(found.revision || 0) : 0;
 
+    const contexts = await issueContexts(prisma, [found.id]);
     ok(res, {
-      ...visible(found, actor, triage),
+      ...visible(found, actor, triage, contexts.get(found.id)),
       attachments, diagnostics, publicRevision, internalRevision,
     });
   });
