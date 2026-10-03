@@ -25,8 +25,10 @@ try {
   const roots = await service.roots(); const rootId = roots[0].id;
   check(roots.length === 1 && roots[0].kind === 'desktop' && !('path' in roots[0]), 'Корень отдаёт capability без абсолютного пути');
   const project = { rootId, relativePath: 'Проект' }; const original = { rootId, relativePath: 'Проект/Исходный.md' };
-  check(await service.iconPath(original) === path.join(desktop, 'Проект', 'Исходный.md'), 'Системный значок получает только проверенный путь оригинала');
-  check(await service.iconPath(project) === path.join(desktop, 'Проект'), 'Папка тоже получает настоящий системный значок');
+  // Windows разворачивает короткое имя TEMP (RUNNER~1) в канонический путь.
+  const canonicalDesktop = await fs.realpath(desktop);
+  check(await service.iconPath(original) === path.join(canonicalDesktop, 'Проект', 'Исходный.md'), 'Системный значок получает только проверенный путь оригинала');
+  check(await service.iconPath(project) === path.join(canonicalDesktop, 'Проект'), 'Папка тоже получает настоящий системный значок');
   await rejects(() => service.iconPath({ rootId: 'unknown', relativePath: '' }), 'UNKNOWN_ROOT', 'Запрос значка не выдаёт доступ к неизвестному корню');
   await rejects(() => service.iconPath({ rootId, relativePath: '../outside/private.txt' }), 'INVALID_NAME', 'Запрос значка не обходит границу подключённой папки');
   const listing = await service.list(project); check(listing.entries[0].name === 'Исходный.md', 'Перечисляются реальные файлы с кириллицей');
