@@ -14,8 +14,8 @@ import { testCredentials } from './testCredentials';
  * Что набору нужно, он заводит сам: второго сотрудника и личный ящик. Ждать,
  * что они окажутся в базе, нельзя — прогон стал бы зависеть от того, что там
  * лежало, и падал бы на чистой установке. Письма завести нечем: они приходят
- * только с почтового сервера, поэтому проверки, которым нужны письма,
- * честно пропускаются с пометкой, а не выдаются за пройденные.
+ * только с почтового сервера. Без синтетических seed-писем весь набор
+ * выводит SKIP, а не PASS: проверки переписки и межпрограммной связи неполны.
  *
  * За собой набор прибирает: заведённое им — удаляет.
  *
@@ -56,6 +56,7 @@ async function login(symbol: string, password: string): Promise<string> {
 const SHARED_MAIL = 'проверка-общая@flux.invalid';
 const PERSONAL_MAIL = 'проверка-личная@flux.invalid';
 const MATE_SYMBOL = 'FluxTestMate';
+const MAIL_FIXTURE_SKIP_REASON = 'нужна изолированная почтовая фикстура с seed-письмом в общем ящике и письмом с вложением; без неё проверки переписки и связи со смежными программами неполны';
 
 /** Убрать за собой всё, что набор завёл сам. Чужого не трогаем. */
 async function cleanup(admin: string, made: {
@@ -132,7 +133,7 @@ const run = async () => {
   const t1 = await call('GET', `/api/mail/threads?accountId=${shared.id}`, admin);
   const threads: any[] = t1.json?.threads || [];
   if (!threads.length) {
-    console.log('  · в общем ящике нет писем — проверки 5–7 и 10 пропущены');
+    console.log(`FLUX_VERIFY_SKIP: ${MAIL_FIXTURE_SKIP_REASON}`);
     await cleanup(admin, { shared, personal, mate, sharedMine, personalMine, mateMine });
     console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
     process.exit(fail ? 1 : 0);
@@ -205,7 +206,7 @@ const run = async () => {
   }
 
   if (!withFile) {
-    console.log('  · писем с вложениями нет — сцепка не проверена');
+    console.log(`FLUX_VERIFY_SKIP: ${MAIL_FIXTURE_SKIP_REASON}`);
   } else {
     const one = await call('GET', `/api/mail/thread?accountId=${withFile.accountId}&threadKey=${encodeURIComponent(withFile.threadKey)}`, admin);
     const att = (one.json?.attachments || [])[0];

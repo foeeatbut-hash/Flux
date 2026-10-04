@@ -174,7 +174,7 @@ export function translateSegment(src: string, opts: EngineOptions): Segment {
     if (near) return { src: text, dst: near.dst, origin: 'tm-fuzzy', score: near.score };
   }
 
-  const { masked, slots } = protect(text);
+  const { masked, slots, markers } = protect(text);
 
   const idx = composeTerms(opts);
 
@@ -184,14 +184,14 @@ export function translateSegment(src: string, opts: EngineOptions): Segment {
     const g = byGlossary(part, idx);
     return g.hits ? g.text : part;
   });
-  if (phrase) return { src: text, dst: restore(phrase, slots), origin: 'phrase' };
+  if (phrase) return { src: text, dst: restore(phrase, slots, markers), origin: 'phrase' };
 
   if (opts.noGlossary) return { src: text, dst: '', origin: 'none' };
   const g = byGlossary(masked, idx);
   if (!g.hits) return { src: text, dst: '', origin: 'none', missing: g.missing };
   return {
     src: text,
-    dst: restore(g.text, slots),
+    dst: restore(g.text, slots, markers),
     origin: 'glossary',
     score: g.words ? g.hits / g.words : 0,
     missing: g.missing,

@@ -15,7 +15,10 @@
     "build:electron": "npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.postgresql.prisma && npx prisma generate --schema=prisma/schema.mariadb.prisma && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:@prisma/client-sqlite --external:@prisma/client-pg --external:@prisma/client-mysql --external:@prisma/adapter-better-sqlite3 --external:@prisma/adapter-pg --external:@prisma/adapter-mariadb --external:mariadb --external:better-sqlite3 --external:pg --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.js",
     "prepare:win-native": "node scripts/prepare-win-native.cjs",
     "restore:linux-native": "node scripts/prepare-win-native.cjs --restore",
-    "dist": "npm run build && npm run build:electron && npm run prepare:win-native && electron-builder --win portable -c.npmRebuild=false"
+    "dist": "npm run build && npm run build:electron && npm run prepare:win-native && electron-builder --win portable -c.npmRebuild=false",
+    "check:verification": "node --import tsx scripts/check-verification.ts",
+    "check:coverage": "node --import tsx scripts/verification-inventory.ts",
+    "check:programs": "node --import tsx scripts/verify-programs.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.8.0",

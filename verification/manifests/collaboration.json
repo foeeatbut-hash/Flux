@@ -1,0 +1,2705 @@
+{
+  "version": 1,
+  "group": "collaboration",
+  "programs": [
+    {
+      "id": "chat",
+      "label": "Мессенджер",
+      "routes": [
+        "/chat"
+      ],
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/chat/MessageBubble.tsx",
+        "src/components/chat/AssistantEntry.tsx",
+        "src/components/chat/useAssistantCall.ts",
+        "src/components/RichChatInput.tsx",
+        "src/lib/chatSearch.ts",
+        "src/lib/chatDrawing.ts",
+        "src/lib/meetingFromMail.ts",
+        "src/store/chatStore.ts",
+        "src/store/notificationStore.ts",
+        "src/store/tagNavigationStore.ts"
+      ]
+    },
+    {
+      "id": "mail",
+      "label": "Почта",
+      "routes": [
+        "/mail"
+      ],
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailSidebar.tsx",
+        "src/components/mail/MailList.tsx",
+        "src/components/mail/MailThread.tsx",
+        "src/components/mail/MailCompose.tsx",
+        "src/components/mail/MailAccountForm.tsx",
+        "src/components/mail/MailSignatures.tsx",
+        "src/components/mail/MailMentions.tsx",
+        "src/components/mail/LetterTranslate.tsx",
+        "src/lib/mailAddress.ts",
+        "src/lib/mailThread.ts",
+        "src/lib/mailHtml.ts",
+        "src/lib/meetingFromMail.ts",
+        "src/services/mailService.ts",
+        "src/store/mailStore.ts"
+      ]
+    },
+    {
+      "id": "calendar",
+      "label": "Календарь",
+      "routes": [
+        "/calendar"
+      ],
+      "sources": [
+        "src/screens/CalendarScreen.tsx",
+        "src/components/calendar/EventDialog.tsx",
+        "src/components/calendar/ClockPanel.tsx",
+        "src/lib/calendar.ts",
+        "src/store/calendarStore.ts"
+      ]
+    },
+    {
+      "id": "feedback",
+      "label": "Замечания и предложения",
+      "routes": [
+        "/feedback"
+      ],
+      "sources": [
+        "src/screens/FeedbackScreen.tsx",
+        "src/components/feedback/FeedbackComposer.tsx",
+        "src/components/feedback/FeedbackList.tsx",
+        "src/components/feedback/FeedbackCard.tsx",
+        "src/components/feedback/FeedbackDiscussion.tsx",
+        "src/components/feedback/ActionForm.tsx",
+        "src/components/feedback/FeedbackDiagnostics.tsx",
+        "src/components/feedback/FeedbackPreview.tsx",
+        "src/components/feedback/ScreenshotEditor.tsx",
+        "src/components/feedback/RegionPicker.tsx",
+        "src/components/feedback/AutomaticIncidentsCard.tsx",
+        "src/components/feedback/AutomaticIncidentWatcher.tsx",
+        "src/feedback/useComposer.ts",
+        "src/feedback/submissionQueue.ts",
+        "src/feedback/capture.ts",
+        "src/feedback/collectBundle.ts",
+        "src/feedback/feedbackApi.ts",
+        "src/feedback/draftDb.ts",
+        "feedback/contracts.ts",
+        "feedback/transitions.ts",
+        "diagnostics/automatic.ts"
+      ]
+    },
+    {
+      "id": "logs",
+      "label": "Журнал",
+      "routes": [
+        "/logs"
+      ],
+      "sources": [
+        "src/screens/LogsManagement.tsx",
+        "server/actionWords.ts",
+        "server/actionLog.ts",
+        "server/routes/logs.ts",
+        "src/lib/logNoise.ts"
+      ]
+    },
+    {
+      "id": "assistant",
+      "label": "Помощник",
+      "routes": [
+        "/assistant"
+      ],
+      "sources": [
+        "src/screens/AssistantScreen.tsx",
+        "src/components/assistant/Chat.tsx",
+        "src/components/assistant/ChatHistory.tsx",
+        "src/components/assistant/CatalogAnswer.tsx",
+        "src/components/chat/AssistantEntry.tsx",
+        "src/assistant/context.ts",
+        "src/assistant/resolve.ts",
+        "src/assistant/answers.ts",
+        "src/assistant/handbookAnswers.ts",
+        "src/assistant/sections.ts",
+        "src/store/assistantStore.ts",
+        "src/store/assistantChatsStore.ts"
+      ]
+    },
+    {
+      "id": "translate",
+      "label": "Переводчик",
+      "routes": [
+        "/translate"
+      ],
+      "sources": [
+        "src/screens/TranslateScreen.tsx",
+        "src/components/translate/TermTable.tsx",
+        "src/components/translate/SegmentRows.tsx",
+        "src/components/translate/QuickTranslate.tsx",
+        "src/components/translate/MemoryTable.tsx",
+        "src/components/translate/FileEnglishVersion.tsx",
+        "src/translate/protect.ts",
+        "src/translate/engine.ts",
+        "src/translate/tmx.ts",
+        "src/translate/segment.ts",
+        "src/translate/tm.ts",
+        "src/lib/ribbonTranslate.ts",
+        "src/store/translateStore.ts"
+      ]
+    },
+    {
+      "id": "browser",
+      "label": "Браузер",
+      "routes": [
+        "/browser"
+      ],
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/components/browser/DownloadsPanel.tsx",
+        "src/lib/browserUrl.ts",
+        "src/store/browserStore.ts",
+        "electron/browser.ts"
+      ]
+    },
+    {
+      "id": "handbook",
+      "label": "Руководство",
+      "routes": [
+        "/handbook"
+      ],
+      "sources": [
+        "src/screens/Handbook.tsx",
+        "src/components/handbook/HandbookNav.tsx",
+        "src/components/handbook/HandbookArticleView.tsx",
+        "src/handbook/registry.ts",
+        "src/handbook/model.ts",
+        "src/handbook/names.ts",
+        "src/handbook/coreArticles.ts",
+        "src/handbook/workArticles.ts",
+        "src/handbook/builderArticles.ts",
+        "src/handbook/nativeArticles.ts",
+        "src/handbook/topicArticles.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "collab-chat-grouping",
+      "path": "scripts/test-chat-grouping.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-chat-privacy",
+      "path": "scripts/test-chat-privacy.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-mail-helpers",
+      "path": "scripts/test-mail.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-mail-meeting-parse",
+      "path": "scripts/test-meeting-mail.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-mail-shared-api",
+      "path": "scripts/test-mail-shared.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-calendar-contract",
+      "path": "scripts/test-calendar.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-calendar-navigation",
+      "path": "scripts/test-calendar-nav.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-calendar-live-browser",
+      "path": "scripts/test-calendar-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "browser",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-feedback-contract",
+      "path": "scripts/test-feedback-contracts.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-feedback-transitions",
+      "path": "scripts/test-feedback-transitions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-feedback-queue",
+      "path": "scripts/test-feedback-queue.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-feedback-capture",
+      "path": "scripts/test-feedback-capture.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-feedback-summary",
+      "path": "scripts/test-feedback-summary.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-feedback-privacy-api",
+      "path": "scripts/test-feedback-privacy.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-feedback-read-api",
+      "path": "scripts/test-feedback-read.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-logs-action-meaning",
+      "path": "scripts/test-action-log.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-logs-noise",
+      "path": "scripts/test-log-noise.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-assistant-query",
+      "path": "scripts/test-assistant.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-assistant-context",
+      "path": "scripts/test-assistant-context.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-assistant-links",
+      "path": "scripts/test-assistant-links.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-assistant-history-contract",
+      "path": "scripts/test-assistant-chats.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-assistant-privacy-api",
+      "path": "scripts/test-assistant-privacy.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-assistant-catalog-query",
+      "path": "scripts/test-catalog-query.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-translate-contract",
+      "path": "scripts/test-translate.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-translate-file",
+      "path": "scripts/test-translate-file.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-translate-regression",
+      "path": "scripts/test-verification-collaboration.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-browser-url",
+      "path": "scripts/test-browser.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-handbook-registry",
+      "path": "scripts/test-handbook.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    }
+  ],
+  "actions": [
+    {
+      "id": "chat.search.conversations",
+      "program": "chat",
+      "label": "Искать сотрудника или разговор",
+      "sources": [
+        "src/screens/ChatManagement.tsx"
+      ],
+      "triggers": [
+        "input",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список разговоров отбирается по запросу без изменения сообщений"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Искать личный диалог и группу по кириллице, очистить поиск, открыть каждый результат",
+          "expected": [
+            "Видны только совпадения; сброс возвращает исходный список"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.create.group-channel",
+      "program": "chat",
+      "label": "Создать группу или канал",
+      "sources": [
+        "src/screens/ChatManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "dialog",
+        "form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создаётся разговор с выбранным названием и участниками"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать группу и канал с синтетическими участниками; отменить отдельное создание",
+          "expected": [
+            "Тип и состав участников соответствуют выбору; отмена ничего не создаёт"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.open.direct-or-group",
+      "program": "chat",
+      "label": "Открыть личный разговор, группу или канал",
+      "sources": [
+        "src/screens/ChatManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "list-row"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Загружается выбранный разговор; его сообщения отделены от ранее открытого"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-privacy",
+          "layer": "api-db",
+          "claims": [
+            "Личные сообщения и группы проверяют доступ участника и отказ постороннему через API"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключать синтетические личный и групповой разговоры при медленной загрузке",
+          "expected": [
+            "В заголовке и сообщениях не остаются данные предыдущего разговора"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.send.message",
+      "program": "chat",
+      "label": "Отправить сообщение",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/RichChatInput.tsx"
+      ],
+      "triggers": [
+        "button",
+        "keyboard",
+        "enter",
+        "paste"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сообщение сохраняется один раз и появляется у участников разговора"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-privacy",
+          "layer": "api-db",
+          "claims": [
+            "Сообщение адресуется участникам; чужой отправитель отклонён сервером"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Отправить синтетический текст, вставленный текст и сообщение быстрыми повторами в группе",
+          "expected": [
+            "Текст сохраняется и показывается участникам один раз; посторонний его не получает"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.edit-delete-react",
+      "program": "chat",
+      "label": "Править, удалять и реагировать на сообщение",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/chat/MessageBubble.tsx"
+      ],
+      "triggers": [
+        "context-menu",
+        "button",
+        "reaction"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменяется только собственное сообщение; реакции принадлежат разговору"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-privacy",
+          "layer": "api-db",
+          "claims": [
+            "API запрещает постороннему редактировать, удалять или реагировать в чужом диалоге"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Править и удалять собственное сообщение; проверить запрещённую операцию от второго синтетического пользователя",
+          "expected": [
+            "Изменения видят только участники; отказ не скрывается"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.message-links.tags",
+      "program": "chat",
+      "label": "Перейти по ссылке на тег из сообщения",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/store/tagNavigationStore.ts"
+      ],
+      "triggers": [
+        "inline-link",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Проводник тегов открывает соответствующую карточку в активном проекте"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Щёлкнуть ссылку на синтетический тег из сообщения",
+          "expected": [
+            "Открыта именно связанная карточка тега"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.message-links.equipment",
+      "program": "chat",
+      "label": "Перейти по ссылке на оборудование",
+      "sources": [
+        "src/screens/ChatManagement.tsx"
+      ],
+      "triggers": [
+        "inline-link",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Оборудование открывается с соответствующим элементом или компонентом"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть синтетический токен оборудования из сообщения",
+          "expected": [
+            "Переход выделяет связанный объект"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.background.unread-realtime",
+      "program": "chat",
+      "label": "Получать сообщения, присутствие и непрочитанные",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/store/chatStore.ts",
+        "src/store/notificationStore.ts"
+      ],
+      "triggers": [
+        "background",
+        "socket-event",
+        "conversation-open"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Новое сообщение отображается участникам; активный разговор отмечается прочитанным"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-privacy",
+          "layer": "api-db",
+          "claims": [
+            "Сокет доставляет сообщение участнику и не рассылает текст постороннему"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два тестовых клиента и посторонний получают сообщение; открыть диалог с непрочитанным",
+          "expected": [
+            "Счётчик обновляется у адресата и гаснет после чтения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.account.connect-edit",
+      "program": "mail",
+      "label": "Добавить или настроить ящик",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailAccountForm.tsx"
+      ],
+      "triggers": [
+        "button",
+        "dialog",
+        "form"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Параметры ящика проверены и сохранены; секреты не показываются в журнале"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Подключить и изменить синтетический тестовый ящик; отменить форму",
+          "expected": [
+            "Успех и ошибка подключения понятны; отмена не меняет настройки"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.accounts.signatures",
+      "program": "mail",
+      "label": "Настроить подписи",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailSignatures.tsx"
+      ],
+      "triggers": [
+        "button",
+        "form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Подпись выбирается для нужного ящика и вставляется при создании письма"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить и повторно открыть подпись синтетического ящика",
+          "expected": [
+            "Текст подписи сохранён и относится только к выбранному ящику"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.search-shortcuts",
+      "program": "mail",
+      "label": "Искать письма и открыть подсказку клавиш",
+      "sources": [
+        "src/screens/Mail.tsx"
+      ],
+      "triggers": [
+        "input",
+        "button",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Поиск сужает список; очистка возвращает его; окно горячих клавиш можно закрыть"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Искать известную синтетическую тему, очистить запрос, открыть справку горячих клавиш",
+          "expected": [
+            "Совпадения и возврат полного списка корректны; справка не блокирует почту"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.sync-folders-filters",
+      "program": "mail",
+      "label": "Проверить почту, выбрать папку или быстрый фильтр",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailSidebar.tsx"
+      ],
+      "triggers": [
+        "button",
+        "list-row",
+        "filter",
+        "background"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Обновлённый список соответствует выбранному ящику, папке и отбору"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить папки и быстрые фильтры «все», «непрочитанные», «важные», «с вложениями» на синтетической почте",
+          "expected": [
+            "Каждый отбор включает только подходящие письма; повторная синхронизация не дублирует строки"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.bulk-actions",
+      "program": "mail",
+      "label": "Выбрать письма и отметить, архивировать или удалить",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailList.tsx"
+      ],
+      "triggers": [
+        "button",
+        "row-action",
+        "multi-select"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Массовое действие применяется только к отмеченным письмам; снятие выбора отменяет цель"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Массово отметить прочитанным, важным, архивировать и удалить синтетические письма; проверить отмену выбора",
+          "expected": [
+            "Меняются только выбранные письма, непрочитанные счётчики пересчитаны"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.open-thread-unread",
+      "program": "mail",
+      "label": "Открыть цепочку и отметить письмо прочитанным",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailList.tsx",
+        "src/components/mail/MailThread.tsx"
+      ],
+      "triggers": [
+        "button",
+        "list-row",
+        "background"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыта выбранная цепочка; статус прочитанного соответствует контракту личного или общего ящика"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-helpers",
+          "layer": "unit",
+          "claims": [
+            "Почтовые заголовки и цепочки собираются из ссылок и нормализованной темы"
+          ]
+        },
+        {
+          "suite": "collab-mail-shared-api",
+          "layer": "api-db",
+          "claims": [
+            "В общем ящике статус прочитанного отделён для сотрудников; требующие реальных писем ветви набора пропускаются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть synthetic-thread в личном и общем ящике двумя сотрудниками",
+          "expected": [
+            "Непрочитанное меняется согласно политике конкретного ящика"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.claim-thread",
+      "program": "mail",
+      "label": "Взять цепочку общего ящика в работу",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailList.tsx"
+      ],
+      "triggers": [
+        "row-action",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Исполнитель цепочки закреплён и виден другим сотрудникам"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-shared-api",
+          "layer": "api-db",
+          "claims": [
+            "Занятую переписку нельзя молча перехватить у сотрудника"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два сотрудника одновременно пытаются взять синтетическую цепочку",
+          "expected": [
+            "Один исполнитель назначен; второму показан актуальный конфликт"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.reply-forward-compose",
+      "program": "mail",
+      "label": "Написать, ответить или переслать письмо",
+      "sources": [
+        "src/screens/Mail.tsx",
+        "src/components/mail/MailCompose.tsx",
+        "src/components/mail/MailMentions.tsx"
+      ],
+      "triggers": [
+        "button",
+        "form",
+        "keyboard"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Адресаты, тема, цитата и текст соответствуют режиму нового письма, ответа или пересылки"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-helpers",
+          "layer": "unit",
+          "claims": [
+            "Адреса с запятыми разбираются; темы ответа и пересылки формируются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать новое письмо, ответ, ответ всем и пересылку; закрыть и восстановить черновик",
+          "expected": [
+            "Черновик сохраняется; получатели и цитаты соответствуют выбранному режиму"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.draft-attachments-send",
+      "program": "mail",
+      "label": "Прикрепить файл, сохранить черновик и отправить",
+      "sources": [
+        "src/components/mail/MailCompose.tsx",
+        "src/screens/Mail.tsx"
+      ],
+      "triggers": [
+        "button",
+        "file-picker",
+        "drop",
+        "background"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Вложение соответствует выбранному файлу; черновик восстанавливается; отправка подтверждается сервером"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-helpers",
+          "layer": "unit",
+          "claims": [
+            "Вложенные изображения и HTML письма преобразуются вспомогательными функциями"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Добавить безопасный синтетический файл, закрыть/открыть черновик и отправить в локальный почтовый sink",
+          "expected": [
+            "Вложение совпадает по содержимому; повторная отправка не создаёт письмо-дубль"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.translate-letter",
+      "program": "mail",
+      "label": "Перевести тему или письмо",
+      "sources": [
+        "src/components/mail/LetterTranslate.tsx",
+        "src/translate/mailDigest.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Перевод связан с исходным сообщением и не меняет оригинал"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-meeting-parse",
+          "layer": "unit",
+          "claims": [
+            "Распознавание дат, сроков, просьб и ссылок на встречу проверяется на синтетическом тексте"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Перевести синтетическое письмо с кодом документа, сроком, формулой и вложением",
+          "expected": [
+            "Оригинал и технические обозначения остаются неизменными"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calendar.change-view-date",
+      "program": "calendar",
+      "label": "Переключить месяц, неделю, день или список сроков; перейти назад, вперёд и к сегодня",
+      "sources": [
+        "src/screens/CalendarScreen.tsx",
+        "src/lib/calendar.ts"
+      ],
+      "triggers": [
+        "button",
+        "view-tab",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Заголовок и отображённый диапазон соответствуют выбранной дате и виду"
+      ],
+      "checks": [
+        {
+          "suite": "collab-calendar-contract",
+          "layer": "unit",
+          "claims": [
+            "Сетка календаря, повторения, часовые границы и подписи рассчитываются для фиксированных дат"
+          ]
+        },
+        {
+          "suite": "collab-calendar-navigation",
+          "layer": "unit",
+          "claims": [
+            "Переход по месяцам корректен для коротких месяцев, високосного года и границ года"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключать все виды и даты в обычном и узком окне",
+          "expected": [
+            "Выбранный интервал и видимые события согласованы"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calendar.filters-refresh",
+      "program": "calendar",
+      "label": "Обновить события и включить/выключить календари",
+      "sources": [
+        "src/screens/CalendarScreen.tsx",
+        "src/store/calendarStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "toggle",
+        "background"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Скрытие календаря влияет только на отображение; повторное чтение сохраняет фильтр"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Скрыть и вернуть один календарь, сменить проект и обновить",
+          "expected": [
+            "События остальных календарей не исчезают; выборы соответствуют области данных"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calendar.create-edit-delete",
+      "program": "calendar",
+      "label": "Создать, изменить и удалить событие",
+      "sources": [
+        "src/screens/CalendarScreen.tsx",
+        "src/components/calendar/EventDialog.tsx",
+        "src/lib/calendar.ts"
+      ],
+      "triggers": [
+        "button",
+        "grid-cell",
+        "event-chip",
+        "dialog",
+        "form"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Название, время/весь день, повторение, место, участники, ссылка и напоминание сохраняются и читаются заново"
+      ],
+      "checks": [
+        {
+          "suite": "collab-calendar-contract",
+          "layer": "unit",
+          "claims": [
+            "Повторяющиеся встречи и сроки разворачиваются согласно правилу; даты и диапазоны форматируются"
+          ]
+        },
+        {
+          "suite": "collab-calendar-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Входящее событие можно открыть в браузере; запросы не вызывают возврат к экрану входа"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать, перечитать, изменить, удалить событие; проверить отмену и конфликт параллельной правки",
+          "expected": [
+            "После повторного чтения сохранены ожидаемые поля; отмена сохраняет прежнее событие"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "calendar.open-meeting-link",
+      "program": "calendar",
+      "label": "Открыть ссылку встречи",
+      "sources": [
+        "src/screens/CalendarScreen.tsx",
+        "src/components/calendar/EventDialog.tsx"
+      ],
+      "triggers": [
+        "button",
+        "event-row"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается только ссылка выбранного события"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-meeting-parse",
+          "layer": "unit",
+          "claims": [
+            "Поддерживаемые ссылки на видеовстречи распознаются; несвязанные адреса не считаются встречей"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть разрешённую тестовую ссылку из события и проверить поведение пустой ссылки",
+          "expected": [
+            "Выбранная встреча открыта один раз; пустой URL не запускает переход"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.compose-draft",
+      "program": "feedback",
+      "label": "Создать обращение и сохранить черновик",
+      "sources": [
+        "src/screens/FeedbackScreen.tsx",
+        "src/components/feedback/FeedbackComposer.tsx",
+        "src/feedback/useComposer.ts",
+        "src/feedback/draftDb.ts"
+      ],
+      "triggers": [
+        "button",
+        "form",
+        "background"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Тип, заголовок, описание, шаги и контекст сохраняются в черновике без неподтверждённых полей"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-contract",
+          "layer": "unit",
+          "claims": [
+            "Контракт приёма проверяет обязательные поля, лимиты, consent и отбрасывает неподдерживаемые поля"
+          ]
+        },
+        {
+          "suite": "collab-feedback-queue",
+          "layer": "unit",
+          "claims": [
+            "Очередь переживает ошибки передачи и сохраняет синтетическое отправление для повтора"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Заполнить обращение, закрыть форму и снова открыть как тот же автор",
+          "expected": [
+            "Содержимое черновика восстановлено; отменённый черновик не отправлен"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.attachments-screenshot",
+      "program": "feedback",
+      "label": "Добавить файл, снимок окна или выбранной области и разметить снимок",
+      "sources": [
+        "src/components/feedback/FeedbackComposer.tsx",
+        "src/components/feedback/ScreenshotEditor.tsx",
+        "src/components/feedback/RegionPicker.tsx",
+        "src/feedback/capture.ts"
+      ],
+      "triggers": [
+        "button",
+        "file-picker",
+        "paste",
+        "window-capture",
+        "drag"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Только разрешённые типы файлов добавляются; отметки и обрезка совпадают с выбранной областью"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-contract",
+          "layer": "unit",
+          "claims": [
+            "Список разрешённых и запрещённых расширений проверяется на синтетических именах"
+          ]
+        },
+        {
+          "suite": "collab-feedback-capture",
+          "layer": "unit",
+          "claims": [
+            "Геометрия обрезки и перемещение разметки после кадрирования проверяются численно"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Снять окно и область, закрасить синтетический секрет, отменить кадрирование",
+          "expected": [
+            "Форма скрыта во время снимка; секрет не остаётся на сохранённом изображении"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.consent-preview-submit",
+      "program": "feedback",
+      "label": "Выбрать согласия, просмотреть и отправить обращение",
+      "sources": [
+        "src/components/feedback/FeedbackComposer.tsx",
+        "src/components/feedback/FeedbackPreview.tsx",
+        "src/feedback/submissionQueue.ts"
+      ],
+      "triggers": [
+        "button",
+        "checkbox",
+        "preview",
+        "background"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр соответствует отправляемым данным; очередь показывает сбой и повторяет без дублирования"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-contract",
+          "layer": "unit",
+          "claims": [
+            "Значения согласия и валидность запроса входят в проверенный договор"
+          ]
+        },
+        {
+          "suite": "collab-feedback-queue",
+          "layer": "unit",
+          "claims": [
+            "Ответ сервера обрабатывается без потери ожидающего обращения"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключать оба согласия, проверить preview, отправить один раз и смоделировать временный отказ",
+          "expected": [
+            "Отправляется только выбранный контекст; после восстановления создаётся одна карточка"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.scope-read-open",
+      "program": "feedback",
+      "label": "Открыть список своих обращений или очереди и прочитать карточку",
+      "sources": [
+        "src/screens/FeedbackScreen.tsx",
+        "src/components/feedback/FeedbackList.tsx",
+        "src/components/feedback/FeedbackCard.tsx",
+        "src/feedback/feedbackApi.ts"
+      ],
+      "triggers": [
+        "tab",
+        "button",
+        "list-row",
+        "background"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список соответствует области и роли; прочитанная карточка отмечается прочитанной"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-read-api",
+          "layer": "api-db",
+          "claims": [
+            "Прочитанное публичное обновление гасит авторский счётчик; внутренний ответ его не увеличивает"
+          ]
+        },
+        {
+          "suite": "collab-feedback-privacy-api",
+          "layer": "api-db",
+          "claims": [
+            "Автор не получает чужие обращения и внутренние диагностические данные через API"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Автор и обработчик читают свою/очередную синтетическую карточку; проверить пустой список и много записей",
+          "expected": [
+            "Набор строк и непрочитанные счётчики соответствуют роли"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.priority-transition",
+      "program": "feedback",
+      "label": "Изменить приоритет и статус обращения",
+      "sources": [
+        "src/screens/FeedbackScreen.tsx",
+        "src/components/feedback/ActionForm.tsx",
+        "src/components/feedback/FeedbackCard.tsx",
+        "feedback/transitions.ts"
+      ],
+      "triggers": [
+        "button",
+        "select",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Статус меняется только разрешённым переходом и с обязательными условиями; причина и ответ сохраняются"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-transitions",
+          "layer": "unit",
+          "claims": [
+            "Разрешённые переходы, обязательные причины и акторы проверяются чистой функцией"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Провести тестовое обращение через допустимые переходы и попробовать пропустить обязательное условие",
+          "expected": [
+            "Невалидное изменение отклонено; разрешённое сохраняется после повторного чтения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.comment-public-internal",
+      "program": "feedback",
+      "label": "Ответить автору или добавить внутренний комментарий",
+      "sources": [
+        "src/components/feedback/FeedbackDiscussion.tsx",
+        "src/components/feedback/FeedbackCard.tsx",
+        "src/screens/FeedbackScreen.tsx"
+      ],
+      "triggers": [
+        "form",
+        "button",
+        "visibility-toggle"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Видимость комментария соблюдается списком, историей, счётчиком и прямым чтением"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-privacy-api",
+          "layer": "api-db",
+          "claims": [
+            "Внутренние комментарии и диагностический пакет не доступны автору через API"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Обработчик добавляет внутреннее и публичное сообщение; автор перечитывает карточку",
+          "expected": [
+            "Автор видит публичный ответ и не видит внутреннюю заметку"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.diagnostic-export",
+      "program": "feedback",
+      "label": "Собрать, скачать или скопировать диагностический пакет",
+      "sources": [
+        "src/screens/FeedbackScreen.tsx",
+        "src/components/feedback/FeedbackDiagnostics.tsx",
+        "src/feedback/collectBundle.ts"
+      ],
+      "triggers": [
+        "button",
+        "clipboard",
+        "download"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Пакет доступен только роли с отдельным правом и не содержит секретов или содержимого документов"
+      ],
+      "checks": [
+        {
+          "suite": "collab-feedback-privacy-api",
+          "layer": "api-db",
+          "claims": [
+            "Автор не получает диагностический пакет даже для собственной карточки"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить пакет синтетической карточки как автор и обработчик; искать в выгрузке тестовый маркер секрета",
+          "expected": [
+            "Автору отказано; пакет обработчика обезличен и секретный маркер отсутствует"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback.background-automatic-incidents",
+      "program": "feedback",
+      "label": "Собирать автоматические инциденты и обновлять список",
+      "sources": [
+        "src/components/feedback/AutomaticIncidentWatcher.tsx",
+        "src/components/feedback/AutomaticIncidentsCard.tsx",
+        "diagnostics/automatic.ts"
+      ],
+      "triggers": [
+        "background",
+        "polling",
+        "socket-event"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Повторная доставка не удваивает инцидент; известные секретные поля удаляются до сохранения"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Подать безопасное синтетическое событие с полем secret через тестовую очередь, повторить событие и закрыть раздел",
+          "expected": [
+            "В сводке одно событие без содержимого secret; закрытие прекращает наблюдение"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "logs.refresh-search-filter",
+      "program": "logs",
+      "label": "Обновить, искать, фильтровать по сотруднику и разделу, сбросить фильтры",
+      "sources": [
+        "src/screens/LogsManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input",
+        "select"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видимые строки соответствуют каждому фильтру и сброс возвращает весь список"
+      ],
+      "checks": [
+        {
+          "suite": "collab-logs-action-meaning",
+          "layer": "unit",
+          "claims": [
+            "Известные действия API получают человекочитаемое описание; GET и фоновые опросы не записываются"
+          ]
+        },
+        {
+          "suite": "collab-logs-noise",
+          "layer": "unit",
+          "claims": [
+            "Фильтр распознаёт известные сообщения шума и не поглощает обычные ошибки"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Искать, менять оба фильтра, сбросить и обновить на безопасных тестовых событиях",
+          "expected": [
+            "Счётчик и строки обновляются согласованно"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "logs.open-object",
+      "program": "logs",
+      "label": "Перейти к объекту из записи журнала",
+      "sources": [
+        "src/screens/LogsManagement.tsx"
+      ],
+      "triggers": [
+        "row-click",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается маршрут записи только когда у неё есть цель"
+      ],
+      "checks": [
+        {
+          "suite": "collab-logs-action-meaning",
+          "layer": "unit",
+          "claims": [
+            "Описание действия маршрутизируется к разделу и включает цель при наличии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть запись с маршрутом и запись без маршрута клавиатурой и мышью",
+          "expected": [
+            "Связанная запись ведёт к объекту; запись без ссылки не обещает переход"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "logs.background-redaction",
+      "program": "logs",
+      "label": "Записывать действия и ограничивать шум без сохранения секретов",
+      "sources": [
+        "server/actionWords.ts",
+        "server/actionLog.ts",
+        "server/routes/logs.ts",
+        "src/lib/logNoise.ts"
+      ],
+      "triggers": [
+        "background",
+        "api-middleware"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Журнал содержит действие и цель без пароля, токена, адреса запроса и содержимого документов"
+      ],
+      "checks": [
+        {
+          "suite": "collab-logs-action-meaning",
+          "layer": "unit",
+          "claims": [
+            "Классификатор различает известное действие, чтение и фоновый шум"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "api-db",
+          "scenario": "Вызвать тестовый API с уникальными синтетическими маркерами в пароле и токене; прочитать запись журнала",
+          "expected": [
+            "Ни один маркер секрета или тела запроса не попал в журнал"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.ask-contextual",
+      "program": "assistant",
+      "label": "Задать вопрос о работе, открытом документе или проекте",
+      "sources": [
+        "src/components/assistant/Chat.tsx",
+        "src/assistant/context.ts",
+        "src/store/assistantStore.ts"
+      ],
+      "triggers": [
+        "input",
+        "button",
+        "enter",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Ответ использует доступный контекст только когда вопрос на него ссылается"
+      ],
+      "checks": [
+        {
+          "suite": "collab-assistant-query",
+          "layer": "unit",
+          "claims": [
+            "Синтетические запросы разрешаются в ожидаемые действия и ответы помощника"
+          ]
+        },
+        {
+          "suite": "collab-assistant-context",
+          "layer": "unit",
+          "claims": [
+            "Подсказка контекста соответствует переднему открытому элементу; недоступный контекст не выдумывается"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Задать вопрос с открытым синтетическим документом и общий вопрос без указателя на контекст",
+          "expected": [
+            "Первый ответ использует выбранный контекст; второй не раскрывает его самовольно"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.history-list-search",
+      "program": "assistant",
+      "label": "Показать историю, искать, открыть и переименовать разговор",
+      "sources": [
+        "src/screens/AssistantScreen.tsx",
+        "src/components/assistant/ChatHistory.tsx",
+        "src/store/assistantChatsStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "list-row",
+        "input",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "История содержит сохранённые разговоры проекта и позволяет открыть нужный разговор"
+      ],
+      "checks": [
+        {
+          "suite": "collab-assistant-history-contract",
+          "layer": "unit",
+          "claims": [
+            "Чистые функции истории задают заголовок, поиск по тексту, группировку по дню и фильтр пустых разговоров"
+          ]
+        },
+        {
+          "suite": "collab-assistant-privacy-api",
+          "layer": "api-db",
+          "claims": [
+            "История разговоров закрыта от другого пользователя и администратора"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать разговор, дождаться автосохранения, переименовать, найти по тексту реплики и открыть снова",
+          "expected": [
+            "После переключения проекта показана история выбранного проекта; чужие данные отсутствуют"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.clear-view",
+      "program": "assistant",
+      "label": "Очистить содержимое экрана разговора",
+      "sources": [
+        "src/screens/AssistantScreen.tsx",
+        "src/components/assistant/Chat.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Экран очищается, сохранённый разговор остаётся в истории"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Очистить экран существующего синтетического разговора и открыть его из истории",
+          "expected": [
+            "История и сохранённые сообщения не удалены"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.catalog-search",
+      "program": "assistant",
+      "label": "Искать по опубликованному Каталогу из помощника",
+      "sources": [
+        "src/screens/AssistantScreen.tsx",
+        "src/components/assistant/CatalogAnswer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input",
+        "form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Ответ содержит совпавшие записи и источники опубликованного каталога"
+      ],
+      "checks": [
+        {
+          "suite": "collab-assistant-catalog-query",
+          "layer": "unit",
+          "claims": [
+            "Поиск по опубликованному каталогу возвращает детерминированные соответствия и источники"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Найти синтетическое изделие, отсутствующий термин и закрытый источник",
+          "expected": [
+            "Совпадение сопровождается источником; пустой результат не выдумывается"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.background-autosave",
+      "program": "assistant",
+      "label": "Автоматически сохранять разговор и загружать проектный контекст",
+      "sources": [
+        "src/store/assistantChatsStore.ts",
+        "src/store/assistantStore.ts",
+        "src/screens/AssistantScreen.tsx"
+      ],
+      "triggers": [
+        "background",
+        "project-change",
+        "answer"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Ответы сохраняются без отдельной кнопки и не переходят в другой проект или пользователя"
+      ],
+      "checks": [
+        {
+          "suite": "collab-assistant-privacy-api",
+          "layer": "api-db",
+          "claims": [
+            "API отклоняет чтение, изменение и удаление чужих разговоров"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Дождаться автосохранения, сменить проект, вернуться и проверить данные двумя пользователями",
+          "expected": [
+            "Данные возвращаются в исходном проекте и доступны только владельцу"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "translate.mode-tabs",
+      "program": "translate",
+      "label": "Переключить быстрый перевод, текст, термины и память переводов",
+      "sources": [
+        "src/screens/TranslateScreen.tsx",
+        "src/components/translate/QuickTranslate.tsx",
+        "src/components/translate/TermTable.tsx",
+        "src/components/translate/MemoryTable.tsx"
+      ],
+      "triggers": [
+        "button",
+        "tab"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видимая форма и операции соответствуют выбранному режиму"
+      ],
+      "checks": [
+        {
+          "suite": "collab-translate-contract",
+          "layer": "unit",
+          "claims": [
+            "Переводчик проверяет разбор сегментов, терминов, словарей и памяти переводов"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключать режимы после ввода несохранённых тестовых данных",
+          "expected": [
+            "Данные режима не теряются при переходе и возврате"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "translate.text-run-confirm",
+      "program": "translate",
+      "label": "Перевести текст и подтвердить строку",
+      "sources": [
+        "src/screens/TranslateScreen.tsx",
+        "src/components/translate/SegmentRows.tsx",
+        "src/translate/engine.ts",
+        "src/translate/protect.ts"
+      ],
+      "triggers": [
+        "button",
+        "keyboard",
+        "ctrl-enter",
+        "form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Каждая строка получает перевод или явную отметку отсутствия; код, формула и числа не меняются"
+      ],
+      "checks": [
+        {
+          "suite": "collab-translate-contract",
+          "layer": "unit",
+          "claims": [
+            "Числа, коды, единицы и сегменты сохраняются при обработке текста"
+          ]
+        },
+        {
+          "suite": "collab-translate-regression",
+          "layer": "unit",
+          "claims": [
+            "Литеральные символы private-use не подменяются маркерами при восстановлении рядом с кодами и формулой"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Перевести синтетическую таблицу с формулой, кодом AHU, размером и literal U+E010/U+E011/U+E5FF",
+          "expected": [
+            "Формула, коды и literal private-use знаки совпадают с исходником посимвольно"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "translate.terms-memory",
+      "program": "translate",
+      "label": "Добавить, изменить или удалить термин и запись памяти",
+      "sources": [
+        "src/components/translate/TermTable.tsx",
+        "src/components/translate/MemoryTable.tsx",
+        "src/store/translateStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "form",
+        "row-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Правка относится к активному проекту и влияет на последующий перевод согласно приоритету словаря"
+      ],
+      "checks": [
+        {
+          "suite": "collab-translate-contract",
+          "layer": "unit",
+          "claims": [
+            "Словарь ищет длиннейшее совпадение и проектный термин перекрывает общий"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить проектный термин, перевести его употребление, сменить проект и вернуться",
+          "expected": [
+            "Термин влияет на перевод только в своём проекте и сохраняется после перезапуска"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "translate.tmx-import-export",
+      "program": "translate",
+      "label": "Импортировать и экспортировать память TMX",
+      "sources": [
+        "src/screens/TranslateScreen.tsx",
+        "src/translate/tmx.ts"
+      ],
+      "triggers": [
+        "button",
+        "file-picker",
+        "download"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Пары языков, кавычки и текст сохраняются при выгрузке и повторном импорте"
+      ],
+      "checks": [
+        {
+          "suite": "collab-translate-contract",
+          "layer": "unit",
+          "claims": [
+            "TMX собирается и читается повторно, поддерживая локали и обратную языковую пару"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Экспортировать и импортировать синтетическую пару TMX с кавычками и кириллицей",
+          "expected": [
+            "Содержательные пары совпадают после независимого повторного чтения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "translate.file-version",
+      "program": "translate",
+      "label": "Подготовить английскую версию файла",
+      "sources": [
+        "src/components/translate/FileEnglishVersion.tsx",
+        "src/screens/TranslateScreen.tsx"
+      ],
+      "triggers": [
+        "button",
+        "file-picker",
+        "download"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Исходный файл остаётся целым; создаётся отдельная версия с сохранёнными формулами и структурой"
+      ],
+      "checks": [
+        {
+          "suite": "collab-translate-file",
+          "layer": "unit",
+          "claims": [
+            "Файловый перевод проверяет модель и перенос содержимого тестовых Office-документов"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Перевести копии синтетических XLSX и DOCX с формулами, форматированием и кодами; открыть независимым читателем",
+          "expected": [
+            "Формулы и исходники неизменны; у копии совпадает структура и ожидаемые переводы"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.tabs-navigation",
+      "program": "browser",
+      "label": "Открыть, переключить, закрыть вкладку, перейти назад/вперёд и обновить",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/store/browserStore.ts",
+        "electron/browser.ts"
+      ],
+      "triggers": [
+        "button",
+        "tab",
+        "form",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Адрес, заголовок и состояние перехода принадлежат активной вкладке"
+      ],
+      "checks": [
+        {
+          "suite": "collab-browser-url",
+          "layer": "unit",
+          "claims": [
+            "Внутренний адрес открывается как URL, опасные схемы блокируются, allowlist проверяется по границе хоста"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть две безопасные локальные страницы, переключить вкладки, назад/вперёд, закрыть одну",
+          "expected": [
+            "Состояние вкладок изолировано; закрытие активной вкладки выбирает существующую"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.address-search-engine",
+      "program": "browser",
+      "label": "Ввести адрес или поисковый запрос и выбрать поисковик",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/lib/browserUrl.ts"
+      ],
+      "triggers": [
+        "input",
+        "form",
+        "button",
+        "enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Внутренние адреса не уходят в поисковик; поисковая фраза отправляется выбранному движку"
+      ],
+      "checks": [
+        {
+          "suite": "collab-browser-url",
+          "layer": "unit",
+          "claims": [
+            "Внутренние IP/localhost распознаются как URL; поисковая строка кодируется; опасные схемы запрещены"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить домен, внутренний адрес, фразу и заблокированную схему на тестовом движке",
+          "expected": [
+            "Каждый ввод маршрутизируется согласно типу; запрещённый адрес не загружается"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.bookmarks-project",
+      "program": "browser",
+      "label": "Добавить закладку проекта и удалить её через контекстное меню",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/store/browserStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "background"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создаётся или удаляется выбранная закладка текущего проекта; другая проектная закладка не затронута"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Добавить и удалить синтетическую закладку правым щелчком; проверить проектным переключением и вторым клиентом",
+          "expected": [
+            "Изменена выбранная проектная закладка; открытая вкладка не закрыта"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.history-downloads-external",
+      "program": "browser",
+      "label": "Открыть историю, очистить историю, загрузки и внешний браузер",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/components/browser/DownloadsPanel.tsx",
+        "electron/browser.ts"
+      ],
+      "triggers": [
+        "button",
+        "panel",
+        "download",
+        "external-open"
+      ],
+      "risk": "normal",
+      "expected": [
+        "История очищается отдельно от закладок; загрузка хранится в личной папке; внешний переход использует выбранный адрес"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть историю, удалить её, скачать тестовый файл в личное хранилище и открыть адрес снаружи",
+          "expected": [
+            "Удаление истории не снимает закладки; загруженный файл совпадает с тестовым источником"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.translate-selection",
+      "program": "browser",
+      "label": "Перевести выделенный текст страницы",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/store/translateStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "selection"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В переводчик передаётся только текущее выделение; страница не изменяется"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выделить текст и технический код на локальной странице, открыть перевод",
+          "expected": [
+            "В перевод передано выделение без изменения содержимого страницы"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.background-page-events",
+      "program": "browser",
+      "label": "Обрабатывать загрузку страниц, заголовки и очистку окна",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "electron/browser.ts"
+      ],
+      "triggers": [
+        "background",
+        "navigation",
+        "window-close"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Страница скрывается при уходе из раздела и освобождается при закрытии окна"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "На Windows открыть браузер, перейти в другой раздел и закрыть окно",
+          "expected": [
+            "Встроенная страница скрыта и её ресурсы освобождены"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handbook.search-article",
+      "program": "handbook",
+      "label": "Искать статью и открыть её",
+      "sources": [
+        "src/screens/Handbook.tsx",
+        "src/components/handbook/HandbookNav.tsx",
+        "src/handbook/registry.ts"
+      ],
+      "triggers": [
+        "input",
+        "button",
+        "list-row",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Результат ведёт к статье по заголовку, содержимому или синониму"
+      ],
+      "checks": [
+        {
+          "suite": "collab-handbook-registry",
+          "layer": "unit",
+          "claims": [
+            "Маршруты, статьи, ссылки и поля схемы руководства сверяются; запросы поиска проверены на фиксированных случаях"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Искать статью кириллицей и с ё/е, открыть результат и повторить пустой поиск",
+          "expected": [
+            "Открыта ожидаемая статья; пустой запрос не ломает навигацию"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handbook.toc-follow-anchor",
+      "program": "handbook",
+      "label": "Показать оглавление, переключить следование, перейти к заголовку статьи",
+      "sources": [
+        "src/screens/Handbook.tsx",
+        "src/components/handbook/HandbookNav.tsx",
+        "src/components/handbook/HandbookArticleView.tsx"
+      ],
+      "triggers": [
+        "button",
+        "anchor",
+        "scroll"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Оглавление соответствует текущей статье, выбранный раздел открывается при разрешённом следовании"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключать следование, перейти по двум якорям и прокрутить статью вручную",
+          "expected": [
+            "Состояние оглавления совпадает с текущим заголовком и выбором раздела"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handbook.open-program-route",
+      "program": "handbook",
+      "label": "Открыть программу по ссылке из статьи",
+      "sources": [
+        "src/components/handbook/HandbookArticleView.tsx",
+        "src/handbook/registry.ts"
+      ],
+      "triggers": [
+        "link",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Ссылка ведёт на зарегистрированный маршрут Flux"
+      ],
+      "checks": [
+        {
+          "suite": "collab-handbook-registry",
+          "layer": "unit",
+          "claims": [
+            "Пути статей и соседние ссылки ссылаются на существующий реестр"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть программу из карточки справки, вернуться и открыть статью через поиск",
+          "expected": [
+            "Маршрут открыт и статья остаётся доступной"
+          ]
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "chat.to-registry",
+      "from": "chat",
+      "to": "registry",
+      "status": "implemented",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/store/tagNavigationStore.ts"
+      ],
+      "expected": [
+        "Ссылка на тег из сообщения открывает указанную карточку тега"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Перейти из сообщения в синтетическую карточку тега",
+          "expected": [
+            "Выбрана связанная карточка"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat.to-equipment",
+      "from": "chat",
+      "to": "equipment",
+      "status": "implemented",
+      "sources": [
+        "src/screens/ChatManagement.tsx"
+      ],
+      "expected": [
+        "Ссылка на оборудование открывает связанный элемент"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть синтетическую ссылку на оборудование",
+          "expected": [
+            "Выбран связанный элемент"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.to-calendar",
+      "from": "mail",
+      "to": "calendar",
+      "status": "implemented",
+      "sources": [
+        "src/lib/meetingFromMail.ts",
+        "src/components/mail/MailThread.tsx",
+        "src/screens/CalendarScreen.tsx"
+      ],
+      "expected": [
+        "Распознанное приглашение предлагает событие с датой и ссылкой из письма"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-meeting-parse",
+          "layer": "unit",
+          "claims": [
+            "Дата, время, ссылка и заголовок встречи извлекаются из синтетического письма"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть синтетическое письмо-приглашение, создать и повторно открыть событие в календаре",
+          "expected": [
+            "Дата, время и ссылка соответствуют исходному письму"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.to-explorer",
+      "from": "mail",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/components/mail/MailThread.tsx",
+        "src/screens/Mail.tsx"
+      ],
+      "expected": [
+        "Сохранение вложения помещает выбранный файл в папку Проводника с ожидаемыми байтами"
+      ],
+      "checks": [
+        {
+          "suite": "collab-mail-shared-api",
+          "layer": "api-db",
+          "claims": [
+            "Набор содержит путь связи вложения с файловым хранилищем; если реальные письма недоступны, этот сценарий пропускается"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить synthetic attachment в выбранную папку проекта и открыть его из Проводника",
+          "expected": [
+            "Файл совпадает с оригинальным вложением"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.to-registry",
+      "from": "mail",
+      "to": "registry",
+      "status": "implemented",
+      "sources": [
+        "src/components/mail/MailThread.tsx",
+        "src/components/mail/MailMentions.tsx"
+      ],
+      "expected": [
+        "Ссылка на тег в письме открывает ту же карточку в реестре"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть тег из синтетического письма",
+          "expected": [
+            "Открыта указанная карточка тега"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mail.to-translate",
+      "from": "mail",
+      "to": "translate",
+      "status": "implemented",
+      "sources": [
+        "src/components/mail/LetterTranslate.tsx",
+        "src/lib/ribbonTranslate.ts"
+      ],
+      "expected": [
+        "Выбранная тема или текст передаются переводчику без изменения оригинального письма"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Передать синтетическое письмо в переводчик и сравнить исходную цепочку",
+          "expected": [
+            "Оригинал письма и вложения не изменены"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assistant.to-catalog",
+      "from": "assistant",
+      "to": "catalog",
+      "status": "implemented",
+      "sources": [
+        "src/components/assistant/CatalogAnswer.tsx",
+        "catalog/query.ts"
+      ],
+      "expected": [
+        "Помощник отвечает только по опубликованному снимку Каталога и показывает найденные источники"
+      ],
+      "checks": [
+        {
+          "suite": "collab-assistant-catalog-query",
+          "layer": "unit",
+          "claims": [
+            "Точное и частичное совпадение каталога содержит ссылку на источник записи"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Задать вопрос о синтетической записи и проверить указанное издание/страницу источника",
+          "expected": [
+            "Ответ не использует черновые неопубликованные данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.project-bookmarks",
+      "from": "browser",
+      "to": "projects",
+      "status": "implemented",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/store/browserStore.ts"
+      ],
+      "expected": [
+        "Закладки принадлежат выбранному проекту и не смешиваются при его смене"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать разные закладки в двух проектах и удалить одну из контекстного меню",
+          "expected": [
+            "Удалена только выбранная закладка проекта"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browser.to-translate",
+      "from": "browser",
+      "to": "translate",
+      "status": "implemented",
+      "sources": [
+        "src/screens/BrowserScreen.tsx",
+        "src/store/translateStore.ts"
+      ],
+      "expected": [
+        "Выделенный текст страницы передаётся в Переводчик"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выделить строку с формулой и отправить её в переводчик",
+          "expected": [
+            "Страница остаётся неизменной; в перевод поступило выделение"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "logs.to-recorded-program",
+      "from": "logs",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/screens/LogsManagement.tsx",
+        "server/actionWords.ts"
+      ],
+      "expected": [
+        "Целевой маршрут записи открывает записанный объект; конкретный раздел определяется событием"
+      ],
+      "checks": [
+        {
+          "suite": "collab-logs-action-meaning",
+          "layer": "unit",
+          "claims": [
+            "Известные операции файлов получают маршрут Проводника; цель сохраняется отдельно"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть запись о тестовом объекте и проверить её целевой маршрут",
+          "expected": [
+            "Переход совпадает с объектом из записи"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handbook.to-section",
+      "from": "handbook",
+      "to": "settings",
+      "status": "implemented",
+      "sources": [
+        "src/components/handbook/HandbookArticleView.tsx",
+        "src/handbook/registry.ts"
+      ],
+      "expected": [
+        "Ссылка руководства открывает описанный раздел Flux"
+      ],
+      "checks": [
+        {
+          "suite": "collab-handbook-registry",
+          "layer": "unit",
+          "claims": [
+            "Маршруты связанных статей существуют в реестре разделов"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Перейти в Настройки из соответствующей статьи справки",
+          "expected": [
+            "Открыт правильный раздел"
+          ]
+        }
+      ]
+    }
+  ]
+}

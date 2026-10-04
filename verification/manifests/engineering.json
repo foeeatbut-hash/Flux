@@ -1,0 +1,3151 @@
+{
+  "version": 1,
+  "group": "engineering",
+  "programs": [
+    {
+      "id": "registry",
+      "label": "Теги",
+      "routes": [
+        "/registry"
+      ],
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx",
+        "src/lib/tagTree.ts",
+        "src/lib/tagLayout.ts",
+        "src/lib/tagExchange.ts",
+        "server/equipmentTags.ts"
+      ]
+    },
+    {
+      "id": "equipment",
+      "label": "Оборудование",
+      "routes": [
+        "/equipment"
+      ],
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx",
+        "src/components/equipment/CatalogSourcePanel.tsx",
+        "src/components/EquipmentImportPreview.tsx",
+        "src/lib/equipmentExchange.ts",
+        "equipment/composition.ts",
+        "equipment/notes.ts"
+      ]
+    },
+    {
+      "id": "equipment-export",
+      "label": "Выгрузка данных",
+      "routes": [
+        "/equipment-export"
+      ],
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx",
+        "src/lib/exportSpec.ts",
+        "src/lib/exportGrid.ts",
+        "src/lib/exportWorkspace.ts"
+      ]
+    },
+    {
+      "id": "catalog",
+      "label": "Каталог",
+      "routes": [
+        "/catalog"
+      ],
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx",
+        "src/components/catalog/CatalogReader.tsx",
+        "src/components/catalog/CatalogPublications.tsx",
+        "src/components/catalog/CatalogAccess.tsx",
+        "src/components/catalog/CatalogSpreadsheetPanel.tsx",
+        "catalog/model.ts",
+        "catalog/query.ts",
+        "catalog/publication.ts",
+        "catalog/sheetImport.ts"
+      ]
+    },
+    {
+      "id": "builder",
+      "label": "Конструктор оборудования",
+      "routes": [
+        "/builder"
+      ],
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts",
+        "src/components/builder/ImportWizard.tsx",
+        "src/components/builder/ItemPanel.tsx",
+        "src/components/builder/IssuePanel.tsx",
+        "src/components/builder/TagLinksPanel.tsx",
+        "src/components/builder/BlankDesigner.tsx"
+      ]
+    },
+    {
+      "id": "directory",
+      "label": "Справочник",
+      "routes": [
+        "/directory"
+      ],
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ]
+    },
+    {
+      "id": "management",
+      "label": "Менеджмент",
+      "routes": [
+        "/management"
+      ],
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts",
+        "src/lib/procurementStages.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "eng-registry-tag-policy",
+      "path": "scripts/test-tag-policy.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-registry-tree",
+      "path": "scripts/test-tag-tree.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-model",
+      "path": "scripts/test-equipment-model.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-hierarchy",
+      "path": "scripts/test-equipment-hierarchy.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-undo",
+      "path": "scripts/test-equipment-undo.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-export-builder",
+      "path": "scripts/test-export-builder.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-export-grid",
+      "path": "scripts/test-export-grid.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-catalog-core",
+      "path": "scripts/test-catalog-core.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-catalog-import",
+      "path": "scripts/test-catalog-import.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-catalog-query",
+      "path": "scripts/test-catalog-query.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-catalog-publication",
+      "path": "scripts/test-catalog-review.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-catalog-sources",
+      "path": "scripts/test-catalog-sources.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-builder-permissions",
+      "path": "scripts/test-builder-perms.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-engineering-regressions",
+      "path": "scripts/test-verification-engineering.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-catalog-sources",
+      "path": "scripts/test-equipment-catalog-sources.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-builder-blank-formulas",
+      "path": "scripts/test-catalog-blank.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    }
+  ],
+  "actions": [
+    {
+      "id": "registry.create-tag",
+      "program": "registry",
+      "label": "Создать тег с кодом, маркой, наименованием и актуальностью",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "header button",
+        "form submit"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Новая запись появляется в выбранном проекте с точными полями; повторный одинаковый код получает понятный отказ."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tag-policy",
+          "layer": "unit",
+          "claims": [
+            "Валидатор тега принимает допустимый ASCII-код и отдельно сообщает о запрещённой кириллической букве."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Создать тег с кодом, маркой, наименованием и актуальностью» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.create-advanced-fields",
+      "program": "registry",
+      "label": "Развернуть дополнительные поля и сохранить спецификационные сведения",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "form toggle",
+        "form submit"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Сохранённые дополнительные свойства привязаны к новому тегу и читаются повторно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Развернуть дополнительные поля и сохранить спецификационные сведения» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.search-filter-sort",
+      "program": "registry",
+      "label": "Искать, фильтровать и сортировать теги на полотне",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "search field",
+        "filter control",
+        "column/menu sort"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видимые узлы соответствуют поиску/фильтрам; сортировка меняет порядок отображения, не данные."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Искать, фильтровать и сортировать теги на полотне» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.select-canvas",
+      "program": "registry",
+      "label": "Выбрать тег или несколько тегов на полотне",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "row/canvas click",
+        "modifier click",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Состав выделения точно совпадает с выбранными узлами; Esc/снять выделение очищает его."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать тег или несколько тегов на полотне» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.fit-selection",
+      "program": "registry",
+      "label": "Показать выделенные теги на полотне",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "selection toolbar button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Масштаб и положение подбираются под выделение; состав и координаты данных не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Показать выделенные теги на полотне» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.share-selection-chat",
+      "program": "registry",
+      "label": "Передать выбранные теги в чат",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "selection toolbar button",
+        "context menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается чат с теми же идентификаторами тегов и выбранным проектом."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Передать выделенные теги в тестовый чат и сверить состав карточки/ссылки.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.link-child-canvas",
+      "program": "registry",
+      "label": "Связать родителя с дочерним тегом на полотне",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "row action then target click",
+        "cancel/Esc"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создаётся ровно одна направленная связь parent→child; отмена не создаёт связь, цикл отклоняется."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tree",
+          "layer": "unit",
+          "claims": [
+            "Чистый контракт родства отклоняет цикл, записывает parent→child и обновляет обе стороны связи."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Связать родителя с дочерним тегом на полотне» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.link-child-tree",
+      "program": "registry",
+      "label": "Связать с дочерним тегом в древовидном виде",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "row action then child row click",
+        "cancel/Esc"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Связь появляется у обоих участников дерева с правильным направлением; повтор не дублирует её."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tree",
+          "layer": "unit",
+          "claims": [
+            "Чистый контракт родства отклоняет цикл, записывает parent→child и обновляет обе стороны связи."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Связать с дочерним тегом в древовидном виде» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.remove-child-link",
+      "program": "registry",
+      "label": "Разорвать связь родителя/потомка",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "chip remove button",
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Удаляется только выбранная связь, сами теги и прочие связи сохраняются."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tree",
+          "layer": "unit",
+          "claims": [
+            "Удаление связи оставляет оба узла, но снимает отношение у родителя и потомка."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Разорвать связь родителя/потомка» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.expand-collapse",
+      "program": "registry",
+      "label": "Развернуть/свернуть узел и комментарии дерева",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "expand button",
+        "comments button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Меняется видимость дочерних узлов/комментариев, данные дерева не записываются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Развернуть/свернуть узел и комментарии дерева» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.add-edit-delete-comment",
+      "program": "registry",
+      "label": "Добавить, изменить или удалить комментарий тега",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "inline form",
+        "row action",
+        "confirm dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменяется только выбранный комментарий; отмена удаления сохраняет его."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Добавить, изменить и удалить комментарий синтетического тега; проверить повторным чтением API и вторым открытием.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.edit-tag-properties",
+      "program": "registry",
+      "label": "Открыть карточку и изменить связи/свойства тега",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "row action",
+        "double click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Сохранены введённые поля, связи и метаданные; закрытие без сохранения сохраняет прежнее состояние."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть карточку и изменить связи/свойства тега» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.delete-tag",
+      "program": "registry",
+      "label": "Удалить тег с полотна или дерева",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "row action",
+        "context menu",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Удаляется только выбранный тег и обрабатываются зависимые связи по контракту; отмена не меняет проект."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Удалить тег с полотна или дерева» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.bulk-clear-selection",
+      "program": "registry",
+      "label": "Снять множественное выделение",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "toolbar button",
+        "Esc"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Выделение очищено без изменений тегов."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Снять множественное выделение» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry.switch-canvas-tree",
+      "program": "registry",
+      "label": "Переключить полотно и дерево",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/components/registry/RegistryHeader.tsx"
+      ],
+      "triggers": [
+        "view tab/button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Оба представления показывают один и тот же набор тегов и отношений."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Переключить полотно и дерево» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.change-category",
+      "program": "equipment",
+      "label": "Выбрать категорию оборудования",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "category button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список содержит только позиции категории; выбранный блок и агрегатный режим сброшены по контракту."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать категорию оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.open-block",
+      "program": "equipment",
+      "label": "Открыть блок/установку и выбрать элемент",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "block card click",
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Карточка и состав соответствуют выбранному блоку и текущему проекту."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть блок/установку и выбрать элемент» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.open-operations",
+      "program": "equipment",
+      "label": "Открыть центр фоновых операций",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показываются реальные состояния импорта/экспорта; повторное чтение совпадает с серверной операцией."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запустить разрешённый тестовый импорт и сверить статус операции через API после завершения.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.open-export",
+      "program": "equipment",
+      "label": "Открыть выгрузку текущей категории или установки",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В адрес переданы текущий projectId и область выбранного блока/категории."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть выгрузку текущей категории или установки» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.document-import",
+      "program": "equipment",
+      "label": "Импортировать бланк/ведомость/каталог из файла",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "header button",
+        "file picker"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр объясняет распознанные строки и пропуски; подтверждение меняет только выбранный проект, отмена не пишет."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-model",
+          "layer": "unit",
+          "claims": [
+            "Разбор синтетического состава сохраняет раздельные установки и не переносит тег второй установки в первую."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Импортировать синтетическую ведомость с двумя тегами, неверным количеством и ручным override; прочитать строки проекта повторно.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.undo-import",
+      "program": "equipment",
+      "label": "Отменить последний импорт",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "undo banner button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предыдущие значения восстановлены один раз; повторная отмена безопасно отклоняется/не меняет данные."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-undo",
+          "layer": "unit",
+          "claims": [
+            "План отмены возвращает старое значение, но пропускает запись, изменённую после импорта."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Отменить последний импорт» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.dismiss-undo",
+      "program": "equipment",
+      "label": "Скрыть предложение отмены импорта",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "banner icon button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Скрывается только подсказка для текущего проекта; импорт остаётся сохранённым."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Скрыть предложение отмены импорта» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.settings-conflict-mode",
+      "program": "equipment",
+      "label": "Выбрать способ разрешения ревизионного конфликта",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "settings dialog segment buttons"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Режим конфликта сохраняется и применяется к следующему редактированию."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать способ разрешения ревизионного конфликта» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.settings-category",
+      "program": "equipment",
+      "label": "Добавить или удалить пользовательскую категорию оборудования",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "settings dialog button",
+        "confirm dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Новая категория доступна после повторного открытия; защищённые системные категории удалить нельзя."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Добавить или удалить пользовательскую категорию оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.show-history",
+      "program": "equipment",
+      "label": "Открыть историю ревизий установки/блока",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "card action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "История относится к текущему блоку и упорядочена по версии/дате; данные не мутируют."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть историю ревизий установки/блока» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.add-edit-delete-item",
+      "program": "equipment",
+      "label": "Добавить, изменить или удалить позицию оборудования",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "toolbar/form button",
+        "card context menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сохраняются только заданные поля позиции; отмена формы не меняет БД; удаление затрагивает выбранный ID."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Добавить, изменить или удалить позицию оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.add-notes",
+      "program": "equipment",
+      "label": "Изменить примечания состава оборудования",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "inline/form action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Примечание прикреплено к правильному элементу и сохраняется после перезагрузки."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Изменить примечания состава оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.change-quantity-composition",
+      "program": "equipment",
+      "label": "Изменить количество/состав установки",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "numeric input",
+        "composition action"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Количество компонентов и расчётные итоги соответствуют отдельно заданным значениям; ноль и неверный ввод обрабатываются явно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Изменить количество/состав установки» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.connect-tags",
+      "program": "equipment",
+      "label": "Привязать или отвязать тег оборудования",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "tag picker",
+        "chip remove"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Связь видна с обеих сторон и не меняет чужие теги."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Привязать или отвязать тег оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.apply-catalog-source",
+      "program": "equipment",
+      "label": "Выбрать источник/версию каталога для позиции",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "catalog source panel",
+        "select"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Используется выбранная версия и производитель; после смены источника старое обозначение не выдаётся за новую ревизию."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-catalog-sources",
+          "layer": "unit",
+          "claims": [
+            "Разрешение источника берёт значение из выбранного режима и сохраняет отдельно фактический исходный параметр."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать источник/версию каталога для позиции» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.refresh-catalog-source",
+      "program": "equipment",
+      "label": "Обновить данные из связанного каталога",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "source panel button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр показывает разницу; применение обновляет только не исправленные вручную поля по контракту."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-catalog-sources",
+          "layer": "unit",
+          "claims": [
+            "Смена источника не подменяет характеристику, заданную входным XML."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Обновить данные из связанного каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.export-copy-office",
+      "program": "equipment",
+      "label": "Копировать/отправить оборудование в другую программу",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/BlockCard.tsx"
+      ],
+      "triggers": [
+        "export action",
+        "copy button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Экспорт содержит ожидаемые строки, единицы, идентификаторы тегов и контекст проекта."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-model",
+          "layer": "unit",
+          "claims": [
+            "Обменная таблица сохраняет отдельные строки тегов и нормализует значения совместимых единиц."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Копировать/отправить оборудование в другую программу» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-load-retry",
+      "program": "equipment-export",
+      "label": "Загрузить выгрузку и повторить при ошибке",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "initial load",
+        "retry button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Повтор показывает ту же область данных или понятную ошибку без частичного сохранения."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Загрузить выгрузку и повторить при ошибке» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-select-template",
+      "program": "equipment-export",
+      "label": "Выбрать или сохранить шаблон выгрузки",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "template selector",
+        "save button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Шаблон сохраняет фильтры, колонки, заголовки и порядок; повторное открытие воспроизводит их."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-builder",
+          "layer": "unit",
+          "claims": [
+            "Парсер спецификации сохраняет допустимые фильтры/колонки и отбрасывает неизвестные ключи."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать или сохранить шаблон выгрузки» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-filter",
+      "program": "equipment-export",
+      "label": "Отобрать категории, позиции, теги и характеристики",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "filter controls"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Каждый фильтр сужает строки согласно эталонному набору; очистка возвращает полный исходный набор."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-builder",
+          "layer": "unit",
+          "claims": [
+            "Чистый отбор применяет классы, виды и условие наличия тега к фиксированному набору позиций."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Отобрать категории, позиции, теги и характеристики» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-columns-order",
+      "program": "equipment-export",
+      "label": "Настроить колонки и порядок строк",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "column picker",
+        "sort selector",
+        "drag/drop"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Экспорт содержит только выбранные колонки и заданный естественный порядок."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-builder",
+          "layer": "unit",
+          "claims": [
+            "Чистая таблица располагает строки в заданном естественном порядке и формирует выбранные столбцы."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Настроить колонки и порядок строк» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-worksheet-layout",
+      "program": "equipment-export",
+      "label": "Настроить начало/размещение выгрузки в Таблице Flux Office",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "layout controls"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Целевая таблица получает заголовок/колонки в выбранной ячейке и фильтры/сортировку шаблона."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-grid",
+          "layer": "unit",
+          "claims": [
+            "Преобразование шаблона формирует ожидаемые поля, фильтры и порядок для Таблицы."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Настроить начало/размещение выгрузки в Таблице Flux Office» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-xlsx-csv",
+      "program": "equipment-export",
+      "label": "Скачать Excel или CSV",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "format button",
+        "download"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Файл читается независимым читателем; заголовки, строки, числа, единицы и кодировка соответствуют эталону."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-builder",
+          "layer": "unit",
+          "claims": [
+            "Табличная модель выгрузки формирует фиксированные заголовки и строки; сериализация XLSX/CSV в этом наборе не проверяется."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Скачать XLSX и CSV из тестового проекта, открыть независимым читателем и сравнить все ячейки с фиксированным эталоном.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-clipboard",
+      "program": "equipment-export",
+      "label": "Скопировать выгрузку в буфер обмена",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "copy button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Буфер содержит табличные ячейки и переводы строк; в нем нет скрытых/отфильтрованных строк."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сравнить текст буфера с ожидаемой TSV-таблицей в Windows.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-office",
+      "program": "equipment-export",
+      "label": "Передать текущую выгрузку в Таблицу Flux Office",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "triggers": [
+        "office button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открытая таблица содержит ту же область, строки, колонки и настройки шаблона."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-grid",
+          "layer": "unit",
+          "claims": [
+            "Преобразование шаблона формирует ожидаемые поля, фильтры и порядок для Таблицы."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Передать текущую выгрузку в Таблицу Flux Office» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.switch-read-management",
+      "program": "catalog",
+      "label": "Переключить чтение каталога и управление данными",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Возврат в чтение сохраняет текущий выбранный рабочий набор и права доступа."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Переключить чтение каталога и управление данными» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.search-filter-sort",
+      "program": "catalog",
+      "label": "Искать семейства, фильтровать и менять порядок каталога",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "search field",
+        "filter/sort controls"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Результат содержит точные ожидаемые семейства и соответствующие обозначения/версии."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-query",
+          "layer": "unit",
+          "claims": [
+            "Чистый запрос каталога находит известное семейство и не выдаёт отсутствующие условные значения за факты."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Искать семейства, фильтровать и менять порядок каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.open-family-detail",
+      "program": "catalog",
+      "label": "Открыть семейство и его состав/характеристики",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "row/card click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показаны параметры ровно выбранного familyId и версии."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть семейство и его состав/характеристики» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.create-edit-family",
+      "program": "catalog",
+      "label": "Создать или изменить семейство и его обозначение",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "editor form",
+        "save button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сохранённая версия имеет ожидаемые позиции, коды и правила; отмена оставляет прежнюю ревизию."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Создать или изменить семейство и его обозначение» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.create-edit-components",
+      "program": "catalog",
+      "label": "Управлять комплектующими/компонентами",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "components panel",
+        "form actions"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Компонент привязан к выбранной семье/производителю; независимый повторный запрос возвращает новые связи."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Управлять комплектующими/компонентами» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.import-spreadsheet",
+      "program": "catalog",
+      "label": "Импортировать таблицу каталога",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "file picker",
+        "import wizard"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр показывает сопоставление столбцов/строк; импорт не меняет записи до подтверждения и сохраняет правильную версию."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Импортировать таблицу каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.source-edit",
+      "program": "catalog",
+      "label": "Редактировать источник, производителя, ссылку и документы",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "source editor form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Источник сохраняет явно введённые атрибуты и привязки семейства; ошибочная ссылка отображается как ошибка."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-sources",
+          "layer": "unit",
+          "claims": [
+            "Привязка исходного файла добавляется только выбранной редакции и не меняет опубликованный объект."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Редактировать источник, производителя, ссылку и документы» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.review-change",
+      "program": "catalog",
+      "label": "Проверить различия версии до публикации",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "review action"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Список изменений сравнивает фактические поля независимо; требующие решения различия не пропускаются молча."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-publication",
+          "layer": "unit",
+          "claims": [
+            "Сравнение редакций показывает изменённое поле по стабильному ключу и сохраняет нулевое и удалённое значения."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Проверить различия версии до публикации» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.publish-version",
+      "program": "catalog",
+      "label": "Опубликовать/выпустить новую версию каталога",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "publication action",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Публикация создаёт новую версию, сохраняет предшественника и не перезаписывает прошлую версию."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-publication",
+          "layer": "unit",
+          "claims": [
+            "Сравнение редакций готовит точные изменения для проверки; запись/публикация версии этим набором не проверяется."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Опубликовать/выпустить новую версию каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.link-version-equipment",
+      "program": "catalog",
+      "label": "Связать оборудование с версией каталога",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "equipment source picker"
+      ],
+      "risk": "critical",
+      "expected": [
+        "В карточке оборудования сохраняется неизменяемая ссылка на точную версию/источник, выбранную при подборе."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Связать оборудование с версией каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.assign-access",
+      "program": "catalog",
+      "label": "Настроить доступ сотрудников к каталогу",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "access tab",
+        "permission controls"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Только разрешённые роли могут изменять данные; запрет проверяется также на запросе сервера."
+      ],
+      "checks": [
+        {
+          "suite": "eng-builder-permissions",
+          "layer": "unit",
+          "claims": [
+            "Явный запрет на право catalog.manage сохраняется и сильнее права роли."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Настроить доступ сотрудников к каталогу» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.catalog-sheet-output",
+      "program": "catalog",
+      "label": "Передать выбранный каталог в Таблицу",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "spreadsheet panel button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Таблица содержит версии и параметры тех же выбранных семейств, без скрытых строк."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Передать выбранный каталог в Таблицу» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog.data-issue-feedback",
+      "program": "catalog",
+      "label": "Сообщить о проблеме в данных каталога",
+      "sources": [
+        "src/screens/CatalogScreen.tsx",
+        "src/components/catalog/CatalogManagement.tsx"
+      ],
+      "triggers": [
+        "data issue button",
+        "feedback dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Обращение ссылается на конкретное семейство/версию и не включает несвязанные значения."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Сообщить о проблеме в данных каталога» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.select-list-class",
+      "program": "builder",
+      "label": "Выбрать спецификацию и класс нового списка",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "select controls"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается выбранный список; новый список получает выбранный класс оборудования."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать спецификацию и класс нового списка» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.create-rename-delete-list",
+      "program": "builder",
+      "label": "Создать, переименовать или удалить спецификацию",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "header buttons",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создание/переименование читаются повторно; удаление затрагивает только выбранную спецификацию, отмена сохраняет её."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Создать, переименовать или удалить спецификацию» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.add-edit-remove-item",
+      "program": "builder",
+      "label": "Добавить, изменить или удалить позицию ведомости",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "row action",
+        "keyboard"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Каждое изменение сохраняет ID строки, количество, теги, исходное описание и статус точно по форме."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Добавить, изменить или удалить позицию ведомости» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.match-item",
+      "program": "builder",
+      "label": "Подобрать семейство из описания и вручную принять вариант",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "item editor",
+        "accept button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Принятое семейство и значения характеристик сохраняются в строке; только явное обучение добавляет правило."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-core",
+          "layer": "unit",
+          "claims": [
+            "Подбор по фиксированному инженерному описанию возвращает эталонное семейство и характеристики."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Подобрать семейство из описания и вручную принять вариант» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.rematch",
+      "program": "builder",
+      "label": "Повторно подобрать не исправленные вручную позиции",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "bulk selection"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Повторный подбор пропускает позиции с ручным override значений/семейства и сохраняет их отдельно заданные значения."
+      ],
+      "checks": [
+        {
+          "suite": "eng-engineering-regressions",
+          "layer": "unit",
+          "claims": [
+            "Массовый повторный подбор пропускает позицию с ручным override и не отправляет её на запись."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Повторно подобрать не исправленные вручную позиции» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.bulk-edit",
+      "program": "builder",
+      "label": "Массово изменить одно поле у выделенных позиций",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "bulk selection",
+        "bulk action"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Меняются только выбранные позиции и одно выбранное поле; прочие значения и строки совпадают с исходными."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Массово изменить одно поле у выделенных позиций» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.split-merge-items",
+      "program": "builder",
+      "label": "Разделить по тегам или объединить одинаковые позиции",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "bulk selection",
+        "row context action"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Разбиение даёт по одной строке на тег; объединение суммирует количество только одинаковых семейств/обозначений."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Разделить по тегам или объединить одинаковые позиции» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.paste-rows",
+      "program": "builder",
+      "label": "Вставить строки из буфера Excel",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "paste/keyboard"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Синтетические TSV строки дают ожидаемые теги/количество/описание; ошибочное количество пропускает только свою строку."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Вставить строки из буфера Excel» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.import-mto",
+      "program": "builder",
+      "label": "Загрузить ведомость из файла и применить план",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "import button",
+        "file picker",
+        "wizard confirm"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр различает новую/изменённую/пропущенную/конфликтующую запись; отмена ничего не применяет."
+      ],
+      "checks": [
+        {
+          "suite": "eng-catalog-import",
+          "layer": "unit",
+          "claims": [
+            "План импорта на синтетическом MTO различает новую/обновляемую/пропускаемую позицию, conflict и ручной override количества."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Загрузить ведомость из файла и применить план» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.undo",
+      "program": "builder",
+      "label": "Отменить последнее изменение ведомости",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "undo button",
+        "Ctrl+Z"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Отменяется один последний пакет изменений; повторное чтение возвращает независимый снимок до действия."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Отменить последнее изменение ведомости» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.export-xlsx",
+      "program": "builder",
+      "label": "Выгрузить ведомость в Excel",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "Excel button",
+        "download"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Независимое чтение файла подтверждает ячейки, обозначения, теги, количество и статус."
+      ],
+      "checks": [
+        {
+          "suite": "eng-engineering-regressions",
+          "layer": "unit",
+          "claims": [
+            "Сгенерированный XLSX повторно читается и содержит эталонные теги, количество, обозначение, размеры, уверенность и примечание."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Скачать XLSX тестовой спецификации, открыть независимым читателем, сравнить содержимое и повторно открыть файл в Таблице.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.issue-documents",
+      "program": "builder",
+      "label": "Выпустить документы по шаблонам",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "issue button",
+        "document template selection"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Выбранный шаблон и версия заполняются данными текущей спецификации; не создаётся второй документ при повторном подтверждении."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выпустить документы по шаблонам» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.manage-templates",
+      "program": "builder",
+      "label": "Выбрать или настроить шаблоны документов",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "templates button",
+        "template editor"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Повторное открытие показывает сохранённую версию шаблона и поля; отменённые изменения не применяются."
+      ],
+      "checks": [
+        {
+          "suite": "eng-builder-permissions",
+          "layer": "unit",
+          "claims": [
+            "Право blanks.manage закрыто по умолчанию и только явно разрешённый пользователь получает доступ к шаблонам."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать или настроить шаблоны документов» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.link-project-tags",
+      "program": "builder",
+      "label": "Связать позиции спецификации с тегами проекта",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "tags button",
+        "tag picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Связь касается выбранной спецификации/строки и доступна в реестре тегов того же проекта."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Связать позиции спецификации с тегами проекта» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.open-catalog",
+      "program": "builder",
+      "label": "Открыть каталог оборудования",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Переход в Каталог сохраняет активный проект и возвращает пользователя в тот же контекст после возврата."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Открыть каталог оборудования» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.design-blank",
+      "program": "builder",
+      "label": "Собрать/изменить бланк формулами и блоками",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "blank designer controls",
+        "formula editor",
+        "preview"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Формулы оцениваются на фиксированном независимом наборе, пустые/ошибочные ссылки дают явную ошибку, а не неверный итог."
+      ],
+      "checks": [
+        {
+          "suite": "eng-builder-blank-formulas",
+          "layer": "unit",
+          "claims": [
+            "Вычислитель выражений применяет фиксированные значения полей и отрисовывает ожидаемую сетку документа."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Собрать/изменить бланк формулами и блоками» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder.blank-assets",
+      "program": "builder",
+      "label": "Добавить изображение/ресурс в бланк",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "triggers": [
+        "asset picker",
+        "file picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В бланке отображается выбранный ресурс, а экспорт содержит те же байты/ссылку."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Добавить изображение/ресурс в бланк» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.search",
+      "program": "directory",
+      "label": "Искать и фильтровать справочник",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "search field"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видимые записи соответствуют точному запросу; поиск не меняет порядок/данные хранения."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Искать и фильтровать справочник» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.create-edit-delete",
+      "program": "directory",
+      "label": "Создать, изменить или удалить запись справочника",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "toolbar/form buttons",
+        "row action",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Изменяется только выбранная запись; удаление подтверждается, отмена сохраняет её."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Создать, изменить или удалить запись справочника» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.add-child",
+      "program": "directory",
+      "label": "Создать дочернее значение у выбранной записи",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "context menu",
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Новая запись хранит parentId выбранного элемента и появляется сразу под ним в глубине 1."
+      ],
+      "checks": [
+        {
+          "suite": "eng-engineering-regressions",
+          "layer": "unit",
+          "claims": [
+            "Упорядочивание строит вложенный список по parentId и выдаёт глубину потомка отдельно."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Создать дочернее значение у выбранной записи» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.reorder",
+      "program": "directory",
+      "label": "Изменить порядок корней/дочерних значений",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "drag/drop",
+        "sort control"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Порядок отображения соответствует коду/позиции по контракту; обход не меняет исходные данные."
+      ],
+      "checks": [
+        {
+          "suite": "eng-engineering-regressions",
+          "layer": "unit",
+          "claims": [
+            "Упорядочивание сортирует корни и детей независимо и не переставляет исходный массив."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Изменить порядок корней/дочерних значений» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.import-export",
+      "program": "directory",
+      "label": "Импортировать или выгрузить справочник",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "file picker",
+        "export button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Импорт показывает конфликты до записи; выгруженные значения и иерархия открываются независимым читателем."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Импортировать или выгрузить справочник» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory.cancel-edit",
+      "program": "directory",
+      "label": "Отменить редактирование справочника",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/lib/dictOrder.ts"
+      ],
+      "triggers": [
+        "cancel button",
+        "Esc"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Закрытие формы сохраняет исходные поля и родительские связи."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Отменить редактирование справочника» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.search-filter",
+      "program": "management",
+      "label": "Искать, отфильтровать по этапу и выбрать сортировку",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "search field",
+        "filter control",
+        "column header click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Строки соответствуют поиску/этапу; переключение сортировки не меняет этапы."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Искать, отфильтровать по этапу и выбрать сортировку» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.change-stage-row",
+      "program": "management",
+      "label": "Перевести одну закупку на следующий/предыдущий этап",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "stage chip/button",
+        "row action"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сохраняется целевой этап конкретного тега; откат на шаг возвращает ровно один предыдущий этап."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Перевести одну закупку на следующий/предыдущий этап» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.select-bulk",
+      "program": "management",
+      "label": "Выбрать строки, все показанные, снять выделение",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "checkbox",
+        "Ctrl+click",
+        "select all",
+        "clear selection"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Множество ID точно соответствует отмеченным показанным строкам, включая Ctrl+click."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выбрать строки, все показанные, снять выделение» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.bulk-stage",
+      "program": "management",
+      "label": "Назначить этап выделенным позициям",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "bulk stage controls"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Каждая позиция получает этап с тем же номером в своём шаблоне; пустые/короткие шаблоны не получают чужой этап."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Назначить этап выделенным позициям» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.template-override",
+      "program": "management",
+      "label": "Назначить позиции конкретный шаблон этапов",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "row action",
+        "template picker"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Явно выбранный шаблон побеждает совпадения по коду/типу; явный default возвращает общие этапы."
+      ],
+      "checks": [
+        {
+          "suite": "eng-engineering-regressions",
+          "layer": "unit",
+          "claims": [
+            "Явно выбранный шаблон и явный default имеют приоритет над совпадением по обозначению."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Назначить позиции конкретный шаблон этапов» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.edit-note",
+      "program": "management",
+      "label": "Изменить примечание к закупке",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "note button",
+        "inline form"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Примечание хранится у выбранного тега и читается повторно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Изменить примечание к закупке» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.stuck-filter",
+      "program": "management",
+      "label": "Показать зависшие незакрытые позиции",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "stuck control"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Фильтр показывает только незакрытые позиции сверх заданного срока на текущем этапе."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Показать зависшие незакрытые позиции» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.export-current-view",
+      "program": "management",
+      "label": "Выгрузить показанные строки в Excel",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "export button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Файл учитывает действующие фильтры, поиск, порядок и выбранные строки; открывается независимым читателем."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Выгрузить показанные строки в Excel» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.refresh",
+      "program": "management",
+      "label": "Обновить список закупок",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "refresh button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "После загрузки показаны последние этапы/примечания для текущего проекта; повторный запрос не дублирует записи."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Обновить список закупок» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.open-registry",
+      "program": "management",
+      "label": "Перейти к тегам из подсказки пустого списка",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "empty-state link"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается `/registry` для того же проекта."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Перейти к тегам из подсказки пустого списка» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management.configure-stages",
+      "program": "management",
+      "label": "Настроить глобальные этапы закупки в параметрах",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "triggers": [
+        "settings button",
+        "navigation"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сохранённый набор этапов повторно читается; тег с существующим stageId получает осмысленное резервное состояние после переименования/удаления."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В тестовом проекте выполнить действие «Настроить глобальные этапы закупки в параметрах» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "registry-to-projects",
+      "from": "registry",
+      "to": "projects",
+      "status": "implemented",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/workspace/sections.tsx"
+      ],
+      "expected": [
+        "Теги и связи ограничены выбранным проектом; после смены проекта старый набор не показывается под новым названием."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать синтетический тег в проекте A, переключить на B и обратно.",
+          "expected": [
+            "Тег виден только в проекте A и возвращается после переключения обратно."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-to-projects",
+      "from": "equipment",
+      "to": "projects",
+      "status": "implemented",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/workspace/sections.tsx"
+      ],
+      "expected": [
+        "Оборудование и область выгрузки относятся к активному проекту."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть две тестовые установки в разных проектах и переключить проект во время загрузки.",
+          "expected": [
+            "Загрузка старого проекта не появляется в окне нового проекта."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-to-explorer",
+      "from": "equipment",
+      "to": "explorer",
+      "status": "conditional",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/EquipmentImportPreview.tsx"
+      ],
+      "expected": [
+        "Импорт выбранного файла использует файл/папку текущего проекта, если запуск пришёл из Проводника."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Открыть документ из проектной папки и передать его в импорт оборудования.",
+          "expected": [
+            "Выбранный проект и байты исходного файла совпадают с выбранной записью Проводника."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-to-spreadsheet",
+      "from": "equipment-export",
+      "to": "spreadsheet",
+      "status": "implemented",
+      "sources": [
+        "src/screens/EquipmentExport.tsx",
+        "src/components/equipment/ExportBuilder.tsx"
+      ],
+      "expected": [
+        "Текущий шаблон преобразуется в таблицу с теми же строками, заголовками и фильтрами."
+      ],
+      "checks": [
+        {
+          "suite": "eng-export-grid",
+          "layer": "unit",
+          "claims": [
+            "Преобразование шаблона в табличную раскладку сохраняет ожидаемые колонки и фильтры."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Отправить шаблон с фильтром и пользовательскими колонками в Flux Office Таблицу.",
+          "expected": [
+            "Таблица содержит ровно ожидаемые отфильтрованные данные и столбцы."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment-export-to-explorer",
+      "from": "equipment-export",
+      "to": "explorer",
+      "status": "conditional",
+      "sources": [
+        "src/screens/EquipmentExport.tsx"
+      ],
+      "expected": [
+        "Скачанный файл может быть сохранён в проектную папку через системный выбор места."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Сохранить тестовую выгрузку в папку проекта через системный диалог.",
+          "expected": [
+            "Файл читается из выбранной папки и соответствует таблице-эталону."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog-to-assistant",
+      "from": "catalog",
+      "to": "assistant",
+      "status": "conditional",
+      "sources": [
+        "src/components/assistant/CatalogAnswer.tsx",
+        "src/assistant/knowledge.ts"
+      ],
+      "expected": [
+        "Ответ помощника с данными каталога ссылается на фактическую версию и не подменяет отсутствующее значение."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запросить у помощника параметр тестового семейства и сверить ответ с карточкой этой версии каталога.",
+          "expected": [
+            "Значение и ссылка совпадают с карточкой выбранной версии."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog-to-feedback",
+      "from": "catalog",
+      "to": "feedback",
+      "status": "conditional",
+      "sources": [
+        "src/components/catalog/DataIssueDialog.tsx",
+        "src/components/catalog/dataIssue.ts"
+      ],
+      "expected": [
+        "Сообщение о проблеме содержит ID семейства и версии, выбранные в Каталоге."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Отправить синтетическое замечание о версии каталога и открыть его в замечаниях.",
+          "expected": [
+            "Замечание связано с тем же семейством и версией; секретные/чужие данные отсутствуют."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder-to-document",
+      "from": "builder",
+      "to": "document",
+      "status": "conditional",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/IssuePanel.tsx"
+      ],
+      "expected": [
+        "Выпуск по выбранному шаблону создаёт документ из текущей спецификации и выбранной ревизии."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выпустить документ для синтетической спецификации и открыть его в Flux Office Документ.",
+          "expected": [
+            "В документе совпадают теги, количества, характеристики и ревизия эталона."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder-to-spreadsheet",
+      "from": "builder",
+      "to": "spreadsheet",
+      "status": "implemented",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "expected": [
+        "Команда Excel передаёт все позиции ведомости с тегами, количеством, обозначением и статусом."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Экспортировать синтетическую спецификацию и открыть таблицу в Flux Office.",
+          "expected": [
+            "Ячейки совпадают с независимым эталоном спецификации."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder-to-pdf",
+      "from": "builder",
+      "to": "pdf",
+      "status": "conditional",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/IssuePanel.tsx"
+      ],
+      "expected": [
+        "Если выбран PDF-шаблон выпуска, созданный файл открывается в PDF-программе и сохраняет состав спецификации."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Выпустить PDF в тестовом Windows portable и открыть в Flux PDF.",
+          "expected": [
+            "Страницы, таблицы, теги и количества сверены с эталоном."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "builder-to-catalog",
+      "from": "builder",
+      "to": "catalog",
+      "status": "implemented",
+      "sources": [
+        "src/screens/BuilderScreen.tsx",
+        "src/components/builder/useItemOps.ts"
+      ],
+      "expected": [
+        "Подбор позиции использует семейства и правила каталога выбранного класса и версии."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Подобрать позицию в Конструкторе и открыть указанную версию в Каталоге.",
+          "expected": [
+            "Выбранное семейство/ревизия совпадают между позиционной карточкой и Каталогом."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "directory-to-projects",
+      "from": "directory",
+      "to": "projects",
+      "status": "conditional",
+      "sources": [
+        "src/screens/DictionaryEditor.tsx",
+        "src/workspace/sections.tsx"
+      ],
+      "expected": [
+        "Если конкретная запись справочника проектная, она читается только в активном проекте."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить справочник в тестовом проекте и проверить повторное открытие в другом проекте.",
+          "expected": [
+            "Соблюдается область владения записи, заданная её контрактом."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management-to-settings",
+      "from": "management",
+      "to": "settings",
+      "status": "implemented",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/lib/procurementStages.ts"
+      ],
+      "expected": [
+        "Настройка этапов открывает раздел параметров Менеджмента и сохраняет общий набор этапов."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить этап в тестовых настройках, затем обновить список закупок.",
+          "expected": [
+            "Список показывает сохранённый этап и его заданный номер."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management-to-users",
+      "from": "management",
+      "to": "users",
+      "status": "conditional",
+      "sources": [
+        "src/screens/ProcurementManagement.tsx",
+        "src/workspace/sections.tsx"
+      ],
+      "expected": [
+        "Видимость/изменение закупок следует правам сотрудника, назначенным в управлении пользователями."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два тестовых сотрудника с разными правами открывают один набор закупок.",
+          "expected": [
+            "Запрос без права отклоняется сервером и не меняет этапы."
+          ]
+        }
+      ]
+    }
+  ]
+}

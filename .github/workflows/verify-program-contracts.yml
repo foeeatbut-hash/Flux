@@ -1,0 +1,85 @@
+name: Реестры действий и регрессии программ
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости и клиенты Prisma
+        run: |
+          npm ci
+          npx prisma generate --schema=prisma/schema.prisma
+          npx prisma generate --schema=prisma/schema.postgresql.prisma
+          npx prisma generate --schema=prisma/schema.mariadb.prisma
+      - name: Типы
+        run: npm run lint
+      - name: Все маршруты, управляющие элементы и паспорта
+        run: npm run check:coverage -- --report "${{ runner.temp }}/flux-source-inventory.json"
+      - name: Сам механизм проверок и новые регрессии
+        run: npm run check:verification -- --report "${{ runner.temp }}/flux-infrastructure.json"
+      - name: Компонентные сценарии интерфейса
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_UI_URL: http://127.0.0.1:5173
+        run: |
+          set -euo pipefail
+          vite_log="${{ runner.temp }}/flux-ui-vite.log"
+          DISABLE_HMR=true node ./node_modules/vite/bin/vite.js \
+            --config ./vite.config.ts --host 127.0.0.1 --port 5173 --strictPort \
+            >"$vite_log" 2>&1 &
+          vite_pid=$!
+          cleanup() {
+            if kill -0 "$vite_pid" 2>/dev/null; then
+              kill "$vite_pid" 2>/dev/null || true
+              wait "$vite_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$vite_pid" 2>/dev/null; then
+              cat "$vite_log"
+              exit 1
+            fi
+            if curl --fail --silent --show-error \
+              "$FLUX_UI_URL/scripts/fixtures/employee-import-ui.tsx" \
+              --output /dev/null 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$vite_log"
+            echo "Vite did not become ready at $FLUX_UI_URL" >&2
+            exit 1
+          fi
+
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-play-match-frame-ui; do
+            node --import tsx "scripts/$check.ts"
+          done
+      - name: Артефакты с явно указанной областью проверки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-verification-evidence
+          path: |
+            ${{ runner.temp }}/flux-source-inventory.json
+            ${{ runner.temp }}/flux-infrastructure.json
+            ${{ runner.temp }}/flux-ui-vite.log
+            /tmp/catalog-ui-report.json
+            /tmp/catalog-ui-*.png
+            /tmp/employee-import-*.png
+            /tmp/flux-desktop-*.png
+          if-no-files-found: warn
