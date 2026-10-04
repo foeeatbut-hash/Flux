@@ -1,0 +1,34 @@
+{
+  "window": {
+    "rect": { "x": 40, "y": 28, "w": 720, "h": 520 },
+    "delta": { "x": 5000, "y": 5000 },
+    "area": { "w": 1280, "h": 720 },
+    "expected": { "x": 1184, "y": 686, "w": 720, "h": 520 }
+  },
+  "menu": {
+    "point": { "x": 1240, "y": 690 },
+    "size": { "w": 280, "h": 420 },
+    "workArea": { "x": 0, "y": 0, "w": 1280, "h": 720 },
+    "expected": { "left": 996, "top": 296, "maxHeight": 712, "maxWidth": 1272 }
+  },
+  "play": {
+    "link": "live",
+    "maintenance": false,
+    "install": "ready",
+    "session": null,
+    "lobby": { "state": "OPEN" },
+    "party": { "leaderId": "user-1" },
+    "meId": "user-1",
+    "iAmReady": true,
+    "allReady": true,
+    "stale": true,
+    "manager": true,
+    "builtin": true,
+    "expected": {
+      "id": "start",
+      "label": "Начать матч",
+      "disabled": true,
+      "hint": "Данные устарели — подождите, состояние вот-вот обновится"
+    }
+  }
+}

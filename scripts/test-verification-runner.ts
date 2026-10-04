@@ -145,11 +145,12 @@ async function main() {
     write('package.json', JSON.stringify({ name: 'verification-fixture', version: '3.4.5' }));
     write('package-lock.json', JSON.stringify({ name: 'verification-fixture', lockfileVersion: 3 }));
     const digestSource = write('src/digest-source.ts', 'export const value = 1;');
+    const digestPrerequisite = write('fixtures/verification-fixture.json', '{"fixture":"v1"}');
     const digestNameOne = write('src/digest-name-one.ts', 'same bytes');
     const digestNameTwo = write('src/digest-name-two.ts', 'same bytes');
     assert.equal(computeScopedSourceDigest(root, [digestSource, digestNameOne]), computeScopedSourceDigest(root, [digestNameOne, digestSource]), 'digest input order is normalized by sorted filenames');
     assert.notEqual(computeScopedSourceDigest(root, [digestSource, digestNameOne]), computeScopedSourceDigest(root, [digestSource, digestNameTwo]), 'filenames contribute to the scoped digest even when bytes match');
-    const digestGroup = manifest('digest-case', { programs: [{ id: 'digest-case', label: 'digest', routes: [], sources: [digestSource] }], suites: [suite('digest-case.stable', passPath)] });
+    const digestGroup = manifest('digest-case', { programs: [{ id: 'digest-case', label: 'digest', routes: [], sources: [digestSource] }], suites: [suite('digest-case.stable', passPath, { prerequisites: [{ kind: 'file', path: digestPrerequisite }] })] });
     save(digestGroup);
     const digestFirst = await runVerification({ root, group: 'digest-case' });
     const digestSecond = await runVerification({ root, group: 'digest-case' });
@@ -159,6 +160,10 @@ async function main() {
     assert.equal(digestFirst.scopedSourceDigest, digestSecond.scopedSourceDigest, 'identical sorted source file sets produce identical digests');
     assert.equal(digestSecond.sourceChangedDuringRun, false, 'unchanged fixture sources retain one start and end digest');
     assert.equal(verificationExitCode(digestSecond), 0, 'a stable all-pass run exits successfully');
+    write(digestPrerequisite, '{"fixture":"v2"}');
+    const digestChangedPrerequisite = await runVerification({ root, group: 'digest-case' });
+    assert.notEqual(digestChangedPrerequisite.scopedSourceDigest, digestSecond.scopedSourceDigest, 'changing a declared file prerequisite changes the scoped digest');
+    assert.equal(digestChangedPrerequisite.sourceChangedDuringRun, false, 'a prerequisite changed before, but not during, a run remains a stable snapshot');
 
     const mutator = write('scripts/mutate-source.cjs', js(`require('node:fs').writeFileSync(${JSON.stringify(path.join(root, digestSource))},'export const value = 2;');`));
     digestGroup.suites = [suite('digest-case.mutate', mutator)];

@@ -76,7 +76,12 @@
       "layer": "unit",
       "platform": "any",
       "resources": [],
-      "prerequisites": [],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/verification-shell-play.json"
+        }
+      ],
       "timeoutMs": 30000
     },
     {

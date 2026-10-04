@@ -225,7 +225,10 @@ function evidenceFiles(registry: Registry, root: string): string[] {
   const files = new Set<string>(registry.manifestFiles);
   for (const manifest of registry.manifests) {
     for (const program of manifest.programs) for (const source of program.sources) files.add(source);
-    for (const suite of manifest.suites) files.add(suite.path);
+    for (const suite of manifest.suites) {
+      files.add(suite.path);
+      for (const prerequisite of suite.prerequisites) if (prerequisite.kind === 'file') files.add(prerequisite.path);
+    }
     for (const action of manifest.actions) for (const source of action.sources) files.add(source);
     for (const connection of manifest.connections) for (const source of connection.sources) files.add(source);
   }
