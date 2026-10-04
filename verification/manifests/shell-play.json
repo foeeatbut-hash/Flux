@@ -1,0 +1,2917 @@
+{
+  "version": 1,
+  "group": "shell-play",
+  "programs": [
+    {
+      "id": "shell",
+      "label": "Оболочка, стол, Пуск, окна и системные окна",
+      "routes": [
+        "/capture",
+        "/native-app"
+      ],
+      "sources": [
+        "src/App.tsx",
+        "src/components/Desktop.tsx",
+        "src/components/StartMenu.tsx",
+        "src/components/Taskbar.tsx",
+        "src/components/TaskbarPeek.tsx",
+        "src/components/ContextMenu.tsx",
+        "src/components/WindowsLayer.tsx",
+        "src/components/NotificationsPanel.tsx",
+        "src/screens/CapturePult.tsx",
+        "src/components/NativeAppHost.tsx",
+        "src/lib/desktop.ts",
+        "src/lib/startMenu.ts",
+        "src/lib/taskbar.ts",
+        "src/lib/contextMenu.ts",
+        "src/lib/windows.ts",
+        "src/lib/hotkeys.ts",
+        "src/lib/useWindowHotkeys.tsx",
+        "electron/desktopShell.ts",
+        "electron/displays.ts",
+        "electron/nativeApps.ts",
+        "electron/windowsNotifications.ts",
+        "src/workspace/sections.tsx"
+      ]
+    },
+    {
+      "id": "play",
+      "label": "Flux Play: Дурак и Бильярд",
+      "routes": [
+        "/play"
+      ],
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/mainAction.ts",
+        "src/play/PrepareTab.tsx",
+        "src/play/LibraryTab.tsx",
+        "src/play/HistoryTab.tsx",
+        "src/play/InvitePicker.tsx",
+        "src/play/PartyBar.tsx",
+        "src/play/runtime/MatchFrame.tsx",
+        "src/play/runtime/DurakBoard.tsx",
+        "src/play/runtime/BilliardsBoard.tsx",
+        "src/lib/appPolicy.ts",
+        "src/store/playStore.ts",
+        "src/store/playPendingStore.ts",
+        "play/features.ts",
+        "play/games/durak.ts",
+        "play/games/billiards.ts",
+        "play/games/billiardsPhysics.ts",
+        "server/play/access.ts",
+        "server/play/parties.ts",
+        "server/play/lobbies.ts",
+        "server/play/match.ts",
+        "server/play/snapshot.ts",
+        "server/play/routes.ts",
+        "server/play/commands.ts",
+        "server/play/adapters/builtin.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "shell-verification-unit",
+      "path": "scripts/test-verification-shell-play.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/verification-shell-play.json"
+        }
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-desktop-layout-unit",
+      "path": "scripts/test-desktop.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-start-menu-unit",
+      "path": "scripts/test-start-menu.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-taskbar-unit",
+      "path": "scripts/test-taskbar.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-context-menu-unit",
+      "path": "scripts/test-context-menu.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-global-hotkeys-unit",
+      "path": "scripts/test-hotkeys.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-window-geometry-unit",
+      "path": "scripts/test-windows.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-window-close-unit",
+      "path": "scripts/test-window-close.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-desk-switch-unit",
+      "path": "scripts/test-desk-keys.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-display-bridge-component",
+      "path": "scripts/test-displays-native.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "temp:shell-display-state"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-desktop-bridge-component",
+      "path": "scripts/test-desktop-shell-native.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "temp:shell-desktop-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "shell-windows-notifications-component",
+      "path": "scripts/test-windows-notifications.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "temp:shell-notification-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "shell-notification-model-unit",
+      "path": "scripts/test-shell-notify.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-native-app-windows",
+      "path": "scripts/test-native-app-windows.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "shell-live-layout-browser",
+      "path": "scripts/test-layout.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "exclusive:local-flux-api",
+        "exclusive:chromium",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "external": true,
+      "timeoutMs": 900000
+    },
+    {
+      "id": "shell-play-contract-unit",
+      "path": "scripts/test-play-action.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-play-permissions-unit",
+      "path": "scripts/test-play-permissions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-play-durak-model-unit",
+      "path": "scripts/test-play-durak.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "shell-play-billiards-model-unit",
+      "path": "scripts/test-play-billiards.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "shell-play-lobby-api-db",
+      "path": "scripts/test-play-lobby-capacity.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:temp-play-sqlite"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "shell-play-presence-api-db",
+      "path": "scripts/test-play-presence.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:temp-play-sqlite"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "shell-play-frame-component",
+      "path": "scripts/test-play-match-frame-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "exclusive:chromium",
+        "exclusive:vite-port"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 180000
+    },
+    {
+      "id": "shell-play-two-clients-api-db",
+      "path": "scripts/test-play-builtin-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:temp-play-sqlite",
+        "exclusive:local-play-api-port",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 300000,
+      "external": true
+    },
+    {
+      "id": "shell-play-two-server-api-db",
+      "path": "scripts/test-play-durak-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:isolated-postgresql",
+        "exclusive:local-play-api-ports",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PG_URL"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "external": true,
+      "timeoutMs": 600000
+    },
+    {
+      "id": "shell-play-billiards-api-db",
+      "path": "scripts/test-play-billiards-network-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:temp-play-sqlite",
+        "exclusive:local-play-api-port"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "shell-play-stealth-browser-live",
+      "path": "scripts/test-play-stealth-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "exclusive:isolated-flux-api",
+        "exclusive:chromium",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "external": true,
+      "timeoutMs": 300000
+    }
+  ],
+  "actions": [
+    {
+      "id": "shell.desktop.arrange",
+      "program": "shell",
+      "label": "Расставить значки по имени/типу/дате; ручное размещение и переполнение стола",
+      "sources": [
+        "src/components/Desktop.tsx",
+        "src/lib/desktop.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "drag-drop"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки сохраняют уникальные клетки и недоступные позиции не теряются"
+      ],
+      "checks": [
+        {
+          "suite": "shell-desktop-layout-unit",
+          "layer": "unit",
+          "claims": [
+            "Чистая раскладка держит значки в сетке, разрешает совпавшие сохранённые позиции и сообщает переполнение"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "На пустом и заполненном столе переместить/сортировать значки, сузить окно и открыть переполненный список; повторить в светлой и тёмной теме",
+          "expected": [
+            "Нет потерянных, наложенных или недостижимых значков; меню не обрезано"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.open-icon",
+      "program": "shell",
+      "label": "Открыть программу/файл/папку двойным щелчком или командой «Открыть»",
+      "sources": [
+        "src/components/Desktop.tsx",
+        "src/components/desktop/WindowsDesktop.tsx"
+      ],
+      "triggers": [
+        "double-click",
+        "context-menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Выбранный объект открывается по назначенному приложению с учётом прав"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть программу, папку и файл кликом/двойным щелчком на virtual и Windows desktop",
+          "expected": [
+            "Открывается именно выбранный объект/маршрут, отказ понятен"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-open",
+      "program": "shell",
+      "label": "Меню значка «Открыть»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Команда применяется только к выбранному объекту; отмена не меняет его состояние"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню значка «Открыть»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-open-with",
+      "program": "shell",
+      "label": "Меню файла «Открыть в…» — каждый подходящий редактор/Проводник",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Файл открывается выбранным обработчиком; исходный файл сохраняется"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню файла «Открыть в…» — каждый подходящий редактор/Проводник» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-rename",
+      "program": "shell",
+      "label": "Меню значка «Переименовать»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Имя меняется у выбранного значка и проходит правила уникальности"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню значка «Переименовать»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-export-windows",
+      "program": "shell",
+      "label": "Меню файла «Выгрузить в Windows»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Фактические байты выгружаются в выбранное место Windows"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню файла «Выгрузить в Windows»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-share",
+      "program": "shell",
+      "label": "Меню «Положить на общий стол» / «Убрать с общего стола»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видимость меняется для допустимой области и соответствует правам"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню «Положить на общий стол» / «Убрать с общего стола»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-relations",
+      "program": "shell",
+      "label": "Меню «Карточка связей»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Карточка открыта для того же file ID"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню «Карточка связей»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-properties",
+      "program": "shell",
+      "label": "Меню «Свойства»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Команда применяется только к выбранному объекту; отмена не меняет его состояние"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню «Свойства»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.item-remove",
+      "program": "shell",
+      "label": "Меню «Убрать со стола»",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значок убран со стола без удаления исходного файла"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Меню «Убрать со стола»» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.create-folder",
+      "program": "shell",
+      "label": "Стол → Создать → Папку",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создана папка в личной или общей области по контракту"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Создать → Папку» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.create-document",
+      "program": "shell",
+      "label": "Стол → Создать → Документ",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создан пустой документ в ожидаемой области"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Создать → Документ» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.create-sheet",
+      "program": "shell",
+      "label": "Стол → Создать → Таблицу",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создана таблица в ожидаемой области"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Создать → Таблицу» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.create-note",
+      "program": "shell",
+      "label": "Стол → Создать → Заметку",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создана заметка в личной области"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Создать → Заметку» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.create-shared-sheet",
+      "program": "shell",
+      "label": "Стол → Создать → Таблицу на общем столе",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Общая таблица видна участникам общего пространства"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Создать → Таблицу на общем столе» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.add-file",
+      "program": "shell",
+      "label": "Стол → Добавить файл…",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "file-picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Выбранный файл добавлен; отмена системного диалога оставляет стол неизменным"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Добавить файл…» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.view-scale",
+      "program": "shell",
+      "label": "Стол → Вид → размер значков",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Выбранный масштаб применяется и сохраняется для личного вида"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Вид → размер значков» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.view-icons",
+      "program": "shell",
+      "label": "Стол → Вид → Значками",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки отображаются сеткой и выбор сохраняется"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Вид → Значками» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.view-list",
+      "program": "shell",
+      "label": "Стол → Вид → Списком",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки отображаются списком и выбор сохраняется"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Вид → Списком» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.sort-name",
+      "program": "shell",
+      "label": "Стол → Сортировка → По имени",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки упорядочены по имени с системными элементами в контрактном порядке"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Сортировка → По имени» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.sort-date",
+      "program": "shell",
+      "label": "Стол → Сортировка → По дате",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки упорядочены по времени обновления"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Сортировка → По дате» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.sort-kind",
+      "program": "shell",
+      "label": "Стол → Сортировка → По типу",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки упорядочены по типу"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Сортировка → По типу» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.sort-status",
+      "program": "shell",
+      "label": "Стол → Сортировка → По стадии",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значки упорядочены по стадии; пустая стадия трактуется контрактно"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Сортировка → По стадии» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.refresh",
+      "program": "shell",
+      "label": "Стол → Обновить",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список повторно загружен без изменения данных"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Обновить» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.open-explorer",
+      "program": "shell",
+      "label": "Стол → Открыть в Проводнике",
+      "sources": [
+        "src/components/Desktop.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Проводник открывается в назначенном маршруте"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Стол → Открыть в Проводнике» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.group-icons",
+      "program": "shell",
+      "label": "Собрать значки в папку, раскрыть/свернуть и переименовать папку",
+      "sources": [
+        "src/components/Desktop.tsx",
+        "src/lib/deskGroups.ts"
+      ],
+      "triggers": [
+        "drag-drop",
+        "context-menu",
+        "double-click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значок виден либо на столе, либо внутри группы и не дублируется"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать группу, переместить туда и обратно значки, переименовать и открыть папку",
+          "expected": [
+            "Состав группы сохраняется и элементы не исчезают/не дублируются"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.open-search",
+      "program": "shell",
+      "label": "Открыть Пуск, сгруппировать разделы и найти программу русской/английской раскладкой",
+      "sources": [
+        "src/components/StartMenu.tsx",
+        "src/lib/startMenu.ts"
+      ],
+      "triggers": [
+        "button",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отображаются только доступные разделы; запуск открывает выбранный маршрут"
+      ],
+      "checks": [
+        {
+          "suite": "shell-start-menu-unit",
+          "layer": "unit",
+          "claims": [
+            "Группировка, права, недавние, избранное, фокус и поиск с раскладкой"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть Пуск кнопкой и клавишей; искать и запускать раздел кликом/Enter при роли без админских прав и с правами администратора",
+          "expected": [
+            "Меню закрывается после перехода, скрытый раздел не находится"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.item-open",
+      "program": "shell",
+      "label": "Пуск → открыть программу плиткой/Enter",
+      "sources": [
+        "src/components/StartMenu.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыт выделенный доступный раздел"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Пуск → открыть программу плиткой/Enter» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.context-desktop-pin",
+      "program": "shell",
+      "label": "Пуск → закрепить/убрать программу с рабочего стола",
+      "sources": [
+        "src/components/StartMenu.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значок появляется или убирается на столе; права учитываются"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Пуск → закрепить/убрать программу с рабочего стола» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.context-taskbar-pin",
+      "program": "shell",
+      "label": "Пуск → закрепить/открепить программу от панели задач",
+      "sources": [
+        "src/components/StartMenu.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Кнопка taskbar меняется для выбранного маршрута"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Пуск → закрепить/открепить программу от панели задач» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.tile-reorder",
+      "program": "shell",
+      "label": "Пуск → перетащить закреплённую плитку в новый порядок",
+      "sources": [
+        "src/components/StartMenu.tsx"
+      ],
+      "triggers": [
+        "drag-drop"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Новый порядок закреплённых плиток переживает закрытие меню"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Пуск → перетащить закреплённую плитку в новый порядок» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.open-home",
+      "program": "shell",
+      "label": "Открыть Главную в отдельном окне из Пуска",
+      "sources": [
+        "src/components/StartMenu.tsx",
+        "src/store/windowStore.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Главная появляется по явному действию, а не самопроизвольно после входа"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть Главную кнопкой Пуска и закрыть/повторить после обновления",
+          "expected": [
+            "Открывается одно окно только по запросу"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.start.footer-profile",
+      "program": "shell",
+      "label": "Подвал Пуска: параметры программы, смена темы, выход из учётной записи, завершить Flux",
+      "sources": [
+        "src/components/StartMenu.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Каждая команда выполняет свой профильный переход и очищает сеанс только при выходе"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть параметры, сменить обе темы, выйти, а на Windows завершить Flux; повторить вход",
+          "expected": [
+            "Тема сохраняется; выход закрывает доступ; завершение не оставляет дочерние окна"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.activate-window",
+      "program": "shell",
+      "label": "Запустить/переключить программу на панели, открыть список окон и закрыть выбранное",
+      "sources": [
+        "src/components/Taskbar.tsx",
+        "src/components/TaskbarPeek.tsx",
+        "src/lib/taskbar.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Активное окно получает фокус, счётчики и подписи относятся к своей программе"
+      ],
+      "checks": [
+        {
+          "suite": "shell-taskbar-unit",
+          "layer": "unit",
+          "claims": [
+            "Состав закреплённых и открытых окон, доступ по роли, активное окно, счётчики и сжатие панели"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть несколько окон одной программы и разные разделы; переключить окно через панель, peek и меню, закрыть одно окно",
+          "expected": [
+            "Выбранное окно становится активным; соседние окна и несохранённая работа не закрываются"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.overflow-tray",
+      "program": "shell",
+      "label": "Показать скрытые кнопки и открыть область уведомлений/настроек",
+      "sources": [
+        "src/components/Taskbar.tsx",
+        "src/lib/taskbar.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "При узкой полосе команды доступны через «Ещё», системные значки не перекрываются"
+      ],
+      "checks": [
+        {
+          "suite": "shell-taskbar-unit",
+          "layer": "unit",
+          "claims": [
+            "Подгонка кнопок и системных значков по доступной ширине без потери команд"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сжать окно до минимума и проверить кнопку скрытых программ, часы, звук, сеть, тему и лотки",
+          "expected": [
+            "Все действия достижимы и не перекрывают taskbar"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.context-open",
+      "program": "shell",
+      "label": "Taskbar меню → Открыть",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыт выбранный раздел"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Taskbar меню → Открыть» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.context-open-window",
+      "program": "shell",
+      "label": "Taskbar меню → Открыть в отдельном окне",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создано отдельное окно с выбранным маршрутом"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Taskbar меню → Открыть в отдельном окне» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.context-pin",
+      "program": "shell",
+      "label": "Taskbar меню → закрепить/открепить",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Закрепление отражено на панели после действия"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Taskbar меню → закрепить/открепить» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.context-close",
+      "program": "shell",
+      "label": "Taskbar меню → закрыть окно/все окна программы",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Закрыты только окна выбранного маршрута на текущем столе"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить «Taskbar меню → закрыть окно/все окна программы» в живой оболочке, включая отмену/повтор где применимо",
+          "expected": [
+            "Результат совпадает с выбранной командой; ошибка или отмена не теряет данные"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.tile-minimize-all",
+      "program": "shell",
+      "label": "Кнопки «Прибраться» и «Показать стол»",
+      "sources": [
+        "src/components/Taskbar.tsx",
+        "src/lib/windows.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открытые окна разложены плиткой или все свёрнуты без удаления"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-geometry-unit",
+          "layer": "unit",
+          "claims": [
+            "Модель tile размещает видимые окна и сохраняет свёрнутые"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Иметь несколько видимых и свёрнутых окон, нажать каждую кнопку и восстановить окна",
+          "expected": [
+            "Нет потери окна/состояния, все видимые окна достижимы"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.clock-calendar",
+      "program": "shell",
+      "label": "Открыть календарь/часы из панели задач",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Текущая дата и календарное состояние видны в панели"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть/закрыть календарь и сверить текущую дату на узком и широком окне",
+          "expected": [
+            "Не закрывает важное действие панели и часы не обрезаны"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.taskbar.right-dock",
+      "program": "shell",
+      "label": "Помощник, руководство, обновления и режим тишины из taskbar",
+      "sources": [
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "button",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается нужное окно/панель, обновление ведёт к параметрам, режим тишины имеет обратимый выбор"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть помощник, контекстное руководство, доступное обновление и все варианты режима тишины",
+          "expected": [
+            "Маршрут соответствует команде и изменение режима можно отменить"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.context.open-submenu-dismiss",
+      "program": "shell",
+      "label": "Открыть контекстное меню/подменю, выбрать команду или закрыть меню",
+      "sources": [
+        "src/components/ContextMenu.tsx",
+        "src/lib/contextMenu.ts"
+      ],
+      "triggers": [
+        "context-menu",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Меню и подменю помещаются в активный монитор и закрываются Escape/наружным нажатием"
+      ],
+      "checks": [
+        {
+          "suite": "shell-context-menu-unit",
+          "layer": "unit",
+          "claims": [
+            "Расчёт положения, размера, стороны и вертикального смещения внутри рабочего поля"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть мышью и клавишей контекстные меню стола, окна, панели и файлов; пройти подменю и закрыть Escape/кликом снаружи",
+          "expected": [
+            "Меню не обрезается viewport/окном и команда получает правильный объект"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.keyboard.global-shortcuts",
+      "program": "shell",
+      "label": "Глобальные сочетания: Ctrl+K, поиск приложений, сворачивание окон, переключение стола и закрытие",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/lib/hotkeys.ts",
+        "src/lib/useWindowHotkeys.tsx"
+      ],
+      "triggers": [
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сочетание адресуется верхнему активному окну и не перехватывает текстовый ввод"
+      ],
+      "checks": [
+        {
+          "suite": "shell-global-hotkeys-unit",
+          "layer": "unit",
+          "claims": [
+            "Поле/textarea/contenteditable защищены от глобальных команд; только активное и не свёрнутое окно получает действие"
+          ]
+        },
+        {
+          "suite": "shell-desk-switch-unit",
+          "layer": "unit",
+          "claims": [
+            "Обработчики клавиш столов не дублируются между окнами"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить все подсказанные shell-сочетания в обычном окне, при двух окнах, на другом столе и внутри input/textarea/contenteditable",
+          "expected": [
+            "Нет двойного действия, закрытия чужого окна или потери набираемого текста"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.windows.move-resize-snap-maximize",
+      "program": "shell",
+      "label": "Переместить, изменить размер, прилипнуть к краю, развернуть и восстановить окно",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/lib/windows.ts"
+      ],
+      "triggers": [
+        "drag-drop",
+        "button",
+        "double-click",
+        "context-menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Окно остаётся доступным, сохраняет прежний размер для восстановления и следует границам рабочего пространства"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-geometry-unit",
+          "layer": "unit",
+          "claims": [
+            "Геометрия перемещения, изменения размера, snap, maximize, refit и tile на заданной области"
+          ]
+        },
+        {
+          "suite": "shell-verification-unit",
+          "layer": "unit",
+          "claims": [
+            "Независимые ожидаемые координаты при перетаскивании за границы области"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "На Windows изменить размер и переместить окно через заголовок/восемь краёв, snap, maximize/restore при DPI 100%, 125%, 150%, 200%",
+          "expected": [
+            "Заголовок и действия достижимы, размер соответствует физическому экрану"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.windows.minimize-restore",
+      "program": "shell",
+      "label": "Кнопка окна «Свернуть» и восстановление из панели задач",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/components/Taskbar.tsx",
+        "src/store/windowStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "taskbar"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Свернутое окно остаётся в панели и возвращается на прежнее состояние/стол"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-geometry-unit",
+          "layer": "unit",
+          "claims": [
+            "Свёрнутое окно исключено из верхнего фокуса"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Свернуть и вернуть обычное, развёрнутое окно и окно с несохранённой правкой",
+          "expected": [
+            "Положение/содержимое сохранены, окно возвращается на прежний стол"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.windows.maximize-snap-menu",
+      "program": "shell",
+      "label": "Кнопка развернуть/вернуть размер и меню долей экрана",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/lib/windows.ts"
+      ],
+      "triggers": [
+        "button",
+        "double-click",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Maximize и выбранная зона snap применяются и восстанавливаются"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-geometry-unit",
+          "layer": "unit",
+          "claims": [
+            "toggle maximize, restore rectangle, snap zone и snap geometry"
+          ]
+        },
+        {
+          "suite": "shell-context-menu-unit",
+          "layer": "unit",
+          "claims": [
+            "Меню долей размещается в границах монитора"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Клик/двойной клик заголовка, кнопка и каждую доступную долю меню; восстановить исходный размер",
+          "expected": [
+            "Правильная область окна занята, исходный прямоугольник восстановлен"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.windows.close-confirm",
+      "program": "shell",
+      "label": "Кнопка «Закрыть» и обработка несохранённых изменений/подтверждения",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/store/windowStore.ts",
+        "src/App.tsx"
+      ],
+      "triggers": [
+        "button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Окно закрывается после требуемого решения, отмена оставляет документ доступным"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-close-unit",
+          "layer": "unit",
+          "claims": [
+            "Запрос закрытия и поздний ответ не воскрешает закрытое окно"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Закрыть чистое окно, грязное окно с отменой, грязное с сохранением и окно во время позднего ответа",
+          "expected": [
+            "Решение сохранено, подтверждение корректно, закрытое окно не открывается вновь"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.windows.focus-minimize-close-multiple",
+      "program": "shell",
+      "label": "Фокус, сворачивание/восстановление, закрытие и повторное открытие нескольких окон",
+      "sources": [
+        "src/components/WindowsLayer.tsx",
+        "src/store/windowStore.ts",
+        "src/lib/windows.ts"
+      ],
+      "triggers": [
+        "button",
+        "shortcut",
+        "taskbar"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Фокус и порядок окон согласованы; закрытие не возвращает окно после позднего ответа"
+      ],
+      "checks": [
+        {
+          "suite": "shell-window-close-unit",
+          "layer": "unit",
+          "claims": [
+            "Закрытие окна и подавление позднего результата"
+          ]
+        },
+        {
+          "suite": "shell-window-geometry-unit",
+          "layer": "unit",
+          "claims": [
+            "Верхнее видимое окно выбирается для клавиатуры и свёрнутые окна исключаются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть два адреса одного раздела и разные разделы, менять фокус, сворачивать, восстанавливать, закрывать и переоткрывать",
+          "expected": [
+            "Соседнее окно не получает чужой ввод; после перезапуска восстанавливается предусмотренное состояние"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.desktop.native-read-open",
+      "program": "shell",
+      "label": "Считать значки физического рабочего стола Windows и открыть выбранный",
+      "sources": [
+        "src/components/Desktop.tsx",
+        "electron/desktopShell.ts",
+        "electron/nativeDesktopRunner.ts",
+        "electron/nativeDesktopSource.ts"
+      ],
+      "triggers": [
+        "button",
+        "double-click"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Native ID не раскрывает путь/PIDL и открывает только объект текущего снимка"
+      ],
+      "checks": [
+        {
+          "suite": "shell-desktop-bridge-component",
+          "layer": "component",
+          "claims": [
+            "Проверка формы IPC/снимка, безопасное преобразование виртуального/физического объекта и разрешённый доступ через файловый capability"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть физические значки рабочего стола на Windows при разных DPI, отрицательных координатах и после удаления/перемещения значка",
+          "expected": [
+            "Выбранный системный объект открывается; устаревший ID отклонён; пути не протекают в renderer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.displays.workspace-mode",
+      "program": "shell",
+      "label": "Включить/выключить общий рабочий стол и показать/скрыть штатную панель Windows",
+      "sources": [
+        "electron/displays.ts",
+        "src/components/Taskbar.tsx",
+        "src/components/WindowsLayer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "settings"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Native bounds, workArea, форма и saved preferences согласованы с набором экранов"
+      ],
+      "checks": [
+        {
+          "suite": "shell-display-bridge-component",
+          "layer": "component",
+          "claims": [
+            "IPC, сохранение режима, пересчёт при метриках/hotplug и восстановление окна на тестовой модели Electron"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "На реальной Windows проверить 1/2/3 экрана, смешанные DPI, вертикальный экран, отрицательные координаты, панель Windows, отключение активного экрана и RDP",
+          "expected": [
+            "Окно не закрывает системную панель; после hotplug окно и значки остаются доступны"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.displays.switch-mode-shortcut",
+      "program": "shell",
+      "label": "Переключить режим мониторов кнопкой taskbar или Ctrl+Alt+M",
+      "sources": [
+        "src/components/Taskbar.tsx",
+        "src/components/WindowsLayer.tsx",
+        "electron/displays.ts"
+      ],
+      "triggers": [
+        "button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Повторный запуск переключателя синхронен и сохраняет настройку"
+      ],
+      "checks": [
+        {
+          "suite": "shell-display-bridge-component",
+          "layer": "component",
+          "claims": [
+            "Переход enabled/off и хранение режима в отдельно временном профиле"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Многократно переключить кнопку и сочетание клавиш при одном/нескольких мониторах и перезапустить приложение",
+          "expected": [
+            "Состояние не расходится между кнопкой, окном и сохранённой настройкой"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.notifications.internal-settings",
+      "program": "shell",
+      "label": "Открыть Flux notifications, перейти к событию и настроить источники уведомлений",
+      "sources": [
+        "src/components/NotificationsPanel.tsx",
+        "src/components/NotificationSettings.tsx",
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "button",
+        "notification"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Уведомление читается, открывает связанный экран и отражает настройки источников"
+      ],
+      "checks": [
+        {
+          "suite": "shell-notification-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Модель уведомлений и локальные transitions без внешнего native-провайдера"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть панель пустой/непустой, прочитать и открыть уведомление, включить/выключить доступные источники",
+          "expected": [
+            "Счётчик и список синхронны; клик ведёт к соответствующему маршруту"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.notifications.filter-read-snooze",
+      "program": "shell",
+      "label": "Фильтр/прочтение, отложить и вернуть позже, открыть уведомление, прочитать все",
+      "sources": [
+        "src/components/NotificationsPanel.tsx"
+      ],
+      "triggers": [
+        "button",
+        "notification"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Фильтр и snooze меняют именно выбранную запись, открытие ведёт по внутреннему target route"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить каждый фильтр, прочитать одну/все записи, snooze по интервалам и возврат позже",
+          "expected": [
+            "Счётчик соответствует непрочитанным; скрытое/прочитанное не возвращается без причины"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.notifications.quiet-period",
+      "program": "shell",
+      "label": "Включить/отменить режим «Не беспокоить» из панели уведомлений",
+      "sources": [
+        "src/components/NotificationsPanel.tsx",
+        "src/components/Taskbar.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Пауза действует до выбранного срока и восстанавливает оповещения после него"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Задать каждый период тишины и отменить его; проверить иконку taskbar",
+          "expected": [
+            "Срок и статус совпадают во всех местах UI"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.notifications.windows-consent",
+      "program": "shell",
+      "label": "Дать согласие на чтение уведомлений Windows и просмотреть записи Windows",
+      "sources": [
+        "electron/windowsNotifications.ts",
+        "src/components/NotificationsPanel.tsx"
+      ],
+      "triggers": [
+        "button",
+        "notification"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Без согласия нет запуска companion; непроверенные локальные маршруты не исполняются"
+      ],
+      "checks": [
+        {
+          "suite": "shell-windows-notifications-component",
+          "layer": "component",
+          "claims": [
+            "Разбор локального снимка, состояния разрешения, согласие запуска и IPC-валидация на мок-границе"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "На Windows с установленным notification bridge проверить denied/consent-required/ready, согласие, обновление списка и открытие уведомления",
+          "expected": [
+            "Неуспешное разрешение показано ясно; маршрут внешнего приложения не запускается автоматически"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.capture.lifecycle",
+      "program": "shell",
+      "label": "Пульт захвата /capture: начать/отменить захват экрана и вернуть результат в исходный экран",
+      "sources": [
+        "src/App.tsx",
+        "src/screens/CapturePult.tsx",
+        "src/feedback/capture.ts",
+        "src/components/CaptureReview.tsx"
+      ],
+      "triggers": [
+        "button",
+        "window"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Отмена не создаёт результат; успешный захват возвращается через защищённый desktop IPC и закрывает служебное окно"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "На Windows открыть /capture из сценариев импорта и обратной связи; проверить начало, отмену, выбор области/экрана, закрытие окна и возврат результата",
+          "expected": [
+            "Управление возвращается вызывающему окну, отмена ничего не применяет и отдельное окно не остаётся висеть"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.native-app.lifecycle",
+      "program": "shell",
+      "label": "Открыть и управлять отдельным native-app окном из Flux и панели задач",
+      "sources": [
+        "src/App.tsx",
+        "src/components/NativeAppHost.tsx",
+        "src/components/Taskbar.tsx",
+        "electron/nativeApps.ts",
+        "workspace/nativeApps.ts"
+      ],
+      "triggers": [
+        "button",
+        "taskbar",
+        "window"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Список/фокус/сворачивание/закрытие отдельного окна обновляют shell и освобождают окно при выходе"
+      ],
+      "checks": [
+        {
+          "suite": "shell-native-app-windows",
+          "layer": "component",
+          "claims": [
+            "VM/component test loads electron/nativeApps.ts with mocked BrowserWindow and screen; checks trusted IPC, internal route validation, window identity/list/navigation, cursor-monitor placement, close guard and timeout fallback. This does not execute a real Windows window."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "На Windows открыть native-app, переключиться через панель, свернуть/восстановить/закрыть и завершить Flux при открытом дочернем окне",
+          "expected": [
+            "Child window и shell-list совпадают; после выхода не остаётся осиротевшего процесса/окна"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.library-select",
+      "program": "play",
+      "label": "Открыть вкладки Библиотека/Подготовка/История и выбрать одну из двух действующих игр",
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/LibraryTab.tsx",
+        "play/features.ts"
+      ],
+      "triggers": [
+        "tab",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Витрина показывает только Дурака и Бильярд, вкладка отражает выбор и активную партию"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-permissions-unit",
+          "layer": "unit",
+          "claims": [
+            "В каталоге прав и игровых entitlement нет снятых игр"
+          ]
+        },
+        {
+          "suite": "shell-verification-unit",
+          "layer": "unit",
+          "claims": [
+            "Действующий список встроенных игр строго включает cards и billiards"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть Play в широком и узком окне, пройти вкладки кнопками и узким селектором; выбрать обе игры",
+          "expected": [
+            "Нет сторонней игры/ошибки; в активной партии доступен переход к столу"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.party.invite-accept-decline",
+      "program": "play",
+      "label": "Выбрать коллегу, пригласить, принять/отклонить приглашение, выйти или исключить участника",
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/InvitePicker.tsx",
+        "src/play/PartyBar.tsx",
+        "src/services/playService.ts",
+        "server/play/parties.ts",
+        "server/play/invites.ts"
+      ],
+      "triggers": [
+        "button",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Группа/приглашение обновлены у обоих участников; отказ и повтор безопасны"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Два клиента видят приглашение, участника и общий матч в отдельной временной SQLite/HTTP фикстуре"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два синтетических сотрудника приглашают друг друга, принимают/отклоняют, повторяют запрос и выходят",
+          "expected": [
+            "Нет дублированных участников и чужих приглашений"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.party.accept-decline-invite",
+      "program": "play",
+      "label": "Принять или отклонить приглашение в группу",
+      "sources": [
+        "src/play/PrepareTab.tsx",
+        "src/play/PlayScreen.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Принятое приглашение меняет состав; отказ не вступает в группу; повтор безопасен"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Приглашение отображается второму клиенту и acceptance создаёт одного участника"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Принять/отклонить и нажать повторно в двух окнах",
+          "expected": [
+            "Один член группы, без застрявшего приглашения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.party.invite-member",
+      "program": "play",
+      "label": "Позвать сотрудника из панели группы или кнопки без группы",
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/PartyBar.tsx",
+        "src/play/InvitePicker.tsx"
+      ],
+      "triggers": [
+        "button",
+        "dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Выбранный доступный коллега получает одно приглашение к текущей игре"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Invitation API принимает выделенного второго участника"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть picker, найти/выбрать/закрыть, проверить поиск пустого списка",
+          "expected": [
+            "Нельзя пригласить себя, закрытие не меняет состав"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.party.leave-kick",
+      "program": "play",
+      "label": "Выйти из группы или ведущему убрать участника",
+      "sources": [
+        "src/play/PartyBar.tsx",
+        "src/play/PlayScreen.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Только ведущий исключает другого; выход меняет membership и не стирает историю"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-lobby-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Уход/повторное вступление сохраняют историю membership и синхронизируют игровые места"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Ведущий исключает игрока; участник выходит сам во время лобби и во время активной партии",
+          "expected": [
+            "Чужой доступ отозван и остальные клиенты видят новый состав"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.lobby.ready-start-reconnect",
+      "program": "play",
+      "label": "Создать лобби, готовность/снятие готовности, запуск, возврат и восстановление связи",
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/mainAction.ts",
+        "src/play/PrepareTab.tsx",
+        "src/store/playStore.ts"
+      ],
+      "triggers": [
+        "button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Одна главная кнопка отражает доступное действие; stale state и отказ блокируют/объясняют действие"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-contract-unit",
+          "layer": "unit",
+          "claims": [
+            "Переходы кнопки по установке, правам, роли ведущего, готовности, обслуживанию, матчу, stale и reconnect"
+          ]
+        },
+        {
+          "suite": "shell-verification-unit",
+          "layer": "unit",
+          "claims": [
+            "Устаревшее готовое лобби ведущего не включает кнопку запуска"
+          ]
+        },
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Настоящий тестовый путь пары пользователей приглашает, готовит, запускает, переподключает и завершает встроенный матч"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два игрока меняют готовность, ведущий запускает игру, один теряет/возвращает сеть и повторяет запрос",
+          "expected": [
+            "Партия одна, готовность не теряется, ошибка имеет путь повторного подключения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.spectator.permissions",
+      "program": "play",
+      "label": "Вход наблюдателем при заполнении мест; права на просмотр и запрет хода",
+      "sources": [
+        "src/play/PlayScreen.tsx",
+        "src/play/PartyBar.tsx",
+        "src/play/runtime/MatchFrame.tsx",
+        "server/play/parties.ts",
+        "server/play/lobbies.ts",
+        "server/play/match.ts"
+      ],
+      "triggers": [
+        "button",
+        "api"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Наблюдатель видит только открытые данные; личные карты и ходы недоступны UI и API"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-lobby-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Сверхлимитные участники получают роль наблюдателя без игрового места; переключение Дурак/Бильярд сохраняет участников"
+          ]
+        },
+        {
+          "suite": "shell-play-durak-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Durak view наблюдателя не выдаёт руки, допустимые ходы, seed, колоду или discard"
+          ]
+        },
+        {
+          "suite": "shell-play-two-server-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Настоящая PostgreSQL/API выдаёт игрокам только их карты, а постороннему отказывает"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Заполнить места игры, войти дополнительным сотрудником наблюдателем, открыть сетевые ответы и попытаться отправить ход",
+          "expected": [
+            "Секретные карты отсутствуют; сервер отказывает в ходе наблюдателя"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.lobby.ready-start",
+      "program": "play",
+      "label": "Отметиться/снять готовность и ведущему начать партию",
+      "sources": [
+        "src/play/PrepareTab.tsx",
+        "src/play/mainAction.ts",
+        "src/play/PlayScreen.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Лобби стартует только когда minimum игроков готовы и действие делает ведущий"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-contract-unit",
+          "layer": "unit",
+          "claims": [
+            "ready/unready/start и роль ведущего по готовности группы"
+          ]
+        },
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Настоящая тестовая группа выставляет готовность обоих игроков и запускает один матч"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Игроки выставляют/снимают готовность; не-ведущий пытается запустить; ведущий запускает при всех готовых",
+          "expected": [
+            "Только ведущий начинает и каждый клиент видит одну партию"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.lobby.return-reconnect",
+      "program": "play",
+      "label": "Вернуться к идущей партии и повторно подключиться после потери связи",
+      "sources": [
+        "src/play/mainAction.ts",
+        "src/play/PlayScreen.tsx",
+        "src/play/runtime/MatchFrame.tsx"
+      ],
+      "triggers": [
+        "button",
+        "socket-event"
+      ],
+      "risk": "critical",
+      "expected": [
+        "После восстановления возвращается текущая session/revision, повторный rejoin не создаёт матч"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-contract-unit",
+          "layer": "unit",
+          "claims": [
+            "reconnect и return получают приоритет над подготовкой нового лобби"
+          ]
+        },
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Сохранённая встроенная сессия повторно читается клиентом"
+          ]
+        },
+        {
+          "suite": "shell-play-frame-component",
+          "layer": "component",
+          "claims": [
+            "Chromium fixture with stubbed fetch verifies late poll refresh after resign, clears old board on match switch, and restores the board after a successful poll following an error. No real Play API is contacted."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Разорвать socket/HTTP на активном матче и вернуть сеть; повторить rejoin",
+          "expected": [
+            "Тот же session ID и ревизия; нет второго матча"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.durak.match-turns",
+      "program": "play",
+      "label": "Дурак: карта/ход, атака, защита, подкидывание/перевод, взять/бито, сдача и результат",
+      "sources": [
+        "src/play/runtime/DurakBoard.tsx",
+        "play/games/durak.ts"
+      ],
+      "triggers": [
+        "button",
+        "drag-drop",
+        "keyboard"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Только разрешённая карта меняет ревизию; карты не теряются/не дублируются; результат виден группе"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-durak-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Правила, границы игроков, допустимые действия, карта/колода conservation, resign и полные детерминированные партии"
+          ]
+        },
+        {
+          "suite": "shell-play-two-server-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Дурак проигрывает/выигрывает на общем API, replay и stale revision безопасны, группа видит результат с другой инстанции"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два или три сотрудника завершают подкидную и переводную партию, делают недопустимый ход и переподключают окно",
+          "expected": [
+            "Ход/рука/результат соответствуют правилам; запрещённая команда не меняет состояние"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.durak.configure",
+      "program": "play",
+      "label": "Выбрать подкидной/переводной вариант и колоду 36/52 до первого хода",
+      "sources": [
+        "src/play/runtime/DurakBoard.tsx",
+        "play/games/durak.ts"
+      ],
+      "triggers": [
+        "select",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Настройки применяет только создатель до начала; 36 карт нельзя выбрать при 7–8 игроках"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-durak-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Допустимый размер колоды, variant, создатель и запрет конфигурации после первого хода"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить каждую настройку с 2, 6, 7 и 8 игроками; после первого хода поменять селект",
+          "expected": [
+            "Invalid choice не меняет правила, UI отражает подтверждённую настройку"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.durak.attack-defend",
+      "program": "play",
+      "label": "Выбрать карту, атаковать/подкинуть, выбрать цель и побить картой",
+      "sources": [
+        "src/play/runtime/DurakBoard.tsx",
+        "play/games/durak.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Выбирается только легальная карта/цель; серверная очередь хода обновляет вид обеих сторон"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-durak-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Проверка чьего хода, карты из своей руки, совпадения ранга и выбора цели защиты"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выбрать разрешённую и запрещённую карту, затем защиту при одной/нескольких целях",
+          "expected": [
+            "Карта расходуется один раз и правильная пара атака-защита отображается обоим игрокам"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.durak.take-pass-resign",
+      "program": "play",
+      "label": "Взять карты, завершить кон/передачу хода и сдаться",
+      "sources": [
+        "src/play/runtime/DurakBoard.tsx",
+        "play/games/durak.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Добор/сброс и очередь соответствуют правилам; сдача завершает или исключает игрока по числу мест"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-durak-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Take/pass/round draw/resign и полное сохранение всех карт"
+          ]
+        },
+        {
+          "suite": "shell-play-two-server-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Сдача через API обновляет доступный результат/состав"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить «Взять карты», «Бито», «Не подкидывать», сдачу при 2 и 3+ игроках",
+          "expected": [
+            "Карты распределены, ход и список участников корректны"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.billiards.match-physics",
+      "program": "play",
+      "label": "Бильярд: постановка битка, направление/сила удара, симуляция, фолы и завершение восьмёркой",
+      "sources": [
+        "src/play/runtime/BilliardsBoard.tsx",
+        "play/games/billiards.ts",
+        "play/games/billiardsPhysics.ts"
+      ],
+      "triggers": [
+        "button",
+        "pointer",
+        "drag-drop"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Авторитетный исход соответствует удару; illegal/foul/win rules корректно отдают ход или матч"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-billiards-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Детерминированная физика, размещение битка, валидность удара, группы, фолы и восьмёрка"
+          ]
+        },
+        {
+          "suite": "shell-play-billiards-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Два настоящих клиента видят общий рассчитанный сервером удар, повтор не создаёт второй удар, stale revision блокируется"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два сотрудника проходят разбой, постановку битка, удар/фол и завершение восьмёркой с анимацией",
+          "expected": [
+            "Анимация совпадает с подтверждённым серверным исходом; оба окна показывают одну ревизию"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.billiards.aim-power-spin",
+      "program": "play",
+      "label": "Прицелиться по столу, изменить силу/вращение и нанести удар",
+      "sources": [
+        "src/play/runtime/BilliardsBoard.tsx",
+        "play/games/billiardsPhysics.ts"
+      ],
+      "triggers": [
+        "pointer",
+        "range",
+        "select",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Симуляция детерминированна по подтверждённым параметрам; пока шары движутся второй удар недоступен"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-billiards-model-unit",
+          "layer": "unit",
+          "claims": [
+            "Сила/угол/spin валидируются, кадры симуляции конечны и воспроизводимы"
+          ]
+        },
+        {
+          "suite": "shell-play-billiards-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Ход рассчитывает сервер, повтор не удваивает удар и активная анимация блокирует новый"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Использовать мышь/клавиатуру для прицела, range силы и spin; быстро дважды нажать «Ударить»",
+          "expected": [
+            "Один удар, воспроизводимый путь шаров, UI не принимает команду во время движения"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.billiards.ball-in-hand",
+      "program": "play",
+      "label": "Поставить биток после фола",
+      "sources": [
+        "src/play/runtime/BilliardsBoard.tsx",
+        "play/games/billiards.ts",
+        "play/games/billiardsPhysics.ts"
+      ],
+      "triggers": [
+        "pointer",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Биток нельзя положить за стол/внутрь другого шара; размещение само не расходует ход"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-billiards-model-unit",
+          "layer": "unit",
+          "claims": [
+            "canPlaceCue boundaries, overlap rejection, legal place"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "После scratch кликнуть в допустимое и запрещённое места, затем ударить",
+          "expected": [
+            "Только законная позиция принята и ход остаётся тому же игроку"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.billiards.replay-help",
+      "program": "play",
+      "label": "Повторить удар и открыть правила Бильярда",
+      "sources": [
+        "src/play/runtime/BilliardsBoard.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Повтор анимирует сохранённую симуляцию и не отправляет новый ход; правила раскрываются"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "После удара открыть правила, закрыть, воспроизвести удар ещё раз",
+          "expected": [
+            "Ревизия/счёт не меняются от повторного просмотра"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.history-result",
+      "program": "play",
+      "label": "Открыть завершённый матч и историю своей группы",
+      "sources": [
+        "src/play/HistoryTab.tsx",
+        "src/play/PlayScreen.tsx",
+        "src/services/playService.ts"
+      ],
+      "triggers": [
+        "button",
+        "row"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Доступна только собственная история и сохранённый результат"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Завершённая игра и итог читаются группе, посторонний не читает историю"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть историю завершённой своей партии и открыть итог; войти посторонним сотрудником",
+          "expected": [
+            "Участник видит итог, посторонний — пустой/запрещённый ответ по контракту"
+          ]
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "shell.taskbar-to-window",
+      "from": "shell",
+      "to": "shell",
+      "status": "implemented",
+      "sources": [
+        "src/components/Taskbar.tsx",
+        "src/components/WindowsLayer.tsx",
+        "src/store/windowStore.ts"
+      ],
+      "expected": [
+        "Панель фокусирует то же shell-окно, чьё состояние показывается активным"
+      ],
+      "checks": [
+        {
+          "suite": "shell-taskbar-unit",
+          "layer": "unit",
+          "claims": [
+            "Активное/запущенное окно и его значок согласованы с model"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "shell.capture-to-caller",
+      "from": "shell",
+      "to": "shell",
+      "status": "implemented",
+      "sources": [
+        "src/screens/CapturePult.tsx",
+        "src/components/CaptureReview.tsx",
+        "electron/capture.ts"
+      ],
+      "expected": [
+        "Служебное окно возвращает снимок вызывающему экрану, а отмена его не применяет"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Сквозной запуск захвата из импорта и формы обратной связи с отменой и успешным результатом",
+          "expected": [
+            "Возвращается только выбранный снимок, временное окно закрыто"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play.two-clients-shared-match",
+      "from": "play",
+      "to": "play",
+      "status": "implemented",
+      "sources": [
+        "server/play/sessions.ts",
+        "server/play/match.ts",
+        "server/play/snapshot.ts",
+        "src/play/runtime/MatchFrame.tsx"
+      ],
+      "expected": [
+        "Участники с независимыми сессиями видят одну ревизию матча, ход/результат и права своей роли"
+      ],
+      "checks": [
+        {
+          "suite": "shell-play-two-clients-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Тестовые сотрудники через разные сеансы делят матч; постороннему отказывают"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть матч в двух независимых клиентах и наблюдателе; выполнить ход, отключить и переподключить одного клиента",
+          "expected": [
+            "Игроки синхронизированы, наблюдатель не ходит и не видит секретов"
+          ]
+        }
+      ]
+    }
+  ]
+}

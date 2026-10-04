@@ -1,0 +1,3954 @@
+{
+  "version": 1,
+  "group": "files-office",
+  "programs": [
+    {
+      "id": "explorer",
+      "label": "Проводник",
+      "routes": [
+        "/explorer"
+      ],
+      "sources": [
+        "src/screens/Explorer.tsx",
+        "src/components/explorer/FileItems.tsx",
+        "src/components/explorer/ExplorerMenu.tsx",
+        "src/components/explorer/FilePreview.tsx",
+        "src/components/explorer/FileProperties.tsx",
+        "src/components/explorer/FileVersionsDialog.tsx",
+        "src/components/explorer/FileShareDialog.tsx",
+        "src/lib/fileTypes.ts",
+        "src/lib/dropFiles.ts"
+      ]
+    },
+    {
+      "id": "windows-files",
+      "label": "Файлы Windows",
+      "routes": [
+        "/windows-files"
+      ],
+      "sources": [
+        "src/screens/WindowsExplorerHost.tsx",
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/components/explorer/SharedFilesFolder.tsx",
+        "src/lib/windowsFiles.ts",
+        "filesystem/contracts.ts",
+        "electron/main.ts",
+        "electron/preload.ts"
+      ]
+    },
+    {
+      "id": "shared-files",
+      "label": "Общий доступ",
+      "routes": [
+        "/shared-files"
+      ],
+      "sources": [
+        "src/components/explorer/SharedFilesFolder.tsx",
+        "src/components/explorer/FileShareDialog.tsx",
+        "src/components/explorer/OwnedFileShareSync.tsx",
+        "src/components/explorer/FileVersionsDialog.tsx",
+        "server/fileSharing.ts",
+        "server/routes/officeFiles.ts"
+      ]
+    },
+    {
+      "id": "windows-file",
+      "label": "Файл Windows",
+      "routes": [
+        "/windows-file"
+      ],
+      "sources": [
+        "src/screens/WindowsFileHost.tsx",
+        "src/lib/windowsFiles.ts",
+        "filesystem/contracts.ts",
+        "electron/main.ts",
+        "electron/preload.ts"
+      ]
+    },
+    {
+      "id": "document",
+      "label": "Документ",
+      "routes": [
+        "/doc",
+        "/office-doc"
+      ],
+      "sources": [
+        "src/screens/OfficeAppHost.tsx",
+        "src/screens/OfficeHost.tsx",
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/LocalOfficeEditor.tsx",
+        "tools/genoffice/inject/docs-collab.ts",
+        "server/routes/officeFiles.ts"
+      ]
+    },
+    {
+      "id": "spreadsheet",
+      "label": "Таблица",
+      "routes": [
+        "/sheet",
+        "/office-sheet"
+      ],
+      "sources": [
+        "src/screens/OfficeAppHost.tsx",
+        "src/screens/OfficeHost.tsx",
+        "src/screens/SheetCopyEntry.tsx",
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/LocalOfficeEditor.tsx",
+        "tools/genoffice/inject/sheets-host.ts",
+        "tools/genoffice/inject/sheets-collab.ts",
+        "server/routes/officeFiles.ts"
+      ]
+    },
+    {
+      "id": "pdf",
+      "label": "PDF",
+      "routes": [
+        "/pdf"
+      ],
+      "sources": [
+        "src/screens/OfficeAppHost.tsx",
+        "src/components/office/OfficeAppEditor.tsx",
+        "tools/genoffice/inject/pdf-host.ts",
+        "server/routes/officeFiles.ts"
+      ]
+    },
+    {
+      "id": "notes",
+      "label": "Блокнот",
+      "routes": [
+        "/notes"
+      ],
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/screens/NoteEditorHost.tsx",
+        "src/screens/StickerWindow.tsx",
+        "src/components/NoteShareDialog.tsx",
+        "src/services/dataService.ts",
+        "tools/genoffice/inject/docs-collab.ts"
+      ]
+    },
+    {
+      "id": "sticker",
+      "label": "Стикер",
+      "routes": [
+        "/sticker"
+      ],
+      "sources": [
+        "src/screens/StickerWindow.tsx",
+        "src/screens/NoteEditorHost.tsx",
+        "src/services/dataService.ts"
+      ]
+    },
+    {
+      "id": "archives",
+      "label": "Архиватор",
+      "routes": [
+        "/archives"
+      ],
+      "sources": [
+        "src/screens/Archives.tsx",
+        "server/archive/engine.ts",
+        "src/lib/fileTypes.ts",
+        "server/routes/archives.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "files-file-types",
+      "path": "scripts/test-file-types.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-drop-files",
+      "path": "scripts/test-drop-files.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-verification-helper",
+      "path": "scripts/test-verification-files-office.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-local-file-access",
+      "path": "scripts/test-local-file-access.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-file-sharing",
+      "path": "scripts/test-file-sharing.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-file-sharing-sync",
+      "path": "scripts/test-file-sharing-sync.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-docx",
+      "path": "scripts/test-docx.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-archives",
+      "path": "scripts/test-archives.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-recent-docs",
+      "path": "scripts/test-recent-docs.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-explorer-open-live",
+      "path": "scripts/test-explorer-open-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-office-files-live",
+      "path": "scripts/test-office-files-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-office-docs-live",
+      "path": "scripts/test-office-docs-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-office-sheets-live",
+      "path": "scripts/test-office-sheets-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-office-pdf-live",
+      "path": "scripts/test-office-pdf-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-notes-live",
+      "path": "scripts/test-notes-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-archives-live",
+      "path": "scripts/test-archives-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-3000",
+        "playwright",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "explorer.create-folder",
+      "program": "explorer",
+      "label": "Создать папку",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "empty-state"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Новая папка появляется в текущей папке и после повторной загрузки"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать папку с кириллицей, затем обновить список",
+          "expected": [
+            "Папка сохранена в выбранном проекте и видна после обновления"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.upload",
+      "program": "explorer",
+      "label": "Загрузить файл через диалог, перетаскивание или вставку",
+      "sources": [
+        "src/screens/Explorer.tsx",
+        "src/lib/dropFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "file-picker",
+        "drag-drop",
+        "paste"
+      ],
+      "risk": "critical",
+      "expected": [
+        "В файл проекта записаны исходные байты и имя; повторяющиеся имена получают безопасное уникальное имя; неподдерживаемые файлы получают понятный результат"
+      ],
+      "checks": [
+        {
+          "suite": "files-drop-files",
+          "layer": "unit",
+          "claims": [
+            "Планирование импорта, определение типа, уникальные имена и предупреждения для крупных файлов"
+          ]
+        },
+        {
+          "suite": "files-office-files-live",
+          "layer": "api-db",
+          "claims": [
+            "Office file endpoint accepts and returns synthetic bytes and rejects unauthenticated access in its live API scenario"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Загрузить синтетические PDF и Office-файлы через выбор, drop и paste",
+          "expected": [
+            "Фактические байты и формат каждого файла сохранены и файл виден после повторного открытия"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.open-with",
+      "program": "explorer",
+      "label": "Открыть файл двойным нажатием или через «Открыть с помощью»",
+      "sources": [
+        "src/screens/Explorer.tsx",
+        "src/lib/fileTypes.ts"
+      ],
+      "triggers": [
+        "double-click",
+        "context-menu",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "PDF открывается PDF-редактором, поддерживаемые Word/Excel — Flux Office, архив — Архиватор; прочие типы остаются открываемыми в Windows/предпросмотре; legacy-формат получает инструкцию"
+      ],
+      "checks": [
+        {
+          "suite": "files-file-types",
+          "layer": "unit",
+          "claims": [
+            "Маршруты, типы, варианты открытия и обработка legacy/неизвестных расширений"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть тестовые PDF, DOCX, XLSX, XLSM, CSV, ZIP и неизвестный бинарный файл из списка и контекстного меню",
+          "expected": [
+            "Каждый файл попадает в программу согласно поддерживаемому формату; содержимое исходника не теряется"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.create",
+      "program": "windows-files",
+      "label": "Создать папку или локальный черновик Flux Word/Excel",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "empty-state",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Папка создаётся в выбранном каталоге; черновик сохраняется как Flux-only до явной публикации"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать тестовые папку и DOCX/XLSX черновики в одноразовом каталоге Windows",
+          "expected": [
+            "Ожидаемая папка/черновик существует; до публикации не добавлен в корпоративную базу"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-file.open-properties",
+      "program": "windows-file",
+      "label": "Открыть файл Windows в связанной программе или показать свойства",
+      "sources": [
+        "src/screens/WindowsFileHost.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "route",
+        "double-click",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "URL root/path/draft однозначно задают цель; повреждённая или неполная ссылка не открывает посторонний путь"
+      ],
+      "checks": [
+        {
+          "suite": "files-verification-helper",
+          "layer": "unit",
+          "claims": [
+            "Кодирование/декодирование ссылки с Unicode и зарезервированными символами"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Открыть synthetic DOCX/XLSX/PDF из тестовой папки и перейти в свойства",
+          "expected": [
+            "Редактор и свойства указывают на один исходный путь"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.insert-tools",
+      "program": "document",
+      "label": "Форматирование, вставка таблиц/ссылок/изображений, перевод и панель данных проекта",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/TextTranslationPanel.tsx"
+      ],
+      "triggers": [
+        "toolbar",
+        "menu",
+        "dialog",
+        "paste",
+        "panel"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Вставляется только выбранный контент в позицию курсора; проектные данные и перевод не меняют исходный файл до сохранения"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Пройти каждую группу команд редактора с синтетическим документом и проверить результат в повторно прочитанном DOCX",
+          "expected": [
+            "Формат и вставки отвечают выбранной команде"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.import-convert",
+      "program": "spreadsheet",
+      "label": "Открыть XLS, CSV или каталогную таблицу через конвертацию/импорт",
+      "sources": [
+        "src/screens/SheetCopyEntry.tsx",
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/lib/fileTypes.ts"
+      ],
+      "triggers": [
+        "route",
+        "button",
+        "file-open"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Исходник не перезаписывается конвертацией; новая XLSX-копия содержит ожидаемые значения и форматные ограничения сообщены"
+      ],
+      "checks": [
+        {
+          "suite": "files-file-types",
+          "layer": "unit",
+          "claims": [
+            "XLS/CSV направляются на путь конвертации в Таблицу"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Импортировать синтетические XLS и CSV с кириллицей, нулями и формулами",
+          "expected": [
+            "Исходник сохранён; значения и допустимые типы столбцов в XLSX проверены независимым разбором"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes-organize-share-export",
+      "program": "notes",
+      "label": "Поиск, область, сортировка, закрепление, группа/цвет, дубликат, доступ, экспорт TXT/DOCX, печать и удаление",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/components/NoteShareDialog.tsx"
+      ],
+      "triggers": [
+        "input",
+        "button",
+        "context-menu",
+        "dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список/группы отражают выбранные параметры; дубликат независим; экспорт содержит заметку; удаление затрагивает выбранную заметку"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить каждую команду на тестовой заметке и сверить экспортируемый TXT/DOCX с исходной заметкой",
+          "expected": [
+            "Поиск и сортировка не пишут данные; группы/права точны; экспорт соответствует тексту"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.properties",
+      "program": "explorer",
+      "label": "Открыть свойства и сохранить метаданные файла",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменяются только поля выбранного файла; после повторного чтения метаданные совпадают."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить свойства синтетического файла и перечитать его из API.",
+          "expected": [
+            "Изменяются только поля выбранного файла; после повторного чтения метаданные совпадают."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.versions",
+      "program": "explorer",
+      "label": "Открыть историю версий и восстановить выбранную версию",
+      "sources": [
+        "src/screens/Explorer.tsx",
+        "src/components/explorer/FileVersionsDialog.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "История относится к выбранному file ID; восстановление создаёт текущую версию из выбранного снимка."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Восстановить версию synthetic file и независимо прочитать содержимое.",
+          "expected": [
+            "История относится к выбранному file ID; восстановление создаёт текущую версию из выбранного снимка."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.preview",
+      "program": "explorer",
+      "label": "Открыть/закрыть панель предпросмотра выбранного файла",
+      "sources": [
+        "src/screens/Explorer.tsx",
+        "src/components/explorer/FilePreview.tsx"
+      ],
+      "triggers": [
+        "button",
+        "row-selection"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Предпросмотр показывает выбранный объект и сам не меняет его содержимое."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключить preview для двух синтетических файлов и сверить file ID/содержимое.",
+          "expected": [
+            "Предпросмотр показывает выбранный объект и сам не меняет его содержимое."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.download",
+      "program": "explorer",
+      "label": "Скачать файл из меню строки",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "row-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Скачанный файл содержит те же байты, что текущий файл в хранилище."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Скачать synthetic binary и сравнить байты с API raw response.",
+          "expected": [
+            "Скачанный файл содержит те же байты, что текущий файл в хранилище."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.rename",
+      "program": "explorer",
+      "label": "Переименовать файл или папку",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Переименован только выбранный элемент; ID, содержимое и родительская папка сохранены."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переименовать элемент тестовой папки и перечитать его.",
+          "expected": [
+            "Переименован только выбранный элемент; ID, содержимое и родительская папка сохранены."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.trash",
+      "program": "explorer",
+      "label": "Переместить элемент в корзину",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "bulk-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Выбранный элемент становится удалённым и исчезает из обычного списка; соседние остаются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Удалить synthetic file и проверить обычный список и корзину.",
+          "expected": [
+            "Выбранный элемент становится удалённым и исчезает из обычного списка; соседние остаются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.restore",
+      "program": "explorer",
+      "label": "Восстановить файл или папку из корзины",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "trash-row-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Восстановлен только выбранный объект с ожидаемым родителем или безопасным разрешением конфликта имени."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Восстановить тестовый удалённый элемент и сверить путь/байты.",
+          "expected": [
+            "Восстановлен только выбранный объект с ожидаемым родителем или безопасным разрешением конфликта имени."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.purge",
+      "program": "explorer",
+      "label": "Очистить корзину без возможности восстановления",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "confirmation"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Необратимо удаляются только элементы тестовой корзины после подтверждения."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Только disposable fixture: подтвердить очистку и убедиться, что другие файлы остались.",
+          "expected": [
+            "Необратимо удаляются только элементы тестовой корзины после подтверждения."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.create-folder",
+      "program": "windows-files",
+      "label": "Создать папку в текущем Windows-каталоге",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Папка появляется в выбранном корне и после обновления списка."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Создать папку с Unicode именем в одноразовом каталоге Windows.",
+          "expected": [
+            "Папка появляется в выбранном корне и после обновления списка."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.create-draft",
+      "program": "windows-files",
+      "label": "Создать Flux-only Word/Excel черновик",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "empty-state"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Черновик имеет выбранное имя/формат и остаётся Flux-only до публикации."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать DOCX/XLSX черновик; проверить, что он не появился в Windows до публикации.",
+          "expected": [
+            "Черновик имеет выбранное имя/формат и остаётся Flux-only до публикации."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.open",
+      "program": "windows-files",
+      "label": "Открыть выбранную папку или файл",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "double-click",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Путь/корень и при наличии draft ID остаются теми же при открытии."
+      ],
+      "checks": [
+        {
+          "suite": "files-verification-helper",
+          "layer": "unit",
+          "claims": [
+            "Ссылка файла и точные бинарные байты round-trip"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Открыть synthetic файл из тестового корня и сверить его serialized reference.",
+          "expected": [
+            "Путь/корень и при наличии draft ID остаются теми же при открытии."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.rename",
+      "program": "windows-files",
+      "label": "Переименовать Windows файл или папку",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "filesystem/contracts.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Переименован только выбранный путь; содержимое файла сохраняется побайтно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Переименовать synthetic binary в одноразовом каталоге и сравнить его байты.",
+          "expected": [
+            "Переименован только выбранный путь; содержимое файла сохраняется побайтно."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.copy",
+      "program": "windows-files",
+      "label": "Копировать выбранный файл или папку в буфер Flux",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Источник остаётся на месте и буфер содержит точную ссылку источника."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Копировать файл, сверить источник и выполнить вставку в другой тестовый каталог.",
+          "expected": [
+            "Источник остаётся на месте и буфер содержит точную ссылку источника."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.cut",
+      "program": "windows-files",
+      "label": "Вырезать выбранный файл или папку",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Буфер помечен как cut; до вставки источник остаётся доступен."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Вырезать synthetic file и проверить его до вставки.",
+          "expected": [
+            "Буфер помечен как cut; до вставки источник остаётся доступен."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.paste",
+      "program": "windows-files",
+      "label": "Вставить скопированный/вырезанный объект",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "paste"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Copy оставляет источник; cut перемещает только выбранный объект; конфликт имени не затирает файл молча."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Вставить synthetic файл в отдельную папку с повторяющимся именем.",
+          "expected": [
+            "Copy оставляет источник; cut перемещает только выбранный объект; конфликт имени не затирает файл молча."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.trash",
+      "program": "windows-files",
+      "label": "Отправить выбранный Windows объект в корзину",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "filesystem/contracts.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Операция затрагивает выбранный путь и использует Windows корзину; ошибка bridge не выдаётся за успех."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Отправить synthetic file в корзину и проверить системный результат.",
+          "expected": [
+            "Операция затрагивает выбранный путь и использует Windows корзину; ошибка bridge не выдаётся за успех."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.reveal",
+      "program": "windows-files",
+      "label": "Показать выбранный файл в Проводнике Windows",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "filesystem/contracts.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Windows Explorer показывает папку, содержащую выбранный путь."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Нажать «Показать» для synthetic file в disposable root.",
+          "expected": [
+            "Windows Explorer показывает папку, содержащую выбранный путь."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.publish",
+      "program": "windows-files",
+      "label": "Опубликовать Flux-only черновик в Windows",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Выбранный черновик записан в выбранный Windows каталог; опубликованный байтовый файл читается обратно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Опубликовать synthetic черновик в disposable каталоге и прочитать байты.",
+          "expected": [
+            "Выбранный черновик записан в выбранный Windows каталог; опубликованный байтовый файл читается обратно."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "shared-files.open",
+      "program": "shared-files",
+      "label": "Открыть файл из списка общего доступа",
+      "sources": [
+        "src/components/explorer/SharedFilesFolder.tsx"
+      ],
+      "triggers": [
+        "button",
+        "double-click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открывается тот же file ID с разрешением текущего участника."
+      ],
+      "checks": [
+        {
+          "suite": "files-file-sharing",
+          "layer": "api-db",
+          "claims": [
+            "Временная SQLite проверка разрешений, версий и отзыва через API/domain"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть synthetic shared file от владельца и получателя.",
+          "expected": [
+            "Открывается тот же file ID с разрешением текущего участника."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "shared-files.hide",
+      "program": "shared-files",
+      "label": "Скрыть общий файл только у себя",
+      "sources": [
+        "src/components/explorer/SharedFilesFolder.tsx"
+      ],
+      "triggers": [
+        "button",
+        "row-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Файл скрывается для текущего пользователя и остаётся доступен владельцу/другим получателям."
+      ],
+      "checks": [
+        {
+          "suite": "files-file-sharing",
+          "layer": "api-db",
+          "claims": [
+            "Временная SQLite проверка разрешений, версий и отзыва через API/domain"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Скрыть synthetic file как получатель и перечитать списки обоих пользователей.",
+          "expected": [
+            "Файл скрывается для текущего пользователя и остаётся доступен владельцу/другим получателям."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "shared-files.manage-audience",
+      "program": "shared-files",
+      "label": "Просмотреть/изменить список получателей и разрешение",
+      "sources": [
+        "src/components/explorer/SharedFilesFolder.tsx",
+        "src/components/explorer/FileShareDialog.tsx"
+      ],
+      "triggers": [
+        "button",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Только владелец меняет аудиторию/право; значение после записи читается из хранилища."
+      ],
+      "checks": [
+        {
+          "suite": "files-file-sharing",
+          "layer": "api-db",
+          "claims": [
+            "Временная SQLite проверка разрешений, версий и отзыва через API/domain"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить VIEW/EDIT и тестовую аудиторию, перечитать от двух сотрудников.",
+          "expected": [
+            "Только владелец меняет аудиторию/право; значение после записи читается из хранилища."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "shared-files.revoke",
+      "program": "shared-files",
+      "label": "Отозвать общий доступ к исходному файлу",
+      "sources": [
+        "src/components/explorer/FileShareDialog.tsx",
+        "server/fileSharing.ts"
+      ],
+      "triggers": [
+        "button",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "После отзыва получатель теряет чтение/запись; файл владельца остаётся неизменённым."
+      ],
+      "checks": [
+        {
+          "suite": "files-file-sharing",
+          "layer": "api-db",
+          "claims": [
+            "Временная SQLite проверка разрешений, версий и отзыва через API/domain"
+          ]
+        },
+        {
+          "suite": "files-file-sharing-sync",
+          "layer": "unit",
+          "claims": [
+            "Mock bridge sync, base-hash conflict, network failure and source switch"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Отозвать доступ и проверить отказ получателя через API и его пустой список.",
+          "expected": [
+            "После отзыва получатель теряет чтение/запись; файл владельца остаётся неизменённым."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.save",
+      "program": "document",
+      "label": "Сохранить текущий DOCX (кнопка/Ctrl+S)",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/screens/OfficeHost.tsx",
+        "tools/genoffice/inject/docs-collab.ts"
+      ],
+      "triggers": [
+        "editor-button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Текущий файл получает ожидаемый DOCX; после независимого повторного чтения грязное состояние сброшено только для записанной правки."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-docs-live",
+          "layer": "browser-live",
+          "claims": [
+            "Сохранённый DOCX повторно прочитан; ревизия/откат и конфликт в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Ввести контрольный текст, сохранить кнопкой и Ctrl+S в отдельных изменениях, перечитать DOCX.",
+          "expected": [
+            "Текущий файл получает ожидаемый DOCX; после независимого повторного чтения грязное состояние сброшено только для записанной правки."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.autosave",
+      "program": "document",
+      "label": "Автосохранить DOCX после редактирования",
+      "sources": [
+        "src/screens/OfficeHost.tsx",
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "background-autosave"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Правка записана без явного сохранения; неуспешная запись оставляет текст доступным и dirty."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-docs-live",
+          "layer": "browser-live",
+          "claims": [
+            "Сохранённый DOCX повторно прочитан; ревизия/откат и конфликт в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить сохранение после debounce и отказ записи на disposable fixture.",
+          "expected": [
+            "Правка записана без явного сохранения; неуспешная запись оставляет текст доступным и dirty."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.save-as",
+      "program": "document",
+      "label": "Сохранить документ как отдельную копию",
+      "sources": [
+        "tools/genoffice/flux-bridge.js",
+        "src/screens/OfficeHost.tsx"
+      ],
+      "triggers": [
+        "editor-menu",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создаётся отдельный файл с новым именем; исходный DOCX не меняется."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-docs-live",
+          "layer": "browser-live",
+          "claims": [
+            "Сохранённый DOCX повторно прочитан; ревизия/откат и конфликт в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить копию и независимо сравнить исходник и копию.",
+          "expected": [
+            "Создаётся отдельный файл с новым именем; исходный DOCX не меняется."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.close",
+      "program": "document",
+      "label": "Закрыть окно документа с несохранёнными правками",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/lib/closeGuard.ts"
+      ],
+      "triggers": [
+        "window-close",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Закрытие ждёт запись; при отказе окно остаётся открытым, при успехе закрывается."
+      ],
+      "checks": [
+        {
+          "suite": "files-local-file-access",
+          "layer": "unit",
+          "claims": [
+            "Local bridge read/write decision and failed-close guard"
+          ]
+        },
+        {
+          "suite": "files-office-docs-live",
+          "layer": "browser-live",
+          "claims": [
+            "Сохранённый DOCX повторно прочитан; ревизия/откат и конфликт в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выполнить успешное и намеренно отказавшее сохранение перед закрытием.",
+          "expected": [
+            "Закрытие ждёт запись; при отказе окно остаётся открытым, при успехе закрывается."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.save",
+      "program": "spreadsheet",
+      "label": "Сохранить текущую книгу (кнопка/Ctrl+S)",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/screens/OfficeHost.tsx",
+        "tools/genoffice/inject/sheets-host.ts"
+      ],
+      "triggers": [
+        "editor-button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Целевая ячейка сохранена; нетронутые листы и части пакета сохранены."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-sheets-live",
+          "layer": "browser-live",
+          "claims": [
+            "XLSX сохранение и независимая проверка выбранных частей книги"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить одну ячейку и независимо прочитать XLSX вместе с соседним листом.",
+          "expected": [
+            "Целевая ячейка сохранена; нетронутые листы и части пакета сохранены."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.autosave",
+      "program": "spreadsheet",
+      "label": "Автосохранить книгу после редактирования",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/screens/OfficeHost.tsx"
+      ],
+      "triggers": [
+        "background-autosave"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Удержатель общей книги сохраняет изменение по таймеру; отказ/нет прав не показывает ложное сохранение."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-sheets-live",
+          "layer": "browser-live",
+          "claims": [
+            "XLSX сохранение и независимая проверка выбранных частей книги"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить обновление XLSX после таймера и failure state на disposable fixture.",
+          "expected": [
+            "Удержатель общей книги сохраняет изменение по таймеру; отказ/нет прав не показывает ложное сохранение."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.save-as",
+      "program": "spreadsheet",
+      "label": "Сохранить книгу как отдельную копию",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "tools/genoffice/flux-bridge.js"
+      ],
+      "triggers": [
+        "editor-menu",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создаётся отдельная XLSX копия; исходник остаётся неизменённым."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-sheets-live",
+          "layer": "browser-live",
+          "claims": [
+            "XLSX сохранение и независимая проверка выбранных частей книги"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить копию и сравнить обе книги независимым reader.",
+          "expected": [
+            "Создаётся отдельная XLSX копия; исходник остаётся неизменённым."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.close",
+      "program": "spreadsheet",
+      "label": "Закрыть окно книги после правки",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/lib/closeGuard.ts"
+      ],
+      "triggers": [
+        "window-close",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Окно закрывается после подтверждённой записи; отказ удерживает изменённую книгу открытой."
+      ],
+      "checks": [
+        {
+          "suite": "files-local-file-access",
+          "layer": "unit",
+          "claims": [
+            "Local bridge read/write decision and failed-close guard"
+          ]
+        },
+        {
+          "suite": "files-office-sheets-live",
+          "layer": "browser-live",
+          "claims": [
+            "XLSX сохранение и независимая проверка выбранных частей книги"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Пройти close после успешной записи и тестового отказа.",
+          "expected": [
+            "Окно закрывается после подтверждённой записи; отказ удерживает изменённую книгу открытой."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "pdf.save",
+      "program": "pdf",
+      "label": "Сохранить пометки в исходный PDF",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "tools/genoffice/inject/pdf-host.ts"
+      ],
+      "triggers": [
+        "editor-button",
+        "shortcut",
+        "background-autosave"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сохранённая пометка читается после закрытия и независимого повторного открытия; исходная ревизия доступна."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-pdf-live",
+          "layer": "browser-live",
+          "claims": [
+            "PDF пометка/сохранение и ревизия в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Добавить пометку, сохранить, закрыть и открыть PDF вне Flux.",
+          "expected": [
+            "Сохранённая пометка читается после закрытия и независимого повторного открытия; исходная ревизия доступна."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "pdf.save-as",
+      "program": "pdf",
+      "label": "Сохранить копию PDF",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/LocalOfficeEditor.tsx"
+      ],
+      "triggers": [
+        "editor-button",
+        "shortcut"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создаётся отдельный PDF рядом; исходный файл побайтно не меняется."
+      ],
+      "checks": [
+        {
+          "suite": "files-office-pdf-live",
+          "layer": "browser-live",
+          "claims": [
+            "PDF пометка/сохранение и ревизия в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать копию и независимо открыть обе версии.",
+          "expected": [
+            "Создаётся отдельный PDF рядом; исходный файл побайтно не меняется."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "pdf.close",
+      "program": "pdf",
+      "label": "Закрыть PDF с несохранённой пометкой",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/LocalOfficeEditor.tsx"
+      ],
+      "triggers": [
+        "window-close"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Закрытие ждёт сохранения и оставляет редактор открытым при неуспешной записи."
+      ],
+      "checks": [
+        {
+          "suite": "files-local-file-access",
+          "layer": "unit",
+          "claims": [
+            "Local bridge read/write decision and failed-close guard"
+          ]
+        },
+        {
+          "suite": "files-office-pdf-live",
+          "layer": "browser-live",
+          "claims": [
+            "PDF пометка/сохранение и ревизия в пределах тестового сценария"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить close с успешной и отказавшей записью.",
+          "expected": [
+            "Закрытие ждёт сохранения и оставляет редактор открытым при неуспешной записи."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.create",
+      "program": "notes",
+      "label": "Создать новую заметку",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "empty-state"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создана одна заметка в текущей области пользователя/проекта."
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Текст заметки и sticker window синхронизированы в тестовом сценарии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать заметку в test project и повторно прочитать список/ID.",
+          "expected": [
+            "Создана одна заметка в текущей области пользователя/проекта."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.autosave",
+      "program": "notes",
+      "label": "Автосохранить текст/заголовок заметки",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/screens/NoteEditorHost.tsx",
+        "src/services/dataService.ts"
+      ],
+      "triggers": [
+        "background-autosave"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Все изменённые поля записаны; закрытие/повторное открытие возвращает их."
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Текст заметки и sticker window синхронизированы в тестовом сценарии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить заголовок и текст, дождаться автосохранения и перечитать.",
+          "expected": [
+            "Все изменённые поля записаны; закрытие/повторное открытие возвращает их."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.search-scope-sort",
+      "program": "notes",
+      "label": "Искать, переключать область и сортировать заметки",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "input",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показаны записи выбранной области, соответствующие поиску, в выбранном порядке; данные не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Использовать три синтетические заметки с заданными заголовками/датами.",
+          "expected": [
+            "Показаны записи выбранной области, соответствующие поиску, в выбранном порядке; данные не меняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.pin",
+      "program": "notes",
+      "label": "Закрепить/открепить заметку",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменяется локальный список закреплённых для текущего пользователя; заметка остаётся той же."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Переключить pin и перечитать список после перехода/повторного входа.",
+          "expected": [
+            "Изменяется локальный список закреплённых для текущего пользователя; заметка остаётся той же."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.group",
+      "program": "notes",
+      "label": "Создать группу и назначить/снять группу",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Группа и назначение привязаны к выбранной заметке; отмена не создаёт группу."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать Unicode группу, назначить заметку, снять назначение.",
+          "expected": [
+            "Группа и назначение привязаны к выбранной заметке; отмена не создаёт группу."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.color",
+      "program": "notes",
+      "label": "Изменить цвет заметки",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Выбранный preset сохраняется у заметки и восстанавливается при повторном чтении."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить каждую палитру на тестовой заметке.",
+          "expected": [
+            "Выбранный preset сохраняется у заметки и восстанавливается при повторном чтении."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.duplicate",
+      "program": "notes",
+      "label": "Дублировать выбранную заметку",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Копия получает отдельный ID; изменение копии не меняет исходный текст."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Дублировать и отредактировать только одну из двух заметок.",
+          "expected": [
+            "Копия получает отдельный ID; изменение копии не меняет исходный текст."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.share",
+      "program": "notes",
+      "label": "Настроить доступ к заметке",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/components/NoteShareDialog.tsx"
+      ],
+      "triggers": [
+        "button",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Только разрешённые пользователи видят общую заметку; владелец сохраняет её исходник."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два test users проверить чтение до/после изменения доступа.",
+          "expected": [
+            "Только разрешённые пользователи видят общую заметку; владелец сохраняет её исходник."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.export-text",
+      "program": "notes",
+      "label": "Экспортировать заметку как текст",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Скачанный текст содержит ожидаемое содержимое заметки."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Экспортировать и сравнить синтетический текст с исходной записью.",
+          "expected": [
+            "Скачанный текст содержит ожидаемое содержимое заметки."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.export-docx",
+      "program": "notes",
+      "label": "Экспортировать заметку как Word",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/lib/docxWrite.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Создан DOCX с текстом заметки, открываемый независимым DOCX reader."
+      ],
+      "checks": [
+        {
+          "suite": "files-docx",
+          "layer": "unit",
+          "claims": [
+            "DOCX пакет собирается и его текст читается независимым разбором"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Экспортировать и проверить document.xml из DOCX.",
+          "expected": [
+            "Создан DOCX с текстом заметки, открываемый независимым DOCX reader."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.print",
+      "program": "notes",
+      "label": "Распечатать выбранную заметку",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Диалог печати относится только к выбранной заметке и не меняет запись."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В браузере проверить печатное представление синтетической заметки.",
+          "expected": [
+            "Диалог печати относится только к выбранной заметке и не меняет запись."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.delete",
+      "program": "notes",
+      "label": "Удалить выбранную заметку после подтверждения",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "confirmation"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Удаляется выбранный note ID; отмена сохраняет исходную заметку."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить оба исхода подтверждения на синтетической заметке.",
+          "expected": [
+            "Удаляется выбранный note ID; отмена сохраняет исходную заметку."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "sticker.title",
+      "program": "sticker",
+      "label": "Изменить заголовок стикера",
+      "sources": [
+        "src/screens/StickerWindow.tsx"
+      ],
+      "triggers": [
+        "input",
+        "background-autosave"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Заголовок сохраняется в том же note ID и виден в основном списке."
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Текст заметки и sticker window синхронизированы в тестовом сценарии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Поменять заголовок стикера и перечитать заметку в основном окне.",
+          "expected": [
+            "Заголовок сохраняется в том же note ID и виден в основном списке."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "sticker.content",
+      "program": "sticker",
+      "label": "Редактировать текст стикера",
+      "sources": [
+        "src/screens/StickerWindow.tsx",
+        "src/screens/NoteEditorHost.tsx"
+      ],
+      "triggers": [
+        "editor",
+        "background-autosave"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Содержание записано в том же note ID; синхронизация не затирает несохранённый ввод."
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Текст заметки и sticker window синхронизированы в тестовом сценарии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Править содержимое в обоих окнах по очереди и проверить актуальную запись.",
+          "expected": [
+            "Содержание записано в том же note ID; синхронизация не затирает несохранённый ввод."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "sticker.color",
+      "program": "sticker",
+      "label": "Выбрать цвет стикера (жёлтый, красный, зелёный или серый)",
+      "sources": [
+        "src/screens/StickerWindow.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отмечается и сохраняется ровно выбранный preset."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить каждый видимый цвет в test note и сверить запись.",
+          "expected": [
+            "Отмечается и сохраняется ровно выбранный preset."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "sticker.close",
+      "program": "sticker",
+      "label": "Закрыть окно стикера",
+      "sources": [
+        "src/screens/StickerWindow.tsx"
+      ],
+      "triggers": [
+        "button",
+        "window-close"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Перед закрытием ожидаются pending field/text writes; после открытия та же заметка восстановлена."
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Текст заметки и sticker window синхронизированы в тестовом сценарии"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Закрыть стикер во время pending autosave и открыть снова.",
+          "expected": [
+            "Перед закрытием ожидаются pending field/text writes; после открытия та же заметка восстановлена."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.open",
+      "program": "archives",
+      "label": "Открыть архив с паролем (если зашифрован)",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список архива соответствует входному контейнеру; неверный пароль даёт ошибку без повреждения оригинала."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть synthetic ZIP и зашифрованный 7z с верным/ошибочным паролем.",
+          "expected": [
+            "Список архива соответствует входному контейнеру; неверный пароль даёт ошибку без повреждения оригинала."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.test",
+      "program": "archives",
+      "label": "Проверить целостность архива",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Проверка сообщает успех только для читаемого архива и оставляет исходные байты без изменений."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить исправный и повреждённый synthetic archive.",
+          "expected": [
+            "Проверка сообщает успех только для читаемого архива и оставляет исходные байты без изменений."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.search-navigation",
+      "program": "archives",
+      "label": "Искать в архиве и переходить по breadcrumb",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "input",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отфильтрованы совпадения внутри архива; breadcrumb открывает выбранную внутреннюю папку."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить записи в двух вложенных папках и поиск по имени.",
+          "expected": [
+            "Отфильтрованы совпадения внутри архива; breadcrumb открывает выбранную внутреннюю папку."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.extract-preview",
+      "program": "archives",
+      "label": "Предпросмотреть распаковку выбранных элементов",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "checkbox",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Предпросмотр сообщает число/размер/имя новой папки; отмена не создаёт файлы."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Выбрать несколько synthetic entries, открыть preview и отменить.",
+          "expected": [
+            "Предпросмотр сообщает число/размер/имя новой папки; отмена не создаёт файлы."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.extract",
+      "program": "archives",
+      "label": "Распаковать выбранные элементы в новую папку",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "checkbox",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "В отдельной папке находятся только выбранные пути; извлечённые байты совпадают с архивом."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Распаковать synthetic binary и сравнить байты.",
+          "expected": [
+            "В отдельной папке находятся только выбранные пути; извлечённые байты совпадают с архивом."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.create-zip",
+      "program": "archives",
+      "label": "Создать ZIP из выбранных файлов/папок",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "tab",
+        "checkbox",
+        "input",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Создан новый ZIP; исходные файлы остаются; состав/байты проходят независимое чтение."
+      ],
+      "checks": [
+        {
+          "suite": "files-archives-live",
+          "layer": "browser-live",
+          "claims": [
+            "ZIP create/edit scenario checks selected test archive output"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать ZIP и сравнить список/содержимое entries.",
+          "expected": [
+            "Создан новый ZIP; исходные файлы остаются; состав/байты проходят независимое чтение."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.create-7z",
+      "program": "archives",
+      "label": "Создать 7z с выбранной степенью сжатия/паролем, если поддерживается",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "tab",
+        "select",
+        "input",
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Формат/capability соблюдены; корректный пароль открывает ожидаемое содержимое."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Создать тестовый 7z в Windows portable и открыть независимым reader.",
+          "expected": [
+            "Формат/capability соблюдены; корректный пароль открывает ожидаемое содержимое."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.edit-preview",
+      "program": "archives",
+      "label": "Предпросмотреть правки копии архива",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input",
+        "checkbox"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Preview показывает ожидаемые rename/delete/add операции и имя новой копии; исходник не изменён."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Переименовать, удалить и добавить synthetic entries, затем отменить preview.",
+          "expected": [
+            "Preview показывает ожидаемые rename/delete/add операции и имя новой копии; исходник не изменён."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.edit-cancel",
+      "program": "archives",
+      "label": "Отменить правку копии архива",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отмена сбрасывает preview и не создаёт/меняет ни один архив."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Отменить подтверждённый preview и сверить исходные файлы.",
+          "expected": [
+            "Отмена сбрасывает preview и не создаёт/меняет ни один архив."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.edit-save-copy",
+      "program": "archives",
+      "label": "Сохранить изменённую копию архива",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Появляется новый архив с ожидаемым составом/паролем; оригинал совпадает с исходными байтами."
+      ],
+      "checks": [
+        {
+          "suite": "files-archives-live",
+          "layer": "browser-live",
+          "claims": [
+            "ZIP create/edit scenario checks selected test archive output"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Сохранить edit-copy и независимо сравнить original/output.",
+          "expected": [
+            "Появляется новый архив с ожидаемым составом/паролем; оригинал совпадает с исходными байтами."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.undo",
+      "program": "document",
+      "label": "Отменить последнюю правку документа",
+      "sources": [
+        "tools/genoffice/inject/docs-collab.ts",
+        "tools/genoffice/patches.mjs"
+      ],
+      "triggers": [
+        "editor-toolbar",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Содержимое возвращается к состоянию перед последней правкой и сохраняется после повторного открытия."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Отменить последнюю правку документа",
+          "expected": [
+            "Содержимое возвращается к состоянию перед последней правкой и сохраняется после повторного открытия."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.redo",
+      "program": "document",
+      "label": "Повторить отменённую правку документа",
+      "sources": [
+        "tools/genoffice/inject/docs-collab.ts",
+        "tools/genoffice/patches.mjs"
+      ],
+      "triggers": [
+        "editor-toolbar",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Последняя отменённая правка возвращается в документ и сохраняется после повторного открытия."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Повторить отменённую правку документа",
+          "expected": [
+            "Последняя отменённая правка возвращается в документ и сохраняется после повторного открытия."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.undo",
+      "program": "spreadsheet",
+      "label": "Отменить последнюю правку книги",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "editor-toolbar",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменение выбранной ячейки/листа отменено; посторонние ячейки и листы сохранены."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Отменить последнюю правку книги",
+          "expected": [
+            "Изменение выбранной ячейки/листа отменено; посторонние ячейки и листы сохранены."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.redo",
+      "program": "spreadsheet",
+      "label": "Повторить отменённую правку книги",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "editor-toolbar",
+        "shortcut"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Последняя отменённая правка возвращена без изменения посторонних ячеек/листов."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Повторить отменённую правку книги",
+          "expected": [
+            "Последняя отменённая правка возвращена без изменения посторонних ячеек/листов."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.back",
+      "program": "explorer",
+      "label": "Вернуться к предыдущей папке Проводника",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Проводник показывает предыдущую папку в истории."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Вернуться к предыдущей папке Проводника",
+          "expected": [
+            "Проводник показывает предыдущую папку в истории."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.forward",
+      "program": "explorer",
+      "label": "Перейти вперёд по истории Проводника",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Проводник показывает следующий элемент истории после перехода назад."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Перейти вперёд по истории Проводника",
+          "expected": [
+            "Проводник показывает следующий элемент истории после перехода назад."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.up",
+      "program": "explorer",
+      "label": "Перейти в родительскую папку",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыта непосредственная родительская папка того же проекта."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Перейти в родительскую папку",
+          "expected": [
+            "Открыта непосредственная родительская папка того же проекта."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.breadcrumb",
+      "program": "explorer",
+      "label": "Перейти в папку через хлебную крошку",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыта папка выбранного breadcrumb в текущем дереве."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Перейти в папку через хлебную крошку",
+          "expected": [
+            "Открыта папка выбранного breadcrumb в текущем дереве."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.trash-open",
+      "program": "explorer",
+      "label": "Открыть корзину Проводника",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "sidebar",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показаны только удалённые элементы текущей области."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Открыть корзину Проводника",
+          "expected": [
+            "Показаны только удалённые элементы текущей области."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.search",
+      "program": "explorer",
+      "label": "Поиск файлов и папок",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "input"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список показывает имена, соответствующие тексту поиска; исходные данные не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Поиск файлов и папок",
+          "expected": [
+            "Список показывает имена, соответствующие тексту поиска; исходные данные не меняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.status-filter",
+      "program": "explorer",
+      "label": "Фильтр файлов по статусу",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список ограничен выбранным статусом; повторный выбор снимает фильтр."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Фильтр файлов по статусу",
+          "expected": [
+            "Список ограничен выбранным статусом; повторный выбор снимает фильтр."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.sort",
+      "program": "explorer",
+      "label": "Сортировка списка по имени, дате, статусу или размеру",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "table-header"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Строки упорядочены по выбранному столбцу и направлению; содержимое не изменено."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить отдельно в synthetic fixture: Сортировка списка по имени, дате, статусу или размеру",
+          "expected": [
+            "Строки упорядочены по выбранному столбцу и направлению; содержимое не изменено."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.select-root",
+      "program": "windows-files",
+      "label": "Выбрать Windows корень: Рабочий стол, Документы, Загрузки или custom root",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts"
+      ],
+      "triggers": [
+        "sidebar",
+        "native-folder-picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список относится только к выбранному root ID и папке внутри него."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Проверить отдельно в synthetic fixture: Выбрать Windows корень: Рабочий стол, Документы, Загрузки или custom root",
+          "expected": [
+            "Список относится только к выбранному root ID и папке внутри него."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.refresh",
+      "program": "windows-files",
+      "label": "Обновить Windows папки или текущий список",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "background-file-change"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показан актуальный список выбранной Windows папки; ошибка чтения показана явно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Проверить отдельно в synthetic fixture: Обновить Windows папки или текущий список",
+          "expected": [
+            "Показан актуальный список выбранной Windows папки; ошибка чтения показана явно."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.search",
+      "program": "windows-files",
+      "label": "Искать Windows файлы по имени",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "input"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отфильтрованы имена текущей папки без записи/перемещения файлов."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Проверить отдельно в synthetic fixture: Искать Windows файлы по имени",
+          "expected": [
+            "Отфильтрованы имена текущей папки без записи/перемещения файлов."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.list-tiles",
+      "program": "windows-files",
+      "label": "Переключить табличный/плиточный вид Windows файлов",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Меняется только вид списка; root, путь и выбранный объект сохраняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Проверить отдельно в synthetic fixture: Переключить табличный/плиточный вид Windows файлов",
+          "expected": [
+            "Меняется только вид списка; root, путь и выбранный объект сохраняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.properties",
+      "program": "windows-files",
+      "label": "Открыть и сохранить свойства Windows файла",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показываются metadata выбранного пути; сохранение применяет только явно изменённые свойства."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Проверить отдельно в synthetic fixture: Открыть и сохранить свойства Windows файла",
+          "expected": [
+            "Показываются metadata выбранного пути; сохранение применяет только явно изменённые свойства."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.cancel-extract",
+      "program": "archives",
+      "label": "Отменить предпросмотр распаковки",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отмена скрывает preview и не создаёт каталог/файлы."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить отдельно в synthetic fixture: Отменить предпросмотр распаковки",
+          "expected": [
+            "Отмена скрывает preview и не создаёт каталог/файлы."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "archives.cancel-edit",
+      "program": "archives",
+      "label": "Отменить предпросмотр правки архива",
+      "sources": [
+        "src/screens/Archives.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Отмена сбрасывает только временный edit preview; исходный архив и каталог не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить отдельно в synthetic fixture: Отменить предпросмотр правки архива",
+          "expected": [
+            "Отмена сбрасывает только временный edit preview; исходный архив и каталог не меняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.change-status",
+      "program": "explorer",
+      "label": "Изменить статус файла/папки",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "bulk-action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Статус выбранного элемента изменён и после повторного чтения совпадает с выбранным значением."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "На synthetic файлах менять статус по одному и массово, затем повторно прочитать.",
+          "expected": [
+            "Статус выбранного элемента изменён и после повторного чтения совпадает с выбранным значением."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.assign-tag",
+      "program": "explorer",
+      "label": "Назначить или снять тег файла",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Изменение касается только выбранного файла и выбранного тега."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Назначить и снять тестовый тег, перечитать relation с обеих сторон.",
+          "expected": [
+            "Изменение касается только выбранного файла и выбранного тега."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.import-equipment",
+      "program": "explorer",
+      "label": "Передать выбранный файл в импорт оборудования",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В importer переданы выбранный файл и проект; до подтверждения импорта исходный файл не меняется."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть импорт с synthetic workbook; проверить file/project identity и отмену.",
+          "expected": [
+            "В importer переданы выбранный файл и проект; до подтверждения импорта исходный файл не меняется."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "explorer.preview-toggle",
+      "program": "explorer",
+      "label": "Показать/скрыть панель предпросмотра",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Меняется только вид панели; текущий выбранный файл остаётся тем же."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Показать/скрыть панель предпросмотра",
+          "expected": [
+            "Меняется только вид панели; текущий выбранный файл остаётся тем же."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.back",
+      "program": "windows-files",
+      "label": "Вернуться к предыдущему Windows каталогу",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыт предыдущий root/path в навигационной истории."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Synthetic fixture: Вернуться к предыдущему Windows каталогу",
+          "expected": [
+            "Открыт предыдущий root/path в навигационной истории."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.forward",
+      "program": "windows-files",
+      "label": "Перейти вперёд по Windows навигационной истории",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыт следующий root/path после перехода назад."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Synthetic fixture: Перейти вперёд по Windows навигационной истории",
+          "expected": [
+            "Открыт следующий root/path после перехода назад."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.up",
+      "program": "windows-files",
+      "label": "Открыть родительский Windows каталог",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыта непосредственная родительская папка выбранного root."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Synthetic fixture: Открыть родительский Windows каталог",
+          "expected": [
+            "Открыта непосредственная родительская папка выбранного root."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.breadcrumb",
+      "program": "windows-files",
+      "label": "Перейти по хлебной крошке Windows пути",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Открыта папка breadcrumb внутри того же выбранного root."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Synthetic fixture: Перейти по хлебной крошке Windows пути",
+          "expected": [
+            "Открыта папка breadcrumb внутри того же выбранного root."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "windows-files.share",
+      "program": "windows-files",
+      "label": "Поделиться выбранным локальным файлом",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/components/explorer/FileShareDialog.tsx"
+      ],
+      "triggers": [
+        "button",
+        "context-menu"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Получатель и право сохраняются для выбранного файла; shared-source binding указывает на тот же Windows path."
+      ],
+      "checks": [
+        {
+          "suite": "files-file-sharing-sync",
+          "layer": "unit",
+          "claims": [
+            "Mock-синхронизация использует source binding, базовый hash и контролируемое сетевое состояние."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "На disposable root поделиться synthetic file с одним test user; перечитать его binding/права.",
+          "expected": [
+            "Получатель и право сохраняются для выбранного файла; shared-source binding указывает на тот же Windows path."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.search",
+      "program": "notes",
+      "label": "Искать заметки по заголовку/содержимому",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "input"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Показаны только заметки, соответствующие строке поиска; записи не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Искать заметки по заголовку/содержимому",
+          "expected": [
+            "Показаны только заметки, соответствующие строке поиска; записи не меняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.scope",
+      "program": "notes",
+      "label": "Переключить область заметок: мои/общие/доступные",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список соответствует выбранной области и текущему пользователю/проекту."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Переключить область заметок: мои/общие/доступные",
+          "expected": [
+            "Список соответствует выбранной области и текущему пользователю/проекту."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.sort",
+      "program": "notes",
+      "label": "Сортировать заметки по изменению/имени/созданию",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Порядок строк соответствует выбранному ключу; значения заметок не меняются."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Сортировать заметки по изменению/имени/созданию",
+          "expected": [
+            "Порядок строк соответствует выбранному ключу; значения заметок не меняются."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.create-group",
+      "program": "notes",
+      "label": "Создать группу заметок",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "input",
+        "keyboard-enter"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Группа создаётся один раз с ожидаемым именем; пустое/отменённое значение не создаёт группу."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Создать группу Unicode и проверить пустое имя/отмену на test project.",
+          "expected": [
+            "Группа создаётся один раз с ожидаемым именем; пустое/отменённое значение не создаёт группу."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "notes.assign-group",
+      "program": "notes",
+      "label": "Назначить заметку группе или снять группу",
+      "sources": [
+        "src/screens/NotesManagement.tsx"
+      ],
+      "triggers": [
+        "button",
+        "menu"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Меняется только groupId/name выбранной заметки; снятие удаляет назначение без удаления заметки."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Назначить заметку группе или снять группу",
+          "expected": [
+            "Меняется только groupId/name выбранной заметки; снятие удаляет назначение без удаления заметки."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.insert-table",
+      "program": "document",
+      "label": "Вставить таблицу в позицию курсора",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/FluxPanel.tsx"
+      ],
+      "triggers": [
+        "editor-panel",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В точке курсора появляется таблица с указанным числом строк/столбцов."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Вставить таблицу в позицию курсора",
+          "expected": [
+            "В точке курсора появляется таблица с указанным числом строк/столбцов."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.insert-project-field",
+      "program": "document",
+      "label": "Вставить поле проекта/оборудования в документ",
+      "sources": [
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "editor-panel",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Вставленное значение соответствует текущему проекту и выбранному полю; сохранение требуется отдельно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Вставить поле проекта/оборудования в документ",
+          "expected": [
+            "Вставленное значение соответствует текущему проекту и выбранному полю; сохранение требуется отдельно."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "document.translate-selection",
+      "program": "document",
+      "label": "Перевести выделенный текст в панели перевода",
+      "sources": [
+        "src/components/office/TextTranslationPanel.tsx",
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "editor-panel",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Перевод показывается отдельно до вставки и не меняет выделение/файл автоматически."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Перевести выделенный текст в панели перевода",
+          "expected": [
+            "Перевод показывается отдельно до вставки и не меняет выделение/файл автоматически."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.insert-project-field",
+      "program": "spreadsheet",
+      "label": "Вставить значение проекта в выбранную ячейку",
+      "sources": [
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/OfficeAppEditor.tsx"
+      ],
+      "triggers": [
+        "editor-panel",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Значение помещено в выделенную ячейку с именованным полем; книга меняется только явно."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Synthetic fixture: Вставить значение проекта в выбранную ячейку",
+          "expected": [
+            "Значение помещено в выделенную ячейку с именованным полем; книга меняется только явно."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet.update-project-fields",
+      "program": "spreadsheet",
+      "label": "Обновить значения полей проекта в книге",
+      "sources": [
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/OfficeAppEditor.tsx",
+        "server/routes/projectData.ts"
+      ],
+      "triggers": [
+        "editor-panel",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Текущая книга сохраняется перед подстановкой; отчёт показывает изменённые/пропущенные поля."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "На disposable workbook проверить обновление одного существующего и одного отсутствующего поля.",
+          "expected": [
+            "Текущая книга сохраняется перед подстановкой; отчёт показывает изменённые/пропущенные поля."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "files-office.registry",
+      "from": "registry",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "expected": [
+        "Тег назначается выбранному файлу и после обновления читается в Проводнике и реестре"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Присвоить синтетическому файлу тег и повторно прочитать обе стороны",
+          "expected": [
+            "Связь содержит выбранные project/file/tag IDs"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.equipment",
+      "from": "explorer",
+      "to": "equipment",
+      "status": "implemented",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "expected": [
+        "Выбранная таблица передаёт данные выбранного диапазона в импорт оборудования"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Импортировать synthetic workbook в тестовый проект оборудования",
+          "expected": [
+            "Загружены только выбранный файл/лист/диапазон; имя исходника сохранено"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.catalog",
+      "from": "catalog",
+      "to": "spreadsheet",
+      "status": "implemented",
+      "sources": [
+        "src/components/catalog/CatalogSpreadsheetPanel.tsx"
+      ],
+      "expected": [
+        "Экспорт каталога открывается Таблицей без изменения каталогной записи"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Экспортировать тестовый каталог в synthetic workbook и открыть в Flux Таблице",
+          "expected": [
+            "Значения и заголовки соответствуют выбранной версии каталога"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.builder",
+      "from": "builder",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/components/builder/IssuePanel.tsx"
+      ],
+      "expected": [
+        "Экспорт результата конструктора в Проводник создаёт XLSX файл, который затем может быть открыт Таблицей по маршруту типа файла."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Экспортировать synthetic builder result в Проводник, открыть его как XLSX в Таблице и перечитать книгу.",
+          "expected": [
+            "Файл появляется в Проводнике; значения соответствуют snapshot результата конструктора."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.mail",
+      "from": "mail",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/screens/Explorer.tsx"
+      ],
+      "expected": [
+        "Вложение письма сохраняется в выбранную папку отдельной операцией и совпадает с вложением"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Сохранить synthetic mail attachment в проект и в Windows папку; отменить второй выбор",
+          "expected": [
+            "Файл Flux побайтно совпадает с приложением, отмена не создаёт запись"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.chat",
+      "from": "chat",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/chat/MessageBubble.tsx",
+        "src/screens/Explorer.tsx"
+      ],
+      "expected": [
+        "Загруженное вложение чата открывается в Проводнике по его file path; размер/имя относятся к тому же вложению."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Отправить synthetic attachment в test chat, открыть из сообщения и сверить ID/имя/байты в Проводнике.",
+          "expected": [
+            "Наличие/отсутствие функции зафиксировано; доступный переход открывает тот же файл"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.users",
+      "from": "shared-files",
+      "to": "users",
+      "status": "implemented",
+      "sources": [
+        "src/components/explorer/FileShareDialog.tsx",
+        "server/fileSharing.ts"
+      ],
+      "expected": [
+        "Получатель общего файла определяется участником/проектом и теряет доступ после деактивации/отзыва согласно политике"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Два synthetic сотрудника проверить видимость и отзыв после смены статуса пользователя",
+          "expected": [
+            "Скрытый сотрудник не читает/не записывает файл через UI и API"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.settings",
+      "from": "settings",
+      "to": "explorer",
+      "status": "implemented",
+      "sources": [
+        "src/components/settings/BackupSection.tsx"
+      ],
+      "expected": [
+        "Создание/восстановление backup включает файлы Проводника; количество и содержимое после восстановления соответствуют backup manifest."
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Создать backup тестового стенда, восстановить в изолированный проект и сверить synthetic Explorer files.",
+          "expected": [
+            "Explorer files из backup manifest восстановлены в тестовый стенд без потери имени/байтов."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.owner",
+      "from": "shared-files",
+      "to": "owner",
+      "status": "conditional",
+      "sources": [
+        "src/components/explorer/FileShareDialog.tsx",
+        "server/fileSharing.ts"
+      ],
+      "expected": [
+        "Экспорт/импорт владения общими файлами при lifecycle пользователя следует контракту доступа Owner"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "api-db",
+          "scenario": "Проверить влияние отключения/удаления synthetic пользователя Owner на выданный доступ",
+          "expected": [
+            "Владелец/получатель согласуется с зафиксированной политикой; оригинал не теряется"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.shell",
+      "from": "windows-files",
+      "to": "shell",
+      "status": "implemented",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/screens/WindowsExplorerHost.tsx",
+        "filesystem/contracts.ts",
+        "electron/main.ts",
+        "electron/preload.ts"
+      ],
+      "expected": [
+        "Перетаскивание окна, открытие/показ в Windows и сообщения native bridge относятся к реальному выбранному пути; в portable браузере capability отсутствует"
+      ],
+      "checks": [],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "На Windows проверить open/reveal, системный диалог выбора папки и bridge failure recovery",
+          "expected": [
+            "Нет доступа за пределы выбранной тестовой папки; ошибка bridge показывается без ложного успеха"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.editor-file",
+      "from": "explorer",
+      "to": "document",
+      "status": "implemented",
+      "sources": [
+        "src/lib/fileTypes.ts",
+        "src/components/explorer/ExplorerMenu.tsx",
+        "src/screens/OfficeAppHost.tsx"
+      ],
+      "expected": [
+        "DOCX, XLSX/XLSM и PDF открываются соответствующим редактором по тому же file ID; сохранить можно только разрешённый файл"
+      ],
+      "checks": [
+        {
+          "suite": "files-file-types",
+          "layer": "unit",
+          "claims": [
+            "Расширение/тип выбирают ожидаемый путь открытия"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Из Проводника открыть один synthetic DOCX и сверить маршрут и file ID редактора",
+          "expected": [
+            "Редактор открыл выбранный файл, не копию соседнего файла"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.windows-to-editor",
+      "from": "windows-files",
+      "to": "spreadsheet",
+      "status": "conditional",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/lib/windowsFiles.ts",
+        "src/screens/WindowsFileHost.tsx"
+      ],
+      "expected": [
+        "Локальный Windows Office-файл открывается по сериализованной ссылке и сохранение возвращает данные в тот же путь"
+      ],
+      "checks": [
+        {
+          "suite": "files-verification-helper",
+          "layer": "unit",
+          "claims": [
+            "Сериализация целевого Windows file reference и неизменность переданных байтов"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть synthetic локальный XLSX из тестовой папки, изменить/сохранить, затем перечитать исходный путь",
+          "expected": [
+            "Изменён файл по исходному пути и сохранены неизменённые workbook parts"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "files-office.notes-to-sticker",
+      "from": "notes",
+      "to": "sticker",
+      "status": "implemented",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "src/screens/StickerWindow.tsx"
+      ],
+      "expected": [
+        "Стикер и Блокнот читают/пишут один ID заметки; close и polling не создают копию заметки"
+      ],
+      "checks": [
+        {
+          "suite": "files-notes-live",
+          "layer": "browser-live",
+          "claims": [
+            "Синхронизация основного редактора и sticker window на одной заметке"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Править тестовую заметку последовательно в Блокноте и стикере с повторным чтением",
+          "expected": [
+            "Обе поверхности показывают последнюю сохранённую версию"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    }
+  ]
+}

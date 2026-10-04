@@ -17,9 +17,16 @@ const SLOT_BASE = 0xe010;
 const SLOT_MAX = 1500;
 const SLOT_RE = /[\uE010-\uE5FF]/g;
 
+export interface SlotValues extends Array<string> {
+  /** Internal marker map travels with slots for the existing two-argument API. */
+  markers?: string[];
+}
+
 export interface Protected {
   masked: string;
-  slots: string[];
+  slots: SlotValues;
+  /** Marker characters selected to avoid colliding with literal source text. */
+  markers: string[];
 }
 
 /**
@@ -54,23 +61,34 @@ const PATTERNS: RegExp[] = [
 /** Вынуть из строки то, что переводу не подлежит. */
 export function protect(text: string): Protected {
   let masked = String(text || '');
-  const slots: string[] = [];
+  const slots: SlotValues = [];
+  const markers: string[] = [];
+  const used = new Set<number>();
+  for (const ch of masked) {
+    const code = ch.charCodeAt(0);
+    if (code >= SLOT_BASE && code < SLOT_BASE + SLOT_MAX) used.add(code);
+  }
+  const available = Array.from({ length: SLOT_MAX }, (_, i) => SLOT_BASE + i)
+    .filter((code) => !used.has(code));
   for (const re of PATTERNS) {
     masked = masked.replace(re, (hit) => {
-      if (slots.length >= SLOT_MAX) return hit;
+      if (slots.length >= available.length) return hit;
       slots.push(hit);
-      return String.fromCharCode(SLOT_BASE + slots.length - 1);
+      const marker = String.fromCharCode(available[slots.length - 1]);
+      markers.push(marker);
+      return marker;
     });
   }
-  return { masked, slots };
+  Object.defineProperty(slots, 'markers', { value: markers, enumerable: false });
+  return { masked, slots, markers };
 }
 
 /** Поставить вынутое обратно. */
-export function restore(masked: string, slots: string[]): string {
-  return String(masked || '').replace(SLOT_RE, (ch) => {
-    const i = ch.charCodeAt(0) - SLOT_BASE;
-    return slots[i] !== undefined ? slots[i] : ch;
-  });
+export function restore(masked: string, slots: string[], markers?: string[]): string {
+  const actualMarkers = markers || (slots as SlotValues).markers
+    || slots.map((_, i) => String.fromCharCode(SLOT_BASE + i));
+  const byMarker = new Map(actualMarkers.map((marker, i) => [marker, slots[i]]));
+  return String(masked || '').replace(SLOT_RE, (ch) => byMarker.get(ch) ?? ch);
 }
 
 /** Это ячейка защиты, а не слово: словарю её показывать не надо. */
