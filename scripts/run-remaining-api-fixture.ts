@@ -223,6 +223,16 @@ async function main(): Promise<number> {
       // Before validating a state path, only signal the exact child handle we started.
       try { helperChild.kill('SIGTERM'); } catch { /* process already exited */ }
     }
+    // start --keepalive не передаёт stateDir в argv: stop может завершить API,
+    // но оставить удерживающий процесс. У нас есть точный ChildProcess его запуска.
+    if (helperChild?.pid && helperChild.exitCode === null && helperChild.signalCode === null) {
+      await new Promise<void>(resolve => {
+        const done = () => { clearTimeout(timer); helperChild!.removeListener('exit', done); resolve(); };
+        const timer = setTimeout(() => { try { helperChild!.kill('SIGKILL'); } catch { /* already gone */ } done(); }, 5000);
+        helperChild!.once('exit', done);
+        try { helperChild!.kill('SIGTERM'); } catch { done(); }
+      });
+    }
     try { closeSync(logFd); } catch { /* already closed */ }
     if (fixtureStopped && fixtureState) rmSync(fixtureState, { recursive: true, force: true });
     if (privateWorkDirOwned) rmSync(privateWorkDir, { recursive: true, force: true });

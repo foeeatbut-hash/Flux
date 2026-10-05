@@ -6,10 +6,11 @@ import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rea
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mariaDatabaseOptions } from '../../../shared/companyDatabase.ts';
-import { ownerTestLogin } from '../ownerTestLogin.ts';
 
 const require = createRequire(import.meta.url);
+// TypeScript здесь CommonJS; require совместим с Node 22 и загрузчиком tsx.
+const { mariaDatabaseOptions } = require('../../../shared/companyDatabase.ts');
+const { ownerTestLogin } = require('../ownerTestLogin.ts');
 const mariadb = require('mariadb');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = realpathSync(path.resolve(here, '../../..'));

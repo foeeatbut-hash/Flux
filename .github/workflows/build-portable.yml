@@ -137,3 +137,81 @@ jobs:
           files: ${{ steps.meta.outputs.file }}
           fail_on_unmatched_files: true
           make_latest: ${{ steps.meta.outputs.prerelease == 'true' && 'false' || 'true' }}
+
+  # Восстановление публикации готового EXE: только служебные правки после сборки.
+  # Не компилирует продукт повторно и проверяет неизменность его исходников.
+  publish-recovered:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-exe]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Проверить исходники и сохранённый артефакт
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILT_HEAD: ceb3082563e84a60d3abde613cac7b03c5a8605b
+          ARTIFACT_ID: '11331306785'
+          ARTIFACT_SHA256: b9e6e1a69914ab6a12e626fecbc26b24acf5ab45ea0c725a7b7d0990f6d2d0f6
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = '1.20.7'
+          while IFS= read -r changed; do
+            case "$changed" in
+              scripts/run-remaining-api-fixture.ts|scripts/fixtures/remaining-live/remaining-live.mjs|scripts/fixtures/remaining-collaboration/seed-mail.mjs|scripts/test-windows-explorer-ui.ts|.github/workflows/build-owner.yml|.github/workflows/build-portable.yml|docs/testing/results-2026-10-05.md) ;;
+              *) echo "Исходники продукта изменились: $changed. Требуется новая сборка." >&2; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$BUILT_HEAD" "$GITHUB_SHA")
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r '.workflow_run.head_sha' <<< "$artifact")" = "$BUILT_HEAD"
+          test "$(jq -r '.name' <<< "$artifact")" = 'Flux-portable'
+          test "$(jq -r '.expired' <<< "$artifact")" = 'false'
+          test "$(jq -r '.digest' <<< "$artifact")" = "sha256:$ARTIFACT_SHA256"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/flux-portable.zip"
+          echo "$ARTIFACT_SHA256  $RUNNER_TEMP/flux-portable.zip" | sha256sum --check --status
+          python3 - <<'PY'
+          import os, pathlib, shutil, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          filename = 'Flux-1.20.7-x64.exe'
+          with zipfile.ZipFile(root / 'flux-portable.zip') as archive:
+              names = archive.namelist()
+              if len(names) != 1 or names[0] not in (filename, 'release/' + filename):
+                  raise RuntimeError('Unexpected portable artifact contents')
+              with archive.open(names[0]) as source, (root / filename).open('wb') as target:
+                  shutil.copyfileobj(source, target)
+          with (root / filename).open('rb') as executable:
+              if executable.read(2) != b'MZ' or (root / filename).stat().st_size < 100_000_000:
+                  raise RuntimeError('Invalid Windows portable executable')
+          PY
+          sha256sum "$RUNNER_TEMP/Flux-1.20.7-x64.exe" >> "$GITHUB_STEP_SUMMARY"
+      - name: Опубликовать проверенный portable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/flux-release-notes.md" <<'NOTES'
+          Портативная сборка Flux 1.20.7 для Windows x64; установка не требуется.
+
+          - Единый Проводник открывает зеркальные файлы Windows; импорт доступен через выбор файлов и Проводник.
+          - Системные программы Flux убраны с рабочего стола, доступны через Пуск и панель задач.
+          - Исправлены границы рабочего стола с учётом панели задач Windows и контур обычного окна.
+          - Каталог содержит 114 записей и содержание 212 страниц с иллюстрациями и поиском, без служебных подписей источников.
+          - Данные Каталога публикуются администратором через общую MariaDB, без замены программы.
+          - Дурак поддерживает комнаты на 2–6 игроков; бильярд — на двух игроков, со зрителями отдельно.
+          - Исправлены права общей почты и перенос в заметки; функции ИИ GenOffice удалены из Flux Office.
+          - Обновления публикуются через Flux-Owner 1.2.3 с автоматической подписью и подробным безопасным журналом.
+
+          Поместите Flux 1.20.7 и Flux-Owner 1.2.3 в одну папку; существующие ключи менять не нужно.
+          Каталог: Управление данными → Публикации → предпросмотр, сохранение черновиков и публикация.
+          Оригиналы сохранены целиком; числовые таблицы требуют сверки, три страницы — восстановления текста.
+          Интерфейс на реальных мониторах Windows и корпоративная NAS здесь не проверялись.
+          NOTES
+          if gh release view v1.20.7 --repo "$GITHUB_REPOSITORY" --json targetCommitish > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            test "$(jq -r '.targetCommitish' "$RUNNER_TEMP/existing-release.json")" = "$GITHUB_SHA"
+            gh release upload v1.20.7 "$RUNNER_TEMP/Flux-1.20.7-x64.exe" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v1.20.7 "$RUNNER_TEMP/Flux-1.20.7-x64.exe" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Flux 1.20.7' --notes-file "$RUNNER_TEMP/flux-release-notes.md" --latest
+          fi
