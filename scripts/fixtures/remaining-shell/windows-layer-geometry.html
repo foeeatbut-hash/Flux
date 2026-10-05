@@ -2,12 +2,14 @@
 <script type="module">
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import Layout from '../../../src/components/Layout';
 import '../../../src/index.css';
 import { useStore } from '../../../src/store/store';
 import { useDesktopStore } from '../../../src/store/desktopStore';
 import { useDisplayStore } from '../../../src/store/displayStore';
+import { usePolicyStore } from '../../../src/store/policyStore';
+import { useWindowStore } from '../../../src/store/windowStore';
 
 const screen = {
   id: 1, label: 'Тестовый экран', primary: true, scaleFactor: 1,
@@ -16,7 +18,7 @@ const screen = {
 };
 const update = (showWindowsTaskbar) => useDisplayStore.setState({
   workspace: { enabled: true, showWindowsTaskbar, displays: [{ ...screen,
-    workArea: showWindowsTaskbar ? screen.workArea : screen.bounds,
+    workArea: screen.workArea,
   }], bounds: screen.bounds, primaryId: 1, mixedScale: false },
   available: true,
 });
@@ -25,5 +27,12 @@ useStore.setState({ user: { id: 'desktop-geometry-fixture', name: 'Провер�
 useDesktopStore.setState({ apps: ['/mail'] });
 update(true);
 window.__setWindowsTaskbar = update;
-createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter, null, React.createElement(Layout)));
+window.__windowStore = useWindowStore;
+window.__refreshPolicy = () => usePolicyStore.getState().apply({ permissions: {}, platform: { enabled: false } });
+function ShellFixture() {
+  const navigate = useNavigate();
+  React.useEffect(() => { window.__navigate = navigate; }, [navigate]);
+  return React.createElement(Layout);
+}
+createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter, null, React.createElement(ShellFixture)));
 </script>

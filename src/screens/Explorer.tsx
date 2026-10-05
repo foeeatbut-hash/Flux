@@ -34,7 +34,7 @@ import WindowsExplorer from '../components/explorer/WindowsExplorer';
 import SharedFilesFolder from '../components/explorer/SharedFilesFolder';
 import { uploadDropped } from '../lib/dropUpload';
 import { heavyOnes, MB } from '../lib/dropFiles';
-import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
+import { saveExplorerItem, openInWindowsSaid } from '../lib/saveToWindows';
 import {
   SEC_SHARED, SEC_DISK, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
@@ -927,15 +927,6 @@ function ProjectExplorer() {
    * откуда файл когда-то принесли, предлагается та же папка — файл, который
    * ходит туда-сюда, ходит по одной тропинке.
    */
-  const handleDownload = async (id: string, isFolder: boolean) => {
-    if (isFolder) return;
-    const item = allCurrentItems.find(i => i.id === id);
-    if (!item) return;
-    const out = await saveFileNode(id);
-    if (out.canceled) return;
-    addToast(out.ok ? `Сохранено: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
-  };
-
   const diskRootFolder = folders.find((f: any) => f.id === diskRootId);
   const currentFolder = isSectionId(currentFolderId)
     ? (currentFolderId === SEC_DISK ? diskRootFolder : undefined)
@@ -2012,7 +2003,7 @@ function ProjectExplorer() {
                      {/* Действия над файлом — закреплены внизу панели: на экране
                          ноутбука они иначе уходят ниже видимой части. */}
                      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border grid grid-cols-2 gap-1.5 mt-3">
-                       <button type="button" onClick={() => handleDownload(item.id, false)}
+                       <button type="button" onClick={() => void saveExplorerItem(item.id, false, allCurrentItems, folders, addToast)}
                          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
                          <Download className="w-3.5 h-3.5" /> Выгрузить в Windows
                        </button>
@@ -2087,7 +2078,7 @@ function ProjectExplorer() {
           attachVdr={setVdrAttachFileId}
           versions={(id) => setVersionsOf({ id, name: String(allCurrentItems.find(i => i.id === id)?.name || 'файл') })}
           english={(id) => setEnglishOf({ id, name: String(allCurrentItems.find(i => i.id === id)?.name || 'файл') })}
-          download={(id) => handleDownload(id, false)}
+          download={(id, isFolder) => { void saveExplorerItem(id, !!isFolder, allCurrentItems, folders, addToast); }}
           assignTag={handleAssignTag}
           assignDepartment={handleAssignDepartment}
           changeStatus={handleChangeStatus}

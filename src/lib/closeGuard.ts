@@ -52,3 +52,20 @@ export function clearGuards(): void { guards.clear(); }
 
 /** Сколько стражей стоит сейчас: проверке нужно видеть, что они снимаются. */
 export const guardCount = (): number => guards.size;
+
+let preparing: Promise<boolean> | null = null;
+/** Save every mounted editor before logout or an update; cancellation keeps it mounted. */
+export function prepareSessionClose(): Promise<boolean> {
+  if (preparing) return preparing;
+  const run = async () => {
+    const snapshot = [...guards.entries()];
+    for (const [id, guard] of snapshot) {
+      if (guards.get(id) !== guard) continue;
+      try { if (!await guard()) return false; } catch { return false; }
+    }
+    // An editor opened during saving has not been asked yet.
+    return [...guards.entries()].every(([id, guard]) => snapshot.some(([oldId, oldGuard]) => oldId === id && oldGuard === guard));
+  };
+  preparing = run().finally(() => { preparing = null; });
+  return preparing;
+}

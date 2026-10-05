@@ -790,6 +790,7 @@ app.use(personLicenseMiddleware({
   allowed: (method, route) => {
     const p = route.toLowerCase().replace(/\/+$/, '');
     return AUTH_EXEMPT.has(p) || p.startsWith('/api/license/') || p === '/api/logout'
+      || (method === 'POST' && ['/api/updates/devices/heartbeat', '/api/updates/reminder'].includes(p))
       || (['GET', 'HEAD'].includes(method) && (p.startsWith('/api/updates') || p === '/api/me/bootstrap' || p === '/api/auth/check' || p === '/api/auth/me'));
   },
   readOnlyPost: p => /^\/api\/archives\/[^/]+\/(list|test|extract-preview|edit-preview)\/?$/i.test(p),

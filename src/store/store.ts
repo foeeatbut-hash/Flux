@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { setNotifUser } from '../lib/notifPrefs';
 import { logoutSession, markSessionEstablished } from '../config/env';
 import { useToastStore } from './toastStore';
+import { prepareSessionClose } from '../lib/closeGuard';
 
 type User = {
   id: string;
@@ -56,6 +57,7 @@ export function applyDensity(d: Density) {
 }
 
 let syncTimeoutId: any = null;
+let logoutInFlight = false;
 
 export const useStore = create<AppState>((set, get) => {
   // Apply initial theme on startup
@@ -82,11 +84,23 @@ export const useStore = create<AppState>((set, get) => {
     activeProject: initialProject,
     setUser: async (user) => {
       if (!user && get().user) {
-        try { await logoutSession(); }
-        catch (error: any) {
-          useToastStore.getState().addToast(error.message || 'Не удалось выйти. Повторите выход.', 'error');
-          return;
+        if (logoutInFlight) return;
+        logoutInFlight = true;
+        const leaving = get().user;
+        try {
+          if (!await prepareSessionClose()) return;
+          const native = typeof window === 'undefined' ? null : (window as any).electron?.nativeApps;
+          if (native?.action && window.location.pathname !== '/native-app' && !window.location.hash.includes('/native-app')) {
+            if (!await native.action('', 'logout')) return;
+          }
+          if (get().user?.id !== leaving?.id) return;
+          const result = await logoutSession();
+          if (!result.remoteRevoked) useToastStore.getState().addToast('Вы вышли на этом компьютере. Подтвердить завершение сессии в общей базе пока не удалось.', 'info');
         }
+        catch (error: any) {
+          useToastStore.getState().addToast('Вы вышли на этом компьютере. Проверьте соединение перед следующим входом.', 'info');
+        }
+        finally { logoutInFlight = false; }
       }
       if (user) markSessionEstablished();
       try {

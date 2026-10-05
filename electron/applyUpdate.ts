@@ -88,7 +88,8 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
       // будет уже негде — а именно эта запись и объясняет, чем кончилось
       appendLogNow('INFO', 'Обновление', 'Файл программы заменён, запускаю новую версию');
       await launch(plan.target);
-      try { fs.unlinkSync(backup); } catch (_) {}
+      // Событие spawn подтверждает создание процесса, но не успешный вход новой версии.
+      // Прежний EXE остаётся доступен для ручного отката после отказа запуска.
       app.exit(0);
       return;
     } catch (err: any) {

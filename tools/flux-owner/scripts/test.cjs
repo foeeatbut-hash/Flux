@@ -24,6 +24,11 @@ async function main() {
     const serviceCore = compile(path.join(serviceRoot, 'license/node/core.ts'), path.join(temp, 'service-license-core.cjs'));
     const serviceRevocation = compile(path.join(serviceRoot, 'license/node/revocation.ts'), path.join(temp, 'service-revocation.cjs'));
     const serviceUpdate = compile(path.join(serviceRoot, 'electron/updateSignature.ts'), path.join(temp, 'service-update-signature.cjs'));
+    const updateKeyStub = path.join(temp, 'update-key-stub.ts');
+    await fs.writeFile(updateKeyStub, 'export const UPDATE_PUBLIC_KEY_HEX = "";\n');
+    const updateCommand = compile(path.join(serviceRoot, 'electron/updateCommand.ts'), path.join(temp, 'service-update-command.cjs'), {
+      alias: { updateKey: updateKeyStub },
+    });
     const vaultApi = require(path.join(root, 'src/vault.cjs'));
     const { parseDatabaseUri } = require(path.join(root, 'src/database-runtime.cjs'));
     const { applyPublicConfig } = require(path.join(root, 'src/public-config.cjs'));
@@ -439,7 +444,32 @@ async function main() {
     assert.deepEqual(serviceUpdate.readUpdateSignature(signedRelease.signature, config.update), signedRelease.payload);
     assert.equal(serviceUpdate.readUpdateSignature(signedRelease.signature, config.license), null);
 
-    console.log('Flux-Owner: vault, public config, FLUX2 license, FLUXREV1 revocation, and update-signature checks passed.');
+    const adminKey = crypto.generateKeyPairSync('ed25519');
+    const adminPublicKey = adminKey.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
+    const requestCode = `FLUXUPDAUTHREQ1.${Buffer.from(JSON.stringify({
+      v: 1, inst: 'delegation-install', userId: 'admin-user', publicKey: adminPublicKey,
+    })).toString('base64')}`;
+    const delegation = ownerSigning.signUpdateDelegation(mainVault, {
+      code: requestCode, days: 30, maxTargets: 200, maxMinutes: 30,
+    });
+    assert.equal(delegation.payload.inst, 'delegation-install');
+    assert.equal(delegation.payload.userId, 'admin-user');
+    assert.equal(delegation.payload.publicKey, adminPublicKey);
+    assert.deepEqual(updateCommand.readUpdateDelegation(delegation.code, config.update), delegation.payload);
+    assert.equal(updateCommand.readUpdateDelegation(`${delegation.code}x`, config.update), null);
+    for (const args of [
+      { days: 0, maxTargets: 1, maxMinutes: 5 },
+      { days: 366, maxTargets: 1, maxMinutes: 5 },
+      { days: 1, maxTargets: 2001, maxMinutes: 5 },
+      { days: 1, maxTargets: 1, maxMinutes: 4 },
+    ]) {
+      assert.throws(() => ownerSigning.signUpdateDelegation(mainVault, { code: requestCode, ...args }), /Проверьте срок/);
+    }
+    assert.throws(() => ownerSigning.signUpdateDelegation(mainVault, {
+      code: 'FLUXUPDAUTHREQ1.invalid', days: 30, maxTargets: 200, maxMinutes: 30,
+    }), /повреждён/);
+
+    console.log('Flux-Owner: vault, public config, FLUX2 license, FLUXREV1 revocation, update signatures, and delegated-update grants passed.');
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

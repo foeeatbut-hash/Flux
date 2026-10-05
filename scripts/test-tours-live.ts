@@ -39,6 +39,15 @@ const ok = (n: string, c: boolean, d?: any) =>
   }));
 
   try {
+    const officeRoutes = TOURS.flatMap(tour => tour.steps
+      .filter(step => step.route === '/sheet' || step.target?.includes('nav-/sheet') || step.target?.includes('office-new-btn'))
+      .map(step => `${tour.id}: ${step.route || step.target}`));
+    ok('Flux Office демонстрации ведут в Проводник', officeRoutes.length === 0, officeRoutes);
+    const updateTour = TOURS.find(tour => tour.id === 'app-update');
+    ok('обновление открывается через значок у часов', !!updateTour
+      && updateTour.steps.every(step => !step.route?.includes('section=updates'))
+      && updateTour.steps.some(step => step.text.includes('значок обновления')));
+
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(6500);
     const inputs = await page.$$('input');

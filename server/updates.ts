@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { readUpdateSignature } from '../electron/updateSignature.js';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
 import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
+import { registerUpdateCampaignRoutes } from './routes/updateCampaigns.js';
 
 export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T) => { ok: boolean; why: string }) {
   const broken: { version: string; why: string }[] = [];
@@ -46,6 +47,7 @@ export async function ensureUpdatePublicationSchema(db: any): Promise<void> {
 }
 
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
+  registerUpdateCampaignRoutes(app, deps);
   app.use('/api/updates', async (_req, res, next) => {
     try { await ensureUpdatePublicationSchema(deps.getPrisma()); next(); }
     catch (e: any) { res.status(503).json({ error: e?.message || 'Схема обновлений недоступна' }); }
@@ -192,7 +194,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       const update = await db.appUpdate.findUnique({ where: { version } });
       deps.broadcast('app:update-published', { version, changelog });
       // Notification failure does not turn a successful atomic publication into a failed upload.
-      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`, changelog.split('\n')[0].slice(0, 120), '/settings?section=updates', String((req as any).authUser.id || '')).catch(e => console.error('[Обновление] Уведомление не доставлено:', e?.message));
+      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`, changelog.split('\n')[0].slice(0, 120), '/updates', String((req as any).authUser.id || '')).catch(e => console.error('[Обновление] Уведомление не доставлено:', e?.message));
       res.json({ success: true, update });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось опубликовать релиз' }); }
   });

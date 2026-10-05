@@ -1,5 +1,6 @@
 import React from 'react';
 import type { WindowsFileEntry, WindowsFileRef } from '../../lib/windowsFiles';
+import { FileIcon, IconBadges } from '../icons/FluxIcons';
 
 type Visual = { label: string; color: string; mark: 'lines' | 'grid' | 'photo' | 'code' | 'zip' | 'pdf' | 'generic' };
 
@@ -20,15 +21,18 @@ const visualFor = (name: string): Visual => {
 /** Иконки Проводника держат знакомый силуэт и различают тип по знаку и подписи. */
 export default function WindowsFileIcon({ entry, size = 18, className = '', nativeIcon }: { entry: WindowsFileEntry; size?: number; className?: string; nativeIcon?: string | null }) {
   const large = size > 20;
-  if (nativeIcon) return <img src={nativeIcon} alt="" draggable={false} width={size} height={size} className={`shrink-0 object-contain ${className}`} />;
-  if (entry.kind === 'directory') return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
-    <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h8l3 3h10A2.5 2.5 0 0 1 29 11.5v13a2.5 2.5 0 0 1-2.5 2.5h-21A2.5 2.5 0 0 1 3 24.5z" fill="#e8ad36" stroke="#c18a1c" strokeWidth="1" />
-    <path d="M3.5 13h25l-2.1 11.7a2 2 0 0 1-2 1.6H5.4a2 2 0 0 1-2-2.4z" fill="#f2c14e" stroke="#d39b27" strokeWidth=".8" />
-    <path d="M5 14h22" stroke="#ffdf86" strokeWidth="1" />
-  </svg>;
-  if (entry.kind !== 'file') return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}><path d="M7 5h18v22H7z" fill="#e8edf2" stroke="#8292a2"/><path d="M11 11h10M11 15h10M11 19h7" stroke="#8292a2" strokeWidth="1.4" strokeLinecap="round"/></svg>;
+  if (nativeIcon) return <IconBadges size={size} flux={entry.storage === 'flux'}>
+    <img src={nativeIcon} alt="" draggable={false} width={size} height={size} className={`shrink-0 object-contain ${className}`} />
+  </IconBadges>;
+  if (entry.kind === 'directory') return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="folder" size={size} className={className} /></IconBadges>;
+  if (entry.kind !== 'file') return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="unknown" size={size} className={className} /></IconBadges>;
   const visual = visualFor(entry.name);
-  return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
+  const ext = entry.name.split('.').pop()?.toLocaleLowerCase('en') || '';
+  if (['doc', 'docx', 'rtf', 'odt'].includes(ext)) return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="word" size={size} className={className} /></IconBadges>;
+  if (['xls', 'xlsx', 'csv', 'ods'].includes(ext)) return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="excel" size={size} className={className} /></IconBadges>;
+  if (ext === 'pdf') return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="pdf" size={size} className={className} /></IconBadges>;
+  if (['exe', 'msi', 'bat', 'cmd', 'app'].includes(ext) || visual.mark === 'generic') return <IconBadges size={size} flux={entry.storage === 'flux'}><FileIcon kind="unknown" size={size} className={className} /></IconBadges>;
+  return <IconBadges size={size} flux={entry.storage === 'flux'}><svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
     <path d="M7 3.5h12l6 6V26a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 7 26z" fill="#fff" stroke="#a9b5c1" strokeWidth="1" />
     <path d="M19 4v4a2 2 0 0 0 2 2h4" fill="#e8edf2" stroke="#a9b5c1" strokeWidth="1" />
     {visual.mark === 'grid' ? <g fill="none" stroke={visual.color} strokeWidth="1"><rect x="10" y="12" width="11" height="8" rx=".8"/><path d="M10 15h11M10 17.5h11M13.7 12v8M17.4 12v8"/></g>
@@ -39,7 +43,7 @@ export default function WindowsFileIcon({ entry, size = 18, className = '', nati
               : <g fill="none" stroke={visual.color} strokeWidth="1.1" strokeLinecap="round"><path d="M11 13h10M11 16h10M11 19h7"/></g>}
     <path d="M6 22h19v4a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z" fill={visual.color} />
     {large && <text x="15.5" y="26.3" textAnchor="middle" fontSize={visual.label.length > 2 ? 4.4 : 6.2} fontWeight="600" fill="#fff">{visual.label}</text>}
-  </svg>;
+  </svg></IconBadges>;
 }
 
 const iconCache = new Map<string, { at: number; request: Promise<string | null> }>();

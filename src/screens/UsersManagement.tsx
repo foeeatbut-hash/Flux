@@ -10,6 +10,7 @@ import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
 import EmployeeImportDialog from '../components/users/EmployeeImportDialog';
+import UpdateCampaignPanel from '../components/users/UpdateCampaignPanel';
 import { cleanUserPermissions } from '../lib/userPermissions';
 import { canManagePlay, canOpenApp } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
@@ -185,6 +186,11 @@ export default function UsersManagement() {
     setIsEditSubmitting(true);
     if (!editSymbol.trim()) { setEditError('Укажите табельный номер (логин)'); setIsEditSubmitting(false); return; }
     const cleanPerms = cleanUserPermissions(editPerms);
+    if ((editUser as any).legacyBootstrap && (!isOwner || editSymbol.trim().toLowerCase() === editUser.symbol.trim().toLowerCase() || editPassword.trim().length < 8)) {
+      setEditError('Перенос начального профиля требует нового логина и нового пароля длиной не менее 8 символов.');
+      setIsEditSubmitting(false);
+      return;
+    }
     try {
       const res = await dataService.updateUser(editUser.id, {
         lastName: editNameValue.lastName.trim(),
@@ -417,8 +423,12 @@ export default function UsersManagement() {
         count={countOf(counts.total, 'сотрудник')}
         actions={(mayCreate || mayManage) && <div className="flex gap-2">{(mayCreate || mayManage) && <Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</div>}
       />
+      {isOwner && usersList.some((employee: any) => employee.legacyBootstrap) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100" role="status">
+        Начальный профиль администратора заблокирован. Откройте его карточку и перенесите на личный логин с новым паролем. ID, файлы и история сохранятся.
+      </div>}
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
+      {mayManage && <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} />}
       <Toolbar>
         <label className="relative w-64 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
@@ -478,6 +488,7 @@ export default function UsersManagement() {
                       </span>
                       <span className="truncate text-slate-900 dark:text-white" title={emp.name}>{emp.name}</span>
                       <span className="code text-xs text-slate-400 shrink-0">{emp.symbol}</span>
+                      {isOwner && (emp as any).legacyBootstrap && <Status tone="amber">Нужен перенос</Status>}
                       <span className="@[720px]:hidden text-slate-400 truncate">· {roleByCode(emp.role, roles).name}</span>
                     </div>
                   </td>
@@ -559,18 +570,21 @@ export default function UsersManagement() {
           <p className="mb-3">
             Сотрудник: <span className="text-slate-900 dark:text-white">{editUser.name}</span> <span className="code text-slate-400">{editUser.symbol}</span>
           </p>
+          {isOwner && (editUser as any).legacyBootstrap && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 mb-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
+            Перенос начального профиля: задайте личный логин и новый пароль (не менее 8 символов). Профиль сохранит прежний ID, файлы и историю; все прежние входы будут отозваны.
+          </div>}
           {editError && <p className="fx-error mb-3">{editError}</p>}
           <form id="user-edit-form" onSubmit={handleSaveEdit} className="space-y-3">
             <NameFields value={editNameValue} onChange={setEditNameValue} disabled={isEditSubmitting} />
-            <Field label="Табельный номер (логин)" hint="Логин для входа: уникальный, без символа @.">
+            <Field label="Табельный номер (логин)" hint={(editUser as any).legacyBootstrap ? 'Укажите новый личный логин, отличный от прежнего.' : 'Логин для входа: уникальный, без символа @.'}>
               <Input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)} disabled={isEditSubmitting} className="code" />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Роль">
                 <Select value={editRole} onChange={setEditRole} disabled={isEditSubmitting} options={roleOptions(editRole)} />
               </Field>
-              <Field label="Новый пароль">
-                <Input value={editPassword} onChange={(e) => setEditPassword(e.target.value)} disabled={isEditSubmitting} placeholder="Не менять" />
+              <Field label={(editUser as any).legacyBootstrap ? 'Новый пароль (обязательно)' : 'Новый пароль'}>
+                <Input value={editPassword} onChange={(e) => setEditPassword(e.target.value)} disabled={isEditSubmitting} placeholder={(editUser as any).legacyBootstrap ? 'Не менее 8 символов' : 'Не менять'} />
               </Field>
             </div>
             <Field label="Доступ действует до">

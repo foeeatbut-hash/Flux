@@ -51,7 +51,7 @@ export function blocker(o: {
   }
   if (!o.packaged) return 'Это режим разработки — обновление здесь не ставится.';
   if (!o.fileUrl) {
-    return 'У релиза нет файла. Владельцу Flux нужно загрузить подписанный exe в общую базу.';
+    return 'Файл обновления недоступен. Обратитесь к ответственному за программу.';
   }
   if (!o.portable) {
     return 'Программа запущена не портативным файлом — обновление поставит обычный установщик.';
@@ -93,13 +93,15 @@ export function versionProblem(version: string, current?: string): string {
 }
 
 /** Строка хода дела для одной кнопки: человек видит этап, а не проценты в никуда */
-export type Phase = 'idle' | 'checking' | 'available' | 'downloading' | 'verifying' | 'installing' | 'failed';
+export type Phase = 'idle' | 'checking' | 'available' | 'downloading' | 'verifying' | 'ready' | 'saving' | 'installing' | 'failed';
 
 export function phaseLabel(phase: Phase, percent = 0): string {
   switch (phase) {
     case 'checking': return 'Сверяю версии…';
     case 'downloading': return `Скачиваю… ${Math.round(percent)}%`;
     case 'verifying': return 'Проверяю файл…';
+    case 'ready': return 'Файл готов к установке';
+    case 'saving': return 'Сохраняю открытые документы…';
     case 'installing': return 'Закрываюсь и обновляюсь…';
     default: return '';
   }

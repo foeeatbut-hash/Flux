@@ -5,13 +5,14 @@ import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, type WindowsFilesRequest,
 import { WindowsFilesService } from './service';
 import { WindowsFilesError } from './paths';
 import { windowsPublicDesktopFolder } from '../desktopShell';
+import { enumerateWindowsVolumes, openWindowsRecycleBin } from './nativePlaces';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
   mayRead: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
   mayWrite: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
 }
-const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'publishDraft', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'setMetadata']);
+const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'setMetadata']);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
   EPERM: 'Файл занят другой программой или Windows запретила действие.',
@@ -56,6 +57,19 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
       let data: unknown;
       switch (request.action) {
         case 'roots': data = await service.roots(); break;
+        case 'volumes': {
+          const volumes = await enumerateWindowsVolumes();
+          data = await Promise.all(volumes.map(async volume => {
+            try {
+              const root = await service.addRoot(volume.path, volume.name);
+              return { id: volume.id, name: volume.name, kind: volume.kind, networkPath: volume.networkPath, size: volume.size, free: volume.free, root };
+            } catch {
+              return { id: volume.id, name: volume.name, kind: volume.kind, networkPath: volume.networkPath, size: volume.size, free: volume.free, root: { id: '', name: volume.name, kind: 'custom', available: false } };
+            }
+          }));
+          break;
+        }
+        case 'openRecycleBin': await openWindowsRecycleBin(); data = { opened: true }; break;
         case 'draftTrash': data = await service.draftTrash(); break;
         case 'pickImport': {
           const requested = Array.isArray(request.extensions) ? request.extensions : [];
@@ -115,7 +129,9 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         case 'write': data = await service.write(request.ref, request.base64, request.baseSha256); break;
         case 'publish': data = await service.publish(request.parent, request.name, request.base64, request.draftId); break;
         case 'createDraft': data = await service.createDraft(request.parent, request.name, request.base64); break;
+        case 'createDraftFolder': data = await service.createDraftFolder(request.parent, request.name); break;
         case 'publishDraft': data = await service.publishDraft(request.ref); break;
+        case 'publishDraftTree': data = await service.publishDraftTree(request.ref); break;
         case 'mkdir': data = await service.mkdir(request.parent, request.name); break;
         case 'rename': data = await service.rename(request.ref, request.name); break;
         case 'copy': data = await service.copy(request.ref, request.parent, request.name); break;

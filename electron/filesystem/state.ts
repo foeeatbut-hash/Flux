@@ -6,7 +6,7 @@ import { WindowsFilesError } from './paths';
 
 export interface StoredRoot { id: string; path: string; name: string; kind: WindowsKnownFolder }
 export interface StoredPublication { ref: { rootId: string; relativePath: string }; sha256: string; fileId: string; status?: 'pending' | 'complete' }
-export interface StoredDraft { id: string; parent: { rootId: string; relativePath: string }; name: string; parentFileId?: string; publishedRef?: { rootId: string; relativePath: string }; trashed?: boolean }
+export interface StoredDraft { id: string; parent: { rootId: string; relativePath: string; draftId?: string }; name: string; kind?: 'file' | 'directory'; parentFileId?: string; publishedRef?: { rootId: string; relativePath: string }; trashed?: boolean }
 interface StoredState {
   version: 1; deviceId: string; roots: StoredRoot[];
   metadata: Record<string, WindowsFileMetadata>; identity: Record<string, string>;
@@ -23,6 +23,7 @@ export class WindowsFilesState {
     try {
       data = JSON.parse(await fs.readFile(filename, 'utf8'));
       data.drafts ||= {};
+      for (const draft of Object.values(data.drafts)) draft.kind ||= 'file';
       if (data.version !== 1 || !data.deviceId || !Array.isArray(data.roots) || !data.metadata || !data.identity || !data.publications) throw new Error('format');
     } catch (error: any) {
       if (error.code !== 'ENOENT') throw new WindowsFilesError('STATE_UNREADABLE', 'Не удалось открыть свойства файлов Flux. Существующий файл свойств сохранён.');

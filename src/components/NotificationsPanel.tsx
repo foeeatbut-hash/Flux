@@ -90,6 +90,7 @@ export default function NotificationsPanel() {
   };
 
   const go = (route?: string) => {
+    if (route === '/updates' || route === '/settings?section=updates') { window.dispatchEvent(new Event('flux:open-updates')); setPanelOpen(false); return; }
     if (route && route !== '#') { navigate(route); setPanelOpen(false); }
   };
 

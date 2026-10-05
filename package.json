@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.20.8",
+  "version": "1.20.11",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
   "scripts": {

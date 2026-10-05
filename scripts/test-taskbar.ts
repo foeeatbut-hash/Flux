@@ -8,7 +8,7 @@
  */
 import {
   buildTaskbar, badgeCount, clockLabel, dateLabel, deadlineLabel, badgeLabel,
-  fitButtons, LABELS_UNTIL, TIDY_FROM, trayFit, type TaskbarSource,
+  fitButtons, TIDY_FROM, trayFit, type TaskbarSource,
 } from '../src/lib/taskbar';
 import { SECTIONS } from '../src/workspace/sections';
 import { readFileSync } from 'fs';
@@ -37,7 +37,7 @@ console.log('Состав панели');
   const v = buildTaskbar(S, { open: [], activePath: '/', counts: NONE });
   check('без открытых разделов на панели только закреплённые', v.buttons.length === 4, v.buttons.map((b) => b.path));
   check('ни одна кнопка не «запущена»', v.buttons.every((b) => !b.running));
-  check('подписи показываются', v.labels === true);
+  check('все закреплённые кнопки доступны при первом запуске', v.visible.length === 4);
   check('прибираться не предлагается', v.tidy === false);
 }
 {
@@ -63,9 +63,7 @@ console.log('Сжатие');
 {
   const many = Array.from({ length: 9 }, (_, i) => ({ path: `/p${i}`, title: `Р${i}`, pinned: true }));
   const v = buildTaskbar(many, { open: [], activePath: '/', counts: NONE });
-  check(`после ${LABELS_UNTIL} кнопок подписи уходят`, v.labels === false, v.buttons.length);
-  const eight = buildTaskbar(many.slice(0, LABELS_UNTIL), { open: [], activePath: '/', counts: NONE });
-  check('ровно на пороге подписи ещё есть', eight.labels === true);
+  check('имена не расширяют компактные кнопки', v.visible.length === 9);
 }
 {
   // Счёта кнопок мало: шесть длинных названий не влезают в ноутбучные 1180,
@@ -74,15 +72,15 @@ console.log('Сжатие');
   const long = ['Оборудование', 'Справочник', 'Переводчик', 'Проводник', 'Менеджмент', 'Руководство']
     .map((title, i) => ({ path: `/p${i}`, title, pinned: true }));
   const wide = buildTaskbar(long, { open: [], activePath: '/', counts: NONE, width: 1290 });
-  check('на широком экране подписи есть', wide.labels === true);
+  check('на широком экране помещаются все компактные кнопки', wide.visible.length === 6);
   const narrow = buildTaskbar(long, { open: [], activePath: '/', counts: NONE, width: 720 });
-  check('на узком подписи уходят, а кнопки остаются', narrow.labels === false && narrow.buttons.length === 6, narrow.buttons.length);
+  check('на узком экране все разделы доступны через значки и кнопку «ещё»', narrow.visible.length + narrow.hidden.length === 6, narrow.buttons.length);
   const unknown = buildTaskbar(long, { open: [], activePath: '/', counts: NONE });
-  check('ширина не измерена — подписями не мигаем', unknown.labels === true);
+  check('ширина не измерена — все компактные кнопки доступны', unknown.visible.length === 6);
   check('короткие названия влезают и в узкую панель',
-    buildTaskbar([{ path: '/a', title: 'Теги', pinned: true }], { open: [], activePath: '/', counts: NONE, width: 200 }).labels === true);
+    buildTaskbar([{ path: '/a', title: 'Теги', pinned: true }], { open: [], activePath: '/', counts: NONE, width: 200 }).visible.length === 1);
   check('пустая панель не спорит с шириной',
-    buildTaskbar([], { open: [], activePath: '/', counts: NONE, width: 400 }).labels === true);
+    buildTaskbar([], { open: [], activePath: '/', counts: NONE, width: 400 }).visible.length === 0);
 }
 {
   const open = Array.from({ length: TIDY_FROM }, (_, i) => `/p${i}`);
@@ -107,14 +105,14 @@ console.log('Переполнение');
     for (const n of [0, 1, 3, 6, 9, 12, 20]) {
       const src = Array.from({ length: n }, (_, i) => ({ path: `/x${i}`, title: 'Оборудование', pinned: true }));
       const view = buildTaskbar(src, { open: [], activePath: '/', counts: NONE, width });
-      const each = view.visible.map((b) => 44 + (view.labels ? b.title.length * 8 : 0));
+      const each = view.visible.map(() => 44);
       const sum = each.reduce((a, b) => a + b, 0) + (view.hidden.length ? 44 : 0);
       check(`ряд помещается: ${n} кнопок при ${width}`, sum <= width || n === 0, [sum, width]);
     }
   }
-  check('пустая полоса ничего не сворачивает', fitButtons([], 0, true) === 0);
-  check('без измеренной ширины помещается всё', fitButtons(['Теги', 'Почта'], 0, true) === 2);
-  check('в узкую полосу не влезает ничего', fitButtons(['Оборудование', 'Проводник'], 60, true) === 0);
+  check('пустая полоса ничего не сворачивает', fitButtons([], 0) === 0);
+  check('без измеренной ширины помещается всё', fitButtons(['Теги', 'Почта'], 0) === 2);
+  check('в узкую полосу не влезает ничего', fitButtons(['Оборудование', 'Проводник'], 60) === 0);
   const roomy = buildTaskbar(S, { open: [], activePath: '/', counts: NONE, width: 1600 });
   check('когда всё влезает, свёрнутых нет', roomy.hidden.length === 0);
   const unmeasured = buildTaskbar(S, { open: [], activePath: '/', counts: NONE });
@@ -153,7 +151,7 @@ console.log('Часы и срок');
 console.log('Реестр разделов');
 {
   const pinned = SECTIONS.filter((s) => s.pinned);
-  check('закреплено пять программ', pinned.length === 5, pinned.map((s) => s.path));
+  check('закреплены четыре самостоятельные программы', pinned.length === 4, pinned.map((s) => s.path));
   check('закреплённое не помечено adminOnly', pinned.every((s) => !s.adminOnly));
   check('у всех закреплённых есть значок', pinned.every((s) => !!s.icon));
   const badged = SECTIONS.filter((s) => s.badge);
@@ -162,7 +160,7 @@ console.log('Реестр разделов');
   check('счётчики только там, где ждут ответа',
     badged.map((s) => s.path).sort().join(',') === '/chat,/feedback,/mail', badged.map((s) => s.path));
   const v = buildTaskbar(SECTIONS as any, { open: [], activePath: '/', counts: NONE });
-  check('настоящий реестр даёт панель с подписями', v.labels === true, v.buttons.length);
+  check('настоящий реестр даёт компактные кнопки значков', v.visible.length === v.buttons.length, v.buttons.length);
 }
 
 console.log('Тесная панель');

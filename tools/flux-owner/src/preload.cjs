@@ -1,5 +1,5 @@
 const {contextBridge,ipcRenderer}=require('electron');
-const allowed=['exportDiagnostics','reportDiagnostic','state','chooseSetupFolder','setup','verifySetup','showSetupFolder','openBackup','create','unlock','lock','import','export','changePassword','publicExport','publicApply','request','issue','revoke','copy','chooseExe','signUpdate','connect','disconnect','publish','publishRevocation','withdrawUpdate','cancel','openFlux'];
+const allowed=['exportDiagnostics','reportDiagnostic','state','chooseSetupFolder','setup','verifySetup','showSetupFolder','openBackup','create','unlock','lock','import','export','changePassword','publicExport','publicApply','request','issue','revoke','copy','chooseExe','signUpdate','authorizeUpdates','connect','disconnect','publish','publishRevocation','withdrawUpdate','cancel','openFlux'];
 contextBridge.exposeInMainWorld('owner',Object.freeze({
   exportDiagnostics:()=>ipcRenderer.invoke('owner:action','exportDiagnostics'),
   reportDiagnostic:(event,details={})=>ipcRenderer.invoke('owner:action','reportDiagnostic',{event,details}),

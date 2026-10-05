@@ -16,6 +16,7 @@
 import { create } from 'zustand';
 import { getServerBaseUrl, getAuthToken } from '../config/env';
 import { isNewer, fileUrlOf, blocker, type Phase } from '../lib/updates';
+import { prepareSessionClose } from '../lib/closeGuard';
 
 export interface Release {
   version: string;
@@ -50,12 +51,16 @@ interface UpdateState {
   init: (current: string) => Promise<void>;
   check: (silent: boolean) => Promise<void>;
   /** Скачать и поставить: одно нажатие доводит дело до конца */
-  install: () => Promise<void>;
+  install: (campaignId?: string) => Promise<void>;
+  prepare: () => Promise<boolean>;
   markSeen: () => void;
   /** Убрать публикацию, у которой нет файла (только администратор) */
   revoke: (version: string) => Promise<string>;
 }
 
+let initialized = false;
+let preparing: Promise<boolean> | null = null;
+let checking = false;
 const elec = (): any => (typeof window !== 'undefined' ? (window as any).electron : undefined);
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
@@ -70,6 +75,8 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   seen: false,
 
   init: async (current) => {
+    if (initialized) return;
+    initialized = true;
     set({ current });
     const e = elec();
     if (!e) return;
@@ -90,18 +97,19 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     e.onUpdaterStatus?.((state: string, data?: { percent?: number }) => {
       if (state === 'downloading') set({ phase: 'downloading', percent: Math.round(data?.percent || 0) });
       else if (state === 'verifying') set({ phase: 'verifying' });
-      else if (state === 'downloaded') set({ phase: 'installing', percent: 100 });
+      else if (state === 'downloaded') set({ phase: 'ready', percent: 100 });
     });
     e.onUpdaterError?.((msg: string) => set({ phase: 'failed', error: String(msg || '') }));
   },
 
   check: async (silent) => {
-    if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
+    if (checking || ['downloading', 'verifying', 'ready', 'saving', 'installing'].includes(get().phase)) return;
+    checking = true;
     if (!silent) set({ phase: 'checking', error: '' });
     try {
-      const res = await fetch('/api/updates/latest');
+      const res = await fetch('/api/updates/latest', { signal: AbortSignal.timeout(15000) });
       const d = await res.json().catch(() => ({}));
-      if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
+      if (['downloading', 'verifying', 'ready', 'saving', 'installing'].includes(get().phase)) return;
       if (!res.ok) throw new Error(d.error || `Сервер ответил ${res.status}`);
       // Публикации без файла сервер не предлагает как обновление, но и не
       // прячет: администратор должен их увидеть и отозвать
@@ -113,13 +121,13 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({
         latest: { version: d.version, changelog: d.changelog || '', fileUrl: d.fileUrl || '', size: d.size, signature: d.signature || '' },
         phase: 'available',
-        seen: false,
+        seen: get().latest?.version === d.version ? get().seen : false,
         error: '',
       });
     } catch (err: any) {
-      if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
+      if (['downloading', 'verifying', 'ready', 'saving', 'installing'].includes(get().phase)) return;
       set({ phase: 'idle', error: silent ? '' : (err?.message || 'Не удалось проверить обновления') });
-    }
+    } finally { checking = false; }
   },
 
   markSeen: () => set({ seen: true }),
@@ -137,40 +145,44 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }
   },
 
-  install: async () => {
-    if (['downloading', 'verifying', 'installing'].includes(get().phase)) return;
-    const { latest, packaged, portable } = get();
-    if (!latest) return;
-    const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
-    const url = fileUrlOf(latest.fileUrl, base);
-    const stop = blocker({ electron: !!elec(), packaged, portable, fileUrl: url });
-    // «Непортативная сборка» — не отказ, а предупреждение: там сработает
-    // обычный установщик, и это тоже обновление
-    if (stop && !stop.includes('установщик')) {
-      set({ phase: 'failed', error: stop });
+  prepare: async () => {
+    if (preparing) return preparing;
+    if (get().phase === 'ready') return true;
+    if (['saving', 'installing'].includes(get().phase)) return false;
+    const run = async () => {
+      const { latest, packaged, portable } = get();
+      if (!latest) return false;
+      const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
+      const url = fileUrlOf(latest.fileUrl, base);
+      const stop = blocker({ electron: !!elec(), packaged, portable, fileUrl: url });
+      if (stop && !stop.includes('установщик')) { set({ phase: 'failed', error: stop }); return false; }
+      set({ phase: 'downloading', percent: 0, error: '' });
+      try {
+        await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base, signature: latest.signature || '' });
+        set({ phase: 'ready', percent: 100 }); return true;
+      } catch (err: any) {
+        set({ phase: 'failed', error: String(err?.message || 'Не удалось скачать обновление') }); return false;
+      }
+    };
+    preparing = run().finally(() => { preparing = null; });
+    return preparing;
+  },
+
+  install: async (campaignId) => {
+    if (['saving', 'installing'].includes(get().phase)) return;
+    if (!await get().prepare()) return;
+    set({ phase: 'saving', error: '' });
+    if (!await prepareSessionClose()) {
+      set({ phase: 'ready', error: 'Обновление отложено: не удалось сохранить все документы. Сохраните их и повторите.' });
       return;
     }
-
-    set({ phase: 'downloading', percent: 0, error: '' });
-    try {
-      // Подпись владельца проверяет главный процесс до запуска (electron/updateSignature.ts)
-      await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base, signature: latest.signature || '' });
-    } catch (err: any) {
-      // Причину уже прислал главный процесс через onUpdaterError; здесь она
-      // повторяется на случай, если событие не дошло
-      set({ phase: 'failed', error: String(err?.message || err || 'Не удалось скачать обновление') });
-      return;
-    }
-
-    // Скачано и проверено — ставим сразу, без второго нажатия: человек уже
-    // сказал, чего хочет, и ждать от него подтверждения дважды незачем
     set({ phase: 'installing' });
     try {
-      const r = await elec().quitAndInstall();
-      if (r && r.success === false) set({ phase: 'failed', error: r.error || 'Не удалось запустить установку' });
-    } catch (err: any) {
-      set({ phase: 'failed', error: String(err?.message || err) });
-    }
+      const r = await elec().quitAndInstall(campaignId);
+      // Главный процесс мог сбросить скачанный файл после отказа проверки.
+      // Повтор должен заново скачать и проверить выпуск, а не застрять в ready.
+      if (r?.success === false) set({ phase: 'failed', error: r.error || 'Не удалось запустить установку' });
+    } catch (err: any) { set({ phase: 'failed', error: String(err?.message || err) }); }
   },
 }));
 

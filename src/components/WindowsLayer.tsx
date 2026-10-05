@@ -205,6 +205,7 @@ function WindowFrame({
 }
 
 export default function WindowsLayer() {
+  const handledNavigation = React.useRef<string | null>(null);
   const windows = useWindowStore((s) => s.windows);
   const snapping = useWindowStore((s) => s.snapping);
   const area = useWindowStore((s) => s.area);
@@ -275,7 +276,7 @@ export default function WindowsLayer() {
     const here = asHref(location);
     if (here === topWin.href) return;
     const remembered = useWorkspaceStore.getState().frozenHrefs[`win:${topWin.id}::${topWin.path}`];
-    navigate(remembered || topWin.href);
+    navigate(remembered || topWin.href, { state: { __windowSync: true } });
   }, [topWin?.id, topWin?.href]);
 
   /**
@@ -324,6 +325,11 @@ export default function WindowsLayer() {
       navigate('/', { replace: true });
       return;
     }
+    // Rights refresh and shell focus synchronization are not launch commands.
+    const navigationKey = location.key || asHref(location);
+    if (handledNavigation.current === navigationKey) return;
+    handledNavigation.current = navigationKey;
+    if ((location.state as any)?.__windowSync) return;
     const st = useWindowStore.getState();
     const here = asHref(location);
     const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk);

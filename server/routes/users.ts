@@ -6,6 +6,7 @@ import { explainDbError } from '../dbError.js';
 import { randomBytes, scrypt } from 'node:crypto';
 import { ensureUserProfileSchema } from '../userProfileSchema.js';
 import { mapEmployeeRows, employeeImportName, USER_IMPORT_FIELDS, validateEmployeeImportMatrix, type UserImportMap } from '../usersImport.js';
+import { isLegacyBootstrapAdmin, legacyBootstrapMigrationError } from '../legacyIdentity.js';
 
 // Сотрудники, роли и личные настройки уведомлений.
 //
@@ -449,8 +450,11 @@ app.get('/api/users', async (req: Request, res: Response) => {
     // время последнего входа — оно отвечает на тот же вопрос, что и зелёная
     // точка. Себе человек виден полностью.
     const meId = String((req as any).authUser?.id || '');
+    const ownerView = (req as any).authUser?.role === 'OWNER';
+    res.setHeader('Cache-Control', 'no-store');
     res.json((users as any[]).map(({ password, signatureImage, hideOnline, ...u }) => ({
       ...u,
+      ...(ownerView && isLegacyBootstrapAdmin(u) ? { legacyBootstrap: true } : {}),
       lastLoginAt: hideOnline && u.id !== meId ? null : u.lastLoginAt,
       rolePermissions: byCode[u.role] || '{}',
       hasSignature: !!signatureImage,
@@ -531,6 +535,16 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     }
 
     const actor = (req as any).authUser;
+    const legacyBootstrap = isLegacyBootstrapAdmin(target);
+    if (legacyBootstrap) {
+      // Explicit owner-authorized migration keeps the row id and all related
+      // records intact while replacing the blocked login credentials.
+      const migrationError = legacyBootstrapMigrationError(actor?.role, target.symbol, symbol, password);
+      if (migrationError) return res.status(actor?.role === 'OWNER' ? 400 : 403).json({ message: migrationError });
+      const loginTaken = (await prisma.user.findMany({ select: { id: true, symbol: true } }))
+        .some((user: any) => user.id !== id && String(user.symbol || '').trim().toLowerCase() === symbol.trim().toLowerCase());
+      if (loginTaken) return res.status(400).json({ message: 'Такой логин уже занят другим профилем' });
+    }
     if (target.role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца защищен; обычный маршрут его не изменяет' });
     const chosenRole = role === undefined ? target.role : String(role).trim().toUpperCase();
     if (chosenRole === 'OWNER') return res.status(403).json({ message: 'Роль владельца не назначается через сотрудников' });

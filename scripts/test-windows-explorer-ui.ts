@@ -11,6 +11,7 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
     await page.getByRole('heading', { name: 'Проводник' }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
@@ -85,15 +86,110 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Проект 1 · текущий').isVisible());
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-    await page.getByRole('button', { name: /Создать в Flux/ }).click();
-    await page.getByRole('dialog', { name: 'Новый файл Flux' }).waitFor();
+    await page.getByRole('banner').getByRole('button', { name: 'Создать в Flux' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor();
     await page.getByRole('button', { name: 'Создать черновик' }).click();
-    await page.getByRole('dialog', { name: 'Новый файл Flux' }).waitFor({ state: 'detached' });
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor({ state: 'detached' });
     ok('Создание нового документа записывает локальный черновик и открывает ref', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'createDraft')) && (await page.getByTestId('route').textContent())?.startsWith('/windows-file?root='));
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /Новый документ\.docx/ }).click();
     await page.getByRole('button', { name: /Опубликовать/ }).click();
     ok('Публикация черновика запускается отдельно', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'publishDraft')));
+
+    await page.getByRole('button', { name: 'Этот компьютер', exact: true }).click();
+    await page.getByRole('button', { name: /Локальный диск \(C:\)/ }).waitFor();
+    ok('Этот компьютер показывает подключённые тома из нативного моста', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'volumes')));
+    await page.getByRole('button', { name: /Локальный диск \(C:\)/ }).click();
+    await page.getByRole('row', { name: /Fluxdraftfolders/ }).waitFor();
+    ok('Том открывается и показывает папку Fluxdraftfolders', await page.getByRole('row', { name: /Fluxdraftfolders/ }).isVisible());
+    await page.getByRole('row', { name: /Fluxdraftfolders/ }).dblclick();
+    await page.getByRole('banner').getByRole('button', { name: 'Создать в Flux' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor();
+    await page.getByLabel('Тип').selectOption('folder');
+    await page.getByLabel('Имя').fill('Экспортируемая папка');
+    await page.getByRole('button', { name: 'Создать черновик' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor({ state: 'detached' });
+    ok('Создание папки Flux отправляет createDraftFolder с родительским путём', await page.evaluate(() => {
+      const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'createDraftFolder');
+      return request?.name === 'Экспортируемая папка' && request?.parent?.relativePath === 'Fluxdraftfolders' && request?.parent?.rootId === 'disk-c';
+    }));
+    const folderDraftId = await page.evaluate(() => (window as any).__draftFolderIds[0]);
+    await page.evaluate((draftId) => (window as any).__go(`/explorer?root=disk-c&path=Fluxdraftfolders%2FЭкспортируемая%20папка&draft=${draftId}`), folderDraftId);
+    await page.getByRole('banner').getByRole('button', { name: 'Создать в Flux' }).click();
+    await page.getByLabel('Имя').fill('Вложенный документ.docx');
+    await page.getByRole('button', { name: 'Создать черновик' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor({ state: 'detached' });
+    ok('Вложенный документ записывается под draft ref папки Flux', await page.evaluate((draftId) => {
+      const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'createDraft' && item.name === 'Вложенный документ.docx');
+      return request?.parent?.draftId === draftId && request?.parent?.relativePath === 'Fluxdraftfolders/Экспортируемая папка';
+    }, folderDraftId));
+    await page.evaluate(() => (window as any).__go('/explorer?root=disk-c&path=Fluxdraftfolders'));
+    const draftFolder = page.getByRole('row', { name: /Экспортируемая папка/ });
+    await draftFolder.waitFor();
+    await draftFolder.click({ button: 'right' });
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Опубликовать в Windows' }).click();
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'publishDraftTree'));
+    ok('Публикация папки с вложенным документом отправляет publishDraftTree с draft ref', await page.evaluate(() => {
+      const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'publishDraftTree');
+      return request?.ref?.rootId === 'disk-c' && request?.ref?.relativePath === 'Fluxdraftfolders/Экспортируемая папка' && !!request?.ref?.draftId;
+    }));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).click();
+    await page.getByRole('button', { name: 'Копировать', exact: true }).click();
+    const freeArea = page.locator('main');
+    await freeArea.click({ button: 'right', position: { x: 600, y: 400 } });
+    const freeMenu = page.locator('body > [data-context-menu]').first();
+    await freeMenu.getByRole('button', { name: 'Создать в Flux', exact: true }).hover();
+    await page.getByRole('button', { name: 'Папка', exact: true }).waitFor();
+    ok('Меню пустого места открывает подменю папки, текста и ZIP', await page.getByRole('button', { name: 'Папка', exact: true }).isVisible() && await page.getByRole('button', { name: 'Текстовый файл', exact: true }).isVisible() && await page.getByRole('button', { name: 'Архив ZIP', exact: true }).isVisible());
+    const copyMoveCountBeforeMenu = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => ['copy', 'move'].includes(request.action)).length);
+    ok('ПКМ по пустому месту с буфером не вставляет файл автоматически', await freeMenu.getByRole('button', { name: 'Вставить', exact: true }).isVisible() && await page.evaluate((count) => (window as any).__windowsFilesCalls.filter((request: any) => ['copy', 'move'].includes(request.action)).length === count, copyMoveCountBeforeMenu));
+    await page.getByRole('button', { name: 'Папка', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor();
+    ok('Пункт «Папка» открывает создание черновой папки', await page.getByLabel('Тип').inputValue() === 'folder');
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).getByRole('button', { name: 'Отмена' }).click();
+
+    await freeArea.click({ button: 'right', position: { x: 600, y: 400 } });
+    await page.locator('body > [data-context-menu]').first().getByRole('button', { name: 'Создать в Flux', exact: true }).hover();
+    await page.getByRole('button', { name: 'Текстовый файл', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor();
+    ok('Пункт «Текстовый файл» задаёт имя нового текста', await page.getByLabel('Имя').inputValue() === 'Новый текст.txt');
+    await page.getByRole('button', { name: 'Создать черновик' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor({ state: 'detached' });
+    ok('Текстовый черновик отправляет пустое содержимое', await page.evaluate(() => {
+      const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'createDraft' && item.name === 'Новый текст.txt');
+      return !!request && atob(request.base64).length === 0;
+    }));
+
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    await freeArea.click({ button: 'right', position: { x: 600, y: 400 } });
+    await page.locator('body > [data-context-menu]').first().getByRole('button', { name: 'Создать в Flux', exact: true }).hover();
+    await page.getByRole('button', { name: 'Архив ZIP', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor();
+    ok('Пункт «Архив ZIP» задаёт имя нового архива', await page.getByLabel('Имя').inputValue() === 'Новый архив.zip');
+    await page.getByRole('button', { name: 'Создать черновик' }).click();
+    await page.getByRole('dialog', { name: 'Создать в Flux' }).waitFor({ state: 'detached' });
+    ok('ZIP-черновик содержит корректную запись EOCD пустого архива', await page.evaluate(() => {
+      const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'createDraft' && item.name === 'Новый архив.zip');
+      if (!request) return false;
+      const bytes = Uint8Array.from(atob(request.base64), (character) => character.charCodeAt(0));
+      if (bytes.length < 22) return false;
+      const start = bytes.length - 22;
+      const view = new DataView(bytes.buffer, bytes.byteOffset + start, 22);
+      return view.getUint32(0, true) === 0x06054b50 && view.getUint16(4, true) === 0 && view.getUint16(6, true) === 0 && view.getUint16(8, true) === 0 && view.getUint16(10, true) === 0 && view.getUint32(12, true) === 0 && view.getUint32(16, true) === 0 && view.getUint16(20, true) === 0;
+    }));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    await page.screenshot({ path: '/tmp/flux-explorer-light.png', fullPage: true });
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.screenshot({ path: '/tmp/flux-explorer-dark.png', fullPage: true });
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    ok('Снимки Проводника сохранены в светлой и тёмной теме', await page.getByRole('heading', { name: 'Проводник' }).isVisible());
 
     await page.getByRole('button', { name: 'Плитки' }).click();
     ok('Переключение на плитки работает', await page.getByRole('button', { name: /Отчёт\.xlsx/ }).count() === 1);

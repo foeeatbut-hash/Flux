@@ -87,7 +87,8 @@ async function collect(dir: string, source: string, window: ReadWindow): Promise
   }
   stamped.sort((a, b) => b.at - a.at);
 
-  const traces = window.traceIds && window.traceIds.length ? new Set(window.traceIds) : null;
+  // Пустой список разрешённых меток не должен раскрывать общий журнал.
+  const traces = window.traceIds === undefined ? null : new Set(window.traceIds);
   const picked: DiagnosticEvent[] = [];
 
   for (const { name } of stamped) {
@@ -109,11 +110,11 @@ async function collect(dir: string, source: string, window: ReadWindow): Promise
       const at = Date.parse(event.time);
       if (!Number.isFinite(at) || at < window.from || at > window.to) continue;
       if (traces) {
-        const trace = (event.data || {}).traceId;
+        const trace = (event.data || {}).trace;
         if (typeof trace !== 'string' || !traces.has(trace)) continue;
       }
 
-      const size = line.length + 1;
+      const size = Buffer.byteLength(`${JSON.stringify(event)}\n`, 'utf8');
       if (out.bytes + size > window.maxBytes) { out.omitted++; continue; }
       out.bytes += size;
       picked.push(event);

@@ -14,7 +14,7 @@
  * Запуск: npx tsx scripts/test-office-sections.ts
  */
 import { resolveSectionPath, resolveSectionHref } from '../src/lib/sectionAliases';
-import { SECTIONS, sectionForPath, isKnownSection, scopeForPath } from '../src/workspace/sections';
+import { SECTIONS, sectionForPath, isKnownSection } from '../src/workspace/sections';
 import { OFFICE_PATHS, OFFICE_TITLE, groupSections } from '../src/lib/startMenu';
 import { openHref } from '../src/lib/fileTypes';
 
@@ -25,22 +25,21 @@ const check = (name: string, cond: boolean, got?: unknown) => {
   console.error(`  ✗ ${name}${got === undefined ? '' : ` — получили ${JSON.stringify(got)}`}`);
 };
 
-console.log('1. Семья Flux Office собрана из четырёх программ');
+console.log('1. Файловые редакторы доступны по своим маршрутам, но не как программы');
 {
-  const titles = OFFICE_PATHS.map((p) => sectionForPath(p).title);
-  check('в семье четыре программы', OFFICE_PATHS.length === 4, OFFICE_PATHS);
-  check('и все они существуют', OFFICE_PATHS.every((p) => isKnownSection(p)), titles);
-  // Просмотр стал редактором PDF (GenOffice): теперь он называется по формату
-  check('имена в одно слово', titles.join(', ') === 'Таблица, Документ, Блокнот, PDF', titles);
-  check('семья названа латиницей', OFFICE_TITLE === 'Flux Office', OFFICE_TITLE);
-
-  const sheet = sectionForPath('/sheet');
-  const doc = sectionForPath('/doc');
-  // Без файла программа открывает своё стартовое окно, с файлом — редактор
-  check('«Таблица» и «Документ» — свои окна, не общий экран', sheet.Component !== doc.Component);
-  check('у программ разные значки', sheet.icon !== doc.icon);
-  check('обе открываются несколькими окнами', !!sheet.multi && !!doc.multi);
-  check('обе — про данные проекта', scopeForPath('/sheet') === 'project' && scopeForPath('/doc') === 'project');
+  const filePaths = ['/doc', '/sheet', '/pdf', '/archives'];
+  check('четыре файловых маршрута существуют', filePaths.every((p) => isKnownSection(p)), filePaths);
+  check('Документ, Таблица, PDF и Архив помечены fileOnly',
+    filePaths.every((p) => sectionForPath(p).fileOnly), filePaths.map((p) => [p, sectionForPath(p).fileOnly]));
+  check('имена файловых окон сохранены',
+    filePaths.map((p) => sectionForPath(p).title).join(',') === 'Документ,Таблица,PDF,Архив',
+    filePaths.map((p) => sectionForPath(p).title));
+  check('офисные адреса сохранены для совместимости',
+    OFFICE_PATHS.join(',') === '/sheet,/doc,/notes,/pdf', OFFICE_PATHS);
+  check('Блокнот остаётся обычным разделом',
+    isKnownSection('/notes') && !sectionForPath('/notes').fileOnly && sectionForPath('/notes').title === 'Блокнот');
+  check('Блокнот входит в Общее',
+    groupSections(SECTIONS as any, true).some((g) => g.id === 'global' && g.items.some((s) => s.path === '/notes')));
 
   // Старого редактора «Конструктор» больше нет: если он остался, значит
   // переименование сделано наполовину и в Пуске будет два входа в одно и то же.
@@ -74,32 +73,31 @@ console.log('2. Старый путь переводится, а не выбра
   check('и считается известным разделом', isKnownSection('/constructor'));
 }
 
-console.log('3. Файл открывается СВОЕЙ программой');
+console.log('3. Файл и старые адреса открываются по сохранённым маршрутам');
 {
   check('книга — Таблицей', openHref({ id: '1', name: 'Смета.xlsx' }).startsWith('/office-sheet?file='));
   check('документ Word — Документом', openHref({ id: '1', name: 'Записка.docx' }).startsWith('/office-doc?file='));
-  check('PDF — PDF', openHref({ id: '1', name: 'Чертёж.pdf' }).startsWith('/pdf?file='));
+  check('PDF — редактор PDF', openHref({ id: '1', name: 'Чертёж.pdf' }).startsWith('/pdf?file='));
+  check('архив — архивное окно', openHref({ id: '1', name: 'Данные.zip' }).startsWith('/archives?file='));
   check('заметка Markdown — Блокнотом', openHref({ id: '1', name: 'Заметка.md' }).startsWith('/notes?file='));
   check('ссылки на старые записи Конструктора (?doc=) не рождаются',
     !['Смета.xlsx', 'Записка.docx', 'Старая.xls'].some((n) => /[?&]doc=/.test(openHref({ id: '1', name: n, refId: 'x' }))));
 }
 
-console.log('4. Пуск показывает семью одной группой');
+console.log('4. Пуск не показывает fileOnly как самостоятельные программы');
 {
   const src = SECTIONS.map((s) => ({
-    path: s.path, title: s.title, scope: s.scope, adminOnly: s.adminOnly, feature: s.feature,
+    path: s.path, title: s.title, scope: s.scope, adminOnly: s.adminOnly, feature: s.feature, fileOnly: s.fileOnly,
   }));
   const groups = groupSections(src as any, true);
-  const office = groups.find((g) => g.id === 'office');
-  check('группа семьи есть', !!office);
-  check('и называется Flux Office', office?.title === 'Flux Office', office?.title);
-  check('в ней те же четыре программы',
-    office?.items.map((i) => i.path).join(',') === OFFICE_PATHS.join(','),
-    office?.items.map((i) => i.path));
-  // Программа не должна попасть и в семью, и в «Проект»: два входа в одно
-  const rest = groups.filter((g) => g.id !== 'office').flatMap((g) => g.items.map((i) => i.path));
-  check('и ни одна не задвоилась в других группах',
-    OFFICE_PATHS.every((p) => !rest.includes(p)), rest);
+  const filePaths = ['/doc', '/sheet', '/pdf', '/archives'];
+  const allPaths = groups.flatMap((g) => g.items.map((i) => i.path));
+  check('группа Flux Office исчезла', !groups.some((g) => g.id === 'office' || g.title === OFFICE_TITLE), groups.map((g) => g.title));
+  check('четыре файловых раздела отсутствуют в группах', filePaths.every((p) => !allPaths.includes(p)), allPaths);
+  check('поиск не находит самостоятельные файловые программы',
+    filePaths.every((p) => !groupSections(src as any, true, sectionForPath(p).title).flatMap((g) => g.items).some((s) => s.path === p)));
+  check('Блокнот показывается среди общих разделов',
+    groups.some((g) => g.id === 'global' && g.items.some((s) => s.path === '/notes')));
 }
 
 console.log(failed === 0 ? '\nВсе проверки семьи Flux Office пройдены' : `\nПровалено: ${failed}`);

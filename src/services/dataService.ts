@@ -22,6 +22,8 @@ export interface User {
   validUntil?: string | Date | null;
   permissions?: string | null;
   createdAt?: string | Date;
+  /** Present only in the authenticated OWNER view; legacy login requires migration. */
+  legacyBootstrap?: boolean;
 }
 
 // Роль сотрудника — заводится администратором в настройках

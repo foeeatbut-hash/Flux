@@ -45,8 +45,13 @@ const windowMock: any = {
   await auth.setAuthToken('desktop-session');
   check('Electron сохраняет только через main IPC', ipc[1][0] === 'auth:write-session' && ipc[1][1] === 'desktop-session' && ipc[1][2] === apiOrigin && !storage.has('flux_auth_token'));
   responseStatus = 503;
-  await assert.rejects(() => auth.logoutSession(), /Повторите выход/);
-  check('неудачный отзыв не удаляет действующий persistent token', auth.getAuthToken() === 'desktop-session' && ipc.at(-1)?.[1] === 'desktop-session');
+  const failedLogout = await auth.logoutSession();
+  check('ошибка БД не блокирует локальный выход, удалённый отзыв не симулируется', !failedLogout.remoteRevoked && auth.getAuthToken() === '' && ipc.at(-1)?.[1] === '');
+  await auth.initializeAuthToken();
+  check('старый persistent token не восстанавливается после локального выхода', auth.getAuthToken() === '' && auth.getAuthSessionKey() === '');
+  await auth.setAuthToken('desktop-session-2');
+  auth.markSessionEstablished();
+  check('явный новый вход снимает локальную блокировку восстановления', auth.getAuthSessionKey() === 'desktop-session-2');
   responseStatus = 200;
   await auth.logoutSession();
   check('выход отзывает сессию сервером до удаления persistent token', String(last.input).endsWith('/api/logout') && last.init.method === 'POST' && ipc.at(-1)?.[1] === '' && auth.getAuthToken() === '');

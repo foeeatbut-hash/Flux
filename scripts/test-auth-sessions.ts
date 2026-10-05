@@ -10,11 +10,12 @@ const check = (name: string, value: unknown) => { assert.ok(value, name); checks
 const users = new Map<string, any>([['u1', { id: 'u1', password: 'hash-1', role: 'ENGINEER', isActive: true, validUntil: null, permissions: null }]]);
 const roles = new Map<string, string | null>([['ENGINEER', '{"project.manage":{"enabled":true}}']]);
 const settings = new Map<string, any>();
+let failRevocation = false;
 setPrisma({
   role: { findUnique: async ({ where }: any) => roles.has(where.code) ? { permissions: roles.get(where.code) } : null },
   appSetting: {
     findUnique: async ({ where }: any) => settings.get(where.id) || null,
-    upsert: async ({ where, create }: any) => { if (!settings.has(where.id)) settings.set(where.id, create); return settings.get(where.id); },
+    upsert: async ({ where, create }: any) => { if (failRevocation) throw new Error('database unavailable'); if (!settings.has(where.id)) settings.set(where.id, create); return settings.get(where.id); },
   },
 });
 
@@ -41,6 +42,14 @@ const sessions = createAuthSessions({ secret: 'test-only-session-secret', getUse
   const third = await sessions.issue('u1');
   check('выход отзывает только выбранную сессию', await sessions.revoke(third) && (await sessions.validate(third)) === null);
   check('отзыв сессии не блокирует другую сессию того же пользователя', !!(await sessions.validate(await sessions.issue('u1'))));
+  const failedRevokeToken = await sessions.issue('u1');
+  failRevocation = true;
+  await assert.rejects(() => sessions.revoke(failedRevokeToken), /database unavailable/);
+  check('ошибка БД оставляет отозванный токен запрещённым в этом процессе', sessions.verify(failedRevokeToken) === null && await sessions.validate(failedRevokeToken) === null);
+  failRevocation = false;
+  await sessions.flushRevocations();
+  const otherProcess = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
+  check('повторная запись очереди после восстановления БД запрещает токен другому процессу', await otherProcess.validate(failedRevokeToken) === null);
 
   users.set('u1', { ...users.get('u1'), isActive: false });
   await assert.rejects(() => sessions.issue('u1'), /Профиль недоступен/);

@@ -119,8 +119,8 @@ export interface SectionDef {
   /** Стоит на нижней панели всегда, даже когда не запущен */
   pinned?: boolean;
   /**
-   * Открывается только с файлом (?file=): редактор Word или Excel без файла —
-   * пустое окно, поэтому в Пуске его нет. Файл открывают из Проводника
+   * Встроенная работа с файлом: запускается открытием/созданием из Проводника,
+   * но не показывается отдельной программой в Пуске и закреплениях.
    */
   fileOnly?: boolean;
   badge?: SectionBadge;
@@ -151,17 +151,15 @@ export const SECTIONS: SectionDef[] = [
   { path: '/builder', title: 'Конструктор', icon: Blocks, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
   // Каталог — справочник оборудования программы, а не проекта
   { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
-  { path: '/archives', title: 'Архиватор', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, Component: ArchivesScreen },
+  { path: '/archives', title: 'Архив', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, Component: ArchivesScreen },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: Explorer },
-  // Flux Office — семья редакторов, устроенная как офисный пакет: у каждого
-  // вида документа своя программа со своим значком и своим именем в одно
-  // слово. Раньше и книга, и текст, и шаблон титула звались «Конструктором» —
-  // словом из инженерной жизни, которое не говорит, что программа делает.
-  { path: '/sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: SheetEntry },
-  { path: '/doc', title: 'Документ', icon: DocAppIcon, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: DocEntry },
+  // Редакторы остаются маршрутами для существующих файлов и создания новых,
+  // но не дублируют файловые действия самостоятельными программами в Пуске.
+  { path: '/sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, multi: true, Component: SheetEntry },
+  { path: '/doc', title: 'Документ', icon: DocAppIcon, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, multi: true, Component: DocEntry },
   // PDF — редактор Flux Office (GenOffice), открывается из Проводника своим
   // окном; пометки пишутся в сам файл
-  { path: '/pdf', title: 'PDF', icon: PdfAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: PdfEntry },
+  { path: '/pdf', title: 'PDF', icon: PdfAppIcon, scope: 'global', scroll: 'fixed', pad: false, fileOnly: true, multi: true, Component: PdfEntry },
   // Прежние адреса редакторов файлов (ссылки из 1.16) — синонимы /doc и /sheet
   { path: '/office-sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeSheet },
   { path: '/office-doc', title: 'Документ', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: OfficeHost },

@@ -8,6 +8,7 @@ import { build } from 'esbuild';
 
 async function main() {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-displays-test-'));
+  fs.writeFileSync(path.join(data, 'display-workspace.json'), JSON.stringify({ allMonitors: false, showWindowsTaskbar: false }));
   const handlers = new Map<string, (...args: any[]) => any>();
   const app = Object.assign(new EventEmitter(), { getPath: () => data });
   let monitors = [
@@ -62,9 +63,8 @@ async function main() {
     const event = { sender: win.webContents };
     const get = () => handlers.get('workspace:displays-get')!(event);
     const set = (value: unknown) => handlers.get('workspace:displays-set')!(event, value);
-    const preferences = (value: unknown) => handlers.get('workspace:displays-preferences')!(event, value);
     check('По умолчанию обычное окно', get().enabled, false);
-    check('Панель Windows включена по умолчанию', get().showWindowsTaskbar, true);
+    check('Старое значение скрытия панели не попадает в состояние', 'showWindowsTaskbar' in get(), false);
     check('Число и DPI мониторов не потеряны', get().mixedScale, true);
     set(true);
     check('Native bounds включают левый экран и отрицательную высоту', win.bounds, { x: -1280, y: -200, width: 3200, height: 1280 });
@@ -74,19 +74,10 @@ async function main() {
     check('Режим временно снимает ограничение минимального размера', win.minimum, [1, 1]);
     check('Native перемещение в общем режиме отключено', win.movable, false);
     check('Тень отключается на общем HWND, чтобы не попадать на панель Windows', win.shadow, false);
-    check('Режим сохраняется отдельно от ключей и БД', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true, showWindowsTaskbar: true });
-    preferences({ showWindowsTaskbar: false });
-    check('Без панели Windows рабочий стол покрывает весь каждый монитор', win.shape, [
-      { x: 1280, y: 200, width: 1920, height: 1080 }, { x: 0, y: 0, width: 1280, height: 1024 },
-    ]);
-    preferences({ showWindowsTaskbar: true });
-    check('Повторное включение Пуска меняет HWND без изменения внешних bounds', win.shape[0].height, 1040);
+    check('Режим сохраняется отдельно от ключей и БД', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true });
     monitors[0] = { ...monitors[0], workArea: { x: 48, y: 0, width: 1872, height: 1080 } };
     screen.emit('display-metrics-changed');
     check('Вертикальная панель Windows тоже не закрывается окном Flux', win.shape[0], { x: 1328, y: 200, width: 1872, height: 1080 });
-    preferences({ showWindowsTaskbar: false });
-    check('Скрытие панели Windows сохраняется отдельно от режима мониторов', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true, showWindowsTaskbar: false });
-    check('Настройка панели отражается в геометрии для renderer', get().showWindowsTaskbar, false);
     monitors = [monitors[0]];
     screen.emit('display-removed');
     check('Отключение экрана пересчитывает native bounds', win.bounds, { x: 0, y: 0, width: 1920, height: 1080 });
@@ -94,7 +85,7 @@ async function main() {
     set(false);
     check('Обычное окно восстанавливает полную нативную форму', win.shape, []);
     check('Обычный режим возвращает внешнюю тень окна', win.shadow, true);
-    check('Выключение общего режима сохраняет настройку панели', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: false, showWindowsTaskbar: false });
+    check('Выключение общего режима сохраняется отдельно от ключей и БД', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: false });
     check('Обычный размер и положение возвращаются', win.bounds, { x: 100, y: 100, width: 1280, height: 800 });
     check('Минимальный размер восстанавливается', win.minimum, [960, 620]);
     check('В обычном режиме снова можно менять размер', win.resizable, true);

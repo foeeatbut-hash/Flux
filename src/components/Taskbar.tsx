@@ -35,9 +35,11 @@ import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
+import { AppIcon } from './icons/FluxIcons';
 import ProjectSwitcher from './ProjectSwitcher';
 import ClockPanel from './calendar/ClockPanel';
 import { useUpdateStore, updateReady } from '../store/updateStore';
+import UpdateDialog, { claimUpdateDialogOpen, useUpdateReminders } from './UpdateDialog';
 import { displayForRect } from '../../workspace/displays';
 import { useDisplayStore } from '../store/displayStore';
 import type { NativeAppWindow } from '../../workspace/nativeApps';
@@ -98,6 +100,13 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const [moreMenu, setMoreMenu] = React.useState<{ x: number; y: number } | null>(null);
   // Панель календаря по часам — такая же панель трея, как уведомления
   const [clockOpen, setClockOpen] = React.useState(false);
+  const [showUpdateDialog, setShowUpdateDialog] = React.useState(false);
+  useUpdateReminders();
+  React.useEffect(() => {
+    const open = (event: Event) => { if (claimUpdateDialogOpen(event)) setShowUpdateDialog(true); };
+    window.addEventListener('flux:open-updates', open);
+    return () => window.removeEventListener('flux:open-updates', open);
+  }, []);
   const [width, setWidth] = React.useState(0);
   const [barWidth, setBarWidth] = React.useState(0);
   const displayWorkspace = useDisplayStore(s => s.workspace);
@@ -114,20 +123,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
     const off = api.onChanged((rows: NativeAppWindow[]) => update(rows));
     return () => { alive = false; off(); };
   }, []);
-  const [barRevealed, setBarRevealed] = React.useState(displayId === undefined);
-  const hideBarTimer = React.useRef<any>(null);
-  const keepBarOpen = startOpen || clockOpen || !!peek || !!moreMenu || !!menu || notifOpen || assistantOpen;
-  const revealBar = () => { clearTimeout(hideBarTimer.current); setBarRevealed(true); };
-  const scheduleHideBar = () => {
-    clearTimeout(hideBarTimer.current);
-    if (displayId !== undefined && !keepBarOpen) hideBarTimer.current = setTimeout(() => setBarRevealed(false), 900);
-  };
-  React.useEffect(() => () => clearTimeout(hideBarTimer.current), []);
-  React.useEffect(() => {
-    if (displayId === undefined) setBarRevealed(true);
-    else if (keepBarOpen) revealBar();
-    else scheduleHideBar();
-  }, [displayId, keepBarOpen]);
 
   // Ширина всей панели решает, что из необязательного показывать в трее
   React.useEffect(() => {
@@ -195,8 +190,8 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
    */
   const ctx = useAppContext();
   const sources = React.useMemo(
-    () => visibleSections(SECTIONS, ctx).map((s) => ({ ...s, pinned: barPins.includes(s.path) })),
-    [barPins, ctx],
+    () => visibleSections(SECTIONS, ctx, open).map((s) => ({ ...s, pinned: !s.fileOnly && barPins.includes(s.path) })),
+    [barPins, ctx, open],
   );
 
   const view = React.useMemo(
@@ -210,7 +205,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
     [sources, open, highlighted, mail, chatUnread, feedbackUnread, user?.role, width],
   );
 
-  const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
   const countOfWindows = React.useCallback(
     (path: string) => windowsOf(windows, path, desk).length,
@@ -225,10 +219,12 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
 
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', onClick: () => openSection(menu.path) },
-    { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
-    barPins.includes(menu.path)
+    ...(SECTIONS.find((s) => s.path === menu.path)?.fileOnly ? [] : [
+      { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
+      barPins.includes(menu.path)
       ? { label: 'Открепить от панели', separated: true, onClick: () => unpinBar(menu.path) }
       : { label: 'Закрепить на панели', separated: true, onClick: () => pinBar(menu.path) },
+    ]),
     ...(countOfWindows(menu.path) > 0 ? [{
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {
@@ -263,32 +259,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const hasUpdate = useUpdateStore(updateReady);
   const updateVersion = useUpdateStore((s) => s.latest?.version || '');
   const updateSeen = useUpdateStore((s) => s.seen);
-  const checkUpdate = useUpdateStore((s) => s.check);
-  const initUpdate = useUpdateStore((s) => s.init);
-
-  React.useEffect(() => {
-    if (displayId !== undefined && !displays.find(d => d.id === displayId)?.primary) return;
-    void initUpdate(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
-    // Первая проверка — после того, как оболочка поднялась; дальше раз в час и
-    // мгновенно, когда администратор публикует релиз
-    const first = setTimeout(() => { void checkUpdate(true); }, 8000);
-    const timer = setInterval(() => { void checkUpdate(true); }, 3600000);
-    const onPublished = () => { void checkUpdate(true); };
-    window.addEventListener('socket:app:update-published', onPublished);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-      window.removeEventListener('socket:app:update-published', onPublished);
-    };
-  }, [initUpdate, checkUpdate, displayId, displays]);
-
-  const openUpdates = () => {
-    useUpdateStore.getState().markSeen();
-    const href = '/settings?section=updates';
-    rememberSectionUse('/settings');
-    useWindowStore.getState().open(href);
-  };
-
   const trayBtn = (active: boolean) =>
     `relative rounded-lg cursor-pointer flex items-center justify-center transition-colors ${
       active
@@ -303,18 +273,17 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       aria-label="Панель задач"
       data-taskbar
       onPointerDownCapture={() => { if (displayId !== undefined) useWindowStore.getState().setActiveDisplay(displayId); }}
-      onMouseEnter={revealBar}
-      onMouseLeave={scheduleHideBar}
       /* Высота, рост кнопки и размер значка — общая мера оболочки
          (src/lib/metrics.ts): панель обязана быть того же роста, что и ряд
          значков в системе, иначе программа рядом с ней выглядит увеличенной */
       /* Справа без отступа: последняя в ряду полоска «показать стол» обязана
          доходить до самого края окна, иначе угол экрана перестаёт быть целью */
-      style={{ height: BAR_H, zIndex: Z.taskbar, transform: displayId !== undefined && !barRevealed ? 'translateY(calc(100% - 3px))' : undefined }}
-      className="relative shrink-0 flex items-center gap-1 pl-2 transition-transform duration-200
+      style={{ height: BAR_H, zIndex: Z.taskbar }}
+      className="relative shrink-0 flex items-center gap-1 pl-2
                  bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
       {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
+      {showUpdateDialog && <UpdateDialog onClose={() => setShowUpdateDialog(false)} />}
 
       {/* Пуск — единственный цветной значок на панели, чтобы его находили не
           глядя. Заливки у кнопки больше нет: зелёная плитка была самым ярким
@@ -336,7 +305,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
       </button>
 
-      <div className="w-2 shrink-0" />
+      <div className="w-1 shrink-0" />
 
       {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во
           всю высоту панели у самого её края — и это при том, что кнопки всё
@@ -363,7 +332,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         className="flex-1 min-w-0 flex items-center gap-1 overflow-hidden"
       >
         {view.visible.map((b) => {
-          const Icon = iconOf(b.path) as any;
           return (
             <button
               key={b.path}
@@ -386,6 +354,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
+              aria-label={b.title}
               /* Метка раздела: демонстрации помощника подсвечивают его по
                  ней, и она же стоит на плитке Пуска */
               data-tour={`nav-${b.path}`}
@@ -394,7 +363,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               /* Запущенная — метка снизу, активная — ещё и светлая подложка, как в
                  системной панели. Рамка вокруг каждой запущенной кнопки
                  превращала ряд значков в ряд карточек */
-              className={`relative px-2.5 rounded-lg shrink-0 cursor-pointer flex items-center gap-2
+              className={`relative w-9 rounded-lg shrink-0 cursor-pointer flex items-center justify-center
                           text-xs whitespace-nowrap transition-colors ${
                 b.active
                   ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium'
@@ -403,8 +372,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
             >
-              {Icon && <Icon size={BAR_ICON} className="shrink-0" />}
-              {view.labels && <span>{b.title}</span>}
+              <AppIcon path={b.path} size={BAR_ICON} />
               {countOfWindows(b.path) > 1 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
@@ -549,7 +517,8 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         {hasUpdate && (
           <button
             type="button"
-            onClick={openUpdates}
+            onClick={() => window.dispatchEvent(new Event('flux:open-updates'))}
+            data-tour="app-update-trigger"
             title={`Доступно обновление v${updateVersion} — нажмите, чтобы поставить`}
             style={{ width: BAR_BTN, height: BAR_BTN }}
             className={trayBtn(false)}

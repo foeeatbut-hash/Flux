@@ -16,6 +16,7 @@ export function setupNativeAppWindows(options: {
   onClosed?(win: BrowserWindow): void;
 }) {
   const entries = new Map<string, AppEntry>();
+  let logoutPreparing = false;
   const list = (): NativeAppWindow[] => [...entries.values()].filter(e => !e.win.isDestroyed()).map(e => ({
     id: e.id, href: e.href, title: e.win.getTitle(), minimized: e.win.isMinimized(), focused: e.win.isFocused(),
   }));
@@ -38,6 +39,7 @@ export function setupNativeAppWindows(options: {
   });
   ipcMain.handle(NATIVE_APP_OPEN, async (event, input: unknown) => {
     await guard(event);
+    if (logoutPreparing) throw new Error('Дождитесь завершения выхода из профиля.');
     const href = internalAppHref(input);
     if (!href) throw new Error('Неверный адрес программы Flux.');
     const existing = [...entries.values()].find(e => e.href === href && !e.win.isDestroyed());
@@ -115,6 +117,17 @@ export function setupNativeAppWindows(options: {
   });
   ipcMain.handle(NATIVE_APP_ACTION, async (event, id: unknown, action: unknown) => {
     await guard(event);
+    if (action === 'logout') {
+      if (event.sender !== options.getMainWindow()?.webContents || logoutPreparing) return false;
+      logoutPreparing = true;
+      try {
+        if (!await approveCloseAll()) return false;
+        for (const entry of [...entries.values()]) {
+          if (!entry.win.isDestroyed()) { entry.closing = true; entry.win.close(); }
+        }
+        return true;
+      } finally { logoutPreparing = false; }
+    }
     const entry = typeof id === 'string' ? entries.get(id) : null;
     if (!entry || entry.win.isDestroyed()) return false;
     if (action === 'focus') { if (entry.win.isMinimized()) entry.win.restore(); entry.win.show(); entry.win.focus(); }

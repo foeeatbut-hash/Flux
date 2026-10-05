@@ -77,6 +77,18 @@ export function currentTrace(): Context | undefined {
   return context.getStore();
 }
 
+/** Класс, код и безопасные кадры ошибки без сообщения драйвера и значений. */
+export function recordServerError(location: string, error: unknown): void {
+  if (OFF) return;
+  try {
+    const store = currentTrace();
+    serverDiagnostics().record('log.error', {
+      trace: store?.trace, interaction: store?.interaction,
+      context: safeName(location), ...safeError(error),
+    });
+  } catch (_) { /* диагностика не меняет ответ API */ }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const accept = (value: unknown): string => (typeof value === 'string' && UUID.test(value) ? value : '');
 

@@ -22,9 +22,10 @@ export function requiresAdministrator(route: string): boolean {
 /** Эти операции меняют доверие ко всей установке, а не рабочие данные. */
 export function requiresOwner(route: string, method = 'GET'): boolean {
   const path = route.toLowerCase().replace(/\/+$/, '');
+  const updateClientWrite = method.toUpperCase() === 'POST' && ['/api/updates/devices/heartbeat', '/api/updates/reminder', '/api/updates/delegation', '/api/updates/campaigns'].includes(path);
   return /^\/api\/db(?:\/|$)/.test(path)
     || /^\/api\/(seed|admin\/sync-schema|config\/logs|backup\/settings)$/.test(path)
-    || (path.startsWith('/api/updates') && !['GET', 'HEAD'].includes(method.toUpperCase()))
+    || (path.startsWith('/api/updates') && !updateClientWrite && !['GET', 'HEAD'].includes(method.toUpperCase()))
     || (path.startsWith('/api/roles') && !['GET', 'HEAD'].includes(method.toUpperCase()));
 }
 
