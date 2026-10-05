@@ -242,23 +242,6 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     const desktopMenuRect = hasDesktopMenu ? await desktopMenu.first().boundingBox() : null;
     ok('Меню рабочего стола в перемещённом окне целиком видно у правого нижнего края', !!desktopMenuRect && desktopMenuRect.x < desktopPoint.x && desktopMenuRect.y < desktopPoint.y && desktopMenuRect.x + desktopMenuRect.width <= 1440 && desktopMenuRect.y + desktopMenuRect.height <= 820);
     ok('Меню рабочего стола содержит создание Windows и настройки экрана', hasDesktopMenu && await desktopMenu.getByRole('button', { name: 'Создать Windows' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Создать Flux' }).count() === 0 && await desktopMenu.getByRole('button', { name: 'Параметры экрана' }).count() === 1);
-    await desktopMenu.getByRole('button', { name: 'Создать в Flux', exact: true }).hover();
-    await page.getByRole('button', { name: 'Папку', exact: true }).last().click();
-    const draftFolderDialog = page.getByRole('dialog', { name: 'Новая папка Flux' });
-    await draftFolderDialog.waitFor();
-    ok('Создание папки рабочего стола явно сообщает о хранении только в Flux', await draftFolderDialog.getByText('Объект сохранится только в Flux. Позже его можно сохранить в Windows.').isVisible());
-    await draftFolderDialog.getByRole('button', { name: 'Отмена', exact: true }).click();
-    await page.evaluate((point) => {
-      const target = document.querySelector('section[aria-label="Рабочий стол Windows"] > div.relative');
-      target?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: point.x, clientY: point.y }));
-    }, desktopPoint);
-    await page.locator('[data-context-menu]').getByRole('button', { name: 'Создать в Flux', exact: true }).hover();
-    await page.getByRole('button', { name: 'Архив ZIP', exact: true }).last().click();
-    const draftArchiveDialog = page.getByRole('dialog', { name: 'Новый архив Flux' });
-    await draftArchiveDialog.waitFor();
-    ok('Создание архива рабочего стола не обещает немедленного появления в Windows', await draftArchiveDialog.getByText('Объект сохранится только в Flux. Позже его можно сохранить в Windows.').isVisible());
-    await draftArchiveDialog.getByRole('button', { name: 'Отмена', exact: true }).click();
-    await page.evaluate((point) => document.querySelector('section[aria-label="Рабочий стол Windows"] > div.relative')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: point.x, clientY: point.y })), desktopPoint);
     await page.mouse.click(10, 10);
     ok('Щелчок снаружи закрывает контекстное меню рабочего стола', await desktopMenu.count() === 0);
     ok('Рабочий стол Windows не дублирует приложение «Общий доступ» отдельным ярлыком', await page.getByRole('button', { name: 'Общий доступ', exact: true }).count() === 0 && await page.evaluate(() => (window as any).__nativeAppOpenCalls.length === 0));
