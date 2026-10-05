@@ -24,7 +24,8 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome
         await page.getByRole('heading', { name: 'Проводник' }).waitFor();
         await page.evaluate(async () => {
           (window as any).__showWindowsDesktop();
-          const windowStoreModule = await import('/src/store/windowStore.ts');
+          const modulePath = '/src/store/windowStore.ts';
+          const windowStoreModule = await import(modulePath);
           windowStoreModule.useWindowStore.setState({
             activeDisplayId: 1,
             displayOrigin: { x: 0, y: 0, w: 1280, h: 820 },
