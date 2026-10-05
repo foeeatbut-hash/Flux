@@ -41,5 +41,7 @@ jobs:
           npx prisma generate --schema=prisma/schema.prisma
           npx prisma generate --schema=prisma/schema.postgresql.prisma
           npx prisma generate --schema=prisma/schema.mariadb.prisma
+      - name: Verify command rollback, bounded retries and idempotency
+        run: node --import tsx scripts/test-play-commands.ts
       - name: Run registered API suites on the disposable MariaDB fixture
         run: node --import tsx scripts/run-remaining-api-fixture.ts

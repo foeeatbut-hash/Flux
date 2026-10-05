@@ -144,6 +144,126 @@ const ok = (n: string, c: boolean, d?: any) =>
     ok('событий ровно два', list.length === 2, list.length);
   }
 
+  console.log('\n10. Временный конфликт транзакции безопасно повторяется целиком');
+  {
+    const key = randomUUID();
+    const body = { gameId: 'retry-test' };
+    let runs = 0, attempts = 0;
+    const originalTransaction = h.prisma.$transaction.bind(h.prisma);
+    const transient = () => Object.assign(new Error('simulated write conflict'), { code: 'P2034' });
+    h.prisma.$transaction = async (work: any, ...args: any[]) => {
+      attempts++;
+      return originalTransaction(async (tx: any) => {
+        const result = await work(tx);
+        if (attempts === 1) throw transient(); // Must roll back work and its receipt.
+        return result;
+      }, ...args);
+    };
+    const beforeParties = await h.prisma.playParty.count();
+    let first: any;
+    try {
+      first = await runCommand({ actorId: actor, key, kind: 'party.create', body, work: async (tx: any) => {
+        runs++;
+        const partyId = randomUUID();
+        await tx.playParty.create({ data: { id: partyId, leaderId: actor, gameId: 'retry-test' } });
+        return { partyId };
+      } });
+    } finally {
+      h.prisma.$transaction = originalTransaction;
+    }
+    const receiptRows = await h.prisma.playCommand.findMany({ where: { actorId: actor, key } });
+    const afterParties = await h.prisma.playParty.count();
+    ok('одна ошибка P2034 привела к успешному повтору', first?.ok && !first.repeated, first);
+    ok('работа вызвана для двух попыток транзакции', runs === 2 && attempts === 2, { runs, attempts });
+    ok('первая попытка откатилась, вторая оставила одну группу', afterParties === beforeParties + 1, { beforeParties, afterParties });
+    ok('сохранена одна успешная расписка', receiptRows.length === 1 && receiptRows[0].status === 'OK', receiptRows.length);
+    const replay = await runCommand({ actorId: actor, key, kind: 'party.create', body, work: async () => { runs++; return {}; } });
+    ok('повтор ключа отдаёт расписку, не вызывая работу', replay.ok && replay.repeated && runs === 2, { replay, runs });
+  }
+
+  console.log('\n11. Повтор P2034 ограничен четырьмя попытками');
+  {
+    const key = randomUUID();
+    let runs = 0, attempts = 0;
+    const originalTransaction = h.prisma.$transaction.bind(h.prisma);
+    h.prisma.$transaction = async (work: any, ...args: any[]) => {
+      attempts++;
+      return originalTransaction(async (tx: any) => {
+        await work(tx);
+        throw Object.assign(new Error('simulated persistent write conflict'), { code: 'P2034' });
+      }, ...args);
+    };
+    const beforeParties = await h.prisma.playParty.count();
+    let thrown: any;
+    try {
+      await runCommand({ actorId: actor, key, kind: 'party.create', body: { bounded: true }, work: async (tx: any) => {
+        runs++;
+        await tx.playParty.create({ data: { id: randomUUID(), leaderId: actor, gameId: 'bounded-retry' } });
+        return { ok: true };
+      } });
+    } catch (error) { thrown = error; }
+    finally { h.prisma.$transaction = originalTransaction; }
+    const receipt = await h.prisma.playCommand.findFirst({ where: { actorId: actor, key } });
+    ok('постоянный конфликт выбрасывает последнюю ошибку', thrown?.code === 'P2034', thrown?.code);
+    ok('выполнено не больше четырёх попыток', attempts === 4 && runs === 4, { attempts, runs });
+    ok('все откатившиеся попытки не оставили группу или расписку', await h.prisma.playParty.count() === beforeParties && !receipt);
+  }
+
+  console.log('\n12. Посторонняя ошибка не повторяется');
+  {
+    let attempts = 0, runs = 0;
+    const originalTransaction = h.prisma.$transaction.bind(h.prisma);
+    h.prisma.$transaction = async (work: any, ...args: any[]) => {
+      attempts++;
+      return originalTransaction(async (_tx: any) => {
+        await work(_tx);
+        throw Object.assign(new Error('simulated unrelated database failure'), { code: 'P2003' });
+      }, ...args);
+    };
+    let thrown: any;
+    try {
+      await runCommand({ actorId: actor, key: randomUUID(), kind: 'x', body: {}, work: async () => { runs++; return 1; } });
+    } catch (error) { thrown = error; }
+    finally { h.prisma.$transaction = originalTransaction; }
+    ok('посторонняя ошибка вернулась вызывающему коду', thrown?.code === 'P2003', thrown?.code);
+    ok('посторонняя ошибка не вызвала повтор', attempts === 1 && runs === 1, { attempts, runs });
+  }
+
+  console.log('\n13. Появившаяся расписка проверяется до повтора работы');
+  {
+    const key = randomUUID();
+    const body = { concurrent: true };
+    const partyId = randomUUID();
+    let attempts = 0, runs = 0;
+    const originalTransaction = h.prisma.$transaction.bind(h.prisma);
+    h.prisma.$transaction = async (work: any, ...args: any[]) => {
+      attempts++;
+      try {
+        return await originalTransaction(async (tx: any) => {
+          await work(tx);
+          throw Object.assign(new Error('simulated concurrent write conflict'), { code: 'P2034' });
+        }, ...args);
+      } catch (error: any) {
+        if (attempts === 1 && error?.code === 'P2034') {
+          // Model the competing request committing after this attempt rolls back.
+          await h.prisma.playParty.create({ data: { id: partyId, leaderId: actor, gameId: 'concurrent' } });
+          await h.prisma.playCommand.create({ data: {
+            id: randomUUID(), actorId: actor, key, requestHash: bodyHash(body), kind: 'party.create',
+            status: 'OK', resultJson: JSON.stringify({ partyId }), expiresAt: new Date(Date.now() + 60_000),
+          } });
+        }
+        throw error;
+      }
+    };
+    let result: any;
+    try {
+      result = await runCommand({ actorId: actor, key, kind: 'party.create', body, work: async () => { runs++; return { partyId: randomUUID() }; } });
+    } finally { h.prisma.$transaction = originalTransaction; }
+    ok('найденная расписка возвращена как повтор', result?.ok && result.repeated && result.result?.partyId === partyId, result);
+    ok('после конфликта работа не выполнялась второй раз', attempts === 1 && runs === 1, { attempts, runs });
+    ok('состояние конкурирующей команды осталось единственным', await h.prisma.playParty.count({ where: { id: partyId } }) === 1);
+  }
+
   await h.close();
   console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
   process.exit(f === 0 ? 0 : 1);

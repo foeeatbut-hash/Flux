@@ -17,6 +17,22 @@ let checks = 0;
 function passed(message: string, condition: unknown): asserts condition {
   assert.ok(condition, message); checks++; console.log(`✓ ${message}`);
 }
+function moveFailureCategory(message: unknown): string {
+  const text = String(message || '').toLowerCase();
+  if (/deadlock|write conflict|transaction conflict/.test(text)) return 'DEADLOCK';
+  if (/transaction.*(timeout|closed|expired)|timed out.*transaction/.test(text)) return 'TX_TIMEOUT';
+  if (/connection|connect|pool.*(timeout|closed)|server has gone away|lost connection/.test(text)) return 'DB_CONNECTION';
+  if (/constraint|unique|duplicate|foreign key/.test(text)) return 'CONSTRAINT';
+  if (/typeerror|cannot read propert|undefined|null/.test(text)) return 'RULES_TYPE_ERROR';
+  return 'UNCLASSIFIED';
+}
+function logMoveFailure(step: number, response: { status: number; data: any }): void {
+  const status = Number.isInteger(response.status) ? response.status : 0;
+  const rawCode = String(response.data?.code || 'UNKNOWN');
+  const code = /^[A-Z][A-Z0-9_]{0,40}$/.test(rawCode) ? rawCode : 'UNKNOWN';
+  const category = moveFailureCategory(response.data?.message);
+  console.error(`✗ move step=${step} http=${status} code=${code} category=${category}`);
+}
 async function request(client: Client | null, method: string, route: string, body?: unknown, key = crypto.randomUUID(), base?: string) {
   const response = await fetch(`${base || client?.base || firstApi}${route}`, {
     method,
@@ -174,8 +190,14 @@ async function main() {
   passed('Повтор того же ключа через второй API не удваивает ход', replay.data.ok && replay.data.repeated && replay.data.result.revision === attack.data.result.revision);
   const afterAttack = (await request(other, 'GET', durakRoute)).data.result;
   passed('Второй API читает новую ревизию из общей MariaDB', afterAttack.revision === attack.data.result.revision);
-  const wrongTurn = await request(other, 'POST', `${durakRoute}/move`, { move: { type: 'pass' }, expectedRevision: afterAttack.revision });
-  passed('Дурак отклоняет ход неактивного игрока', !wrongTurn.data.ok);
+  const defender = players.find(player => player.id === afterAttack.turnUserId);
+  check('После атаки активен защищающийся игрок', defender);
+  const defenderView = (await request(defender!, 'GET', durakRoute)).data.result;
+  check('Защищающийся может взять карты для проверки чужого хода', defenderView.view.allowed.take);
+  const wrongTurnPlayer = players.find(player => player.id !== defender!.id)!;
+  const wrongTurn = await request(wrongTurnPlayer, 'POST', `${durakRoute}/move`, { move: { type: 'take' }, expectedRevision: afterAttack.revision });
+  const afterWrongTurn = (await request(defender!, 'GET', durakRoute)).data.result;
+  passed('Дурак отклоняет разрешённое действие от неактивного игрока без изменения ревизии', !wrongTurn.data.ok && afterWrongTurn.revision === afterAttack.revision);
   const stale = await request(firstActor, 'POST', `${durakRoute}/move`, attackBody);
   passed('Старая ревизия Дурака отклонена', stale.data.code === 'VERSION_CONFLICT');
   const missingRevision = await request(firstActor, 'POST', `${durakRoute}/move`, { move: { type: 'pass' } });
@@ -208,6 +230,7 @@ async function main() {
     else if (view.allowed.pass) move = { type: 'pass' };
     else throw new Error('Дурак: сервер не выдал допустимое действие');
     const result = await request(actor!, 'POST', `${durakRoute}/move`, { move, expectedRevision: snapshot.revision });
+    if (!result.data.ok) logMoveFailure(steps + 1, result);
     check(`Ход Дурака ${steps + 1} принят: ${result.data.code || ''}`, result.data.ok);
     steps++; ended = !!result.data.result.done;
   }
