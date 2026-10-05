@@ -179,8 +179,10 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     set({ phase: 'installing' });
     try {
       const r = await elec().quitAndInstall(campaignId);
-      if (r?.success === false) set({ phase: 'ready', error: r.error || 'Не удалось запустить установку' });
-    } catch (err: any) { set({ phase: 'ready', error: String(err?.message || err) }); }
+      // Главный процесс мог сбросить скачанный файл после отказа проверки.
+      // Повтор должен заново скачать и проверить выпуск, а не застрять в ready.
+      if (r?.success === false) set({ phase: 'failed', error: r.error || 'Не удалось запустить установку' });
+    } catch (err: any) { set({ phase: 'failed', error: String(err?.message || err) }); }
   },
 }));
 
