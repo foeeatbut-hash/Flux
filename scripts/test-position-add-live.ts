@@ -1,4 +1,5 @@
 import { testCredentials } from './testCredentials';
+import mariadb from 'mariadb';
 /**
  * Своя позиция и привязка тега — вживую, на поднятом сервере.
  *
@@ -26,6 +27,42 @@ const call = async (method: string, path: string, body?: unknown) => {
   return { status: r.status, data: await r.json().catch(() => ({})) as any };
 };
 
+function fixtureDatabaseOptions() {
+  if (process.env.FLUX_TEST_FIXTURE !== '1') throw new Error('Нужен FLUX_TEST_FIXTURE=1 для доступа к БД тестовой фикстуры.');
+  let api: URL, db: URL, user: string, password: string, database: string;
+  try {
+    api = new URL(process.env.FLUX_API || '');
+    db = new URL(process.env.FLUX_DB_FIXTURE_URL || '');
+    user = decodeURIComponent(db.username);
+    password = decodeURIComponent(db.password);
+    database = decodeURIComponent(db.pathname.slice(1));
+  } catch {
+    throw new Error('FLUX_API и FLUX_DB_FIXTURE_URL должны быть корректными URL; значения скрыты.');
+  }
+  const loopback = (host: string) => ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host.toLowerCase());
+  const port = db.port ? Number(db.port) : 3306;
+  if (!['http:', 'https:'].includes(api.protocol) || !loopback(api.hostname)
+    || !['mysql:', 'mariadb:'].includes(db.protocol) || !loopback(db.hostname)
+    || !Number.isInteger(port) || port < 1 || port > 65535
+    || !/^flux_remaining_[a-z0-9_]+$/i.test(database) || database.includes('/')
+    || !user || !password || db.search !== '' || db.hash !== '') {
+    throw new Error('Прямой SQL разрешён только для loopback MySQL/MariaDB с локальной БД flux_remaining_* и без query-параметров.');
+  }
+  return {
+    host: db.hostname.replace(/^\[|\]$/g, ''), port,
+    user, password, database,
+  };
+}
+async function directParent(id: string): Promise<string | null | undefined> {
+  const connection = await mariadb.createConnection(fixtureDatabaseOptions());
+  try {
+    const rows = await connection.query('SELECT parentElementId FROM ComponentElement WHERE id = ?', [id]) as any[];
+    return rows[0]?.parentElementId ?? null;
+  } finally {
+    await connection.end();
+  }
+}
+
 (async () => {
   const login = await call('POST', '/api/login', testCredentials());
   token = login.data?.token || '';
@@ -34,6 +71,8 @@ const call = async (method: string, path: string, body?: unknown) => {
   console.log('1. Проект с установкой');
   const made = await call('POST', '/api/projects', { name: `Проверка своей позиции ${Date.now().toString(36)}`, code: 'PR' });
   const projectId = made.data?.project?.id || made.data?.id;
+  if (!projectId) throw new Error('Не удалось завести отдельный тестовый проект; продолжать без него небезопасно.');
+  try {
   const parsed = await call('POST', '/api/equipment/parse-calc', { text: VEZA_SAMPLE_XML, fileName: 'проба.XML', projectId });
   const units = parsed.data?.units || [];
   const plan = await call('POST', '/api/equipment/import-draft-plan', { units, category: 'AHU', projectId });
@@ -70,6 +109,8 @@ const call = async (method: string, path: string, body?: unknown) => {
   ok('стоит внутри двигателя', ptc?.parentElementId === motor.id);
   ok('тип и вид записаны', ptc?.equipClass === 'ДАТЧИК' && ptc?.equipKind === 'ПТС', [ptc?.equipClass, ptc?.equipKind]);
   ok('помечена ручной', ptc?.manual === true);
+  const persistedManualParent = await directParent(pos.data?.component?.id);
+  ok('в базе ручная позиция сохраняет выбранного владельца', persistedManualParent === motor.id, persistedManualParent);
 
   console.log('\n4. Один тег — одно изделие');
   const again = await call('POST', `/api/equipment/component/${fan.id}/tag`, { identifier: 'PR-01-TE-001' });
@@ -81,17 +122,25 @@ const call = async (method: string, path: string, body?: unknown) => {
   ok('новый тег заведён и привязан', linked.status === 200 && linked.data?.created === true, linked.data);
   ok('родитель тега двигателя — тег вентилятора', linked.data?.parentTag === fanTag, [linked.data?.parentTag, fanTag]);
 
-  console.log('\n6. Позиция в моноблок, без владельца');
+  console.log('\n6. Позиция в моноблоке: запись и видимое родство тега');
   const top = await call('POST', `/api/equipment/monoblock/${motor._mb.id}/position`, { name: 'Шкаф управления', role: 'ПРОЧЕЕ', tag: 'PR-01-CP-001' });
   ok('заведена', top.status === 200 && top.data?.ok, top.data);
   const cp = (await call('GET', `/api/projects/${projectId}/systems`)).data?.systems
     .flatMap((s: any) => s.monoblocks.flatMap((m: any) => m.components)).find((c: any) => c.id === top.data?.component?.id);
-  ok('без владельца', !!cp && !cp.parentElementId, cp?.parentElementId);
+  const rawTop = await directParent(top.data?.component?.id);
+  ok('в базе верхняя позиция моноблока не имеет владельца-позиции', rawTop === null, rawTop);
+  const visibleParent = (await call('GET', `/api/projects/${projectId}/systems`)).data?.systems
+    .flatMap((s: any) => s.monoblocks.flatMap((m: any) => m.components))
+    .find((c: any) => c.tags?.some((t: any) => t.identifier === top.data?.parentTag));
+  const visibleParentMatches = top.data?.parentTag
+    ? !!visibleParent && cp?.parentElementId === visibleParent.id
+    : cp?.parentElementId == null;
+  ok('экранное дерево следует родству родительского тега; позиция без него остаётся корневой', !!cp && visibleParentMatches, [cp?.parentElementId, visibleParent?.id, top.data?.parentTag]);
 
-  console.log('\n7. Уборка');
-  const del = await call('DELETE', `/api/projects/${projectId}`);
-  ok('проверочный проект удалён', del.status === 200, del.status);
-
+  } finally {
+    const del = await call('DELETE', `/api/projects/${projectId}`);
+    ok('проверочный проект удалён', del.status === 200, del.status);
+  }
   console.log(f ? `\nПРОВАЛОВ: ${f}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
   process.exit(f ? 1 : 0);
 })();

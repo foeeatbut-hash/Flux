@@ -22,7 +22,7 @@ export interface Slot { userId: string; team: number; ready: boolean }
 
 export default function PrepareTab({
   invites, names, lobby, party, meId, presence, action, actionBusy, actionFailure,
-  result, onAction, onAccept, onDecline, onSeeLibrary,
+  result, onAction, onAccept, onDecline, onSeeLibrary, onSeatLimit,
 }: {
   invites: any[];
   names: Record<string, string>;
@@ -38,9 +38,11 @@ export default function PrepareTab({
   onAccept: (id: string) => void;
   onDecline: (id: string) => void;
   onSeeLibrary: () => void;
+  onSeatLimit: (seats: number) => void;
 }) {
   const nameOf = (id: string) => names[id] || 'Сотрудник';
   const game = lobby ? gameById(lobby.gameId) : null;
+  const canSetSeats = !!lobby && !!game?.variableSeats && party?.leaderId === meId && lobby.state !== 'STARTED';
 
   return (
     <div className="p-3 space-y-3">
@@ -116,10 +118,16 @@ export default function PrepareTab({
             <span className="text-2xs font-semibold text-slate-400 dark:text-slate-500 shrink-0">
               {lobby.slots.length} из {lobby.seats} мест
             </span>
+            {canSetSeats && <label className="inline-flex items-center gap-1.5 text-2xs text-slate-500 dark:text-slate-400">
+              Мест в партии
+              <select aria-label="Количество мест в Дураке" value={lobby.seats} disabled={actionBusy} onChange={event => onSeatLimit(Number(event.target.value))} className="fx-input !w-16 !py-1">
+                {Array.from({ length: (game!.variableSeats!.max || 6) - game!.variableSeats!.min + 1 }, (_, i) => game!.variableSeats!.min + i).map(count => <option key={count} value={count}>{count}</option>)}
+              </select>
+            </label>}
           </div>
 
           <div className="mt-2.5 grid gap-2 @[560px]:grid-cols-2">
-            {Array.from({ length: game?.variableSeats ? Math.max(game.variableSeats.min, ...lobby.slots.map(slot => slot.team)) : game?.teams || 2 }).map((_, i) => {
+            {Array.from({ length: lobby.seats }).map((_, i) => {
               const team = i + 1;
               const mates = lobby.slots.filter((s) => s.team === team);
               return (

@@ -105,7 +105,9 @@ export async function joinParty(tx: any, partyId: string, userId: string): Promi
 
   const before = await memberIds(tx, partyId);
   const players = await tx.playPartyMember.count({ where: { partyId, leftAt: null, role: { not: 'SPECTATOR' } } });
-  const capacity = gameById(party.gameId || '')?.variableSeats?.max || 2;
+  const game = gameById(party.gameId || '');
+  const lobby = await tx.playLobby.findFirst({ where: { partyId, state: { in: ['FORMING', 'READY'] } } });
+  const capacity = lobby ? Number(lobby.seatLimit) : game?.variableSeats?.max || (game ? game.teams * game.teamSize : 2);
   try {
     await tx.playPartyMember.create({ data: { id: randomUUID(), partyId, userId, role: players >= capacity ? 'SPECTATOR' : 'MEMBER' } });
   } catch (e) {

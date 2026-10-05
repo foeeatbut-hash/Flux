@@ -137,7 +137,7 @@ export const TOPIC_ARTICLES: HandbookArticle[] = [
     perms: [
       'project.manage', 'tags.manage', 'tags.delete', 'dictionaries.manage',
       'equipment.import', 'equipment.manage', 'files.upload', 'files.delete',
-      'procurement.manage', 'procurement.setup', 'vdr.manage', 'vdr.standards', 'mail.shared',
+      'procurement.manage', 'procurement.setup', 'vdr.manage', 'vdr.standards', 'mail.shared.manage',
     ],
     pitfalls: [
       'Отключённый профиль и профиль с истёкшим сроком не пускают в программу — это не поломка входа.',

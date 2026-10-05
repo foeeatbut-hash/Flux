@@ -12,6 +12,7 @@ import type { WindowsFilesService } from './filesystem/service';
 
 export interface NativeDesktopItem {
   nativeId: string; name: string; kind: 'file' | 'directory' | 'shortcut' | 'virtual';
+  isFluxAppShortcut?: boolean;
   x: number; y: number; icon: { base64: string; width: number; height: number } | null;
   fileSystemPath?: string | null;
 }
@@ -47,7 +48,8 @@ export function validateNativeDesktop(value: unknown): NativeDesktopSnapshot {
   for (const item of input.items) {
     if (!item || !nativeKey(item.nativeId) || seen.has(item.nativeId) || typeof item.name !== 'string'
       || item.name.length > 4096 || !['file', 'directory', 'shortcut', 'virtual'].includes(item.kind)
-      || !finite(item.x) || !finite(item.y)) throw new Error('Некорректный значок Windows.');
+      || !finite(item.x) || !finite(item.y)
+      || (item.isFluxAppShortcut !== undefined && typeof item.isFluxAppShortcut !== 'boolean')) throw new Error('Некорректный значок Windows.');
     if (item.fileSystemPath != null && (typeof item.fileSystemPath !== 'string' || item.fileSystemPath.length > 32767
       || /[\u0000-\u001f]/u.test(item.fileSystemPath))) throw new Error('Некорректный адрес значка Windows.');
     seen.add(item.nativeId);
@@ -91,7 +93,7 @@ export class DesktopShellService {
           throw new Error('Недоступны координаты монитора.');
         const fileRef = item.fileSystemPath && (item.kind === 'file' || item.kind === 'directory')
           ? await this.deps.fileRefForPath?.(item.fileSystemPath).catch(() => null) : null;
-        return { id, name: item.name, kind: item.kind, position, monitorId: display.id,
+        return { id, name: item.name, kind: item.kind, isFluxAppShortcut: item.isFluxAppShortcut === true, position, monitorId: display.id,
           cell: { width: raw.spacing.x / display.scaleFactor, height: raw.spacing.y / display.scaleFactor },
           ...(fileRef ? { fileRef } : {}),
           icon: item.icon ? { dataUrl: `data:image/png;base64,${item.icon.base64}`,

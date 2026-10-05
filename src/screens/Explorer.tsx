@@ -31,6 +31,7 @@ import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
 import WindowsExplorer from '../components/explorer/WindowsExplorer';
+import SharedFilesFolder from '../components/explorer/SharedFilesFolder';
 import { uploadDropped } from '../lib/dropUpload';
 import { heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
@@ -66,6 +67,11 @@ const decodeTextContent = (dataUri: string): string => {
 
 export default function Explorer() {
   const [params] = useSearchParams();
+  const location = useLocation();
+  // Старые ссылки на отдельное окно общего доступа остаются рабочими, но
+  // открывают внутреннюю папку в том же Проводнике.
+  const shared = location.pathname === '/shared-files' || params.get('view') === 'shared';
+  if (shared) return <SharedFilesFolder embedded />;
   const archive = params.get('projectFiles') === '1' || params.has('file') || params.has('folder') || params.has('open');
   return (window as any).electron?.windowsFiles && !archive
     ? <WindowsExplorer /> : <ProjectExplorer />;
@@ -1378,6 +1384,12 @@ function ProjectExplorer() {
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
         {/* Современный компактный тулбар */}
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
+           {(window as any).electron?.windowsFiles && <button type="button" onClick={() => navigate('/explorer')} className="fx-btn fx-btn-sm" aria-label="Этот компьютер">
+             <Folder className="w-4 h-4" /> Этот компьютер
+           </button>}
+           <button type="button" onClick={() => navigate('/explorer?view=shared')} className="fx-btn fx-btn-sm" aria-label="Общий доступ">
+             <Folder className="w-4 h-4" /> Общий доступ
+           </button>
            <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка

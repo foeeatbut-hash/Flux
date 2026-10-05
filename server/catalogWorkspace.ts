@@ -86,8 +86,9 @@ export async function publishCatalogDrafts(prisma: any, selections: Array<{ enti
       const problem = catalogDocumentProblem(d.entity, d.document); if (problem) catalogFailure(400, problem);
       if (['family', 'component', 'tagRule'].includes(d.entity) && !sets.classes.has(d.document.classId)) catalogFailure(409, 'Сначала включите в публикацию вид оборудования');
       if (d.entity === 'family' && !sets.manufacturers.has(d.document.manufacturerId)) catalogFailure(409, 'В публикации отсутствует изготовитель');
-      if (d.entity === 'family') {
-        const refs = [d.document.catalog, ...(d.document.documents || []), ...(d.document.tables || []).flatMap((t: any) => [t.source, ...t.rows.map((r: any) => r.source)])];
+      if (['family', 'component'].includes(d.entity)) {
+        if (d.document.sections?.some((section: any) => section.source?.physicalPage && !section.source?.assetId)) catalogFailure(409, 'Иллюстрации справочника ещё не загружены. Завершите загрузку документации перед публикацией.');
+        const refs = [d.document.catalog, ...(d.document.documents || []), ...(d.document.sections || []).map((s: any) => s.source), ...(d.document.tables || []).flatMap((t: any) => [t.source, ...t.rows.map((r: any) => r.source)])];
         for (const ref of refs) if (ref?.assetId) {
           const asset = await catalogSetting(db, `catalog_asset:${ref.assetId}`, null);
           if (!asset?.complete) catalogFailure(409, 'Исходный файл ещё не загружен полностью');

@@ -1,11 +1,12 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
-import { Download, FileSpreadsheet, RotateCcw, Upload } from 'lucide-react';
+import { Download, FileSpreadsheet, RotateCcw } from 'lucide-react';
 import type { Catalog } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
 import { saveBytes } from '../../lib/saveToWindows';
 import { Btn, Chip } from './ui';
+import ImportFileChooser from '../ImportFileChooser';
 
 type Role = 'model' | 'manufacturer' | 'type' | 'name' | 'key' | 'source' | 'edition' | 'ignore' | 'param' | 'parameter' | 'value' | 'unit' | 'class' | 'family' | 'pages';
 type Policy = 'add' | 'fill' | 'update';
@@ -158,7 +159,6 @@ function exportBytes(catalog: Catalog, classId: string): Uint8Array {
 }
 
 export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: { catalog: Catalog; classId: string; canEdit: boolean }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -216,7 +216,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
       setParamNames(names);
       setMessage(`Файл «${file.name}»: листов ${parsed.length}. Выберите листы и сопоставьте заголовки.`);
     } catch (e: any) { setError(e?.message || 'Не удалось прочитать Excel'); setSheets([]); setChosen([]); }
-    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ''; }
+    finally { setBusy(false); }
   };
 
   const makePlan = async () => {
@@ -294,8 +294,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
       <div className="mr-auto flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-emerald-600" /><b className="text-sm">Обмен с Excel</b></div>
       <Btn tone="ghost" disabled={busy} onClick={() => void download('template')}><Download className="h-3.5 w-3.5" /> Скачать шаблон</Btn>
       <Btn tone="ghost" disabled={busy} onClick={() => void download('export')}><Download className="h-3.5 w-3.5" /> Выгрузить Excel</Btn>
-      {canEdit && <><input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => void readFile(e.target.files?.[0])} />
-        <Btn disabled={busy} onClick={() => inputRef.current?.click()}><Upload className="h-3.5 w-3.5" /> Загрузить Excel</Btn></>}
+      {canEdit && <ImportFileChooser accept=".xlsx,.csv" disabled={busy} label="Загрузить Excel" onFiles={files => { if (files[0]) void readFile(files[0]); }} />}
     </div>
     <div className="text-xs text-slate-500 dark:text-slate-400">Тип оборудования: <span className="font-medium text-slate-700 dark:text-slate-300">{textOf(catalog.classes.find((c) => c.id === classId)?.title) || classId || 'не выбран'}</span></div>
     <div className="text-xs text-slate-500 dark:text-slate-400">Импорт создаёт черновики компонентов и изготовителей. В общий Каталог они попадут только после публикации.</div>

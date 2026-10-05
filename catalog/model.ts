@@ -256,6 +256,15 @@ export interface CatalogDocument extends CatalogRef {
   kind: 'manual' | 'image' | 'drawing' | 'curve';
 }
 
+/** Содержание справочника; происхождение остаётся доступным редактору. */
+export interface CatalogSection {
+  id: string;
+  title: string;
+  text: string;
+  kind: 'description' | 'dimensions' | 'selection' | 'marking' | 'installation' | 'wiring' | 'general';
+  source: CatalogRef;
+}
+
 /** Многомерная таблица: только точное совпадение входных осей, без интерполяции. */
 export interface CatalogTable {
   id: string;
@@ -301,6 +310,7 @@ export interface Family {
   catalog?: CatalogRef;
   documents?: CatalogDocument[];
   tables?: CatalogTable[];
+  sections?: CatalogSection[];
   /** Одна идентичность изделия, в том числе при использовании как компонента. */
   componentRoles?: string[];
   status: FamilyStatus;
@@ -341,6 +351,9 @@ export interface Component {
   todo?: string[];
   facts?: Facts;
   specs?: Array<{ label: Text2; value: string; unit?: string; sourceRef?: CatalogRef }>;
+  documents?: CatalogDocument[];
+  sections?: CatalogSection[];
+  tables?: CatalogTable[];
 }
 
 /** Правило тега: код типа в теге → что это за изделие */

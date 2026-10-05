@@ -64,6 +64,8 @@ function createWindow() {
     minWidth: 960,
     minHeight: 620,
     backgroundColor: '#0f172a',
+    hasShadow: true,
+    roundedCorners: true,
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',

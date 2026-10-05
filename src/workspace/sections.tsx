@@ -21,8 +21,6 @@ const Registry = lazy(() => import('../screens/Registry'));
 const DictionaryEditor = lazy(() => import('../screens/DictionaryEditor'));
 const Equipment = lazy(() => import('../screens/Equipment'));
 const EquipmentExport = lazy(() => import('../screens/EquipmentExport'));
-const WindowsExplorerHost = lazy(() => import('../screens/WindowsExplorerHost'));
-const SharedFilesFolder = lazy(() => import('../components/explorer/SharedFilesFolder'));
 const WindowsFileHost = lazy(() => import('../screens/WindowsFileHost'));
 const UsersManagement = lazy(() => import('../screens/UsersManagement'));
 const NotesManagement = lazy(() => import('../screens/NotesManagement'));
@@ -144,8 +142,6 @@ export const SECTIONS: SectionDef[] = [
   { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Registry },
   { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
   { path: '/equipment-export', title: 'Выгрузка данных', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: EquipmentExport },
-  { path: '/windows-files', title: 'Файлы Windows', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: WindowsExplorerHost },
-  { path: '/shared-files', title: 'Общий доступ', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, multi: true, Component: SharedFilesFolder },
   { path: '/windows-file', title: 'Файл Windows', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: WindowsFileHost },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
@@ -156,7 +152,7 @@ export const SECTIONS: SectionDef[] = [
   // Каталог — справочник оборудования программы, а не проекта
   { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
   { path: '/archives', title: 'Архиватор', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, Component: ArchivesScreen },
-  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
+  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: Explorer },
   // Flux Office — семья редакторов, устроенная как офисный пакет: у каждого
   // вида документа своя программа со своим значком и своим именем в одно
   // слово. Раньше и книга, и текст, и шаблон титула звались «Конструктором» —

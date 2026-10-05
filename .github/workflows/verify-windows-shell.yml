@@ -9,6 +9,8 @@ on:
       - tools/windows-notification-bridge/**
       - scripts/test-*windows*.ts
       - scripts/test-desktop-shell-native.ts
+      - scripts/test-remaining-*.ts
+      - verification/**
       - .github/workflows/verify-windows-shell.yml
 
 permissions:

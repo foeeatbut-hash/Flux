@@ -24,6 +24,13 @@ let seq = 0;
 const waiting = new Map();
 const listeners = new Map();
 
+// GenOffice's AI/provider APIs are outside Flux Office's feature set. Block
+// them at the renderer boundary so a stale or keyboard-triggered control can
+// never reach the parent window or a GenOffice main-process handler.
+const isAiChannel = (channel) => /(?:^|[:_-])(?:ai|gsk|genspark|copilot|assistant)(?:$|[:_-])|web-search|image-search|fetch-image|generate-image|media-understanding/i.test(String(channel));
+const aiDisabled = () => ({ ok: false, error: 'ИИ-функции GenOffice отключены во Flux Office' });
+window.__fluxNoGenOfficeAI = true;
+
 if (parentWin && parentWin !== window) {
   window.addEventListener('message', (e) => {
     if (e.source !== parentWin || !sameOrigin(e.origin)) return;
@@ -48,6 +55,7 @@ function post(msg) {
 
 export const ipcRenderer = {
   invoke(channel, ...args) {
+    if (isAiChannel(channel)) return Promise.resolve(aiDisabled());
     const p = new Promise((resolve, reject) => {
       const id = ++seq;
       waiting.set(id, { resolve, reject });
@@ -62,14 +70,16 @@ export const ipcRenderer = {
     }
     return p;
   },
-  send(channel, ...args) { post({ op: 'ipc-send', payload: { channel, args } }); },
+  send(channel, ...args) { if (!isAiChannel(channel)) post({ op: 'ipc-send', payload: { channel, args } }); },
   sendSync() { return undefined; },
   on(channel, fn) {
+    if (isAiChannel(channel)) return ipcRenderer;
     if (!listeners.has(channel)) listeners.set(channel, new Set());
     listeners.get(channel).add(fn);
     return ipcRenderer;
   },
   once(channel, fn) {
+    if (isAiChannel(channel)) return ipcRenderer;
     const wrap = (...a) => { ipcRenderer.removeListener(channel, wrap); fn(...a); };
     return ipcRenderer.on(channel, wrap);
   },
@@ -91,7 +101,7 @@ export const webFrame = { setZoomFactor() {}, getZoomFactor: () => 1 };
 
 export default { ipcRenderer, contextBridge, webUtils, webFrame };
 
-// ── Как во всех редакторах Flux Office: без ИИ и без имени Genspark ──
+// ── ИИ GenOffice отключён на уровне возможностей и элементов управления ──
 try {
   localStorage.setItem('genoffice-pdf-show-ai', '0');
   // Таблица читает свой ключ (ExcelShell.tsx), не «genoffice-…», как PDF
@@ -106,6 +116,52 @@ css.textContent =
   '.ribbon-group:has(.ai-entry)+.ribbon-sep{display:none!important}' +
   'button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon){display:none!important}';
 (document.head || document.documentElement).appendChild(css);
+
+// Capture controls before React's delegated handlers. This also covers
+// selection popovers and context-menu AI entries that do not use .ai-entry.
+const aiLabel = /\b(?:ai|gsk|genspark|copilot|ask\s*ai)\b|(?:^|[^\p{L}\p{N}_])ИИ(?:$|[^\p{L}\p{N}_])|искусственн[\p{L}\p{N}_]*\s+интеллект/iu;
+const isAiControl = (target) => {
+  if (!target?.closest) return false;
+  if (target.closest('.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ctx-item:has(.copilot-badge)')) return true;
+  const control = target.closest('button,[role="menuitem"],input,textarea');
+  const label = [control?.getAttribute('aria-label'), control?.getAttribute('title'), control?.getAttribute('data-tip')].filter(Boolean).join(' ');
+  return aiLabel.test(label);
+};
+const stopAiControl = (event) => {
+  if (!isAiControl(event.target)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+};
+document.addEventListener('click', stopAiControl, true);
+document.addEventListener('pointerdown', stopAiControl, true);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'F7') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  if ((event.key === 'Enter' || event.key === ' ') && isAiControl(event.target)) stopAiControl(event);
+}, true);
+
+// Remove editor controls from the accessibility tree and tab order as well as
+// blocking their events. The observer handles menus and popovers created later.
+const removeAiControls = (root) => {
+  if (!root?.querySelectorAll) return;
+  const controls = '.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],.ctx-item:has(.copilot-badge),button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ribbon-group:has(.ai-entry)';
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) root.remove();
+  for (const element of root.querySelectorAll(controls)) element.remove();
+  const labelled = 'button,[role="menuitem"],input,textarea';
+  const candidates = [...root.querySelectorAll(labelled)];
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches(labelled)) candidates.unshift(root);
+  for (const element of candidates) {
+    const label = [element.getAttribute('aria-label'), element.getAttribute('title'), element.getAttribute('data-tip')].filter(Boolean).join(' ');
+    if (aiLabel.test(label)) element.remove();
+  }
+};
+removeAiControls(document);
+new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => {
+  if (node.nodeType === Node.ELEMENT_NODE) removeAiControls(node);
+}))).observe(document.documentElement, { childList: true, subtree: true });
 
 // Меню Electron: там Ctrl+S — клавиша меню главного процесса, и окно получает
 // команду «menu:action». В браузере меню нет — клавишу ловим здесь и отдаём

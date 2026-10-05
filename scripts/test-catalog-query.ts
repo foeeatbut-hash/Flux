@@ -15,7 +15,7 @@ const example = family.examples![1];
 
 const nameResult = queryCatalog(catalog, 'КПУ-1Н');
 check('exact family code resolves the real family', nameResult.matches.some((m) => m.familyId === family.id));
-check('model answer cites the actual catalog PDF and edition', nameResult.answer.includes(family.catalog!.file) && nameResult.answer.includes(family.catalog!.edition!));
+check('model answer keeps provenance internally and hides it from readers', !nameResult.answer.includes(family.catalog!.file) && nameResult.sources.some(source => source.file === family.catalog!.file));
 
 const designationResult = queryCatalog(catalog, `Что означает маркировка ${example}?`);
 check('full real designation parses and reports existing code labels', designationResult.answer.includes('ЭПВ24') && designationResult.answer.includes('Код'));

@@ -1,6 +1,6 @@
 import type { WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '../../filesystem/contracts';
 
-export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged } from '../../filesystem/contracts';
+export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, ImportedFileBytes } from '../../filesystem/contracts';
 
 type WindowsFilesBridge = {
   getIcon?: (ref: WindowsFileRef) => Promise<string | null>;
@@ -15,7 +15,7 @@ function bridge(): WindowsFilesBridge | null {
 /** Браузерный запуск не выдаёт фиктивный список: действия требуют нативного Проводника. */
 export async function windowsFilesRequest<T = unknown>(request: WindowsFilesRequest): Promise<WindowsFilesResponse<T>> {
   const api = bridge();
-  if (!api) return { ok: false, error: { code: 'PORTABLE', message: 'Файлы Windows доступны в установленной версии Flux. В браузере открыт проектный архив.' } };
+  if (!api) return { ok: false, error: { code: 'PORTABLE', message: 'Папки компьютера доступны в установленной версии Flux. В браузере открыт архив документов проекта.' } };
   try { return await api.invoke(request) as WindowsFilesResponse<T>; }
   catch { return { ok: false, error: { code: 'BRIDGE_UNAVAILABLE', message: 'Связь с Проводником прервалась. Обновите окно и повторите действие.' } }; }
 }
@@ -42,7 +42,7 @@ export function fileRefHref(ref: WindowsFileRef, options: { properties?: boolean
   const query = new URLSearchParams({ root: ref.rootId, path: options.properties ? ref.relativePath.split('/').slice(0, -1).join('/') : ref.relativePath });
   if (ref.draftId) query.set(options.properties ? 'targetDraft' : 'draft', ref.draftId);
   if (options.properties) { query.set('properties', '1'); query.set('target', ref.relativePath); }
-  return `${options.folder || options.properties ? '/windows-files' : '/windows-file'}?${query.toString()}`;
+  return `${options.folder || options.properties ? '/explorer' : '/windows-file'}?${query.toString()}`;
 }
 
 export const folderRefHref = (ref: WindowsFileRef) => fileRefHref(ref, { folder: true });

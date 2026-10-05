@@ -1,4 +1,6 @@
 import { app, dialog, ipcMain, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
 import { WindowsFilesService } from './service';
 import { WindowsFilesError } from './paths';
@@ -55,6 +57,39 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
       switch (request.action) {
         case 'roots': data = await service.roots(); break;
         case 'draftTrash': data = await service.draftTrash(); break;
+        case 'pickImport': {
+          const requested = Array.isArray(request.extensions) ? request.extensions : [];
+          const extensions = [...new Set(requested.map(value => String(value).toLowerCase().replace(/^\./u, '')).filter(value => /^[a-z0-9][a-z0-9_-]{0,15}$/u.test(value)))].slice(0, 20);
+          const filters = extensions.length ? [{ name: `Файлы для импорта (${extensions.map(ext => `.${ext}`).join(', ')})`, extensions }, { name: 'Все файлы', extensions: ['*'] }] : [{ name: 'Все файлы', extensions: ['*'] }];
+          const window = BrowserWindow.fromWebContents(event.sender);
+          const config = { title: 'Выберите файл для импорта', buttonLabel: 'Выбрать', properties: request.multiple ? ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[] : ['openFile'] as ('openFile')[], filters };
+          const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
+          if (result.canceled) { data = { canceled: true, files: [] }; break; }
+          if (result.filePaths.length > (request.multiple ? 20 : 1)) throw new WindowsFilesError('INVALID_REQUEST', 'Выберите не более 20 файлов за один раз.');
+          const files = [];
+          let total = 0;
+          for (const filename of result.filePaths) {
+            const handle = await fs.open(filename, 'r');
+            try {
+              const before = await handle.stat();
+              if (!before.isFile()) throw new WindowsFilesError('NOT_FILE', 'Выберите обычные файлы.');
+              if (before.size > 64 * 1024 * 1024 || total + before.size > 64 * 1024 * 1024) throw new WindowsFilesError('FILE_TOO_LARGE', 'Суммарный размер файлов для импорта не должен превышать 64 МБ.');
+              const bytes = Buffer.allocUnsafe(before.size + 1);
+              let bytesRead = 0;
+              while (bytesRead < bytes.length) {
+                const chunk = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
+                if (chunk.bytesRead === 0) break;
+                bytesRead += chunk.bytesRead;
+              }
+              const after = await handle.stat();
+              if (bytesRead !== before.size || bytesRead > 64 * 1024 * 1024 || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino) throw new WindowsFilesError('CONFLICT', 'Файл изменился во время чтения. Выберите его повторно.');
+              total += bytesRead;
+              files.push({ name: path.basename(filename), size: bytesRead, base64: bytes.subarray(0, bytesRead).toString('base64') });
+            } finally { await handle.close(); }
+          }
+          data = { canceled: false, files };
+          break;
+        }
         case 'restoreDraft': data = await service.restoreDraft(request.ref); break;
         case 'addRoot': {
           const window = BrowserWindow.fromWebContents(event.sender);

@@ -88,8 +88,8 @@ export const PLAY_GAMES: PlayGameDef[] = [{
   teamSize: 1, teams: 2, installable: false, adapter: 'billiards', kind: 'builtin',
 }, {
   id: 'cards', title: 'Дурак', short: 'Дурак',
-  desc: 'Подкидной или переводной дурак: закрытые руки, колода 36 или 52 карты',
-  teamSize: 1, teams: 2, installable: false, adapter: 'cards', kind: 'builtin', variableSeats: { min: 2, max: 8 },
+  desc: 'Подкидной или переводной дурак: 2–6 игроков, колода 36 карт',
+  teamSize: 1, teams: 2, installable: false, adapter: 'cards', kind: 'builtin', variableSeats: { min: 2, max: 6 },
 }];
 
 export const gameById = (id: string): PlayGameDef | null =>

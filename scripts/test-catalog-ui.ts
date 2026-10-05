@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
+import osaContent from '../catalog/packs/source-data/osa.json';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from '../node_modules/playwright-core/index.mjs';
 import { seedCatalog } from '../catalog/seed';
@@ -19,6 +20,8 @@ const merge = <T extends { id: string }>(current: T[], incoming: T[]) => {
 for (const key of ['classes', 'manufacturers', 'families', 'components', 'tagRules'] as const) {
   (published[key] as any) = merge(published[key] as any, veza2026Pack[key] as any);
 }
+const osaReader = published.families.find(f => f.id === 'veza-osa-300')!;
+osaReader.sections = [{ id: 'fixture-osa-content', title: 'ОСА 040: подбор, размеры и масса', kind: 'selection', text: osaContent.pages[12].text, source: { ...osaContent.pages[12].source, assetId: '11111111-1111-1111-1111-111111111111' } }];
 const draftOnly = {
   ...published.families.find((f) => f.code === 'ОСА 300')!,
   id: 'ui-draft-only', code: 'DRAFT-ONLY-UI', title: { ru: 'Только черновик интерфейса' },
@@ -47,6 +50,7 @@ page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('403'
 page.on('response', (r) => { if (r.status() >= 400) { const p = new URL(r.url()).pathname; if (r.status() === 403 && p === '/api/catalog/import') expectedHttp.push(`${r.status()} ${p}`); else errors.push(`http${r.status()}:${p}`); } });
 page.route('**/api/**', async (route) => {
   const req = route.request(); const p = new URL(req.url()).pathname; const method = req.method();
+  if (p === '/api/catalog/assets/11111111-1111-1111-1111-111111111111') { await route.fulfill({ status: 200, contentType: 'application/pdf', path: path.join(root, 'public/catalog-documents/osa.pdf') }); return; }
   let body: any = {};
   if (p === '/api/catalog' && method === 'GET') {
     const empty = await page.evaluate(() => !!(window as any).__catalogFixtureEmpty);
@@ -115,20 +119,23 @@ try {
   assert(await page.getByText('Требовать вторую проверку семейства или компонента', { exact: true }).count() === 0, 'viewer unexpectedly sees publication policy controls');
   await page.getByRole('button', { name: /ОСА300/ }).first().click();
   assert(await page.getByText('осевой', { exact: true }).count() > 0, 'choice facts still render raw codes instead of Russian labels');
+  await page.waitForFunction(() => { const canvas = document.querySelector('canvas'); return canvas && canvas.width > 500 && canvas.height > 500; });
+  await page.waitForTimeout(500);
+  assert(!await page.getByText('Открываем иллюстрацию…', { exact: true }).count(), 'vector PDF illustration did not render');
   const screenshots: any[] = [];
   for (const width of [1024, 1440]) for (const theme of ['light', 'dark']) screenshots.push(await shot('reader', width, theme));
   await page.getByRole('button', { name: 'Характеристики', exact: true }).click();
   assert(await page.getByText('Типоразмер', { exact: false }).count(), 'published table characteristics are missing');
   await page.getByRole('button', { name: 'Маркировка', exact: true }).click();
-  await page.getByRole('button', { name: 'Документы', exact: true }).click();
-  assert(await page.getByText('Файл ещё не загружен', { exact: true }).count(), 'file-only sources must clearly say file is not uploaded');
-  assert(await page.getByText('печатная стр.', { exact: false }).count(), 'source page references are missing');
+  await page.getByRole('button', { name: 'Устройство и применение', exact: true }).click();
+  assert(!await page.getByText('Файл ещё не загружен', { exact: true }).count(), 'reader exposes technical upload status');
+  assert(!await page.getByText('печатная стр.', { exact: false }).count(), 'reader exposes source page references');
   await page.getByRole('button', { name: 'Сообщить', exact: true }).first().click();
   const issueDialog = page.getByRole('dialog', { name: 'Сообщить о неточности' });
   await issueDialog.waitFor();
   assert(await issueDialog.getByText('veza-osa-300-availability/040/fanSize', { exact: true }).count(), 'table report is missing stable table/row/column path');
   assert(await issueDialog.getByText('040', { exact: true }).count(), 'table report is missing current cell value');
-  assert(await issueDialog.getByText('ОСА 300/301, осевые вентиляторы.pdf', { exact: false }).count(), 'table report is missing its source reference');
+  assert(!await issueDialog.getByText('ОСА 300/301, осевые вентиляторы.pdf', { exact: false }).count(), 'issue dialog exposes internal PDF provenance');
   await issueDialog.getByRole('button', { name: 'Отмена' }).click();
   await page.getByRole('button', { name: 'Добавить к сравнению', exact: true }).first().click();
   assert(await page.getByText(/Сравнение/).count(), 'model comparison panel did not open');
@@ -155,8 +162,8 @@ try {
   assert(policyWrites === 2, 'owner policy control did not persist both changes');
   assert(await policyToggle.isChecked(), 'owner policy control did not reflect the saved policy');
   for (const width of [1024, 1440]) for (const theme of ['light', 'dark']) screenshots.push(await shot('publications', width, theme));
-  await page.getByRole('button', { name: 'Данные из PDF ВЕЗА: предпросмотр' }).click();
-  await page.getByRole('heading', { name: 'Предпросмотр каталога ВЕЗА' }).waitFor();
+  await page.getByRole('button', { name: 'Каталоги НЕМАН и ВЕЗА: предпросмотр' }).click();
+  await page.getByRole('heading', { name: 'Предпросмотр справочника НЕМАН и ВЕЗА' }).waitFor();
   await page.getByRole('button', { name: 'Сохранить черновики' }).click();
   await page.getByRole('alert').filter({ hasText: 'Импорт в черновики отклонён' }).waitFor();
   assert(expectedHttp.includes('403 apply refused'), 'refused import was not exercised');

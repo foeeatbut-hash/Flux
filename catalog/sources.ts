@@ -7,6 +7,7 @@ export function attachCatalogSource(family: Family, source: CatalogRef | undefin
   return {
     ...family, catalog: attach(family.catalog),
     documents: family.documents?.map(doc => attach(doc)!),
+    sections: family.sections?.map(section => ({ ...section, source: attach(section.source)! })),
     tables: family.tables?.map(table => ({ ...table, source: attach(table.source), rows: table.rows.map(row => ({ ...row, source: attach(row.source) })) })),
   };
 }

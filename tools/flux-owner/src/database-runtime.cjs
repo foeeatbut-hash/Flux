@@ -115,8 +115,11 @@ async function terminateChild(child, deps) {
 }
 
 // Зависимости заменяются в локальных проверках; приложение использует Node и диалог Electron.
-async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgress, onUnexpectedExit } = {}, overrides = {}) {
+async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgress, onUnexpectedExit, onEvent } = {}, overrides = {}) {
+  const startedAt=Date.now();
+  const record=(event,details={})=>{try{onEvent?.(`runtime.${event}`,{elapsedMs:Date.now()-startedAt,...details});}catch{}};
   const database = parseDatabaseUri(uri);
+  record('uri.validated',{dialect:database.dialect});
   const deps = { fs, env: process.env, platform: process.platform, tmpdir: os.tmpdir(), version: fluxVersion,
     spawn, execFile, allocatePort, requestHealth, startupTimeoutMs: 120000, pollMs: 250, requestTimeoutMs: 2000, ...overrides };
   const controller = new AbortController();
@@ -126,8 +129,9 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
   const stop = () => {
     if (stopping) return stopping;
     stopping = Promise.resolve().then(async () => {
+      record('stop.start');
       try { await terminateChild(child, deps); }
-      finally { if (folder) await deps.fs.rm(folder, { recursive: true, force: true }); }
+      finally { if (folder) await deps.fs.rm(folder, { recursive: true, force: true });record('stop.complete'); }
     });
     controller.abort(canceled());
     clearTimeout(deadline);
@@ -136,7 +140,6 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
   };
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
-  deadline = setTimeout(() => controller.abort(failure('Общая база не ответила за две минуты. Проверьте адрес и доступность базы.')), deps.startupTimeoutMs);
   try {
     check();
     onProgress?.('Подключение к общей базе', 0, 0);
@@ -145,6 +148,12 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
       const candidate = path.join(deps.env.PORTABLE_EXECUTABLE_DIR, `Flux-${deps.version}-x64.exe`);
       try { await deps.fs.stat(candidate); file = candidate; }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if(!file){
+        const entries=await deps.fs.readdir(deps.env.PORTABLE_EXECUTABLE_DIR);
+        const candidates=entries.filter(name=>/^Flux-\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?-x64\.exe$/i.test(name));
+        if(candidates.length===1)file=path.join(deps.env.PORTABLE_EXECUTABLE_DIR,candidates[0]);
+        record('executable.search',{candidateCount:candidates.length,selected:!!file});
+      }
     }
     check();
     if (!file) {
@@ -155,9 +164,11 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
       file = selection.filePaths[0];
     }
     await inspectExecutable(file, deps.fs);
+    record('executable.validated',{name:path.basename(file)});
     check();
     folder = await deps.fs.mkdtemp(path.join(deps.tmpdir, 'flux-owner-db-'));
     await deps.fs.writeFile(path.join(folder, 'config.json'), JSON.stringify({ current_db_type: 'REMOTE', database_url: database.uri }), { mode: 0o600 });
+    record('config.created');
     check();
     const port = await deps.allocatePort();
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error();
@@ -166,8 +177,14 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     // Переменные загрузчика Owner относятся к другому EXE и не должны передаваться Flux.
     delete env.PORTABLE_EXECUTABLE_DIR;
     delete env.PORTABLE_EXECUTABLE_FILE;
-    child = deps.spawn(file, ['--flux-company-server'], { windowsHide: true, env, stdio: 'ignore' });
-    const childFailed = () => {
+    child = deps.spawn(file, ['--flux-company-server'], { windowsHide: true, env, stdio: ['ignore','pipe','pipe'] });
+    record('process.spawned',{pid:child.pid,port});
+    // Регистрируем только коды ошибок и объём вывода: строки дочернего процесса
+    // могут содержать SQL или реквизиты и не должны попадать в журнал Owner.
+    for(const name of ['stdout','stderr'])child[name]?.on('data',chunk=>{const text=String(chunk);const codes=[...new Set(text.match(/\b(?:P\d{4}|EACCES|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ER_[A-Z_]{3,50})\b/g)||[])];if(codes.length)record('process.diagnostic',{stream:name,codes});});
+    deadline = setTimeout(() => {record('startup.timeout');controller.abort(failure('Локальный обработчик Flux не подтвердил подключение к общей БД за две минуты. Проверьте журнал, права и доступность базы.'));}, deps.startupTimeoutMs);
+    const childFailed = (code,childSignal) => {
+      record('process.exit',{ready,code:typeof code==='number'?code:code?.code??null,signal:childSignal??null});
       const unexpected = ready && !stopping && !unexpectedExitNotified;
       if (unexpected) unexpectedExitNotified = true;
       controller.abort(failure('Локальный сервер Flux завершился. Проверьте portable EXE и доступность общей базы.'));
@@ -179,11 +196,12 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     child.on('error', childFailed);
     child.once('exit', childFailed);
     const origin = `http://127.0.0.1:${port}`;
+    let polls=0;
     for (;;) {
       check();
       let health;
       try { health = await abortable(deps.requestHealth(port, controller.signal, deps.requestTimeoutMs), controller.signal); }
-      catch { check(); }
+      catch(error) {if(++polls===1||polls%20===0)record('health.retry',{attempt:polls,code:error?.code??null});check(); }
       check();
       if (health?.statusCode === 200 && health.body?.ok === true) {
         if (health.body.databaseMode !== 'REMOTE' || health.body.dialect !== database.dialect) {
@@ -191,12 +209,14 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
         }
         clearTimeout(deadline);
         ready = true;
+        record('health.ready',{version:health.body.version,databaseMode:health.body.databaseMode,dialect:health.body.dialect});
         controller.signal.addEventListener('abort', () => { void stop().catch(() => {}); }, { once: true });
         return { origin, display: database.display, stop };
       }
       await wait(deps.pollMs, controller.signal);
     }
   } catch (error) {
+    record('startup.failure',{error});
     try { await stop(); } catch (cleanupError) { throw cleanupError instanceof RuntimeError ? cleanupError : failure('Не удалось завершить локальное подключение Flux.'); }
     throw error instanceof RuntimeError ? error : failure('Не удалось подключиться к общей базе. Проверьте portable Flux EXE, адрес и доступность базы.');
   }

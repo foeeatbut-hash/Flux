@@ -16,7 +16,8 @@ export async function runNativeDesktopScript(action: 'snapshot' | 'open' | 'publ
     // Windows PowerShell 5.1 распознаёт UTF-8 по BOM.
     await writeFile(script, '\uFEFF' + NATIVE_DESKTOP_SCRIPT, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     const result = await runFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', script], {
-      env: { ...process.env, FLUX_DESKTOP_ACTION: action, FLUX_DESKTOP_ITEM: nativeId },
+      env: { ...process.env, FLUX_DESKTOP_ACTION: action, FLUX_DESKTOP_ITEM: nativeId,
+        FLUX_DESKTOP_APP_PATH: process.execPath },
       windowsHide: true, timeout: 25000, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8',
     }).catch((cause: any) => {
       const marker = String(cause?.stderr || '').match(/FLUX_DESKTOP_NATIVE_FAILED:([a-z-]{1,32}):([A-Za-z]{1,48}):([A-F0-9]{8})/);

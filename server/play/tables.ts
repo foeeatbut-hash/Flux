@@ -135,7 +135,7 @@ export const PLAY_TABLES: TableSpec[] = [
   },
   {
     table: 'PlayLobby',
-    cols: [id(), key('partyId'), key('gameId'), key('state'), int('revision', 1), at('createdAt'), at('updatedAt')],
+    cols: [id(), key('partyId'), key('gameId'), int('seatLimit', 2), key('state'), int('revision', 1), at('createdAt'), at('updatedAt')],
     indexes: [
       // Одно живое лобби на группу
       {

@@ -12,6 +12,7 @@ import { loadLearnedDict, getLearnedDict, loadSymbolRules, observe } from '../im
 import EquipmentImportPreview from './EquipmentImportPreview';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
+import ImportFileChooser from './ImportFileChooser';
 
 // Мастер импорта документов: PDF / Excel / Word / XML / вставка из буфера.
 // Распознавание полностью на клиенте; на сервер уходит только подтверждённый результат.
@@ -93,7 +94,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // расчёт отмечается сам — ради этого папку файлов и бросают в окно разом
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateJob = useCallback((id: string, patch: Partial<FileJob>) => {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patch } : j));
@@ -455,22 +455,16 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           {/* Левая колонка: файлы */}
           <div className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col">
             <div
-              className={`m-3 p-4 border-2 border-dashed rounded-xl text-center cursor-pointer transition-colors ${
-                isDragOver ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-slate-300 dark:border-slate-700 hover:border-emerald-400'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
+              className={`m-3 p-4 border-2 border-dashed rounded-xl text-center transition-colors ${
+                isDragOver ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-slate-300 dark:border-slate-700'
+                }`}
             >
               <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1.5" />
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Перетащите файлы или кликните</p>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Перетащите файлы или выберите источник</p>
               <p className="text-2xs text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv · фото/скан .jpg .png</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif"
-                className="hidden"
-                onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = ''; } }}
-              />
+              <div className="mt-3 flex justify-center" onClick={event => event.stopPropagation()}>
+                <ImportFileChooser multiple accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif" label="Выбрать файлы" onFiles={handleFiles} />
+              </div>
             </div>
             <div className="px-3 pb-1 flex items-center gap-1.5 text-2xs text-slate-400">
               <ClipboardPaste className="w-3 h-3" /> Или Ctrl+V — таблица из Excel/Word

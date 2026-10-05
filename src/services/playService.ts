@@ -85,7 +85,10 @@ export const cancelInvite = (id: string, key: string) => post<any>(`/invites/${i
 
 // ── Лобби ───────────────────────────────────────────────────────────────────
 
-export const openLobby = (gameId: string, key: string) => post<any>('/lobby', { gameId }, key);
+export const openLobby = (gameId: string, key: string, seats?: number) => post<any>('/lobby', { gameId, ...(seats === undefined ? {} : { seats }) }, key);
+
+export const setLobbySeats = (lobbyId: string, seats: number, expectedVersion: number, key: string) =>
+  post<any>('/lobby/seats', { lobbyId, seats, expectedVersion }, key);
 
 export const setReady = (lobbyId: string, ready: boolean, expectedVersion: number, key: string) =>
   post<any>('/lobby/ready', { lobbyId, ready, expectedVersion }, key);

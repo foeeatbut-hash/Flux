@@ -189,8 +189,24 @@ async function main() {
     // Components may refer to family IDs; archiving the family is blocked atomically.
     const componentDoc = { id: 'fixture-http-component', classId: targetClass, manufacturerId: targetMfr, code: 'fixture-component', kind: 'other', title: { ru: 'Fixture component' }, specs: [{ label: { ru: 'Исполнение' }, value: 'fixture' }], familyIds: [familyDoc.id] };
     const componentDraft = await json(await request(`/api/catalog/component/${componentDoc.id}`, 'PUT', componentDoc, 'editor'));
+    const componentIllustration = { id: 'fixture-component-section', title: 'Подключение привода', kind: 'wiring', text: 'Условия подключения', source: { file: 'component.pdf', physicalPage: 1 } };
+    const missingAssetDraft = await json(await request(`/api/catalog/component/${componentDoc.id}`, 'PUT', { ...componentDoc, sections: [componentIllustration], _draftVersion: componentDraft.revision }, 'editor'));
+    await expectStatus('компонент с отсутствующей иллюстрацией не публикуется', await request('/api/catalog/workspace/publish', 'POST', { selections: [{ entity: 'component', id: componentDoc.id, revision: missingAssetDraft.revision }] }, 'editor'), 409);
+    const componentBytes = Buffer.from('%PDF-1.4\ncomponent fixture document\n');
+    const componentBegin = await request('/api/catalog/assets/begin', 'POST', { size: componentBytes.length, sha256: createHash('sha256').update(componentBytes).digest('hex'), filename: 'component.pdf', familyId: componentDoc.id }, 'editor');
+    check('загрузка документации для черновика комплектующего разрешена редактору', componentBegin.status === 200);
+    const componentAsset = await json(componentBegin);
+    await expectStatus('сотрудник без прав не открывает неопубликованную иллюстрацию компонента', await request(`/api/catalog/assets/${componentAsset.id}`, 'GET', undefined, 'outsider'), 409);
+    await expectStatus('блок документации комплектующего принят', await request(`/api/catalog/assets/${componentAsset.id}/chunks/0`, 'PUT', { data: componentBytes.toString('base64') }, 'editor'), 200);
+    await expectStatus('документация комплектующего проходит проверку хеша', await request(`/api/catalog/assets/${componentAsset.id}/finish`, 'POST', {}, 'editor'), 200);
+    await expectStatus('сотрудник без прав не открывает завершённое неопубликованное вложение', await request(`/api/catalog/assets/${componentAsset.id}`, 'GET', undefined, 'outsider'), 403);
+    const readyComponentDraft = await json(await request(`/api/catalog/component/${componentDoc.id}`, 'PUT', { ...componentDoc, sections: [{ ...componentIllustration, source: { ...componentIllustration.source, assetId: componentAsset.id } }], _draftVersion: missingAssetDraft.revision }, 'editor'));
+    componentDraft.revision = readyComponentDraft.revision;
     const componentPublished = await request('/api/catalog/workspace/publish', 'POST', { selections: [{ entity: 'component', id: componentDoc.id, revision: componentDraft.revision }] }, 'editor');
     check('комплектующее с зависимостью от семейства публикуется', componentPublished.status === 200);
+    const componentReaderAsset = await request(`/api/catalog/assets/${componentAsset.id}`, 'GET', undefined, 'outsider');
+    check('обычный сотрудник получает иллюстрацию из опубликованного раздела компонента', componentReaderAsset.status === 200 && Buffer.from(await componentReaderAsset.arrayBuffer()).equals(componentBytes));
+    await expectStatus('обычный сотрудник не изменяет содержание компонента', await request(`/api/catalog/component/${componentDoc.id}`, 'PUT', { ...componentDoc, sections: [] }, 'outsider'), 403);
     const archiveDraft = await json(await request(`/api/catalog/family/${familyDoc.id}`, 'DELETE', {}, 'editor'));
     await expectStatus('архив семейства с зависимым комплектующим заблокирован', await request('/api/catalog/workspace/publish', 'POST', { selections: [{ entity: 'family', id: familyDoc.id, revision: archiveDraft.revision }] }, 'editor'), 409);
     check('заблокированный архив сохранил опубликованную модель и компонент', (await readCatalog(prisma)).families.some(x => x.id === familyDoc.id) && (await readCatalog(prisma)).components.some(x => x.id === componentDoc.id));

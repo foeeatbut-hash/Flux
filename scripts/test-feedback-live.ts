@@ -79,11 +79,11 @@ async function main() {
     await page.click('text=Новое обращение');
     // Форма ленивая: ждём её появления, а не отмеренную паузу — иначе набор
     // рапортует о поломке там, где просто не дождался
-    const formShown = await page.waitForSelector('input[placeholder*="Закрылась"]', { timeout: 20000 })
+    const formShown = await page.waitForSelector('input[placeholder*="Таблица закрылась"]', { timeout: 20000 })
       .then(() => true).catch(() => false);
     ok('форма открылась', formShown, await page.evaluate(() => (document.body.textContent || '').slice(0, 300)));
 
-    await page.fill('input[placeholder*="Закрылась"]', title);
+    await page.fill('input[placeholder*="Таблица закрылась"]', title);
     await page.fill('textarea', 'Живая проверка: описание длиннее десяти знаков, как требует договор.');
     await page.waitForTimeout(900);
 

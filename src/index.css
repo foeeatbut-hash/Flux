@@ -379,6 +379,20 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.011em;
 }
+html, body, #root { background-color: var(--color-slate-50); }
+html.dark, html.dark body, html.dark #root { background-color: var(--color-dark-bg); }
+.dark .flux-app-window { background-color: var(--color-dark-bg) !important; }
+
+/* Frameless Electron окна всё равно должны читаться как отдельное окно.
+   Полноэкранное покрытие убирает контур, чтобы не открывать щель к фону. */
+html[data-flux-electron-window="true"][data-flux-window-maximized="false"][data-flux-all-monitors="false"] .flux-app-window {
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px #cbd5e1, 0 8px 28px rgb(15 23 42 / 16%);
+}
+html.dark[data-flux-electron-window="true"][data-flux-window-maximized="false"][data-flux-all-monitors="false"] .flux-app-window {
+  background-color: var(--color-dark-bg);
+  box-shadow: inset 0 0 0 1px #334155, 0 8px 28px rgb(0 0 0 / 35%);
+}
 
 /* Выделение текста. Раньше оно было запрещено на всём документе, а
    исключения перечислялись вручную — и в программе, где половина работы

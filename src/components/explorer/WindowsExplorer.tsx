@@ -290,9 +290,9 @@ export default function WindowsExplorer() {
 
   return <div className="h-full min-h-0 flex flex-col @container text-slate-800 dark:text-slate-100">
     <header className="min-h-11 flex items-center gap-2 flex-wrap border-b border-slate-200 dark:border-slate-800 px-2">
-      <h1 className="text-base font-semibold">Файлы Windows</h1>
+      <h1 className="text-base font-semibold">Проводник</h1>
       <span className="text-xs text-slate-500 dark:text-slate-400">{root?.name || 'Файлы на этом устройстве'}</span><span className="flex-1" />
-      <Btn tone="ghost" onClick={() => navigate('/explorer?projectFiles=1')}><Folder className="w-3.5 h-3.5" /> Файлы проекта</Btn>
+      <Btn tone="ghost" onClick={() => navigate('/explorer?projectFiles=1')}><Folder className="w-3.5 h-3.5" /> Документы проекта</Btn>
       {folderRef && <><Btn onClick={() => { setNewName(''); setNewFolderOpen(true); }} disabled={!root?.available || busy}><FolderPlus className="w-3.5 h-3.5" /> Новая папка</Btn><Btn tone="primary" onClick={() => { setNewName(''); setNewKind('doc'); setNewFileOpen(true); }} disabled={!root?.available || busy}><FilePlus2 className="w-3.5 h-3.5" /> Создать в Flux</Btn></>}
     </header>
     <div className="min-h-10 flex items-center gap-1 px-2 border-b border-slate-200 dark:border-slate-800">
@@ -305,9 +305,9 @@ export default function WindowsExplorer() {
       <div className="fx-segctl" role="group" aria-label="Вид файлов"><button type="button" aria-pressed={layout === 'list'} onClick={() => setLayout('list')} title="Список"><List className="w-3.5 h-3.5" /></button><button type="button" aria-pressed={layout === 'tiles'} onClick={() => setLayout('tiles')} title="Плитки"><Grid2X2 className="w-3.5 h-3.5" /></button></div>
     </div>
     <div className="flex-1 min-h-0 flex">
-      <aside className="w-44 shrink-0 overflow-auto border-r border-slate-200 dark:border-slate-800 py-2 px-1.5 flex flex-col gap-1" aria-label="Папки Windows">
+      <aside className="w-44 shrink-0 overflow-auto border-r border-slate-200 dark:border-slate-800 py-2 px-1.5 flex flex-col gap-1" aria-label="Места Проводника">
         {(['desktop', 'documents', 'downloads'] as const).map((kind) => { const item = roots.find((candidate) => candidate.kind === kind); return <button key={kind} type="button" disabled={!item?.available} aria-current={item?.id === rootId ? 'page' : undefined} onClick={() => item && selectRoot(item)} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-current:bg-slate-100 dark:aria-current:bg-slate-800 disabled:opacity-40"><Home className="w-4 h-4 text-slate-500 dark:text-slate-400" />{ROOT_LABEL[kind]}</button>; })}
-        <button type="button" onClick={() => navigate('/shared-files')} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"><Folder className="w-4 h-4 text-slate-500 dark:text-slate-400" />Общий доступ</button>
+        <button type="button" aria-current={searchParams.get('view') === 'shared' ? 'page' : undefined} onClick={() => { const next = new URLSearchParams({ view: 'shared', root: rootId, path }); navigate(`/explorer?${next}`); }} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-current:bg-slate-100 dark:aria-current:bg-slate-800"><Folder className="w-4 h-4 text-slate-500 dark:text-slate-400" />Общий доступ</button>
         <div className="mt-2 px-2 text-xs font-medium text-slate-500 dark:text-slate-400">Подключённые папки</div>
         {roots.filter((item) => item.kind === 'custom').map((item) => <button key={item.id} type="button" disabled={!item.available} aria-current={item.id === rootId ? 'page' : undefined} onClick={() => selectRoot(item)} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-current:bg-slate-100 dark:aria-current:bg-slate-800 disabled:opacity-40"><HardDrive className="w-4 h-4 text-slate-500 dark:text-slate-400" /><span className="truncate">{item.name}</span></button>)}
         <button type="button" onClick={() => void addRoot()} disabled={busy} className="h-8 px-2 flex items-center gap-2 rounded text-left text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"><FolderPlus className="w-4 h-4" /> Подключить папку…</button>
@@ -315,7 +315,7 @@ export default function WindowsExplorer() {
       <main className="min-w-0 flex-1 flex flex-col" onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-entry]') && clipboard && folderRef) { e.preventDefault(); void paste(); } }}>
         {root?.network && <p className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" role="status">Общая сетевая папка. Чтение и сохранение доступны по вашим правам Windows.</p>}
         {error && <div role="alert" className="m-3 px-3 py-2 rounded border border-rose-200 bg-rose-50 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
-        {portable ? <div className="p-4"><Empty title="Папки Windows доступны в приложении Flux" text="В браузере здесь нет доступа к файлам устройства. Откройте архив файлов проекта, чтобы продолжить работу." ><Btn onClick={() => navigate('/explorer?projectFiles=1')}><Folder className="w-3.5 h-3.5" /> Файлы проекта</Btn></Empty></div>
+        {portable ? <div className="p-4"><Empty title="Папки Windows доступны в приложении Flux" text="В браузере здесь нет доступа к файлам устройства. Откройте архив документов проекта, чтобы продолжить работу." ><Btn onClick={() => navigate('/explorer?projectFiles=1')}><Folder className="w-3.5 h-3.5" /> Документы проекта</Btn></Empty></div>
           : !rootId ? <div className="p-4"><Empty title="Подключите папку Windows" text="Выберите Рабочий стол, Документы, Загрузки или добавьте другую папку." ><Btn onClick={() => void addRoot()}><FolderPlus className="w-3.5 h-3.5" /> Подключить папку</Btn></Empty></div>
           : !root?.available ? <div className="p-4"><Empty title="Папка недоступна" text="Проверьте, что она подключена на этом компьютере, и обновите список." ><Btn onClick={() => void loadRoots()}><RefreshCw className="w-3.5 h-3.5" /> Обновить папки</Btn></Empty></div>
           : !listing && busy ? <div className="p-4 text-xs text-slate-500 dark:text-slate-400">Открываю папку…</div>

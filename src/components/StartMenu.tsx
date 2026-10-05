@@ -32,7 +32,6 @@ import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
-import { hiddenIds } from '../lib/deskGroups';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
@@ -49,7 +48,6 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const pinApp = useDesktopStore((s) => s.pinApp);
   const unpinApp = useDesktopStore((s) => s.unpinApp);
   const moveApp = useDesktopStore((s) => s.moveApp);
-  const deskFolders = useDesktopStore((s) => s.groups);
   const bar = useDesktopStore((s) => s.bar);
   const pinBar = useDesktopStore((s) => s.pinBar);
   const unpinBar = useDesktopStore((s) => s.unpinBar);
@@ -148,31 +146,18 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
   const titleOf = (path: string) => SECTIONS.find((s) => s.path === path)?.title || path;
 
-  /**
-   * «Закреплено на столе» — это ВИДНО на столе, а не «есть в списке».
-   *
-   * Значок программы можно снять со стола — значит, его надо уметь вернуть, и
-   * место возврата очевидное: там же, где программы и перечислены.
-   *
-   * Значок, убранный в папку, из списка не исчезает: стол прячет его отдельно,
-   * по составу папок. Пока здесь смотрели только в список, меню предлагало
-   * «Убрать с рабочего стола» для значка, которого на столе нет, — то есть
-   * единственное действие, которое человеку было не нужно, а нужного не
-   * предлагало вовсе.
-   */
-  const inFolder = React.useMemo(() => hiddenIds(deskFolders), [deskFolders]);
-  const pinned = (path: string) => apps.includes(path) && !inFolder.has(`app:${path}`);
+  const pinned = (path: string) => apps.includes(path);
   const onBar = (path: string) => bar.includes(path);
   /**
-   * Закрепление закрывает Пуск и говорит словами, что случилось.
+   * Закрепление в Пуск закрывает меню и говорит словами, что случилось.
    *
-   * Стол Пуск закрывает собой: значок появлялся за меню, человек ничего не
+   * Пуск закрывает собой: значок появлялся за меню, человек ничего не
    * видел и нажимал ещё раз. Действие, которого не видно и о котором не
    * сказано, для человека просто не произошло.
    */
-  const desk = (path: string, title: string) => {
+  const pinStart = (path: string, title: string) => {
     pinApp(path);
-    addToast(`«${title}» на рабочем столе`, 'success');
+    addToast(`«${title}» закреплена в Пуске`, 'success');
     onClose();
   };
   const toBar = (path: string, title: string) => {
@@ -183,16 +168,9 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => go(menu.path) },
     pinned(menu.path)
-      ? {
-        label: 'Убрать с рабочего стола',
-        icon: <PinOff className="w-3.5 h-3.5" />,
-        onClick: () => { unpinApp(menu.path); addToast(`«${titleOf(menu.path)}» убрана со стола`, 'info'); },
-      }
-      : {
-        label: 'Закрепить на рабочем столе',
-        icon: <Pin className="w-3.5 h-3.5" />,
-        onClick: () => desk(menu.path, titleOf(menu.path)),
-      },
+      ? { label: 'Открепить из Пуска', icon: <PinOff className="w-3.5 h-3.5" />,
+        onClick: () => { unpinApp(menu.path); addToast(`«${titleOf(menu.path)}» откреплена из Пуска`, 'info'); } }
+      : { label: 'Закрепить в Пуске', icon: <Pin className="w-3.5 h-3.5" />, onClick: () => pinStart(menu.path, titleOf(menu.path)) },
     onBar(menu.path)
       ? {
         label: 'Открепить от панели задач',
@@ -225,7 +203,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           dragFrom.current = at ?? -1;
         }}
         /* Закреплённые меняются местами перетаскиванием — как плитки в системе.
-           Тянуть на стол и на панель задач это не мешает: там ронять во что,
+           Тянуть на панель задач это не мешает: там ронять во что,
            а здесь роняют В плитку */
         onDragOver={at === undefined || dragFrom.current < 0 ? undefined : (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
         onDrop={at === undefined ? undefined : (e) => {
@@ -241,7 +219,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
            показывает раздел там, где он есть в этой оболочке, а не там, где его
            когда-то нарисовали */
         data-tour={`nav-${path}`}
-        title={pinned(path) ? `${title} — на рабочем столе` : `${title} — потяните на стол или панель, чтобы закрепить`}
+        title={pinned(path) ? `${title} — закреплено в Пуске` : `${title} — закрепите в Пуске или перетащите на панель задач`}
         /* Область наведения ужата до значка с подписью: раньше плитка была
            блоком с отступом в 12 пикселей со всех сторон, и шесть таких в ряд
            смотрелись стеной. Воздух теперь МЕЖДУ плитками, а не внутри них */

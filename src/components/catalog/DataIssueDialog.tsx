@@ -67,8 +67,7 @@ export default function DataIssueDialog({ context, onClose }: Props) {
   };
 
   const current = context.currentValue?.trim() || 'Не указано';
-  const sourceParts = [context.source?.file, context.source?.pages && `с. ${context.source.pages}`, context.source?.edition]
-    .filter(Boolean);
+
 
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 fx-backdrop" style={{ zIndex: Z.modal }}
@@ -117,11 +116,6 @@ export default function DataIssueDialog({ context, onClose }: Props) {
                   </div>
                 </div>
               </div>
-              {(context.revision || sourceParts.length > 0) && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {[context.revision && `Редакция ${context.revision}`, ...sourceParts].filter(Boolean).join(' · ')}
-                </p>
-              )}
               <label className="block">
                 <Label>Что неточно</Label>
                 <textarea autoFocus rows={3} maxLength={20000} value={description} onChange={(e) => setDescription(e.target.value)}

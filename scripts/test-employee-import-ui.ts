@@ -76,7 +76,7 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor();
     await page.getByRole('button', { name: 'Отмена' }).click();
     ok('После Escape предупреждение закрытия можно открыть и отменить повторно', await page.getByRole('dialog', { name: 'Импорт сотрудников' }).isVisible());
-    await page.locator('label.fx-btn').click();
+    await page.getByRole('button', { name: 'Выбрать XLSX или CSV' }).click();
     await page.locator('input[type=file]').setInputFiles(file);
     await page.getByRole('dialog', { name: 'Не скачаны начальные пароли' }).waitFor();
     await page.getByRole('button', { name: 'Отмена' }).click();

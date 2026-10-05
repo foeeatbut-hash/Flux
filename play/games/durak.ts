@@ -70,8 +70,8 @@ function allowed(s: DurakState, seat: number): DurakAllowed {
   return result;
 }
 export function initDurak(seed: string, seats: string[], settings: { variant?: DurakVariant; deckSize?: 36 | 52 } = {}): DurakState {
-  const deckSize = settings.deckSize || (seats.length > 6 ? 52 : 36);
-  if (seats.length < 2 || seats.length > (deckSize === 36 ? 6 : 8) || new Set(seats).size !== seats.length || seats.some(seat => typeof seat !== 'string' || !seat)) throw new Error(`Дурак: колода ${deckSize} карт рассчитана на 2–${deckSize === 36 ? 6 : 8} игроков`);
+  const deckSize = settings.deckSize || 36;
+  if (seats.length < 2 || seats.length > 6 || new Set(seats).size !== seats.length || seats.some(seat => typeof seat !== 'string' || !seat)) throw new Error(`Дурак: играют 2–6 человек; колода ${deckSize} карт`);
   if (deckSize !== 36 && deckSize !== 52 || settings.variant && !['throw-in', 'transfer'].includes(settings.variant)) throw new Error('Неизвестные правила Дурака');
   const cards = secureDeck(seed).filter(card => deckSize === 52 || durakRank(card) >= 6);
   const trumpCard = cards.at(-1)!;
@@ -123,8 +123,8 @@ export const durak: GameRules<DurakState, DurakMove> = {
     if (!move || typeof move !== 'object') return 'Выберите действие с картами';
     if (move.type === 'configure') {
       if (seat !== 0 || s.started) return 'Правила меняет создатель стола до первого хода';
-      if (!['throw-in', 'transfer'].includes(move.variant) || ![36, 52].includes(move.deckSize)) return 'Выберите подкидного или переводного Дурака и колоду 36 или 52 карты';
-      if (s.seats.length > (move.deckSize === 36 ? 6 : 8)) return 'Для этой группы нужна колода 52 карты: колода 36 рассчитана максимум на 6 игроков';
+      if (!['throw-in', 'transfer'].includes(move.variant) || ![36, 52].includes(move.deckSize)) return 'Выберите подкидного или переводного Дурака и допустимый размер колоды';
+      if (s.seats.length > 6) return 'В Дурака с колодой 36 карт играют от 2 до 6 игроков';
       return '';
     }
     if (!active(s, seat)) return 'Вы уже вышли из партии';

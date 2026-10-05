@@ -19,6 +19,7 @@ import { signatureOf } from '../../../catalog/text';
 import { catalogService } from '../../services/catalogService';
 import { newItemId, nextSort } from '../../store/builderStore';
 import { Btn, Chip, Confidence, Empty, Field, Input, Select, Seg } from '../catalog/ui';
+import ImportFileChooser from '../ImportFileChooser';
 
 type Step = 'file' | 'columns' | 'plan';
 
@@ -231,16 +232,16 @@ export default function ImportWizard({ catalog, classId, items, learned, canLear
   if (step === 'file') {
     return (
       <div className="flex flex-col gap-3 max-w-2xl">
-        <label
+        <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) openFile(f); }}
-          className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 px-6 py-10 cursor-pointer hover:border-emerald-400 text-center">
+          className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 px-6 py-10 text-center">
           <FileSpreadsheet className="w-8 h-8 text-emerald-600" />
           <b className="text-sm">Перетащите MTO или спецификацию сюда</b>
-          <span className="text-xs text-slate-500 dark:text-slate-400">или нажмите, чтобы выбрать файл Excel (.xlsx, .xls, .csv). Файл читается на этом компьютере и никуда не загружается.</span>
-          <input type="file" accept=".xlsx,.xls,.xlsm,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) openFile(f); e.target.value = ''; }} />
+          <span className="text-xs text-slate-500 dark:text-slate-400">Выберите файл Excel (.xlsx, .xls, .csv). Файл читается на этом компьютере и никуда не загружается.</span>
+          <ImportFileChooser accept=".xlsx,.xls,.xlsm,.csv" onFiles={files => { if (files[0]) void openFile(files[0]); }} />
           <span className="inline-flex items-center gap-1 text-2xs text-slate-400"><Upload className="w-3.5 h-3.5" /> Колонки определятся сами; формат запомнится для следующих файлов</span>
-        </label>
+        </div>
         {busy && <div className="text-xs text-slate-500">{busy}</div>}
         {error && <div className="text-xs text-rose-600 dark:text-rose-400">{error}</div>}
       </div>

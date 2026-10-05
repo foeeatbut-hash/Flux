@@ -43,7 +43,11 @@
         "src/lib/mailHtml.ts",
         "src/lib/meetingFromMail.ts",
         "src/services/mailService.ts",
-        "src/store/mailStore.ts"
+        "src/store/mailStore.ts",
+        "src/lib/permissions.ts",
+        "server.ts",
+        "server/routes/mail.ts",
+        "server/mail/access.ts"
       ]
     },
     {
@@ -224,12 +228,62 @@
       "external": true
     },
     {
+      "id": "collab-notify-live",
+      "path": "scripts/test-notify-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "file", "path": "scripts/testCredentials.ts" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-presence-live",
+      "path": "scripts/test-presence-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "file", "path": "scripts/testCredentials.ts" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
       "id": "collab-mail-helpers",
       "path": "scripts/test-mail.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-mail-open-unread-store",
+      "path": "scripts/test-mail-open-unread.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [
+        { "kind": "file", "path": "src/store/mailStore.ts" },
+        { "kind": "file", "path": "src/screens/Mail.tsx" }
+      ],
       "timeoutMs": 900000
     },
     {
@@ -267,6 +321,42 @@
         {
           "kind": "env",
           "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-mail-live-browser",
+      "path": "scripts/test-remaining-collaboration-mail-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-remaining-live-api",
+        "browser:chromium",
+        "browser:exclusive"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_REMAINING_LIVE_METADATA"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-collaboration/seed-mail.mjs"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-live/remaining-live.mjs"
         }
       ],
       "timeoutMs": 900000,
@@ -430,6 +520,48 @@
       "external": true
     },
     {
+      "id": "collab-feedback-live-browser",
+      "path": "scripts/test-feedback-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:exclusive"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "file", "path": "scripts/testCredentials.ts" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "collab-diagnostics-live-browser",
+      "path": "scripts/test-diagnostics-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:exclusive"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "file", "path": "scripts/testCredentials.ts" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
       "id": "collab-logs-action-meaning",
       "path": "scripts/test-action-log.ts",
       "layer": "unit",
@@ -566,6 +698,35 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-handbook-nav-component",
+      "path": "scripts/test-remaining-collaboration-handbook-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "vite-port:dynamic",
+        "browser:chromium"
+      ],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-collaboration/handbook-ui/main.tsx"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-collaboration/handbook-ui/fixture.css"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-collaboration/handbook-ui/index.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/remaining-collaboration/handbook-ui/vite.config.ts"
+        }
+      ],
       "timeoutMs": 900000
     }
   ],
@@ -808,6 +969,20 @@
           "claims": [
             "Сокет доставляет сообщение участнику и не рассылает текст постороннему"
           ]
+        },
+        {
+          "suite": "collab-notify-live",
+          "layer": "api-db",
+          "claims": [
+            "Адресат получает уведомление быстрее секунды, отправитель не получает его о себе, а polling остаётся страховочным каналом"
+          ]
+        },
+        {
+          "suite": "collab-presence-live",
+          "layer": "api-db",
+          "claims": [
+            "Два сотрудника видят друг друга, уход второго окна не гасит первое присутствие"
+          ]
         }
       ],
       "manual": [
@@ -837,7 +1012,22 @@
       "expected": [
         "Параметры ящика проверены и сохранены; секреты не показываются в журнале"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "collab-mail-shared-api",
+          "layer": "api-db",
+          "claims": [
+            "Настройка запрещена без mail.shared.manage и не учитывает legacy mail.shared; явная выдача и ADMIN сохраняют доступ"
+          ]
+        },
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Редактирование тестового общего ящика сохраняется через реальный API; только проверка IMAP/SMTP изолирована"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -891,7 +1081,15 @@
       "expected": [
         "Поиск сужает список; очистка возвращает его; окно горячих клавиш можно закрыть"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Клавиша / фокусирует поиск, поиск находит seed-письмо, очистка возвращает список"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -920,7 +1118,15 @@
       "expected": [
         "Обновлённый список соответствует выбранному ящику, папке и отбору"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Фильтр непрочитанных оставляет seed-переписку в списке"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -948,7 +1154,15 @@
       "expected": [
         "Массовое действие применяется только к отмеченным письмам; снятие выбора отменяет цель"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "UI выделяет одну синтетическую цепочку и снимает выделение без изменения других"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -986,10 +1200,24 @@
           ]
         },
         {
+          "suite": "collab-mail-open-unread-store",
+          "layer": "unit",
+          "claims": [
+            "Прочитанная открытая цепочка сохраняется на экране после того, как исчезнет из списка непрочитанных"
+          ]
+        },
+        {
           "suite": "collab-mail-shared-api",
           "layer": "api-db",
           "claims": [
             "В общем ящике статус прочитанного отделён для сотрудников; требующие реальных писем ветви набора пропускаются"
+          ]
+        },
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Письмо открывается в sandbox iframe; активный HTML и внешние ресурсы не исполняются"
           ]
         }
       ],
@@ -1025,6 +1253,13 @@
           "layer": "api-db",
           "claims": [
             "Занятую переписку нельзя молча перехватить у сотрудника"
+          ]
+        },
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Коллега видит владельца цепочки и получает отказ при попытке перехватить её"
           ]
         }
       ],
@@ -1331,6 +1566,13 @@
           "claims": [
             "Очередь переживает ошибки передачи и сохраняет синтетическое отправление для повтора"
           ]
+        },
+        {
+          "suite": "collab-feedback-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Браузерная форма создаёт обращение, которое читается обратно через живой API/БД"
+          ]
         }
       ],
       "manual": [
@@ -1580,6 +1822,13 @@
           "layer": "api-db",
           "claims": [
             "Автор не получает диагностический пакет даже для собственной карточки"
+          ]
+        },
+        {
+          "suite": "collab-diagnostics-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "В живом окне события попадают в экспорт, отсутствие native bridge не считается потерей, логин и пароль в выгрузку не попадают"
           ]
         }
       ],
@@ -2330,6 +2579,13 @@
           "claims": [
             "Маршруты, статьи, ссылки и поля схемы руководства сверяются; запросы поиска проверены на фиксированных случаях"
           ]
+        },
+        {
+          "suite": "collab-handbook-nav-component",
+          "layer": "component",
+          "claims": [
+            "Поиск в настоящем HandbookNav показывает результат реестра, открывает выбранную статью и сбрасывает запрос; пустая выдача и геометрия компонента проверяются отдельно"
+          ]
         }
       ],
       "manual": [
@@ -2503,6 +2759,13 @@
           "layer": "api-db",
           "claims": [
             "Набор содержит путь связи вложения с файловым хранилищем; если реальные письма недоступны, этот сценарий пропускается"
+          ]
+        },
+        {
+          "suite": "collab-mail-live-browser",
+          "layer": "browser-live",
+          "claims": [
+            "Вложение из UI становится доступным в Проводнике с совпадающим именем и содержимым"
           ]
         }
       ],

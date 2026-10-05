@@ -632,7 +632,8 @@ app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig'), staticU
 // только сопоставление «маршрут → функция». Проверяем одной таблицей, а не в
 // каждом обработчике: иначе новый эндпоинт легко забыть закрыть, и выданное
 // право окажется украшением.
-type PermRule = { method: RegExp; path: RegExp; perm: string; title: string };
+type PermRequirement = { perm: string; title: string };
+type PermRule = PermRequirement & { method: RegExp; path: RegExp; also?: PermRequirement[] };
 const PERM_ROUTES: PermRule[] = [
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/projects\/?$|^\/api\/projects\/[^/]+$/,
     perm: 'project.manage', title: 'Управление проектами' },
@@ -661,10 +662,11 @@ const PERM_ROUTES: PermRule[] = [
   // Каталог правят немногие, а учится он у всех: запомненный выбор подбора —
   // побочный продукт работы в Конструкторе, а не правка справочника
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },
-  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues/, perm: 'builder.issue', title: 'Выпуск бланков' },
-  // Связь с тегами проекта заводит теги — это право на теги, а не на ведомость
-  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/tag-apply/, perm: 'tags.manage', title: 'Создание и правка тегов' },
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\//, perm: 'builder.edit', title: 'Ведомости Конструктора' },
+  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues(?:\/|$)/, perm: 'builder.issue', title: 'Выпуск бланков' },
+  // Применение связей меняет и теги проекта, и ведомость: нужны оба права.
+  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/tag-apply(?:\/|$)/, perm: 'tags.manage', title: 'Создание и правка тегов', also: [{ perm: 'builder.edit', title: 'Ведомости Конструктора' }] },
+  // План тегов ничего не записывает, а выпуск проверен отдельным правом.
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\/(?!lists\/[^/]+\/(?:issues|tag-plan)(?:\/|$))/, perm: 'builder.edit', title: 'Ведомости Конструктора' },
 ];
 
 const rolePermCache = new Map<string, { perms: any; at: number }>();
@@ -763,11 +765,13 @@ app.use(async (req: Request, res: Response, next) => {
       const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(route));
       if (rule) {
         const perms = await effectivePermsOf(user);
-        if (!permAllows(perms, rule.perm)) {
-          return res.status(403).json({
-            error: `Недостаточно прав: «${rule.title}». Обратитесь к администратору.`,
-            feature: rule.perm,
-          });
+        for (const requirement of [rule, ...(rule.also || [])]) {
+          if (!permAllows(perms, requirement.perm)) {
+            return res.status(403).json({
+              error: `Недостаточно прав: «${requirement.title}». Обратитесь к администратору.`,
+              feature: requirement.perm,
+            });
+          }
         }
       }
     }
@@ -1259,16 +1263,16 @@ async function startServer() {
     res.status(404).json({ error: `Маршрут не найден: ${req.method} /api${req.path}` });
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && process.env.FLUX_API_ONLY !== "1") {
     try {
       const viteModule = eval('require')('vite');
-      // HMR идёт по тому же порту, что и сервер. Отдельный порт по умолчанию
-      // (24678) один на машину: второй сервер разработки (проверки на двух
-      // серверах, рабочие копии субагентов) его не получал, и страница сыпала
-      // в консоль «failed to connect to websocket» — проверки «в консоли
-      // пусто» падали не по своей вине.
+      // HMR подключается к тому же HTTP-серверу, чтобы не занимать общий порт
+      // Vite 24678. В режиме тестовой фикстуры файловый watcher отключён, но
+      // клиент всё равно открывает WebSocket; поэтому транспорт оставляем
+      // доступным, иначе браузер получает ложный отказ соединения.
+      const watchFiles = process.env.DISABLE_HMR === 'true' ? null : undefined;
       const vite = await viteModule.createServer({
-        server: { middlewareMode: true, hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer } },
+        server: { middlewareMode: true, hmr: { server: httpServer }, watch: watchFiles },
         appType: "spa",
       });
       app.use(vite.middlewares);

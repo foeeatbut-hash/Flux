@@ -48,6 +48,11 @@ async function call(method: string, path: string, token: string, body?: any) {
   return { status: res.status, json: json as any };
 }
 
+async function cleanupCall(method: string, path: string, token: string, body?: any) {
+  try { return await call(method, path, token, body); }
+  catch { return { status: 0, json: {} as any }; }
+}
+
 async function login(symbol: string, password: string): Promise<string> {
   const r = await call('POST', '/api/login', '', { symbol, password });
   return r.json?.token || '';
@@ -55,32 +60,97 @@ async function login(symbol: string, password: string): Promise<string> {
 
 const SHARED_MAIL = 'проверка-общая@flux.invalid';
 const PERSONAL_MAIL = 'проверка-личная@flux.invalid';
-const MATE_SYMBOL = 'FluxTestMate';
 const MAIL_FIXTURE_SKIP_REASON = 'нужна изолированная почтовая фикстура с seed-письмом в общем ящике и письмом с вложением; без неё проверки переписки и связи со смежными программами неполны';
+type OwnedResource = { id: string; actorToken: string };
+class SkippedMailRun extends Error {}
 
 /** Убрать за собой всё, что набор завёл сам. Чужого не трогаем. */
 async function cleanup(admin: string, made: {
-  shared: any; personal: any; mate: any;
-  sharedMine: boolean; personalMine: boolean; mateMine: boolean;
+  shared: any; personal: any; mate: any; authorizedMate: any; legacyMate: any;
+  sharedMine: boolean; personalMine: boolean; mateMine: boolean; authorizedMateMine: boolean; legacyMateMine: boolean;
+  sharedOriginalLabel?: string; sharedLabelChanged: boolean;
+  createdNotes: OwnedResource[]; createdFiles: OwnedResource[];
+  claimedThreadKey?: string;
 }) {
-  if (made.sharedMine && made.shared?.id) await call('DELETE', `/api/mail/accounts/${made.shared.id}`, admin);
-  if (made.personalMine && made.personal?.id) await call('DELETE', `/api/mail/accounts/${made.personal.id}`, admin);
-  if (made.mateMine && made.mate?.id) await call('DELETE', `/api/users/${made.mate.id}`, admin);
+  if (made.claimedThreadKey && made.shared?.id) {
+    try {
+      const released = await cleanupCall('POST', '/api/mail/shared/claim', admin, { accountId: made.shared.id, threadKey: made.claimedThreadKey, on: false });
+      eq('current run released its own thread claim', released.status, 200);
+    } catch { eq('current run thread claim release completed', false, true); }
+  }
+  for (const item of [...made.createdNotes].reverse()) {
+    try {
+      const r = await call('DELETE', `/api/notes/${encodeURIComponent(item.id)}`, item.actorToken);
+      eq('created note cleanup', r.status, 200);
+    } catch { eq('created note cleanup request completed', false, true); }
+  }
+  for (const item of [...made.createdFiles].reverse()) {
+    try {
+      const r = await call('DELETE', `/api/files/${encodeURIComponent(item.id)}`, item.actorToken);
+      eq('created file cleanup', r.status, 200);
+    } catch { eq('created file cleanup request completed', false, true); }
+  }
+  if (made.sharedLabelChanged && !made.sharedMine && made.shared?.id && made.sharedOriginalLabel !== undefined) {
+    try {
+      const restored = await cleanupCall('PUT', `/api/mail/accounts/${encodeURIComponent(made.shared.id)}`, admin, { label: made.sharedOriginalLabel });
+      eq('reused shared mailbox label restored', restored.status, 200);
+    } catch { eq('reused shared mailbox label restore request completed', false, true); }
+  }
+  if (made.sharedMine && made.shared?.id) {
+    try {
+      const r = await cleanupCall('DELETE', `/api/mail/accounts/${made.shared.id}`, admin);
+      eq('созданный общей фикстурой ящик удалён', r.status, 200);
+      eq('удаление ящика подтверждено сервером', r.json?.ok, true);
+    } catch { eq('created shared mailbox cleanup request completed', false, true); }
+  }
+  if (made.personalMine && made.personal?.id) {
+    const r = await cleanupCall('DELETE', `/api/mail/accounts/${made.personal.id}`, admin);
+    eq('созданный личный ящик удалён', r.status, 200);
+    eq('удаление личного ящика подтверждено сервером', r.json?.ok, true);
+  }
+  for (const [label, row, owns] of [
+    ['обычный сотрудник', made.mate, made.mateMine],
+    ['сотрудник с новым правом', made.authorizedMate, made.authorizedMateMine],
+    ['сотрудник с прежним правом', made.legacyMate, made.legacyMateMine],
+  ] as const) {
+    if (!owns || !row?.id) continue;
+    const r = await cleanupCall('DELETE', `/api/users/${encodeURIComponent(row.id)}`, admin);
+    eq(`${label} удалён по ID, созданному текущим прогоном`, r.status, 200);
+    eq(`удаление профиля «${label}» подтверждено`, r.json?.success, true);
+  }
 }
 
 const run = async () => {
+  const createdNotes: OwnedResource[] = [];
+  const createdFiles: OwnedResource[] = [];
+  let admin = '';
+  let shared: any;
+  let personal: any;
+  let mate: any;
+  let authorizedMate: any;
+  let legacyMate: any;
+  let sharedMine = false;
+  let personalMine = false;
+  let mateMine = false;
+  let authorizedMateMine = false;
+  let legacyMateMine = false;
+  let sharedOriginalLabel: string | undefined;
+  let sharedLabelChanged = false;
+  let runError = false;
+  let claimedThreadKey = '';
+  try {
   console.log('1. Вход');
-  const admin = await login(ADMIN.symbol, ADMIN.password);
+  admin = await login(ADMIN.symbol, ADMIN.password);
   eq('администратор вошёл', Boolean(admin), true);
-  if (!admin) { console.log('\nСервер не отвечает или пароль не тот'); process.exit(1); }
+  if (!admin) throw new Error('Сервер не отвечает или пароль не тот');
 
   console.log('\n2. Ящики, которых набору не хватает, он заводит сам');
   const before = await call('GET', '/api/mail/accounts', admin);
   const had: any[] = before.json?.accounts || [];
   eq('пароль наружу не отдаётся', had.every((a) => a.secret === undefined && a.secretNonce === undefined), true);
 
-  let shared = had.find((a) => a.scope === 'SHARED');
-  let sharedMine = false;
+  shared = had.find((a) => a.scope === 'SHARED');
+  sharedOriginalLabel = shared?.label;
   if (!shared) {
     // active: false — ящик выдуманный, ждать по нему письма незачем
     const made = await call('POST', '/api/mail/accounts', admin, {
@@ -93,10 +163,9 @@ const run = async () => {
   } else {
     console.log('  · общий ящик уже подключён — берём его');
   }
-  if (!shared) { console.log('\nБез общего ящика проверять нечего'); process.exit(1); }
+  if (!shared) throw new Error('Без общего ящика проверять нечего');
 
-  let personal = had.find((a) => a.scope === 'PERSONAL');
-  let personalMine = false;
+  personal = had.find((a) => a.scope === 'PERSONAL');
   if (!personal) {
     const made = await call('POST', '/api/mail/accounts', admin, {
       email: PERSONAL_MAIL, password: 'проверка',
@@ -109,34 +178,73 @@ const run = async () => {
 
   console.log('\n3. Второй сотрудник');
   // Смысл общего ящика виден только вдвоём — одного сеанса не хватит
-  const pass = 'проверка-общего-ящика';
+  const stamp = Date.now().toString(36);
+  const pass = `проверка-общего-ящика-${stamp}`;
   // Проверка создаёт свой профиль и не меняет пароль существующего сотрудника.
   const madeMate = await call('POST', '/api/users', admin, {
-    name: 'Проверочный Сотрудник', symbol: MATE_SYMBOL, password: pass, role: 'ENGINEER_VENT',
+    name: 'Проверочный Сотрудник', symbol: `FluxMailMate${stamp}`, password: pass, role: 'ENGINEER_VENT',
   });
-  const mate = madeMate.json?.user || madeMate.json;
-  const mateMine = Boolean(mate?.id);
+  mate = madeMate.json?.user || madeMate.json;
+  mateMine = Boolean(mate?.id);
   eq('второй сотрудник заведён', mateMine, true);
-  if (!mate?.id) { console.log('\nНекому проверять общий доступ'); process.exit(1); }
+  if (!mate?.id) throw new Error('Некому проверять общий доступ');
+
+  const grantSymbol = `FluxMailGrant${stamp}`;
+  const madeAuthorizedMate = await call('POST', '/api/users', admin, {
+    name: 'Проверочный Сотрудник с правом', symbol: grantSymbol,
+    password: `${pass}-grant`, role: 'ENGINEER_VENT',
+    permissions: { 'mail.shared.manage': { enabled: true, until: null } },
+  });
+  authorizedMate = madeAuthorizedMate.json?.user || madeAuthorizedMate.json;
+  authorizedMateMine = Boolean(authorizedMate?.id);
+  eq('сотрудник с явной выдачей заведён', authorizedMateMine, true);
+  if (!authorizedMate?.id) throw new Error('Не создан сотрудник с явной выдачей');
+
+  const legacySymbol = `FluxMailOld${stamp}`;
+  const madeLegacyMate = await call('POST', '/api/users', admin, {
+    name: 'Проверочный Сотрудник со старым правом', symbol: legacySymbol,
+    password: `${pass}-legacy`, role: 'ENGINEER_VENT',
+    permissions: { 'mail.shared': { enabled: true, until: null } },
+  });
+  legacyMate = madeLegacyMate.json?.user || madeLegacyMate.json;
+  legacyMateMine = Boolean(legacyMate?.id);
+  eq('сотрудник со старым ключом заведён', legacyMateMine, true);
+  if (!legacyMate?.id) throw new Error('Не создан сотрудник со старым правом');
 
   const mateToken = await login(mate.symbol, pass);
   eq('второй сотрудник вошёл', Boolean(mateToken), true);
-  if (!mateToken) process.exit(1);
+  if (!mateToken) throw new Error('Второй сотрудник не вошёл');
+  const authorizedMateToken = await login(authorizedMate.symbol, `${pass}-grant`);
+  eq('сотрудник с явной выдачей вошёл', Boolean(authorizedMateToken), true);
+  if (!authorizedMateToken) throw new Error('Сотрудник с явной выдачей не вошёл');
+  const legacyMateToken = await login(legacyMate.symbol, `${pass}-legacy`);
+  eq('сотрудник со старым ключом вошёл', Boolean(legacyMateToken), true);
+  if (!legacyMateToken) throw new Error('Сотрудник со старым правом не вошёл');
+
+  const userRows = await call('GET', '/api/users', admin);
+  const mateRow = (userRows.json || []).find((u: any) => u.id === mate.id);
+  const permissionsOf = (value: any) => {
+    try { return typeof value === 'string' ? JSON.parse(value) : value || {}; }
+    catch { return {}; }
+  };
+  eq('новому инженеру новый ключ настройки общей почты не записан', permissionsOf(mateRow?.permissions)['mail.shared.manage'], undefined);
 
   console.log('\n4. Общий ящик виден обоим, личный — только владельцу');
   const mateAccounts = await call('GET', '/api/mail/accounts', mateToken);
   const mateList: any[] = mateAccounts.json?.accounts || [];
   eq('общий ящик виден второму', mateList.some((a) => a.id === shared.id), true);
   eq('чужой личный ящик не виден', mateList.some((a) => a.id === personal?.id), false);
+  eq('сотрудник без права не получает признак canEdit', mateList.find((a) => a.id === shared.id)?.canEdit, false);
+  const authorizedAccounts = await call('GET', '/api/mail/accounts', authorizedMateToken);
+  eq('явная выдача открывает настройку в интерфейсе', (authorizedAccounts.json?.accounts || []).find((a: any) => a.id === shared.id)?.canEdit, true);
+  const legacyAccounts = await call('GET', '/api/mail/accounts', legacyMateToken);
+  eq('старый mail.shared не открывает настройку в интерфейсе', (legacyAccounts.json?.accounts || []).find((a: any) => a.id === shared.id)?.canEdit, false);
 
   console.log('\n5. Прочитано — у каждого своё');
   const t1 = await call('GET', `/api/mail/threads?accountId=${shared.id}`, admin);
   const threads: any[] = t1.json?.threads || [];
   if (!threads.length) {
-    console.log(`FLUX_VERIFY_SKIP: ${MAIL_FIXTURE_SKIP_REASON}`);
-    await cleanup(admin, { shared, personal, mate, sharedMine, personalMine, mateMine });
-    console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
-    process.exit(fail ? 1 : 0);
+    throw new SkippedMailRun(MAIL_FIXTURE_SKIP_REASON);
   }
 
   const target = threads.find((t) => t.unread) || threads[0];
@@ -156,6 +264,7 @@ const run = async () => {
   const claim = await call('POST', '/api/mail/shared/claim', admin, {
     accountId: shared.id, threadKey: target.threadKey, on: true,
   });
+  if (claim.json?.state?.claimedById) claimedThreadKey = target.threadKey;
   eq('взял в работу', claim.json?.state?.claimedById ? true : false, true);
 
   const steal = await call('POST', '/api/mail/shared/claim', mateToken, {
@@ -180,6 +289,22 @@ const run = async () => {
   console.log('\n8. Настройки общего ящика — не всякому');
   const meddle = await call('PUT', `/api/mail/accounts/${shared.id}`, mateToken, { label: 'Переименовал' });
   eq('сотрудник без права не меняет общий ящик', meddle.status, 403);
+  const legacyMeddle = await call('PUT', `/api/mail/accounts/${shared.id}`, legacyMateToken, { label: 'Старый ключ' });
+  eq('старый mail.shared не даёт менять общий ящик', legacyMeddle.status, 403);
+  const afterDenied = await call('GET', '/api/mail/accounts', admin);
+  eq('отказ не меняет название общего ящика', (afterDenied.json?.accounts || []).find((a: any) => a.id === shared.id)?.label, shared.label);
+
+  const explicitLabel = `Проверочная выдача ${Date.now()}`;
+  sharedLabelChanged = !sharedMine;
+  const explicitEdit = await call('PUT', `/api/mail/accounts/${shared.id}`, authorizedMateToken, { label: explicitLabel });
+  eq('инженер с явной выдачей может настроить общий ящик', explicitEdit.status, 200);
+  const afterExplicit = await call('GET', '/api/mail/accounts', admin);
+  eq('явная выдача сохраняет новое название', (afterExplicit.json?.accounts || []).find((a: any) => a.id === shared.id)?.label, explicitLabel);
+  const adminEdit = await call('PUT', `/api/mail/accounts/${shared.id}`, admin, { label: shared.label });
+  eq('администратор может вернуть прежнее название', adminEdit.status, 200);
+  if (adminEdit.status === 200) sharedLabelChanged = false;
+  const afterRestore = await call('GET', '/api/mail/accounts', admin);
+  eq('после проверок название исходное', (afterRestore.json?.accounts || []).find((a: any) => a.id === shared.id)?.label, shared.label);
 
   console.log('\n9. Чужой личный ящик недоступен по прямому обращению');
   if (personal) {
@@ -190,9 +315,10 @@ const run = async () => {
   }
 
   // Прибираем за собой: отпускаем переписку
-  await call('POST', '/api/mail/shared/claim', admin, {
+  const ownClaimRelease = await call('POST', '/api/mail/shared/claim', admin, {
     accountId: shared.id, threadKey: target.threadKey, on: false,
   });
+  if (ownClaimRelease.status === 200) claimedThreadKey = '';
 
   console.log('\n10. Сцепка с программой');
   // Проверяется на любом письме с вложением — своём или из общего ящика.
@@ -219,29 +345,54 @@ const run = async () => {
 
     const saved = await call('POST', `/api/mail/attachments/${att?.id}/to-explorer`, admin, { folderId });
     eq('вложение легло в Проводник', Boolean(saved.json?.file?.id), true);
+    if (saved.json?.file?.id) createdFiles.push({ id: String(saved.json.file.id), actorToken: admin });
 
     // Второй раз тот же файл не должен затирать первый
     const again = await call('POST', `/api/mail/attachments/${att?.id}/to-explorer`, admin, { folderId });
     eq('повтор не затирает — имя разведено',
       again.json?.file?.name !== saved.json?.file?.name, true);
+    if (again.json?.file?.id) createdFiles.push({ id: String(again.json.file.id), actorToken: admin });
 
     const note = await call('POST', `/api/mail/messages/${letter?.id}/to-note`, admin, {});
     eq('письмо стало заметкой', Boolean(note.json?.note?.id), true);
+    if (note.json?.note?.id) createdNotes.push({ id: String(note.json.note.id), actorToken: admin });
+
+    if (note.json?.note?.id) {
+      const fullNote = await call('GET', `/api/notes/${encodeURIComponent(note.json.note.id)}`, admin);
+      const content = String(fullNote.json?.note?.content || '');
+      eq('полная заметка перечитана отдельным запросом', fullNote.status, 200);
+      eq('заметка содержит текст исходного письма', content.includes('Синтетическое письмо для проверки.'), true);
+      eq('заметка не содержит внешнюю картинку из письма', content.includes('fixture.invalid/pixel.png'), false);
+      eq('заметка не содержит исполняемую разметку письма', /window\.__fluxMailFixturePwned|javascript:|onerror/i.test(content), false);
+    }
 
     // Чужому письму сцепка недоступна так же, как и само письмо
     const foreign = await call('POST', `/api/mail/messages/${letter?.id}/to-note`, mateToken, {});
     const mineOnly = personal && withFile.accountId === personal.id;
     if (mineOnly) eq('к чужому письму не прицепиться', foreign.status, 404);
     else eq('к письму общего ящика прицепиться можно', foreign.status, 200);
+    if (!mineOnly && foreign.status === 200 && foreign.json?.note?.id) createdNotes.push({ id: String(foreign.json.note.id), actorToken: mateToken });
+  }
+  } catch (error) {
+    if (error instanceof SkippedMailRun) console.log(`FLUX_VERIFY_SKIP: ${error.message}`);
+    else {
+      runError = true;
+      console.error('\nСбой прогона:', error instanceof Error ? error.message : 'неизвестная ошибка');
+    }
+  } finally {
+    if (admin) await cleanup(admin, {
+      shared, personal, mate, authorizedMate, legacyMate,
+      sharedMine, personalMine, mateMine, authorizedMateMine, legacyMateMine,
+      sharedOriginalLabel, sharedLabelChanged, createdNotes, createdFiles,
+      claimedThreadKey,
+    });
   }
 
-  await cleanup(admin, { shared, personal, mate, sharedMine, personalMine, mateMine });
-
   console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
-  process.exit(fail ? 1 : 0);
+  process.exitCode = fail || runError ? 1 : 0;
 };
 
 run().catch((err) => {
   console.error('\nСбой прогона:', err?.message || err);
-  process.exit(1);
+  process.exitCode = 1;
 });

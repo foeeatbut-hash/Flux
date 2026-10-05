@@ -14,6 +14,7 @@ export interface WindowsFilesChanged { rootId: string; relativePath: string; res
 export type WindowsFilesRequest =
   | { action: 'roots' }
   | { action: 'draftTrash' }
+  | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
   | { action: 'restoreDraft'; ref: WindowsFileRef }
   | { action: 'addRoot' }
   | { action: 'list'; ref: WindowsFileRef; offset?: number; limit?: number }
@@ -32,5 +33,6 @@ export type WindowsFilesRequest =
   | { action: 'setMetadata'; ref: WindowsFileRef; metadata: Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'> }
   | { action: 'watch' | 'unwatch'; ref: WindowsFileRef };
 export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
+export interface ImportedFileBytes { name: string; size: number; base64: string }
 export const WINDOWS_FILES_CHANNEL = 'windows-files:invoke';
 export const WINDOWS_FILES_CHANGED = 'windows-files:changed';

@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { testCredentials } from './testCredentials';
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const SECOND = process.env.FLUX_API2 || BASE;
-const credentials = [testCredentials(), testCredentials({ ...process.env, FLUX_USER: process.env.FLUX_USER2, FLUX_PASS: process.env.FLUX_PASS2 })];
+const credentials = [
+  testCredentials({ ...process.env, FLUX_USER: process.env.FLUX_PLAY_USER || process.env.FLUX_USER, FLUX_PASS: process.env.FLUX_PLAY_PASS || process.env.FLUX_PASS }),
+  testCredentials({ ...process.env, FLUX_USER: process.env.FLUX_PLAY_USER2 || process.env.FLUX_USER2, FLUX_PASS: process.env.FLUX_PLAY_PASS2 || process.env.FLUX_PASS2 }),
+];
 let checks = 0;
 const check = (name: string, condition: boolean) => { assert.ok(condition, name); checks++; console.log('✓', name); };
 const key = () => crypto.randomUUID();

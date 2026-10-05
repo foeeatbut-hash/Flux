@@ -19,6 +19,10 @@ const ALIASES: Record<string, string> = {
   // Конструктор разделён на две программы семьи Flux Office: «Таблица» и
   // «Документ». Книга — то, ради чего его открывали чаще всего
   '/constructor': '/sheet',
+  // Нативный Проводник и папка общего доступа теперь внутренние места одной
+  // программы. Старые ярлыки сотрудников ведут в прежнее место, а не исчезают.
+  '/windows-files': '/explorer',
+  '/shared-files': '/explorer',
 };
 
 /** Действующий путь раздела: старый адрес переводится в новый */
@@ -36,5 +40,10 @@ export function resolveSectionHref(href: string): string {
   const cut = s.search(/[?#]/);
   const path = cut < 0 ? s : s.slice(0, cut);
   const rest = cut < 0 ? '' : s.slice(cut);
+  if (path === '/shared-files') {
+    const params = new URLSearchParams(rest.startsWith('?') ? rest.slice(1) : '');
+    params.set('view', 'shared');
+    return `/explorer?${params.toString()}`;
+  }
   return resolveSectionPath(path) + rest;
 }

@@ -19,7 +19,7 @@ import { discover } from '../mail/discover.js';
  * Ящики двух родов. Личный видит только владелец — чужую переписку не должен
  * видеть никто, включая администратора; это строже, чем в остальных разделах.
  * Общий ящик компании видят все сотрудники, а настраивает тот, кому выдано
- * право `mail.shared`. Правила собраны в ../mail/access.ts и проверяются на
+ * право `mail.shared.manage`. Правила собраны в ../mail/access.ts и проверяются на
  * каждом маршруте.
  *
  * Пароль наружу не отдаётся ни при каких условиях: ответы собираются только
@@ -148,7 +148,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const me = (req as any).authUser;
       if (!me) return res.json({ accounts: [], keyIn: 'file' });
       const list = await readableAccounts(req);
-      const maySetup = await deps.mayFeature(req, 'mail.shared');
+      const maySetup = await deps.mayFeature(req, 'mail.shared.manage');
       res.json({
         accounts: list.map((a: any) => ({
           ...publicAccount(a),
@@ -191,7 +191,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
 
       // Общий ящик заводится один раз и виден всем — на это нужно право
       const shared = String(req.body?.scope || 'PERSONAL') === 'SHARED';
-      if (shared && !(await deps.enforce(req, res, 'mail.shared'))) return;
+      if (shared && !(await deps.enforce(req, res, 'mail.shared.manage'))) return;
       if (shared) {
         const already = await prisma.mailAccount.findFirst({ where: { scope: 'SHARED', email } });
         if (already) return res.status(400).json({ error: 'Такой общий ящик уже подключён' });
@@ -234,7 +234,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
       // Общий ящик видят все, но пароль и серверы правит только тот,
       // кому выдано право: иначе любой сотрудник выбил бы ящик из строя
-      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared'))) return;
+      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared.manage'))) return;
 
       const data: any = {};
       const b = req.body || {};
@@ -272,7 +272,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const prisma = getPrisma();
       const acc = await ownedAccount(req, req.params.id);
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
-      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared'))) return;
+      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared.manage'))) return;
 
       stopWatch(acc.id);
       await imap.closeConnection(acc.id);

@@ -66,6 +66,25 @@ public static class FluxExplorerDesktop {
     byte[] bytes = new byte[size]; Marshal.Copy(pidl, bytes, 0, size);
     using (SHA256 sha = SHA256.Create()) return Convert.ToBase64String(sha.ComputeHash(bytes));
   }
+  static bool IsFluxShortcut(string shortcutPath) {
+    if (String.IsNullOrEmpty(shortcutPath)) return false;
+    string appPath = Environment.GetEnvironmentVariable("FLUX_DESKTOP_APP_PATH");
+    if (String.IsNullOrWhiteSpace(appPath)) return false;
+    object shell = null, shortcut = null;
+    try {
+      Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+      if (shellType == null) return false;
+      shell = Activator.CreateInstance(shellType);
+      shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath });
+      string target = shortcut == null ? null : shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null) as string;
+      return !String.IsNullOrWhiteSpace(target)
+        && String.Equals(Path.GetFullPath(target), Path.GetFullPath(appPath), StringComparison.OrdinalIgnoreCase);
+    } catch { return false; }
+    finally {
+      if (shortcut != null && Marshal.IsComObject(shortcut)) Marshal.ReleaseComObject(shortcut);
+      if (shell != null && Marshal.IsComObject(shell)) Marshal.ReleaseComObject(shell);
+    }
+  }
   static Point ToPhysical(IntPtr window, Point local) {
     IntPtr previous = SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(window));
     try {
@@ -172,12 +191,12 @@ public static class FluxExplorerDesktop {
           string kind = (attributes & 0x40000000) == 0 ? "virtual" : (attributes & 0x10000) != 0 ? "shortcut" : (attributes & 0x20000000) != 0 ? "directory" : "file";
           string fileSystemPath = null;
           // SIGDN_FILESYSPATH приходит только в main; ярлык сохраняет Shell-активацию.
-          if (kind == "file" || kind == "directory") {
+          if (kind == "file" || kind == "directory" || kind == "shortcut") {
             IntPtr path = IntPtr.Zero;
             try { Check(Method<ItemName>(item, 5)(item, 0x80058000, out path)); fileSystemPath=Marshal.PtrToStringUni(path); }
             finally { if (path != IntPtr.Zero) Marshal.FreeCoTaskMem(path); }
           }
-          items.Add(new Dictionary<string,object> { {"nativeId",key}, {"name",Marshal.PtrToStringUni(name)}, {"kind",kind}, {"x",position.x}, {"y",position.y}, {"icon",Image(item,iconSize)}, {"fileSystemPath",fileSystemPath} });
+          items.Add(new Dictionary<string,object> { {"nativeId",key}, {"name",Marshal.PtrToStringUni(name)}, {"kind",kind}, {"x",position.x}, {"y",position.y}, {"icon",Image(item,iconSize)}, {"fileSystemPath",fileSystemPath}, {"isFluxAppShortcut",kind == "shortcut" && IsFluxShortcut(fileSystemPath)} });
         } catch { if (action == "open") throw; skipped++; }
         finally {
           if (absolute != IntPtr.Zero) Marshal.FreeCoTaskMem(absolute);

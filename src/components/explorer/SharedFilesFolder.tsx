@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Share2 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { FolderOpen, RefreshCw, Share2 } from 'lucide-react';
 import { useStore } from '../../store/store';
 import { openHref } from '../../lib/fileTypes';
 import { ENV_CONFIG } from '../../config/env';
@@ -10,8 +10,11 @@ import FileBadge from '../ui/FileBadge';
 import FileShareDialog from './FileShareDialog';
 
 /** Каталог всегда сверяется с правами после возврата из офлайна; копии не подменяют общий объект. */
-export default function SharedFilesFolder() {
-  const navigate = useNavigate(); const user = useStore((state) => state.user);
+export default function SharedFilesFolder({ embedded = false }: { embedded?: boolean }) {
+  const navigate = useNavigate(); const location = useLocation(); const user = useStore((state) => state.user);
+  const routeParams = new URLSearchParams(location.search);
+  const root = routeParams.get('root'); const path = routeParams.get('path');
+  const returnHref = root ? `/explorer?${new URLSearchParams({ root, path: path || '' })}` : '/explorer';
   const [files, setFiles] = useState<SharedFile[]>([]); const [query, setQuery] = useState('');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [sharing, setSharing] = useState<SharedFile | null>(null);
   const [syncStatus, setSyncStatus] = useState<string[]>([]);
@@ -47,7 +50,7 @@ export default function SharedFilesFolder() {
     }
   };
   return <div className="h-full min-h-0 flex flex-col text-slate-800 dark:text-slate-100">
-    <SectionHead title="Общий доступ" count={files.length} actions={<><Btn disabled={busy} onClick={() => void load()}><RefreshCw className="w-3.5 h-3.5" /> Обновить</Btn>{user?.id && sourceBindings(user.id).length > 0 && <Btn disabled={busy} onClick={() => void sync()}>Синхронизировать мои исходники</Btn>}</>} />
+    <SectionHead title="Общий доступ" count={files.length} actions={<>{embedded && <Btn tone="ghost" onClick={() => navigate(returnHref)}><FolderOpen className="w-3.5 h-3.5" /> Проводник</Btn>}<Btn disabled={busy} onClick={() => void load()}><RefreshCw className="w-3.5 h-3.5" /> Обновить</Btn>{user?.id && sourceBindings(user.id).length > 0 && <Btn disabled={busy} onClick={() => void sync()}>Синхронизировать мои исходники</Btn>}</>} />
     <div className="fx-tools"><Input placeholder="Найти по имени или владельцу" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Поиск общих файлов" /></div>
     {error && <p className="fx-error px-3 py-2" role="alert">{error}</p>}
     {!!syncStatus.length && <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400" role="status">{syncStatus.map((status, index) => <p key={index}>{status}</p>)}</div>}

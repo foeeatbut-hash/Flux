@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import type { Catalog, Component, FamilyStatus } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
+import CatalogSectionEditor from './CatalogSectionEditor';
 import { catalogService } from '../../services/catalogService';
 import { useToastStore } from '../../store/toastStore';
 import { factsToText, textToFacts } from './ParamsEditor';
@@ -226,6 +227,7 @@ export function ComponentsPanel({ catalog, classId, canEdit }: { catalog: Catalo
           {canEdit && <Btn onClick={() => update({ specs: [...(edit.specs || []), { label: { ru: '' }, value: '' }] })}><Plus className="w-3 h-3" /> Характеристика</Btn>}
         </div>
 
+        <CatalogSectionEditor sections={edit.sections || []} readOnly={!canEdit} onChange={sections => update({ sections })} />
         {saveError && <div role="alert" className="text-xs text-rose-600 dark:text-rose-400">{saveError}</div>}
         {canEdit && <div className="flex gap-2 mt-auto pt-2">
           {!edit.id.startsWith('cmp-') && <Btn tone="danger" disabled={saving} onClick={async () => { if (await confirmAsk('Удалить комплектующее?', edit.code, { confirmLabel: 'Удалить', tone: 'danger' })) { try { await catalogService.remove('component', edit.id, edit._draftVersion); setSaveError(''); setEdit(null); setSavedEdit(null); } catch (e: any) { setSaveError(e?.message || 'Не удалось удалить комплектующее'); addToast(e?.message || 'Не удалось удалить комплектующее', 'error'); } } }}><Trash2 className="w-3.5 h-3.5" /> Удалить</Btn>}

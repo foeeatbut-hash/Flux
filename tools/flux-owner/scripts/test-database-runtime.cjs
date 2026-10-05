@@ -80,7 +80,7 @@ async function main() {
         assert.equal(f.spawns[0].file, executable);
         assert.deepEqual(f.spawns[0].args, ['--flux-company-server']);
         assert.equal(f.spawns[0].options.windowsHide, true);
-        assert.equal(f.spawns[0].options.stdio, 'ignore');
+        assert.deepEqual(f.spawns[0].options.stdio, ['ignore','pipe','pipe']);
         const env = f.spawns[0].options.env;
         assert.equal(env.PORT, '43210'); assert.equal(env.FLUX_LISTEN_HOST, '127.0.0.1');
         assert.equal(env.TEST_INHERITED, 'yes');
@@ -134,7 +134,7 @@ async function main() {
     await test('HTTP 503 и недоступный health заканчиваются таймаутом с очисткой', async () => {
       for (const requestHealth of [async () => ({ ...goodHealth, statusCode: 503 }), async () => { throw new Error(uri); }, () => new Promise(() => {})]) {
         const f = fixture({ requestHealth, startupTimeoutMs: 40 });
-        await rejection(f, /не ответила/); assert.equal(f.kills.length, 1);
+        await rejection(f, /не подтвердил подключение/); assert.equal(f.kills.length, 1);
       }
     });
     await test('Отмена запуска останавливает дочерний процесс и удаляет конфиг', async () => {

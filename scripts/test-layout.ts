@@ -39,6 +39,7 @@ const SECTIONS: [string, string][] = [
   ['Конструктор', '/builder'],
   ['Каталог', '/catalog'],
   ['Проводник', '/explorer'],
+  ['Общий доступ', '/explorer?view=shared'],
   ['Архиватор', '/archives'],
   ['Таблица', '/sheet'],
   ['Документ', '/doc'],
@@ -80,7 +81,7 @@ const SKIP = new Set([
   '/equipment-export',
   // Браузер не имеет файлового моста: раскладка Проводника проверяется
   // test-windows-explorer-ui.ts, редактор — test-windows-file-docx-bridge.ts.
-  '/windows-files', '/windows-file',
+  '/windows-file',
 ]);
 {
   // Файл исполняется через tsx как CommonJS: import.meta здесь нет

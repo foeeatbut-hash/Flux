@@ -12,9 +12,21 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
-    await page.getByRole('heading', { name: 'Файлы Windows' }).waitFor();
+    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
-    ok('Нативный sidebar загружает подключённые папки и список', await page.getByRole('button', { name: 'Документы' }).isVisible() && await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    ok('Нативный sidebar загружает подключённые папки и список', await page.getByRole('button', { name: 'Документы', exact: true }).isVisible() && await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    await page.getByRole('button', { name: 'Общий доступ', exact: true }).click();
+    await page.getByRole('heading', { name: 'Общий доступ' }).waitFor();
+    ok('Общий доступ открывается внутренней папкой того же Проводника', await page.getByText('Папка «Общий доступ» пуста').isVisible() && (await page.getByTestId('route').textContent())?.includes('view=shared'));
+    await page.getByRole('button', { name: 'Проводник' }).click();
+    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
+    await page.getByRole('row', { name: /Проекты/ }).waitFor();
+    ok('Возврат из общего доступа сохраняет текущую папку Windows', (await page.getByTestId('route').textContent())?.includes('root=desktop-id') === true);
+    await page.evaluate(() => (window as any).__go('/windows-files?root=desktop-id&path='));
+    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
+    ok('Сохранённый адрес «Файлы Windows» открывает ту же программу', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).locator('img[src^="data:image/png;"]').waitFor();
     ok('Папка использует PNG из нативного моста', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
 
@@ -43,7 +55,7 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.getByRole('button', { name: 'Сохранить свойства' }).click();
     ok('Свойства отправляются только в windowsFiles bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'setMetadata')));
 
-    await page.evaluate(() => (window as any).__go('/windows-files?root=desktop-id&path='));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('textbox', { name: 'Поиск по имени' }).fill('');
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     await page.evaluate(() => { (window as any).__delayMetadataPath('Инструкция.docx'); (window as any).__failMetadataPath('Инструкция.docx'); });
@@ -68,7 +80,7 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     ok('Запоздалый список старой папки не подменяет текущую', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible() && await page.getByRole('row', { name: /Отчёт\.xlsx/ }).count() === 0);
     await page.evaluate(() => (window as any).__delayListPath(''));
 
-    await page.evaluate(() => (window as any).__go('/windows-files?root=desktop-id&path=Проекты&target=Проекты%2FОтчёт.xlsx&properties=1'));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты&target=Проекты%2FОтчёт.xlsx&properties=1'));
     await page.getByRole('dialog', { name: /Свойства · Отчёт\.xlsx/ }).waitFor();
     ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Проект 1 · текущий').isVisible());
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
@@ -78,7 +90,7 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.getByRole('button', { name: 'Создать черновик' }).click();
     await page.getByRole('dialog', { name: 'Новый файл Flux' }).waitFor({ state: 'detached' });
     ok('Создание нового документа записывает локальный черновик и открывает ref', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'createDraft')) && (await page.getByTestId('route').textContent())?.startsWith('/windows-file?root='));
-    await page.evaluate(() => (window as any).__go('/windows-files?root=desktop-id&path=Проекты'));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /Новый документ\.docx/ }).click();
     await page.getByRole('button', { name: /Опубликовать/ }).click();
     ok('Публикация черновика запускается отдельно', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'publishDraft')));
@@ -89,12 +101,14 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.setViewportSize({ width: 1440, height: 820 });
     await page.evaluate(() => { const windowFrame = document.querySelector<HTMLElement>('#mount > div')!; Object.assign(windowFrame.style, { inset: 'auto', width: '800px', height: '500px', left: '600px', top: '80px', transform: 'translate(24px, 20px)', overflow: 'hidden' }); });
     const explorerRow = page.getByRole('row', { name: /Отчёт\.xlsx/ });
+    await explorerRow.waitFor({ state: 'visible' });
     const explorerRect = await explorerRow.boundingBox();
-    if (!explorerRect) throw new Error('Не нашлась плитка для открытия меню');
+    if (!explorerRect) throw new Error('Не нашлась строка Отчёт.xlsx для открытия меню');
     const explorerPoint = { x: explorerRect.x + explorerRect.width / 2, y: explorerRect.y + explorerRect.height / 2 };
-    await page.mouse.click(explorerPoint.x, explorerPoint.y, { button: 'right' });
-    const explorerMenu = page.locator('[data-context-menu]');
+    await explorerRow.click({ button: 'right' });
+    const explorerMenu = page.locator('body > [data-context-menu]');
     await explorerMenu.waitFor();
+    ok('Контекстное меню открыто для выбранного файла', await explorerMenu.getByRole('button', { name: 'Открыть', exact: true }).isVisible() && await explorerMenu.getByRole('button', { name: 'Свойства', exact: true }).isVisible());
     const explorerMenuRect = await explorerMenu.boundingBox();
     ok('Меню Проводника в перемещённом окне остаётся у указателя и в пределах экрана', !!explorerMenuRect && Math.abs(explorerMenuRect.x - explorerPoint.x) < 270 && explorerMenuRect.x + explorerMenuRect.width <= 1440 && explorerMenuRect.y + explorerMenuRect.height <= 820);
     await page.keyboard.press('Escape');
@@ -131,12 +145,10 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     const hasDesktopMenu = await desktopMenu.count() > 0;
     const desktopMenuRect = hasDesktopMenu ? await desktopMenu.first().boundingBox() : null;
     ok('Меню рабочего стола в перемещённом окне целиком видно у правого нижнего края', !!desktopMenuRect && desktopMenuRect.x < desktopPoint.x && desktopMenuRect.y < desktopPoint.y && desktopMenuRect.x + desktopMenuRect.width <= 1440 && desktopMenuRect.y + desktopMenuRect.height <= 820);
-    ok('Меню рабочего стола содержит Windows/Flux создание и настройки экрана', hasDesktopMenu && await desktopMenu.getByRole('button', { name: 'Создать Windows' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Создать Flux' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Параметры экрана' }).count() === 1);
+    ok('Меню рабочего стола содержит создание Windows и настройки экрана', hasDesktopMenu && await desktopMenu.getByRole('button', { name: 'Создать Windows' }).count() === 1 && await desktopMenu.getByRole('button', { name: 'Создать Flux' }).count() === 0 && await desktopMenu.getByRole('button', { name: 'Параметры экрана' }).count() === 1);
     await page.mouse.click(10, 10);
     ok('Щелчок снаружи закрывает контекстное меню рабочего стола', await desktopMenu.count() === 0);
-    const sharedIcon = page.getByRole('button', { name: 'Общий доступ' });
-    if (await sharedIcon.count()) await sharedIcon.dblclick();
-    ok('В режиме нескольких мониторов ярлык открывает одно native окно без дублирующей навигации', await page.evaluate(() => JSON.stringify((window as any).__nativeAppOpenCalls) === JSON.stringify(['/shared-files'])));
+    ok('Рабочий стол Windows не дублирует приложение «Общий доступ» отдельным ярлыком', await page.getByRole('button', { name: 'Общий доступ', exact: true }).count() === 0 && await page.evaluate(() => (window as any).__nativeAppOpenCalls.length === 0));
     await page.evaluate(() => { const windowFrame = document.querySelector<HTMLElement>('#mount > div')!; Object.assign(windowFrame.style, { inset: '0px', width: '100vw', height: '100vh', left: '0px', top: '0px', transform: 'none', overflow: 'visible' }); });
 
     for (const width of [1440, 1024, 768, 600]) {

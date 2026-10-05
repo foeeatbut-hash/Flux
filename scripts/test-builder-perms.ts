@@ -27,8 +27,13 @@ console.log('1. Кому что открыто, пока в записи нич�
   ok('правка Каталога — только по выдаче', !can(old, 'catalog.manage'));
   ok('шаблоны бланков — только по выдаче', !can(old, 'blanks.manage'));
   ok('администратору — всё', can({ role: 'ADMIN' }, 'catalog.manage') && can({ role: 'ADMIN' }, 'blanks.manage'));
+  ok('владелец и администратор могут настраивать общую почту', can({ role: 'OWNER' }, 'mail.shared.manage') && can({ role: 'ADMIN' }, 'mail.shared.manage'));
   const fresh = defaultPermissions();
   ok('новому сотруднику Каталог и шаблоны не выдаются', !fresh['catalog.manage'] && !fresh['blanks.manage'], fresh);
+  ok('новый ключ настройки общей почты не выдаётся по умолчанию', !fresh['mail.shared.manage'], fresh['mail.shared.manage']);
+  ok('старый сохранённый ключ не разрешает настройку общей почты', !can(user({}, { 'mail.shared': { enabled: true, until: null } }), 'mail.shared.manage'));
+  ok('явная выдача нового ключа разрешает настройку общей почты', can(user({}, { 'mail.shared.manage': { enabled: true, until: null } }), 'mail.shared.manage'));
+  ok('явный запрет нового ключа сильнее роли', !can(user({ 'mail.shared.manage': { enabled: true, until: null } }, { 'mail.shared.manage': { enabled: false, until: null } }), 'mail.shared.manage'));
   ok('открыты по умолчанию ровно ведомости и выпуск', JSON.stringify(OPEN_BY_DEFAULT) === JSON.stringify(['builder.edit', 'builder.issue']));
 }
 

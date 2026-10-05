@@ -1624,6 +1624,8 @@ model PlayLobby {
   id        String   @id @default(uuid())
   partyId   String
   gameId    String
+  /// Количество мест в партии; у Бильярда всегда 2.
+  seatLimit Int      @default(2)
   /// FORMING | READY | STARTED | CLOSED
   state     String   @default("FORMING")
   revision  Int      @default(1)

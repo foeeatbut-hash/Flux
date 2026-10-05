@@ -13,11 +13,12 @@ check('В колоде 36 нет младших двух–пятёрок', [...
 const allTrumps = initial.hands.flatMap((hand, seat) => hand.filter(card => durakSuit(card) === initial.trumpSuit).map(card => ({ card, seat })));
 const minimum = allTrumps.sort((a, b) => durakRank(a.card) - durakRank(b.card))[0];
 check('Первая атака по младшему козырю', minimum ? initial.attacker === minimum.seat : initial.attacker === 0);
-for (const count of [2, 3, 6, 8]) { const state = initDurak(seed, Array.from({ length: count }, (_, index) => `seat${index}`)); check(`Для ${count} игроков выбрана допустимая колода`, state.deckSize === (count > 6 ? 52 : 36)); }
-for (const count of [0, 1, 9]) { assert.throws(() => initDurak(seed, Array.from({ length: count }, (_, index) => `seat${index}`))); checks++; }
+for (const count of [2, 3, 4, 5, 6]) { const state = initDurak(seed, Array.from({ length: count }, (_, index) => `seat${index}`)); check(`Для ${count} игроков используется колода 36 карт`, state.deckSize === 36); }
+for (const count of [0, 1, 7, 9]) { assert.throws(() => initDurak(seed, Array.from({ length: count }, (_, index) => `seat${index}`))); checks++; }
 assert.throws(() => initDurak(seed, Array.from({ length: 7 }, (_, index) => `seat${index}`), { deckSize: 36 })); checks++;
+assert.throws(() => initDurak(seed, Array.from({ length: 7 }, (_, index) => `seat${index}`), { deckSize: 52 })); checks++;
 assert.throws(() => initDurak(seed, ['same', 'same'])); checks++;
-check('52 карты допускают до восьми игроков', initDurak(seed, Array.from({ length: 8 }, (_, index) => `seat${index}`), { deckSize: 52 }).deck.length === 4);
+check('Любая разновидность колоды соблюдает предел шести игроков', (() => { try { initDurak(seed, Array.from({ length: 7 }, (_, index) => `seat${index}`), { deckSize: 52 }); return false; } catch { return true; } })());
 const view = durak.viewOf(initial, seats[0]) as DurakView;
 check('Игрок получает только свою руку и количества чужих карт', JSON.stringify(view.hand) === JSON.stringify(initial.hands[0]) && view.handCounts.every(count => count === 6) && !('hands' in view));
 check('Порядок колоды и секретное семя не входят в DTO', !('deck' in view) && !('seed' in view) && !('discard' in view));
@@ -115,10 +116,10 @@ afterQuit = durak.apply(afterQuit, afterQuit.seats[quitterSeat], { type: 'resign
 conserve(afterQuit);
 check('Уход защитника сохраняет все карты и отдаёт очередь следующему активному', !afterQuit.done && !afterQuit.table.length && !afterQuit.hands[quitterSeat].length && afterQuit.attacker !== quitterSeat && afterQuit.defender !== quitterSeat);
 check('Вышедший игрок больше не делает ходов', !!durak.why(afterQuit, afterQuit.seats[quitterSeat], { type: 'resign' }));
-const eightState = initDurak(seed, Array.from({ length: 8 }, (_, index) => `eight${index}`));
-check('Создатель не переключает восемь игроков на колоду 36', !!durak.why(eightState, 'eight0', { type: 'configure', deckSize: 36, variant: 'throw-in' }));
+assert.throws(() => initDurak(seed, Array.from({ length: 8 }, (_, index) => `eight${index}`))); checks++;
+check('Партия не создаётся для восьми игроков даже с колодой 52', (() => { try { initDurak(seed, Array.from({ length: 8 }, (_, index) => `eight${index}`), { deckSize: 52 }); return false; } catch { return true; } })());
 let capped = fixture([[4, 17, 30, 43, 5], [6, 7], [18, 31]]);
 capped = durak.apply(capped, 'p0', { type: 'attack', card: 4 }); capped = durak.apply(capped, 'p0', { type: 'attack', card: 17 });
 check('Предел подкидывания равен исходной короткой руке защитника', !!durak.why(capped, 'p0', { type: 'attack', card: 30 }) && capped.attackLimit === 2);
-for (const players of [2, 3, 6, 8]) for (const variant of ['throw-in', 'transfer'] as const) for (const run of [1, 2, 3]) playComplete(players, variant, run);
+for (const players of [2, 3, 4, 5, 6]) for (const variant of ['throw-in', 'transfer'] as const) for (const run of [1, 2, 3]) playComplete(players, variant, run);
 console.log(`Дурак: ${checks} проверок пройдено`);

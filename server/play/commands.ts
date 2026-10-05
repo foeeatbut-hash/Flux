@@ -27,6 +27,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { getPrisma } from '../context.js';
 import {
   PLAY_ERRORS, PLAY_LIMITS, playErrorText,
@@ -123,53 +124,64 @@ export async function runCommand<T>(opts: RunOptions<T>): Promise<PlayCommandRec
   const existing = await prisma.playCommand.findFirst({ where: { actorId, key } });
   if (existing) return fromReceipt<T>(existing, hash);
 
-  try {
-    const result = await prisma.$transaction(async (tx: any) => {
-      const value = await opts.work(tx);
-      await tx.playCommand.create({
-        data: {
-          id: randomUUID(),
-          actorId,
-          key,
-          requestHash: hash,
-          kind,
-          status: 'OK',
-          resultJson: JSON.stringify(value ?? null),
-          expiresAt: new Date(Date.now() + PLAY_LIMITS.receiptTtlMs),
-        },
-      });
-      return value;
-    });
-    return { ok: true, repeated: false, result: result as T };
-  } catch (e: any) {
-    // Два одинаковых запроса пришли одновременно: второй не смог записать
-    // расписку. Это и есть повтор — отдаём ответ первого
-    if (isDuplicate(e)) {
-      const twin = await prisma.playCommand.findFirst({ where: { actorId, key } });
-      if (twin) return fromReceipt<T>(twin, hash);
-    }
-    if (e instanceof PlayFailure) {
-      /**
-       * Отказ записывается распиской тоже.
-       *
-       * Иначе повтор отказанной команды пошёл бы выполняться заново — и с
-       * третьей попытки мог бы пройти, хотя человек нажимал один раз.
-       */
-      try {
-        await prisma.playCommand.create({
+  // InnoDB может отменить всю транзакцию при конкуренции с очередью
+  // уведомлений другого клиента. Повторяем только подтверждённый откат,
+  // сохраняя ключ и перечитывая расписку перед каждой новой попыткой.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const result = await prisma.$transaction(async (tx: any) => {
+        const value = await opts.work(tx);
+        await tx.playCommand.create({
           data: {
             id: randomUUID(),
-            actorId, key, requestHash: hash, kind,
-            status: 'FAILED',
-            resultJson: JSON.stringify({ details: e.details ?? null }),
-            errorCode: String(e.code),
+            actorId,
+            key,
+            requestHash: hash,
+            kind,
+            status: 'OK',
+            resultJson: JSON.stringify(value ?? null),
             expiresAt: new Date(Date.now() + PLAY_LIMITS.receiptTtlMs),
           },
         });
-      } catch (__) { /* гонка: расписку уже записал близнец */ }
-      return { ok: false, repeated: false, code: e.code, message: e.message };
+        return value;
+      });
+      return { ok: true, repeated: false, result: result as T };
+    } catch (e: any) {
+      if (!(e instanceof PlayFailure) && e?.code === 'P2034' && attempt < 3) {
+        await delay(20 * 2 ** attempt + Math.floor(Math.random() * 20));
+        const committed = await prisma.playCommand.findFirst({ where: { actorId, key } });
+        if (committed) return fromReceipt<T>(committed, hash);
+        continue;
+      }
+      // Два одинаковых запроса пришли одновременно: второй не смог записать
+      // расписку. Это и есть повтор — отдаём ответ первого
+      if (isDuplicate(e)) {
+        const twin = await prisma.playCommand.findFirst({ where: { actorId, key } });
+        if (twin) return fromReceipt<T>(twin, hash);
+      }
+      if (e instanceof PlayFailure) {
+        /**
+         * Отказ записывается распиской тоже.
+         *
+         * Иначе повтор отказанной команды пошёл бы выполняться заново — и с
+         * третьей попытки мог бы пройти, хотя человек нажимал один раз.
+         */
+        try {
+          await prisma.playCommand.create({
+            data: {
+              id: randomUUID(),
+              actorId, key, requestHash: hash, kind,
+              status: 'FAILED',
+              resultJson: JSON.stringify({ details: e.details ?? null }),
+              errorCode: String(e.code),
+              expiresAt: new Date(Date.now() + PLAY_LIMITS.receiptTtlMs),
+            },
+          });
+        } catch (__) { /* гонка: расписку уже записал близнец */ }
+        return { ok: false, repeated: false, code: e.code, message: e.message };
+      }
+      throw e;
     }
-    throw e;
   }
 }
 

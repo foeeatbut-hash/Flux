@@ -7,6 +7,8 @@ export interface ShellDesktopItem {
   id: string;
   name: string;
   kind: 'file' | 'directory' | 'shortcut' | 'virtual';
+  /** Ярлык ведёт ровно на исполняемый файл этого приложения; сам .lnk сохраняется. */
+  isFluxAppShortcut?: boolean;
   /** Глобальные экранные DIP; начало окна вычитается только при показе. */
   position: ShellDesktopPoint;
   icon: ShellDesktopIcon | null;
