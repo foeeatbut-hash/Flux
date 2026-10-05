@@ -23,6 +23,7 @@ import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKi
 import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
 import { moveInList } from '../lib/startMenu';
 import { resolveSectionPath } from '../lib/sectionAliases';
+import { isFileToolPath } from '../lib/fileToolSections';
 import {
   loadGroups, saveGroups, fold, unfold, withoutItems, rename as renameGroupIn,
   hiddenIds, groupIdOf, type DeskGroup,
@@ -35,7 +36,7 @@ const SORT_KEY = 'flux_desk_sort';
 const SCALE_KEY = 'flux_desk_scale';
 
 /** Разделы, которые лежат на столе у нового сотрудника */
-const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/sheet'];
+const DEFAULT_APPS = ['/explorer', '/registry', '/equipment'];
 
 /**
  * Что закреплено на панели задач у нового сотрудника. Дальше это его дело:
@@ -43,7 +44,7 @@ const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/sheet'];
  * в реестре разделов (`pinned` в sections.tsx), он был одинаков у всех, и
  * открепить лишнее было нельзя вовсе.
  */
-const DEFAULT_BAR = ['/registry', '/equipment', '/explorer', '/sheet', '/mail'];
+const DEFAULT_BAR = ['/registry', '/equipment', '/explorer', '/mail'];
 
 const read = <T,>(key: string, fallback: T): T => {
   try {
@@ -122,8 +123,8 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   items: [],
   // Закреплённое сотрудник расставлял руками — переименование программы не
   // должно стирать его набор: старый путь переводим, а не выбрасываем
-  apps: read<string[]>(APPS_KEY, DEFAULT_APPS).map(resolveSectionPath),
-  bar: read<string[]>(BAR_KEY, DEFAULT_BAR).map(resolveSectionPath),
+  apps: read<string[]>(APPS_KEY, DEFAULT_APPS).map(resolveSectionPath).filter((path) => !isFileToolPath(path)),
+  bar: read<string[]>(BAR_KEY, DEFAULT_BAR).map(resolveSectionPath).filter((path) => !isFileToolPath(path)),
   groups: loadGroups(),
   cells: read<Record<string, Cell>>(CELLS_KEY, {}),
   sortBy: read<SortBy>(SORT_KEY, 'name'),
@@ -211,6 +212,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
    * не должен продолжать числиться внутри папки.
    */
   pinApp: (path) => {
+    if (isFileToolPath(path)) return;
     const id = `app:${path}`;
     // withoutItems всегда отдаёт новый массив, поэтому сравнивать надо не
     // ссылки, а факт: числится ли значок хоть в одной папке
@@ -263,6 +265,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   },
 
   pinBar: (path) => {
+    if (isFileToolPath(path)) return;
     if (get().bar.includes(path)) return;
     const bar = [...get().bar, path];
     write(BAR_KEY, bar);

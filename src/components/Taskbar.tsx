@@ -195,8 +195,8 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
    */
   const ctx = useAppContext();
   const sources = React.useMemo(
-    () => visibleSections(SECTIONS, ctx).map((s) => ({ ...s, pinned: barPins.includes(s.path) })),
-    [barPins, ctx],
+    () => visibleSections(SECTIONS, ctx, open).map((s) => ({ ...s, pinned: !s.fileOnly && barPins.includes(s.path) })),
+    [barPins, ctx, open],
   );
 
   const view = React.useMemo(
@@ -225,10 +225,12 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
 
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', onClick: () => openSection(menu.path) },
-    { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
-    barPins.includes(menu.path)
+    ...(SECTIONS.find((s) => s.path === menu.path)?.fileOnly ? [] : [
+      { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
+      barPins.includes(menu.path)
       ? { label: 'Открепить от панели', separated: true, onClick: () => unpinBar(menu.path) }
       : { label: 'Закрепить на панели', separated: true, onClick: () => pinBar(menu.path) },
+    ]),
     ...(countOfWindows(menu.path) > 0 ? [{
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {

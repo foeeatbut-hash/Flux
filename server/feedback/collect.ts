@@ -14,6 +14,7 @@
  */
 
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { readSource } from '../../diagnostics/node/read';
 import { serverDiagnostics } from '../diagnostics';
 import {
@@ -96,6 +97,8 @@ export async function collectServerSources(window: ServerWindow): Promise<{
   const dir = directory();
   let traces: Set<string>;
   try {
+    // Последние события ещё могут находиться в очереди записи.
+    await serverDiagnostics().flush();
     traces = await ownTraces(dir, window);
   } catch (failed: any) {
     const why = `Не удалось прочитать журнал сервера: ${String(failed?.message || failed).slice(0, 160)}`;
@@ -143,7 +146,10 @@ export async function collectServerSources(window: ServerWindow): Promise<{
     ...picked.report,
     source,
     events: lines.length,
-    bytes: text.length,
+    bytes: Buffer.byteLength(text, 'utf8'),
+    sha256: createHash('sha256').update(text).digest('hex'),
+    from: lines.length ? JSON.parse(lines[0]).time : undefined,
+    to: lines.length ? JSON.parse(lines[lines.length - 1]).time : undefined,
     ...(lines.length ? {} : {
       state: picked.report.state === 'available' ? 'expired' : picked.report.state,
       reason: source === 'database'

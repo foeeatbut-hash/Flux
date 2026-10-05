@@ -33,8 +33,6 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 const SURFACES: Record<string, string[]> = {
   'src/components/StartMenu.tsx': ['visibleSections'],
   'src/components/Taskbar.tsx': ['visibleSections'],
-  'src/components/Desktop.tsx': ['visibleSections'],
-  'src/components/desktop/WindowsDesktop.tsx': ['visibleSections'],
   'src/components/CommandBar.tsx': ['visibleSections'],
   'src/screens/Dashboard.tsx': ['visibleSections'],
   'src/components/SectionFrame.tsx': ['sectionAccess'],
@@ -43,6 +41,7 @@ const SURFACES: Record<string, string[]> = {
   'src/store/windowStore.ts': ['sectionAccess'],
   // Адресная строка: скрытый раздел не должен оставаться в ней после попытки
   'src/components/WindowsLayer.tsx': ['sectionAccess'],
+  'src/components/NativeAppHost.tsx': ['sectionAccess'],
   // Руководство и помощник: статья и демонстрация — такой же способ узнать о
   // разделе, как его название в Пуске
   'src/screens/Handbook.tsx': ['allowEntitlement'],
@@ -65,6 +64,8 @@ const GUARDED_ELSEWHERE: Record<string, string> = {
   'src/components/TaskbarPeek.tsx': 'список окон одной кнопки панели задач, отобранной политикой',
   'src/App.tsx': 'берёт из реестра только заголовок открытого окна',
   'src/components/desktop/DeskIcon.tsx': 'рисует значок; состав стола отбирает Desktop.tsx',
+  'src/components/Desktop.tsx': 'показывает файлы и папки; запуск редактора проходит windowStore и SectionFrame, список программ на столе отсутствует',
+  'src/components/desktop/WindowsDesktop.tsx': 'зеркалит файлы Windows, не выводит реестр программ; внутренние переходы проверяются windowStore и SectionFrame',
 };
 
 console.log('1. Каждая поверхность спрашивает политику');

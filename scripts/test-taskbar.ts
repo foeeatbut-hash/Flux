@@ -153,7 +153,7 @@ console.log('Часы и срок');
 console.log('Реестр разделов');
 {
   const pinned = SECTIONS.filter((s) => s.pinned);
-  check('закреплено пять программ', pinned.length === 5, pinned.map((s) => s.path));
+  check('закреплены четыре самостоятельные программы', pinned.length === 4, pinned.map((s) => s.path));
   check('закреплённое не помечено adminOnly', pinned.every((s) => !s.adminOnly));
   check('у всех закреплённых есть значок', pinned.every((s) => !!s.icon));
   const badged = SECTIONS.filter((s) => s.badge);

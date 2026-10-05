@@ -165,9 +165,20 @@ ok('обычный сотрудник не получает UI-функции у
 ok('OWNER открывает Flux Play и игру', sectionAccess(unlicensedPlaySection, appCtx('OWNER')) === 'open');
 const ownerCtx = { user: { role: 'OWNER', isActive: true }, platform: ON };
 const ownerVisible = visibleSections(SECTIONS, ownerCtx);
-ok('OWNER видит все разделы при включённой и поддерживаемой Flux Play',
-  ownerVisible.length === SECTIONS.length && ownerVisible.every(section => sectionAccess(section, ownerCtx) === 'open'),
+ok('OWNER видит все самостоятельные программы при включённой Flux Play',
+  ownerVisible.length === SECTIONS.filter(section => !section.fileOnly).length && ownerVisible.every(section => sectionAccess(section, ownerCtx) === 'open'),
   { visible: ownerVisible.map(section => section.path), total: SECTIONS.length });
+ok('скрытие встроенных редакторов не отнимает их открытие у владельца',
+  SECTIONS.every(section => sectionAccess(section, ownerCtx) === 'open'));
+const filePaths = ['/doc', '/sheet', '/pdf', '/archives'];
+ok('встроенные файловые действия не обнаруживаются как программы',
+  !visibleSections(SECTIONS, ownerCtx).some(section => filePaths.includes(section.path)));
+const openFileWindows = visibleSections(SECTIONS, ownerCtx, ['/doc', '/pdf']);
+ok('панель возвращает только действительно открытые файловые окна',
+  filePaths.filter(path => openFileWindows.some(section => section.path === path)).join(',') === '/doc,/pdf');
+const deniedFile = { path: '/private-file', fileOnly: true, adminOnly: true };
+ok('открытое файловое окно не обходит ограничение доступа',
+  visibleSections([deniedFile], appCtx('USER'), ['/private-file']).length === 0);
 for (const role of ['ADMIN', 'USER']) {
   ok(`${role} без app.play остаётся без Flux Play`, sectionAccess(unlicensedPlaySection, appCtx(role)) === 'explain');
 }

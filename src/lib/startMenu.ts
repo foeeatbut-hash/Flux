@@ -13,7 +13,7 @@ export interface StartSource {
   adminOnly?: boolean;
   /** Раздел выдаётся по праву: без него его не видно нигде */
   feature?: string;
-  /** Открывается только с файлом (редакторы Word и Excel): в Пуске ему не место */
+  /** Встроенная работа с файлом: не самостоятельная программа в Пуске. */
   fileOnly?: boolean;
 }
 
@@ -24,11 +24,8 @@ export interface StartGroup {
 }
 
 /**
- * Flux Office — четыре редактора одной семьёй.
- *
- * Они стоят отдельной группой, потому что человек ищет их вместе: «чем открыть
- * файл». В группах «Проект» и «Общее» они терялись между разделами про данные,
- * хотя это не разделы, а программы для работы с файлами.
+ * Сохраняем адреса офисных редакторов для совместимости старых ссылок;
+ * отдельной семьи программ в Пуске они больше не образуют.
  */
 export const OFFICE_PATHS = ['/sheet', '/doc', '/notes', '/pdf'];
 export const OFFICE_TITLE = 'Flux Office';
@@ -71,12 +68,12 @@ export function allowed(
   isAdmin: boolean,
   can: (feature: string) => boolean = () => true,
 ): StartSource[] {
-  return sections.filter((s) => (!s.adminOnly || isAdmin) && (!s.feature || isAdmin || can(s.feature)));
+  return sections.filter((s) => !s.fileOnly && (!s.adminOnly || isAdmin) && (!s.feature || isAdmin || can(s.feature)));
 }
 
 /**
- * Группы Пуска: сначала Flux Office, затем проектное и общее — как в левом
- * меню. «Смешанные» (Главная, Параметры) в группы не попадают: они не про
+ * Группы Пуска: проектное и общее. Встроенные редакторы открывают по файлу.
+ * «Смешанные» (Главная, Параметры) в группы не попадают: они не про
  * выбор области, а про саму программу, и живут в подвале меню.
  */
 export function groupSections(
@@ -86,17 +83,9 @@ export function groupSections(
   can: (feature: string) => boolean = () => true,
 ): StartGroup[] {
   const list = allowed(sections, isAdmin, can).filter((s) => !s.fileOnly && matches(s.title, query));
-  const office = new Set(OFFICE_PATHS);
-  // Порядок внутри семьи — тот, что записан в OFFICE_PATHS, а не тот, в каком
-  // разделы объявлены: человек привыкает к месту значка
-  const inOffice = OFFICE_PATHS
-    .map((p) => list.find((s) => s.path === p))
-    .filter(Boolean) as StartSource[];
-  const rest = list.filter((s) => !office.has(s.path));
   const groups: StartGroup[] = [
-    { id: 'office', title: OFFICE_TITLE, items: inOffice },
-    { id: 'project', title: 'Проект', items: rest.filter((s) => s.scope === 'project') },
-    { id: 'global', title: 'Общее', items: rest.filter((s) => s.scope === 'global') },
+    { id: 'project', title: 'Проект', items: list.filter((s) => s.scope === 'project') },
+    { id: 'global', title: 'Общее', items: list.filter((s) => s.scope === 'global') },
   ];
   return groups.filter((g) => g.items.length > 0);
 }

@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import { getPrisma, onDatabaseSwapped } from './context.js';
 import { authTokenFromRequest, createCookieAuth } from './authCookies.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from './legacyIdentity.js';
+import { recordServerError } from './diagnostics.js';
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 interface Claims { v: 2; uid: string; iat: number; exp: number; stamp: string; sid: string }
@@ -104,6 +105,9 @@ export function registerSessionRoutes(app: Express, sessions: ReturnType<typeof 
       await sessions.revoke(token);
       cookies?.clear(req, res);
       res.json({ success: true });
-    } catch (_) { res.status(503).json({ error: 'Не удалось завершить сессию. Повторите выход.' }); }
+    } catch (error) {
+      recordServerError('auth.logout', error);
+      res.status(503).json({ error: 'Не удалось завершить сессию. Повторите выход.' });
+    }
   });
 }

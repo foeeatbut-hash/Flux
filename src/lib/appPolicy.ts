@@ -102,6 +102,8 @@ export type AccessMode = 'normal' | 'stealth';
 
 export interface GuardedSection {
   path: string;
+  /** Встроенный редактор/просмотр файла, а не самостоятельная программа. */
+  fileOnly?: boolean;
   adminOnly?: boolean;
   /** Рабочее право из FEATURES: отказ объясняется словами */
   feature?: string;
@@ -136,7 +138,7 @@ export function sectionAccess(s: GuardedSection, ctx: AppContext): 'open' | 'exp
 
 /** Раздел показывается в списках: Пуск, стол, панель задач, поиск, руководство. */
 export const sectionVisible = (s: GuardedSection, ctx: AppContext): boolean =>
-  sectionAccess(s, ctx) === 'open';
+  !s.fileOnly && sectionAccess(s, ctx) === 'open';
 
 /**
  * Единственная воронка для всех поверхностей программы.
@@ -146,8 +148,12 @@ export const sectionVisible = (s: GuardedSection, ctx: AppContext): boolean =>
  * стережёт `scripts/test-play-policy.ts`: забыть одну из них молча нельзя —
  * именно так название закрытого раздела и утекало раньше на панель задач.
  */
-export function visibleSections<T extends GuardedSection>(list: T[], ctx: AppContext): T[] {
-  return list.filter((s) => sectionVisible(s, ctx));
+export function visibleSections<T extends GuardedSection>(list: T[], ctx: AppContext, openFilePaths: readonly string[] = []): T[] {
+  // Панель задач возвращает открытые файловые окна; Пуск и поиск — только
+  // программы. Право открытия проверяется и для уже запущенного редактора.
+  const opened = new Set(openFilePaths);
+  return list.filter((s) => sectionVisible(s, ctx) ||
+    (s.fileOnly && opened.has(s.path) && sectionAccess(s, ctx) === 'open'));
 }
 
 /** Набор доступных кодов — его сервер кладёт в ответ и его же шлёт при смене. */

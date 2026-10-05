@@ -28,6 +28,10 @@ const S: StartSource[] = [
   { path: '/equipment', title: 'Оборудование', scope: 'project' },
   { path: '/explorer', title: 'Проводник', scope: 'global' },
   { path: '/mail', title: 'Почта', scope: 'global' },
+  { path: '/doc', title: 'Документ', scope: 'project', fileOnly: true },
+  { path: '/sheet', title: 'Таблица', scope: 'project', fileOnly: true },
+  { path: '/pdf', title: 'PDF', scope: 'global', fileOnly: true },
+  { path: '/archives', title: 'Архив', scope: 'project', fileOnly: true },
   { path: '/settings', title: 'Настройки', scope: 'mixed' },
   { path: '/users', title: 'Сотрудники', scope: 'global', adminOnly: true },
 ];
@@ -38,6 +42,7 @@ console.log('Права');
   check('администратору видно', allowed(S, true).some((s) => s.path === '/users'));
   const g = groupSections(S, false);
   check('в группах нет админского', !g.some((x) => x.items.some((i) => i.path === '/users')));
+  check('fileOnly исключены из списка доступных', allowed(S, true).every((s) => !s.fileOnly), allowed(S, true).map((s) => s.path));
 }
 
 console.log('Группы');
@@ -80,22 +85,30 @@ console.log('Недавние');
   const many = Array.from({ length: RECENT_SHOWN + 4 }, () => '/mail');
   check(`показываем не больше ${RECENT_SHOWN}`, visibleRecent(many, S, false).length <= RECENT_SHOWN);
   check('пустой список не ломает', visibleRecent([], S, false).length === 0);
+  const files = visibleRecent(['/doc', '/sheet', '/pdf', '/archives', '/mail'], S, true);
+  check('недавние скрывают устаревшие fileOnly записи', files.map((s) => s.path).join(',') === '/mail', files.map((s) => s.path));
 }
 
-console.log('Флукс Офис отдельной семьёй');
+console.log('Файловые редакторы не являются программами Пуска');
 {
-  const office = groupSections(SECTIONS as any, false).find((g) => g.title === OFFICE_TITLE);
-  check('группа семьи есть', !!office, groupSections(SECTIONS as any, false).map((g) => g.title));
-  check('порядок внутри семьи задан списком, а не объявлением разделов',
-    (office?.items || []).map((i) => i.path).join(',')
-      === OFFICE_PATHS.filter((p) => (office?.items || []).some((i) => i.path === p)).join(','),
-    office?.items.map((i) => i.path));
+  const filePaths = ['/doc', '/sheet', '/pdf', '/archives'];
+  const groups = groupSections(SECTIONS as any, false);
+  check('офисные пути сохранены для совместимости', OFFICE_PATHS.join(',') === '/sheet,/doc,/notes,/pdf', OFFICE_PATHS);
+  check('группы Flux Office нет', !groups.some((g) => g.id === 'office' || g.title === OFFICE_TITLE), groups.map((g) => g.title));
+  const shown = groups.flatMap((g) => g.items.map((i) => i.path));
+  check('fileOnly отсутствуют в группах', filePaths.every((p) => !shown.includes(p)), shown);
+  check('поиск не возвращает fileOnly редакторы',
+    filePaths.every((p) => !groupSections(SECTIONS as any, false, (SECTIONS as any).find((s: any) => s.path === p)?.title)
+      .some((g) => g.items.some((i) => i.path === p))));
+  check('Блокнот остался в группе Общее',
+    groups.some((g) => g.id === 'global' && g.items.some((i) => i.path === '/notes')));
+  check('поиск по названию Документа не показывает файловый маршрут',
+    !groupSections(S, true, 'документ').some((g) => g.items.some((i) => i.path === '/doc')));
   const all = groupSections(SECTIONS as any, true);
   const seen = all.flatMap((g) => g.items.map((i) => i.path));
   check('ни один раздел не показан дважды', new Set(seen).size === seen.length,
     seen.filter((p, i) => seen.indexOf(p) !== i));
-  check('редакторы ушли из «Проекта» и «Общего»',
-    !all.some((g) => g.title !== OFFICE_TITLE && g.items.some((i) => OFFICE_PATHS.includes(i.path))));
+  check('Блокнот показывается ровно один раз', seen.filter((p) => p === '/notes').length === 1, seen);
 }
 
 console.log('Закреплённое');
@@ -105,6 +118,10 @@ console.log('Закреплённое');
   check('несуществующее выпало', !pin.some((s) => s.path === '/нет'));
   check('повтор не двоится', pin.length === 1, pin.map((s) => s.path));
   check('администратору его раздел виден', pinnedTiles(['/users'], S, true).length === 1);
+  const stale = pinnedTiles(['/doc', '/sheet', '/pdf', '/archives'], S, true);
+  check('устаревшие закрепления fileOnly не восстанавливаются', stale.length === 0, stale.map((s) => s.path));
+  const actual = pinnedTiles(['/doc', '/sheet', '/pdf', '/archives'], SECTIONS as any, true);
+  check('реестр fileOnly исключает закрепление', actual.length === 0, actual.map((s) => s.path));
 }
 
 console.log('Один Проводник и старые адреса');
