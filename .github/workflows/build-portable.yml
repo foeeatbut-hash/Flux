@@ -14,6 +14,11 @@ on:
       - claude/custom-table-builder-design-38h1b8
       - claude/hopeful-meitner-zb0ir5
 
+# Повторные события одного ref оставляют только одну действующую сборку.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

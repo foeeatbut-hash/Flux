@@ -9,6 +9,11 @@ on:
       - tools/flux-owner/**
       - .github/workflows/build-owner.yml
 
+# Повторные события одного ref оставляют только одну действующую сборку.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

@@ -99,7 +99,7 @@ async function runPrivateCommand(args: string[], logFd: number, timeoutMs: numbe
   await new Promise<void>((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = spawn(process.execPath, args, { cwd: repo, env, detached: process.platform !== 'win32', stdio: ['ignore', logFd, logFd], windowsHide: true });
+      child = spawn(process.execPath, ['--import', 'tsx', ...args], { cwd: repo, env, detached: process.platform !== 'win32', stdio: ['ignore', logFd, logFd], windowsHide: true });
     } catch { reject(new Error('Could not start a fixture preparation command.')); return; }
     let done = false;
     let excessive = false;
@@ -170,10 +170,10 @@ async function main(): Promise<number> {
   let helperChild: ChildProcess | undefined;
   let fixtureState: string | undefined;
   let fixtureStopped = false;
-  let results: Array<{ id: string; status: string; reason?: string }> = [];
+  let results: Array<{ id: string; status: string; reason?: string; failedChecks?: string[] }> = [];
   let failure: string | undefined;
   try {
-    helperChild = spawn(process.execPath, [helper, 'start', '--keepalive'], {
+    helperChild = spawn(process.execPath, ['--import', 'tsx', helper, 'start', '--keepalive'], {
       cwd: repo,
       env: { ...process.env, FLUX_TEST_FIXTURE: '1', FLUX_REMAINING_LIVE_API_ONLY: '1' },
       detached: process.platform !== 'win32',
@@ -205,7 +205,9 @@ async function main(): Promise<number> {
       let result;
       try { result = await runSuite(suites.get(id), repo, { captureParentDir: privateWorkDir }); }
       finally { process.env = saved; }
-      results.push({ id, status: result.status, ...(result.reason ? { reason: result.reason } : {}) });
+      // Только названия проваленных проверок из уже очищенного вывода; ответы API и значения не печатаем.
+      const failedChecks = result.output?.split(/\r?\n/).filter(line => /^\s*✗ /.test(line)).map(line => line.trim().slice(2, 242)).slice(0, 12);
+      results.push({ id, status: result.status, ...(result.reason ? { reason: result.reason } : {}), ...(failedChecks?.length ? { failedChecks } : {}) });
     }
   } catch (error) {
     // Error messages here are our fixed messages; suite output and helper logs remain private.
@@ -228,7 +230,7 @@ async function main(): Promise<number> {
   const counts = results.reduce<Record<string, number>>((acc, item) => { acc[item.status] = (acc[item.status] || 0) + 1; return acc; }, {});
   process.stdout.write(`Remaining API fixture suites: ${results.length} total; ${counts.PASS || 0} PASS, ${counts.FAIL || 0} FAIL, ${counts.BLOCKED || 0} BLOCKED, ${counts.SKIP || 0} SKIP.\n`);
   const failed = results.filter(item => item.status !== 'PASS');
-  for (const result of failed) process.stdout.write(`FAIL ${result.id}: ${result.status}${result.reason ? ` (${result.reason})` : ''}\n`);
+  for (const result of failed) process.stdout.write(`FAIL ${result.id}: ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.failedChecks?.length ? ` — ${result.failedChecks.join('; ')}` : ''}\n`);
   if (failure) process.stdout.write(`FAIL fixture orchestration: ${failure}\n`);
   return failure || failed.length ? 1 : 0;
 }

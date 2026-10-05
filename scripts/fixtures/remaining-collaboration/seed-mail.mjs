@@ -41,6 +41,14 @@ async function main() {
   if (owners.length !== 1 || owners[0].role !== 'ADMIN') fail('Synthetic ADMIN identity is not present in the disposable database.');
 
   const suffix = randomBytes(6).toString('hex');
+  // Чистая установка ещё не содержит папок Проводника: подготовим личное место
+  // для сценария переноса вложения, не используя состояние предыдущих тестов.
+  const destinationProject = await prisma.project.findFirst({ where: { system: false } });
+  if (!destinationProject) fail('Mail fixture requires its seeded ordinary project.');
+  const destinationFolder = await prisma.folder.create({ data: {
+    projectId: destinationProject.id, name: `Проверочные вложения ${suffix}`,
+    scope: 'PERSONAL', ownerId: admin.id, parentId: null,
+  } });
   const sharedEmail = `collab-shared-${suffix}@flux.invalid`;
   const personalEmail = `collab-personal-${suffix}@flux.invalid`;
   const createAccount = async (scope, ownerId, email) => prisma.mailAccount.create({ data: {
@@ -81,7 +89,7 @@ async function main() {
   const latestFixture = JSON.parse(readFileSync(metadataPath, 'utf8'));
   if (latestFixture.kind !== fixture.kind || latestFixture.databaseName !== state.databaseName) fail('Fixture metadata changed to a different runner while seeding.');
   latestFixture.mailFixture = {
-    accountId: shared.id, personalAccountId: personal.id, folderId: folder.id,
+    accountId: shared.id, personalAccountId: personal.id, folderId: folder.id, destinationFolderId: destinationFolder.id,
     messageId: message.id, attachmentId: attachment.id, threadKey,
     attachmentPath: filePath, syntheticSuffix: suffix,
   };

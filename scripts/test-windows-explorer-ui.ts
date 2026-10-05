@@ -101,12 +101,14 @@ const ok = (name: string, value: boolean) => { if (value) { passed++; console.lo
     await page.setViewportSize({ width: 1440, height: 820 });
     await page.evaluate(() => { const windowFrame = document.querySelector<HTMLElement>('#mount > div')!; Object.assign(windowFrame.style, { inset: 'auto', width: '800px', height: '500px', left: '600px', top: '80px', transform: 'translate(24px, 20px)', overflow: 'hidden' }); });
     const explorerRow = page.getByRole('row', { name: /Отчёт\.xlsx/ });
+    await explorerRow.waitFor({ state: 'visible' });
     const explorerRect = await explorerRow.boundingBox();
-    if (!explorerRect) throw new Error('Не нашлась плитка для открытия меню');
+    if (!explorerRect) throw new Error('Не нашлась строка Отчёт.xlsx для открытия меню');
     const explorerPoint = { x: explorerRect.x + explorerRect.width / 2, y: explorerRect.y + explorerRect.height / 2 };
-    await page.mouse.click(explorerPoint.x, explorerPoint.y, { button: 'right' });
-    const explorerMenu = page.locator('[data-context-menu]');
+    await explorerRow.click({ button: 'right' });
+    const explorerMenu = page.locator('body > [data-context-menu]');
     await explorerMenu.waitFor();
+    ok('Контекстное меню открыто для выбранного файла', await explorerMenu.getByRole('button', { name: 'Открыть', exact: true }).isVisible() && await explorerMenu.getByRole('button', { name: 'Свойства', exact: true }).isVisible());
     const explorerMenuRect = await explorerMenu.boundingBox();
     ok('Меню Проводника в перемещённом окне остаётся у указателя и в пределах экрана', !!explorerMenuRect && Math.abs(explorerMenuRect.x - explorerPoint.x) < 270 && explorerMenuRect.x + explorerMenuRect.width <= 1440 && explorerMenuRect.y + explorerMenuRect.height <= 820);
     await page.keyboard.press('Escape');
