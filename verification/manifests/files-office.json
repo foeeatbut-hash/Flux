@@ -6,7 +6,8 @@
       "id": "explorer",
       "label": "Проводник",
       "routes": [
-        "/explorer"
+        "/explorer",
+        "/windows-files"
       ],
       "sources": [
         "src/screens/Explorer.tsx",
@@ -17,17 +18,7 @@
         "src/components/explorer/FileVersionsDialog.tsx",
         "src/components/explorer/FileShareDialog.tsx",
         "src/lib/fileTypes.ts",
-        "src/lib/dropFiles.ts"
-      ]
-    },
-    {
-      "id": "windows-files",
-      "label": "Файлы Windows",
-      "routes": [
-        "/windows-files"
-      ],
-      "sources": [
-        "src/screens/WindowsExplorerHost.tsx",
+        "src/lib/dropFiles.ts",
         "src/components/explorer/WindowsExplorer.tsx",
         "src/components/explorer/SharedFilesFolder.tsx",
         "src/lib/windowsFiles.ts",
@@ -121,6 +112,7 @@
       "sources": [
         "src/screens/NotesManagement.tsx",
         "src/screens/NoteEditorHost.tsx",
+        "src/screens/MdFileHost.tsx",
         "src/screens/StickerWindow.tsx",
         "src/components/NoteShareDialog.tsx",
         "src/services/dataService.ts",
@@ -233,6 +225,44 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-no-genoffice-ai",
+      "path": "scripts/test-office-no-ai.cjs",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "tools/genoffice/shims/electron-renderer.js"
+        },
+        {
+          "kind": "file",
+          "path": "tools/genoffice/flux-bridge.js"
+        },
+        {
+          "kind": "file",
+          "path": "tools/genoffice/md-bridge.js"
+        },
+        {
+          "kind": "file",
+          "path": "tools/genoffice/patches.mjs"
+        },
+        {
+          "kind": "file",
+          "path": "server/officeHostApps.ts"
+        },
+        {
+          "kind": "file",
+          "path": "server/officeHostPolicy.ts"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/test-office-host-policy.ts"
+        }
+      ],
       "timeoutMs": 900000
     },
     {
@@ -457,6 +487,130 @@
       ],
       "timeoutMs": 900000,
       "external": true
+    },
+    {
+      "id": "files-windows-files-service",
+      "path": "scripts/test-windows-files.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-windows-explorer-ui",
+      "path": "scripts/test-windows-explorer-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-html-to-markdown",
+      "path": "scripts/test-html-to-markdown.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-mail-note-images",
+      "path": "scripts/test-remaining-files-mail-note-images.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-4300",
+        "api:remaining-live-fixture",
+        "playwright"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "file",
+          "path": "public/genoffice/markdown/index.html"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-remaining-notes-api",
+      "path": "scripts/test-remaining-files-notes.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-remaining-notes-ui",
+      "path": "scripts/test-remaining-files-notes-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-remaining-notes-markdown",
+      "path": "scripts/test-remaining-files-notes-markdown.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "server-4300",
+        "playwright",
+        "api:remaining-live-fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-remaining-explorer-api",
+      "path": "scripts/test-remaining-files-explorer-api.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "server-4300",
+        "server-4301",
+        "api:remaining-live-fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-remaining-explorer-purge",
+      "path": "scripts/test-remaining-files-explorer-purge.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
     }
   ],
   "actions": [
@@ -465,7 +619,8 @@
       "program": "explorer",
       "label": "Создать папку",
       "sources": [
-        "src/screens/Explorer.tsx"
+        "src/screens/Explorer.tsx",
+        "server/routes/explorer.ts"
       ],
       "triggers": [
         "button",
@@ -475,7 +630,15 @@
       "expected": [
         "Новая папка появляется в текущей папке и после повторной загрузки"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-explorer-api",
+          "layer": "api-db",
+          "claims": [
+            "Creates a uniquely named folder in a uniquely created project and independently reads it from server 2"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -571,7 +734,7 @@
     },
     {
       "id": "windows-files.create",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Создать папку или локальный черновик Flux Word/Excel",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -706,36 +869,6 @@
       ]
     },
     {
-      "id": "notes-organize-share-export",
-      "program": "notes",
-      "label": "Поиск, область, сортировка, закрепление, группа/цвет, дубликат, доступ, экспорт TXT/DOCX, печать и удаление",
-      "sources": [
-        "src/screens/NotesManagement.tsx",
-        "src/components/NoteShareDialog.tsx"
-      ],
-      "triggers": [
-        "input",
-        "button",
-        "context-menu",
-        "dialog"
-      ],
-      "risk": "normal",
-      "expected": [
-        "Список/группы отражают выбранные параметры; дубликат независим; экспорт содержит заметку; удаление затрагивает выбранную заметку"
-      ],
-      "checks": [],
-      "manual": [
-        {
-          "layer": "browser-live",
-          "scenario": "Проверить каждую команду на тестовой заметке и сверить экспортируемый TXT/DOCX с исходной заметкой",
-          "expected": [
-            "Поиск и сортировка не пишут данные; группы/права точны; экспорт соответствует тексту"
-          ],
-          "status": "NOT_RUN"
-        }
-      ]
-    },
-    {
       "id": "explorer.properties",
       "program": "explorer",
       "label": "Открыть свойства и сохранить метаданные файла",
@@ -851,7 +984,8 @@
       "program": "explorer",
       "label": "Переименовать файл или папку",
       "sources": [
-        "src/screens/Explorer.tsx"
+        "src/screens/Explorer.tsx",
+        "server/routes/explorer.ts"
       ],
       "triggers": [
         "button",
@@ -862,7 +996,15 @@
       "expected": [
         "Переименован только выбранный элемент; ID, содержимое и родительская папка сохранены."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-explorer-api",
+          "layer": "api-db",
+          "claims": [
+            "File rename is persisted and independently read back from server 2"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -879,7 +1021,8 @@
       "program": "explorer",
       "label": "Переместить элемент в корзину",
       "sources": [
-        "src/screens/Explorer.tsx"
+        "src/screens/Explorer.tsx",
+        "server/routes/explorer.ts"
       ],
       "triggers": [
         "button",
@@ -890,7 +1033,15 @@
       "expected": [
         "Выбранный элемент становится удалённым и исчезает из обычного списка; соседние остаются."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-explorer-api",
+          "layer": "api-db",
+          "claims": [
+            "Soft-deleted file disappears from direct read and appears in each server’s project trash; selected file only"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -907,7 +1058,8 @@
       "program": "explorer",
       "label": "Восстановить файл или папку из корзины",
       "sources": [
-        "src/screens/Explorer.tsx"
+        "src/screens/Explorer.tsx",
+        "server/routes/explorer.ts"
       ],
       "triggers": [
         "button",
@@ -917,7 +1069,15 @@
       "expected": [
         "Восстановлен только выбранный объект с ожидаемым родителем или безопасным разрешением конфликта имени."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-explorer-api",
+          "layer": "api-db",
+          "claims": [
+            "Restore clears deleted state and exposes the same file again"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -934,7 +1094,8 @@
       "program": "explorer",
       "label": "Очистить корзину без возможности восстановления",
       "sources": [
-        "src/screens/Explorer.tsx"
+        "src/screens/Explorer.tsx",
+        "server/routes/explorer.ts"
       ],
       "triggers": [
         "button",
@@ -944,7 +1105,15 @@
       "expected": [
         "Необратимо удаляются только элементы тестовой корзины после подтверждения."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-explorer-purge",
+          "layer": "api-db",
+          "claims": [
+            "Temporary SQLite route test confirms selected-project purge deletes its own trashed file and leaves another project’s trashed file recoverable"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -958,7 +1127,7 @@
     },
     {
       "id": "windows-files.create-folder",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Создать папку в текущем Windows-каталоге",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -972,7 +1141,15 @@
       "expected": [
         "Папка появляется в выбранном корне и после обновления списка."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "WindowsFilesService creates folder hierarchy in a temporary root"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -986,7 +1163,7 @@
     },
     {
       "id": "windows-files.create-draft",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Создать Flux-only Word/Excel черновик",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1000,7 +1177,22 @@
       "expected": [
         "Черновик имеет выбранное имя/формат и остаётся Flux-only до публикации."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Flux-only draft bytes/name/identity and persistence across service restart"
+          ]
+        },
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Create draft action is emitted through bridge and navigates to matching draft ref"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "portable",
@@ -1014,7 +1206,7 @@
     },
     {
       "id": "windows-files.open",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Открыть выбранную папку или файл",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1051,7 +1243,7 @@
     },
     {
       "id": "windows-files.rename",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Переименовать Windows файл или папку",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1066,7 +1258,22 @@
       "expected": [
         "Переименован только выбранный путь; содержимое файла сохраняется побайтно."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Rename preserves stable identity, metadata, and path-following draft ref"
+          ]
+        },
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "File rename operation is verified on a temporary real filesystem tree"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1080,7 +1287,7 @@
     },
     {
       "id": "windows-files.copy",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Копировать выбранный файл или папку в буфер Flux",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -1093,7 +1300,15 @@
       "expected": [
         "Источник остаётся на месте и буфер содержит точную ссылку источника."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Copy creates distinct identity, leaves source, and refuses target overwrite"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1107,7 +1322,7 @@
     },
     {
       "id": "windows-files.cut",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Вырезать выбранный файл или папку",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -1120,7 +1335,15 @@
       "expected": [
         "Буфер помечен как cut; до вставки источник остаётся доступен."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Move operation retains source data/metadata and refuses target overwrite"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1134,7 +1357,7 @@
     },
     {
       "id": "windows-files.paste",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Вставить скопированный/вырезанный объект",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -1148,7 +1371,15 @@
       "expected": [
         "Copy оставляет источник; cut перемещает только выбранный объект; конфликт имени не затирает файл молча."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Copy/move tree helpers retain bytes and reject self-copy/overwrite"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1162,7 +1393,7 @@
     },
     {
       "id": "windows-files.trash",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Отправить выбранный Windows объект в корзину",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1176,7 +1407,15 @@
       "expected": [
         "Операция затрагивает выбранный путь и использует Windows корзину; ошибка bridge не выдаётся за успех."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Windows source uses injected trash and draft trash remains Flux-local"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1190,7 +1429,7 @@
     },
     {
       "id": "windows-files.reveal",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Показать выбранный файл в Проводнике Windows",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1204,7 +1443,15 @@
       "expected": [
         "Windows Explorer показывает папку, содержащую выбранный путь."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Open/reveal call injected OS handlers with resolved file beneath approved root"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1218,7 +1465,7 @@
     },
     {
       "id": "windows-files.publish",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Опубликовать Flux-only черновик в Windows",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -1232,7 +1479,22 @@
       "expected": [
         "Выбранный черновик записан в выбранный Windows каталог; опубликованный байтовый файл читается обратно."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "Draft publication is idempotent, keeps metadata/identity, and survives interrupted publication"
+          ]
+        },
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Publish draft control issues publishDraft bridge call independently"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -1832,6 +2094,13 @@
           "claims": [
             "Текст заметки и sticker window синхронизированы в тестовом сценарии"
           ]
+        },
+        {
+          "suite": "files-remaining-notes-api",
+          "layer": "api-db",
+          "claims": [
+            "API default title, owner, Markdown content, group and color persistence"
+          ]
         }
       ],
       "manual": [
@@ -1846,12 +2115,83 @@
       ]
     },
     {
+      "id": "notes.from-mail",
+      "program": "notes",
+      "label": "Сохранить письмо как заметку",
+      "sources": [
+        "server/routes/mailLink.ts",
+        "src/lib/htmlToMarkdown.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Текст письма сохраняется в Markdown; только ограниченные inline PNG/JPEG/GIF/WebP остаются изображениями, а прочие источники заменяются inert alt-placeholder без запроса к ним."
+      ],
+      "checks": [
+        {
+          "suite": "files-html-to-markdown",
+          "layer": "unit",
+          "claims": [
+            "Opt-in note image policy keeps bounded inline raster data and replaces remote, relative, cid, file, javascript, SVG and oversized sources with text; default generic conversion retains image behavior"
+          ]
+        },
+        {
+          "suite": "files-mail-note-images",
+          "layer": "browser-live",
+          "claims": [
+            "Seeded synthetic mail creates a note with preserved body and inert image placeholder; the exact note is independently read, opened in the Markdown iframe with no CSP/md-asset/external-image request errors, then deleted"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "notes.claim",
+      "program": "notes",
+      "label": "Заявить старую общую заметку",
+      "sources": [
+        "src/screens/NotesManagement.tsx",
+        "server/routes/notes.ts"
+      ],
+      "triggers": [
+        "button",
+        "confirmation"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Первая заявка назначает текущего пользователя владельцем; повторный claim не меняет владельца."
+      ],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-api",
+          "layer": "api-db",
+          "claims": [
+            "Synthetic legacy note can be claimed once; second claimant is rejected"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить кнопку заявки в UI на безопасной legacy test note и повторно перечитать владельца.",
+          "expected": [
+            "Первая заявка назначает текущего пользователя владельцем; повторный claim не меняет владельца."
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
       "id": "notes.autosave",
       "program": "notes",
       "label": "Автосохранить текст/заголовок заметки",
       "sources": [
         "src/screens/NotesManagement.tsx",
         "src/screens/NoteEditorHost.tsx",
+        "src/screens/MdFileHost.tsx",
+        "server/routes/officeFiles.ts",
         "src/services/dataService.ts"
       ],
       "triggers": [
@@ -1868,6 +2208,29 @@
           "claims": [
             "Текст заметки и sticker window синхронизированы в тестовом сценарии"
           ]
+        },
+        {
+          "suite": "files-html-to-markdown",
+          "layer": "unit",
+          "claims": [
+            "Legacy HTML converts into expected Markdown without dropping table/list/heading text"
+          ]
+        },
+        {
+          "suite": "files-remaining-notes-api",
+          "layer": "api-db",
+          "claims": [
+            "Owner PATCH persists title, Markdown, color and group removal and independent DB readback"
+          ]
+        },
+        {
+          "suite": "files-remaining-notes-markdown",
+          "layer": "browser-live",
+          "claims": [
+            "Editor-targeted keyboard append persists the complete Markdown after the unchanged original paragraph, not a partial string or misplaced replacement",
+            "Successful Markdown save creates a recoverable prior file version",
+            "Reopening the synthetic Markdown file restores both the original paragraph and the complete appended line"
+          ]
         }
       ],
       "manual": [
@@ -1876,33 +2239,6 @@
           "scenario": "Изменить заголовок и текст, дождаться автосохранения и перечитать.",
           "expected": [
             "Все изменённые поля записаны; закрытие/повторное открытие возвращает их."
-          ],
-          "status": "NOT_RUN"
-        }
-      ]
-    },
-    {
-      "id": "notes.search-scope-sort",
-      "program": "notes",
-      "label": "Искать, переключать область и сортировать заметки",
-      "sources": [
-        "src/screens/NotesManagement.tsx"
-      ],
-      "triggers": [
-        "input",
-        "button"
-      ],
-      "risk": "normal",
-      "expected": [
-        "Показаны записи выбранной области, соответствующие поиску, в выбранном порядке; данные не меняются."
-      ],
-      "checks": [],
-      "manual": [
-        {
-          "layer": "browser-live",
-          "scenario": "Использовать три синтетические заметки с заданными заголовками/датами.",
-          "expected": [
-            "Показаны записи выбранной области, соответствующие поиску, в выбранном порядке; данные не меняются."
           ],
           "status": "NOT_RUN"
         }
@@ -1922,7 +2258,15 @@
       "expected": [
         "Изменяется локальный список закреплённых для текущего пользователя; заметка остаётся той же."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Per-user pin persists; grouped note moves globally above other notes, remains visible while its group is collapsed, and returns to the group after unpin"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1950,7 +2294,15 @@
       "expected": [
         "Группа и назначение привязаны к выбранной заметке; отмена не создаёт группу."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered group control updates the selected note; backend fixture independently reads persisted group"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1976,7 +2328,15 @@
       "expected": [
         "Выбранный preset сохраняется у заметки и восстанавливается при повторном чтении."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered color preset updates the selected note; backend fixture independently reads persisted color"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2003,7 +2363,15 @@
       "expected": [
         "Копия получает отдельный ID; изменение копии не меняет исходный текст."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered duplicate command creates a distinct fixture record and preserves source content/group"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2031,7 +2399,15 @@
       "expected": [
         "Только разрешённые пользователи видят общую заметку; владелец сохраняет её исходник."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-api",
+          "layer": "api-db",
+          "claims": [
+            "VIEW and EDIT permissions, recipient access, self-sharing exclusion, recipient unlink and owner revocation"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2093,6 +2469,13 @@
           "claims": [
             "DOCX пакет собирается и его текст читается независимым разбором"
           ]
+        },
+        {
+          "suite": "files-docx",
+          "layer": "unit",
+          "claims": [
+            "DOCX generator creates a parseable file from independently supplied note text"
+          ]
         }
       ],
       "manual": [
@@ -2138,7 +2521,8 @@
       "program": "notes",
       "label": "Удалить выбранную заметку после подтверждения",
       "sources": [
-        "src/screens/NotesManagement.tsx"
+        "src/screens/NotesManagement.tsx",
+        "server/routes/notes.ts"
       ],
       "triggers": [
         "button",
@@ -2149,11 +2533,19 @@
       "expected": [
         "Удаляется выбранный note ID; отмена сохраняет исходную заметку."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-api",
+          "layer": "api-db",
+          "claims": [
+            "Owner deletes exactly the synthetic note and associated access grants; collaborator delete only removes own share"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Проверить оба исхода подтверждения на синтетической заметке.",
+          "scenario": "В тестовом UI подтвердить удаление и отмену на отдельной заметке; API delete проверен отдельно.",
           "expected": [
             "Удаляется выбранный note ID; отмена сохраняет исходную заметку."
           ],
@@ -2308,7 +2700,15 @@
       "expected": [
         "Список архива соответствует входному контейнеру; неверный пароль даёт ошибку без повреждения оригинала."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-archives",
+          "layer": "unit",
+          "claims": [
+            "Archive parser reads synthetic entry paths/types and refuses malformed, duplicate, linked, or unsafe paths"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "portable",
@@ -2334,7 +2734,15 @@
       "expected": [
         "Проверка сообщает успех только для читаемого архива и оставляет исходные байты без изменений."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-archives",
+          "layer": "unit",
+          "claims": [
+            "Synthetic ZIP and 7z are created and validated with the archive CLI test command"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "portable",
@@ -2415,7 +2823,15 @@
       "expected": [
         "В отдельной папке находятся только выбранные пути; извлечённые байты совпадают с архивом."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-archives",
+          "layer": "unit",
+          "claims": [
+            "Synthetic ZIP/7z extraction restores independently checked UTF-8 entry bytes in temporary directory"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "portable",
@@ -2481,7 +2897,15 @@
       "expected": [
         "Формат/capability соблюдены; корректный пароль открывает ожидаемое содержимое."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-archives",
+          "layer": "unit",
+          "claims": [
+            "Service smoke creates unencrypted 7z at configured compression level"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -2905,7 +3329,7 @@
     },
     {
       "id": "windows-files.select-root",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Выбрать Windows корень: Рабочий стол, Документы, Загрузки или custom root",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -2933,7 +3357,7 @@
     },
     {
       "id": "windows-files.refresh",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Обновить Windows папки или текущий список",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -2946,7 +3370,15 @@
       "expected": [
         "Показан актуальный список выбранной Windows папки; ошибка чтения показана явно."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-files-service",
+          "layer": "unit",
+          "claims": [
+            "External file update is observed by watcher and refreshed list request in service layer"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -2960,7 +3392,7 @@
     },
     {
       "id": "windows-files.search",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Искать Windows файлы по имени",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -2972,7 +3404,15 @@
       "expected": [
         "Отфильтрованы имена текущей папки без записи/перемещения файлов."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Filename search filters fixture entries and clears without changing data"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -2986,7 +3426,7 @@
     },
     {
       "id": "windows-files.list-tiles",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Переключить табличный/плиточный вид Windows файлов",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -2998,7 +3438,15 @@
       "expected": [
         "Меняется только вид списка; root, путь и выбранный объект сохраняются."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "UI switches between list and tile view in fixture"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -3012,7 +3460,7 @@
     },
     {
       "id": "windows-files.properties",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Открыть и сохранить свойства Windows файла",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -3025,7 +3473,15 @@
       "expected": [
         "Показываются metadata выбранного пути; сохранение применяет только явно изменённые свойства."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Properties dialog displays metadata, accepts save, and sends setMetadata through bridge only"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -3200,7 +3656,7 @@
     },
     {
       "id": "windows-files.back",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Вернуться к предыдущему Windows каталогу",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -3212,7 +3668,15 @@
       "expected": [
         "Открыт предыдущий root/path в навигационной истории."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Repeated UI breadcrumb/back path keeps back button enabled and returns to nested listing"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -3226,7 +3690,7 @@
     },
     {
       "id": "windows-files.forward",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Перейти вперёд по Windows навигационной истории",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -3238,7 +3702,15 @@
       "expected": [
         "Открыт следующий root/path после перехода назад."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "After repeated back transitions, forward remains enabled in fixture"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -3252,7 +3724,7 @@
     },
     {
       "id": "windows-files.up",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Открыть родительский Windows каталог",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -3278,7 +3750,7 @@
     },
     {
       "id": "windows-files.breadcrumb",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Перейти по хлебной крошке Windows пути",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx"
@@ -3290,7 +3762,15 @@
       "expected": [
         "Открыта папка breadcrumb внутри того же выбранного root."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-windows-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Clicking root breadcrumb returns to root listing in fixture"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "windows-native",
@@ -3304,7 +3784,7 @@
     },
     {
       "id": "windows-files.share",
-      "program": "windows-files",
+      "program": "explorer",
       "label": "Поделиться выбранным локальным файлом",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
@@ -3352,7 +3832,15 @@
       "expected": [
         "Показаны только заметки, соответствующие строке поиска; записи не меняются."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered NotesManagement search matches note content and removes non-matching cards"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -3378,7 +3866,15 @@
       "expected": [
         "Список соответствует выбранной области и текущему пользователю/проекту."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered mine/shared/legacy scopes display only their respective synthetic records"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -3404,7 +3900,15 @@
       "expected": [
         "Порядок строк соответствует выбранному ключу; значения заметок не меняются."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "files-remaining-notes-ui",
+          "layer": "component",
+          "claims": [
+            "Rendered title sort orders synthetic notes alphabetically"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -3730,6 +4234,29 @@
       ]
     },
     {
+      "id": "files-office.mail-notes",
+      "from": "mail",
+      "to": "notes",
+      "status": "implemented",
+      "sources": [
+        "server/routes/mailLink.ts",
+        "src/lib/htmlToMarkdown.ts"
+      ],
+      "expected": [
+        "Сохранение письма создаёт читаемую Markdown заметку; unsupported image src преобразуются в текстовые placeholders без внешнего запроса."
+      ],
+      "checks": [
+        {
+          "suite": "files-mail-note-images",
+          "layer": "browser-live",
+          "claims": [
+            "Seeded synthetic mail creates a note with preserved body and inert image placeholder; the exact note is independently read, opened in the Markdown iframe with no CSP/md-asset/external-image request errors, then deleted"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
       "id": "files-office.chat",
       "from": "chat",
       "to": "explorer",
@@ -3827,12 +4354,12 @@
     },
     {
       "id": "files-office.shell",
-      "from": "windows-files",
+      "from": "explorer",
       "to": "shell",
       "status": "implemented",
       "sources": [
         "src/components/explorer/WindowsExplorer.tsx",
-        "src/screens/WindowsExplorerHost.tsx",
+        "src/screens/Explorer.tsx",
         "filesystem/contracts.ts",
         "electron/main.ts",
         "electron/preload.ts"
@@ -3887,7 +4414,7 @@
     },
     {
       "id": "files-office.windows-to-editor",
-      "from": "windows-files",
+      "from": "explorer",
       "to": "spreadsheet",
       "status": "conditional",
       "sources": [

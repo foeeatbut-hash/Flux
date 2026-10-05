@@ -1,0 +1,29 @@
+<div id="root"></div>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import Layout from '../../../src/components/Layout';
+import '../../../src/index.css';
+import { useStore } from '../../../src/store/store';
+import { useDesktopStore } from '../../../src/store/desktopStore';
+import { useDisplayStore } from '../../../src/store/displayStore';
+
+const screen = {
+  id: 1, label: 'Тестовый экран', primary: true, scaleFactor: 1,
+  bounds: { x: 0, y: 0, w: 1280, h: 800 },
+  workArea: { x: 0, y: 0, w: 1280, h: 760 },
+};
+const update = (showWindowsTaskbar) => useDisplayStore.setState({
+  workspace: { enabled: true, showWindowsTaskbar, displays: [{ ...screen,
+    workArea: showWindowsTaskbar ? screen.workArea : screen.bounds,
+  }], bounds: screen.bounds, primaryId: 1, mixedScale: false },
+  available: true,
+});
+useStore.setState({ user: { id: 'desktop-geometry-fixture', name: 'Проверка геометрии', symbol: 'ПГ', role: 'admin' } });
+// Imitate the pre-existing local pin list that used to put Flux shortcuts on desktop.
+useDesktopStore.setState({ apps: ['/mail'] });
+update(true);
+window.__setWindowsTaskbar = update;
+createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter, null, React.createElement(Layout)));
+</script>

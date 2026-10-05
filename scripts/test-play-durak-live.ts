@@ -40,9 +40,14 @@ async function main() {
   const snapshot = await request(players[1], 'GET', '/api/play/state');
   check('Группа из трёх сотрудников видна через вторую HTTP-инстанцию', snapshot.data.result.party.members.length === 3);
   async function start(): Promise<string> {
-    const opened = await request(players[0], 'POST', '/api/play/lobby', { gameId: 'cards' });
+    const opened = await request(players[0], 'POST', '/api/play/lobby', { gameId: 'cards', seats: 3 });
     assert.ok(opened.data.ok, opened.data.message);
     const lobbyId = opened.data.result.id;
+    check('Выбранные три места сохранены в общей БД и видны второму серверу', opened.data.result.seats === 3 && (await request(players[1], 'GET', '/api/play/state')).data.result.lobby.seats === 3);
+    const deniedSeats = await request(outsider, 'POST', '/api/play/lobby/seats', { lobbyId, seats: 2, expectedVersion: opened.data.result.revision });
+    check('Посторонний не меняет число мест чужой комнаты', !deniedSeats.data.ok);
+    const hiddenRoom = await request(outsider, 'GET', '/api/play/state');
+    check('Комната и выбранное число мест скрыты от постороннего', !hiddenRoom.data.result.lobby && !hiddenRoom.data.result.party);
     for (const client of players) {
       const snapshot = await request(client, 'GET', '/api/play/state');
       const ready = await request(client, 'POST', '/api/play/lobby/ready', { lobbyId, ready: true, expectedVersion: snapshot.data.result.lobby.revision });

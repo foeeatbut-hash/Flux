@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Download, FileSpreadsheet, Upload } from 'lucide-react';
+import { Download, FileSpreadsheet } from 'lucide-react';
 import { Btn, Dialog, Select } from '../ui';
 import type { Role } from '../../lib/roles';
 import { useStore } from '../../store/store';
 import { useModalStore } from '../../store/modalStore';
 import { guardClose } from '../../lib/closeGuard';
 import { usePaneId } from '../../lib/paneTitle';
+import ImportFileChooser from '../ImportFileChooser';
 
 type Field = 'symbol' | 'lastName' | 'firstName' | 'middleName' | 'name' | 'role' | 'position' | 'department' | 'email' | 'password';
 type PreviewRow = { row: number; values: Record<Field, string>; error?: string; action: 'create' | 'update'; existingId?: string };
@@ -163,7 +164,7 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
 
   return <Dialog title="Импорт сотрудников" width="max-w-5xl" scrollBody onClose={() => void requestClose()} busy={busy} footer={<><Btn disabled={busy} onClick={() => void requestClose()}>Закрыть</Btn>{!preview.length && <Btn tone="primary" disabled={busy || matrix.length < 2 || typeof mapping.symbol !== 'number' || (mode === 'create' && typeof mapping.name !== 'number' && (typeof mapping.lastName !== 'number' || typeof mapping.firstName !== 'number'))} onClick={() => void runPreview()}>Показать предпросмотр</Btn>}{preview.length > 0 && appliedCount === null && <Btn tone="primary" disabled={busy || !selected.length} onClick={() => void apply()}>Импортировать {selected.length}</Btn>}{credentials?.length ? <Btn tone="primary" disabled={busy} onClick={downloadCredentials}><Download />Скачать пароли CSV</Btn> : null}{undoToken && <Btn tone="danger" disabled={busy} onClick={() => void undo()}>Отменить импорт</Btn>}</>}>
     <div className="space-y-4">
-      <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center"><Btn disabled={busy} onClick={downloadTemplate}><FileSpreadsheet />Скачать шаблон XLSX</Btn><label className={`fx-btn ${busy ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}><Upload />Выбрать XLSX или CSV<input type="file" accept=".xlsx,.xls,.csv" disabled={busy} className="hidden" onChange={(e) => { void loadFile(e.target.files?.[0]); e.currentTarget.value = ''; }} /></label><span className="text-xs text-slate-500 dark:text-slate-400">До 5000 строк и 10 МБ. Пароли не отправляются в журналы.</span></div>
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center"><Btn disabled={busy} onClick={downloadTemplate}><FileSpreadsheet />Скачать шаблон XLSX</Btn><ImportFileChooser accept=".xlsx,.xls,.csv" disabled={busy} label="Выбрать XLSX или CSV" onFiles={files => { if (files[0]) void loadFile(files[0]); }} /><span className="text-xs text-slate-500 dark:text-slate-400">До 5000 строк и 10 МБ. Пароли не отправляются в журналы.</span></div>
       {headers.length > 0 && <>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="fx-field"><span className="fx-label">Действие</span><select disabled={busy || appliedCount !== null} className="fx-input" value={mode} onChange={(e) => { setMode(e.target.value as any); clearPreview(); }}><option value="create">Создать новых сотрудников</option><option value="update">Обновить существующих по логину</option></select></label><label className="fx-field"><span className="fx-label">Роль по умолчанию для новых строк</span><Select disabled={busy || appliedCount !== null} value={defaultRole} onChange={(value) => { setDefaultRole(value); clearPreview(); }} options={roleOptions} /></label></div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{fields.map(({ key, label }) => <label key={key} className="fx-field"><span className="fx-label">{label}{['symbol', 'name', 'lastName', 'firstName'].includes(key) ? ' *' : ''}</span><select disabled={busy || appliedCount !== null} className="fx-input" value={mapping[key] ?? ''} onChange={(e) => { setMapping((m) => ({ ...m, [key]: e.target.value === '' ? undefined : Number(e.target.value) })); clearPreview(); }}><option value="">Не использовать</option>{headers.map((h, i) => <option key={`${i}-${h}`} value={i}>{h}</option>)}</select></label>)}</div>

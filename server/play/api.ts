@@ -23,7 +23,7 @@ import { allowed, notThere } from './access.js';
 import { keyFromRequest, runCommand, PlayFailure } from './commands.js';
 import { createParty, kickFromParty, leaveParty, partyOf, viewOf } from './parties.js';
 import { cancelInvite, dropInvitesOfParty, inboxOf, respondInvite, sendInvite } from './invites.js';
-import { closeLobby, lobbyOfParty, openLobby, setReady, setTeam, syncSlots } from './lobbies.js';
+import { closeLobby, lobbyOfParty, openLobby, setReady, setSeatLimit, setTeam, syncSlots } from './lobbies.js';
 import { allocateServer, claimSession, cancelSession, rejoin, sessionOf } from './sessions.js';
 import { redeemTicket } from './tickets.js';
 import { acceptResult, resultOf } from './results.js';
@@ -303,12 +303,21 @@ export function registerPlayApi(app: Express): void {
       if (prior && !gameById(prior.gameId)) await cancelSession(prior.id, 'Игра снята из каталога');
     }
     const gameId = String(req.body?.gameId || '');
-    await command(req, res, 'lobby.open', { gameId }, async (tx) => {
+    const seats = req.body?.seats === undefined ? undefined : Number(req.body.seats);
+    await command(req, res, 'lobby.open', { gameId, seats: seats ?? null }, async (tx) => {
       if (!gameById(gameId)) throw new PlayFailure(PLAY_ERRORS.INVALID, 'Неизвестная игра');
       const seat = await tx.playPartyMember.findFirst({ where: { userId: actorId, leftAt: null } });
       const partyId = seat ? seat.partyId : (await createParty(tx, actorId, gameId)).id;
-      return openLobby(tx, partyId, actorId, gameId);
+      return openLobby(tx, partyId, actorId, gameId, seats);
     });
+  });
+
+  app.post('/api/play/lobby/seats', async (req: Request, res: Response) => {
+    const lobbyId = String(req.body?.lobbyId || '');
+    const seats = Number(req.body?.seats);
+    const expectedVersion = Number(req.body?.expectedVersion);
+    await command(req, res, 'lobby.seats', { lobbyId, seats, expectedVersion },
+      (tx) => setSeatLimit(tx, lobbyId, actorOf(req), seats, expectedVersion));
   });
 
   app.post('/api/play/lobby/ready', async (req: Request, res: Response) => {

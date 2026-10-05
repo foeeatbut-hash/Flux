@@ -103,17 +103,20 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
 
   console.log('5. Правка каталога: снимок и откат');
   const fam = cat.json.families.find((x: any) => x.id === 'veza-klara');
-  const put = await call('PUT', '/api/catalog/family/veza-klara', { ...fam, description: { ru: 'Проверка правки' } });
-  ok('семейство сохранено', put.status === 200, put);
+  const workspace1 = (await call('GET', '/api/catalog/workspace')).json;
+  const publishedFamily = workspace1.catalog?.families?.find((x: any) => x.id === 'veza-klara');
+  const put = await call('PUT', '/api/catalog/family/veza-klara', {
+    ...fam, description: { ru: 'Проверка правки' }, _publishedHash: publishedFamily?._publishedHash,
+  });
+  ok('изменение существующего семейства принято в черновик по опубликованной версии', put.status === 200 && !!put.json?.revision, put);
+  const workspace2 = (await call('GET', '/api/catalog/workspace')).json;
+  const draft = (workspace2.drafts || []).find((x: any) => x.entity === 'family' && x.id === 'veza-klara');
   const cat2 = await call('GET', '/api/catalog');
-  ok('правка видна и помечена «правлено»', cat2.json.families.find((x: any) => x.id === 'veza-klara')?.description?.ru === 'Проверка правки' && cat2.json.meta['veza-klara']?.edited === true);
-  ok('метка версии сменилась', cat2.json.stamp !== cat.json.stamp);
-  const revs = (await call('GET', '/api/catalog/family/veza-klara/revisions')).json?.revisions || [];
-  ok('снимок до правки записан', revs.length >= 1, revs);
+  ok('черновик виден автору, опубликованный каталог не меняется', draft?.document?.description?.ru === 'Проверка правки' && cat2.json.families.find((x: any) => x.id === 'veza-klara')?.description?.ru === fam.description?.ru, draft);
+  const discard = await call('POST', '/api/catalog/workspace/discard', { entity: 'family', id: 'veza-klara', revision: draft?.revision });
+  ok('черновик отменяется без изменения опубликованного семейства', discard.status === 200 && !(await call('GET', '/api/catalog/workspace')).json?.drafts?.some((x: any) => x.entity === 'family' && x.id === 'veza-klara'), discard.json);
   const bad = await call('PUT', '/api/catalog/family/veza-broken', { id: 'veza-broken', classId: 'cls-valve', code: '', positions: [], params: [] });
   ok('семейство без кода не сохраняется', bad.status === 400, bad);
-  const reseed = await call('POST', '/api/catalog/family/veza-klara/reseed');
-  ok('возврат к затравке', reseed.status === 200 && (await call('GET', '/api/catalog')).json.meta['veza-klara']?.edited === false);
 
   console.log('6. Обучение');
   await call('POST', '/api/catalog/learn', { classId: 'cls-valve', signature: 'проверка подписи # x #', familyId: 'veza-klara', values: { exec: 'Н', W: 500 } });
@@ -171,37 +174,116 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     });
     const uid = made.json?.user?.id || made.json?.id || '';
     ok('сотрудник заведён', !!uid, made);
+    const permissionProject = (await call('POST', '/api/projects', { name: `Проверка прав Конструктора ${stamp}` })).json?.project;
+    const joined = permissionProject?.id ? await call('POST', `/api/projects/${permissionProject.id}/members`, { userIds: [uid] }) : { status: 0, json: null };
+    ok('сотрудник добавлен в свой тестовый проект', joined.status === 200 && joined.json?.count === 1, joined.json);
     const adminToken = token;
     token = (await call('POST', '/api/login', { symbol, password: 'проверка' })).json?.token || '';
     ok('сотрудник вошёл', !!token);
     ok('каталог ему виден', (await call('GET', '/api/catalog')).status === 200);
-    const own = await call('POST', '/api/builder/lists', { projectId: project.id, classId: 'cls-valve', name: 'Проверка прав' });
+    const own = await call('POST', '/api/builder/lists', { projectId: permissionProject?.id, classId: 'cls-valve', name: 'Проверка прав' });
     ok('ведомость заводит без записи о праве', own.status === 200, own.status);
     const fam = (await call('GET', '/api/catalog')).json.families.find((x: any) => x.id === 'veza-klara');
     ok('правка Каталога без выдачи — 403', (await call('PUT', '/api/catalog/family/veza-klara', fam)).status === 403);
+
     token = adminToken;
-    await call('PUT', `/api/users/${uid}`, { permissions: { 'tags.manage': { enabled: true, until: null }, 'builder.edit': { enabled: false, until: null } } });
-    token = (await call('POST', '/api/login', { symbol, password: 'проверка' })).json?.token || '';
-    const denied = await call('POST', '/api/builder/lists', { projectId: project.id, classId: 'cls-valve', name: 'Проверка прав 2' });
-    ok('явный запрет — 403 «Ведомости Конструктора»', denied.status === 403 && /Ведомости Конструктора/.test(denied.json?.error || ''), denied);
+    const grantSymbol = `builder-grant-${stamp}`;
+    const grantUser = await call('POST', '/api/users', {
+      name: `Проверка выдачи Конструктора ${stamp}`, symbol: grantSymbol, password: 'проверка', role: 'ENGINEER_VENT',
+      permissions: {
+        'builder.edit': { enabled: true, until: null },
+        'builder.issue': { enabled: true, until: '2000-01-01T00:00:00.000Z' },
+      },
+    });
+    const grantUid = grantUser.json?.user?.id || grantUser.json?.id || '';
+    ok('сотрудник с явной выдачей создан', grantUser.status === 200 && !!grantUid, grantUser);
+    const grantJoined = grantUid ? await call('POST', `/api/projects/${permissionProject?.id}/members`, { userIds: [grantUid] }) : { status: 0, json: null };
+    ok('сотрудник с явной выдачей включён в проект', grantJoined.status === 200, grantJoined.json);
+    token = (await call('POST', '/api/login', { symbol: grantSymbol, password: 'проверка' })).json?.token || '';
+    const grantList = await call('POST', '/api/builder/lists', { projectId: permissionProject?.id, classId: 'cls-valve', name: 'Проверка явной выдачи' });
+    ok('явный builder.edit разрешает создать ведомость', grantList.status === 200 && !!grantList.json?.list?.id, grantList);
+    const grantListId = grantList.json?.list?.id;
+    const grantIssuesBefore = grantListId ? (await call('GET', `/api/builder/lists/${grantListId}/issues`)).json?.issues || [] : [];
+    const expiredIssue = grantListId ? await call('POST', `/api/builder/lists/${grantListId}/issues`, { rev: 'expired-issue-grant', date: '2026-10-04' }) : { status: 0, json: null };
+    const grantIssuesAfter = grantListId ? (await call('GET', `/api/builder/lists/${grantListId}/issues`)).json?.issues || [] : [];
+    ok('истёкший builder.issue отклонён без выпуска', expiredIssue.status === 403 && expiredIssue.json?.feature === 'builder.issue' && grantIssuesAfter.length === grantIssuesBefore.length, [expiredIssue, grantIssuesBefore.length, grantIssuesAfter.length]);
+    token = adminToken;
+    if (grantListId) await call('DELETE', `/api/builder/lists/${grantListId}`);
+    token = adminToken;
+    // Администратор фикстуры имеет только право заводить сотрудников, не
+    // управлять уже созданными. Поэтому задаём явный запрет в начальной
+    // записи пользователя, а не молча игнорируем неразрешённый PUT.
+    const deniedSymbol = `builder-deny-${stamp}`;
+    const deniedUser = await call('POST', '/api/users', {
+      name: `Проверка запрета Конструктора ${stamp}`, symbol: deniedSymbol, password: 'проверка', role: 'ENGINEER_VENT',
+      permissions: {
+        'builder.edit': { enabled: false, until: null },
+        'builder.issue': { enabled: true, until: null },
+        'tags.manage': { enabled: true, until: null },
+      },
+    });
+    const deniedUid = deniedUser.json?.user?.id || deniedUser.json?.id || '';
+    ok('сотрудник с явным запретом создан и право сохранено', deniedUser.status === 200 && !!deniedUid && JSON.parse(deniedUser.json?.permissions || '{}')?.['builder.edit']?.enabled === false, deniedUser);
+    const deniedJoined = deniedUid ? await call('POST', `/api/projects/${permissionProject?.id}/members`, { userIds: [deniedUid] }) : { status: 0, json: null };
+    ok('запрещённый сотрудник включён в тестовый проект', deniedJoined.status === 200, deniedJoined.json);
+
+    // Под администратором готовим ведомость и позицию, чтобы отдельно
+    // проверить, что отказанные запросы не меняют уже существующие данные.
+    const protectedList = (await call('POST', '/api/builder/lists', { projectId: permissionProject?.id, classId: 'cls-valve', name: 'Защищённая ведомость' })).json?.list;
+    const protectedListId = protectedList?.id;
+    const protectedSeed = await call('POST', `/api/builder/lists/${protectedListId}/apply`, {
+      title: 'Исходная позиция', upserts: [{ id: `${R}-denied`, classId: 'cls-valve', tags: ['9999-T03-DF-001'], qty: 2, values: {}, designation: '', status: 'draft', sort: 1 }],
+    });
+
+    token = (await call('POST', '/api/login', { symbol: deniedSymbol, password: 'проверка' })).json?.token || '';
+    ok('сотрудник с запретом вошёл', !!token);
+    const denied = await call('POST', '/api/builder/lists', { projectId: permissionProject?.id, classId: 'cls-valve', name: 'Проверка прав 2' });
+    ok('явный запрет builder.edit — 403', denied.status === 403 && denied.json?.feature === 'builder.edit', denied);
+    const beforeDeniedWrite = (await call('GET', `/api/builder/lists/${protectedListId}`)).json?.items?.find((i: any) => i.id === `${R}-denied`);
+    const deniedUpdate = await call('PUT', `/api/builder/lists/${protectedListId}`, { name: 'Это имя не должно записаться' });
+    ok('запрет PUT ведомости — 403', deniedUpdate.status === 403 && deniedUpdate.json?.feature === 'builder.edit', deniedUpdate);
+    const deniedApply = await call('POST', `/api/builder/lists/${protectedListId}/apply`, {
+      title: 'Не должно записаться', upserts: [{ ...beforeDeniedWrite, qty: 99 }],
+    });
+    const afterDeniedWrite = (await call('GET', `/api/builder/lists/${protectedListId}`)).json?.items?.find((i: any) => i.id === `${R}-denied`);
+    ok('запрет apply — 403 и позиция не меняется', deniedApply.status === 403 && afterDeniedWrite?.qty === beforeDeniedWrite?.qty, [deniedApply, beforeDeniedWrite?.qty, afterDeniedWrite?.qty]);
+    const deniedUndo = await call('POST', `/api/builder/batches/${protectedSeed.json?.batchId}/undo`);
+    const afterDeniedUndo = (await call('GET', `/api/builder/lists/${protectedListId}`)).json?.items?.find((i: any) => i.id === `${R}-denied`);
+    ok('запрет отмены пакета — 403 и позиция остаётся', deniedUndo.status === 403 && afterDeniedUndo?.qty === beforeDeniedWrite?.qty, [deniedUndo, afterDeniedUndo?.qty]);
+    const deniedTagApply = await call('POST', `/api/builder/lists/${protectedListId}/tag-apply`, { links: [{ blockKey: `${R}-denied`, identifier: '9999-T03-DF-001', action: 'create' }] });
+    ok('запрет builder.edit блокирует применение связей даже при tags.manage', deniedTagApply.status === 403 && deniedTagApply.json?.feature === 'builder.edit', deniedTagApply);
+    if (deniedTagApply.json?.batchId) await call('POST', `/api/builder/batches/${deniedTagApply.json.batchId}/undo`);
+    const deniedDelete = await call('DELETE', `/api/builder/lists/${protectedListId}`);
+    ok('запрет удаления — 403, ведомость остаётся', deniedDelete.status === 403 && (await call('GET', `/api/builder/lists/${protectedListId}`)).status === 200, deniedDelete);
+    const beforeTagPlan = await call('POST', `/api/builder/lists/${protectedListId}/tag-plan`, {});
+    ok('план связей тегов остаётся чтением без builder.edit', beforeTagPlan.status === 200, beforeTagPlan);
+    const issuesBeforeEditIndependent = (await call('GET', `/api/builder/lists/${protectedListId}/issues`)).json?.issues || [];
+    const independentIssue = await call('POST', `/api/builder/lists/${protectedListId}/issues`, { rev: 'issue-without-edit', date: '2026-10-04' });
+    const issuesAfterEditIndependent = (await call('GET', `/api/builder/lists/${protectedListId}/issues`)).json?.issues || [];
+    ok('builder.issue позволяет выпустить снимок отдельно от builder.edit', independentIssue.status === 200 && issuesAfterEditIndependent.length === issuesBeforeEditIndependent.length + 1, [independentIssue, issuesBeforeEditIndependent.length, issuesAfterEditIndependent.length]);
+
     token = adminToken;
     if (own.json?.list?.id) await call('DELETE', `/api/builder/lists/${own.json.list.id}`);
+    if (protectedListId) await call('DELETE', `/api/builder/lists/${protectedListId}`);
+    if (permissionProject?.id) await call('DELETE', `/api/projects/${permissionProject.id}`);
+    if (deniedUid) await call('DELETE', `/api/users/${deniedUid}`);
+    if (grantUid) await call('DELETE', `/api/users/${grantUid}`);
     await call('DELETE', `/api/users/${uid}`);
   }
 
   console.log('12. Загрузка каталога из файла отменяется');
   {
     const mf = cat.json.manufacturers[0]?.id;
-    const fam = { id: `${R}-fam`, classId: 'cls-valve', manufacturerId: mf, code: 'ПРОВЕРКА-1', title: { ru: 'Проверка' }, kind: 'air', typeLabel: { ru: '' }, shapes: ['rect'], params: [], positions: [{ key: 'series', label: { ru: 'Серия' }, formats: ['ПРОВЕРКА-1'] }], rules: [], match: { kinds: [] }, specs: [], status: 'draft' };
-    const planOnly = await call('POST', '/api/catalog/import', { format: 'flux-catalog', mode: 'plan', families: [fam] });
+    const fam = { id: `${R}-fam`, classId: 'cls-valve', manufacturerId: mf, code: 'ПРОВЕРКА-1', title: { ru: 'Проверка' }, kind: 'air', typeLabel: { ru: 'Проверка' }, shapes: ['rect'], params: [], positions: [{ key: 'series', label: { ru: 'Серия' }, formats: ['ПРОВЕРКА-1'] }], rules: [], match: { kinds: [] }, specs: [], status: 'draft' };
+    const packet = { format: 'flux-catalog', mode: 'plan', families: [fam] };
+    const planOnly = await call('POST', '/api/catalog/import', packet);
     ok('план загрузки ничего не пишет', planOnly.json?.plan?.[0]?.action === 'new' && !(await call('GET', '/api/catalog')).json.families.some((x: any) => x.id === fam.id));
-    const applied = await call('POST', '/api/catalog/import', { format: 'flux-catalog', mode: 'apply', families: [fam] });
-    ok('загрузка записала семейство', applied.status === 200 && (await call('GET', '/api/catalog')).json.families.some((x: any) => x.id === fam.id));
-    const revs = (await call('GET', `/api/catalog/family/${fam.id}/revisions`)).json?.revisions || [];
-    const created = revs.find((r: any) => r.action === 'create');
-    ok('у новой записи есть снимок «создано»', !!created, revs);
-    const back = await call('POST', `/api/catalog/revisions/${created?.id}/restore`);
-    ok('возврат к снимку снимает загруженное', back.status === 200 && !(await call('GET', '/api/catalog')).json.families.some((x: any) => x.id === fam.id), back.json);
+    const applied = await call('POST', '/api/catalog/import', { ...packet, mode: 'apply', preview: planOnly.json?.preview });
+    const importedWorkspace = (await call('GET', '/api/catalog/workspace')).json;
+    const importedDraft = (importedWorkspace.drafts || []).find((x: any) => x.entity === 'family' && x.id === fam.id);
+    ok('загрузка записала новый семейство в черновики, не в опубликованный каталог', applied.status === 200 && !!importedDraft && !(await call('GET', '/api/catalog')).json.families.some((x: any) => x.id === fam.id), importedDraft);
+    const discardImported = importedDraft ? await call('POST', '/api/catalog/workspace/discard', { entity: 'family', id: fam.id, revision: importedDraft.revision }) : { status: 0, json: null };
+    ok('импортированный черновик отменяется и уходит из рабочей области', discardImported.status === 200 && !(await call('GET', '/api/catalog/workspace')).json?.drafts?.some((x: any) => x.entity === 'family' && x.id === fam.id), discardImported.json);
   }
 
   console.log('13. Удаление проекта уносит его ведомости');

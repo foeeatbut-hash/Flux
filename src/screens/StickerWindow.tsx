@@ -215,7 +215,7 @@ export default function StickerWindow() {
           path={`flux://note/${note.id}`}
           name={note.title}
           readOnly={note.canEdit === false}
-          load={async () => (looksLikeHtml(note.content || '') ? htmlToMarkdown(note.content || '') : String(note.content || ''))}
+          load={async () => (looksLikeHtml(note.content || '') ? htmlToMarkdown(note.content || '', { imagePolicy: 'inline-only' }) : String(note.content || ''))}
           save={async (text) => {
             const saved = await dataService.updateNote(note.id, { content: text });
             ownStamp.current = String(saved?.updatedAt || '');

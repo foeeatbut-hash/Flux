@@ -70,7 +70,7 @@ export default function DurakBoard({ view, yourTurn, busy, onMove, names = {} }:
     {canConfigure && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div><p className="font-semibold">Правила раздачи</p><p className="text-xs text-slate-500 dark:text-slate-400">Настройка доступна ведущему до первого хода.</p></div>
       <div className="flex flex-wrap gap-2">
-        <label className="flex items-center gap-2 text-sm">Колода<select aria-label="Размер колоды" value={state.deckSize} onChange={(event) => act({ type: 'configure', variant: state.variant, deckSize: Number(event.target.value) })} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800"><option value={36} disabled={state.seats.length > 6}>36 карт · до 6 игроков</option><option value={52}>52 карты · до 8 игроков</option></select></label>
+
         <label className="flex items-center gap-2 text-sm">Вариант<select aria-label="Вариант Дурака" value={state.variant} onChange={(event) => act({ type: 'configure', variant: event.target.value, deckSize: state.deckSize })} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-dark-border dark:bg-dark-bg"><option value="throw-in">Подкидной</option><option value="transfer">Переводной</option></select></label>
       </div>
     </div>}

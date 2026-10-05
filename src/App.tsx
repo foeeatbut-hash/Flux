@@ -87,10 +87,18 @@ function ElectronTitleBar() {
 
   React.useEffect(() => {
     if (!wc) return;
+    document.documentElement.dataset.fluxElectronWindow = 'true';
     wc.isMaximized?.().then((v: boolean) => setMaximized(!!v)).catch(() => {});
     const off = wc.onMaximizedChange?.((v: boolean) => setMaximized(!!v));
-    return () => { off && off(); };
+    return () => {
+      off && off();
+      delete document.documentElement.dataset.fluxElectronWindow;
+      delete document.documentElement.dataset.fluxWindowMaximized;
+    };
   }, [wc]);
+  React.useEffect(() => {
+    if (wc) document.documentElement.dataset.fluxWindowMaximized = String(maximized);
+  }, [wc, maximized]);
 
   // Всплывает от близости курсора к верхней кромке. Полторы секунды на уход —
   // столько же, сколько у удалённого стола: за меньшее панелька успевает

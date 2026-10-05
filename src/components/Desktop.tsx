@@ -3,8 +3,7 @@
  *
  * На столе лежат две разные вещи, и различие видно и на глаз, и в Проводнике:
  *
- *   — системные значки (разделы Flux и корзина). Их нет в Проводнике и нет в
- *     базе: это привычка сотрудника и вид Проводника, а не документы проекта;
+ *   — корзина и файлы проекта. Программы открываются через Пуск и панель задач;
  *   — файлы и папки — настоящие. Лежат в системной папке «Рабочий стол» — своей
  *     у каждого и одной общей на проект, — и из Проводника видны там же.
  *     Значок из общей папки помечен: по нему сразу видно, что документ видят все.
@@ -21,7 +20,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FolderPlus, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
-  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2, ArrowDownToLine,
+  Pencil, Trash2, FolderOpen, Info, LayoutGrid, List, Link2, ArrowDownToLine,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useDesktopStore } from '../store/desktopStore';
@@ -30,7 +29,7 @@ import { rememberSectionUse } from '../store/workspaceStore';
 import { useModalStore } from '../store/modalStore';
 import { useToastStore } from '../store/toastStore';
 import {
-  cellToXY, xyToCell, layout, withApps, isSystemKind, BIN_ID,
+  cellToXY, xyToCell, layout, isSystemKind, BIN_ID,
   type DeskItem, type SortBy,
 } from '../lib/desktop';
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
@@ -44,9 +43,6 @@ import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
 import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
-import { visibleSections } from '../lib/appPolicy';
-import { useAppContext } from '../store/policyStore';
-import { SECTIONS } from '../workspace/sections';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
@@ -64,8 +60,8 @@ function ProjectDesktop() {
   const user = useStore((s) => s.user);
   const navigate = useNavigate();
   const {
-    items, apps, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
-    load, select, setCell, arrangeBy, setScale, unpinApp, createFolder, rename, remove, share, setStatus,
+    items, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
+    load, select, setCell, arrangeBy, setScale, createFolder, rename, remove, share, setStatus,
     acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
@@ -125,20 +121,7 @@ function ProjectDesktop() {
    * Пока папка искала свои значки в уже отфильтрованном списке, она находила
    * ноль (её же значки оттуда и убраны) и открывалась пустым белым полотном.
    */
-  /**
-   * Значки программ отбираются политикой, а не только ролью.
-   *
-   * Закрепление живёт в браузере и про права ничего не знает: снятое право
-   * оставляло значок на столе, а нажатие по нему — пустой экран или увод на
-   * Главную. Программа, которой у человека нет, со стола исчезает.
-   */
-  const ctx = useAppContext();
-  const allowedApps = React.useMemo(() => {
-    const open = new Set(visibleSections(SECTIONS, ctx).map((s) => s.path));
-    return apps.filter((p) => open.has(p));
-  }, [apps, ctx]);
-
-  const base = React.useMemo(() => withApps(items, allowedApps), [items, allowedApps]);
+  const base = items;
 
   /**
    * Что лежит на столе с учётом папок: спрятанное в папках со стола убирается,
@@ -172,7 +155,6 @@ function ProjectDesktop() {
 
   const openItem = (item: DeskItem) => {
     if (item.kind === 'group') { setFolder(item.id); return; }
-    if (item.kind === 'app' && item.path) return go(item.path);
     if (item.kind === 'bin') return go(BIN_HREF);
     // Папка стола открывается в Проводнике: второго проводника у программы нет,
     // и заводить его ради стола — значит развести два разных дерева одних папок
@@ -279,7 +261,6 @@ function ProjectDesktop() {
   };
 
   const doRemove = async (item: DeskItem) => {
-    if (item.kind === 'app') { unpinApp(item.path || ''); return; }
     if (item.kind === 'bin') return; // корзину со стола не убирают
     const ok = await openConfirm(
       item.kind === 'folder' ? 'Убрать папку со стола?' : 'Убрать файл со стола?',
@@ -316,9 +297,6 @@ function ProjectDesktop() {
   const itemMenu = (item: DeskItem): MenuItem[] => isSystemKind(item.kind)
     ? [
       { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => openItem(item) },
-      ...(item.kind === 'app'
-        ? [{ label: 'Убрать со стола', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinApp(item.path || '') }]
-        : []),
       { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
     ]
     : [
@@ -515,17 +493,6 @@ function ProjectDesktop() {
 
     // Программу принесли из Пуска: закрепляем её ровно в той клетке, куда
     // отпустили. Класть значок «куда-нибудь» нельзя — человек метил в место
-    if (data && data.type === 'app_pin' && typeof data.path === 'string') {
-      const { pinApp, setCell } = useDesktopStore.getState();
-      pinApp(data.path);
-      if (box && !asList) {
-        const cell = xyToCell(e.clientX - box.left + metric.w / 2 - 24, e.clientY - box.top + metric.h / 2 - 24, area, metric);
-        setCell(`app:${data.path}`, cell, area);
-      }
-      addToast('Программа на рабочем столе', 'success');
-      return;
-    }
-
     if (!data || data.type !== 'app_items' || !Array.isArray(data.ids)) return;
 
     // Со стола на стол — это перекладывание значка, а не перенос файла

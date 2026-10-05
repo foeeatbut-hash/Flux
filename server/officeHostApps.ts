@@ -32,8 +32,9 @@ import { shareOf } from './fileSharing.js';
 import { sheetShared } from './officeSheetCollab.js';
 import { officeBus } from './officeBus.js';
 import { officeHub } from './officeRooms.js';
+import { isGenOfficeAIChannel, OFFICE_HOST_ALLOWED, type HostApp } from './officeHostPolicy.js';
 
-export type HostApp = 'pdf' | 'sheets';
+export type { HostApp } from './officeHostPolicy.js';
 
 interface Host {
   start: (resources: string) => void;
@@ -56,14 +57,7 @@ interface Session {
 }
 
 /** Вызовы, которые окно может сделать. Остальное — отказ */
-const ALLOWED: Record<HostApp, (channel: string) => boolean> = {
-  pdf: (c) => c.startsWith('pdf:') && ![
-    'pdf:generate-image', 'pdf:ocr-page', 'pdf:create-document', 'pdf:convert-office', 'pdf:request-redaction-copy',
-  ].includes(c),
-  // Книга — да; ИИ, MCP, захват экрана, чужие файлы, печать через Electron — нет
-  sheets: (c) => (c.startsWith('workbook:') && !['workbook:create-document', 'workbook:export-pdf', 'workbook:print'].includes(c))
-    || ['sheets:consume-new-blank', 'sheets:has-queued-workbook', 'sheets:consume-headless-export'].includes(c),
-};
+const ALLOWED = OFFICE_HOST_ALLOWED;
 
 /** Какой вызов записывает файл — после него байты уходят в Flux */
 const SAVES: Record<HostApp, (channel: string) => boolean> = {
@@ -104,6 +98,7 @@ function host(app: HostApp): Host {
   h.start(dir);
   // Сообщения главного процесса окну — по сокету его владельцу
   h.onSend((id, channel, args) => {
+    if (isGenOfficeAIChannel(channel)) return;
     const s = sessions.get(id);
     if (s && io) io.to(s.socketId).emit('office:ipc-event', { session: id, channel, args });
   });

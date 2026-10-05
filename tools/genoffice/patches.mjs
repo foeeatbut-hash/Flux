@@ -30,7 +30,8 @@ export const PATCHES = [
     id: 'flux-sheets-disabled-settings',
     file: 'apps/sheets/src/renderer/App.tsx',
     find: '    void window.desktopApi.getAiSettings().then(setAiSettingsState)',
-    replace: '    void window.desktopApi.getAiSettings().then(setAiSettingsState).catch(() => {}) // Flux: скрытые внешние сервисы отключены',
+    prior: '    void window.desktopApi.getAiSettings().then(setAiSettingsState).catch(() => {}) // Flux: скрытые внешние сервисы отключены',
+    replace: '    if (!(window as any).__fluxNoGenOfficeAI) void window.desktopApi.getAiSettings().then(setAiSettingsState).catch(() => {}) // Flux: GenOffice AI providers disabled',
   },
   { id: 'flux-markdown-insert-data', file: 'apps/markdown/src/renderer/App.tsx', find: "  const editorRef = useRef<Editor | null>(null)\n", replace: "  const editorRef = useRef<Editor | null>(null)\n  // Flux: \u0432\u0441\u0442\u0430\u0432\u043a\u0430 \u0434\u0430\u043d\u043d\u044b\u0445 \u0432 \u0437\u0430\u043c\u0435\u0442\u043a\u0443 \u0442\u043e\u043b\u044c\u043a\u043e \u043f\u043e \u044f\u0432\u043d\u043e\u043c\u0443 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044e \u0432 \u043f\u0430\u043d\u0435\u043b\u0438.\n  useEffect(() => {\n    const receive = (event: MessageEvent) => {\n      if (event.source !== window.parent || !['null', 'file://', window.location.origin].includes(event.origin)) return\n      const m = event.data\n      if (m?.flux !== 'office' || !['fluxInsertText', 'fluxInsertTable'].includes(m.event)) return\n      try {\n        const ed = editorRef.current\n        if (!ed || !ed.isEditable) throw new Error('\u0417\u0430\u043c\u0435\u0442\u043a\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u0430 \u0434\u043b\u044f \u043f\u0440\u0430\u0432\u043a\u0438')\n        const rows = m.payload?.rows\n        const content = m.event === 'fluxInsertText' ? { type: 'text', text: String(m.payload || '') } : {\n          type: 'table', content: rows.map((row: any[], at: number) => ({ type: 'tableRow', content: row.map(value => ({ type: at === 0 ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', content: String(value ?? '') ? [{ type: 'text', text: String(value) }] : [] }] })) }))\n        }\n        const ok = ed.chain().focus().insertContent(content).run()\n        window.parent.postMessage({ flux: 'office', op: 'flux:table-inserted', payload: { ok } }, window.location.origin === 'null' || window.location.origin === 'file://' ? '*' : window.location.origin)\n      } catch (err: any) {\n        window.parent.postMessage({ flux: 'office', op: 'flux:table-inserted', payload: { ok: false, error: err.message } }, window.location.origin === 'null' || window.location.origin === 'file://' ? '*' : window.location.origin)\n      }\n    }\n    window.addEventListener('message', receive)\n    return () => window.removeEventListener('message', receive)\n  }, [])\n" },
   {
@@ -177,6 +178,26 @@ export const PATCHES = [
     replace: '        <button type="button" className="qa-btn qa-save-as" aria-label="Flux" title="Flux" onMouseDown={(e) => e.preventDefault()} onClick={() => window.parent.postMessage({ flux: \'office\', op: \'flux:open-panel\' }, (window.location.origin === \'null\' || window.location.origin === \'file://\' ? \'*\' : window.location.origin))}>Flux</button>\n' +
       '        <RibbonExpandButton state={collapse} label={t(\'ribbonExpand\')} />',
   },
+  {
+    id: 'flux-disable-docs-ai-settings-read',
+    file: 'apps/docs/src/renderer/App.tsx',
+    find: '    void window.desktop.getAiSettings().then(setSettings)',
+    replace: '    if (!(window as any).__fluxNoGenOfficeAI) void window.desktop.getAiSettings().then(setSettings)',
+  },
+  {
+    // Flux Office does not expose GenOffice's external-agent editor bridge.
+    // FluxAssistant is provided by the Flux shell and remains separate.
+    id: 'flux-disable-docs-mcp-ai-bridge',
+    file: 'apps/docs/src/renderer/App.tsx',
+    find: '    if (tornDown || !editor) return\n    return installMcpBridge({ getCtx: () => fileCtxRef.current })',
+    replace: '    if ((window as any).__fluxNoGenOfficeAI || tornDown || !editor) return\n    return installMcpBridge({ getCtx: () => fileCtxRef.current })',
+  },
+  {
+    id: 'flux-disable-sheets-mcp-ai-bridge',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: '  useEffect(() => {\n    const handlers = mcpSheetHandlersRef\n    return installSheetsMcpBridge({',
+    replace: '  useEffect(() => {\n    if ((window as any).__fluxNoGenOfficeAI) return\n    const handlers = mcpSheetHandlersRef\n    return installSheetsMcpBridge({',
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */
@@ -184,12 +205,15 @@ export function applyPatches(src) {
   const done = [];
   for (const p of PATCHES) {
     const path = join(src, p.file);
-    const text = readFileSync(path, 'utf8');
+    let text = readFileSync(path, 'utf8');
     if (text.includes(p.replace)) { done.push(`${p.id}: уже есть`); continue; }
-    const at = text.indexOf(p.find);
+    // Upgrade the earlier Flux-only safe fallback if the cached source was
+    // already patched by a previous build of this integration.
+    const target = p.prior && text.includes(p.prior) ? p.prior : p.find;
+    const at = text.indexOf(target);
     if (at < 0) throw new Error(`правка «${p.id}»: в ${p.file} не нашлось места — сменился исходник GenOffice?`);
-    if (text.indexOf(p.find, at + 1) >= 0) throw new Error(`правка «${p.id}»: место в ${p.file} не единственное`);
-    writeFileSync(path, text.slice(0, at) + p.replace + text.slice(at + p.find.length));
+    if (text.indexOf(target, at + 1) >= 0) throw new Error(`правка «${p.id}»: место в ${p.file} не единственное`);
+    writeFileSync(path, text.slice(0, at) + p.replace + text.slice(at + target.length));
     done.push(`${p.id}: внесена`);
   }
   return done;

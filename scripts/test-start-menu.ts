@@ -11,6 +11,7 @@ import {
   type StartSource,
 } from '../src/lib/startMenu';
 import { SECTIONS } from '../src/workspace/sections';
+import { resolveSectionHref, resolveSectionPath } from '../src/lib/sectionAliases';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -104,6 +105,14 @@ console.log('Закреплённое');
   check('несуществующее выпало', !pin.some((s) => s.path === '/нет'));
   check('повтор не двоится', pin.length === 1, pin.map((s) => s.path));
   check('администратору его раздел виден', pinnedTiles(['/users'], S, true).length === 1);
+}
+
+console.log('Один Проводник и старые адреса');
+{
+  check('в Пуске только один Проводник', SECTIONS.filter((s) => s.title === 'Проводник').length === 1);
+  check('старый адрес файлов ведёт в Проводник', resolveSectionPath('/windows-files') === '/explorer');
+  check('старый адрес общего доступа открывает его внутреннюю папку', resolveSectionHref('/shared-files') === '/explorer?view=shared');
+  check('общий доступ не объявлен отдельной программой', !SECTIONS.some((s) => s.path === '/shared-files'));
 }
 
 console.log('Перестановка плиток');

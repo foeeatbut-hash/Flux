@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
-import WindowsExplorer from '../../src/components/explorer/WindowsExplorer';
+import Explorer from '../../src/screens/Explorer';
 import WindowsDesktop from '../../src/components/desktop/WindowsDesktop';
 import '../../src/index.css';
 import { useStore } from '../../src/store/store';
@@ -81,7 +81,9 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).fetch = async (url: string) => {
   const path = String(url);
-  const body = path.includes('/tags') ? { tags: [{ id: 'tag-1', identifier: 'AHU-01' }, { id: 'tag-2', identifier: 'P-01' }] } : { projects: [{ id: 'project-1', name: 'Проект 1' }, { id: 'project-2', name: 'Проект 2' }] };
+  const body = path.includes('/file-sharing/received') ? { files: [] }
+    : path.includes('/tags') ? { tags: [{ id: 'tag-1', identifier: 'AHU-01' }, { id: 'tag-2', identifier: 'P-01' }] }
+      : { projects: [{ id: 'project-1', name: 'Проект 1' }, { id: 'project-2', name: 'Проект 2' }] };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
 useStore.getState().setActiveProject({ id: 'project-1', name: 'Проект 1' });
@@ -91,7 +93,7 @@ function Fixture() {
   const [desktop, setDesktop] = useState(false);
   (window as any).__showWindowsDesktop = () => setDesktop(true);
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
-    {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><WindowsExplorer /></div>}
+    {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><Explorer /></div>}
   </div>;
 }
-createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/windows-files?root=desktop-id&path=']}><Fixture /></MemoryRouter>);
+createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/explorer?root=desktop-id&path=']}><Fixture /></MemoryRouter>);

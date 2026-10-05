@@ -3,7 +3,8 @@ import type { CatalogDraft, CatalogWorkspace } from '../../../catalog/publicatio
 import { catalogDifferences } from '../../../catalog/review';
 import { catalogWorkspaceService } from '../../services/catalogWorkspaceService';
 import { catalogService } from '../../services/catalogService';
-import { veza2026Pack } from '../../../catalog/packs/veza2026';
+import { manuals2026Pack, manualsCoverage } from '../../../catalog/packs/manuals2026';
+import { saveManualPackage } from '../../services/catalogManualPackageService';
 import { useStore } from '../../store/store';
 import { Btn, Empty } from './ui';
 
@@ -82,18 +83,22 @@ export default function CatalogPublications({ workspace, onChanged }: { workspac
         <span><span className="block font-medium">Требовать вторую проверку семейства или компонента</span>
           <span className="mt-0.5 block text-slate-500 dark:text-slate-400">Для каждой модели второй сотрудник с правом публикации подтверждает содержимое. Автор не может подтвердить собственную правку.</span></span>
       </label>}
-      {workspace.rights.import && <Btn disabled={busy} onClick={() => void run(async () => setPlan(await catalogService.importCatalog(veza2026Pack, 'plan')))}>Данные из PDF ВЕЗА: предпросмотр</Btn>}
+      {workspace.rights.import && workspace.rights.edit && <Btn disabled={busy} onClick={() => void run(async () => setPlan(await catalogService.importCatalog(manuals2026Pack, 'plan')))}>Каталоги НЕМАН и ВЕЗА: предпросмотр</Btn>}
       {workspace.rights.publish && <Btn tone="primary" disabled={busy || chosen.length === 0 || reviewBlocked} onClick={publish}>Опубликовать выбранное</Btn>}
     </div>
     <p className="text-xs text-slate-500 dark:text-slate-400">Черновики не меняют подбор и проекты. Проверяйте источники и состав пакета: новая модель публикуется вместе с её видом и изготовителем. Выпущенные документы сохраняют прежние снимки.</p>
     {reviewBlocked && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">Для выбранного семейства или компонента нужно подтверждение другого сотрудника с правом публикации.</p>}
     {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
     {result && <p role="status" className="text-sm text-slate-700 dark:text-slate-300">{result}</p>}
+    <details className="text-xs text-slate-700 dark:text-slate-300"><summary className="cursor-pointer">Перечень покрытия трёх документов · 212 разделов</summary>
+      <p className="py-2">Все исходные страницы сохранены как содержание. Текст извлечён, но не вычитан целиком; численные кривые не оцифрованы. Ошибки кодировки: обложки НЕМАН и раздел выбора автоматического выключателя клапанного обогрева. Для проверки доступен оригинал.</p>
+      {manualsCoverage.map(document => <div key={document.source.file} className="py-2"><h3 className="font-medium">{document.source.file} · {document.source.pages} страниц</h3><div className="max-h-48 overflow-auto">{document.pages.map(page => <div key={page.id} className="border-b border-slate-100 py-1 dark:border-slate-800">{page.physicalPage}. {page.title} · {page.text === 'encoding-review' ? 'требуется восстановить кодировку' : 'текст извлечён, требуется сверка'} · рисунки в оригинале · таблиц-кандидатов: {page.inventory.tableCandidates.length} · примечаний: {page.inventory.notes.length} · подписей иллюстраций: {page.inventory.illustrationCaptions.length}</div>)}</div></div>)}
+    </details>
     {plan && <section className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-      <h3 className="font-medium text-slate-800 dark:text-slate-100">Предпросмотр каталога ВЕЗА</h3>
-      <p className="text-xs text-slate-500 dark:text-slate-400">Независимые маркировки ОСА 300/301 и источники воздушных клапанов. Числовые таблицы и графики, требующие сверки, помечены в карточках. Исходные PDF загружаются в карточку отдельно.</p>
+      <h3 className="font-medium text-slate-800 dark:text-slate-100">Предпросмотр справочника НЕМАН и ВЕЗА</h3>
+      <p className="text-xs text-slate-500 dark:text-slate-400">212 разделов документации: приводы НЕМАН, вентиляторы ОСА 300/301 и комплектующие, воздушные клапаны ВЕЗА. После подтверждения исходные документы автоматически загружаются в общую БД. Извлечение текста не означает полной сверки числовых таблиц; проверьте перечень покрытия перед публикацией.</p>
       <ul className="max-h-52 overflow-auto text-sm">{plan.plan.map((r) => <li key={`${r.entity}:${r.id}`} className="flex flex-wrap gap-3 border-b border-slate-100 py-1 dark:border-slate-800"><span className="min-w-0 flex-1 break-all font-mono">{r.code}</span><span>{r.action === 'new' ? 'Новое' : r.action === 'update' ? 'Изменится' : 'Без изменений'}</span></li>)}</ul>
-      <div className="flex flex-wrap gap-2"><Btn tone="primary" disabled={busy || !plan.plan.some((r) => r.action !== 'same')} onClick={() => void run(async () => { await catalogService.importCatalog({ ...veza2026Pack, preview: plan.preview }, 'apply'); setPlan(null); setResult('Пакет сохранён в черновиках. Проверьте его и опубликуйте.'); })}>Сохранить черновики</Btn><Btn disabled={busy} onClick={() => setPlan(null)}>Закрыть</Btn></div>
+      <div className="flex flex-wrap gap-2"><Btn tone="primary" disabled={busy || !plan.plan.some((r) => r.action !== 'same')} onClick={() => void run(async () => { await saveManualPackage(plan.preview, setResult); setPlan(null); setResult('Пакет сохранён в черновиках. Проверьте его и опубликуйте.'); })}>Сохранить черновики</Btn><Btn disabled={busy} onClick={() => setPlan(null)}>Закрыть</Btn></div>
     </section>}
     {!workspace.drafts.length ? <Empty title="Нет неопубликованных изменений" text="Создайте модель, измените характеристики или загрузите проверенный пакет. Сотрудники продолжают работать с опубликованным каталогом." /> : <>
       <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" disabled={busy} checked={workspace.drafts.length > 0 && workspace.drafts.every((d) => selected.includes(keyOf(d)))} onChange={(e) => setSelected(e.target.checked ? workspace.drafts.map(keyOf) : [])} />Выбрать весь пакет</label>

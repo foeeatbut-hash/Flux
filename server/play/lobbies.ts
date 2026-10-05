@@ -24,7 +24,7 @@ export interface LobbyView {
   state: string;
   revision: number;
   slots: Array<{ userId: string; team: number; ready: boolean }>;
-  /** Мест всего — по описанию игры */
+  /** Выбранный предел игроков этой партии */
   seats: number;
 }
 
@@ -53,7 +53,7 @@ async function readLobby(tx: any, lobbyId: string): Promise<LobbyView> {
     state: lobby.state,
     revision: lobby.revision,
     slots,
-    seats: game?.variableSeats ? Math.max(game.variableSeats.min, slots.length) : game ? game.teams * game.teamSize : slots.length,
+    seats: Number(lobby.seatLimit) || (game?.variableSeats ? game.variableSeats.min : game ? game.teams * game.teamSize : slots.length),
   };
 }
 
@@ -64,20 +64,25 @@ async function readLobby(tx: any, lobbyId: string): Promise<LobbyView> {
  * это повтор, а не просьба завести второе. Второго и не будет: не даст
  * частичный индекс.
  */
-export async function openLobby(tx: any, partyId: string, actorId: string, gameId: string): Promise<LobbyView> {
+export async function openLobby(tx: any, partyId: string, actorId: string, gameId: string, requestedSeats?: number): Promise<LobbyView> {
   const party = await tx.playParty.findUnique({ where: { id: partyId } });
   if (!party || party.state !== 'ACTIVE') fail(PLAY_ERRORS.NOT_FOUND);
   if (party.leaderId !== actorId) fail(PLAY_ERRORS.FORBIDDEN, 'Готовить матч может только ведущий группы');
-  if (!gameById(gameId)) fail(PLAY_ERRORS.INVALID, 'Неизвестная игра');
+  const game = gameById(gameId);
+  if (!game) fail(PLAY_ERRORS.INVALID, 'Неизвестная игра');
+  const seatLimit = validateSeatLimit(game, requestedSeats ?? (game.variableSeats?.min ?? game.teams * game.teamSize));
 
   const open = await tx.playLobby.findFirst({ where: { partyId, state: { in: ALIVE } } });
-  if (open?.gameId === gameId) return readLobby(tx, open.id);
+  if (open?.gameId === gameId) {
+    if (requestedSeats !== undefined && Number(open.seatLimit) !== seatLimit) return setSeatLimit(tx, open.id, actorId, seatLimit, open.revision);
+    return readLobby(tx, open.id);
+  }
   if (open?.state === 'STARTED') fail(PLAY_ERRORS.SESSION_ACTIVE, 'Закончите текущую партию перед выбором другой игры');
   if (open) await tx.playLobby.update({ where: { id: open.id }, data: { state: 'CLOSED', revision: { increment: 1 } } });
 
   const id = randomUUID();
   try {
-    await tx.playLobby.create({ data: { id, partyId, gameId } });
+    await tx.playLobby.create({ data: { id, partyId, gameId, seatLimit } });
   } catch (e) {
     if (isDuplicate(e)) {
       const twin = await tx.playLobby.findFirst({ where: { partyId, state: { in: ALIVE } } });
@@ -88,11 +93,8 @@ export async function openLobby(tx: any, partyId: string, actorId: string, gameI
 
   // Места раздаются по составу группы: вошедший позже получит своё, когда
   // состав изменится (см. syncSlots)
-  const game = gameById(gameId)!;
-  const currentMembers = await tx.playPartyMember.findMany({ where: { partyId, leftAt: null }, orderBy: { joinedAt: 'asc' } });
-  currentMembers.sort((a: any, b: any) => Number(b.userId === party.leaderId) - Number(a.userId === party.leaderId));
-  const capacity = game.variableSeats?.max || (game.variableSeats ? Infinity : game.teams * game.teamSize);
-  for (let i = 0; i < currentMembers.length; i++) await tx.playPartyMember.update({ where: { id: currentMembers[i].id }, data: { role: currentMembers[i].userId === party.leaderId ? 'LEADER' : i < capacity ? 'MEMBER' : 'SPECTATOR' } });
+  const capacity = seatLimit;
+  await reconcilePartyRoles(tx, partyId, party.leaderId, capacity);
   const members = await tx.playPartyMember.findMany({
     where: { partyId, leftAt: null, role: { not: 'SPECTATOR' } }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
   });
@@ -122,6 +124,10 @@ export async function syncSlots(tx: any, lobbyId: string): Promise<LobbyView> {
   const lobby = await tx.playLobby.findUnique({ where: { id: lobbyId } });
   if (!lobby || !ALIVE.includes(lobby.state)) fail(PLAY_ERRORS.NOT_FOUND);
 
+  const party = await tx.playParty.findUnique({ where: { id: lobby.partyId } });
+  const game = gameById(lobby.gameId);
+  const capacity = Number(lobby.seatLimit) || (game?.variableSeats?.min ?? (game ? game.teams * game.teamSize : 2));
+  if (party) await reconcilePartyRoles(tx, lobby.partyId, party.leaderId, capacity);
   const members = await tx.playPartyMember.findMany({
     where: { partyId: lobby.partyId, leftAt: null, role: { not: 'SPECTATOR' } }, orderBy: { joinedAt: 'asc' }, select: { userId: true },
   });
@@ -133,9 +139,8 @@ export async function syncSlots(tx: any, lobbyId: string): Promise<LobbyView> {
   for (const s of slots) {
     if (!want.has(s.userId)) { await tx.playLobbySlot.delete({ where: { id: s.id } }); changed = true; }
   }
-  const game = gameById(lobby.gameId);
   const teams = game?.teams || 2;
-  let n = slots.length;
+  let n = slots.filter((slot: any) => want.has(slot.userId)).length;
   for (const m of members) {
     if (have.has(m.userId)) continue;
     await tx.playLobbySlot.create({
@@ -155,6 +160,46 @@ export async function syncSlots(tx: any, lobbyId: string): Promise<LobbyView> {
     }
   }
   return readLobby(tx, lobbyId);
+}
+
+/** Установить число мест до начала партии и пересчитать игроков и зрителей. */
+export async function setSeatLimit(tx: any, lobbyId: string, actorId: string, seats: number, expectedVersion: number): Promise<LobbyView> {
+  const lobby = await tx.playLobby.findUnique({ where: { id: lobbyId } });
+  if (!lobby || !ALIVE.includes(lobby.state)) fail(PLAY_ERRORS.NOT_FOUND);
+  if (lobby.state === 'STARTED') fail(PLAY_ERRORS.SESSION_ACTIVE);
+  const party = await tx.playParty.findUnique({ where: { id: lobby.partyId } });
+  if (party?.leaderId !== actorId) fail(PLAY_ERRORS.FORBIDDEN, 'Число мест меняет ведущий группы');
+  if (lobby.revision !== expectedVersion) fail(PLAY_ERRORS.VERSION_CONFLICT, undefined, await readLobby(tx, lobbyId));
+  const game = gameById(lobby.gameId);
+  if (!game) fail(PLAY_ERRORS.UNSUPPORTED);
+  const seatLimit = validateSeatLimit(game, seats);
+  if (Number(lobby.seatLimit) === seatLimit) return readLobby(tx, lobbyId);
+  await tx.playLobby.update({ where: { id: lobbyId }, data: { seatLimit } });
+  await reconcilePartyRoles(tx, lobby.partyId, party.leaderId, seatLimit);
+  await syncSlots(tx, lobbyId);
+  await tx.playLobbySlot.updateMany({ where: { lobbyId }, data: { ready: false } });
+  const revision = await bumpLobby(tx, lobbyId, { state: 'FORMING' });
+  await appendEvent(tx, 'lobby', lobbyId, revision, 'seatLimitChanged', { seats: seatLimit });
+  const members = await tx.playPartyMember.findMany({ where: { partyId: lobby.partyId, leftAt: null }, select: { userId: true } });
+  for (const m of members) await enqueue(tx, `lobby:${lobbyId}:${revision}:${m.userId}`, m.userId, 'lobby', { lobbyId, revision });
+  return readLobby(tx, lobbyId);
+}
+
+function validateSeatLimit(game: NonNullable<ReturnType<typeof gameById>>, seats: number): number {
+  if (!Number.isInteger(seats)) fail(PLAY_ERRORS.INVALID, 'Укажите целое число мест');
+  const min = game.variableSeats?.min ?? game.teams * game.teamSize;
+  const max = game.variableSeats?.max ?? min;
+  if (seats < min || seats > max) fail(PLAY_ERRORS.INVALID, `Для этой игры доступно ${min}–${max} мест`);
+  return seats;
+}
+
+async function reconcilePartyRoles(tx: any, partyId: string, leaderId: string, capacity: number): Promise<void> {
+  const all = await tx.playPartyMember.findMany({ where: { partyId, leftAt: null }, orderBy: { joinedAt: 'asc' } });
+  all.sort((a: any, b: any) => Number(b.userId === leaderId) - Number(a.userId === leaderId));
+  for (let i = 0; i < all.length; i++) {
+    const role = all[i].userId === leaderId ? 'LEADER' : i < capacity ? 'MEMBER' : 'SPECTATOR';
+    if (all[i].role !== role) await tx.playPartyMember.update({ where: { id: all[i].id }, data: { role } });
+  }
 }
 
 /**

@@ -172,7 +172,7 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
           title: (msg.subject || 'Письмо без темы').slice(0, 120),
           // Блокнот хранит Markdown (редактор Flux Office): письмо переводится
           // сразу, чтобы заметка открывалась без перевода и искалась по тексту
-          content: htmlToMarkdown(head + body),
+          content: htmlToMarkdown(head + body, { imagePolicy: 'inline-only' }),
           groupName: str(req.body?.groupName, 80) || 'Из почты',
           ...(str(req.body?.equipmentId, 60) ? { equipmentId: str(req.body?.equipmentId, 60) } : {}),
         },

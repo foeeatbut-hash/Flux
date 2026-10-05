@@ -27,6 +27,7 @@ export function catalogDocumentProblem(entity: CatalogEntity, d: any): string {
     return Object.entries(v).every(([k, x]) => !['__proto__', 'prototype', 'constructor'].includes(k) && walk(x, depth + 1));
   };
   if (!walk(d, 0) || JSON.stringify(d).length > 2_000_000) return 'Слишком большая или некорректная запись';
+  if (d.sections !== undefined && (!Array.isArray(d.sections) || d.sections.some((s: any) => !s?.id || typeof s.title !== 'string' || typeof s.text !== 'string' || !s.source || typeof s.source.file !== 'string' || !['description','dimensions','selection','marking','installation','wiring','general'].includes(s.kind)))) return 'Повреждено содержание справочника';
   if (!/^[\w\-:.]{1,160}$/.test(String(d.id || ''))) return 'Некорректный идентификатор записи';
   if (entity === 'class' && (!d.title?.ru || !d.itemName?.ru || !Array.isArray(d.facts))) return 'У вида оборудования нужны название, имя позиции и список характеристик';
   if (entity === 'component' && (!d.title?.ru || (d.specs && (!Array.isArray(d.specs) || d.specs.some((s: any) => !s.label?.ru || typeof s.value !== 'string'))))) return 'Характеристики компонента повреждены';

@@ -35,7 +35,7 @@ const COLORS = [
  */
 /** Текст заметки для редактора: прежний HTML переводится в Markdown при открытии */
 const markdownOf = (content: string | null | undefined): string =>
-  looksLikeHtml(content || '') ? htmlToMarkdown(content || '') : String(content || '');
+  looksLikeHtml(content || '') ? htmlToMarkdown(content || '', { imagePolicy: 'inline-only' }) : String(content || '');
 
 export const presetOf = (color: string) =>
   COLORS.find(c => color.includes(c.class.split(' ')[0])) || COLORS[0];
@@ -694,15 +694,21 @@ export default function NotesManagement() {
             };
 
             // Группировка: заметки без группы сверху, затем группы по алфавиту
-            const ungrouped = filteredNotes.filter(n => !n.groupName);
+            // Закрепление — список поверх обычной группировки: иначе
+            // заметка с группой оставалась бы ниже безгрупповых или внутри
+            // свёрнутой группы, несмотря на обещание «вверху списка».
+            const pinnedNotes = filteredNotes.filter(n => pinnedIds.includes(n.id));
+            const unpinnedNotes = filteredNotes.filter(n => !pinnedIds.includes(n.id));
+            const ungrouped = unpinnedNotes.filter(n => !n.groupName);
             const grouped: Record<string, UserNote[]> = {};
-            for (const n of filteredNotes) {
+            for (const n of unpinnedNotes) {
               if (n.groupName) (grouped[n.groupName] = grouped[n.groupName] || []).push(n);
             }
             const groupNames = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'ru'));
 
             return (
               <>
+                {pinnedNotes.map(renderNote)}
                 {ungrouped.map(renderNote)}
                 {groupNames.map(g => {
                   // при поиске группы всегда раскрыты, чтобы совпадения были видны

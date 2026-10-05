@@ -24,7 +24,7 @@ function familySearchText(catalog: Catalog, f: Family): string {
   const manufacturer = catalog.manufacturers.find((m) => m.id === f.manufacturerId);
   const equipmentClass = catalog.classes.find((c) => c.id === f.classId);
   return [f.code, f.article, familyTitle(f), text(f.description), ...(f.aliases || []), manufacturer?.name, manufacturer?.shortName,
-    text(equipmentClass?.title), text(f.typeLabel)].filter(Boolean).join(' ');
+    text(equipmentClass?.title), text(f.typeLabel), ...(f.sections || []).map(section => `${section.title} ${section.text}`)].filter(Boolean).join(' ');
 }
 
 function selectedFacts(f: Family, values: Record<string, string | number>): Facts {
@@ -184,8 +184,7 @@ function answerComponent(component: Component): string {
   if (!(component.specs?.length) && !Object.values(component.facts || {}).some((v) => v !== undefined)) {
     parts.push('В структурированных данных компонента характеристики не указаны.');
   }
-  if (!component.catalog?.file && component.sourcePdfPage) parts.push(`В записи указан PDF-номер страницы ${component.sourcePdfPage}, но имя файла не указано.`);
-  parts.push(citeRefs(componentRefs(component)));
+
   return parts.join('\n');
 }
 
@@ -278,7 +277,7 @@ function answerFamily(f: Family, question: string): string {
     const params = requestedParams(f, question).filter((p) => p.values?.length).slice(0, 40).map((p) => `${text(p.label)}: ${p.values!.slice(0, 80).map((v) => `${v.code} — ${text(v.label)}`).join('; ')}.`);
     const table = tableAnswers(f, values, question);
     parts.push(...specLines, ...factLines, ...params, ...table.lines);
-    if (table.sources.length) parts.push(citeRefs(table.sources));
+
     if (!specLines.length && !factLines.length && !params.length) parts.push('В структурированных данных этих характеристик нет.');
   }
   if (!codeHits.length && !askedForSpecs && !unknownCodeRequested) {
@@ -286,8 +285,8 @@ function answerFamily(f: Family, question: string): string {
     parts.push(...params);
     if (!params.length) parts.push('Для точной расшифровки укажите код сегмента маркировки или полное обозначение.');
   }
-  if (f.status !== 'full' && f.todo?.length) parts.push(`В записи отмечено к проверке: ${f.todo.slice(0, 6).map((item) => item.slice(0, 300)).join('; ')}.`);
-  parts.push(citeRefs(refsOf(f, parsed.complete)));
+
+
   return parts.join('\n');
 }
 

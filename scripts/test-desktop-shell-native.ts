@@ -44,6 +44,10 @@ async function main() {
   check('Размер native-изображения преобразуется один раз', first.items[0].icon.width === 32 && first.items[0].monitorId === 2);
   check('Подписи значков используют размер клетки собственного DPI монитора', first.items[0].cell.width === raw.spacing.x / 1.5 && first.items[0].cell.height === raw.spacing.y / 1.5);
   check('Renderer получает непрозрачный ID вместо PIDL', first.items[0].id !== key && !JSON.stringify(first).includes(key));
+  const shortcutService = new DesktopShellService({ ...deps,
+    run: async () => ({ ...raw, items: [{ ...raw.items[0], kind: 'shortcut', isFluxAppShortcut: true }] }) });
+  const legacyShortcut = await shortcutService.snapshot();
+  check('Старый Flux-ярлык помечается для скрытия, не раскрывая путь .lnk', legacyShortcut.items[0].isFluxAppShortcut === true && !('fileSystemPath' in legacyShortcut.items[0]));
   check('Путь и команда не могут стать действием открытия', !(await service.open('C:\\Windows\\System32\\cmd.exe')).ok && calls === 1);
   check('Известный значок открывается только по сохранённому native ID', (await service.open(first.items[0].id)).ok && opened[0] === key);
   now = 6000;
@@ -91,7 +95,8 @@ async function main() {
   } finally { files?.close(); await fs.rm(fixture, { recursive: true, force: true }); }
   for (const invalid of [{ ...raw, items: [...raw.items, ...raw.items] }, { ...raw, physicalBounds: { ...raw.physicalBounds, width: -1 } },
     { ...raw, physicalBounds: { x: 0, y: 0, width: 200 } }, { ...raw, skipped: -1 },
-    { ...raw, items: [{ ...raw.items[0], icon: { ...icon, base64: 'c2VjcmV0' } }] }]) {
+    { ...raw, items: [{ ...raw.items[0], icon: { ...icon, base64: 'c2VjcmV0' } }] },
+    { ...raw, items: [{ ...raw.items[0], isFluxAppShortcut: 'yes' }] }]) {
     assert.throws(() => validateNativeDesktop(invalid)); count++;
   }
   const browserService = new DesktopShellService({ ...deps, platform: 'linux', run: () => { throw new Error('Не запускать'); } });

@@ -53,6 +53,8 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
           return { x: area.x - r.x, y: area.y - r.y, width: area.w, height: area.h };
         }));
       }
+      // Тень у общего HWND иначе может закрасить Windows taskbar под ним.
+      win.setHasShadow(false);
     } finally { adjusting = false; }
   };
   const change = (value: boolean) => {
@@ -72,6 +74,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     } else {
       enabled = false;
       if (process.platform === 'win32' || process.platform === 'linux') win.setShape([]);
+      win.setHasShadow(true);
       win.setMovable(previous?.movable ?? true);
       win.setResizable(previous?.resizable ?? true);
       if (previous) win.setMinimumSize(previous.minimum[0], previous.minimum[1]);

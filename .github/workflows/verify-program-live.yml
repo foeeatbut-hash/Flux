@@ -1,0 +1,45 @@
+name: Verify remaining live API fixture
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  remaining-api-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: flux-ci-fixture-only
+          MARIADB_DATABASE: flux_remaining_fixture
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+          --health-start-period=20s
+    env:
+      FLUX_TEST_FIXTURE: '1'
+      FLUX_REMAINING_LIVE_DATABASE_URL: mysql://root:flux-ci-fixture-only@127.0.0.1:3306/flux_remaining_fixture
+      FLUX_REMAINING_LIVE_METADATA: /tmp/flux-remaining-live-ci/metadata.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma clients
+        run: |
+          npx prisma generate --schema=prisma/schema.prisma
+          npx prisma generate --schema=prisma/schema.postgresql.prisma
+          npx prisma generate --schema=prisma/schema.mariadb.prisma
+      - name: Run registered API suites on the disposable MariaDB fixture
+        run: node --import tsx scripts/run-remaining-api-fixture.ts

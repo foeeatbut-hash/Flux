@@ -33,11 +33,7 @@ export default function CatalogAnswer() {
       {result && <div className="space-y-2 text-sm" aria-live="polite">
         <p className="whitespace-pre-line text-slate-800 dark:text-slate-300">{result.answer}</p>
         {result.matches.length > 0 && <p className="text-xs text-slate-500">Найдено: {result.matches.map((m) => m.title).join(', ')}</p>}
-        {result.sources.length > 0 && <ul className="text-xs text-slate-500">
-          {result.sources.map((source, i) => <li key={`${source.file}:${source.edition || ''}:${source.pages || ''}:${i}`}>
-            Источник: {source.file}{source.edition ? ` · ${source.edition}` : ''}{source.pages ? ` · стр. ${source.pages}` : ''}
-          </li>)}
-        </ul>}
+
       </div>}
     </section>
   );

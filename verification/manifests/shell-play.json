@@ -310,6 +310,18 @@
       "timeoutMs": 180000
     },
     {
+      "id": "shell-play-remaining-components",
+      "path": "scripts/test-remaining-shell-play-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "exclusive:chromium",
+        "exclusive:vite-port"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 180000
+    },
+    {
       "id": "shell-play-two-clients-api-db",
       "path": "scripts/test-play-builtin-live.ts",
       "layer": "api-db",
@@ -342,42 +354,6 @@
       "external": true
     },
     {
-      "id": "shell-play-two-server-api-db",
-      "path": "scripts/test-play-durak-live.ts",
-      "layer": "api-db",
-      "platform": "any",
-      "resources": [
-        "exclusive:isolated-postgresql",
-        "exclusive:local-play-api-ports",
-        "api:fixture"
-      ],
-      "prerequisites": [
-        {
-          "kind": "env",
-          "name": "FLUX_TEST_FIXTURE",
-          "value": "1"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_PG_URL"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_API"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_USER"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_PASS"
-        }
-      ],
-      "external": true,
-      "timeoutMs": 600000
-    },
-    {
       "id": "shell-play-billiards-api-db",
       "path": "scripts/test-play-billiards-network-live.ts",
       "layer": "api-db",
@@ -388,6 +364,38 @@
       ],
       "prerequisites": [],
       "timeoutMs": 300000
+    },
+    {
+      "id": "shell-play-mariadb-two-api-live",
+      "path": "scripts/test-play-mariadb-two-api-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "exclusive:remaining-live-mariadb",
+        "exclusive:local-play-api-pair",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_REMAINING_LIVE_METADATA"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API2"
+        }
+      ],
+      "external": true,
+      "timeoutMs": 900000
     },
     {
       "id": "shell-play-stealth-browser-live",
@@ -1112,6 +1120,13 @@
           "claims": [
             "Группировка, права, недавние, избранное, фокус и поиск с раскладкой"
           ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "Start Menu component searches a Russian section, reports a miss, navigates and closes after selection"
+          ]
         }
       ],
       "manual": [
@@ -1138,7 +1153,15 @@
       "expected": [
         "Открыт выделенный доступный раздел"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "Selecting a Start Menu tile navigates to its route and closes the dialog"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1163,7 +1186,15 @@
       "expected": [
         "Значок появляется или убирается на столе; права учитываются"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "Start Menu context commands pin to desktop and unpin from the desktop fixture store"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1188,7 +1219,15 @@
       "expected": [
         "Кнопка taskbar меняется для выбранного маршрута"
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "Start Menu context command pins the selected route to taskbar in the fixture store"
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2141,6 +2180,13 @@
           "claims": [
             "Действующий список встроенных игр строго включает cards и billiards"
           ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "LibraryTab changes between Durak and billiards, then opens preparation for the selected game"
+          ]
         }
       ],
       "manual": [
@@ -2180,6 +2226,13 @@
           "claims": [
             "Два клиента видят приглашение, участника и общий матч в отдельной временной SQLite/HTTP фикстуре"
           ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "InvitePicker dispatches search selection; PrepareTab dispatches accept/decline and displays spectator/ready states"
+          ]
         }
       ],
       "manual": [
@@ -2213,6 +2266,13 @@
           "layer": "api-db",
           "claims": [
             "Приглашение отображается второму клиенту и acceptance создаёт одного участника"
+          ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "PrepareTab accept and decline controls dispatch their invitation IDs"
           ]
         }
       ],
@@ -2250,6 +2310,13 @@
           "claims": [
             "Invitation API принимает выделенного второго участника"
           ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "InvitePicker searches by employee number/name, reports an empty result, dispatches the chosen user, and closes"
+          ]
         }
       ],
       "manual": [
@@ -2283,6 +2350,13 @@
           "layer": "api-db",
           "claims": [
             "Уход/повторное вступление сохраняют историю membership и синхронизируют игровые места"
+          ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "PartyBar dispatches kick/leave; a successful leader kick updates the visible fixture member list"
           ]
         }
       ],
@@ -2383,10 +2457,10 @@
           ]
         },
         {
-          "suite": "shell-play-two-server-api-db",
+          "suite": "shell-play-mariadb-two-api-live",
           "layer": "api-db",
           "claims": [
-            "Настоящая PostgreSQL/API выдаёт игрокам только их карты, а постороннему отказывает"
+            "MariaDB/API возвращает каждому игроку только его карты и скрывает матч от постороннего; отдельная spectator role этим live-кейсом не покрыта"
           ]
         }
       ],
@@ -2422,6 +2496,13 @@
           "layer": "unit",
           "claims": [
             "ready/unready/start и роль ведущего по готовности группы"
+          ]
+        },
+        {
+          "suite": "shell-play-remaining-components",
+          "layer": "component",
+          "claims": [
+            "PrepareTab ready action dispatches and pending/error state disables repeated actions"
           ]
         },
         {
@@ -2518,10 +2599,10 @@
           ]
         },
         {
-          "suite": "shell-play-two-server-api-db",
+          "suite": "shell-play-mariadb-two-api-live",
           "layer": "api-db",
           "claims": [
-            "Дурак проигрывает/выигрывает на общем API, replay и stale revision безопасны, группа видит результат с другой инстанции"
+            "Четыре игрока играют до результата на двух MariaDB API; приватные руки, повтор хода, stale revision и outsider denial проверены"
           ]
         }
       ],
@@ -2626,13 +2707,6 @@
           "claims": [
             "Take/pass/round draw/resign и полное сохранение всех карт"
           ]
-        },
-        {
-          "suite": "shell-play-two-server-api-db",
-          "layer": "api-db",
-          "claims": [
-            "Сдача через API обновляет доступный результат/состав"
-          ]
         }
       ],
       "manual": [
@@ -2676,6 +2750,13 @@
           "layer": "api-db",
           "claims": [
             "Два настоящих клиента видят общий рассчитанный сервером удар, повтор не создаёт второй удар, stale revision блокируется"
+          ]
+        },
+        {
+          "suite": "shell-play-mariadb-two-api-live",
+          "layer": "api-db",
+          "claims": [
+            "На MariaDB API проверены права хода, серверный удар, idempotency, stale revision, reconnect и сдача"
           ]
         }
       ],
@@ -2817,6 +2898,13 @@
           "layer": "api-db",
           "claims": [
             "Завершённая игра и итог читаются группе, посторонний не читает историю"
+          ]
+        },
+        {
+          "suite": "shell-play-mariadb-two-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Результат и история обеих игр доступны участнику через MariaDB; посторонний не видит матч или историю"
           ]
         }
       ],

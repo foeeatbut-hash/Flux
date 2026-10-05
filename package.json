@@ -1,12 +1,13 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.20.6",
+  "version": "1.20.7",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
   "scripts": {
+    "postinstall": "node scripts/assemble-catalog-manuals.cjs",
     "dev": "tsx server.ts",
-    "build": "npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.postgresql.prisma && npx prisma generate --schema=prisma/schema.mariadb.prisma && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs",
+    "build": "node scripts/assemble-catalog-manuals.cjs && npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.postgresql.prisma && npx prisma generate --schema=prisma/schema.mariadb.prisma && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist dist-electron release server.js",

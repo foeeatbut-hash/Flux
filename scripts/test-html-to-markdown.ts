@@ -56,6 +56,20 @@ check('javascript: не становится ссылкой', !md('<p><a href="j
 check('звёздочка в тексте экранирована', md('<p>a*b</p>') === 'a\\*b');
 check('угловая скобка экранирована', md('<p>&lt;b&gt;</p>') === '\\<b>', md('<p>&lt;b&gt;</p>'));
 check('картинка', md('<p><img src="data:image/png;base64,AAA" alt="схема"></p>') === '![схема](data:image/png;base64,AAA)');
+console.log('Изображения в заметках без внешней загрузки');
+{
+  const note = (html: string) => htmlToMarkdown(html, { imagePolicy: 'inline-only' }).trim();
+  check('безопасная небольшая inline PNG остаётся картинкой', note('<p>до<img src="data:image/png;base64,iVBORw==" alt="план">после</p>') === 'до![план](data:image/png;base64,iVBORw==)после');
+  check('JPEG GIF и WebP разрешены', ['jpeg', 'gif', 'webp'].every(type => note(`<img src="data:image/${type};base64,AAAA" alt="a">`).includes(`data:image/${type};base64,AAAA`)));
+  for (const src of ['https://example.invalid/a.png', 'x', '../x.png', 'cid:img1', 'file:///tmp/a.png', 'javascript:alert(1)', 'data:image/svg+xml;base64,PHN2Zz4=']) {
+    const out = note(`<p>до<img src="${src}" alt="опасная ссылка">после</p>`);
+    check(`внешний/неподдерживаемый ${src} заменён текстом`, out === 'до\\[Изображение: опасная ссылка\\]после', out);
+  }
+  check('пустой alt тоже оставляет пояснение', note('<img src="x">') === '\\[Изображение\\]');
+  const overLimit = 'A'.repeat(2_796_204); // decoded size exceeds the Markdown bridge's 2 MiB cap
+  check('слишком большая inline-картинка не попадает в Markdown', note(`<img src="data:image/png;base64,${overLimit}" alt="большая">`) === '\\[Изображение: большая\\]');
+  check('обычный converter сохраняет общий image contract', md('<img src="https://example.invalid/a.png" alt="a">') === '![a](https://example.invalid/a.png)');
+}
 check('сущности', decodeEntities('&laquo;а&raquo;&nbsp;&#8212;&#x41;') === '«а» —A');
 check('script и style вырезаны', !md('<p>а</p><script>alert(1)</script><style>p{}</style>').includes('alert'));
 
@@ -75,7 +89,7 @@ check('и без прежнего HTML', noteText('<p>раз</p><p>два</p>') 
 console.log('Кто пишет заметки');
 {
   const mail = readFileSync('server/routes/mailLink.ts', 'utf8');
-  check('письмо кладётся в Блокнот Markdown', /content:\s*htmlToMarkdown\(/.test(mail));
+  check('письмо кладётся в Блокнот с безопасной политикой картинок', /content:\s*htmlToMarkdown\(head\s*\+\s*body,\s*\{\s*imagePolicy:\s*'inline-only'\s*\}\)/.test(mail));
   check('прежнего редактора заметок нет', !readFileSync('src/screens/NotesManagement.tsx', 'utf8').includes('RichTextEditor')
     && !readFileSync('src/screens/StickerWindow.tsx', 'utf8').includes('RichTextEditor'));
 }

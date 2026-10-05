@@ -27,6 +27,13 @@ jobs:
         run: npm run check:coverage -- --report "${{ runner.temp }}/flux-source-inventory.json"
       - name: Сам механизм проверок и новые регрессии
         run: npm run check:verification -- --report "${{ runner.temp }}/flux-infrastructure.json"
+      - name: Регрессии оставшихся функций и запрет ИИ в Flux Office
+        run: |
+          set -euo pipefail
+          node scripts/test-office-no-ai.cjs
+          for check in test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
+            node --import tsx "scripts/$check.ts"
+          done
       - name: Компонентные сценарии интерфейса
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -66,7 +73,10 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-play-match-frame-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-play-match-frame-ui test-import-file-chooser-ui; do
+            node --import tsx "scripts/$check.ts"
+          done
+          for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-play-ui; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Артефакты с явно указанной областью проверки

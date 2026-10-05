@@ -69,11 +69,11 @@ export default function PlayScreen() {
     ? { id: 'waitOthers' as const, label: 'Наблюдаете', hint: 'Стол откроется, когда игроки начнут партию', disabled: true, tone: 'quiet' as const }
     : mainAction({ link: st.link, maintenance: !!ctx.platform.maintenance, install: 'ready', builtin: true, manager: true,
       session: st.session, lobby: st.lobby, party: st.party, meId, iAmReady: !!mine?.ready,
-      allReady: slots.length >= (game?.variableSeats?.min || 2) && slots.every((slot: any) => slot.ready), stale });
+      allReady: slots.length === (st.lobby?.seats || game?.variableSeats?.min || 2) && slots.every((slot: any) => slot.ready), stale });
   const busyOf = (id: string) => pending.of(id).phase === 'sending';
   const failureOf = (id: string) => pending.of(id).phase === 'failed' ? pending.of(id).message : '';
-  const mainBusy = ['lobby.open', 'lobby.ready', 'session.start', 'session.rejoin'].some(busyOf);
-  const mainFailure = ['lobby.open', 'lobby.ready', 'session.start', 'session.rejoin'].map(failureOf).find(Boolean) || '';
+  const mainBusy = ['lobby.open', 'lobby.ready', 'lobby.seats', 'session.start', 'session.rejoin'].some(busyOf);
+  const mainFailure = ['lobby.open', 'lobby.ready', 'lobby.seats', 'session.start', 'session.rejoin'].map(failureOf).find(Boolean) || '';
   const runMain = async () => {
     const lobbyId = String(st.lobby?.id || ''), revision = Number(st.lobby?.revision || 0);
     if (action.id === 'reconnect') { await st.refresh(); return; }
@@ -109,7 +109,8 @@ export default function PlayScreen() {
             }} /> : <PrepareTab invites={st.invites} names={names} lobby={st.lobby} party={st.party} meId={meId} presence={presence}
               action={action} actionBusy={mainBusy} actionFailure={mainFailure} result={st.result} onAction={() => void runMain()} onSeeLibrary={() => chooseTab('library')}
               onAccept={async id => { await pending.run(`invite.accept:${id}`, key => api.acceptInvite(id, key)); await st.refresh(); }}
-              onDecline={async id => { await pending.run(`invite.decline:${id}`, key => api.declineInvite(id, key)); await st.refresh(); }} />}
+              onDecline={async id => { await pending.run(`invite.decline:${id}`, key => api.declineInvite(id, key)); await st.refresh(); }}
+              onSeatLimit={async seats => { const lobbyId = String(st.lobby?.id || ''), revision = Number(st.lobby?.revision || 0); await pending.run('lobby.seats', key => api.setLobbySeats(lobbyId, seats, revision, key), `${lobbyId}:${revision}:${seats}`); await st.refresh(); }} />}
     </div>
     {mainFailure && tab === 'library' && <Failure text={mainFailure} />}
     {auxiliaryFailure && <Failure text={auxiliaryFailure} />}

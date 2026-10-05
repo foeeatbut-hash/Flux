@@ -4,7 +4,7 @@ import {
   Archive, Trash2, MailOpen, Star, CheckSquare, Square, KeyRound,
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { useMailStore } from '../store/mailStore';
+import { selectOpenMailThread, useMailStore } from '../store/mailStore';
 import { useStore } from '../store/store';
 import { useRealTimeSync } from '../components/SocketProvider';
 import MailSidebar from '../components/mail/MailSidebar';
@@ -44,7 +44,7 @@ const HOTKEYS: Array<{ keys: string; what: string }> = [
 export default function Mail() {
   const user = useStore((s) => s.user);
   const {
-    accounts, accountId, folders, folderId, threads, openKey, picked,
+    accounts, accountId, folders, folderId, threads, openKey, activeThread, picked,
     query, filter, loading, syncing, error, keyIn,
     loadAccounts, chooseAccount, loadFolders, chooseFolder, loadThreads, sync,
     setQuery, setFilter, open, togglePick, pickAll, clearPicked,
@@ -132,7 +132,7 @@ export default function Mail() {
     return () => clearTimeout(t);
   }, [draft, query, setQuery]);
 
-  const openThread = useMemo(() => threads.find((t) => t.threadKey === openKey) || null, [threads, openKey]);
+  const openThread = useMemo(() => selectOpenMailThread(threads, openKey, activeThread), [threads, openKey, activeThread]);
   const pickedIds = useMemo(
     () => threads.filter((t) => picked.includes(t.threadKey)).flatMap((t) => t.ids),
     [threads, picked],

@@ -1,0 +1,461 @@
+{
+  "format": "FLUXCATALOGPDF1",
+  "documents": [
+    {
+      "name": "hemah",
+      "file": "hemah.pdf",
+      "bytes": 20828632,
+      "sha256": "beadaa7f7fa704846a46344a1eed30f3e03cdee72ba38768906711a62f44cfa2",
+      "parts": [
+        {
+          "file": "hemah-01.pdfchunk",
+          "bytes": 750000,
+          "sha256": "374b941855c902b0b378599dc5e0ebc2b6ebdb704574d2f6bc31256a533cf1b3",
+          "gitSha": "fc7f4d926d60c18a6160872ce338049a69b424e0"
+        },
+        {
+          "file": "hemah-02.pdfchunk",
+          "bytes": 750000,
+          "sha256": "0dfbe6204841e200a66422e4a4262098900f7c6998e5e4ceb9cf0916207f44e4",
+          "gitSha": "cbb54f7a4ebe216a8521e09db1bac87eb32fb9f1"
+        },
+        {
+          "file": "hemah-03.pdfchunk",
+          "bytes": 750000,
+          "sha256": "2f28933eb1a952a6b39d4dcfb001c41f11979f0d4228a50a4fb1c42124be9689",
+          "gitSha": "208a76e99d01c32c87bb385558b2376836b3df51"
+        },
+        {
+          "file": "hemah-04.pdfchunk",
+          "bytes": 750000,
+          "sha256": "f21571d1e1caa5f5a2ffa9ffb9ec16da28ef63d17f8a4c9712e1db50b47cc431",
+          "gitSha": "f2a5bc1a7609b55a790358e07470c08df3212482"
+        },
+        {
+          "file": "hemah-05.pdfchunk",
+          "bytes": 750000,
+          "sha256": "066b8b420e0d9e264a10f4e9e9bc0043a9b1c55a17a4800c47d9116135d7c8d0",
+          "gitSha": "70213c064d015e0a56d5c94c1ae8e934c5322079"
+        },
+        {
+          "file": "hemah-06.pdfchunk",
+          "bytes": 750000,
+          "sha256": "2074e4f04d440848eb680fb0cd25e4c3b4f5b328ce9195f290ebc9a4efd5f5ff",
+          "gitSha": "80ca162067f7549ec6d4fd6649f9b35cebe8c151"
+        },
+        {
+          "file": "hemah-07.pdfchunk",
+          "bytes": 750000,
+          "sha256": "cb7e3c59506da4d34eb2420b0ba4f79926ee36c4d1ba98cca77d888562c09a21",
+          "gitSha": "ee5aeb199b67b47f76b2781d01f6c117a9f64033"
+        },
+        {
+          "file": "hemah-08.pdfchunk",
+          "bytes": 750000,
+          "sha256": "e854b48e381bbb7978db85e921b01d6c49cb1288bc5591df9d02867d896f683e",
+          "gitSha": "02e47ef0368e562c93c6ed758417a0ad74fc446f"
+        },
+        {
+          "file": "hemah-09.pdfchunk",
+          "bytes": 750000,
+          "sha256": "be6f533c2127a4426feab61fe15bb1bea0262464c081d98727326cc7bb2eb7fd",
+          "gitSha": "5e0a0e5d405a4eeb482ca9d1f0cb70601d124ee0"
+        },
+        {
+          "file": "hemah-10.pdfchunk",
+          "bytes": 750000,
+          "sha256": "4cd14da447ee660c707cb25887282ffe995971b345db8b44cc2d96d4f10d0d4d",
+          "gitSha": "1bd6c26d16ad38a12b98c1786afb37bd06c19644"
+        },
+        {
+          "file": "hemah-11.pdfchunk",
+          "bytes": 750000,
+          "sha256": "1cfc993ad8f7c28573d98ae6d932533a32e3035d6ce5620ab18d3897cf45c334",
+          "gitSha": "c4140484d9ff45dc3f9d7975a853ec4c3ba03b57"
+        },
+        {
+          "file": "hemah-12.pdfchunk",
+          "bytes": 750000,
+          "sha256": "49822002e7e45ba58f93762e674579dbd9a36c0e3952a60e5554f8a3668dacb1",
+          "gitSha": "ee4688917db6f57eefc66ee2f6574aa01e12f0bf"
+        },
+        {
+          "file": "hemah-13.pdfchunk",
+          "bytes": 750000,
+          "sha256": "f4f17344b119c7603808442cc75e4585af428b93b62bf0f24faf99c123d5e0d7",
+          "gitSha": "39aa450a293dae1dcce9b4a6fafd727a0e3bf5ce"
+        },
+        {
+          "file": "hemah-14.pdfchunk",
+          "bytes": 750000,
+          "sha256": "f81e10a960d99b7e34c0a298a67c177170eb0f8a6bc33f895a9281cfa268eab2",
+          "gitSha": "70bf8aa743f96fd45e871eb2b5fb9197564a67db"
+        },
+        {
+          "file": "hemah-15.pdfchunk",
+          "bytes": 750000,
+          "sha256": "8ade79320bb0f560ad62a6390d8ceea474f9cab48d4717dd00b841b3bcfa054f",
+          "gitSha": "7fe8b3ccbb15076e5a91b2acef9e9c765788bdd3"
+        },
+        {
+          "file": "hemah-16.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a252c27cc0014e2c556037cedd016c6d74f83e384ae0c5d443c4b6686d7e48b4",
+          "gitSha": "9128deb37ffbadb2e7285d6fd838edcd5751ed14"
+        },
+        {
+          "file": "hemah-17.pdfchunk",
+          "bytes": 750000,
+          "sha256": "9f02f96a7eaac42518a5b3b8ec8216ad1829a8476f70c410923fb29b778d2966",
+          "gitSha": "321b3a2dae302e4a862db3ad9a78eed31b27a323"
+        },
+        {
+          "file": "hemah-18.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a3b11e227cfd931dde587213953ba3f65dd092a4475b66c473040d8d0caa1a28",
+          "gitSha": "aef941e4c2df1aee3056ff11c1efbf8abd82d361"
+        },
+        {
+          "file": "hemah-19.pdfchunk",
+          "bytes": 750000,
+          "sha256": "060dfe846bed0ef666dad5d947961e21b214379f6e65c623ad356ceb07820369",
+          "gitSha": "e9c63a854d9654d1c75488ca2434aaa9d57058d1"
+        },
+        {
+          "file": "hemah-20.pdfchunk",
+          "bytes": 750000,
+          "sha256": "77f1dcd1c5adcc14862e6e582c1d4bacc0d245ccb9d30cc9d52b32fc612d619d",
+          "gitSha": "eb1c2cfa53e22e8f5d3f86cfe310e87175ed7eff"
+        },
+        {
+          "file": "hemah-21.pdfchunk",
+          "bytes": 750000,
+          "sha256": "6c302cef2efca6e5b110846b135a677cacd5bc8ca2d24569e004a0ddddb7f564",
+          "gitSha": "3d54ef5684c36b270f82c2c433eea60be5b317a5"
+        },
+        {
+          "file": "hemah-22.pdfchunk",
+          "bytes": 750000,
+          "sha256": "ad5ff1d7df4e488e0dfbb47811a892054adf17ba47758116317197b42bd8d1a3",
+          "gitSha": "714c2ca381203c7df23c388a7a96f91ecc868887"
+        },
+        {
+          "file": "hemah-23.pdfchunk",
+          "bytes": 750000,
+          "sha256": "352b73d432183274c6081e2225b570d4acf03c86a52fc3064afb1cc894e16cc7",
+          "gitSha": "aa96d31e76045e7f6f1b974250e5ae17897ce64c"
+        },
+        {
+          "file": "hemah-24.pdfchunk",
+          "bytes": 750000,
+          "sha256": "6641bbb253822b50dd6891d257ce14b9f0414f3471021467c2c42124ea2e6428",
+          "gitSha": "cdb478bdd45b5650df8f60bbf014a5e4bd88632e"
+        },
+        {
+          "file": "hemah-25.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a7c39dc0cb68d5b604ec43d1e897e0161ce7f0245c1257e8c4e08da59bb865d5",
+          "gitSha": "db2dd2794042094475cc83198d52c80030303b19"
+        },
+        {
+          "file": "hemah-26.pdfchunk",
+          "bytes": 750000,
+          "sha256": "b5cb9ae4e5335f5dd23069a28458255c08a66dbb4c65d7a54a95242b46ee1c18",
+          "gitSha": "4359595c694f8df54e8bcea016e8208c8865381f"
+        },
+        {
+          "file": "hemah-27.pdfchunk",
+          "bytes": 750000,
+          "sha256": "c051e707dda684f171aaac79a0ea82948d817baea2f621340128839385fa7bd2",
+          "gitSha": "17d5e6673aaefd6cf51bb9c144237b37d66105a7"
+        },
+        {
+          "file": "hemah-28.pdfchunk",
+          "bytes": 578632,
+          "sha256": "25ec7c0eb7dc23005b2ee7310461aad134b314052416b731712205599199ca60",
+          "gitSha": "32d99076885b55e1ac4f3bd7425633b6b2414c4d"
+        }
+      ]
+    },
+    {
+      "name": "osa",
+      "file": "osa.pdf",
+      "bytes": 14508207,
+      "sha256": "d3c69fc59946e47dfdf3b19ddcc4d99c2b3622f1b78455395bde85f5c21b5c0e",
+      "parts": [
+        {
+          "file": "osa-01.pdfchunk",
+          "bytes": 750000,
+          "sha256": "d252211848ad13bfc2bf1f1332a94d6f58309c89ecc2e8f1319a6383eb0ae53e",
+          "gitSha": "44eccd7aa705ffbbd03880c5cd306c9666e50760"
+        },
+        {
+          "file": "osa-02.pdfchunk",
+          "bytes": 750000,
+          "sha256": "928eb089caf84b96e1bc09706c4109f085b42beb606f283429537efb223b4b9b",
+          "gitSha": "67daf79e6d4339c0bd7a3844e6c9225e30c492e7"
+        },
+        {
+          "file": "osa-03.pdfchunk",
+          "bytes": 750000,
+          "sha256": "ca3021e850e0b823962dcd71c2cc3ebda46dff55e081e51c6d338987e0283929",
+          "gitSha": "501ae3beff92cfb6d690179acc608bc778322015"
+        },
+        {
+          "file": "osa-04.pdfchunk",
+          "bytes": 750000,
+          "sha256": "5a59a0882f62615cea4b8be69fccfa0d8db93d34452f95c1d09ec71e5e6d8293",
+          "gitSha": "d6426dd1e1d939ae20321768f33e10e3299a1421"
+        },
+        {
+          "file": "osa-05.pdfchunk",
+          "bytes": 750000,
+          "sha256": "3f3cb7139da6182b26b41a54b22a89d462b691fee9dbe53985759c6308806f67",
+          "gitSha": "5e4689d7a904e0c22eeefdf879cd76100c94f119"
+        },
+        {
+          "file": "osa-06.pdfchunk",
+          "bytes": 750000,
+          "sha256": "5ab54bf74abeec4c20059af6c2f183f1d1de2f356370a45d94a89ff0dd853315",
+          "gitSha": "10664af207a42b3fbcf2a1f46f091dd9b418e5b9"
+        },
+        {
+          "file": "osa-07.pdfchunk",
+          "bytes": 750000,
+          "sha256": "0238dcbfc0b4f3fd00525a54a460aee2b00c5d506ae5a0e7e5d87f51b6f72a72",
+          "gitSha": "d7ed80490617b66ca20abb8e83d2104261bd91b9"
+        },
+        {
+          "file": "osa-08.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a168030616a76be8a8e1c4d26f315dcbd10810c6a03392a43103ef49061595c1",
+          "gitSha": "37bca16d002108ad36c170eb377b977f83a33713"
+        },
+        {
+          "file": "osa-09.pdfchunk",
+          "bytes": 750000,
+          "sha256": "c5219c48ff1a6da7f50bbd564836b5280c1dbbd3d0646af66a8e93546020b86f",
+          "gitSha": "c803803201f6f028af0a740e6c2ef09591af5460"
+        },
+        {
+          "file": "osa-10.pdfchunk",
+          "bytes": 750000,
+          "sha256": "c1328dcaa6a7a98a6bb4b7ef53f49e9362c3c6d45e6a04ba2dfddbeb998cba70",
+          "gitSha": "aaf6970c33710a66bf1cdb76548b9ad239419e30"
+        },
+        {
+          "file": "osa-11.pdfchunk",
+          "bytes": 750000,
+          "sha256": "e14224cdbdd6f7a08576d50bb5f6b92689415b76e67566914ec627d4b60abe56",
+          "gitSha": "268a9790ac705b0ed05f62db4427b8258e2f3159"
+        },
+        {
+          "file": "osa-12.pdfchunk",
+          "bytes": 750000,
+          "sha256": "043d8c0418a176e27e1b3f608fbad68f6a11aa998e59550b5fdfd28269ab7305",
+          "gitSha": "a147597a9ddc7039771975d4781c11fa74d480b3"
+        },
+        {
+          "file": "osa-13.pdfchunk",
+          "bytes": 750000,
+          "sha256": "8c9d2cb4ca6659616d7a146a464536f4cdb26844008d03aa436ca53d8e5dd9c8",
+          "gitSha": "eee5f979303755fe07eec13b5a558dcd6a77aca3"
+        },
+        {
+          "file": "osa-14.pdfchunk",
+          "bytes": 750000,
+          "sha256": "2984fc53fa6595d2c801ce2d78b5160cd31c56d4252b0d2bce9106e700c16dce",
+          "gitSha": "a11c4ea3873de835557dfb73217180a43d3cff5e"
+        },
+        {
+          "file": "osa-15.pdfchunk",
+          "bytes": 750000,
+          "sha256": "5d59c5978927fc4d7788bec5942c65b40d352216f463bd2e639b4d348a95926d",
+          "gitSha": "cc8cb0aff8eecfd5b8e7122b5d41960610f0d5c9"
+        },
+        {
+          "file": "osa-16.pdfchunk",
+          "bytes": 750000,
+          "sha256": "0a267814694489f0894a4b43553a8d7ca3e6b0dbb63f51fea46fd7bcd6a7c93c",
+          "gitSha": "1082816696c34bfde61fb41fe59e01888bb6b7ee"
+        },
+        {
+          "file": "osa-17.pdfchunk",
+          "bytes": 750000,
+          "sha256": "e688a9c1f675f4febc2a6853e88f979d1d43c6165fe8924e349fd56438afa07d",
+          "gitSha": "9b8eb7248a54bced24ed8357c0116ed141ca99e9"
+        },
+        {
+          "file": "osa-18.pdfchunk",
+          "bytes": 750000,
+          "sha256": "23bc1f71096634a720c3e42fbce3cb77f11c068dfcd4569ef2fb00cf9df10f28",
+          "gitSha": "e1c2d5bac1df1565fe4358f013750b62528db07f"
+        },
+        {
+          "file": "osa-19.pdfchunk",
+          "bytes": 750000,
+          "sha256": "804789c69441b321eca6dd9bc731455500c62fe58edf9eeb67e3966b434ecb76",
+          "gitSha": "c9514614106e62f274818b09d2008cc576b98748"
+        },
+        {
+          "file": "osa-20.pdfchunk",
+          "bytes": 258207,
+          "sha256": "baa4ad998ac37237d6d735b29a616a107993886bfd5bccbfb047afd0eb8d08e0",
+          "gitSha": "9c6f21380e9afe6897f1dfd7f4515227a33bd082"
+        }
+      ]
+    },
+    {
+      "name": "valves",
+      "file": "valves.pdf",
+      "bytes": 17354744,
+      "sha256": "5e7e817bcda47729ff6a5bb9771153efbcf80ad66a78f29a051a89943a0fbc33",
+      "parts": [
+        {
+          "file": "valves-01.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a1d89d129e99dbd532c722d951c67504123739ed413fdc450078a646336aa8ac",
+          "gitSha": "c5026cd7904437197729c9fcff166589fc4c706d"
+        },
+        {
+          "file": "valves-02.pdfchunk",
+          "bytes": 750000,
+          "sha256": "674fd1939d3d2a608c0b7aa3161d6d6fc2bf5984f89d0198ece3d182620943f6",
+          "gitSha": "f19cc220c5b49fcf5695ab9c6670854246f00c81"
+        },
+        {
+          "file": "valves-03.pdfchunk",
+          "bytes": 750000,
+          "sha256": "235accaec6c5e1af0575df7d284c1eac2b65028afc1978258a5e2f56a5c91668",
+          "gitSha": "faa822ad94f8dee77bc4928d10aa0f252c8f4e51"
+        },
+        {
+          "file": "valves-04.pdfchunk",
+          "bytes": 750000,
+          "sha256": "aca41bdb4a553d55719b108a0b8ea0890294facadafec8a442e02bd4cd41f222",
+          "gitSha": "b679ee7db6849161e863b3c771050ff4953ad646"
+        },
+        {
+          "file": "valves-05.pdfchunk",
+          "bytes": 750000,
+          "sha256": "1339f4acd2e4f0e272e5c81694dff0876c696af051cc835de51549fe2f62847e",
+          "gitSha": "7202e494ec2a1fc9f5a0ecdca86a02f07e240061"
+        },
+        {
+          "file": "valves-06.pdfchunk",
+          "bytes": 750000,
+          "sha256": "bffebb0bdb439391c6bffe5d1e3de872861daa2541b2307dbc759e32c4d550c2",
+          "gitSha": "17ad1fb5be3abf844c22045de015edd0ab5dfa8b"
+        },
+        {
+          "file": "valves-07.pdfchunk",
+          "bytes": 750000,
+          "sha256": "2a041915e15ccffe691275d70db6d7900a7ea3a468e321624938ad0eee62a3a4",
+          "gitSha": "3dfb3fba50feec5071fcc7247c1123c57e2ebec6"
+        },
+        {
+          "file": "valves-08.pdfchunk",
+          "bytes": 750000,
+          "sha256": "1cdbf6d2fd637728a0d19cd4af62417badea72dac8611762fd5d2cdd3c666147",
+          "gitSha": "56b8f1c3d5cba979fbb6ede686890219f78cf3a7"
+        },
+        {
+          "file": "valves-09.pdfchunk",
+          "bytes": 750000,
+          "sha256": "e15e9d6f8f3d8f124d68ddbf04ff4b25646e4d602f437f95215ea41e0b6aa8d3",
+          "gitSha": "8ef3ecd2c75e29649219283b8503a1a9442e9c71"
+        },
+        {
+          "file": "valves-10.pdfchunk",
+          "bytes": 750000,
+          "sha256": "d495dce96a04f32aeac40099048b3a61132e33e434dd99d7076a2dee4800dd28",
+          "gitSha": "f112130eebfd98206f20275c8e95cec63c098e8d"
+        },
+        {
+          "file": "valves-11.pdfchunk",
+          "bytes": 750000,
+          "sha256": "a64616fcae6eebc1e0b082f9ffca2b7e17d6225322a5d99f3d57810ad7809da0",
+          "gitSha": "b4e1ac04f778a218e2c35949eec123aeebff4e41"
+        },
+        {
+          "file": "valves-12.pdfchunk",
+          "bytes": 750000,
+          "sha256": "02897861aa9d5be572be671fbd836ccf42ea9e284eac9d5254dd5aef464925be",
+          "gitSha": "90f1ca43e6694aaa16412fdd3db52e866b5c3d0f"
+        },
+        {
+          "file": "valves-13.pdfchunk",
+          "bytes": 750000,
+          "sha256": "c0d4d819c6b1347278575ef18453dcc4bb3695af147702aa7776226d98bae98c",
+          "gitSha": "5a8eb00ccde5ec34cb430e7bd8cde3480de8d9a6"
+        },
+        {
+          "file": "valves-14.pdfchunk",
+          "bytes": 750000,
+          "sha256": "cc589da643d458a9b5fe1d5a661e27354dc98b8a7109d1869f1980ee4b27a1ec",
+          "gitSha": "ab5865a123f856a780d16fc5e243f116807eb35e"
+        },
+        {
+          "file": "valves-15.pdfchunk",
+          "bytes": 750000,
+          "sha256": "45d63e8c8923b058d5d3f906dab75f77781290b158596482f5da01f4eb4ab4dc",
+          "gitSha": "225df9a26a7e82a1d160d20f7093bf76dcde153e"
+        },
+        {
+          "file": "valves-16.pdfchunk",
+          "bytes": 750000,
+          "sha256": "91059b144153e13f4d0418c720809afeb5d1dcbcd5237e9da831d520352dc9cd",
+          "gitSha": "1a4c00ca185c090023620a73e4891e964bd8573a"
+        },
+        {
+          "file": "valves-17.pdfchunk",
+          "bytes": 750000,
+          "sha256": "47b1d651017738735d6fc3f2bb4f1495e4b04eb7958b95f171350fde5b7663fb",
+          "gitSha": "d37349dc2d4fc478a56a70d8518726422445dd15"
+        },
+        {
+          "file": "valves-18.pdfchunk",
+          "bytes": 750000,
+          "sha256": "308af17cf67691bf9b1946309000c19d3c0efa13af9bc637427536794f648dd5",
+          "gitSha": "3d1c9d888625dbcac80772cb7371eec9fc8dfc6a"
+        },
+        {
+          "file": "valves-19.pdfchunk",
+          "bytes": 750000,
+          "sha256": "6f7b685b03974bde909f667147159c22a156957ec48e3b0826d3fc27bc2d0277",
+          "gitSha": "8f2d127b85141e2ef242c8e772a1a0b9c9468773"
+        },
+        {
+          "file": "valves-20.pdfchunk",
+          "bytes": 750000,
+          "sha256": "2839d4bd4612fe3b16aeee3e3282fbd0f111f55dafc08b816e8455ed24d218bd",
+          "gitSha": "3c47e3847c2304e2b10775244485fc19bd2ad25d"
+        },
+        {
+          "file": "valves-21.pdfchunk",
+          "bytes": 750000,
+          "sha256": "ad152d2b58d00d1c423deebea6bb4c8096249232bd4476abd0052f5f4f2cc970",
+          "gitSha": "2c214d72f71cfd27136b5c18c2e32da1b05c1733"
+        },
+        {
+          "file": "valves-22.pdfchunk",
+          "bytes": 750000,
+          "sha256": "271d2d5706d004d5ed6ab737560e36b864ad87b195806fd0c83949419732aaf5",
+          "gitSha": "e677941f5f843330a3c012302b1fff3b2016d5fc"
+        },
+        {
+          "file": "valves-23.pdfchunk",
+          "bytes": 750000,
+          "sha256": "0fb667b023e2810513196588be58f52ef2caba2b7e50dd4612cf3489ea96e717",
+          "gitSha": "8a4ea61f6106add0d918dd5cd8445ad634393156"
+        },
+        {
+          "file": "valves-24.pdfchunk",
+          "bytes": 104744,
+          "sha256": "45eb4fb2f74ebb9efbcd0fc319b635d9be6d7d246d6503d2c85a4a1b1db0af3a",
+          "gitSha": "94c3cdb85447345835517b5a311a5ba79a08601f"
+        }
+      ]
+    }
+  ]
+}

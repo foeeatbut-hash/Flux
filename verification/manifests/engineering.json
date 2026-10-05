@@ -250,6 +250,230 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "eng-remaining-engineering-api-live",
+      "path": "scripts/test-remaining-engineering-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "eng-remaining-registry-delete-ui",
+      "path": "scripts/test-remaining-engineering-registry-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "vite-port:dynamic",
+        "browser:chromium"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-composition-live",
+      "path": "scripts/test-equip-composition-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-equipment-multi-import-live",
+      "path": "scripts/test-import-many-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-builder-live-regressions",
+      "path": "scripts/test-builder-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "catalog:fixture"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-equipment-position-add-live",
+      "path": "scripts/test-position-add-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "database:fixture"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "env", "name": "FLUX_DB_FIXTURE_URL" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-equipment-calc-wizard-live",
+      "path": "scripts/test-equip-calc-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:global"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-registry-tag-link-live",
+      "path": "scripts/test-tag-link-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:global"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-registry-tag-tree-live",
+      "path": "scripts/test-tag-tree-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:global"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
+    },
+    {
+      "id": "eng-registry-tag-canvas-live",
+      "path": "scripts/test-tag-canvas-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "flux-test-api",
+        "api:fixture",
+        "browser:chromium",
+        "browser:global"
+      ],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" }
+      ],
+      "timeoutMs": 360000,
+      "external": true
     }
   ],
   "actions": [
@@ -628,7 +852,22 @@
       "expected": [
         "Удаляется только выбранный тег и обрабатываются зависимые связи по контракту; отмена не меняет проект."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "API удаляет выбранный тег из тестового проекта и сохраняет соседние теги."
+          ]
+        },
+        {
+          "suite": "eng-remaining-registry-delete-ui",
+          "layer": "component",
+          "claims": [
+            "Диалог удаления не меняет список при отмене; подтверждение удаляет выбранную запись и сохраняет соседнюю."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -691,6 +930,85 @@
           ]
         }
       ]
+    },
+    {
+      "id": "registry.open-deep-link-centered",
+      "program": "registry",
+      "label": "Открыть тег по ссылке и показать его по центру",
+      "sources": [
+        "src/screens/Registry.tsx"
+      ],
+      "triggers": [
+        "tag deep link (?tag=)",
+        "window maximize"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Карточка тега остаётся в центре полотна после разворачивания окна."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tag-link-live",
+          "layer": "browser-live",
+          "claims": [
+            "Две карточки, открытые по глубокой ссылке, центрируются после разворота окна."
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "registry.repair-imported-tag-tree",
+      "program": "registry",
+      "label": "Показать импортированную иерархию тегов",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "server/equipmentTags.ts"
+      ],
+      "triggers": [
+        "open tree view with existing parent links"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Импортированная связь родитель→дочерний тег сохраняется в базе, ручной выбор родителя из карточки недоступен."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tag-tree-live",
+          "layer": "browser-live",
+          "claims": [
+            "Живой экран восстанавливает родителя клапана и привода в базе и скрывает устаревшее поле выбора родителя."
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "registry.layout-tag-canvas",
+      "program": "registry",
+      "label": "Расставить теги на полотне и изменить масштаб",
+      "sources": [
+        "src/screens/Registry.tsx",
+        "src/lib/tagLayout.ts"
+      ],
+      "triggers": [
+        "layout menu action",
+        "mouse wheel"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Раскладка не накладывает карточки; масштабирование удерживает точку под курсором и сохраняется после возврата на вкладку."
+      ],
+      "checks": [
+        {
+          "suite": "eng-registry-tag-canvas-live",
+          "layer": "browser-live",
+          "claims": [
+            "Живое полотно раскладывает три тестовые установки без перекрытия одним пакетным запросом, удерживает точку масштаба и не создаёт ошибок страницы."
+          ]
+        }
+      ],
+      "manual": []
     },
     {
       "id": "equipment.change-category",
@@ -820,6 +1138,27 @@
           "claims": [
             "Разбор синтетического состава сохраняет раздельные установки и не переносит тег второй установки в первую."
           ]
+        },
+        {
+          "suite": "eng-equipment-composition-live",
+          "layer": "api-db",
+          "claims": [
+            "План и запись импорта сохраняют синтетический состав оборудования, примечания и вложенные теги."
+          ]
+        },
+        {
+          "suite": "eng-equipment-multi-import-live",
+          "layer": "api-db",
+          "claims": [
+            "Несколько расчётов загружаются одной партией, сохраняя имя исходного файла для каждой установки."
+          ]
+        },
+        {
+          "suite": "eng-equipment-calc-wizard-live",
+          "layer": "browser-live",
+          "claims": [
+            "Синтетический XML расчёта распознаётся в мастере выбора файла и доходит до предпросмотра импорта."
+          ]
         }
       ],
       "manual": [
@@ -853,6 +1192,13 @@
           "layer": "unit",
           "claims": [
             "План отмены возвращает старое значение, но пропускает запись, изменённую после импорта."
+          ]
+        },
+        {
+          "suite": "eng-equipment-multi-import-live",
+          "layer": "api-db",
+          "claims": [
+            "Одна отмена удаляет всё оборудование, созданное партией из нескольких файлов."
           ]
         }
       ],
@@ -987,7 +1333,22 @@
       "expected": [
         "Сохраняются только заданные поля позиции; отмена формы не меняет БД; удаление затрагивает выбранный ID."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-equipment-composition-live",
+          "layer": "api-db",
+          "claims": [
+            "Добавленная вручную позиция сохраняется внутри выбранной позиции и переживает повторный импорт."
+          ]
+        },
+        {
+          "suite": "eng-equipment-position-add-live",
+          "layer": "api-db",
+          "claims": [
+            "MariaDB хранит выбранный двигатель как parentElementId ручной позиции и null для верхнего уровня моноблока; без родительского тега экранная иерархия оставляет его корневым."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1067,7 +1428,15 @@
       "expected": [
         "Связь видна с обеих сторон и не меняет чужие теги."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-equipment-composition-live",
+          "layer": "api-db",
+          "claims": [
+            "Импорт и ручное добавление позиции устанавливают родство между тегами оборудования."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1870,7 +2239,22 @@
       "expected": [
         "Создание/переименование читаются повторно; удаление затрагивает только выбранную спецификацию, отмена сохраняет её."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Список Конструктора создаётся, переименовывается и удаляется в выбранном проекте."
+          ]
+        },
+        {
+          "suite": "eng-builder-live-regressions",
+          "layer": "api-db",
+          "claims": [
+            "Явный запрет builder.edit блокирует создание, изменение и удаление ведомости; запись при отказе не меняется."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -1898,7 +2282,15 @@
       "expected": [
         "Каждое изменение сохраняет ID строки, количество, теги, исходное описание и статус точно по форме."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Позиции ведомости и их количество сохраняются и читаются обратно."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2111,7 +2503,22 @@
       "expected": [
         "Отменяется один последний пакет изменений; повторное чтение возвращает независимый снимок до действия."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Отмена пакета возвращает предыдущее количество и не применяется повторно."
+          ]
+        },
+        {
+          "suite": "eng-builder-live-regressions",
+          "layer": "api-db",
+          "claims": [
+            "Сотрудник без builder.edit не может отменить пакет, и записанное количество остаётся прежним."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2173,7 +2580,22 @@
       "expected": [
         "Выбранный шаблон и версия заполняются данными текущей спецификации; не создаётся второй документ при повторном подтверждении."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Выпуск сохраняет снимок позиций и отклоняет повтор той же ревизии."
+          ]
+        },
+        {
+          "suite": "eng-builder-live-regressions",
+          "layer": "api-db",
+          "claims": [
+            "Истёкший builder.issue отклоняет выпуск без записи; действующий builder.issue позволяет выпустить снимок без builder.edit."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2235,7 +2657,15 @@
       "expected": [
         "Связь касается выбранной спецификации/строки и доступна в реестре тегов того же проекта."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-builder-live-regressions",
+          "layer": "api-db",
+          "claims": [
+            "Применение связи требует одновременно builder.edit и tags.manage; план связей доступен при запрете builder.edit."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2378,7 +2808,15 @@
       "expected": [
         "Изменяется только выбранная запись; удаление подтверждается, отмена сохраняет её."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Запись справочника можно создать, изменить и удалить отдельно от корня."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2411,6 +2849,13 @@
           "layer": "unit",
           "claims": [
             "Упорядочивание строит вложенный список по parentId и выдаёт глубину потомка отдельно."
+          ]
+        },
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Дочерняя запись сохраняет связь с родителем и перечитывается из проекта."
           ]
         }
       ],
@@ -2557,7 +3002,15 @@
       "expected": [
         "Сохраняется целевой этап конкретного тега; откат на шаг возвращает ровно один предыдущий этап."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Этап закупки сохраняется в метаданных тега и перечитывается из проекта."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -2612,7 +3065,15 @@
       "expected": [
         "Каждая позиция получает этап с тем же номером в своём шаблоне; пустые/короткие шаблоны не получают чужой этап."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-remaining-engineering-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Массовая запись этапов обновляет только перечисленные строки."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",

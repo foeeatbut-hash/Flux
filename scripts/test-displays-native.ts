@@ -24,6 +24,7 @@ async function main() {
     minimum = [960, 620];
     shape: any[] = [];
     movable = true; resizable = true; maximized = false; fullscreen = false;
+    shadow = true;
     isDestroyed() { return false; }
     getNormalBounds() { return { ...this.normal }; }
     getBounds() { return { ...this.bounds }; }
@@ -34,6 +35,7 @@ async function main() {
     getMinimumSize() { return this.minimum; }
     setMinimumSize(w: number, h: number) { this.minimum = [w, h]; }
     setShape(rectangles: any[]) { this.shape = JSON.parse(JSON.stringify(rectangles)); }
+    setHasShadow(value: boolean) { this.shadow = value; }
     setFullScreen(v: boolean) { this.fullscreen = v; }
     setMovable(v: boolean) { this.movable = v; }
     setResizable(v: boolean) { this.resizable = v; }
@@ -71,6 +73,7 @@ async function main() {
     ]);
     check('Режим временно снимает ограничение минимального размера', win.minimum, [1, 1]);
     check('Native перемещение в общем режиме отключено', win.movable, false);
+    check('Тень отключается на общем HWND, чтобы не попадать на панель Windows', win.shadow, false);
     check('Режим сохраняется отдельно от ключей и БД', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: true, showWindowsTaskbar: true });
     preferences({ showWindowsTaskbar: false });
     check('Без панели Windows рабочий стол покрывает весь каждый монитор', win.shape, [
@@ -90,6 +93,7 @@ async function main() {
     check('После hotplug renderer получает новый состав экранов', win.sent.at(-1)?.[1]?.displays.length, 1);
     set(false);
     check('Обычное окно восстанавливает полную нативную форму', win.shape, []);
+    check('Обычный режим возвращает внешнюю тень окна', win.shadow, true);
     check('Выключение общего режима сохраняет настройку панели', JSON.parse(fs.readFileSync(path.join(data, 'display-workspace.json'), 'utf8')), { allMonitors: false, showWindowsTaskbar: false });
     check('Обычный размер и положение возвращаются', win.bounds, { x: 100, y: 100, width: 1280, height: 800 });
     check('Минимальный размер восстанавливается', win.minimum, [960, 620]);

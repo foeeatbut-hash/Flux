@@ -85,8 +85,9 @@ const noteOf = async (id: string) => (await call('GET', `/api/notes/${id}`)).jso
     ok('редактор Markdown открылся', await frame().locator('.ProseMirror').first().waitFor({ timeout: 25000 }).then(() => true).catch(() => false));
     ok('интерфейс по-русски', await frame().getByText('Автосохранение', { exact: false }).first().isVisible().catch(() => false));
     ok('ИИ GenOffice не виден', !(await frame().getByText('Genspark', { exact: false }).first().isVisible().catch(() => false)));
-    await frame().locator('.ProseMirror').first().click();
-    await page.keyboard.type(`Запись проверки ${stamp}`, { delay: 10 });
+    const newNoteEditor = frame().locator('.ProseMirror').first();
+    await newNoteEditor.press('Control+End');
+    await newNoteEditor.pressSequentially(`Запись проверки ${stamp}`, { delay: 10 });
     const saved = await until(async () => String((await noteOf(fresh?.id))?.content || '').includes(`Запись проверки ${stamp}`), 12000);
     ok('заметка записалась сама, без кнопки', saved);
     ok('в базе Markdown, а не HTML', !/<p>|<div>/.test(String((await noteOf(fresh?.id))?.content || '')));
@@ -98,9 +99,9 @@ const noteOf = async (id: string) => (await call('GET', `/api/notes/${id}`)).jso
     ok('заголовок на месте', await frame().locator('h2', { hasText: 'Итоги' }).first().waitFor({ timeout: 20000 }).then(() => true).catch(() => false));
     ok('список на месте', (await frame().locator('li').count()) >= 2);
     ok('таблица на месте', (await frame().locator('table td').count()) >= 2);
-    await frame().locator('.ProseMirror').first().click();
-    await page.keyboard.press('Control+End');
-    await page.keyboard.type('Дописано', { delay: 10 });
+    const legacyEditor = frame().locator('.ProseMirror').first();
+    await legacyEditor.press('Control+End');
+    await legacyEditor.pressSequentially('Дописано', { delay: 10 });
     const conv = await until(async () => String((await noteOf(legacy.id))?.content || '').includes('Дописано'), 12000);
     const text = String((await noteOf(legacy.id))?.content || '');
     ok('после правки записана Markdown', conv && text.startsWith('## Итоги'), text.slice(0, 120));
@@ -125,10 +126,10 @@ const noteOf = async (id: string) => (await call('GET', `/api/notes/${id}`)).jso
     files.push(md.id);
     await page.goto(`${BASE}/#/notes?file=${md.id}`, { waitUntil: 'domcontentloaded' });
     ok('.md открылся в Блокноте', await frame().locator('h1', { hasText: 'Записка' }).first().waitFor({ timeout: 20000 }).then(() => true).catch(() => false));
-    await frame().locator('.ProseMirror').first().click();
-    await page.keyboard.press('Control+End');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('Вторая строка', { delay: 10 });
+    const markdownEditor = frame().locator('.ProseMirror').first();
+    await markdownEditor.press('Control+End');
+    await markdownEditor.press('Enter');
+    await markdownEditor.pressSequentially('Вторая строка', { delay: 10 });
     const wrote = await until(async () => (await call('GET', `/api/files/${md.id}/raw`)).buf.toString('utf8').includes('Вторая строка'), 12000);
     const mdText = (await call('GET', `/api/files/${md.id}/raw`)).buf.toString('utf8');
     ok('записан сам файл', wrote);
@@ -140,9 +141,9 @@ const noteOf = async (id: string) => (await call('GET', `/api/notes/${id}`)).jso
     await page.goto(`${BASE}/#/sticker?id=${fresh?.id}`, { waitUntil: 'domcontentloaded' });
     ok('стикер открыл заметку', await frame().getByText(`Запись проверки ${stamp}`).first().waitFor({ timeout: 20000 }).then(() => true).catch(() => false));
     ok('в стикере нет ленты', !(await frame().locator('.ribbon').first().isVisible().catch(() => false)));
-    await frame().locator('.ProseMirror').first().click();
-    await page.keyboard.press('Control+End');
-    await page.keyboard.type(' и со стикера', { delay: 10 });
+    const stickerEditor = frame().locator('.ProseMirror').first();
+    await stickerEditor.press('Control+End');
+    await stickerEditor.pressSequentially(' и со стикера', { delay: 10 });
     ok('правка со стикера записалась', await until(async () => String((await noteOf(fresh?.id))?.content || '').includes('и со стикера'), 12000));
 
     ok('ни одного запроса за пределы сервера Flux', outside.length === 0, outside.slice(0, 5));

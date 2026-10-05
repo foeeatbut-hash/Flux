@@ -19,7 +19,10 @@ export function registerCatalogAssetRoutes(app: Express, deps: Deps) {
   };
   app.post('/api/catalog/assets/begin', run(async (req, res, db, user) => {
     const { size, sha256, filename, familyId } = req.body || {};
-    const family = (await deps.read(db)).families.find((f: any) => f.id === familyId) || (await catalogSetting(db, `catalog_draft:family:${familyId}`, null))?.document;
+    const catalog = await deps.read(db);
+    const family = [...catalog.families, ...catalog.components].find((f: any) => f.id === familyId)
+      || (await catalogSetting(db, `catalog_draft:family:${familyId}`, null))?.document
+      || (await catalogSetting(db, `catalog_draft:component:${familyId}`, null))?.document;
     if (!family || !await catalogAllowed(db, user, 'edit', family, deps.can)) catalogFailure(403, 'Нет права загрузки для модели');
     if (!Number.isInteger(size) || size < 1 || size > MAX || !/^[a-f0-9]{64}$/.test(sha256) || typeof filename !== 'string' || !filename.length || filename.length > 200) catalogFailure(400, 'Некорректные имя, размер или хеш файла');
     // Незавершённые загрузки не занимают квоту навсегда; удаляются только собственные служебные блоки.
@@ -69,14 +72,16 @@ export function registerCatalogAssetRoutes(app: Express, deps: Deps) {
   app.get('/api/catalog/assets/:id', run(async (req, res, db, user) => {
     const meta = await metaOf(db, String(req.params.id)); if (!meta.complete) catalogFailure(409, 'Загрузка не завершена');
     const catalog = await deps.read(db);
-    const published = catalog.families.some((f: any) => f.catalog?.assetId === meta.id || f.documents?.some((d: any) => d.assetId === meta.id) || f.tables?.some((t: any) => t.source?.assetId === meta.id));
+    const references = (f: any) => f.catalog?.assetId === meta.id || f.documents?.some((d: any) => d.assetId === meta.id)
+      || f.sections?.some((s: any) => s.source?.assetId === meta.id) || f.tables?.some((t: any) => t.source?.assetId === meta.id);
+    const published = [...catalog.families, ...catalog.components].some(references);
     let previouslyPublished = false;
     if (!published && !await catalogAllowed(db, user, 'edit', meta.scope, deps.can)) {
       // Старые проекты сохраняют доступ к своему опубликованному исходнику.
-      const historical = await db.catalogRevision.findMany({ where: { entity: 'family', action: { in: ['published', 'before-publication'] }, snapshotJson: { contains: meta.id } }, select: { snapshotJson: true }, take: 100 });
+      const historical = await db.catalogRevision.findMany({ where: { entity: { in: ['family', 'component'] }, action: { in: ['published', 'before-publication'] }, snapshotJson: { contains: meta.id } }, select: { snapshotJson: true }, take: 100 });
       previouslyPublished = historical.some((row: any) => {
         const snapshot = JSON.parse(row.snapshotJson); const doc = JSON.parse(snapshot.dataJson || '{}');
-        return doc.catalog?.assetId === meta.id || doc.documents?.some((d: any) => d.assetId === meta.id) || doc.tables?.some((t: any) => t.source?.assetId === meta.id);
+        return references(doc);
       });
       if (!previouslyPublished) catalogFailure(403, 'Исходник ещё не опубликован');
     }

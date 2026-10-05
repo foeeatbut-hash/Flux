@@ -38,6 +38,36 @@ export function looksLikeHtml(s: string): boolean {
 
 interface Node { tag: string; attrs: Record<string, string>; children: Array<Node | string> }
 
+export interface HtmlToMarkdownOptions {
+  /** Keep only bounded inline raster images, replacing external/unsupported images with text. */
+  imagePolicy?: 'inline-only';
+}
+
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function isAllowedInlineImage(src: string): boolean {
+  const match = /^data:image\/(png|jpeg|gif|webp);base64,([a-z0-9+/]*={0,2})$/i.exec(src);
+  if (!match || match[2].length === 0 || match[2].length % 4 !== 0) return false;
+  const payload = match[2];
+  const estimatedBytes = Math.floor(payload.length * 3 / 4) - (payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0);
+  return estimatedBytes > 0 && estimatedBytes <= MAX_INLINE_IMAGE_BYTES;
+}
+
+function applyImagePolicy(node: Node, policy?: HtmlToMarkdownOptions['imagePolicy']): void {
+  if (!policy) return;
+  node.children = node.children.map((child) => {
+    if (typeof child === 'string') return child;
+    if (child.tag === 'img') {
+      const src = child.attrs.src || '';
+      if (isAllowedInlineImage(src)) return child;
+      const alt = (child.attrs.alt || '').trim();
+      return { tag: '#image-placeholder', attrs: {}, children: [`[Изображение${alt ? `: ${alt}` : ''}]`] };
+    }
+    applyImagePolicy(child, policy);
+    return child;
+  });
+}
+
 function parseAttrs(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
   const re = /([a-zA-Z_:][\w:.-]*)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
@@ -190,9 +220,11 @@ function children(n: Node, depth: number): string {
   return n.children.map((c) => (typeof c !== 'string' && (BLOCK.has(c.tag) || hasBlocks(c)) ? block(c, depth) : inline(c))).join('');
 }
 
-export function htmlToMarkdown(html: string): string {
+export function htmlToMarkdown(html: string, options: HtmlToMarkdownOptions = {}): string {
   if (!html) return '';
-  return clean(block(parse(String(html)))) + '\n';
+  const tree = parse(String(html));
+  applyImagePolicy(tree, options.imagePolicy);
+  return clean(block(tree)) + '\n';
 }
 
 /** Текст заметки для списка, поиска и карточек: без разметки Markdown и HTML */

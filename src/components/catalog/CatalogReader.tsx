@@ -5,11 +5,12 @@ import { textOf } from '../../../catalog/model';
 import { parseWithFamily } from '../../../catalog/designation';
 import { sourcePhysicalPage } from '../../../catalog/sources';
 import { loadCatalogAsset } from '../../services/catalogAssetService';
+import CatalogContents from './CatalogContents';
 
 type Tab = 'overview' | 'specs' | 'marking' | 'documents';
 const TABS: Array<{ id: Tab; title: string }> = [
   { id: 'overview', title: 'Обзор' }, { id: 'specs', title: 'Характеристики' },
-  { id: 'marking', title: 'Маркировка' }, { id: 'documents', title: 'Документы' },
+  { id: 'marking', title: 'Маркировка' }, { id: 'documents', title: 'Устройство и применение' },
 ];
 
 const muted = 'text-slate-500 dark:text-slate-400';
@@ -41,13 +42,9 @@ function familyOfComponent(component: Component, catalog: Catalog): Family {
     })),
     specs: [], facts: component.facts,
     catalog: component.catalog || (component.sourcePdfPage ? { file: '', pages: String(component.sourcePdfPage) } : undefined),
+    documents: component.documents, sections: component.sections, tables: component.tables,
     status: component.status || 'partial', todo: component.todo,
   };
-}
-
-function sourceLabel(ref: CatalogRef & { title?: string }) {
-  const parts = [ref.title || ref.file, ref.edition, ref.pages ? `стр. ${ref.pages}` : '', ref.physicalPage ? `физ. стр. ${ref.physicalPage}` : '', ref.printedPage ? `печатная стр. ${ref.printedPage}` : ''].filter(Boolean);
-  return parts.join(' · ');
 }
 
 function displayParam(param: ParamDef) {
@@ -89,22 +86,11 @@ function ValueRows({ family, onReport }: { family: Family; onReport?: (field: st
 }
 
 function SourceBlock({ family, onOpen }: { family: Family; onOpen: (doc: CatalogDocument) => void }) {
-  const tables = family.tables || [];
-  if (!(family.documents?.length) && !family.catalog && !tables.length) return <p className={`text-xs ${muted}`}>Источники пока не привязаны.</p>;
+  const docs = family.documents || [];
   return <div className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
-    {(family.documents || []).map((doc) => <div key={doc.id} className="flex min-w-0 items-start gap-2 py-2 text-xs">
-      <FileText className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} />
-      <div className="min-w-0"><div className="break-words text-slate-800 dark:text-slate-100">{doc.label}</div>
-        <div className={muted}>{[doc.file, doc.edition, doc.pages ? `стр. ${doc.pages}` : '', doc.physicalPage ? `физ. стр. ${doc.physicalPage}` : '', doc.printedPage ? `печатная стр. ${doc.printedPage}` : ''].filter(Boolean).join(' · ')}</div>
-        {doc.assetId ? <button type="button" className="mt-1 text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => onOpen(doc)}>Открыть документ</button> : <div className={`mt-1 ${muted}`}>Файл ещё не загружен</div>}</div>
-    </div>)}
-    {family.catalog && <div className="flex min-w-0 items-start gap-2 py-2 text-xs"><BookOpen className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} /><div className="min-w-0"><div className="break-words text-slate-800 dark:text-slate-100">Каталог производителя</div><div className={muted}>{sourceLabel(family.catalog)}</div>
-      {family.catalog.assetId ? <button type="button" className="mt-1 text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => onOpen({ id: `catalog-${family.id}`, label: 'Каталог производителя', kind: 'manual', ...family.catalog })}>Открыть документ</button> : <div className={`mt-1 ${muted}`}>Файл ещё не загружен</div>}</div></div>}
-    {tables.map((table, index) => <div key={`table-${table.id || index}`} className="flex min-w-0 items-start gap-2 py-2 text-xs">
-      <ArrowDownUp className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} />
-      <div className="min-w-0"><div className="break-words text-slate-800 dark:text-slate-100">{table.title}</div>
-        <div className={muted}>{[table.source ? sourceLabel(table.source) : '', table.rows.length ? `${table.rows.length} строк` : ''].filter(Boolean).join(' · ')}</div></div>
-    </div>)}
+    {docs.map(doc => <div key={doc.id} className="flex min-w-0 items-start gap-2 py-2 text-xs"><FileText className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} /><div className="min-w-0"><p>{doc.label.replace(/: PDF стр\. .*$/, '')}</p>{doc.assetId && <button type="button" className="mt-1 text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => onOpen(doc)}>Открыть</button>}</div></div>)}
+    {!docs.length && family.catalog?.assetId && <button type="button" className="fx-btn fx-btn-sm" onClick={() => onOpen({ id: family.id, label: 'Описание и инструкции', kind: 'manual', ...family.catalog! })}>Описание и инструкции</button>}
+    {!docs.length && !family.catalog?.assetId && <p className={`py-2 text-xs ${muted}`}>Инструкции пока не добавлены.</p>}
   </div>;
 }
 
@@ -142,18 +128,18 @@ function CatalogDataTable({ table, onReport }: { table: CatalogTable; onReport?:
   const [rowLimit, setRowLimit] = useState(100);
   return <section className="space-y-2">
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><h3 className="text-xs font-medium">{table.title}</h3>
-      {table.source && <span className={`text-xs ${muted}`}>{sourceLabel(table.source)}</span>}</div>
+</div>
     {!table.rows.length ? <p className={`border-y py-2 text-xs ${muted} ${line}`}>Таблица пока не содержит строк.</p> :
       <div className={`max-h-[55vh] overflow-auto border-y ${line}`}><table className="w-full min-w-[560px] border-collapse text-left text-xs">
         <thead className="sticky top-0 bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-300"><tr className="h-8">
           {table.columns.map((column) => <th key={column.key} className="px-2 font-medium">{column.label}{column.unit ? <span className={`ml-1 font-normal ${muted}`}>{column.unit}</span> : null}<span className={`ml-1 block font-normal ${muted}`}>{column.role === 'input' ? 'Входной параметр' : 'Результат'}</span></th>)}
-          <th className="px-2 font-medium">Источник</th>
+
         </tr></thead><tbody>
           {table.rows.slice(0, rowLimit).map((row) => <tr key={row.id} className={`border-t ${line}`}>
             {table.columns.map((column) => { const value = row.values[column.key]; const source = row.source || table.source; return <td key={column.key} className={`max-w-64 px-2 py-2 align-top ${value === null || value === '' ? muted : 'text-slate-800 dark:text-slate-100'}`}>{value === null || value === '' ? '—' : valueText(value)}
               {onReport && <button type="button" className="ml-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" onClick={() => onReport(`${table.id}/${row.id}/${column.key}`, { currentValue: valueText(value) || undefined, source })}>Сообщить</button>}
             </td>; })}
-            <td className={`max-w-48 px-2 py-2 align-top ${muted}`}>{row.source ? sourceLabel(row.source) : table.source ? sourceLabel(table.source) : '—'}{row.verified ? '' : <span className="ml-1 text-amber-700 dark:text-amber-400">· требует сверки</span>}</td>
+
           </tr>)}
         </tbody></table></div>}
     {table.rows.length > rowLimit && <button type="button" className="fx-btn fx-btn-sm" onClick={() => setRowLimit((limit) => limit + 100)}>Показать ещё строки ({table.rows.length - rowLimit})</button>}
@@ -187,7 +173,7 @@ export default function CatalogReader({ catalog, onManage, onReport }: {
       const component = componentFor(family);
       return (!classId || family.classId === classId || component?.classIds?.includes(classId))
       && (!manufacturerId || family.manufacturerId === manufacturerId || (manufacturerId.startsWith('name:') && component?.manufacturer === manufacturerId.slice(5)))
-      && (!q || [family.code, textOf(family.title), textOf(family.description), family.typeLabel && textOf(family.typeLabel), ...(family.aliases || []), manufacturerName(catalog, family, component)].some((value) => value.toLocaleLowerCase().includes(q)));
+      && (!q || [family.code, textOf(family.title), textOf(family.description), family.typeLabel && textOf(family.typeLabel), ...(family.aliases || []), ...(family.sections || []).map(section => `${section.title} ${section.text}`), ...(family.tables || []).flatMap(table => [table.title, ...table.rows.map(row => Object.values(row.values).join(' '))]), manufacturerName(catalog, family, component)].some((value) => value.toLocaleLowerCase().includes(q)));
     })
       .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.code.localeCompare(b.code, 'ru'));
   }, [allFamilies, catalog, classId, manufacturerId, query]);
@@ -281,15 +267,18 @@ export default function CatalogReader({ catalog, onManage, onReport }: {
                 <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-3 py-2 text-xs"><dt className={muted}>Совместимые модели</dt><dd>{selectedComponent.familyIds?.length ? selectedComponent.familyIds.map((id) => catalog.families.find((family) => family.id === id)?.code || id).join(', ') : 'Не ограничены в данных каталога'}</dd></div>
               </dl></section>}
               {!!selected.facts && <section><h3 className="mb-2 text-xs font-medium">Признаки модели</h3><FactRows facts={selected.facts} definitions={selectedClass?.facts || []} /></section>}
-              <section><h3 className="mb-2 text-xs font-medium">Источники</h3><SourceBlock family={selected} onOpen={(doc) => void openDocument(doc)} /></section>
-              {selected.status !== 'full' && <p className={`border-l-2 border-amber-500 pl-2 text-xs ${muted}`}>Данные заполнены не полностью. {selected.todo?.join(' ') || 'Некоторые сведения ещё не проверены.'}</p>}
+              <CatalogContents key={selected.id} sections={selected.sections || []} />
+
             </div>}
             {tab === 'specs' && <div className="flex max-w-5xl flex-col gap-4">
               <div className="flex items-center gap-2"><h3 className="text-xs font-medium">Характеристики модели</h3></div>
+              <CatalogContents key={`${selected.id}-specs`} sections={selected.sections || []} kind="specs" />
+              {(selected.tables || []).filter(table => table.rows.some(row => row.verified)).map(table => <CatalogDataTable key={table.id} table={{ ...table, rows: table.rows.filter(row => row.verified) }} />)}
               <ValueRows family={selected} onReport={onReport ? (field, details) => report(field, details) : undefined} />
               {selected.specs.length > 0 && <section><h3 className="mb-2 text-xs font-medium">Данные спецификации</h3><div className={`divide-y border-y ${line}`}>{selected.specs.map((spec, index) => <div key={`${spec.key}-${index}`} className="grid grid-cols-[minmax(140px,0.7fr)_minmax(0,1fr)] gap-3 py-2 text-xs"><span className={muted}>{textOf(spec.label)}</span><span>{textOf(spec.value)}{spec.unit ? ` ${spec.unit}` : ''}</span></div>)}</div></section>}
             </div>}
             {tab === 'marking' && <div className="flex max-w-3xl flex-col gap-4">
+              <CatalogContents key={`${selected.id}-marking`} sections={selected.sections || []} kind="marking" />
               <div><h3 className="mb-1 text-xs font-medium">Расшифровка обозначения</h3><p className={`text-xs ${muted}`}>Введите код целиком. Расшифровка строится по структуре этой модели; нераспознанный код остаётся без догадок.</p></div>
               <label className="flex flex-col gap-1 text-xs"><span className={muted}>Код изделия</span><input value={designation} onChange={(event) => setDesignation(event.target.value)} placeholder={selected.examples?.[0] || selected.code} className="fx-input font-mono" /></label>
               {designation.trim() && selected.designationMode === 'article' && <div className={`border-y px-2 py-3 text-xs ${line}`}>
@@ -313,10 +302,10 @@ export default function CatalogReader({ catalog, onManage, onReport }: {
               {!designation.trim() && <div className={`border-y py-3 text-xs ${muted} ${line}`}>Введите обозначение, чтобы увидеть найденные параметры.</div>}
               {(selected.designationMode || 'structured') === 'structured' && <section><h3 className="mb-2 text-xs font-medium">Структура кода</h3><div className="flex flex-wrap gap-x-3 gap-y-1">{selected.positions.map((position, index) => <span key={position.key} className={`text-xs ${muted}`}><span className="text-slate-800 dark:text-slate-100">{textOf(position.label)}</span>{index < selected.positions.length - 1 ? ' · ' : ''}</span>)}</div></section>}
             </div>}
-            {tab === 'documents' && <div className="max-w-5xl space-y-5"><section><h3 className="mb-2 text-xs font-medium">Документы и источники</h3><SourceBlock family={selected} onOpen={(doc) => void openDocument(doc)} /></section>
-              {(selected.tables || []).map((table) => <CatalogDataTable key={table.id} table={table} onReport={onReport ? (field, details) => report(field, details) : undefined} />)}
-              {selected.rules.length > 0 && <section><h3 className="mb-2 text-xs font-medium">Примечания к применению</h3><div className={`divide-y border-y ${line}`}>{selected.rules.map((rule) => <div key={rule.id} className="py-2 text-xs"><p>{rule.message}</p>{rule.source && <p className={`mt-1 ${muted}`}>Источник: {rule.source}</p>}</div>)}</div></section>}
-              {!!onReport && <button type="button" className="fx-btn fx-btn-sm" onClick={() => report('Документы и источники')}>Сообщить о неточности в источнике</button>}
+            {tab === 'documents' && <div className="max-w-5xl space-y-5"><CatalogContents key={`${selected.id}-instructions`} sections={selected.sections || []} />{!selected.sections?.length && <SourceBlock family={selected} onOpen={(doc) => void openDocument(doc)} />}
+              {(selected.tables || []).filter(table => table.rows.some(row => row.verified)).map((table) => <CatalogDataTable key={table.id} table={{ ...table, rows: table.rows.filter(row => row.verified) }} onReport={onReport ? (field, details) => report(field, details) : undefined} />)}
+              {selected.rules.length > 0 && <section><h3 className="mb-2 text-xs font-medium">Примечания к применению</h3><div className={`divide-y border-y ${line}`}>{selected.rules.map((rule) => <div key={rule.id} className="py-2 text-xs"><p>{rule.message}</p></div>)}</div></section>}
+              {!!onReport && <button type="button" className="fx-btn fx-btn-sm" onClick={() => report('Устройство и применение')}>Сообщить о неточности</button>}
             </div>}
           </div>
         </> : <div className="fx-empty m-4"><div className="fx-empty-title">Выберите модель</div><div className="fx-empty-text">Слева показаны модели, подходящие под выбранные фильтры.</div></div>}

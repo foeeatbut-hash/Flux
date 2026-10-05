@@ -24,6 +24,7 @@
   var parentWin = window.parent;
   var origin = window.location.origin;
   if (!parentWin || parentWin === window) return;
+  window.__fluxNoGenOfficeAI = true;
   // С диска Chromium пишет origin строкой 'null', а Electron — 'file://':
   // оба значат «адреса нет» (src/lib/officeBridge.ts, diskOrigin)
   var disk = origin === 'null' || origin === 'file://';
@@ -191,6 +192,41 @@
     // вещи и так в заголовке окна Flux, а в строке состояния был бы её номер
     '.qa-save-as,.status-file{display:none!important}';
   (document.head || document.documentElement).appendChild(css);
+
+  var aiLabel = /\b(?:ai|gsk|genspark|copilot|ask\s*ai)\b|(?:^|[^\p{L}\p{N}_])ИИ(?:$|[^\p{L}\p{N}_])|искусственн[\p{L}\p{N}_]*\s+интеллект/iu;
+  var aiControl = function (targetNode) {
+    if (!targetNode || !targetNode.closest) return false;
+    if (targetNode.closest('.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ctx-item:has(.copilot-badge)')) return true;
+    var control = targetNode.closest('button,[role="menuitem"],input,textarea');
+    var labelText = control && [control.getAttribute('aria-label'), control.getAttribute('title'), control.getAttribute('data-tip')].filter(Boolean).join(' ');
+    return aiLabel.test(labelText || '');
+  };
+  var removeAiControls = function (root) {
+    if (!root || !root.querySelectorAll) return;
+    var controls = '.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],.ctx-item:has(.copilot-badge),button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ribbon-group:has(.ai-entry)';
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) root.remove();
+    root.querySelectorAll(controls).forEach(function (node) { node.remove(); });
+    var labelled = 'button,[role="menuitem"],input,textarea';
+    var candidates = Array.prototype.slice.call(root.querySelectorAll(labelled));
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(labelled)) candidates.unshift(root);
+    candidates.forEach(function (node) {
+      var labelText = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-tip')].filter(Boolean).join(' ');
+      if (aiLabel.test(labelText)) node.remove();
+    });
+  };
+  var stopAiControl = function (event) {
+    if (!aiControl(event.target)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  document.addEventListener('click', stopAiControl, true);
+  document.addEventListener('pointerdown', stopAiControl, true);
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'F7') { event.preventDefault(); event.stopImmediatePropagation(); return; }
+    if ((event.key === 'Enter' || event.key === ' ') && aiControl(event.target)) stopAiControl(event);
+  }, true);
+  removeAiControls(document);
+  new MutationObserver(function (records) { records.forEach(function (record) { record.addedNodes.forEach(function (node) { if (node.nodeType === Node.ELEMENT_NODE) removeAiControls(node); }); }); }).observe(document.documentElement, { childList: true, subtree: true });
 
   // Ссылка на тег проекта в заметке ([П1](flux:tag/<id>)): щелчок открывает
   // тег во Flux, а не пытается уйти по незнакомому адресу

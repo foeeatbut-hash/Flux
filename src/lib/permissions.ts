@@ -87,7 +87,7 @@ export const FEATURES: FeatureDef[] = [
   { id: 'vdr.standards', group: 'Менеджмент', label: 'Стандарты документооборота', risky: true,
     desc: 'Менять коды рассмотрения, маски номеров и правила ревизий' },
 
-  { id: 'mail.shared', group: 'Почта', label: 'Настройка общей почты', risky: true,
+  { id: 'mail.shared.manage', group: 'Почта', label: 'Настройка общей почты', risky: true,
     desc: 'Подключать и менять общий ящик компании — он виден всем сотрудникам' },
 
   // Журнал показывает, кто что делал по всей программе. Это не рабочий
@@ -146,7 +146,7 @@ export function canAdmin(user: PermUser | null | undefined, feature: string): bo
  * с нуля — и новый человек первый день не мог ничего.
  */
 export const DEFAULT_DENIED = [
-  'project.manage', 'log.view',
+  'project.manage', 'log.view', 'mail.shared.manage',
   // Разбор чужих обращений, чужие технические вложения и настройки хранения —
   // это работа одного-двух человек, а не всех. Писать обращения при этом может
   // каждый: право feedback.create в списке отказов намеренно отсутствует

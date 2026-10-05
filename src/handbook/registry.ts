@@ -4,6 +4,7 @@ import { TOPIC_ARTICLES } from './topicArticles';
 import { BUILDER_ARTICLES } from './builderArticles';
 import { NATIVE_ARTICLES } from './nativeArticles';
 import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type HandbookHit } from './model';
+import { resolveSectionPath } from '../lib/sectionAliases';
 
 /**
  * Все статьи руководства в одном месте — и поиск по ним.
@@ -46,7 +47,12 @@ export function articleById(id: string): HandbookArticle | null {
 }
 
 export function forRoute(route: string): HandbookArticle | null {
-  return articleForRoute(ARTICLES, route);
+  const value = String(route || '');
+  const path = value.split(/[?#]/, 1)[0];
+  if (path === '/explorer' && new URLSearchParams(value.slice(path.length + 1)).get('view') === 'shared') {
+    return articleForRoute(ARTICLES, '/shared-files');
+  }
+  return articleForRoute(ARTICLES, path) || articleForRoute(ARTICLES, resolveSectionPath(path));
 }
 
 export type { HandbookArticle, HandbookHit };

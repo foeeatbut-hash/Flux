@@ -3,7 +3,8 @@
  * проверка каталога целиком и обмен каталогом между серверами.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, Download, Upload, CircleCheck, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Save, Download, CircleCheck, AlertTriangle } from 'lucide-react';
+import ImportFileChooser from '../ImportFileChooser';
 import type { Catalog, TagRule } from '../../../catalog/model';
 import { textOf } from '../../../catalog/model';
 import { parseWithFamily, buildDesignation, sameDesignation, paramsOfFormat } from '../../../catalog/designation';
@@ -214,10 +215,7 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
       <div className="flex gap-2 flex-wrap">
         <Btn onClick={exportAll}><Download className="w-3.5 h-3.5" /> Выгрузить каталог</Btn>
         {canEdit && (
-          <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:border-emerald-400">
-            <Upload className="w-3.5 h-3.5" /> Загрузить файл каталога
-            <input type="file" accept=".json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ''; }} />
-          </label>
+          <ImportFileChooser accept=".json" label="Загрузить файл каталога" onFiles={files => { if (files[0]) void pick(files[0]); }} />
         )}
       </div>
       {plan && (

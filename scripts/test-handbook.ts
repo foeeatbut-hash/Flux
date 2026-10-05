@@ -4,6 +4,7 @@ import { ARTICLES, search, forRoute } from '../src/handbook/registry';
 import { anchorsOf, foldRu } from '../src/handbook/model';
 import { FEATURES } from '../src/lib/permissions';
 import { thingRu, linkRu, missingNames } from '../src/handbook/names';
+import { resolveSectionPath } from '../src/lib/sectionAliases';
 
 /**
  * Руководство не должно врать.
@@ -48,11 +49,11 @@ const FEATURE_IDS = new Set(FEATURES.map((f) => f.id));
 
 console.log('1. Каждый раздел программы описан');
 {
-  const described = new Set(ARTICLES.map((a) => a.route).filter(Boolean) as string[]);
+  const described = new Set(ARTICLES.map((a) => a.route).filter(Boolean).map((route) => resolveSectionPath(String(route).split(/[?#]/, 1)[0])));
   const missing = [...ROUTES.keys()].filter((r) => !described.has(r));
   eq('в руководстве нет пропущенных разделов', missing, [], missing.map((r) => ROUTES.get(r)));
 
-  const strayRoutes = [...described].filter((r) => !ROUTES.has(r));
+  const strayRoutes = [...new Set(ARTICLES.map((a) => a.route).filter(Boolean).map((route) => resolveSectionPath(String(route).split(/[?#]/, 1)[0])))].filter((r) => !ROUTES.has(r));
   eq('нет статей про несуществующие разделы', strayRoutes, []);
 }
 
@@ -61,7 +62,11 @@ console.log('\n2. Заголовок статьи совпадает с назв
   const wrong: string[] = [];
   for (const a of ARTICLES) {
     if (!a.route) continue;
-    const title = ROUTES.get(a.route);
+    const routePath = a.route.split(/[?#]/, 1)[0];
+    const canonical = resolveSectionPath(routePath);
+    // Внутренние места сохраняют собственные статьи, хотя ведут в то же окно.
+    if (canonical !== routePath) continue;
+    const title = ROUTES.get(canonical);
     // «Главная» описана статьёй «С чего начать» — это осознанно: статья шире
     // одного раздела. Остальные обязаны совпадать, иначе человек ищет по
     // названию из меню и не находит.
@@ -142,7 +147,7 @@ console.log('\n7. Статья пригодна к чтению');
 console.log('\n8. Поиск находит то, что должен');
 {
   eq('«корзина» ведёт в Проводник', search('корзина')[0]?.article.id, 'explorer');
-  eq('«Файлы Windows» ведёт в локальный Проводник', search('Файлы Windows')[0]?.article.id, 'windows-files');
+  eq('«Файлы Windows» ведёт в единый Проводник', search('Файлы Windows')[0]?.article.id, 'explorer');
   eq('«экспорт оборудования» ведёт в выгрузку данных', search('экспорт оборудования')[0]?.article.id, 'equipment-export');
   eq('«пароль приложения» ведёт в Почту', search('пароль приложения')[0]?.article.id, 'mail');
   eq('«бэкап» ведёт в резервные копии', search('бэкап')[0]?.article.id, 'backup');
@@ -159,7 +164,8 @@ console.log('\n9. Вход из раздела');
   eq('у Почты есть своя статья', forRoute('/mail')?.id, 'mail');
   eq('у Тегов есть своя статья', forRoute('/registry')?.id, 'registry');
   eq('у выгрузки есть своя статья', forRoute('/equipment-export')?.id, 'equipment-export');
-  eq('у Проводника Windows есть своя статья', forRoute('/windows-files')?.id, 'windows-files');
+  eq('старый адрес Проводника Windows ведёт в общую статью программы', forRoute('/windows-files')?.id, 'explorer');
+  eq('внутренняя папка общего доступа открывает статью места', forRoute('/explorer?view=shared')?.id, 'shared-files');
   eq('у локального файла Windows есть своя статья', forRoute('/windows-file')?.id, 'windows-file');
   eq('неизвестный путь не даёт статью', forRoute('/нет-такого'), null);
 }

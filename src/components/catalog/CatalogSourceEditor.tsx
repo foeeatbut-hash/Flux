@@ -1,9 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { Plus, Trash2, Upload } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { CatalogDocument, CatalogRef, CatalogTable, Family } from '../../../catalog/model';
 import { Btn, Field, Input, Select, SectionTitle } from './ui';
 import { uploadCatalogAsset } from '../../services/catalogAssetService';
 import { attachCatalogSource } from '../../../catalog/sources';
+import CatalogSectionEditor from './CatalogSectionEditor';
+import ImportFileChooser from '../ImportFileChooser';
 
 function id(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -53,10 +55,7 @@ export default function CatalogSourceEditor({ family, onChange, readOnly }: {
     const state = uploads[key];
     const busy = !!state && !state.error;
     return <div className="flex flex-col items-start gap-1">
-      <label className={`inline-flex h-7 cursor-pointer items-center gap-1 rounded border border-slate-200 px-2 text-xs hover:border-emerald-400 dark:border-slate-700 ${readOnly || busy ? 'pointer-events-none opacity-50' : ''}`}>
-        <Upload className="h-3 w-3" />{busy ? `Загрузка ${Math.round(state.progress * 100)}%` : state?.error ? 'Повторить загрузку' : label}
-        <input type="file" className="hidden" disabled={readOnly || busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(key, file, attach); event.target.value = ''; }} />
-      </label>
+      <ImportFileChooser disabled={readOnly || busy} className={`fx-btn fx-btn-sm ${readOnly || busy ? 'opacity-50' : ''}`} label={busy ? `Загрузка ${Math.round(state.progress * 100)}%` : state?.error ? 'Повторить загрузку' : label} onFiles={files => { if (files[0]) void upload(key, files[0], attach); }} />
       {state?.error && <span role="alert" className="text-xs text-rose-600 dark:text-rose-400">{state.error}</span>}
     </div>;
   };
@@ -69,6 +68,7 @@ export default function CatalogSourceEditor({ family, onChange, readOnly }: {
   const removeTable = (index: number) => onChange({ ...family, tables: (family.tables || []).filter((_, position) => position !== index) });
 
   return <div className="flex flex-col gap-4">
+    <CatalogSectionEditor sections={family.sections || []} readOnly={readOnly} onChange={sections => onChange({ ...family, sections })} />
     <section className="flex flex-col gap-2">
       <SectionTitle>Источник модели</SectionTitle>
       <div className="grid grid-cols-1 gap-2 @[700px]:grid-cols-3">

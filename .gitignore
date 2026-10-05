@@ -55,3 +55,7 @@ genoffice-server/
 # Рабочие копии субагентов Claude Code (Agent с isolation: worktree) — иначе
 # поиск в основном дереве видит каждый файл репозитория по нескольку раз.
 .claude/worktrees/
+
+# Assembled from checksum-verified catalog/manual-assets parts.
+/public/catalog-documents/*.pdf
+/public/catalog-documents/*.tmp

@@ -14,7 +14,7 @@ import { Minus, Square, X, Copy } from 'lucide-react';
 import { SECTIONS, isKnownSection, sectionForPath } from '../workspace/sections';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
-import { snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
+import { MIN_W, snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
 import { layoutsFor, otherShares, panelSpot, shareStyle, type Layout, type Share } from '../lib/layouts';
 import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
 import SnapAssist from './SnapAssist';
@@ -66,6 +66,10 @@ function WindowFrame({
   // На это окно навели в списке на панели задач — обводим, чтобы было понятно,
   // какое из трёх поднимется
   const peeked = useWindowStore((s) => s.peeked === win.id);
+  // A browser or embedded workspace can be narrower than the desktop window
+  // minimum. In that case the window occupies the available viewport so its
+  // controls and contents remain reachable.
+  const compactViewport = window.innerWidth < MIN_W;
 
   /**
    * Перетаскивание и размер на указателе, а не на мыши: одним кодом работают
@@ -119,7 +123,9 @@ function WindowFrame({
       data-win={win.id}
       onPointerDownCapture={() => { if (!isTop) st.getState().focus(win.id); }}
       style={{
-        left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z,
+        left: compactViewport ? 0 : win.x, top: win.y,
+        width: compactViewport ? window.innerWidth : win.w,
+        height: win.h, zIndex: 10 + win.z,
         display: win.minimized || hidden ? 'none' : undefined,
       }}
       /* Активное окно отличает тень и тёмное название, а не зелёная рамка и

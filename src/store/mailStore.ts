@@ -24,6 +24,8 @@ interface MailState {
   total: number;
   /** Ключ открытой переписки; пусто — открыт список */
   openKey: string;
+  /** Снимок строки открытой переписки: unread-фильтр может убрать её из списка после чтения */
+  activeThread: MailThread | null;
   /** Отмеченные переписки — по ключу */
   picked: string[];
 
@@ -65,6 +67,14 @@ interface MailState {
 
 const LAST_ACCOUNT = 'flux_mail_account';
 const LAST_FOLDER = 'flux_mail_folder';
+let foldersRequestVersion = 0;
+let threadsRequestVersion = 0;
+
+export function selectOpenMailThread(threads: MailThread[], openKey: string, activeThread: MailThread | null): MailThread | null {
+  if (!openKey) return null;
+  return threads.find((thread) => thread.threadKey === openKey)
+    || (activeThread?.threadKey === openKey ? activeThread : null);
+}
 
 const remember = (key: string, value: string) => {
   try { localStorage.setItem(key, value); } catch (_) { /* приватный режим */ }
@@ -81,6 +91,7 @@ export const useMailStore = create<MailState>((set, get) => ({
   threads: [],
   total: 0,
   openKey: '',
+  activeThread: null,
   picked: [],
   query: '',
   filter: 'all',
@@ -96,7 +107,7 @@ export const useMailStore = create<MailState>((set, get) => ({
     try {
       const { accounts, keyIn, mayShared } = await mailService.accounts();
       set({ accounts, keyIn, mayShared: Boolean(mayShared), error: '' });
-      if (!accounts.length) { set({ accountId: '', folders: [], threads: [] }); return; }
+      if (!accounts.length) { set({ accountId: '', folders: [], threads: [], openKey: '', activeThread: null }); return; }
       // Возвращаемся к тому ящику, что был открыт в прошлый раз
       const saved = recall(LAST_ACCOUNT);
       const pick = accounts.find((a) => a.id === saved) || accounts[0];
@@ -107,7 +118,9 @@ export const useMailStore = create<MailState>((set, get) => ({
   },
 
   chooseAccount: async (id) => {
-    set({ accountId: id, folders: [], threads: [], openKey: '', picked: [] });
+    foldersRequestVersion++;
+    threadsRequestVersion++;
+    set({ accountId: id, folders: [], threads: [], openKey: '', activeThread: null, picked: [] });
     remember(LAST_ACCOUNT, id);
     await get().loadFolders();
   },
@@ -115,8 +128,10 @@ export const useMailStore = create<MailState>((set, get) => ({
   loadFolders: async () => {
     const { accountId } = get();
     if (!accountId) return;
+    const requestVersion = ++foldersRequestVersion;
     try {
       const { folders, shared } = await mailService.folders(accountId);
+      if (requestVersion !== foldersRequestVersion || get().accountId !== accountId) return;
       // Счётчик у ящика — сумма по папкам, но без «Отправленных», «Корзины» и
       // «Спама»: непрочитанное там человека не касается
       const counted = folders
@@ -139,12 +154,14 @@ export const useMailStore = create<MailState>((set, get) => ({
       }
       await get().loadThreads();
     } catch (err: any) {
+      if (requestVersion !== foldersRequestVersion || get().accountId !== accountId) return;
       set({ error: err?.message || 'Не удалось получить папки' });
     }
   },
 
   chooseFolder: async (id) => {
-    set({ folderId: id, openKey: '', picked: [], threads: [] });
+    threadsRequestVersion++;
+    set({ folderId: id, openKey: '', activeThread: null, picked: [], threads: [] });
     remember(LAST_FOLDER, id);
     await get().loadThreads();
   },
@@ -152,6 +169,7 @@ export const useMailStore = create<MailState>((set, get) => ({
   loadThreads: async () => {
     const { accountId, folderId, query, filter } = get();
     if (!accountId) return;
+    const requestVersion = ++threadsRequestVersion;
     set({ loading: true });
     try {
       const { threads, total, shared } = await mailService.threads({
@@ -164,8 +182,28 @@ export const useMailStore = create<MailState>((set, get) => ({
         flagged: filter === 'flagged',
         limit: 60,
       });
-      set({ threads, total, shared: Boolean(shared), loading: false, error: '' });
+      const current = get();
+      if (requestVersion !== threadsRequestVersion
+        || current.accountId !== accountId
+        || current.folderId !== folderId
+        || current.query !== query
+        || current.filter !== filter) return;
+      set((state) => ({
+        threads,
+        total,
+        shared: Boolean(shared),
+        loading: false,
+        error: '',
+        // Refreshing an unread list after opening a message removes its row.
+        // Keep the selected summary until the user closes it or navigates.
+        activeThread: state.openKey
+          ? threads.find((thread) => thread.threadKey === state.openKey) || state.activeThread
+          : null,
+      }));
     } catch (err: any) {
+      const current = get();
+      if (requestVersion !== threadsRequestVersion || current.accountId !== accountId
+        || current.folderId !== folderId || current.query !== query || current.filter !== filter) return;
       set({ loading: false, error: err?.message || 'Не удалось получить письма' });
     }
   },
@@ -183,9 +221,15 @@ export const useMailStore = create<MailState>((set, get) => ({
     }
   },
 
-  setQuery: (q) => { set({ query: q, openKey: '', picked: [] }); void get().loadThreads(); },
-  setFilter: (f) => { set({ filter: f, openKey: '', picked: [] }); void get().loadThreads(); },
-  open: (key) => set({ openKey: key, picked: [] }),
+  setQuery: (q) => { threadsRequestVersion++; set({ query: q, openKey: '', activeThread: null, picked: [] }); void get().loadThreads(); },
+  setFilter: (f) => { threadsRequestVersion++; set({ filter: f, openKey: '', activeThread: null, picked: [] }); void get().loadThreads(); },
+  open: (key) => set((state) => ({
+    openKey: key,
+    activeThread: key
+      ? state.threads.find((thread) => thread.threadKey === key) || (state.openKey === key ? state.activeThread : null)
+      : null,
+    picked: [],
+  })),
 
   togglePick: (key) => set((s) => ({
     picked: s.picked.includes(key) ? s.picked.filter((k) => k !== key) : [...s.picked, key],
@@ -198,11 +242,14 @@ export const useMailStore = create<MailState>((set, get) => ({
     if (!accountId || !threadKey) return;
     try {
       const { state } = await mailService.claim(accountId, threadKey, on);
+      if (get().accountId !== accountId) return;
       set({
         threads: get().threads.map((t) => (t.threadKey === threadKey ? { ...t, state } : t)),
+        activeThread: get().activeThread?.threadKey === threadKey ? { ...get().activeThread!, state } : get().activeThread,
         error: '',
       });
     } catch (err: any) {
+      if (get().accountId !== accountId) return;
       // Отказ «переписку уже ведёт другой» — не поломка, а нужное сообщение
       set({ error: err?.message || 'Не удалось изменить состояние переписки' });
     }
@@ -210,14 +257,18 @@ export const useMailStore = create<MailState>((set, get) => ({
 
   markSeen: async (ids, on) => {
     if (!ids.length) return;
+    const accountId = get().accountId;
     // Отмечаем сразу у себя: ждать сеть, чтобы увидеть «прочитано», незачем
     set((s) => ({
       threads: s.threads.map((t) => (t.ids.some((i) => ids.includes(i)) ? { ...t, unread: !on } : t)),
+      activeThread: s.activeThread?.ids.some((id) => ids.includes(id)) ? { ...s.activeThread, unread: !on } : s.activeThread,
     }));
     try {
       await mailService.flag(ids, 'seen', on);
+      if (get().accountId !== accountId) return;
       await get().loadFolders();
     } catch (err: any) {
+      if (get().accountId !== accountId) return;
       set({ error: err?.message || 'Отметку не удалось сохранить' });
       await get().loadThreads();
     }
@@ -227,6 +278,7 @@ export const useMailStore = create<MailState>((set, get) => ({
     if (!ids.length) return;
     set((s) => ({
       threads: s.threads.map((t) => (t.ids.some((i) => ids.includes(i)) ? { ...t, flagged: on } : t)),
+      activeThread: s.activeThread?.ids.some((id) => ids.includes(id)) ? { ...s.activeThread, flagged: on } : s.activeThread,
     }));
     try {
       await mailService.flag(ids, 'flagged', on);
@@ -241,6 +293,7 @@ export const useMailStore = create<MailState>((set, get) => ({
     set((s) => ({
       threads: s.threads.filter((t) => !t.ids.some((i) => ids.includes(i))),
       openKey: '',
+      activeThread: null,
       picked: [],
     }));
     try {
