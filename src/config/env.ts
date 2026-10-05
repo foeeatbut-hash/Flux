@@ -20,6 +20,10 @@ export async function setConfiguredServerUrl(url: string): Promise<void> {
 try { localStorage.removeItem('flux_auth_token'); } catch (_) {}
 let authToken = '';
 let sessionEstablished = false;
+const LOGGED_OUT_KEY = 'flux_local_logged_out';
+function locallyLoggedOut(): boolean {
+  try { return localStorage.getItem(LOGGED_OUT_KEY) === '1'; } catch { return false; }
+}
 export function getAuthToken(): string { return authToken; }
 export async function setAuthToken(token: string): Promise<void> {
   const nextToken = token || '';
@@ -32,22 +36,31 @@ export async function setAuthToken(token: string): Promise<void> {
 export async function initializeAuthToken(): Promise<void> {
   // Old unencrypted sessions are deliberately not trusted or migrated.
   try { localStorage.removeItem('flux_auth_token'); } catch (_) {}
+  if (locallyLoggedOut()) { authToken = ''; return; }
   const bridge = typeof window !== 'undefined' ? (window as any).electron?.ipcRenderer : null;
   if (bridge?.invoke) authToken = await bridge.invoke('auth:read-session', new URL(SERVER_BASE_URL || window.location.origin).origin) || '';
 }
 export function markSessionEstablished(): void {
   sessionEstablished = true;
+  try { localStorage.removeItem(LOGGED_OUT_KEY); } catch (_) {}
   try { window.dispatchEvent(new Event('flux:session-changed')); } catch (_) {}
 }
-export function getAuthSessionKey(): string { return authToken || (usesCookieTransport() ? csrfCookie() : ''); }
+export function getAuthSessionKey(): string { return locallyLoggedOut() ? '' : authToken || (usesCookieTransport() ? csrfCookie() : ''); }
 export function usesCookieTransport(): boolean {
   return typeof window !== 'undefined' && window.location.protocol !== 'file:' && (!SERVER_BASE_URL || new URL(SERVER_BASE_URL).origin === window.location.origin);
 }
-export async function logoutSession(): Promise<void> {
-  const response = await fetch('/api/logout', { method: 'POST' });
-  if (!response.ok && response.status !== 401) throw new Error('Не удалось завершить сессию на сервере. Повторите выход.');
-  await setAuthToken('');
+export async function logoutSession(): Promise<{ remoteRevoked: boolean }> {
+  let remoteRevoked = false;
+  try {
+    const response = await fetch('/api/logout', { method: 'POST', signal: AbortSignal.timeout(8000) });
+    remoteRevoked = response.ok || response.status === 401;
+  } catch { /* Local logout must remain available when the database/network is down. */ }
+  // Prevent an old HttpOnly cookie or failed IPC deletion from restoring the profile.
+  try { localStorage.setItem(LOGGED_OUT_KEY, '1'); } catch (_) {}
+  authToken = '';
   sessionEstablished = false;
+  await setAuthToken('');
+  return { remoteRevoked };
 }
 function csrfCookie(): string {
   try {

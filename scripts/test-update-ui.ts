@@ -82,6 +82,7 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
     ok('файл с заголовком MZ записан в общую базу', uploaded.status === 200 && uploaded.json?.shared === true, uploaded.json || uploaded.status);
     const published = await api(ownerToken, 'POST', '/api/updates', {
       version: VERSION,
+      generation: uploaded.json?.generation,
       changelog: 'Проверочный выпуск для интерфейса обновлений.',
       signature: testSignature(executable, VERSION),
     });
@@ -111,10 +112,10 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
       String(await badge.getAttribute('title') || '').includes(VERSION), await badge.getAttribute('title'));
     await badge.click();
     await page.waitForTimeout(2000);
-    ok('значок открыл настройки обновлений',
-      await page.getByText('Автообновления', { exact: false }).first().isVisible().catch(() => false));
-    ok('в настройках показана новая версия',
-      await page.getByText(`v${VERSION}`, { exact: false }).first().isVisible().catch(() => false));
+    ok('значок открыл самостоятельное окно обновления',
+      await page.getByRole('dialog', { name: 'Обновление Flux', exact: true }).isVisible().catch(() => false));
+    ok('в окне показана новая версия',
+      await page.getByText(VERSION, { exact: false }).first().isVisible().catch(() => false));
     ok('сотруднику доступно скачивание файла',
       await page.getByRole('button', { name: 'Скачать файл', exact: true }).isVisible().catch(() => false));
 

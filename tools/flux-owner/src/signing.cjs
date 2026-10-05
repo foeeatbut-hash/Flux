@@ -54,4 +54,17 @@ function publicConfig(vault) {
   if(vault.kind!=='main')throw new Error('Запасной файл используется только для входа владельца.');
   return {format:'FLUXPUBLIC1',license:vault.keys.license.publicHex,update:vault.keys.update.publicHex,owner:vault.keys.owner.publicHex,ownerBackup:vault.backupOwnerPublic};
 }
-module.exports={safeRequest,issueLicense,revokeLicenses,inspectExe,signUpdate,publicConfig,keyFor};
+function updateDelegationRequest(code) {
+  if(typeof code!=='string'||code.length>8192||!code.startsWith('FLUXUPDAUTHREQ1.'))throw new Error('Вставьте запрос на разрешение из раздела «Сотрудники» в Flux.');
+  let req;try{req=JSON.parse(Buffer.from(code.slice('FLUXUPDAUTHREQ1.'.length),'base64').toString('utf8'));}catch{throw new Error('Запрос на разрешение повреждён.');}
+  if(req?.v!==1||![req.inst,req.userId].every(s=>typeof s==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(s))||!/^[a-f0-9]{64}$/i.test(req.publicKey))throw new Error('В запросе отсутствует установка, профиль или открытый ключ компьютера.');
+  return {v:1,inst:req.inst,userId:req.userId,publicKey:req.publicKey};
+}
+function signUpdateDelegation(vault,{code,days,maxTargets,maxMinutes}) {
+  const req=updateDelegationRequest(code);
+  if(!Number.isInteger(days)||days<1||days>365||!Number.isInteger(maxTargets)||maxTargets<1||maxTargets>2000||!Number.isInteger(maxMinutes)||maxMinutes<5||maxMinutes>1440)throw new Error('Проверьте срок и ограничения разрешения.');
+  const issuedAt=Date.now(),payload={...req,id:crypto.randomUUID(),issuedAt,expiresAt:issuedAt+days*86400000,maxTargets,maxMinutes};
+  const body=`FLUXUPDAUTH1.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+  return {code:`${body}.${crypto.sign(null,Buffer.from(body),keyFor(vault,'update')).toString('base64url')}`,payload};
+}
+module.exports={safeRequest,issueLicense,revokeLicenses,inspectExe,signUpdate,publicConfig,keyFor,updateDelegationRequest,signUpdateDelegation};

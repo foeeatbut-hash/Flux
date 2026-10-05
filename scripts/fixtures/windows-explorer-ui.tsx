@@ -7,7 +7,7 @@ import '../../src/index.css';
 import { useStore } from '../../src/store/store';
 import { useDisplayStore } from '../../src/store/displayStore';
 import { useDesktopStore } from '../../src/store/desktopStore';
-import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot } from '../../filesystem/contracts';
+import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
 const entries: WindowsFileEntry[] = [
@@ -19,14 +19,21 @@ const nested: WindowsFileEntry[] = [
   { name: 'Отчёт.xlsx', relativePath: 'Проекты/Отчёт.xlsx', storage: 'windows', kind: 'file', fileId: 'file-3', size: 2048, modifiedAt: '2026-09-22T09:00:00.000Z', linked: false },
   { name: 'Архив', relativePath: 'Проекты/Архив', storage: 'windows', kind: 'directory', fileId: 'folder-2', size: 0, modifiedAt: '2026-09-18T09:00:00.000Z', linked: false },
 ];
+const diskRoot: WindowsRoot = { id: 'disk-c', name: 'Локальный диск (C:)', kind: 'custom', available: true };
+const volumes: WindowsVolume[] = [{ id: 'volume-c', name: 'Локальный диск (C:)', kind: 'fixed', size: 256 * 1024 ** 3, free: 128 * 1024 ** 3, root: diskRoot }];
 const metadata: WindowsFileMetadata = { fileId: 'file-3', tags: ['AHU-01'], projectIds: ['project-1'], revision: 'A', responsible: 'Иванов', history: [{ at: '2026-09-22T09:00:00.000Z', action: 'save', relativePath: 'Проекты/Отчёт.xlsx' }] };
 const calls: WindowsFilesRequest[] = [];
 const drafts: WindowsFileEntry[] = [];
+const draftChildren = new Map<string, WindowsFileEntry[]>();
 let delayedMetadataPath = '';
 let failedMetadataPath = '';
 let delayedListPath = '';
 
-function childPath(ref: WindowsFileRef) { return ref.relativePath === '' ? entries : ref.relativePath === 'Проекты' ? nested : []; }
+function childPath(ref: WindowsFileRef) {
+  if (ref.draftId) return draftChildren.get(ref.draftId) || [];
+  if (ref.rootId === 'disk-c') return ref.relativePath === '' ? [{ name: 'Fluxdraftfolders', relativePath: 'Fluxdraftfolders', storage: 'windows', kind: 'directory', fileId: 'disk-folder', size: 0, modifiedAt: '2026-10-01T10:00:00.000Z', linked: false }] : [];
+  return ref.relativePath === '' ? entries : ref.relativePath === 'Проекты' ? nested : [];
+}
 async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesResponse<any>> {
   calls.push(request);
   if (request.action === 'list' && request.ref.relativePath === delayedListPath) await new Promise((resolve) => setTimeout(resolve, 350));
@@ -36,15 +43,25 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
   }
   switch (request.action) {
     case 'roots': return { ok: true, data: [root, { id: 'documents-id', name: 'Документы', kind: 'documents', available: true }, { id: 'downloads-id', name: 'Загрузки', kind: 'downloads', available: true }] };
-    case 'list': return { ok: true, data: { root, entries: [...childPath(request.ref), ...drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1)], nextOffset: null, truncated: false } };
+    case 'volumes': return { ok: true, data: volumes };
+    case 'list': return { ok: true, data: { root, entries: [...childPath(request.ref), ...(!request.ref.draftId ? drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1) : [])], nextOffset: null, truncated: false } };
     case 'metadata': return { ok: true, data: { ...metadata, revision: request.ref.relativePath } };
     case 'read': return { ok: true, data: { name: request.ref.relativePath, base64: 'eA==', sha256: 'a'.repeat(64) } };
     case 'createDraft': {
       const ref = { rootId: request.parent.rootId, relativePath: request.parent.relativePath ? `${request.parent.relativePath}/${request.name}` : request.name, draftId: 'draft-1' };
       const file = { name: request.name, relativePath: ref.relativePath, storage: 'flux' as const, draftId: ref.draftId, kind: 'file' as const, fileId: 'draft-file-1', size: 18, modifiedAt: '2026-10-01T10:00:00.000Z', linked: false };
-      drafts.push(file); return { ok: true, data: { ref, file } };
+      drafts.push(file); if (request.parent.draftId) draftChildren.set(request.parent.draftId, [...(draftChildren.get(request.parent.draftId) || []), file]);
+      return { ok: true, data: { ref, file } };
+    }
+    case 'createDraftFolder': {
+      const ref = { rootId: request.parent.rootId, relativePath: request.parent.relativePath ? `${request.parent.relativePath}/${request.name}` : request.name, draftId: `draft-folder-${drafts.length + 1}` };
+      (window as any).__draftFolderIds.push(ref.draftId);
+      const file: WindowsFileEntry = { name: request.name, relativePath: ref.relativePath, storage: 'flux', draftId: ref.draftId, kind: 'directory', fileId: `draft-folder-file-${drafts.length + 1}`, size: 0, modifiedAt: '2026-10-01T10:00:00.000Z', linked: false };
+      drafts.push(file); draftChildren.set(ref.draftId, []);
+      return { ok: true, data: { ref, file } };
     }
     case 'publishDraft': drafts.forEach((item) => { item.storage = 'windows'; delete item.draftId; }); return { ok: true, data: { published: true } };
+    case 'publishDraftTree': return { ok: true, data: { published: draftChildren.get(request.ref.draftId || '')?.length || 0, failed: [], complete: true } };
     case 'mkdir': return { ok: true, data: {} };
     case 'rename': return { ok: true, data: {} };
     case 'copy': case 'move': case 'trash': case 'open': case 'reveal': case 'watch': case 'unwatch': case 'setMetadata': return { ok: true, data: {} };
@@ -53,6 +70,7 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
   }
 }
 (window as any).__windowsFilesCalls = calls;
+(window as any).__draftFolderIds = [];
 (window as any).__delayMetadataPath = (path: string) => { delayedMetadataPath = path; };
 (window as any).__failMetadataPath = (path: string) => { failedMetadataPath = path; };
 (window as any).__delayListPath = (path: string) => { delayedListPath = path; };
@@ -77,7 +95,7 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
 useDisplayStore.setState({ workspace: { enabled: true, displays: [
   { id: 2, label: 'Слева', primary: false, scaleFactor: 1.5, bounds: { x: -1280, y: -200, w: 1280, h: 1024 }, workArea: { x: -1280, y: -200, w: 1280, h: 984 } },
   { id: 1, label: 'Основной', primary: true, scaleFactor: 1, bounds: { x: 0, y: 0, w: 1920, h: 1080 }, workArea: { x: 0, y: 0, w: 1920, h: 1040 } },
-], bounds: { x: -1280, y: -200, w: 3200, h: 1280 }, primaryId: 1, mixedScale: true, showWindowsTaskbar: true }, available: true });
+], bounds: { x: -1280, y: -200, w: 3200, h: 1280 }, primaryId: 1, mixedScale: true }, available: true });
 useDesktopStore.getState().pinApp('/registry');
 (window as any).fetch = async (url: string) => {
   const path = String(url);

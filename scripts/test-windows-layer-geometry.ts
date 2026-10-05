@@ -32,10 +32,11 @@ async function main() {
     console.log(`✓ visible Windows taskbar: ${JSON.stringify(visible)}`);
 
     await page.evaluate('window.__setWindowsTaskbar(false)');
-    await page.waitForFunction('document.querySelector(\'[data-display-taskbar="1"]\')?.getBoundingClientRect().y === 760');
-    const hidden = await geometry();
-    assert.deepEqual(hidden.taskbar, { x: 0, y: 760, width: 1280, height: 40, bottom: 800 }, 'hidden Windows taskbar gives Flux the complete screen');
-    console.log(`✓ hidden Windows taskbar: ${JSON.stringify(hidden)}`);
+    await page.waitForTimeout(50);
+    const legacyPreference = await geometry();
+    assert.deepEqual(legacyPreference.taskbar, visible.taskbar, 'an old preference cannot move Flux into the Windows taskbar area');
+    assert.equal(legacyPreference.root.height, 800, 'legacy preference does not add a white placeholder strip');
+    console.log(`✓ legacy hide preference is ignored: ${JSON.stringify(legacyPreference)}`);
 
     const frame = await page.evaluate<{ windowed: string; maximized: string; coverage: string; darkTheme: boolean; lightCornerBackgroundMatches: boolean; darkCornerBackgroundMatches: { app: string; body: string } }>(`(() => {
       const root = document.documentElement;
@@ -60,6 +61,21 @@ async function main() {
     assert.equal(frame.darkCornerBackgroundMatches.app, frame.darkCornerBackgroundMatches.body, `dark rounded window corner background mismatch: ${JSON.stringify(frame.darkCornerBackgroundMatches)}`);
     assert.deepEqual({ ...frame, darkCornerBackgroundMatches: true }, { windowed: '10px', maximized: '0px', coverage: '0px', darkTheme: true, lightCornerBackgroundMatches: true, darkCornerBackgroundMatches: true });
     console.log(`✓ conditional native frame CSS: ${JSON.stringify(frame)}`);
+
+    await page.waitForFunction('typeof window.__navigate === "function"');
+    await page.evaluate('window.__navigate("/settings")');
+    await page.waitForFunction('window.__windowStore.getState().windows.some(w => w.path === "/settings")');
+    await page.evaluate(`(() => { const st = window.__windowStore.getState(); const w = st.windows.find(w => w.path === '/settings'); st.minimize(w.id); window.__refreshPolicy(); })()`);
+    await page.waitForTimeout(200);
+    assert.equal(await page.evaluate('window.__windowStore.getState().windows.find(w => w.path === "/settings").minimized'), true, 'policy refresh must not restore minimized windows');
+    console.log('✓ rights refresh does not restore a minimized window');
+    await page.evaluate(`(() => { const st = window.__windowStore.getState(); st.close(st.windows.find(w => w.path === '/settings').id); window.__refreshPolicy(); })()`);
+    await page.waitForTimeout(200);
+    assert.equal(await page.evaluate('window.__windowStore.getState().windows.some(w => w.path === "/settings")'), false, 'policy refresh must not reopen closed windows');
+    console.log('✓ rights refresh does not reopen a closed window');
+    await page.evaluate('window.__navigate("/settings?section=general")');
+    await page.waitForFunction('window.__windowStore.getState().windows.some(w => w.path === "/settings")');
+    console.log('✓ explicit navigation opens the program again');
   } finally {
     await browser?.close();
     await vite.close();

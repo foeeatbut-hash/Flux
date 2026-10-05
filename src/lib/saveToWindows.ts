@@ -11,6 +11,7 @@
  * сохранения нет — там это обычное скачивание.
  */
 import { fileBytes } from './fileBytes';
+import { bytesToBase64, windowsFilesRequest, type WindowsFileRef } from './windowsFiles';
 
 export interface SaveResult {
   ok: boolean;
@@ -43,7 +44,7 @@ function downloadInBrowser(name: string, bytes: Uint8Array): SaveResult {
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
-    return { ok: true, path: name, canceled: false, error: '' };
+    return { ok: true, path: `${parent.name}/${name}`, canceled: false, error: '' };
   } catch (err: any) {
     return { ok: false, path: '', canceled: false, error: String(err?.message || err) };
   }
@@ -95,6 +96,73 @@ export async function saveFileNode(fileId: string): Promise<SaveResult> {
     };
   }
   return saveBytes(String(file?.name || 'Файл'), bytes, folderOf(String(file?.origin || '')));
+}
+
+/** Дерево собирается локально: сервер проверяет права для каждого файла отдельно. */
+export async function saveFolderTreeToWindows(folderId: string, name: string, folders: any[]): Promise<SaveResult> {
+  const request = async <T,>(value: any): Promise<T> => {
+    const result = await windowsFilesRequest<T>(value);
+    if ('error' in result) throw new Error(result.error.message);
+    return result.data;
+  };
+  let rootRef: WindowsFileRef | null = null;
+  try {
+    const parent = await request<{ id: string; name: string; kind: any } | { canceled: true }>({ action: 'addRoot' });
+    if ('canceled' in parent) return { ok: false, path: '', canceled: true, error: '' };
+    if (!parent.id) throw new Error('Не выбрана папка Windows.');
+    rootRef = { rootId: parent.id, relativePath: '' };
+    const source = folders.find(folder => folder.id === folderId);
+    if (!source) throw new Error('Папка больше недоступна. Обновите список документов.');
+    const byParent = new Map<string, any[]>();
+    for (const folder of folders) {
+      const key = String(folder.parentId || '');
+      byParent.set(key, [...(byParent.get(key) || []), folder]);
+    }
+    let entries = 1;
+    let totalBytes = 0;
+    const createTree = async (folder: any, parentRef: WindowsFileRef, depth: number): Promise<void> => {
+      if (depth > 64 || ++entries > 5000) throw new Error('Дерево слишком большое: предел 5000 элементов и 64 уровня. Черновик Flux сохранён.');
+      const created = await request<{ ref: WindowsFileRef }>({ action: 'createDraftFolder', parent: parentRef, name: String(folder.name || 'Папка') });
+      for (const file of folder.files || []) {
+        if (++entries > 5000) throw new Error('Дерево слишком большое: предел 5000 элементов. Черновик Flux сохранён.');
+        const expectedSize = Number(file.size || 0);
+        if (expectedSize > 64 * 1024 * 1024 || totalBytes + expectedSize > 512 * 1024 * 1024) throw new Error('Дерево превышает предел 512 МБ. Черновик Flux сохранён.');
+        const bytes = new Uint8Array(await fileBytes(String(file.id)));
+        totalBytes += bytes.byteLength;
+        if (bytes.byteLength > 64 * 1024 * 1024 || totalBytes > 512 * 1024 * 1024) throw new Error('Дерево превышает предел 512 МБ. Черновик Flux сохранён.');
+        await request({ action: 'createDraft', parent: created.ref, name: String(file.name || 'Файл'), base64: bytesToBase64(bytes) });
+      }
+      for (const child of byParent.get(String(folder.id)) || []) await createTree(child, created.ref, depth + 1);
+    };
+    const root = await request<{ ref: WindowsFileRef }>({ action: 'createDraftFolder', parent: rootRef, name });
+    rootRef = root.ref;
+    // Корень уже создан; копируем его содержимое отдельно, чтобы не добавлять лишний уровень.
+    for (const file of source.files || []) {
+      if (++entries > 5000) throw new Error('Дерево слишком большое: предел 5000 элементов. Черновик Flux сохранён.');
+      const expectedSize = Number(file.size || 0);
+      if (expectedSize > 64 * 1024 * 1024 || totalBytes + expectedSize > 512 * 1024 * 1024) throw new Error('Дерево превышает предел 512 МБ. Черновик Flux сохранён.');
+      const bytes = new Uint8Array(await fileBytes(String(file.id)));
+      totalBytes += bytes.byteLength;
+      if (bytes.byteLength > 64 * 1024 * 1024 || totalBytes > 512 * 1024 * 1024) throw new Error('Дерево превышает предел 512 МБ. Черновик Flux сохранён.');
+      await request({ action: 'createDraft', parent: root.ref, name: String(file.name || 'Файл'), base64: bytesToBase64(bytes) });
+    }
+    for (const child of byParent.get(String(source.id)) || []) await createTree(child, root.ref, 1);
+    const published = await request<{ complete: boolean; published: number; failed: string[] }>({ action: 'publishDraftTree', ref: root.ref });
+    if (!published.complete || published.failed.length) return { ok: false, path: '', canceled: false, error: `Опубликовано ${published.published}; ошибки: ${published.failed.join('; ')}. Черновик сохранён в Flux.` };
+    return { ok: true, path: name, canceled: false, error: '' };
+  } catch (error: any) {
+    return { ok: false, path: rootRef ? `Черновик: ${name}` : '', canceled: false, error: `${String(error?.message || error)}${rootRef ? ' Черновик Flux сохранён в выбранной папке.' : ''}` };
+  }
+}
+
+export async function saveExplorerItem(id: string, isFolder: boolean, items: any[], folders: any[], notify: (message: string, tone: 'success' | 'error') => void): Promise<void> {
+  const item = items.find(value => value.id === id);
+  if (!item) return;
+  const out = isFolder
+    ? await saveFolderTreeToWindows(id, String(item.name || 'Папка'), folders)
+    : await saveFileNode(id);
+  if (out.canceled) return;
+  notify(out.ok ? `${isFolder ? 'Папка' : 'Сохранено'}: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
 }
 
 /**

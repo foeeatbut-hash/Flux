@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
-import { internalAppHref, NATIVE_APP_OPEN, NATIVE_APP_LIST, NATIVE_APP_LOCATION, NATIVE_APP_CLOSE_REPLY } from '../workspace/nativeApps';
+import { internalAppHref, NATIVE_APP_OPEN, NATIVE_APP_LIST, NATIVE_APP_LOCATION, NATIVE_APP_CLOSE_REPLY, NATIVE_APP_ACTION } from '../workspace/nativeApps';
 
 async function main() {
   const handlers = new Map<string, Function>();
@@ -35,7 +35,8 @@ async function main() {
     clearTimeout:(id:number)=>{if(timers[id-1])timers[id-1].cleared=true;},
     require:(name:string)=> name === 'electron' ? electron : require(name)});
   let authenticated = true;
-  const nativeWindows = module.exports.setupNativeAppWindows({isTrusted:(event:any)=>event.trusted,mayRead:()=>authenticated,getMainWindow:()=>null,preload:'/preload.js',rendererFile:'/index.html'});
+  const mainWindow = { webContents: { send() {} }, isDestroyed: () => false };
+  const nativeWindows = module.exports.setupNativeAppWindows({isTrusted:(event:any)=>event.trusted,mayRead:()=>authenticated,getMainWindow:()=>mainWindow,preload:'/preload.js',rendererFile:'/index.html'});
   const call = (name: string, event: any, ...args: any[]) => handlers.get(name)!(event,...args);
   await assert.rejects(() => call(NATIVE_APP_OPEN,{trusted:false},'/tags'));
   for (const href of ['//evil.test','https://evil.test','/native-app?x=1','/a\\b','/a\n']) assert.equal(internalAppHref(href),null);
@@ -72,6 +73,19 @@ async function main() {
   third.close();
   assert.equal(await call(NATIVE_APP_CLOSE_REPLY,{trusted:true,sender:third.webContents},thirdId,true),true);
   assert.equal(third.destroyed,true);
+  assert.equal(await call(NATIVE_APP_ACTION, secondOwn, '', 'logout'), false, 'Дочерний WebContents не завершает все окна другой оболочки');
+  const mainEvent = { trusted: true, sender: mainWindow.webContents };
+  const logoutDenied = call(NATIVE_APP_ACTION, mainEvent, '', 'logout');
+  await Promise.resolve(); await Promise.resolve();
+  await assert.rejects(() => call(NATIVE_APP_OPEN, trusted, '/help'), /Дождитесь/);
+  assert.equal(await call(NATIVE_APP_CLOSE_REPLY, secondOwn, secondId, false), false);
+  assert.equal(await logoutDenied, false);
+  assert.equal(second.destroyed, false, 'Отказ сохранения отменяет выход, не уничтожая редактор');
+  const logoutAllowed = call(NATIVE_APP_ACTION, mainEvent, '', 'logout');
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(await call(NATIVE_APP_CLOSE_REPLY, secondOwn, secondId, true), true);
+  assert.equal(await logoutAllowed, true);
+  assert.equal(second.destroyed, true, 'Выход закрывает самостоятельный редактор только после подтверждения сохранения');
   console.log('✓ Native windows validate origins, preserve identity on navigation, choose cursor monitor, and wait for their own close guard even after session expiry');
 }
 void main().catch(error=>{console.error(error);process.exitCode=1;});

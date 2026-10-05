@@ -145,6 +145,7 @@ export const EVENTS = {
   // ── Electron ──────────────────────────────────────────────────────────────
   'electron.process': { pid: 'count', type: 'name', cpuPercent: 'count', workingSetKB: 'count', peakWorkingSetKB: 'count' },
   'window.state': { id: 'count', state: 'name' },
+  'workspace.window': { action: 'name', section: 'route', count: 'count', minimized: 'flag' },
   'desktop.snapshot': { error: 'name', code: 'code' },
   'window.load-error': { id: 'count', code: 'code', mainFrame: 'flag' },
   'renderer.gone': { id: 'count', reason: 'name', exitCode: 'code' },

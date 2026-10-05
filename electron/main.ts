@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess, safeStorage } from 'electron';
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
@@ -11,7 +11,7 @@ import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
 import { setupGames } from './games';
 import { setupOwnerLogin } from './ownerLogin';
-import { setupAuthStorage, trustedAuthSender, readNativeSession } from './authStorage';
+import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
 import { setupDesktopShell } from './desktopShell';
 import { setupNativeAppWindows } from './nativeApps';
@@ -25,6 +25,7 @@ import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
+import { registerUpdateCampaignIpc, assertCampaignRestart } from './updateCampaign';
 import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
 import { companyDatabaseUri, databaseSummary, probeCompanyDatabase } from './databaseConnection';
 
@@ -249,6 +250,17 @@ app.whenReady().then(async () => {
     token: readNativeSession, fetch: globalThis.fetch });
   const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess });
   registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
+  registerUpdateCampaignIpc({ ipcMain, dataDir: app.getPath('userData'), version: () => app.getVersion(),
+    authorized: async (event) => trustedAuthSender(event) && await localAccess.mayRead(event),
+    encryption: { available: secureStorageAvailable, encrypt: value => safeStorage.encryptString(value), decrypt: value => safeStorage.decryptString(value) },
+    authorizeSigning: async (_event, data) => {
+      try {
+        const response = await fetch('http://localhost:3000/api/updates/delegation', { headers: { Authorization: `Bearer ${readNativeSession('http://localhost:3000') || ''}` }, redirect: 'error', signal: AbortSignal.timeout(5000) });
+        if (!response.ok) return false;
+        const current = await response.json();
+        return !!current.code && current.code === data?.delegation && current.userId === data?.payload?.actor;
+      } catch { return false; }
+    } });
   setupDesktopShell({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
   setupWindowsNotifications({ isTrusted: trustedAuthSender, ...localAccess });
   const nativeAppWindows = setupNativeAppWindows({ isTrusted: trustedAuthSender, mayRead: localAccess.mayRead,
@@ -884,7 +896,7 @@ app.whenReady().then(async () => {
    * место и запускает. Это графическая программа — консоли у неё не бывает
    * никогда, а повторы и внятный отказ живут в electron/applyUpdate.ts.
    */
-  ipcMain.handle('updater:quitAndInstall', async (event) => {
+  ipcMain.handle('updater:quitAndInstall', async (event, campaignId?: string) => {
     if (!trustedAuthSender(event) || !await localAccess.mayRead(event)) return {success:false,error:'Войдите в Flux для обновления.'};
     if (updateInProgress) return {success:false,error:'Дождитесь завершения скачивания.'};
     const fs = require('fs');
@@ -905,6 +917,11 @@ app.whenReady().then(async () => {
       if (refusal) throw new Error(refusal);
       await assertUpdatePublished({...cached,token:readNativeSession(cached.server) || ''});
       if (!await nativeAppWindows.approveCloseAll() || !await mainClose.approveClose()) return {success:false,error:'Обновление отложено: сохраните изменения в открытых окнах.'};
+      if (campaignId) await assertCampaignRestart(campaignId, cached.version, async deviceId => {
+        const response = await fetch(`http://localhost:3000/api/updates/devices/${encodeURIComponent(deviceId)}/commands`, { signal: AbortSignal.timeout(15000), redirect: 'error', headers: { Authorization: `Bearer ${readNativeSession('http://localhost:3000') || ''}` } });
+        if (!response.ok) throw new Error('Назначение обновления недоступно. Перезапуск отложен.');
+        return response.json();
+      });
       // Тот файл, который человек запускал (у portable-сборки это не execPath)
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 

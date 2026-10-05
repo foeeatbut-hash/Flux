@@ -15,12 +15,13 @@ import {
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
 } from '../../lib/windowsFiles';
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
+import { zip } from '../../../feedback/zip';
 
 type Cell = { col: number; row: number };
 type DesktopItem =
   | { id: string; kind: 'file'; entry: WindowsFileEntry }
   | { id: string; kind: 'shell'; item: ShellDesktopItem };
-type CreateKind = 'windows-folder' | 'windows-doc' | 'windows-sheet' | 'windows-text';
+type CreateKind = 'windows-folder' | 'windows-doc' | 'windows-sheet' | 'windows-text' | 'flux-folder' | 'flux-doc' | 'flux-sheet' | 'flux-text' | 'flux-archive';
 const LAYOUT_PREFIX = 'flux_windows_desktop_cells_v1:';
 const CELL_WIDTH = 104;
 const CELL_HEIGHT = 100;
@@ -248,6 +249,9 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     const defaults: Record<CreateKind, string> = {
       'windows-folder': 'Новая папка', 'windows-doc': 'Новый документ.docx',
       'windows-sheet': 'Новая таблица.xlsx', 'windows-text': 'Новый текстовый документ.txt',
+      'flux-folder': 'Новая папка', 'flux-doc': 'Новый документ.docx',
+      'flux-sheet': 'Новая таблица.xlsx', 'flux-text': 'Новый текстовый документ.txt',
+      'flux-archive': 'Новый архив.zip',
     };
     setName(defaults[kind]);
     setCreating(kind);
@@ -264,15 +268,26 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
         if (result) { setCreating(null); await refresh(root.id); addToast('Папка создана на рабочем столе Windows', 'success'); }
         return;
       }
+      const inFlux = creating.startsWith('flux-');
+      if (creating.endsWith('folder')) {
+        const result = await invoke({ action: 'createDraftFolder', parent, name: cleanName });
+        if (result) { setCreating(null); await refresh(root.id); addToast('Папка создана в Flux. Опубликуйте её в Windows, когда будете готовы.', 'success'); }
+        return;
+      }
       const kind = creating.endsWith('doc') ? 'doc' : creating.endsWith('sheet') ? 'sheet' : null;
-      const extension = creating.endsWith('doc') ? '.docx' : creating.endsWith('sheet') ? '.xlsx' : '.txt';
+      const extension = creating.endsWith('doc') ? '.docx' : creating.endsWith('sheet') ? '.xlsx' : creating.endsWith('archive') ? '.zip' : '.txt';
       const finalName = cleanName.toLowerCase().endsWith(extension) ? cleanName : `${cleanName}${extension}`;
-      const bytes = kind ? await blankBytes(kind) : new TextEncoder().encode('');
+      const bytes = kind ? await blankBytes(kind) : creating.endsWith('archive') ? zip([]) : new TextEncoder().encode('');
       let result: any;
+      // Windows creations publish immediately. Flux creations stay recoverable
+      // in the local draft store until the user explicitly publishes them.
       // Документы публикуются в выбранной папке Windows, поэтому остаются
       // обычными файлами и получают значок программы, назначенной в системе.
       const draft = await invoke({ action: 'createDraft', parent, name: finalName, base64: bytesToBase64(bytes) }) as { ref?: WindowsFileRef } | null;
       if (!draft?.ref) return;
+      if (inFlux) {
+        setCreating(null); await refresh(root.id); addToast('Черновик создан в Flux.', 'success'); return;
+      }
       result = await invoke({ action: 'publishDraft', ref: draft.ref });
       result = result as { ref?: WindowsFileRef } | null;
       if (result?.ref) {
@@ -373,6 +388,10 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
         { label: 'Открыть в Windows', icon: <ExternalLink />, onClick: () => void invoke({ action: 'open', ref: entryRef(root!.id, current.entry) }) },
         { label: 'Показать в Проводнике', icon: <Folder />, onClick: () => void invoke({ action: 'reveal', ref: entryRef(root!.id, current.entry) }) },
         { label: 'Свойства файла', icon: <MoreVertical />, onClick: () => void doProperties(current.entry) },
+        ...(current.entry.draftId ? [{ label: current.entry.kind === 'directory' ? 'Опубликовать дерево в Windows' : 'Опубликовать в Windows', icon: <ExternalLink />, onClick: async () => {
+          const result: any = await invoke({ action: current!.entry.kind === 'directory' ? 'publishDraftTree' : 'publishDraft', ref: entryRef(root!.id, current!.entry) });
+          if (result) { await refresh(root!.id); if (result.complete === false) addToast(`Опубликовано частично. Ошибок: ${result.failed?.length || 0}. Черновики сохранены в Flux.`, 'error'); else addToast('Опубликовано в Windows.', 'success'); }
+        } }] : []),
         ...(current.entry.kind === 'file' ? [{ label: 'Общий доступ…', icon: <Folder />, onClick: () => setShareEntry(current.entry) }] : []),
         { label: current.entry.draftId ? 'Удалить черновик' : 'В Корзину Windows', icon: <Trash2 />, danger: true, onClick: () => void doTrash(current.entry) },
       ] satisfies MenuItem[] : current?.kind === 'shell' ? [
@@ -390,6 +409,13 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
           { label: 'Документ Word', icon: <FileText />, onClick: () => beginCreate('windows-doc') },
           { label: 'Книгу Excel', icon: <FileSpreadsheet />, onClick: () => beginCreate('windows-sheet') },
           { label: 'Текстовый файл', icon: <FileText />, onClick: () => beginCreate('windows-text') },
+        ] },
+        { label: 'Создать в Flux', icon: <FolderPlus />, items: [
+          { label: 'Папку', icon: <Folder />, onClick: () => beginCreate('flux-folder') },
+          { label: 'Документ Word', icon: <FileText />, onClick: () => beginCreate('flux-doc') },
+          { label: 'Книгу Excel', icon: <FileSpreadsheet />, onClick: () => beginCreate('flux-sheet') },
+          { label: 'Текстовый файл', icon: <FileText />, onClick: () => beginCreate('flux-text') },
+          { label: 'Архив ZIP', icon: <Folder />, onClick: () => beginCreate('flux-archive') },
         ] },
         { label: 'Параметры экрана', icon: <Monitor />, onClick: () => navigate('/settings?section=general#monitors') },
         { label: 'Персонализация', icon: <Palette />, onClick: () => navigate('/settings?section=general#appearance') },

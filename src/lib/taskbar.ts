@@ -42,44 +42,17 @@ export interface TaskbarView {
   visible: TaskbarButton[];
   /** Хвост, ушедший под кнопку «ещё»: он не потерян, он свёрнут */
   hidden: TaskbarButton[];
-  /** Показывать ли подписи: после порога от кнопки остаётся значок */
-  labels: boolean;
   /** Панель предлагает прибраться */
   tidy: boolean;
 }
-
-/**
- * Пока кнопок не больше восьми — с подписями. Дальше подписи уходят: резать
- * названия по буквам нельзя, два обрубка «Спецификация…» неразличимы.
- */
-export const LABELS_UNTIL = 8;
 
 /** После двенадцати панель мягко предлагает прибраться. Предложение, не запрет. */
 export const TIDY_FROM = 12;
 
 /** Значок, отступы, счётчик и промежуток до соседа — кнопка без подписи */
 const BTN_BASE = 44;
-/** Ширина буквы подписи: замерено на живой панели, с запасом вверх */
-const CHAR_W = 8;
 /** Кнопка «ещё» с числом свёрнутых: под неё место резервируется заранее */
 const MORE_W = 44;
-
-/**
- * Влезут ли подписи в полосу кнопок.
- *
- * Одного счёта кнопок мало. Шесть кнопок с подписями требуют больше 700 точек,
- * и на ноутбуке ряд не помещался — а полоса обрезана по краю, так что лишние
- * кнопки просто исчезали: ни многоточия, ни прокрутки, ни следа.
- *
- * Ширина здесь — самой полосы кнопок, а не всей панели. Полоса тянется по
- * остатку от Пуска и трея, и её ширина от содержимого не зависит: значит,
- * подписи не могут то влезать, то не влезать от собственного исчезновения.
- * Считать же по буквам приходится оттого, что мерить надо ДО отрисовки.
- */
-export function labelsFit(titles: string[], width: number): boolean {
-  if (!width || !titles.length) return true; // нечего мерить — не мигаем подписями
-  return titles.reduce((sum, t) => sum + BTN_BASE + t.length * CHAR_W, 0) <= width;
-}
 
 /**
  * Сколько кнопок помещается в полосу.
@@ -90,9 +63,9 @@ export function labelsFit(titles: string[], width: number): boolean {
  * следа. Теперь хвост честно сворачивается под кнопку «ещё» — место под неё
  * резервируется заранее, иначе она сама окажется за краем.
  */
-export function fitButtons(titles: string[], width: number, labels: boolean): number {
+export function fitButtons(titles: string[], width: number): number {
   if (!width || !titles.length) return titles.length;
-  const widthOf = (t: string) => BTN_BASE + (labels ? t.length * CHAR_W : 0);
+  const widthOf = (_title: string) => BTN_BASE;
   let sum = 0;
   for (let i = 0; i < titles.length; i++) {
     sum += widthOf(titles[i]);
@@ -171,15 +144,13 @@ export function buildTaskbar(
     active: s.path === opts.activePath,
   }));
 
-  const labels = buttons.length <= LABELS_UNTIL
-    && labelsFit(buttons.map((b) => b.title), opts.width || 0);
-  const shown = fitButtons(buttons.map((b) => b.title), opts.width || 0, labels);
+  // Имена остаются доступными метками, а ширина считается по компактным кнопкам значков.
+  const shown = fitButtons(buttons.map((b) => b.title), opts.width || 0);
 
   return {
     buttons,
     visible: buttons.slice(0, shown),
     hidden: buttons.slice(shown),
-    labels,
     tidy: opts.open.length >= TIDY_FROM,
   };
 }

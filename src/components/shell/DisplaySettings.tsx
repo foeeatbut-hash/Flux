@@ -8,7 +8,6 @@ export default function DisplaySettings() {
   const busy = useDisplayStore(s => s.busy);
   const error = useDisplayStore(s => s.error);
   const apply = useDisplayStore(s => s.setAllMonitors);
-  const setWindowsTaskbar = useDisplayStore(s => s.setShowWindowsTaskbar);
   if (!available) return null;
   return <div id="monitors" className="fx-set-group">
     <h3 className="fx-group-title">Мониторы</h3>
@@ -16,11 +15,6 @@ export default function DisplaySettings() {
       desc="Перетаскивайте окна Flux между экранами. Разворачивание занимает один монитор. При отключении экрана открытые окна возвращаются на доступный.">
       <Switch label="Рабочий стол на всех мониторах" checked={workspace.enabled}
         disabled={busy || (!workspace.enabled && workspace.displays.length < 2)} onChange={v => void apply(v)} />
-    </SettingRow>
-    <SettingRow title="Показывать панель задач Windows"
-      desc="Оставляет системную панель Windows видимой. Flux размещает свою компактную панель над ней.">
-      <Switch label="Показывать панель задач Windows" checked={workspace.showWindowsTaskbar !== false}
-        disabled={busy} onChange={v => void setWindowsTaskbar(v)} />
     </SettingRow>
     <div className="text-xs text-slate-500 dark:text-slate-400 py-2">
       {workspace.displays.length} мониторов · {workspace.enabled ? 'Все мониторы' : 'Обычное окно'}

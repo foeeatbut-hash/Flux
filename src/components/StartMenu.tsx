@@ -32,6 +32,7 @@ import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
+import { AppIcon } from './icons/FluxIcons';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
@@ -185,7 +186,6 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   ] : [];
 
   const Tile = ({ path, title, at }: { path: string; title: string; at?: number }) => {
-    const Icon = iconOf(path) as any;
     const active = order[focus] === path;
     return (
       <button
@@ -234,7 +234,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
              рисунку значка, а не по его рамке */
           className="flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0"
         >
-          {Icon && <Icon size={TILE_ICON} />}
+          <AppIcon path={path} size={TILE_ICON} />
         </span>
         <span className="text-xs leading-tight text-center w-full line-clamp-2 break-words">{title}</span>
       </button>

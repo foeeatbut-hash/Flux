@@ -28,6 +28,40 @@ function decodeBytes(base64: string): Buffer {
   if (data.byteLength > MAX_BYTES) throw new WindowsFilesError('FILE_TOO_LARGE', 'Для редактирования в Flux поддерживаются файлы до 64 МБ.');
   return data;
 }
+async function copyDraftFile(source: string, target: string): Promise<number> {
+  const input = await fs.open(source, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+  let output: Awaited<ReturnType<typeof fs.open>> | null = null;
+  let owned: { dev: bigint; ino: bigint } | null = null;
+  try {
+    const before = await input.stat({ bigint: true });
+    if (!before.isFile() || before.size > BigInt(MAX_BYTES)) throw new WindowsFilesError('FILE_TOO_LARGE', 'Файл черновика недоступен или превышает 64 МБ.');
+    output = await fs.open(target, 'wx', 0o600);
+    const created = await output.stat({ bigint: true }); owned = { dev: created.dev, ino: created.ino };
+    const buffer = Buffer.alloc(256 * 1024); let position = 0;
+    for (;;) {
+      const read = await input.read(buffer, 0, buffer.length, position);
+      if (!read.bytesRead) break;
+      let written = 0;
+      while (written < read.bytesRead) {
+        const result = await output.write(buffer, written, read.bytesRead - written, position + written);
+        if (!result.bytesWritten) throw new WindowsFilesError('WRITE_FAILED', 'Не удалось записать файл. Черновик Flux сохранён.');
+        written += result.bytesWritten;
+      }
+      position += read.bytesRead;
+    }
+    const after = await input.stat({ bigint: true });
+    const named = await fs.lstat(source, { bigint: true });
+    if (position !== Number(before.size) || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.dev !== before.dev || named.ino !== before.ino || named.isSymbolicLink()) throw new WindowsFilesError('CONFLICT', 'Черновик изменился при публикации. Исходный файл сохранён.');
+    await output.sync();
+    return position;
+  } catch (error) {
+    if (owned) {
+      const current = await fs.lstat(target, { bigint: true }).catch(() => null);
+      if (current && current.dev === owned.dev && current.ino === owned.ino) await fs.unlink(target).catch(() => undefined);
+    }
+    throw error;
+  } finally { await input.close(); await output?.close(); }
+}
 export class WindowsFilesService {
   private locks = new Map<string, Promise<unknown>>();
   private parentSearch = new Map<string, { expires: number; ref: WindowsFileRef | null }>();
@@ -64,6 +98,7 @@ export class WindowsFilesService {
     if (ref.draftId) {
       const draft = this.draft(ref);
       if (draft.publishedRef) return this.filename(draft.publishedRef, missing);
+      if (draft.kind === 'directory') throw new WindowsFilesError('IS_DIRECTORY', 'Черновик является папкой.');
       this.state.root(ref.rootId);
       return path.join(this.deps.userData, 'windows-files-drafts', `${draft.id}.bin`);
     }
@@ -80,6 +115,11 @@ export class WindowsFilesService {
     if (newId !== fileId) { this.state.data.identity[newId] = fileId; if (persist) await this.state.save(); }
   }
   private async entry(ref: WindowsFileRef, allowLink = false): Promise<WindowsFileEntry> {
+    if (ref.draftId) {
+      const draft = this.draft(ref);
+      if (draft.publishedRef) return this.entry(draft.publishedRef);
+      if (draft.kind === 'directory') return { name: draft.name, relativePath: ref.relativePath, storage: 'flux', draftId: draft.id, kind: 'directory', fileId: this.draftFileId(draft.id), size: 0, modifiedAt: new Date().toISOString(), linked: false };
+    }
     ref = this.resolveRef(ref);
     const root = this.state.root(ref.rootId);
     const filename = allowLink && !ref.draftId ? path.join(root.path, ...ref.relativePath.split('/')) : await this.filename(ref);
@@ -112,17 +152,27 @@ export class WindowsFilesService {
     return null;
   }
   async list(ref: WindowsFileRef, offset = 0, limit = 250) {
-    const filename = await this.filename(ref);
-    if (!(await fs.stat(filename)).isDirectory()) throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку.');
+    ref = this.resolveRef(ref);
+    const parentDraft = ref.draftId ? this.draft(ref) : null;
+    if (parentDraft && parentDraft.kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку.');
+    const filename = parentDraft && !parentDraft.publishedRef ? null : await this.filename(ref);
+    if (filename && !(await fs.stat(filename)).isDirectory()) throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку.');
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new WindowsFilesError('INVALID_RANGE', 'Некорректный диапазон списка.');
-    const directory = await fs.opendir(filename);
     const names: string[] = [];
-    for await (const item of directory) {
-      if (/^\.flux-write-[0-9a-f]{64}\.lock$/u.test(item.name)) continue;
-      names.push(item.name); if (names.length >= MAX_LIST) break;
+    if (filename) {
+      const directory = await fs.opendir(filename);
+      for await (const item of directory) {
+        if (/^\.flux-write-[0-9a-f]{64}\.lock$/u.test(item.name)) continue;
+        names.push(item.name); if (names.length >= MAX_LIST) break;
+      }
     }
     for (const draft of Object.values(this.state.data.drafts)) if (!draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId) await this.reconcileDraftParent(draft).catch(() => undefined);
-    const virtual = Object.values(this.state.data.drafts).filter(draft => !draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId && draft.parent.relativePath === ref.relativePath);
+    const virtual = Object.values(this.state.data.drafts).filter(draft => {
+      if (draft.trashed || draft.publishedRef || draft.parent.rootId !== ref.rootId) return false;
+      if (draft.parent.draftId === ref.draftId && draft.parent.relativePath === ref.relativePath) return true;
+      const parent = draft.parent.draftId ? this.state.data.drafts[draft.parent.draftId] : null;
+      return !!parent?.publishedRef && parent.publishedRef.rootId === ref.rootId && parent.publishedRef.relativePath === ref.relativePath;
+    });
     const candidates = [...names.map(name => ({ name, draftId: undefined as string | undefined })), ...virtual.map(draft => ({ name: draft.name, draftId: draft.id }))];
     candidates.sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' }));
     const entries: WindowsFileEntry[] = [];
@@ -243,10 +293,11 @@ export class WindowsFilesService {
   }
   private async ensureFreeName(parent: WindowsFileRef, name: string, exceptDraft?: string) {
     validateWindowsName(name);
-    const filename = await this.filename(parent);
-    const names = await fs.readdir(filename);
+    if (parent.draftId && this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Родитель черновика не является папкой.');
+    const filename = parent.draftId ? null : await this.filename(parent);
+    const names = filename ? await fs.readdir(filename) : [];
     const match = (value: string) => value.toLocaleLowerCase('en-US') === name.toLocaleLowerCase('en-US');
-    if (names.some(match) || Object.values(this.state.data.drafts).some(draft => !draft.trashed && !draft.publishedRef && draft.id !== exceptDraft && draft.parent.rootId === parent.rootId && draft.parent.relativePath === parent.relativePath && match(draft.name))) {
+    if (names.some(match) || Object.values(this.state.data.drafts).some(draft => !draft.trashed && !draft.publishedRef && draft.id !== exceptDraft && draft.parent.rootId === parent.rootId && draft.parent.relativePath === parent.relativePath && draft.parent.draftId === parent.draftId && match(draft.name))) {
       throw new WindowsFilesError('EEXIST', 'Файл с таким именем уже есть в папке Windows или среди черновиков Flux.');
     }
   }
@@ -277,31 +328,65 @@ export class WindowsFilesService {
     const found = cached && cached.expires > Date.now() ? cached.ref : await this.findDirectory(draft.parent.rootId, draft.parentFileId);
     this.parentSearch.set(searchKey, { expires: Date.now() + 2000, ref: found });
     if (!found) throw new WindowsFilesError('PARENT_MISSING', 'Родитель черновика перенесён за пределы подключённой папки или удалён. Черновик сохранён в Flux.');
-    draft.parent = found; await this.state.save();
+    draft.parent = found;
+    // Every nested virtual folder keeps a display path as well as a draftId.
+    // Rebase that path when Windows moved the real parent so old draft refs
+    // and subsequent publication point at the same tree.
+    for (const child of Object.values(this.state.data.drafts)) {
+      if (!child.trashed && child.parent.draftId === draft.id) child.parent.relativePath = joinRelative(found.relativePath, draft.name);
+    }
+    if (draft.kind === 'directory') this.rebaseDraftChildren(draft.id, joinRelative(found.relativePath, draft.name));
+    await this.state.save();
+  }
+  private rebaseDraftChildren(folderId: string, relativePath: string, depth = 0): void {
+    if (depth > 64) throw new WindowsFilesError('TREE_TOO_LARGE', 'Вложенность черновиков превышает 64 папки.');
+    for (const child of Object.values(this.state.data.drafts)) {
+      if (child.trashed || child.parent.draftId !== folderId) continue;
+      child.parent.relativePath = relativePath;
+      if (child.kind === 'directory') this.rebaseDraftChildren(child.id, joinRelative(relativePath, child.name), depth + 1);
+    }
   }
   async createDraft(parent: WindowsFileRef, name: string, base64: string) {
-    if (parent.draftId) throw new WindowsFilesError('DRAFT_FOLDER_UNSUPPORTED', 'Черновик создаётся внутри настоящей папки Windows.');
+    parent = this.resolveRef(parent);
+    validateWindowsName(name);
+    if (parent.draftId && this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Создайте файл внутри папки.');
     const bytes = decodeBytes(base64);
-    const parentPath = await this.filename(parent);
-    return this.locked(`draft-parent:${parentPath}`, async () => {
+    if (!parent.draftId) await this.filename(parent);
+    return this.locked(`draft-parent:${parent.rootId}:${parent.relativePath}:${parent.draftId || ''}`, async () => {
       await this.ensureFreeName(parent, name);
       const id = randomUUID(); const directory = path.join(this.deps.userData, 'windows-files-drafts');
       await fs.mkdir(directory, { recursive: true });
       const filename = path.join(directory, `${id}.bin`);
       await fs.writeFile(filename, bytes, { flag: 'wx', mode: 0o600 });
-      this.state.data.drafts[id] = { id, parent: { rootId: parent.rootId, relativePath: parent.relativePath }, parentFileId: await this.identity(parentPath), name };
+      this.state.data.drafts[id] = { id, kind: 'file', parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
       const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: id };
       await this.state.history(this.draftFileId(id), 'create-draft', ref.relativePath, hashWindowsBytes(bytes)); this.changed(ref);
       return { ref, file: await this.read(ref) };
     });
   }
+  async createDraftFolder(parent: WindowsFileRef, name: string) {
+    parent = this.resolveRef(parent);
+    validateWindowsName(name);
+    if (parent.draftId && this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Создайте папку внутри папки.');
+    if (!parent.draftId) await this.filename(parent);
+    return this.locked(`draft-parent:${parent.rootId}:${parent.relativePath}:${parent.draftId || ''}`, async () => {
+      await this.ensureFreeName(parent, name);
+      const id = randomUUID();
+      this.state.data.drafts[id] = { id, kind: 'directory', parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
+      const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: id };
+      await this.state.save(); this.changed(ref); return { ref, file: await this.entry(ref) };
+    });
+  }
   async publishDraft(ref: WindowsFileRef) {
     const draft = this.draft(ref);
+    if (draft.kind === 'directory') return this.publishDraftTree(ref);
     return this.locked(`draft-operation:${draft.id}`, async () => {
     if (draft.publishedRef) return { ref: draft.publishedRef, file: await this.read(draft.publishedRef), alreadyPublished: true };
-    await this.reconcileDraftParent(draft);
+    if (!draft.parent.draftId) await this.reconcileDraftParent(draft);
     const content = await this.read(ref);
-    const published = await this.publish(draft.parent, draft.name, content.base64, draft.id);
+    const realParent = draft.parent.draftId ? this.state.data.drafts[draft.parent.draftId]?.publishedRef : undefined;
+    if (draft.parent.draftId && !realParent) throw new WindowsFilesError('DRAFT_PARENT_UNPUBLISHED', 'Сначала опубликуйте родительскую папку. Черновик сохранён в Flux.');
+    const published = await this.publish(realParent || draft.parent, draft.name, content.base64, draft.id);
     const fileId = this.draftFileId(draft.id);
     await this.preserveIdentity(await this.filename(published.ref), fileId);
     const publication = this.state.data.publications[draft.id]; publication.fileId = fileId;
@@ -310,7 +395,75 @@ export class WindowsFilesService {
     return { ref: published.ref, file: await this.read(published.ref), alreadyPublished: published.alreadyPublished };
     });
   }
+  async publishDraftTree(ref: WindowsFileRef) {
+    const rootDraft = this.draft(ref);
+    if (rootDraft.kind !== 'directory') return this.publishDraft(ref);
+    return this.locked(`draft-operation:${rootDraft.id}`, () => this.publishDraftTreeResolved(ref, rootDraft));
+  }
+  private async publishDraftTreeResolved(ref: WindowsFileRef, rootDraft: StoredDraft) {
+    if (!rootDraft.parent.draftId) await this.reconcileDraftParent(rootDraft);
+    const parent = rootDraft.parent;
+    const physicalParent = parent.draftId ? this.state.data.drafts[parent.draftId]?.publishedRef : undefined;
+    if (parent.draftId && !physicalParent) throw new WindowsFilesError('DRAFT_PARENT_UNPUBLISHED', 'Сначала опубликуйте родительскую папку. Черновик сохранён в Flux.');
+    const destinationParent = physicalParent || parent;
+    const destination = rootDraft.publishedRef || { rootId: destinationParent.rootId, relativePath: joinRelative(destinationParent.relativePath, rootDraft.name) };
+    const rootFilename = await this.filename(destination, true);
+    const directChildren = (id: string) => Object.values(this.state.data.drafts).filter(item => !item.trashed && item.parent.draftId === id && (item.kind === 'directory' || !item.publishedRef));
+    let published = 0; let totalBytes = 0; let totalEntries = 1; const failed: string[] = [];
+    try {
+      await fs.mkdir(rootFilename);
+      rootDraft.publishedRef = destination;
+      await this.preserveIdentity(rootFilename, this.draftFileId(rootDraft.id), false);
+      await this.state.save();
+    }
+    catch (error: any) { if (error.code === 'EEXIST' && !rootDraft.publishedRef) throw new WindowsFilesError('EEXIST', 'Папка назначения уже существует. Выберите другое имя; Windows-файлы не заменяются.'); if (error.code !== 'EEXIST') throw error; }
+    const rootStat = await fs.lstat(rootFilename);
+    const publishChildren = async (folderDraftId: string, physicalFolder: WindowsFileRef, depth: number): Promise<boolean> => {
+      if (depth > 64 || published + failed.length > 5000) { failed.push(rootDraft.name); return false; }
+      let complete = true;
+      for (const child of directChildren(folderDraftId)) {
+        if (++totalEntries > 5000) { failed.push(`${child.name}: превышен предел 5000 объектов`); complete = false; break; }
+        const childRef = { rootId: child.parent.rootId, relativePath: joinRelative(child.parent.relativePath, child.name), draftId: child.id };
+        const target = { rootId: physicalFolder.rootId, relativePath: joinRelative(physicalFolder.relativePath, child.name) };
+        try {
+          if (child.kind === 'directory') {
+            validateWindowsName(child.name);
+            const childTarget = child.publishedRef || target;
+            if (!child.publishedRef) {
+              const childFilename = await this.filename(target, true);
+              await fs.mkdir(childFilename);
+              child.publishedRef = target;
+              await this.preserveIdentity(childFilename, this.draftFileId(child.id), false);
+              await this.state.save(); published++;
+            }
+            const ok = await publishChildren(child.id, childTarget, depth + 1); complete &&= ok;
+          } else {
+            validateWindowsName(child.name);
+            const source = await this.filename(childRef); const stat = await fs.lstat(source);
+            if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_BYTES) throw new WindowsFilesError('FILE_TOO_LARGE', 'Файл черновика недоступен или превышает 64 МБ.');
+            totalBytes += stat.size;
+            if (totalBytes > 512 * 1024 * 1024) throw new WindowsFilesError('TREE_TOO_LARGE', 'Публикация папки ограничена 512 МБ. Черновики Flux сохранены.');
+            const targetName = await this.filename(target, true);
+            await copyDraftFile(source, targetName);
+            const result = await this.read(target);
+            await this.preserveIdentity(targetName, this.draftFileId(child.id), false);
+            child.publishedRef = target; await this.state.history(this.draftFileId(child.id), 'publish-draft', target.relativePath, result.sha256); await this.state.save();
+            published++;
+          }
+        } catch (error: any) { failed.push(`${child.name}: ${error?.message || 'ошибка записи'}`); complete = false; }
+      }
+      return complete;
+    };
+    const complete = await publishChildren(rootDraft.id, destination, 1);
+    const currentRoot = await fs.lstat(rootFilename);
+    if (currentRoot.dev !== rootStat.dev || currentRoot.ino !== rootStat.ino || currentRoot.isSymbolicLink()) throw new WindowsFilesError('CONFLICT', 'Папка назначения заменена во время публикации. Исходные черновики Flux сохранены.');
+    if (complete) await this.state.history(this.draftFileId(rootDraft.id), 'publish-draft-tree', destination.relativePath);
+    await this.state.save(); this.changed(destination);
+    return { ref: destination, published, failed, complete };
+  }
   async mkdir(parent: WindowsFileRef, name: string) {
+    parent = this.resolveRef(parent);
+    if (parent.draftId) throw new WindowsFilesError('DRAFT_FOLDER_UNSUPPORTED', 'Для черновой папки используйте «Создать в Flux».');
     const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name) };
     const filename = await this.filename(ref, true); await fs.mkdir(filename); this.changed(ref); return this.entry(ref);
   }
@@ -320,6 +473,8 @@ export class WindowsFilesService {
     if (ref.draftId) {
       const draft = this.draft(ref); await this.ensureFreeName(draft.parent, name, draft.id); draft.name = name;
       const next = this.resolveRef(ref); await this.state.history(this.draftFileId(draft.id), 'rename', next.relativePath); this.changed(next);
+      if (draft.kind === 'directory') this.rebaseDraftChildren(draft.id, next.relativePath);
+      await this.state.save();
       return { ref: next, file: await this.entry(next) };
     }
     if (!ref.relativePath) throw new WindowsFilesError('ROOT_OPERATION', 'Корень подключённой папки нельзя переименовать.');
@@ -333,7 +488,35 @@ export class WindowsFilesService {
   }
   async copy(ref: WindowsFileRef, parent: WindowsFileRef, name: string) {
     ref = this.resolveRef(ref);
-    if (ref.draftId) return this.createDraft(parent, name, (await this.read(ref)).base64);
+    if (ref.draftId) {
+      const draft = this.draft(ref);
+      if (draft.kind !== 'directory') return this.createDraft(parent, name, (await this.read(ref)).base64);
+      let ancestor = parent.draftId; const seen = new Set<string>();
+      while (ancestor) {
+        if (ancestor === draft.id) throw new WindowsFilesError('RECURSIVE_TARGET', 'Нельзя скопировать папку Flux внутрь неё самой.');
+        if (seen.has(ancestor)) throw new WindowsFilesError('DRAFT_TREE_INVALID', 'Структура черновиков повреждена; копирование остановлено.');
+        seen.add(ancestor); ancestor = this.state.data.drafts[ancestor]?.parent.draftId;
+      }
+      const copied = await this.createDraftFolder(parent, name); let count = 1; let bytesTotal = 0;
+      const clone = async (sourceId: string, target: WindowsFileRef, depth: number): Promise<void> => {
+        if (depth > 64) throw new WindowsFilesError('TREE_TOO_LARGE', 'Вложенность черновиков превышает 64 папки.');
+        const children = Object.values(this.state.data.drafts).filter(item => !item.trashed && !item.publishedRef && item.parent.draftId === sourceId);
+        for (const child of children) {
+          if (++count > 5000) throw new WindowsFilesError('TREE_TOO_LARGE', 'Копирование ограничено 5000 объектами.');
+          if (child.kind === 'directory') {
+            const folder = await this.createDraftFolder(target, child.name);
+            await clone(child.id, folder.ref, depth + 1);
+          } else {
+            const ref = { rootId: child.parent.rootId, relativePath: joinRelative(child.parent.relativePath, child.name), draftId: child.id };
+            const content = await this.read(ref); bytesTotal += content.size;
+            if (bytesTotal > 512 * 1024 * 1024) throw new WindowsFilesError('TREE_TOO_LARGE', 'Копирование ограничено 512 МБ.');
+            await this.createDraft(target, child.name, content.base64);
+          }
+        }
+      };
+      await clone(draft.id, copied.ref, 1);
+      return copied;
+    }
     const source = await this.filename(ref); const stat = await fs.stat(source);
     const target = await this.reserveTarget(parent, name);
     if (stat.isDirectory()) {
@@ -352,12 +535,23 @@ export class WindowsFilesService {
   }
   async move(ref: WindowsFileRef, parent: WindowsFileRef, name: string, baseSha256?: string) {
     ref = this.resolveRef(ref);
+    parent = this.resolveRef(parent);
     if (ref.draftId) {
       const draft = this.draft(ref);
-      await this.filename(parent); await this.ensureFreeName(parent, name, draft.id);
+      if (draft.kind === 'directory') {
+        let ancestor = parent.draftId; const seen = new Set<string>(); let depth = 0;
+        while (ancestor) {
+          if (ancestor === draft.id) throw new WindowsFilesError('RECURSIVE_TARGET', 'Нельзя переместить папку Flux внутрь неё самой.');
+          if (seen.has(ancestor) || ++depth > 64) throw new WindowsFilesError('DRAFT_TREE_INVALID', 'Структура черновиков повреждена; перемещение остановлено.');
+          seen.add(ancestor); ancestor = this.state.data.drafts[ancestor]?.parent.draftId;
+        }
+      }
+      if (!parent.draftId) await this.filename(parent); else if (this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку для перемещения черновика.');
+      await this.ensureFreeName(parent, name, draft.id);
       if (baseSha256 && (await this.read(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
-      const previousRef = this.resolveRef(ref); draft.parent = { rootId: parent.rootId, relativePath: parent.relativePath }; draft.parentFileId = await this.identity(await this.filename(parent)); draft.name = name;
+      const previousRef = this.resolveRef(ref); draft.parent = { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }; draft.parentFileId = parent.draftId ? undefined : await this.identity(await this.filename(parent)); draft.name = name;
       const next = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: draft.id };
+      if (draft.kind === 'directory') this.rebaseDraftChildren(draft.id, next.relativePath);
       await this.state.history(this.draftFileId(draft.id), 'move-draft', next.relativePath); this.changed(previousRef); this.changed(next);
       return { ref: next, file: await this.entry(next) };
     }
@@ -437,7 +631,7 @@ export class WindowsFilesService {
     draft.trashed = false;
     const restored = this.resolveRef(ref);
     await this.state.history(this.draftFileId(draft.id), 'restore-draft', restored.relativePath); this.changed(restored);
-    return { ref: restored, file: await this.read(restored) };
+    return { ref: restored, file: draft.kind === 'directory' ? await this.entry(restored) : await this.read(restored) };
   }
   async trash(ref: WindowsFileRef, baseSha256?: string) {
     ref = this.resolveRef(ref);

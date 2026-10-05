@@ -104,11 +104,8 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           transition={{ duration: 0.3 }}
           className="w-full max-w-md bg-white dark:bg-slate-900 rounded-sm border border-slate-300 dark:border-slate-700 shadow-modal transition-ui"
         >
-          {/* Штамп листа: слева — что это за программа, справа — шифр версии */}
           <div className="flex items-baseline gap-3 px-6 py-3 border-b border-slate-300 dark:border-slate-700">
             <span className="text-sm font-semibold tracking-tight">Flux</span>
-            <span className="graf">рабочее место инженера</span>
-            <span className="ml-auto data text-2xs text-slate-400">{__APP_VERSION__}</span>
           </div>
           <div className="p-6">
           <AnimatePresence mode="wait">
@@ -188,7 +185,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                   onChange={(e) => setRemember(e.target.checked)}
                   className="w-4 h-4 rounded-sm border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 accent-emerald-500 transition-ui cursor-pointer"
                 />
-                <span>Запомнить данные для входа</span>
+                <span>Запомнить логин</span>
               </label>
             </div>
 
@@ -216,13 +213,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       {/* Сотрудники подключаются к API сервера компании без реквизитов БД. */}
       <ConnectionPanel />
 
-      {/* Footer: авторство слева, версия справа */}
+      {/* Версия сборки помогает сообщить поддержку, какая программа установлена. */}
       <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">
         <div className="text-xs text-slate-400 dark:text-slate-500">
           Разработка <span className="font-semibold text-slate-500 dark:text-slate-400">Раупова Хусрава</span>
         </div>
         <div className="data text-2xs text-slate-400 dark:text-slate-500">
-          {new Date().getFullYear()}
+          {__APP_VERSION__}
         </div>
       </div>
     </div>

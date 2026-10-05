@@ -3,7 +3,6 @@ import { EMPTY_WORKSPACE, localDisplayAreas, type DisplayWorkspace } from '../..
 interface DisplayState {
   workspace: DisplayWorkspace; available: boolean; busy: boolean; error: string;
   init: () => (() => void); setAllMonitors: (enabled: boolean) => Promise<void>;
-  setShowWindowsTaskbar: (visible: boolean) => Promise<void>;
 }
 const bridge = () => (window as any).electron?.displays;
 export const useDisplayStore = create<DisplayState>((set, get) => ({
@@ -22,13 +21,6 @@ export const useDisplayStore = create<DisplayState>((set, get) => ({
     set({ busy: true, error: '' });
     try { set({ workspace: await bridge().set(enabled) }); }
     catch (e) { set({ error: e instanceof Error ? e.message : 'Не удалось изменить режим мониторов.' }); }
-    finally { set({ busy: false }); }
-  },
-  setShowWindowsTaskbar: async visible => {
-    if (get().busy) return;
-    set({ busy: true, error: '' });
-    try { set({ workspace: await bridge().preferences({ showWindowsTaskbar: visible }) }); }
-    catch (e) { set({ error: e instanceof Error ? e.message : 'Не удалось изменить видимость панели задач Windows.' }); }
     finally { set({ busy: false }); }
   },
 }));

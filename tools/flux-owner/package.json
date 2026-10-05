@@ -1,5 +1,5 @@
 {
-  "name": "flux-owner", "version": "1.2.3", "private": true,
+  "name": "flux-owner", "version": "1.2.4", "private": true,
   "description": "Локальная программа владельца Flux", "author": "Flux",
   "main": "dist/main.cjs", "scripts": {
     "build": "node scripts/build.cjs", "test": "node scripts/test.cjs && node scripts/test-database-runtime.cjs && node scripts/test-diagnostics.cjs && node scripts/test-network.cjs", "start": "npm run build && electron .",

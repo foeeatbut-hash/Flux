@@ -55,7 +55,7 @@ export interface ExplorerMenuProps {
   versions: (id: string) => void;
   /** Английская версия файла Word или Excel */
   english: (id: string) => void;
-  download: (id: string) => void;
+  download: (id: string, isFolder?: boolean) => void;
   assignTag: (id: string) => void;
   assignDepartment: (id: string) => void;
   changeStatus: (id: string) => void;
@@ -123,6 +123,7 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
             <Item icon={<Archive />} label={(p.selectedIds?.length || 0) > 1 ? 'Создать архив из выделенного' : 'Создать архив'}
               onClick={() => { p.archive(p.selectedIds?.includes(id) ? p.selectedIds : [id]); p.onClose(); }} />
           )}
+          {!!id && !isFile && !menu.isSection && <Item icon={<Download />} label="Сохранить папку в Windows" onClick={() => { p.download(id, true); p.onClose(); }} />}
           {isFile && (
             <>
               {/* Выбора нет — нет и второго пункта: «Открыть в» с одной строкой,

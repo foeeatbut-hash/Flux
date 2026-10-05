@@ -10,9 +10,8 @@ import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
-import UpdaterWidget from '../components/UpdaterWidget';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Sigma, Languages, Globe, Gamepad2,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Sigma, Languages, Globe, Gamepad2,
 } from 'lucide-react';
 import { isTopAdmin } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
@@ -38,7 +37,7 @@ import { useShallow } from 'zustand/react/shallow';
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates' | 'play' | 'tagrules';
+type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'play' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -83,7 +82,6 @@ const SECTIONS: Array<{
   // Раньше пункт звался «Crash-логи»: сотруднику это ни о чём не говорит, а
   // теперь он сюда заходит не за файлами, а чтобы сообщить о сбое
   { id: 'logs', label: 'Ошибки и сбои', icon: Terminal, desc: 'Сообщить о сбое', scope: 'global' },
-  { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления', scope: 'global' },
   // Встроенная игровая платформа. Лист видит только тот, кому выдано её
   // управление, — и видит даже при выключенной платформе: иначе выключатель
   // отнимал бы право, которым его двигают
@@ -213,11 +211,6 @@ export default function SettingsScreen() {
         {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'play' && <PlayPlatform addToast={addToast} />}
         {section === 'tagrules' && <TagRules addToast={addToast} />}
-        {section === 'updates' && (
-          <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
-            <UpdaterWidget />
-          </SectionShell>
-        )}
       </div>
       </div>
     </div>

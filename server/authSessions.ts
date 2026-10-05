@@ -40,7 +40,41 @@ export function createAuthSessions(deps: SessionDeps) {
   // Локальный HMAC-секрет доступен владельцу компьютера. Одной его подписи
   // недостаточно для OWNER: нужен вход по Ed25519 и выданная здесь сессия.
   const ownerGrants = new Map<string, { token: string; exp: number }>();
-  onDatabaseSwapped(() => ownerGrants.clear());
+  const localRevocations = new Map<string, number>();
+  const pendingRevocations = new Map<string, Claims>();
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let flushing = false;
+  let databaseGeneration = 0;
+  onDatabaseSwapped(() => {
+    databaseGeneration++;
+    ownerGrants.clear(); localRevocations.clear(); pendingRevocations.clear();
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  });
+  const locallyRevoked = (claims: Claims) => {
+    for (const [sid, exp] of localRevocations) if (exp <= Date.now()) localRevocations.delete(sid);
+    return localRevocations.has(claims.sid);
+  };
+  const writeRevocation = async (c: Claims) => getPrisma().appSetting.upsert({ where: { id: revocationId(c) },
+    create: { id: revocationId(c), key: 'auth.session.revoked', value: JSON.stringify({ until: c.exp }), userId: c.uid }, update: {} });
+  const scheduleRetry = () => {
+    if (retryTimer || !pendingRevocations.size) return;
+    retryTimer = setTimeout(() => { retryTimer = null; void flushRevocations(); }, 10000);
+    retryTimer.unref?.();
+  };
+  const flushRevocations = async () => {
+    if (flushing) return;
+    flushing = true;
+    const generation = databaseGeneration;
+    try {
+      for (const [sid, c] of [...pendingRevocations].slice(0, 100)) {
+        if (generation !== databaseGeneration) break;
+        if (c.exp <= Date.now()) { pendingRevocations.delete(sid); continue; }
+        try { await writeRevocation(c); if (generation === databaseGeneration) pendingRevocations.delete(sid); }
+        catch (error) { recordServerError('auth.logout.retry', error); break; }
+      }
+    } finally { flushing = false; scheduleRetry(); }
+  };
   const ownerConfirmed = (token: string, claims: Claims) => {
     const grant = ownerGrants.get(claims.sid);
     if (grant && grant.exp <= Date.now()) ownerGrants.delete(claims.sid);
@@ -65,12 +99,13 @@ export function createAuthSessions(deps: SessionDeps) {
   const issueOwner = (userId: string) => issueSession(userId, true);
   const verify = (token: string): string | null => {
     const c = sessionClaims(token, deps.secret);
-    if (!c || (c.uid === 'flux-owner' && !ownerConfirmed(token, c))) return null;
+    if (!c || locallyRevoked(c) || (c.uid === 'flux-owner' && !ownerConfirmed(token, c))) return null;
     return c.uid;
   };
   const validate = async (token: string): Promise<any | null> => {
     const c = sessionClaims(token, deps.secret);
     if (!c) return null;
+    if (locallyRevoked(c)) return null;
     // Не кэшируем: два сервера на одной БД должны одновременно прекратить
     // принимать сессию после смены пароля, снятия права или выхода.
     const [user, revoked] = await Promise.all([getUser(c.uid), getPrisma().appSetting.findUnique({ where: { id: revocationId(c) }, select: { id: true } })]);
@@ -82,11 +117,16 @@ export function createAuthSessions(deps: SessionDeps) {
   const revoke = async (token: string): Promise<boolean> => {
     const c = sessionClaims(token, deps.secret);
     if (!c) return false;
-    await getPrisma().appSetting.upsert({ where: { id: revocationId(c) }, create: { id: revocationId(c), key: 'auth.session.revoked', value: JSON.stringify({ until: c.exp }), userId: c.uid }, update: {} });
+    // Reject replay on this process even if durable revocation is temporarily unavailable.
+    locallyRevoked(c);
+    if (localRevocations.size >= 10000 && !localRevocations.has(c.sid)) throw new Error('Предел локальных отзывов сессии');
+    localRevocations.set(c.sid, c.exp);
     ownerGrants.delete(c.sid);
+    try { await writeRevocation(c); pendingRevocations.delete(c.sid); }
+    catch (error) { pendingRevocations.set(c.sid, c); scheduleRetry(); throw error; }
     return true;
   };
-  return { issue, issueOwner, verify, validate, revoke };
+  return { issue, issueOwner, verify, validate, revoke, flushRevocations };
 }
 
 /** Выход отзывает именно эту сессию, остальные окна/машины продолжают работу. */
@@ -106,8 +146,9 @@ export function registerSessionRoutes(app: Express, sessions: ReturnType<typeof 
       cookies?.clear(req, res);
       res.json({ success: true });
     } catch (error) {
+      cookies?.clear(req, res);
       recordServerError('auth.logout', error);
-      res.status(503).json({ error: 'Не удалось завершить сессию. Повторите выход.' });
+      res.status(503).json({ error: 'Выход выполнен на этом компьютере. Общая база временно недоступна.', localLogout: true });
     }
   });
 }

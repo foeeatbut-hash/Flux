@@ -10,12 +10,13 @@
  * документ обязан выглядеть одинаково там и там, иначе его примут за разные файлы.
  */
 import React from 'react';
-import { Folder, Users, Shapes, Trash2 } from 'lucide-react';
-import FileBadge from '../ui/FileBadge';
 import { SECTIONS } from '../../workspace/sections';
+import { Shapes } from 'lucide-react';
+import FileBadge from '../ui/FileBadge';
 import { FILE_STATUSES, statusOf } from '../explorer/FileItems';
 import { isSystemKind, type DeskItem } from '../../lib/desktop';
 import { deskMetric, type DeskMetric } from '../../lib/metrics';
+import { AppIcon, FileIcon, IconBadges } from '../icons/FluxIcons';
 
 function Glyph({ item, size }: { item: DeskItem; size: number }) {
   // Папка-виджет показывает, что в ней лежит: четыре точки вместо картинки
@@ -34,13 +35,10 @@ function Glyph({ item, size }: { item: DeskItem; size: number }) {
     );
   }
   if (item.kind === 'app') {
-    const Icon = SECTIONS.find((s) => s.path === item.path)?.icon as any;
-    return Icon
-      ? <Icon size={size} className="text-emerald-600 dark:text-emerald-400" />
-      : <Shapes size={size} />;
+    return <AppIcon path={item.path || ''} size={size} />;
   }
-  if (item.kind === 'bin') return <Trash2 size={size} className="text-slate-500 dark:text-slate-400" />;
-  if (item.kind === 'folder') return <Folder size={size} className="text-amber-500 fill-amber-200" />;
+  if (item.kind === 'bin') return <FileIcon kind="bin" size={size} />;
+  if (item.kind === 'folder') return <FileIcon kind="folder" size={size} />;
   // Файлы — значком Flux Office по виду файла (lib/fileBadge.ts): тот же,
   // что в Проводнике, Пуске и окне. Раньше стол рисовал любой файл серым листом
   if (item.kind === 'note') return <FileBadge file={item.name} kind="note" size={size} />;
@@ -105,19 +103,9 @@ export default function DeskIcon({
                   ${selected ? 'bg-emerald-500/15 ring-1 ring-emerald-500/50' : 'hover:bg-slate-500/10'}`}
     >
       <span className="relative shrink-0">
-        <Glyph item={item} size={metric.icon} />
-
-        {/* Метка общего доступа: без неё «положил на стол» и «выложил всем»
-            неразличимы, а это разные поступки */}
-        {item.shared && !isSystemKind(item.kind) && (
-          <span
-            aria-label="Лежит на общем столе"
-            className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center
-                       bg-sky-600 text-white border-2 border-slate-100 dark:border-dark-bg"
-          >
-            <Users className="w-2 h-2" />
-          </span>
-        )}
+        <IconBadges flux={!isSystemKind(item.kind) && item.kind !== 'group'} shared={item.shared && !isSystemKind(item.kind)} size={metric.icon}>
+          <Glyph item={item} size={metric.icon} />
+        </IconBadges>
 
         {/* Стадия документа — точкой того же цвета, что чип в Проводнике */}
         {showStatus && (

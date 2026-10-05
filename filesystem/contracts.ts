@@ -1,6 +1,7 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
 export type WindowsKnownFolder = 'desktop' | 'documents' | 'downloads' | 'custom';
 export interface WindowsRoot { id: string; name: string; kind: WindowsKnownFolder; available: boolean; network?: boolean }
+export interface WindowsVolume { id: string; name: string; kind: 'fixed' | 'removable' | 'network' | 'optical' | 'ram'; networkPath?: string; size: number | null; free: number | null; root: WindowsRoot }
 export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;
@@ -13,6 +14,8 @@ export interface WindowsFileMetadata {
 export interface WindowsFilesChanged { rootId: string; relativePath: string; rescan: true }
 export type WindowsFilesRequest =
   | { action: 'roots' }
+  | { action: 'volumes' }
+  | { action: 'openRecycleBin' }
   | { action: 'draftTrash' }
   | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
   | { action: 'restoreDraft'; ref: WindowsFileRef }
@@ -23,7 +26,9 @@ export type WindowsFilesRequest =
   | { action: 'write'; ref: WindowsFileRef; base64: string; baseSha256: string }
   | { action: 'publish'; parent: WindowsFileRef; name: string; base64: string; draftId: string }
   | { action: 'createDraft'; parent: WindowsFileRef; name: string; base64: string }
+  | { action: 'createDraftFolder'; parent: WindowsFileRef; name: string }
   | { action: 'publishDraft'; ref: WindowsFileRef }
+  | { action: 'publishDraftTree'; ref: WindowsFileRef }
   | { action: 'mkdir'; parent: WindowsFileRef; name: string }
   | { action: 'rename'; ref: WindowsFileRef; name: string }
   | { action: 'copy' | 'move'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string }

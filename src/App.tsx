@@ -330,15 +330,11 @@ function AnimatedRoutes() {
     }
   }, [location, user]);
 
-  // Restore the user's last visited route on initial load if they are at "/"
+  // The saved window layout is authoritative: a stale last route could reopen
+  // a closed editor or restore a deliberately minimized window after login.
   React.useEffect(() => {
-    if (user && location.pathname === '/') {
-      const lastPath = localStorage.getItem(`pdm_last_path_${user.id}`);
-      if (lastPath && lastPath !== '/') {
-        navigate(lastPath, { replace: true });
-      }
-    }
-  }, [user]);
+    if (!user && location.pathname !== '/') navigate('/', { replace: true });
+  }, [user?.id]);
 
   // Окно-стикер открывается отдельным окном Electron: не требуем повторного входа
   if (location.pathname === '/sticker') {

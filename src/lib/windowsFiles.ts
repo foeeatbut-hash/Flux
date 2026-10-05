@@ -1,6 +1,6 @@
 import type { WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '../../filesystem/contracts';
 
-export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, ImportedFileBytes } from '../../filesystem/contracts';
+export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsVolume, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, ImportedFileBytes } from '../../filesystem/contracts';
 
 type WindowsFilesBridge = {
   getIcon?: (ref: WindowsFileRef) => Promise<string | null>;

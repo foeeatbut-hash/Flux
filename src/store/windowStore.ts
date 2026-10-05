@@ -20,11 +20,17 @@ import { clampDesk, deskName, reindexWindows, safeDesks, stepDesk } from '../lib
 import { sectionForPath } from '../workspace/sections';
 import { sectionAccess } from '../lib/appPolicy';
 import { appContext } from './policyStore';
+import { useStore } from './store';
+import { diagnostic } from '../lib/diagnostics';
 import { displayAt, displayForRect, displaySnap, rebaseRect, recoverRect, type WorkspaceDisplay, type DisplayRect } from '../../workspace/displays';
 
 const KEY = 'flux_windows';
 const DESKS_KEY = 'flux_desks';
 const DISPLAY_KEY = 'flux_window_display_geometry';
+let layoutKey = KEY;
+const legacyLayoutOwner = (() => {
+  try { return JSON.parse(localStorage.getItem('pdm_session_user') || 'null')?.id || null; } catch { return null; }
+})();
 
 interface WindowState {
   windows: WinState[];
@@ -93,12 +99,12 @@ const newId = () => `win-${Date.now().toString(36)}-${seq++}`;
 
 /** Что сохраняем: только раскладку, без размера стола — он свой на каждом экране */
 const persist = (windows: WinState[]) => {
-  try { localStorage.setItem(KEY, JSON.stringify(windows)); } catch (_) { /* приватный режим */ }
+  try { localStorage.setItem(layoutKey, JSON.stringify(windows)); } catch (_) { /* приватный режим */ }
 };
 
-function restored(): WinState[] {
+function restored(key = layoutKey): WinState[] {
   try {
-    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(KEY);
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
     // Разбираем осторожно: в хранилище могло остаться что угодно от прошлых версий
@@ -197,6 +203,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
       // подсказки помощника. Скрытый раздел не открывается молча — так же,
       // как его нет в списках
       if (sectionAccess(sectionForPath(path), appContext()) === 'hide') return;
+      diagnostic('workspace.window', { action: 'open', section: path, count: windows.length });
       // Единичный раздел занимает одно окно и просто переезжает на новый адрес:
       // второе окно Почты не даёт ничего, кроме двух счётчиков непрочитанного
       const multi = !!sectionForPath(path).multi;
@@ -245,6 +252,8 @@ export const useWindowStore = create<WindowState>((set, get) => {
     },
 
     close: (id) => {
+      const win = get().windows.find(w => w.id === id);
+      if (win) diagnostic('workspace.window', { action: 'close', section: win.path, count: get().windows.length - 1 });
       update((list) => list.filter((w) => w.id !== id));
       const { [id]: gone, ...rest } = get().titles;
       if (gone !== undefined) set({ titles: rest });
@@ -263,7 +272,11 @@ export const useWindowStore = create<WindowState>((set, get) => {
       get().close(id);
       return true;
     },
-    focus: (id) => update((list) => raise(list.map((w) => (w.id === id ? { ...w, minimized: false } : w)), id)),
+    focus: (id) => {
+      const win = get().windows.find(w => w.id === id);
+      if (win) diagnostic('workspace.window', { action: 'focus', section: win.path, minimized: win.minimized });
+      update((list) => raise(list.map((w) => (w.id === id ? { ...w, minimized: false } : w)), id));
+    },
 
     // Повторное нажатие по кнопке верхнего окна сворачивает его — так же
     // ведёт себя панель задач в системе, и на это рассчитывают.
@@ -284,7 +297,11 @@ export const useWindowStore = create<WindowState>((set, get) => {
       } else get().focus(front.id);
     },
 
-    minimize: (id) => update((list) => list.map((w) => (w.id === id ? { ...w, minimized: true } : w))),
+    minimize: (id) => {
+      const win = get().windows.find(w => w.id === id);
+      if (win) diagnostic('workspace.window', { action: 'minimize', section: win.path, minimized: true });
+      update((list) => list.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+    },
     restore: (id) => get().focus(id),
     maximize: (id) => update(list => list.map(w => {
       if (w.id !== id) return w;
@@ -429,3 +446,24 @@ export const windowsOf = (list: WinState[], path: string, desk?: number): WinSta
 /** Раздел верхнего окна: его кнопка на панели показывается активной */
 export const activeWindowPath = (list: WinState[], desk?: number): string =>
   topWindow(desk === undefined ? list : list.filter((w) => w.desk === desk))?.path || '';
+
+// A profile refresh must not restore a layout. Switching profiles clears live
+// windows immediately, and only restores the new person's own saved layout.
+useStore.subscribe((state, previous) => {
+  if (state.user?.id === previous.user?.id) return;
+  if (previous.user) persist(useWindowStore.getState().windows);
+  if (!state.user) {
+    useWindowStore.setState({ windows: [], titles: {}, peeked: null, snapping: null });
+    return;
+  }
+  layoutKey = `${KEY}_${state.user.id}`;
+  let windows = restored();
+  try {
+    if (!localStorage.getItem(layoutKey) && legacyLayoutOwner === state.user.id) {
+      windows = restored(KEY);
+      persist(windows);
+      localStorage.removeItem(KEY);
+    }
+  } catch { /* Layout storage is optional. */ }
+  useWindowStore.setState({ windows, titles: {}, peeked: null, snapping: null, desk: 0 });
+});

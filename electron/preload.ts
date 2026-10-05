@@ -91,7 +91,7 @@ contextBridge.exposeInMainWorld('electron', {
     open: (href: string) => ipcRenderer.invoke(NATIVE_APP_OPEN, href),
     list: () => ipcRenderer.invoke(NATIVE_APP_LIST),
     location: (id: string, href: string) => ipcRenderer.invoke(NATIVE_APP_LOCATION, id, href),
-    action: (id: string, action: 'focus' | 'minimize' | 'close') => ipcRenderer.invoke(NATIVE_APP_ACTION, id, action),
+    action: (id: string, action: 'focus' | 'minimize' | 'close' | 'logout') => ipcRenderer.invoke(NATIVE_APP_ACTION, id, action),
     closeReply: (id: string, accepted: boolean) => ipcRenderer.invoke(NATIVE_APP_CLOSE_REPLY, id, accepted),
     onChanged: (callback: (windows: unknown[]) => void) => {
       const listener = (_event: unknown, value: unknown[]) => callback(value);
@@ -107,7 +107,6 @@ contextBridge.exposeInMainWorld('electron', {
   displays: {
     get: () => ipcRenderer.invoke('workspace:displays-get'),
     set: (enabled: boolean) => ipcRenderer.invoke('workspace:displays-set', enabled),
-    preferences: (value: { showWindowsTaskbar: boolean }) => ipcRenderer.invoke('workspace:displays-preferences', value),
     onChanged: (callback: (event: unknown) => void) => {
       const listener = (_event: unknown, value: unknown) => callback(value);
       ipcRenderer.on('workspace:displays-changed', listener);
@@ -168,7 +167,11 @@ contextBridge.exposeInMainWorld('electron', {
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
   startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string }) =>
     ipcRenderer.invoke('updater:start-download', data),
-  quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
+  quitAndInstall: (campaignId?: string) => ipcRenderer.invoke('updater:quitAndInstall', campaignId),
+  updateDevice: () => ipcRenderer.invoke('updater:device'),
+  updateHeartbeatProof: (data: { userId: string; status: string; commandId: string | null; code?: string }) => ipcRenderer.invoke('updater:heartbeat-proof', data),
+  signUpdateCommand: (data: unknown) => ipcRenderer.invoke('updater:sign-command', data),
+  acceptUpdateCommands: (data: unknown) => ipcRenderer.invoke('updater:accept-commands', data),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),
   isPackaged: () => ipcRenderer.invoke('updater:is-packaged'),
   // Портативный ли это файл: от этого зависит, что обещать человеку про
