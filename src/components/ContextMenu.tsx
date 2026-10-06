@@ -28,17 +28,28 @@ export interface MenuItem {
   separated?: boolean;
   /** Подменю; тогда onClick не нужен */
   items?: MenuItem[];
+  /**
+   * Подменю раскрыто сразу при открытии меню, а фокус стоит на его первом
+   * пункте. Нужно сочетанию клавиш: Ctrl+Shift+N не может «навести мышь» на
+   * пункт «Создать», поэтому панель открывается уже на нужном месте.
+   */
+  defaultOpen?: boolean;
   onClick?: () => void;
 }
 
 const MIN_W = 224;
 
-function SubmenuRows({ items, onClose, depth, bounds, parent }: {
-  items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds; parent: HTMLDivElement | null;
+function SubmenuRows({ items, onClose, depth, bounds, parent, focusFirst }: {
+  items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds; parent: HTMLDivElement | null; focusFirst?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Фокус — только тому подменю, которое раскрылось само (defaultOpen) и
+  // глубже других: иначе фокус прыгал бы по цепочке вложенных подменю
+  useEffect(() => {
+    if (focusFirst && !items.some((item) => item.defaultOpen)) ref.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+  }, []);
   const [placement, setPlacement] = useState<{ side: 'left' | 'right'; left: number; top: number; maxHeight: number } | null>(null);
-  useLayoutEffect(() => {
+  const place = () => {
     const child = ref.current?.getBoundingClientRect();
     const owner = parent?.getBoundingClientRect();
     if (!child || !owner) return;
@@ -46,21 +57,32 @@ function SubmenuRows({ items, onClose, depth, bounds, parent }: {
       { x: owner.left, y: owner.top, w: owner.width, h: owner.height },
       { x: child.left, y: child.top, w: child.width, h: child.height }, bounds,
     );
-    setPlacement(p);
-  }, [bounds.x, bounds.y, bounds.w, bounds.h, parent]);
+    // Тот же результат не записываем: иначе проверка после каждой отрисовки зациклилась бы
+    setPlacement((old) => old && old.side === p.side && old.left === p.left && old.top === p.top && old.maxHeight === p.maxHeight ? old : p);
+  };
+  useLayoutEffect(place, [bounds.x, bounds.y, bounds.w, bounds.h, parent]);
+  // Подменю внутри подменю, раскрытое сразу: внутреннее считает место раньше внешнего
+  // (эффекты идут от детей к родителям) и встаёт по ещё не расставленному хозяину.
+  // Проверка после каждой отрисовки ставит его правильно, когда хозяин уже на месте
+  useEffect(place);
   return createPortal(<div ref={ref} data-context-menu
     className="fx-pop fixed min-w-52 select-none"
     style={{ zIndex: Z.modal + depth + 1, left: placement?.left ?? bounds.x, top: placement?.top ?? bounds.y,
       maxHeight: placement?.maxHeight ?? Math.max(1, bounds.h - 8), maxWidth: Math.max(1, bounds.w - 8), overflowY: 'auto' }}>
-    <Rows items={items} onClose={onClose} depth={depth} bounds={bounds} />
+    <Rows items={items} onClose={onClose} depth={depth} bounds={bounds} auto={focusFirst} />
   </div>, document.body);
 }
 
-function Rows({ items, onClose, depth, bounds }: { items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds }) {
-  const [open, setOpen] = useState<number | null>(null);
+function Rows({ items, onClose, depth, bounds, auto }: { items: MenuItem[]; onClose: () => void; depth: number; bounds: MenuBounds; auto?: boolean }) {
+  const initial = items.findIndex((item) => item.defaultOpen && item.items?.length);
+  const [open, setOpen] = useState<number | null>(initial >= 0 ? initial : null);
+  // Раскрытое сразу подменю ставится рядом с пунктом-хозяином, а его узел
+  // появляется только после первой отрисовки: повторная отрисовка отдаёт его
+  const [, settle] = useState(0);
   const timer = useRef<any>(null);
   const rowRefs = useRef<Record<number, HTMLDivElement | null>>({});
   useEffect(() => () => clearTimeout(timer.current), []);
+  useLayoutEffect(() => { if (initial >= 0) settle(1); }, []);
 
   return (
     <>
@@ -98,7 +120,7 @@ function Rows({ items, onClose, depth, bounds }: { items: MenuItem[]; onClose: (
             </button>
 
             {hasSub && open === i && (
-              <SubmenuRows items={it.items!} onClose={onClose} depth={depth + 1} bounds={bounds} parent={rowRefs.current[i]} />
+              <SubmenuRows items={it.items!} onClose={onClose} depth={depth + 1} bounds={bounds} parent={rowRefs.current[i]} focusFirst={(auto || depth === 0) && i === initial && !!it.defaultOpen} />
             )}
           </div>
         );

@@ -1486,6 +1486,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     font-size: 13px; color: var(--flux-text); text-align: left; white-space: nowrap; cursor: pointer; background: none; border: 0;
   }
   .fx-menu-item:hover, .fx-menu-item[data-active="true"] { background: var(--flux-sel); }
+  /* Меню, открытое с клавиатуры (Ctrl+Shift+N в Проводнике): без метки не видно, на каком пункте стоим */
+  .fx-menu-item:focus-visible { background: var(--flux-sel); outline: none; }
   .fx-menu-item > svg { width: 16px; height: 16px; flex: none; color: var(--flux-text-muted); }
   .fx-menu-item.is-danger { color: var(--flux-bad-text); }
   .fx-menu-item.is-danger > svg { color: currentColor; }

@@ -44,7 +44,11 @@ function downloadInBrowser(name: string, bytes: Uint8Array): SaveResult {
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
-    return { ok: true, path: `${parent.name}/${name}`, canceled: false, error: '' };
+    // Куда браузер положил файл, страница не знает (это решает он сам), поэтому
+    // человеку называется просто имя. Раньше путь собирался из `parent.name`, а
+    // `parent` здесь — это window.parent, окно-родитель: в сообщении
+    // появлялось имя чужого фрейма или пустая строка вместо имени файла
+    return { ok: true, path: name, canceled: false, error: '' };
   } catch (err: any) {
     return { ok: false, path: '', canceled: false, error: String(err?.message || err) };
   }
