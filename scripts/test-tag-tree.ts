@@ -175,9 +175,11 @@ console.log('Неправильная логика убрана из прогр�
 {
   // Карточка доски вынесена из Registry в BoardCard: кнопки «+ родительский
   // тег» и «+ дочерний тег» теперь живут там, а проверка должна видеть обе
-  // половины, иначе она стережёт файл, в котором этих строк больше нет
+  // половины, иначе она стережёт файл, в котором этих строк больше нет.
+  // Загрузка тегов (и выправление дерева в ней) — в useRegistryTags
   const reg = readFileSync(new URL('../src/screens/Registry.tsx', import.meta.url), 'utf8')
-    + readFileSync(new URL('../src/components/registry/BoardCard.tsx', import.meta.url), 'utf8');
+    + readFileSync(new URL('../src/components/registry/BoardCard.tsx', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/components/registry/useRegistryTags.ts', import.meta.url), 'utf8');
   // Родитель — ПЕРВЫЙ довод. Если вызов перевернут, эта строка исчезнет
   check('в карточке родителя ставят первым доводом',
     reg.includes('await handleAddConnection(t.id, tag.id)'));

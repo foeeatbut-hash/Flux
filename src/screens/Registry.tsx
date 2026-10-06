@@ -37,7 +37,7 @@ import ExchangeTab from '../components/registry/ExchangeTab';
 import { type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange } from '../lib/tagExchange';
 import {
-  linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
+  linkChild, unlinkChild, whyNotLink, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
 import {
   layoutForest, linkPath, portAt, boundsOf, fitView, zoomAt, screenToWorld,
@@ -57,6 +57,10 @@ import BoardControls from '../components/registry/BoardControls';
 import BoardContextMenu from '../components/registry/BoardContextMenu';
 import QuickCreateBar from '../components/registry/QuickCreateBar';
 import { useQuickCreate } from '../components/registry/useQuickCreate';
+import { useTagExtractor } from '../components/registry/useTagExtractor';
+import { useRegistryTags } from '../components/registry/useRegistryTags';
+import { useTagTreeOps } from '../components/registry/useTagTreeOps';
+import { splitSegments } from '../lib/tagExtract';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
 import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
@@ -560,79 +564,10 @@ export default function Registry() {
     }
   }, [editingTag]);
 
-  // Text Extractor Tool State
-  const [pastedDocText, setPastedDocText] = useState('');
-  const [extractedTags, setExtractedTags] = useState<{ identifier: string; exists: boolean }[]>([]);
-
-  // Regex splitting utility
-  const splitSegments = useCallback((str: string): string[] => {
-    if (!str) return [];
-    return str.split(/[-.,\/ ]+/).filter(Boolean);
-  }, []);
-
   const [tagSearchQueries, setTagSearchQueries] = useState<{ [position: number]: string }>({});
   const [markSearchQueries, setMarkSearchQueries] = useState<{ [position: number]: string }>({});
 
   const [dictionaries, setDictionaries] = useState<any[]>([]);
-
-  // Load all tags
-  // Последний прочитанный список — состояние в замыкании эффекта уже устарело,
-  // а подсветке после захвата нужны свежие карточки прямо сейчас
-  const loadedTagsRef = useRef<any[]>([]);
-
-  const loadTags = async () => {
-    if (!activeProject) return;
-    setIsLoading(true);
-    try {
-      const data = await dataService.getTags(activeProject.id);
-      const tagsList = data.tags || [];
-      const tagsWithParsedMetadata = tagsList.map((t: any) => ({
-        ...t,
-        parsedMetadata: parseTagMetadata(t)
-      }));
-      /**
-       * Выправить дерево, если его успели испортить.
-       *
-       * Прежняя строка «Родительский тег» писала выбранного родителя в
-       * СОБСТВЕННЫЙ список детей тега: связь смотрела в обе стороны сразу, и
-       * дерево читалось наизнанку — родитель оказывался ребёнком своего же
-       * ребёнка. Строку убрали, но записи в базе остались, и сами они не
-       * выпрямятся. Правки нужны редко: здоровое дерево не даёт ни одной.
-       */
-      const patches = repairTagTree(tagsWithParsedMetadata.map((t: any) => ({
-        id: t.id,
-        connections: t.parsedMetadata.connections || [],
-        parentId: t.parsedMetadata.parentId,
-      })));
-      for (const patch of patches) {
-        const t = tagsWithParsedMetadata.find((x: any) => x.id === patch.id);
-        if (!t) continue;
-        t.parsedMetadata = { ...t.parsedMetadata, connections: patch.connections, parentId: patch.parentId };
-        t.metadata = JSON.stringify(t.parsedMetadata);
-        void fetch(`/api/tags/${patch.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ metadata: t.metadata }),
-        }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
-      }
-      if (patches.length) {
-        addToast(`Связи тегов выправлены: ${patches.length}`, 'info');
-      }
-      setTags(tagsWithParsedMetadata);
-      loadedTagsRef.current = tagsWithParsedMetadata;
-      // Выделение не должно ссылаться на удалённые теги (иначе «Выбрано: 2»
-      // после удаления одного из выбранных и лишние рендеры)
-      const liveIds = new Set(tagsList.map((t: any) => t.id));
-      setSelectedTagIds(prev => {
-        if (prev.size === 0) return prev;
-        const next = new Set(Array.from(prev).filter(id => liveIds.has(id)));
-        return next.size === prev.size ? prev : next;
-      });
-    } catch (err) {
-      console.error('Failed to load tags:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const loadDictionaries = async () => {
     if (!activeProject) return;
@@ -672,76 +607,15 @@ export default function Registry() {
     loadDictionaries();
   }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
-  // ИИ-чат мог переименовать тег — перечитываем список, чтобы холст обновился
-  useEffect(() => {
-    const onTagsChanged = () => loadTags();
-    window.addEventListener('flux:tags-changed', onTagsChanged);
-    return () => window.removeEventListener('flux:tags-changed', onTagsChanged);
-  }, []);
-
-  // ── Подсветка после захвата с экрана ────────────────────────────────────
-  //
-  // Вспышки мало: отвернулся — и всё, что добавилось, потерялось. Поэтому
-  // кроме волны в шапке остаётся закрываемая плашка «последний захват».
-  // И вспышка обязана переезжать за инженером: подсветку зажигаем в том виде,
-  // который открыт сейчас, и перезажигаем при переключении вкладки.
-  const [lastCapture, setLastCapture] = useState<
-    { created: string[]; filled: string[]; duplicated: string[] } | null
-  >(null);
-  const captureUntilRef = useRef(0);
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-
-  const flashCapture = (data: { created: string[]; filled: string[]; duplicated: string[] }) => {
-    const queue: { id: string; cls: string }[] = [
-      ...data.created.map((id) => ({ id, cls: 'capture-pulse-new' })),
-      ...data.filled.map((id) => ({ id, cls: 'capture-pulse-fill' })),
-      ...data.duplicated.map((id) => ({ id, cls: 'capture-pulse-dup' })),
-    ];
-    queue.forEach(({ id, cls }, i) => {
-      setTimeout(() => {
-        // Один и тот же тег в разных видах живёт под своим идентификатором;
-        // подсвечиваем тот элемент, который сейчас есть в разметке
-        for (const domId of [`tag-card-${id}`, `tree-node-${id}`, `spec-row-${id}`]) {
-          const el = document.getElementById(domId);
-          if (!el) continue;
-          el.classList.add(cls);
-          setTimeout(() => el.classList.remove(cls), 3000);
-        }
-      }, i * 60);
-    });
-  };
-
-  useEffect(() => {
-    const onApplied = async (e: Event) => {
-      const d = (e as CustomEvent).detail as
-        { created: string[]; filled: string[]; duplicated: string[] };
-      if (!d) return;
-      const total = d.created.length + d.filled.length + d.duplicated.length;
-      if (!total) return;
-      setLastCapture(d);
-      captureUntilRef.current = Date.now() + 3600 + total * 60;
-      await loadTags();
-      // Ждём отрисовку списка, иначе подсвечивать ещё нечего
-      requestAnimationFrame(() => setTimeout(() => {
-        const ids = [...d.created, ...d.filled];
-        const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
-        // Наводим камеру только на холсте: в дереве и таблице она ни при чём
-        if (cards.length && activeTabRef.current === 'board') fitToTags(cards as any[]);
-        flashCapture(d);
-      }, 60));
-    };
-    window.addEventListener('flux:capture-applied', onApplied as EventListener);
-    return () => window.removeEventListener('flux:capture-applied', onApplied as EventListener);
-  }, []);
-
-  // Переключили вид, пока окно подсветки не истекло — зажигаем заново
-  useEffect(() => {
-    if (!lastCapture || Date.now() > captureUntilRef.current) return;
-    const t = setTimeout(() => flashCapture(lastCapture), 140);
-    return () => clearTimeout(t);
-  }, [activeTab]);
-
+  // Загрузка тегов и подсветка после захвата — в useRegistryTags. Вызов стоит
+  // там же, где раньше были их эффекты: после «загрузить при смене проекта»,
+  // чтобы порядок эффектов не изменился
+  const {
+    loadedTagsRef, loadTags, lastCapture, setLastCapture, captureUntilRef, flashCapture,
+  } = useRegistryTags({
+    activeProject, activeTab, setTags, setIsLoading, setSelectedTagIds,
+    fitToTags: (list) => fitToTags(list),
+  });
 
   /**
    * Колесо мыши.
@@ -825,67 +699,6 @@ export default function Registry() {
     if (!identifier) return false;
     const norm = identifier.trim().toLowerCase();
     return tags.some(t => t.identifier.trim().toLowerCase() === norm);
-  };
-
-  // Extract tags from raw documentation text
-  const handleExtractTagsText = () => {
-    if (!pastedDocText) {
-      setExtractedTags([]);
-      return;
-    }
-
-    // Match patterns that look like components with separators
-    // e.g. 3700-C01-HVC-001 or 01/AHU-001 or TE.101 etc.
-    // Minimum length 4 characters, containing at least one of the separators
-    const regex = /([a-zA-Z0-9А-Яа-яЁё]+(?:[\-\.\/\\_][a-zA-Z0-9А-Яа-яЁё]+)+)/g;
-    const matches = pastedDocText.match(regex) || [];
-    
-    // De-duplicate
-    const uniqueMatches: string[] = Array.from(new Set(matches.map(m => m.trim()))) as string[];
-    
-    const evaluated = uniqueMatches.map((identifier: string) => ({
-      identifier,
-      exists: checkTagExists(identifier)
-    }));
-    
-    setExtractedTags(evaluated);
-  };
-
-  // Fast register extracted tag from text tool
-  const handleQuickRegisterExtracted = async (identifier: string) => {
-    if (!activeProject || checkTagExists(identifier)) return;
-    try {
-      const { x: dropX, y: dropY } = findFreePosition((300 - pan.x) / zoom, (250 - pan.y) / zoom);
-
-      const initialMeta: ParsedMetadata = {
-        x: dropX,
-        y: dropY,
-        connections: [],
-        descriptions: [
-          { id: 'ext1', text: 'Зарегистрирован из текста', comment: 'Быстрый импорт через текстовый инспектор.', status: 'info' }
-        ]
-      };
-
-      const res = await fetch(`/api/projects/${activeProject.id}/tags`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier,
-          department: 'Технологический отдел',
-          fluid: 'Автодетект',
-          wbs: 'WBS-EXTRACTED',
-          metadata: JSON.stringify(initialMeta)
-        })
-      });
-
-      if (res.ok) {
-        await loadTags();
-        // Update live extractor checklist
-        setExtractedTags(prev => prev.map(t => t.identifier === identifier ? { ...t, exists: true } : t));
-      }
-    } catch (err) {
-      console.error('Failed to quick register tag:', err);
-    }
   };
 
   // parseTagMetadata / getTagOverallStatus / statusConfig вынесены на уровень
@@ -1709,6 +1522,10 @@ export default function Registry() {
   const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } =>
     freeSpot(Object.values(cardPositionsRef.current), { x: baseX, y: baseY }, LAYOUT_BOX);
 
+  // Вытаскивание обозначений из текста: состояние и обработчики — в useTagExtractor.
+  // Вызывается после findFreePosition: это const, и раньше строки с ней он не виден
+  useTagExtractor({ activeProject, pan, zoom, findFreePosition, checkTagExists, loadTags });
+
   // «Поделиться в чате»: каждый выбранный тег — отдельная кликабельная кнопка
   // с названием тега, но всё в одном сообщении
   const shareTagsInChat = (ids: string[]) => {
@@ -2091,41 +1908,11 @@ export default function Registry() {
     splitSegments, checkTagExists, loadTags, dynamicCategorySelections, setDynamicCategorySelections,
   });
 
-  // Delete Node tag completely
-  const handleDeleteTag = async (tagId: string) => {
-    if (!await openConfirm('Удалить тег?', 'Тег и все его связи с другим оборудованием будут удалены. Действие необратимо.', { confirmLabel: 'Удалить тег', tone: 'danger' })) return;
-    try {
-      for (const otherTag of tags) {
-        if (otherTag.id === tagId) continue;
-        const otherMeta = parseTagMetadata(otherTag);
-        let updated = false;
-        if (otherMeta.connections.includes(tagId)) {
-          otherMeta.connections = otherMeta.connections.filter(id => id !== tagId);
-          updated = true;
-        }
-        if (otherMeta.parentId === tagId) {
-          otherMeta.parentId = undefined;
-          updated = true;
-        }
-        if (updated) {
-          await saveTagMetadata(otherTag.id, otherMeta);
-        }
-      }
-
-      await fetch(`/api/tags/${tagId}`, { method: 'DELETE' });
-      setEditingTag(null);
-      // Убираем удалённый тег из выделения сразу, не дожидаясь перезагрузки
-      setSelectedTagIds(prev => {
-        if (!prev.has(tagId)) return prev;
-        const next = new Set(prev);
-        next.delete(tagId);
-        return next;
-      });
-      loadTags();
-    } catch (err) {
-      console.error('Failed to delete tag:', err);
-    }
-  };
+  // Удаление тега, сборка дерева и цепочка предков — в useTagTreeOps. Вызов стоит
+  // раньше сборщика по сегментам: ему нужна getParentTraceLineage
+  const { handleDeleteTag, buildTree, getParentTraceLineage } = useTagTreeOps({
+    tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags,
+  });
 
   // Re-assign logical parenting
   const handleSort = (key: string) => {
@@ -2158,60 +1945,8 @@ export default function Registry() {
     });
   };
 
-  // Build tree logic for dependencies view
-  const buildTree = () => {
-    const tagMap: { [id: string]: any } = {};
-    const rootNodes: any[] = [];
-
-    const matchingTags = tags.filter(t => 
-      t.identifier.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (t.department && t.department.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-
-    matchingTags.forEach(t => {
-      const meta = parseTagMetadata(t);
-      tagMap[t.id] = {
-        ...t,
-        meta,
-        children: []
-      };
-    });
-
-    matchingTags.forEach(t => {
-      const node = tagMap[t.id];
-      const pId = node.meta.parentId;
-      if (pId && tagMap[pId]) {
-        tagMap[pId].children.push(node);
-      } else {
-        rootNodes.push(node);
-      }
-    });
-
-    return rootNodes;
-  };
-
   const toggleTagExpand = (id: string) => {
     setExpandedTagIds(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // Calculate full lineage chain of tag (from parent down to child list)
-  const getParentTraceLineage = (tagId: string): string => {
-    const chainList: string[] = [];
-    let currentId: string | undefined = tagId;
-    const visited = new Set<string>();
-
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      const tag = tags.find(t => t.id === currentId);
-      if (tag) {
-        chainList.unshift(tag.identifier);
-        const meta = parseTagMetadata(tag);
-        currentId = meta.parentId;
-      } else {
-        break;
-      }
-    }
-    return chainList.join(' ➔ ');
   };
 
   // Сборщик по сегментам: состояние и логика — в useSegmentCollector. Хук вызывается здесь,

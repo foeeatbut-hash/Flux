@@ -198,9 +198,11 @@ const LEGACY: Record<string, number> = {
   // раскладка — в lib/tagLayout, вкладки «Спецификация» и «Подбор» — в
   // SpecTable и SegmentCollectorTab, карточка тега, шапка, управление холстом и
   // его меню, карточка доски (BoardCard), строка быстрого создания
-  // (QuickCreateBar + useQuickCreate) — в свои компоненты: планка ниже.
+  // (QuickCreateBar + useQuickCreate) — в свои компоненты; загрузка тегов,
+  // разбор текста и операции над деревом — в хуки useRegistryTags,
+  // useTagExtractor, useTagTreeOps: планка ниже.
   // Дальше — docs/refactor/registry.md
-  'src/screens/Registry.tsx': 3001,
+  'src/screens/Registry.tsx': 2736,
   // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
   // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
   // догоняющая миграция SQLite — в server/localSchema.ts
