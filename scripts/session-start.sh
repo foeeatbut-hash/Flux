@@ -30,6 +30,14 @@ if [ "$(cat node_modules/.flux-prisma 2>/dev/null)" != "$schemas" ] || [ ! -f pr
   echo "$schemas" > node_modules/.flux-prisma
 fi
 
+# prisma generate переписывает в prisma-clients/*/package.json хеш в поле
+# name, хотя схема та же. Файлы лежат в git, и без отката каждая сессия
+# заканчивается «незакоммиченными правками», которых никто не делал. Откатывать
+# только когда отличие — одно это поле: настоящую правку не трогать.
+for f in prisma-clients/client-*/package.json; do
+  git diff --quiet -I '"name": "prisma-client-' -- "$f" 2>/dev/null && git checkout -q -- "$f" 2>/dev/null || true
+done
+
 # Бинарник Electron — для наборов, которые запускают настоящее окно
 # (feedback-capture, office-electron-live). Установщик npm качает архив одним
 # куском и на обрыве сдаётся; curl докачивает с места обрыва, а контрольная
