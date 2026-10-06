@@ -205,8 +205,10 @@ const LEGACY: Record<string, number> = {
   // догоняющая миграция SQLite — в server/localSchema.ts
   'server.ts': 1522,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
-  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
-  'src/screens/Explorer.tsx': 2362,
+  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx, диалоги
+  // оборудования и ВДР, панель просмотра и боковая панель — в свои
+  // компоненты: планка ниже
+  'src/screens/Explorer.tsx': 2137,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
 };

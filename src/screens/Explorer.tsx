@@ -5,11 +5,14 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
-import VdrItemPicker from '../components/VdrItemPicker';
 import { legacyAdvice, appsFor } from '../lib/fileTypes';
 import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
 import { saveNewFile, editorHref, type FileTarget } from '../lib/officeFiles';
 import FileVersionsDialog from '../components/explorer/FileVersionsDialog';
+import EquipmentImportDialog from '../components/explorer/EquipmentImportDialog';
+import VdrAttachDialog from '../components/explorer/VdrAttachDialog';
+import PreviewPane from '../components/explorer/PreviewPane';
+import ExplorerSidebar from '../components/explorer/ExplorerSidebar';
 import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
@@ -17,10 +20,10 @@ import { ROOT_NAME } from '../lib/explorerTabs';
 import { useInsightStore } from '../store/insightStore';
 import { useModalStore } from '../store/modalStore';
 import {
-  Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload,
-  Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus,
+  Folder, File as FileIcon, ChevronRight, Plus, Upload,
+  Search, MoreVertical, Copy, Trash2, FolderPlus,
   ArrowLeft, ArrowRight, ArrowUp, Tag, PanelRight, LayoutGrid, List,
-  Download, Info, Boxes, Clock, X,
+  Info, Boxes, X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,7 +32,6 @@ import EquipmentImportPreview from '../components/EquipmentImportPreview';
 import { countOf } from '../lib/plural';
 import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
-import FilePreview from '../components/explorer/FilePreview';
 import WindowsExplorer from '../components/explorer/WindowsExplorer';
 import SharedFilesFolder from '../components/explorer/SharedFilesFolder';
 import { uploadDropped } from '../lib/dropUpload';
@@ -40,7 +42,7 @@ import {
   isSmartId, personalSecId, isSectionId, parseSection,
 } from '../lib/explorerSections';
 import {
-  getFileIcon, formatSize, FILE_STATUSES, STATUS_ORDER, statusOf, StatusChip,
+  getFileIcon, formatSize, FILE_STATUSES, STATUS_ORDER, statusOf,
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
 import FileProperties from '../components/explorer/FileProperties';
@@ -1511,98 +1513,17 @@ function ProjectExplorer() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Tree Sidebar */}
-        <div 
-          className="w-44 @[900px]:w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-            <div
-              className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
-              onClick={() => navigateTo(null)}
-            >
-              <FileIcon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
-              <span className="text-sm">Проводник</span>
-            </div>
-            {sections.map(sec => (
-              <div key={sec.id}>
-                <div
-                  className={`flex items-center py-1.5 px-3 mx-2 mt-1 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${currentFolderId === sec.id ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
-                  onClick={() => navigateTo(sec.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                     e.preventDefault();
-                     e.stopPropagation();
-                     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        uploadFiles(e.dataTransfer.files, sec.id);
-                     } else {
-                        const dataStr = e.dataTransfer.getData('text/plain');
-                        if (dataStr) {
-                           try {
-                              const data = JSON.parse(dataStr);
-                              if (data.type === 'app_items') handleMoveItems(data.ids, sec.id);
-                           } catch (err) {}
-                        }
-                     }
-                  }}
-                  title={sec.id === SEC_DISK
-                    ? 'Общий диск: виден всем и не зависит от проекта. Класть и удалять — по праву «Запись на общий диск»'
-                    : sec.id === SEC_SHARED ? 'Общий раздел: файлы видят все пользователи' : 'Личный раздел: файлы видит только владелец'}
-                >
-                  {getFileIcon({ isSection: true, id: sec.id }, 'w-4 h-4 mr-2 shrink-0')}
-                  <span className="text-sm font-medium truncate">{sec.name}</span>
-                </div>
-                {folders.filter(f => (sec.id === SEC_DISK
-                  ? f.parentId === diskRootId
-                  : !f.parentId && itemSection(f) === sec.id)).map(folder => (
-                  <TreeFolder key={folder.id} folder={folder} allFolders={folders} currentFolderId={currentFolderId} onSelect={navigateTo} onDropFiles={uploadFiles} onMoveItems={handleMoveItems} depth={2} />
-                ))}
-              </div>
-            ))}
-
-            {/* Подборки: срезы по всем файлам, а не папки */}
-            <div className="mt-3 mb-1 px-4 text-2xs font-mono text-slate-400">Подборки</div>
-            {[
-              { id: SMART_RECENT, label: 'Недавние', icon: Clock, hint: 'Сто последних изменённых файлов проекта' },
-              { id: SMART_UNTAGGED, label: 'Без тегов', icon: Tag, hint: 'Файлы, не привязанные ни к одному тегу оборудования' },
-              { id: SMART_DUPES, label: 'Дубликаты', icon: Copy, hint: 'Файлы с одинаковыми именами — вероятные повторы' },
-            ].map((sm) => {
-              const Icon = sm.icon as any;
-              const active = currentFolderId === sm.id;
-              return (
-                <div
-                  key={sm.id}
-                  className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-ui ${
-                    active
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
-                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
-                  }`}
-                  onClick={() => navigateTo(sm.id)}
-                  title={sm.hint}
-                >
-                  <Icon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
-                  <span className="text-sm">{sm.label}</span>
-                </div>
-              );
-            })}
-
-            {/* Корзина: удалённое хранится здесь до явной очистки */}
-            <div
-              className={`flex items-center py-1.5 px-3 mx-2 mt-2 rounded-lg cursor-pointer transition-ui ${
-                currentFolderId === TRASH_ID
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
-              }`}
-              onClick={() => navigateTo(TRASH_ID)}
-              title="Удалённые файлы и папки — можно вернуть"
-            >
-              <Trash2 className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
-              <span className="text-sm">Корзина</span>
-              {!!((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
-                <span className="ml-auto text-2xs font-mono text-slate-400">
-                  {(trash?.files.length || 0) + (trash?.folders.length || 0)}
-                </span>
-              )}
-            </div>
-        </div>
+        <ExplorerSidebar
+          currentFolderId={currentFolderId}
+          sections={sections}
+          folders={folders}
+          diskRootId={diskRootId}
+          itemSection={itemSection}
+          trash={trash}
+          onNavigate={navigateTo}
+          onUpload={uploadFiles}
+          onMoveItems={handleMoveItems}
+        />
 
         {/* Main Pane - Table View */}
         <div 
@@ -1924,106 +1845,15 @@ function ProjectExplorer() {
 
         {/* Preview Pane */}
         {showPreviewPane && (
-          <div className="hidden @[820px]:flex w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex-col flex-shrink-0">
-             {(() => {
-                if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выберите файл для предпросмотра.</div>;
-                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано: {countOf(selectedIds.size, 'элемент')}.</div>;
-
-                const id = Array.from(selectedIds)[0];
-                const item = allCurrentItems.find(i => i.id === id);
-                if (!item) return null;
-
-                if (item.isFolder) {
-                  return (
-                     <div className="p-4 flex flex-col items-center mt-10">
-                       <Folder className="w-16 h-16 text-amber-500 fill-amber-200 mb-4" />
-                       <h3 className="font-semibold text-slate-800 dark:text-dark-text-main text-center break-words w-full">{item.name}</h3>
-                       <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-2">Папка с файлами</p>
-                     </div>
-                  );
-                }
-
-                return (
-                  <div className="p-4 flex flex-col">
-                     <FilePreview item={item} icon={getFileIcon(item, 'w-12 h-12 mb-2')} />
-                     
-                     <h3 className="font-semibold text-slate-800 dark:text-dark-text-main mb-2 break-words text-sm">{item.name}</h3>
-                     
-                     <div className="space-y-2 text-xs mt-2">
-                       <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Размер</span>
-                         <span className="text-slate-800 dark:text-dark-text-main">{formatSize(item.size)}</span>
-                       </div>
-                       <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Тип</span>
-                         <span className="text-slate-800 dark:text-dark-text-main flex-1 text-right truncate ml-2">{item.type}</span>
-                       </div>
-                       <div className="flex justify-between items-center border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Статус</span>
-                         <StatusChip code={item.statusCode} onClick={(e) => { e.stopPropagation(); handleChangeStatus(item.id); }} />
-                       </div>
-                       <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Ревизия</span>
-                         <span className="text-slate-800 dark:text-dark-text-main">v{item.revision || '1'}</span>
-                       </div>
-                       <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Дата изменения</span>
-                         <span className="text-slate-800 dark:text-dark-text-main">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
-                       </div>
-                       {item.department && item.department !== "Unassigned" && (
-                       <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted">Отдел</span>
-                         <span className="text-slate-800 font-medium text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 px-1.5 py-0.5 rounded">{item.department}</span>
-                       </div>
-                       )}
-                       {((item.mainTags && item.mainTags.length > 0) || (item.additionalTags && item.additionalTags.length > 0)) && (
-                       <div className="flex flex-col border-b border-slate-100 pb-1 pt-1">
-                         <span className="text-slate-500 dark:text-dark-text-muted mb-1.5">Назначенные теги</span>
-                         <div className="flex flex-wrap gap-1">
-                           {item.mainTags?.map((t:any) => <span key={t.id} className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-xs font-medium font-mono border border-amber-200" title="Основной тег">{t.identifier}</span>)}
-                           {item.additionalTags?.map((t:any) => <span key={t.id} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-200" title="Дополнительный тег">{t.identifier}</span>)}
-                         </div>
-                       </div>
-                       )}
-                       {/* Кто и когда: в общем архиве это первый вопрос к чужому файлу */}
-                       {(item.updatedBy?.name || item.createdBy?.name) && (
-                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
-                           <span className="text-slate-500 dark:text-dark-text-muted">Изменил</span>
-                           <span className="text-slate-800 dark:text-dark-text-main truncate ml-2">{(item.updatedBy?.name || item.createdBy?.name || '').replace(/\s*\(.*\)$/, '')}</span>
-                         </div>
-                       )}
-                       {item.createdAt && (
-                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
-                           <span className="text-slate-500 dark:text-dark-text-muted">Создан</span>
-                           <span className="text-slate-800 dark:text-dark-text-main">{format(new Date(item.createdAt), 'dd.MM.yyyy HH:mm')}</span>
-                         </div>
-                       )}
-                     </div>
-
-                     {/* Действия над файлом — закреплены внизу панели: на экране
-                         ноутбука они иначе уходят ниже видимой части. */}
-                     <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border grid grid-cols-2 gap-1.5 mt-3">
-                       <button type="button" onClick={() => void saveExplorerItem(item.id, false, allCurrentItems, folders, addToast)}
-                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
-                         <Download className="w-3.5 h-3.5" /> Выгрузить в Windows
-                       </button>
-                       <button type="button" onClick={() => handleAssignTag(item.id)}
-                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
-                         <Tag className="w-3.5 h-3.5 text-amber-500" /> Теги
-                       </button>
-                       <button type="button" onClick={() => { setRenamingId(item.id); setRenameValue(item.name); }}
-                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
-                         <Edit2 className="w-3.5 h-3.5" /> Переименовать
-                       </button>
-                       <button type="button" onClick={() => handleDelete(item.id, true)}
-                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-ui cursor-pointer">
-                         <Trash2 className="w-3.5 h-3.5" /> Удалить
-                       </button>
-                     </div>
-                  </div>
-                );
-             })()}
-          </div>
+          <PreviewPane
+            selectedIds={selectedIds}
+            allCurrentItems={allCurrentItems}
+            folders={folders}
+            onChangeStatus={handleChangeStatus}
+            onAssignTag={handleAssignTag}
+            onRename={(id, name) => { setRenamingId(id); setRenameValue(name); }}
+            onDelete={handleDelete}
+          />
         )}
       </div>
 
@@ -2260,42 +2090,12 @@ function ProjectExplorer() {
       )}
 
       {importPickerFiles && (
-        <div className="fixed inset-0 flex items-center justify-center z-[70] fx-backdrop" onClick={() => setImportPickerFiles(null)}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fx-dialog dark:bg-dark-panel dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">
-              <Boxes className="w-5 h-5 text-emerald-600" />
-              <div className="flex flex-col">
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">Загрузить в оборудование</h2>
-                <span className="text-xs text-slate-500 dark:text-dark-text-muted">Выбрано файлов: {importPickerFiles.length}. Выберите категорию:</span>
-              </div>
-            </div>
-            <div className="p-3 overflow-y-auto scrollbar-thin grid grid-cols-1 gap-1.5">
-              {equipCats.map(c => (
-                <button type="button"
-                  key={c.id}
-                  onClick={() => importFilesToCategory(importPickerFiles, c.id)}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 transition-colors text-left cursor-pointer"
-                >
-                  <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center shrink-0">
-                    <Boxes className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
-                  </span>
-                  <span className="text-sm font-medium text-slate-800 dark:text-dark-text-main">{c.label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface">
-              <button type="button" onClick={() => setImportPickerFiles(null)} className="px-4 py-2 text-slate-700 dark:text-slate-300 bg-white dark:bg-dark-panel border border-slate-300 dark:border-dark-border rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface text-sm cursor-pointer">
-                Отмена
-              </button>
-            </div>
-          </motion.div>
-        </div>
+        <EquipmentImportDialog
+          files={importPickerFiles}
+          categories={equipCats}
+          onPick={(category) => importFilesToCategory(importPickerFiles, category)}
+          onClose={() => setImportPickerFiles(null)}
+        />
       )}
 
       {/* Прикрепить файл к строке ВДР: файл замечаний/выпуска у документа реестра */}
@@ -2304,78 +2104,13 @@ function ProjectExplorer() {
         <FileVersionsDialog fileId={versionsOf.id} name={versionsOf.name} onClose={() => setVersionsOf(null)} onRestored={fetchData} />
       )}
       {vdrAttachFileId && (
-        <VdrItemPicker
-          projectId={activeProject?.id || 'default'}
-          title="Прикрепить файл к строке ВДР"
-          onClose={() => setVdrAttachFileId(null)}
-          onPick={async (it) => {
-            try {
-              const r = await fetch(`/api/vdr/items/${it.id}`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fileNodeId: vdrAttachFileId }),
-              });
-              if (r.ok) addToast(`Файл прикреплён к «${it.contractorNo || it.titleRu}»`, 'success');
-              else addToast('Не удалось прикрепить', 'error');
-            } catch (_) { addToast('Ошибка сети', 'error'); }
-            setVdrAttachFileId(null);
-          }}
-        />
+        <VdrAttachDialog fileId={vdrAttachFileId} projectId={activeProject?.id || 'default'} onClose={() => setVdrAttachFileId(null)} />
       )}
     </motion.div>
   );
 }
 
 // Subcomponents
-
-const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, onDropFiles, onMoveItems }: any) => {
-  const children = allFolders.filter((f: any) => f.parentId === folder.id);
-  const [expanded, setExpanded] = useState(true);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const isSelected = currentFolderId === folder.id;
-
-  return (
-    <div>
-      <div 
-        onClick={() => onSelect(folder.id)}
-        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-        onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false); }}
-        onDrop={async (e) => {
-           e.preventDefault();
-           e.stopPropagation();
-           setIsDragOver(false);
-           if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-              onDropFiles(e.dataTransfer.files, folder.id);
-           } else {
-             const dataStr = e.dataTransfer.getData('text/plain');
-             if (dataStr) {
-               try {
-                 const data = JSON.parse(dataStr);
-                 if (data.type === 'app_items') {
-                   if (data.ids.includes(folder.id)) return;
-                   onMoveItems(data.ids, folder.id);
-                 }
-               } catch (err) {}
-             }
-           }
-        }}
-        className={`flex items-center py-1.5 px-2 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${isDragOver ? 'bg-emerald-200 dark:bg-emerald-950/45' : isSelected ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
-        style={{ paddingLeft: `${depth * 16}px` }}
-      >
-        <div 
-           className="w-4 h-4 flex items-center justify-center hover:bg-slate-300/50"
-           onClick={(e) => { if(children.length) { e.stopPropagation(); setExpanded(!expanded); } }}
-        >
-          {children.length > 0 ? (expanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />) : <span className="w-3 h-3" />}
-        </div>
-        <Folder className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-amber-600 fill-amber-200' : 'text-amber-500 fill-amber-100'}`} />
-        <span className="truncate text-xs select-none">{folder.name}</span>
-      </div>
-      {expanded && children.map((child: any) => (
-        <TreeFolder key={child.id} folder={child} allFolders={allFolders} currentFolderId={currentFolderId} onSelect={onSelect} depth={depth + 1} onDropFiles={onDropFiles} onMoveItems={onMoveItems} />
-      ))}
-    </div>
-  );
-};
 
 const SkeletonRow = () => (
   <tr className="animate-pulse border-b border-slate-100 dark:border-slate-800">

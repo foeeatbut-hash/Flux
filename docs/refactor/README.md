@@ -16,7 +16,8 @@
 | 3 | `Registry.tsx` по [registry.md](registry.md) | шаги 1–4 и 6 готовы: 4681 → 3258. **Дальше — шаг 5 (`QuickCreateBar`)**, затем 7, 8 |
 | 4 | `DictionaryEditor.tsx` по [screens.md](screens.md) | готово: 2208 → 751 (общая таблица справочников проекта — возможный следующий шаг) |
 | 4 | `assistantStore.ts` | готово: 1265 → 431 |
-| 4 | `Explorer.tsx`, `ChatManagement.tsx` по [screens.md](screens.md) | не начато |
+| 4 | `Explorer.tsx` по [screens.md](screens.md) | диалоги, просмотр, боковая панель готовы: 2402 → 2137. **Дальше — корзина**, затем тулбар, таблица, хуки |
+| 4 | `ChatManagement.tsx` по [screens.md](screens.md) | не начато |
 
 Актуальные размеры — всегда в `LEGACY` храповика: после каждого шага
 руководитель опускает число.
