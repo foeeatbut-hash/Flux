@@ -13,7 +13,7 @@
 | 0 | Хук сессии, `.ignore`, параллельный `npm run check`, красные наборы | готово: 139 наборов, 0 провалов, 7,4 мин (было 10,5 и 3–7 красных) |
 | 1 | `SettingsScreen.tsx` по секциям | готово: 1512 → 218 |
 | 2 | `server.ts` → `server/routes/*`, `server/sockets.ts`, `server/localSchema.ts` | готово: 4252 → 1522 |
-| 3 | `Registry.tsx` по [registry.md](registry.md) | шаги 1–3 и 6 готовы: 4681 → 3670. **Дальше — шаг 4 (`BoardCard`)**, затем 5, 7, 8 |
+| 3 | `Registry.tsx` по [registry.md](registry.md) | шаги 1–4 и 6 готовы: 4681 → 3258. **Дальше — шаг 5 (`QuickCreateBar`)**, затем 7, 8 |
 | 4 | `DictionaryEditor.tsx` по [screens.md](screens.md) | готово: 2208 → 751 (общая таблица справочников проекта — возможный следующий шаг) |
 | 4 | `assistantStore.ts` | готово: 1265 → 431 |
 | 4 | `Explorer.tsx`, `ChatManagement.tsx` по [screens.md](screens.md) | не начато |
