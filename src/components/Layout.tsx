@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { formatName } from '../lib/docFormula';
+import { formatName } from '../lib/names';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe, CalendarDays } from 'lucide-react';
@@ -200,9 +200,15 @@ export default function Layout() {
       // одной пачки человек к окну не вернётся
       const win = await windowState();
       for (const n of list) {
+        // Звук и всплывашка — два независимых решения. Раньше звук стоял
+        // после «если всплывашка разрешена», и при выключенных «Всплывающих»
+        // он пропадал, хотя «Звук» включён: человек хотел слышать сигнал и не
+        // видеть карточек. Тихий режим глушит и звук: он «обязан молчать»
+        if (shouldSound(n.category) && !isQuiet(useShellNotifyStore.getState().quiet)) {
+          try { playNotifSound(n.category); } catch (_) { /* без звука */ }
+        }
         if (!shouldPopup(n.category)) continue;
         push(toastOf(n));
-        if (shouldSound(n.category)) { try { playNotifSound(n.category); } catch (_) { /* без звука */ } }
         // …и на рабочий стол Windows, если человек смотрит не сюда
         void notifySystem(n, win);
       }

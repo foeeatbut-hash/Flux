@@ -12,6 +12,8 @@ export default defineConfig(() => {
     // Версия приложения из package.json — чтобы не хардкодить в UI
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
+      // Flux Play отключён: окно показывает его только при FLUX_PLAY=1 (play/enabled.ts)
+      __FLUX_PLAY__: JSON.stringify(process.env.FLUX_PLAY === '1'),
     },
     plugins: [react(), tailwindcss()],
     resolve: {

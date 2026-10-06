@@ -18,7 +18,7 @@ import {
   cutBackground, inkBounds, suggestThreshold, looksEmpty, checkFile,
   fitToHeight, STORE_HEIGHT_PX, DEFAULT_THRESHOLD,
 } from '../lib/signature';
-import { formatName } from '../lib/docFormula';
+import { formatName } from '../lib/names';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { useEscapeClose } from '../lib/useDismiss';

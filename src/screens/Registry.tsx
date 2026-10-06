@@ -126,10 +126,11 @@ export default function Registry() {
   const linkingFromRef = useRef<string | null>(null);
   useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
 
-  // Способ создания связей на ХОЛСТЕ и в ДЕРЕВЕ: 'click' или 'drag'. Настройки
-  // из «Настройки → Теги»; меняются вживую по событию.
+  // Способ создания связей — один и для холста, и для дерева: 'click' или
+  // 'drag'. Раньше на дерево был отдельный ключ tree_link_mode, и в Настройках
+  // стояли два одинаковых выбора; теперь выбор один (Настройки → Теги), ключ
+  // registry_link_mode. Меняется вживую по событию.
   const [linkMode, setLinkMode] = useState<'click' | 'drag'>('click');
-  const [treeLinkMode, setTreeLinkMode] = useState<'click' | 'drag'>('click');
   // Режим «связать» в дереве (клик по «+» у строки → клик по строке-получателю)
   const [treeLinkingFrom, setTreeLinkingFrom] = useState<string | null>(null);
   const treeLinkingFromRef = useRef<string | null>(null);
@@ -141,14 +142,12 @@ export default function Registry() {
     fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
       if (d.global === 'drag' || d.global === 'click') setLinkMode(d.global);
     }).catch(() => {});
-    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
-      if (d.global === 'drag' || d.global === 'click') setTreeLinkMode(d.global);
-    }).catch(() => {});
     const onSettings = (e: any) => {
       const v = e?.detail?.value;
       if (v !== 'click' && v !== 'drag') return;
-      if (e.detail.key === 'registry_link_mode') { setLinkMode(v); setLinkingFrom(null); }
-      if (e.detail.key === 'tree_link_mode') { setTreeLinkMode(v); setTreeLinkingFrom(null); }
+      if (e.detail.key !== 'registry_link_mode') return;
+      // Недоделанная связь прежнего способа сбрасывается в обоих местах
+      setLinkMode(v); setLinkingFrom(null); setTreeLinkingFrom(null);
     };
     window.addEventListener('flux:settings-changed', onSettings);
     return () => window.removeEventListener('flux:settings-changed', onSettings);
@@ -2405,7 +2404,7 @@ export default function Registry() {
             <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5" />
-                {treeLinkMode === 'click'
+                {linkMode === 'click'
                   ? <>Связи кликом: кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
                   : <>Связи перетаскиванием: тяните строку тега на другую (перетащенный станет дочерним).</>}
               </span>
@@ -2558,21 +2557,21 @@ export default function Registry() {
       <div key={node.id}>
         <div
           id={`tree-node-${node.id}`}
-          draggable={treeLinkMode === 'drag'}
+          draggable={linkMode === 'drag'}
           onDragStart={(e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             treeDraggedIdRef.current = node.id;
             e.dataTransfer.effectAllowed = 'move';
             try { e.dataTransfer.setData('text/plain', node.id); } catch (_) {}
           }}
           onDragOver={(e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             const from = treeDraggedIdRef.current;
             if (from && from !== node.id) { e.preventDefault(); if (treeDragOverId !== node.id) setTreeDragOverId(node.id); }
           }}
           onDragLeave={() => { if (treeDragOverId === node.id) setTreeDragOverId(null); }}
           onDrop={async (e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             e.preventDefault();
             const from = treeDraggedIdRef.current;
             treeDraggedIdRef.current = null;
@@ -2606,7 +2605,7 @@ export default function Registry() {
             setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
           }}
           aria-current={selectedTagIds.has(node.id) || treeLinkingFrom === node.id || undefined}
-          className={`fx-li group/tr justify-between ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
+          className={`fx-li group/tr justify-between ${linkMode === 'drag' ? 'cursor-move' : ''} ${
             treeDragOverId === node.id || treeLinkingFrom === node.id
               ? 'ring-1 ring-inset ring-sky-400'
               : treeLinkingFrom ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-sky-300' : ''
@@ -2671,7 +2670,7 @@ export default function Registry() {
             )}
 
             <div className={`flex gap-0.5 ${treeLinkingFrom === node.id ? '' : 'invisible group-hover/tr:visible group-focus-within/tr:visible'}`}>
-              {treeLinkMode === 'click' && (
+              {linkMode === 'click' && (
                 <button type="button"
                   onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
                   title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}

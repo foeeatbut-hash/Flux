@@ -171,47 +171,7 @@ const call = async (method: string, url: string, body?: any) => {
     }
   }
 
-  console.log('7. Формулы документа');
-  {
-    const mk = (body: any) => call('POST', `/api/projects/${projectId}/formulas`, body);
-    const made: string[] = [];
-
-    const a = await mk({ name: '__проверка A', kind: 'compose', config: { parts: [] } });
-    const b = await mk({ name: '__проверка B', kind: 'compose', config: { parts: [] } });
-    ok('формула заводится', a.status === 200 && !!a.json?.formula?.id, a.status);
-    if (a.json?.formula?.id) made.push(a.json.formula.id);
-    if (b.json?.formula?.id) made.push(b.json.formula.id);
-
-    const bad = await mk({ name: '__проверка', kind: 'чепуха' });
-    ok('неизвестный вид формулы отвергается', bad.status === 400, bad.status);
-    const noName = await mk({ name: '   ', kind: 'value' });
-    ok('формула без названия отвергается', noName.status === 400, noName.status);
-
-    if (made.length === 2) {
-      const [idA, idB] = made;
-      // A → B — так можно
-      const linkAB = await call('PUT', `/api/formulas/${idA}`, {
-        config: { parts: [{ kind: 'formula', value: idB }] },
-      });
-      ok('ссылка на другую формулу разрешена', linkAB.status === 200, linkAB.status);
-
-      // B → A замкнуло бы кольцо — не даём сохранить и показываем цепочку
-      const loop = await call('PUT', `/api/formulas/${idB}`, {
-        config: { parts: [{ kind: 'formula', value: idA }] },
-      });
-      ok('кольцо не сохраняется', loop.status === 400, loop.status);
-      ok('в отказе видна цепочка формул', /→/.test(String(loop.json?.error || '')), loop.json?.error);
-
-      const usage = await call('GET', `/api/formulas/${idB}/usage`);
-      ok('видно, кто ссылается на формулу', (usage.json?.formulas || []).some((x: any) => x.id === idA), usage.json);
-    }
-
-    for (const id of made) await call('DELETE', `/api/formulas/${id}`);
-    const left = await call('GET', `/api/projects/${projectId}/formulas`);
-    ok('после удаления список чист', !(left.json?.formulas || []).some((x: any) => x.name.startsWith('__проверка')));
-  }
-
-  console.log('8. Подпись сотрудника');
+  console.log('7. Подпись сотрудника');
   {
     const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -254,7 +214,7 @@ const call = async (method: string, url: string, body?: any) => {
     ok('подпись убирается', cleared.status === 200 && cleared.json?.signature === null, cleared.json);
   }
 
-  console.log('9. Ошибки отвечают внятно, а не падают');
+  console.log('8. Ошибки отвечают внятно, а не падают');
   {
     const missing = await call('GET', '/api/projects/нет-такого/tags');
     ok('несуществующий проект → не 500', missing.status !== 500, missing.status);

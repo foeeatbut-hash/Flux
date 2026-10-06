@@ -50,16 +50,14 @@ export const TOPIC_ARTICLES: HandbookArticle[] = [
         ],
       },
     ],
-    stores: ['Project', 'Tag', 'EquipmentSystem', 'Folder', 'FileNode', 'DocFormula', 'UserNote', 'MailMessage', 'ChatMessage', 'User'],
+    stores: ['Project', 'Tag', 'EquipmentSystem', 'Folder', 'FileNode', 'UserNote', 'MailMessage', 'ChatMessage', 'User'],
     links: [
       ['Tag', 'Project', 'projectId'],
       ['EquipmentSystem', 'Project', 'projectId'],
       ['Folder', 'Project', 'projectId'],
       ['FileNode', 'Folder', 'folderId'],
-      ['DocFormula', 'Project', 'projectId'],
     ],
     pitfalls: [
-      'Формулы документа настраиваются отдельно в каждом проекте. Настроенные в одном, в другом они пустые — это не сбой.',
       'В Проводнике видны папки всех проектов. Новая папка создаётся в том проекте, который открыт сейчас.',
       'Ссылка из чата может вести в другой проект. Она не сломана — просто спросит о переходе.',
     ],

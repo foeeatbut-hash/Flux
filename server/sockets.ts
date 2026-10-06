@@ -1,6 +1,7 @@
 import type { Server as SocketIOServer } from 'socket.io';
 import { setupPresence } from './presence.js';
 import { attachPlaySocket } from './play/socket.js';
+import { playEnabled } from '../play/enabled.js';
 import { setupOfficeSockets } from './officeSockets.js';
 import { relayProjectEvent } from './projectEvents.js';
 
@@ -72,8 +73,9 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
 
     // Живая часть платформы: присутствие с арендой и подписка на её события.
     // Доступ проверяется на каждом событии, а не один раз здесь: его отбирают
-    // в живой сессии, и подключившийся минуту назад сокет права не даёт
-    if (uid) attachPlaySocket(socket, uid, getAuthUser);
+    // в живой сессии, и подключившийся минуту назад сокет права не даёт.
+    // Только при включённой платформе (FLUX_PLAY=1, см. play/enabled.ts)
+    if (uid && playEnabled()) attachPlaySocket(socket, uid, getAuthUser);
 
     // Пришедшему — весь список сразу: без него человек до первого чужого входа
     // видел бы всех офлайн. Список считается от его лица: себя скрывший видит

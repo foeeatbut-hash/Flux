@@ -9,6 +9,7 @@ import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import PlayAccess, { type Mode as PlayMode } from '../components/users/PlayAccess';
+import { playEnabled } from '../../play/enabled';
 import EmployeeImportDialog from '../components/users/EmployeeImportDialog';
 import UpdateCampaignPanel from '../components/users/UpdateCampaignPanel';
 import { cleanUserPermissions } from '../lib/userPermissions';
@@ -124,7 +125,7 @@ export default function UsersManagement() {
    */
   const policyCtx = useAppContext();
   const navigate = useNavigate();
-  const showsPlay = canOpenApp(policyCtx) || canManagePlay(policyCtx) || isTopAdmin(user as any, roles);
+  const showsPlay = playEnabled() && (canOpenApp(policyCtx) || canManagePlay(policyCtx) || isTopAdmin(user as any, roles));
 
   const toDateInputValue = (value: any): string => {
     if (!value) return '';

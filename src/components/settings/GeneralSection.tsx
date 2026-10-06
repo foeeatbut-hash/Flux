@@ -1,5 +1,5 @@
 /**
- * Лист «Общие» в Параметрах: тема, плотность, где искать разделы, живой фон.
+ * Лист «Общие» в Параметрах: тема, плотность, присутствие, экраны, запуск.
  *
  * Вынесен из SettingsScreen отдельным файлом, а не оставлен там: экран уже
  * упирался в потолок размера, и добавить в него ещё один блок значило бы
@@ -8,7 +8,6 @@
 import React from 'react';
 import { Seg, SettingRow, Switch } from '../ui';
 import SectionShell from './SectionShell';
-import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
 import OnlineVisibility from './OnlineVisibility';
 import DisplaySettings from '../shell/DisplaySettings';
@@ -27,22 +26,6 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
           <Seg label="Плотность" value={density} onChange={setDensity}
             options={[{ value: 'compact', label: 'Компактно' }, { value: 'standard', label: 'Стандарт' }, { value: 'comfortable', label: 'Просторно' }]} />
         </SettingRow>
-      </div>
-
-      <div className="fx-set-group">
-        <h3 className="fx-group-title">Главный экран и помощник</h3>
-        <ToggleRow
-          storageKey="flux_backdrop"
-          event="flux:backdrop-changed"
-          title="Фон главного экрана"
-          desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
-        />
-        <ToggleRow
-          storageKey="flux_art"
-          event="flux:art-changed"
-          title="Картины в шапке помощника"
-          desc="Ван Гог, Хокусай, да Винчи, Моне, Айвазовский — нарисованы кодом и оживают. Нажатие на полке меняет картину."
-        />
       </div>
 
       {/* Присутствие. Блок сам решает, показываться ли: право скрыть себя

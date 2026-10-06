@@ -30,7 +30,7 @@
 `CapturePult` — у них свои окна или свой этап входа.
 
 Файлы в `screens/`, которых нет в `SECTIONS`: `TitlePanel`, `TitleTemplateEditor`,
-`TextDocEditor`, `VdrPanel`, `titleTemplate.ts`. Это компоненты, а не разделы.
+`TextDocEditor`, `VdrPanel`. Это компоненты, а не разделы.
 
 ## Сервер
 

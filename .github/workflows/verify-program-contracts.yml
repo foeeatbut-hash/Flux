@@ -38,6 +38,8 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_UI_URL: http://127.0.0.1:5173
+          # Flux Play отключён без признака (play/enabled.ts); Vite подставляет его в окно
+          FLUX_PLAY: '1'
         run: |
           set -euo pipefail
           vite_log="${{ runner.temp }}/flux-ui-vite.log"

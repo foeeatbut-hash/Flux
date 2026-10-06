@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
+import { toastPlan, playNotifSound } from '../lib/notifPrefs';
 
 export type Toast = {
   id: string;
@@ -18,10 +18,11 @@ interface ToastState {
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   addToast: (message, type = 'info', onClick, category) => {
-    // Ошибки показываем всегда (важны), остальное — по настройкам пользователя
-    const force = type === 'error';
-    if (!force && !shouldPopup(category)) return;
-    if (force || shouldSound(category)) {
+    // Ошибки показываем всегда (важны), остальное — по настройкам; звук же
+    // слушается общего «Звука» и у ошибок тоже (см. toastPlan)
+    const plan = toastPlan(type, category);
+    if (!plan.show) return;
+    if (plan.sound) {
       try { playNotifSound(category); } catch {}
     }
     const id = Date.now().toString() + Math.random().toString();

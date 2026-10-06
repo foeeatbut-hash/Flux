@@ -22,7 +22,7 @@ import { testCredentials } from './testCredentials';
  * бы не скрытность, а выключенный по умолчанию выключатель.
  *
  * Запуск (нужен поднятый сервер и Chromium):
- *   npx tsx server.ts > /tmp/srv.log 2>&1 &
+ *   FLUX_PLAY=1 npx tsx server.ts > /tmp/srv.log 2>&1 &
  *   npx tsx scripts/test-play-stealth-live.ts
  */
 import { APP_PLAY, PLAY_ADMIN, gameEntitlement, isPlayKey } from '../play/features';
@@ -66,7 +66,7 @@ async function revokePlay(token: string, userId: string): Promise<void> {
     const h = await fetch(BASE + '/api/health');
     if (!h.ok) throw new Error('health ' + h.status);
   } catch (e: any) {
-    console.error(`Сервер на ${BASE} не отвечает (${e?.message || e}). Поднимите: npx tsx server.ts`);
+    console.error(`Сервер на ${BASE} не отвечает (${e?.message || e}). Поднимите: FLUX_PLAY=1 npx tsx server.ts`);
     process.exit(2);
   }
 

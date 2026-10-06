@@ -13,6 +13,7 @@ import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
 import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks, Archive } from 'lucide-react';
 import { APP_PLAY } from '../../play/features';
+import { playEnabled } from '../../play/enabled';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
@@ -60,7 +61,9 @@ const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
 const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 const BrowserScreen = lazy(() => import('../screens/BrowserScreen'));
 const CalendarScreen = lazy(() => import('../screens/CalendarScreen'));
-const PlayScreen = lazy(() => import('../play/PlayScreen'));
+// @__PURE__: при выключенном Play переменная не используется, и сборка
+// выбрасывает кусок вместе с загрузкой экрана
+const PlayScreen = /* @__PURE__ */ lazy(() => import('../play/PlayScreen'));
 const CatalogScreen = lazy(() => import('../screens/CatalogScreen'));
 const BuilderScreen = lazy(() => import('../screens/BuilderScreen'));
 const ArchivesScreen = lazy(() => import('../screens/Archives'));
@@ -136,6 +139,15 @@ export interface SectionDef {
   Component: React.LazyExoticComponent<React.ComponentType<any>> | React.FunctionComponent;
 }
 
+// Flux Play — встроенная игровая платформа. Область общая: группы и матчи
+// живут поверх проектов. Доступ выдаётся отдельно и молча: сотрудник без
+// него не видит раздела нигде и по адресу /play уходит на Главную.
+// Платформа отключена (её выносят в отдельную portable-программу): раздел
+// есть только при FLUX_PLAY=1, а значит нет ни в Пуске, ни на столе, ни в поиске
+const PLAY_SECTION: SectionDef[] = playEnabled() ? [
+  { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen }
+] : [];
+
 export const SECTIONS: SectionDef[] = [
   { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
   { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
@@ -185,10 +197,7 @@ export const SECTIONS: SectionDef[] = [
   // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
   // после переключения проекта не должно пропадать из списка
   { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },
-  // Flux Play — встроенная игровая платформа. Область общая: группы и матчи
-  // живут поверх проектов. Доступ выдаётся отдельно и молча: сотрудник без
-  // него не видит раздела нигде и по адресу /play уходит на Главную
-  { path: '/play', title: 'Flux Play', icon: Gamepad2, scope: 'global', scroll: 'fixed', pad: false, entitlement: APP_PLAY, accessMode: 'stealth', Component: PlayScreen },
+  ...PLAY_SECTION,
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },

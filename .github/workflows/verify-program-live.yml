@@ -27,6 +27,8 @@ jobs:
           --health-start-period=20s
     env:
       FLUX_TEST_FIXTURE: '1'
+      # Flux Play отключён без признака (play/enabled.ts); здесь его наборы идут
+      FLUX_PLAY: '1'
       FLUX_REMAINING_LIVE_DATABASE_URL: mysql://root:flux-ci-fixture-only@127.0.0.1:3306/flux_remaining_fixture
       FLUX_REMAINING_LIVE_METADATA: /tmp/flux-remaining-live-ci/metadata.json
     steps:

@@ -25,6 +25,7 @@ import { registerPlayDiagnostics } from './server/play/diagnostics.js';
 import { startPresenceSweep } from './server/play/socket.js';
 import { startPlayOutbox } from './server/play/outbox.js';
 import { invalidateRoleMaps } from './server/play/access.js';
+import { playEnabled } from './play/enabled.js';
 import { registerFileChunkRoutes } from './server/routes/fileChunks.js';
 import { registerArchiveRoutes } from './server/routes/archives.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
@@ -46,7 +47,6 @@ import { registerProjectRoutes } from './server/routes/projects.js';
 import { registerNotificationRoutes } from './server/routes/notifications.js';
 import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
-import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
 import { entryOf } from './src/lib/permissions.js';
@@ -959,16 +959,24 @@ registerFileSharingRoutes(app, { chunkBytes: limits.chunkBytes });
  * самих маршрутов платформы — иначе первый же забытый обработчик открыл бы её
  */
 registerPolicyRoutes(app);
-registerPlayAccess(app);
-// Диагностика платформы для администратора — ВНЕ заслона /api/play:
-// иначе настройка пряталась бы за дверью, ключ от которой она и выдаёт
-registerPlayDiagnostics(app);
+/**
+ * Flux Play отключён (его выносят в отдельную portable-программу): маршруты,
+ * заслон, очередь доставки и уборка присутствия поднимаются только при
+ * FLUX_PLAY=1 (play/enabled.ts). Без признака `/api/play` отвечает как любой
+ * несуществующий адрес, а таблицы Play* в базе остаются нетронутыми.
+ */
+if (playEnabled()) {
+  registerPlayAccess(app);
+  // Диагностика платформы для администратора — ВНЕ заслона /api/play:
+  // иначе настройка пряталась бы за дверью, ключ от которой она и выдаёт
+  registerPlayDiagnostics(app);
 
-registerPlayRoutes(app);
-// Очередь доставки и уборка протухших аренд присутствия: и то и другое
-// переживает перезапуск сервера, потому что живёт в базе, а не в памяти
-startPlayOutbox();
-startPresenceSweep();
+  registerPlayRoutes(app);
+  // Очередь доставки и уборка протухших аренд присутствия: и то и другое
+  // переживает перезапуск сервера, потому что живёт в базе, а не в памяти
+  startPlayOutbox();
+  startPresenceSweep();
+}
 registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackChunkBytes, appVersion: () => APP_VERSION });
 // Содержимое файла едет кусками: предела на размер больше нет. Право записи на
 // общий диск считается тем же способом, что и для остальных действий с файлами
@@ -1147,7 +1155,6 @@ registerMailRoutes(app, { userDataPath, enforce, mayFeature });
 registerMailSharedRoutes(app);
 registerMailComposeRoutes(app, { userDataPath });
 registerMailLinkRoutes(app, { userDataPath });
-registerFormulaRoutes(app);
 registerTableTemplateRoutes(app);
 registerCatalogRoutes(app, userCan);
 registerBuilderRoutes(app);

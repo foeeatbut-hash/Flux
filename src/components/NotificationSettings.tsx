@@ -12,6 +12,12 @@ import { getPrefs, savePrefs, NOTIF_CATEGORIES, NotifPrefs, playNotifSound } fro
  *
  * У каждой категории свой тон сигнала, рядом кнопка «прослушать»: так можно
  * решить, на что отрываться от работы, не дожидаясь самого события.
+ *
+ * Общие переключатели сильнее категорийных: при выключенных «Всплывающих»
+ * столбец «Показ» ничего не решает, при выключенном «Звуке» — столбец «Звук» и
+ * кнопки прослушивания. Такие столбцы приглушены и подписаны, а не оставлены
+ * выглядеть рабочими: включённый переключатель, который ничего не делает,
+ * обманывает.
  */
 export default function NotificationSettings() {
   const [prefs, setPrefs] = useState<NotifPrefs>(() => getPrefs());
@@ -24,6 +30,11 @@ export default function NotificationSettings() {
       <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${on ? 'left-[18px]' : 'left-0.5'}`} />
     </button>
   );
+
+  // Что сейчас не действует из-за общих переключателей
+  const dimShow = !prefs.popups;
+  const dimSound = !prefs.sound;
+  const dim = 'opacity-40';
 
   return (
     <div className="space-y-3">
@@ -43,12 +54,23 @@ export default function NotificationSettings() {
           <Toggle on={prefs.sound} label="Звук уведомлений"
             onClick={() => update({ ...prefs, sound: !prefs.sound })} />
         </div>
+        {(dimShow || dimSound) && (
+          <p className="text-2xs text-slate-500 dark:text-slate-400" role="status">
+            Сейчас не действует:{' '}
+            {dimShow && <>столбец «Показ» (выключены «Всплывающие справа»)</>}
+            {dimShow && dimSound && '; '}
+            {dimSound && <>столбец «Звук» и кнопки прослушивания (выключен «Звук уведомлений»)</>}.
+          </p>
+        )}
       </div>
 
       {/* По категориям */}
       <div>
         <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-1 mb-1 text-xs font-medium text-slate-400">
-          <span>Категория</span><span>Показ</span><span>Звук</span><span className="w-5" />
+          <span>Категория</span>
+          <span className={dimShow ? `${dim} line-through` : ''} title={dimShow ? 'Не действует: выключены «Всплывающие справа»' : undefined}>Показ</span>
+          <span className={dimSound ? `${dim} line-through` : ''} title={dimSound ? 'Не действует: выключен «Звук уведомлений»' : undefined}>Звук</span>
+          <span className="w-5" />
         </div>
         <div className="space-y-1.5">
           {NOTIF_CATEGORIES.map(c => {
@@ -59,13 +81,19 @@ export default function NotificationSettings() {
                   <span className="block text-xs font-semibold text-slate-700 dark:text-dark-text-main truncate">{c.label}</span>
                   <span className="block text-2xs text-slate-400 truncate">{c.desc}</span>
                 </span>
-                <Toggle on={cur.show} label={`Показывать: ${c.label}`}
-                  onClick={() => update({ ...prefs, categories: { ...prefs.categories, [c.id]: { ...cur, show: !cur.show } } })} />
-                <Toggle on={cur.sound} label={`Звук: ${c.label}`}
-                  onClick={() => update({ ...prefs, categories: { ...prefs.categories, [c.id]: { ...cur, sound: !cur.sound } } })} />
+                <span className={dimShow ? dim : ''}>
+                  <Toggle on={cur.show} label={`Показывать: ${c.label}`}
+                    onClick={() => update({ ...prefs, categories: { ...prefs.categories, [c.id]: { ...cur, show: !cur.show } } })} />
+                </span>
+                <span className={dimSound ? dim : ''}>
+                  <Toggle on={cur.sound} label={`Звук: ${c.label}`}
+                    onClick={() => update({ ...prefs, categories: { ...prefs.categories, [c.id]: { ...cur, sound: !cur.sound } } })} />
+                </span>
+                {/* Прослушать можно и при выключенном «Звуке»: так человек
+                    слышит, что включит. Кнопка только приглушена */}
                 <button type="button" onClick={() => playNotifSound(c.id)}
-                  title="Прослушать сигнал этой категории"
-                  className="p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer">
+                  title={dimSound ? 'Прослушать сигнал (общий «Звук» выключен — в работе он не прозвучит)' : 'Прослушать сигнал этой категории'}
+                  className={`p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer ${dimSound ? dim : ''}`}>
                   <Play className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -73,8 +101,10 @@ export default function NotificationSettings() {
           })}
         </div>
         <p className="text-2xs text-slate-400 mt-2">
-          «Показ» — всплывашка справа. В колокольчике событие останется в любом случае, чтобы ничего не потерялось.
-          Ошибки показываются всегда. Настройки хранятся в профиле и переезжают вместе с вами на другой компьютер.
+          «Показ» — всплывашка справа, «Звук» — сигнал; они не зависят друг от друга. В колокольчике событие
+          останется в любом случае, чтобы ничего не потерялось. Ошибки показываются всегда, но звучат, только
+          если включён общий «Звук». Новые письма и ответы на обращения подчиняются только общим
+          переключателям. Настройки хранятся в профиле и переезжают вместе с вами на другой компьютер.
         </p>
       </div>
     </div>
