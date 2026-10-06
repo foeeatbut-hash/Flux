@@ -394,6 +394,7 @@ ONLY=/logs SHOTS=1 npx tsx scripts/test-design-live.ts      # снимки в /t
 
 | Где | Правило | Почему | До |
 |---|---|---|---|
+| Проводник (`WindowsExplorer` и `src/components/files/`) | весь вид: палитра, шапка раздела, меры, шрифт | решение владельца 6 октября 2026: «вид должен быть точно такой же», как у Проводника Windows 11; меры и цвета — по эталону в [explorer-windows11.md](../explorer-windows11.md) | всегда |
 | Значки файлов Windows в Проводнике и на рабочем столе | свой цвет и размер, не lucide 16 px | зеркалирование использует системный значок типа файла и папки; цвет помогает узнавать знакомые документы Windows | всегда |
 | Доски игр `src/play/runtime/*Board.tsx` | вес 700, свои цвета | игровое поле, а не интерфейс: цифры 2048 и судоку, фигуры, карты | всегда |
 | Старые редакторы Flux Office: `ConstructorScreen`, `TextDocEditor`, `PdfEditor`, `components/office`, `components/ribbon`, `components/builder`, `TitlePanel`, `TitleTemplateEditor`, `RichTextEditor` | весь вид | заменяются редакторами GenOffice (`docs/office-engine-choice.md`); перекрашивать то, что уходит, — двойная работа | замена редакторов |
