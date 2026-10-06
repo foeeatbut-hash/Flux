@@ -7,7 +7,6 @@ import { useInsightStore } from '../store/insightStore';
 import { dataService } from '../services/dataService';
 import {
   Table,
-  Plus,
   Trash2,
   Edit2,
   Link2,
@@ -25,11 +24,9 @@ import {
   ArrowRight,
   ClipboardCheck,
   Check,
-  Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import CustomSelect from '../components/CustomSelect';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
 import { useShareStore } from '../store/shareStore';
@@ -58,9 +55,11 @@ import TagCardModal from '../components/registry/TagCardModal';
 import RegistryHeader from '../components/registry/RegistryHeader';
 import BoardControls from '../components/registry/BoardControls';
 import BoardContextMenu from '../components/registry/BoardContextMenu';
+import QuickCreateBar from '../components/registry/QuickCreateBar';
+import { useQuickCreate } from '../components/registry/useQuickCreate';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
-import { parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
+import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
 
 import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
@@ -529,19 +528,10 @@ export default function Registry() {
   const [showTableDescriptions, setShowTableDescriptions] = useState<{ [tagId: string]: boolean }>({});
   const [showOptionalTableColumns, setShowOptionalTableColumns] = useState(false);
 
-  // Quick manually create tag
-  const [newTagIdentifier, setNewTagIdentifier] = useState('');
-  const [newTagMainName, setNewTagMainName] = useState('');
-  const [newTagDepartment, setNewTagDepartment] = useState('Отдел КИПиА');
-  const [newTagFluid, setNewTagFluid] = useState('Воздух');
-  const [newTagActuality, setNewTagActuality] = useState<'actual' | 'warning' | 'critical' | 'info' | 'draft'>('info');
+  // Остались здесь, а не в useQuickCreate: «Доп» открывает меню правой кнопки
+  // по холсту, а выбор по умолчанию раскладывает загрузка словарей
   const [showAdvancedCreation, setShowAdvancedCreation] = useState(false);
   const [dynamicCategorySelections, setDynamicCategorySelections] = useState<Record<string, string>>({});
-
-  // Brand (Марка) Creation & Editing States
-  const [newTagBrand, setNewTagBrand] = useState('');
-  const [newTagMarkingSelections, setNewTagMarkingSelections] = useState<Record<string, string>>({});
-  const [newTagMarkingSeparator, setNewTagMarkingSeparator] = useState('-');
 
   const [editTagBrand, setEditTagBrand] = useState('');
 
@@ -569,31 +559,6 @@ export default function Registry() {
       modalInitRef.current = null;
     }
   }, [editingTag]);
-
-  const handleDynamicCategoryChange = (catId: string, val: string) => {
-    setDynamicCategorySelections(prev => ({
-      ...prev,
-      [catId]: val
-    }));
-  };
-
-  // Cyrillic layout warning and char blocker
-  const handleTagIdentifierChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (/[а-яА-ЯёЁ]/.test(val)) {
-      addToast("Смените раскладку! Ввод тегов разрешен только на латинице.", "error");
-      return;
-    }
-    setNewTagIdentifier(val);
-  };
-
-  const matchingSuggestions = useMemo(() => {
-    if (!newTagIdentifier) return [];
-    const searchVal = newTagIdentifier.trim().toLowerCase();
-    const prefix = tags.filter(t => t.identifier.toLowerCase().startsWith(searchVal));
-    const sub = tags.filter(t => !t.identifier.toLowerCase().startsWith(searchVal) && t.identifier.toLowerCase().includes(searchVal));
-    return [...prefix, ...sub].slice(0, 8);
-  }, [newTagIdentifier, tags]);
 
   // Text Extractor Tool State
   const [pastedDocText, setPastedDocText] = useState('');
@@ -2113,99 +2078,18 @@ export default function Registry() {
     }
   };
 
-  // Manual fast tag create with verification
-  const handleCreateTag = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTagIdentifier || !newTagBrand.trim() || !activeProject) {
-      addToast("Ошибка: Заполните обязательные поля Tag и Mark!", "error");
-      return;
-    }
-
-    if (checkTagExists(newTagIdentifier)) {
-      void openAlert('Такой тег уже есть', `Тег «${newTagIdentifier}» уже заведён в этом проекте. Укажите другой код.`);
-      return;
-    }
-
-    try {
-      // Новая карточка появляется на свободном месте — не перекрывая существующие.
-      // Если тег заводят через меню правой кнопки, «свободное место» ищется от
-      // той точки, куда нажали, а не от центра экрана
-      const spot = newTagSpotRef.current || { x: (300 - pan.x) / zoom, y: (200 - pan.y) / zoom };
-      newTagSpotRef.current = null;
-      const { x: dropX, y: dropY } = findFreePosition(spot.x, spot.y);
-
-      const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
-      const cats = configDict
-        ? (configDict.items || [])
-            .filter((i: any) => !i.parentId)
-            .sort((a: any, b: any) => a.code.localeCompare(b.code))
-        : [];
-
-      let finalDepartment = newTagDepartment;
-      let finalFluid = newTagFluid || 'Воздух';
-      const finalDynamicFields: Record<string, string> = {};
-
-      cats.forEach((cat: any) => {
-        const value = dynamicCategorySelections[cat.id] || '';
-        finalDynamicFields[cat.nameRu] = value;
-
-        const lowName = cat.nameRu.toLowerCase();
-        const lowCode = cat.code.toLowerCase();
-        if (lowCode.includes('dep') || lowName.includes('дисциплина') || lowName.includes('отдел')) {
-          finalDepartment = value;
-        } else if (lowCode.includes('fluid') || lowName.includes('среда') || lowName.includes('свойство') || lowName.includes('fluid')) {
-          finalFluid = value;
-        }
-      });
-
-      const initialMeta: ParsedMetadata = {
-        x: dropX,
-        y: dropY,
-        connections: [],
-        descriptions: [
-          {
-            id: 'desc-' + Math.random().toString(36).substr(2, 9),
-            text: 'Первичный статус',
-            comment: 'Установлено при создании тега',
-            status: newTagActuality,
-            createdBy: user?.name || user?.login || 'Пользователь',
-            createdAt: new Date().toISOString()
-          }
-        ],
-        mainName: newTagMainName.trim(),
-        dynamicFields: finalDynamicFields,
-        createdBy: user?.name || user?.login || 'Пользователь',
-        createdAt: new Date().toISOString(),
-        tagSegments: splitSegments(newTagIdentifier.trim()),
-        markSegments: splitSegments(newTagBrand.trim())
-      };
-
-      const res = await fetch(`/api/projects/${activeProject.id}/tags`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: newTagIdentifier.trim(),
-          department: finalDepartment,
-          fluid: finalFluid,
-          wbs: '',
-          brand: newTagBrand.trim() || null,
-          metadata: JSON.stringify(initialMeta)
-        })
-      });
-
-      if (res.ok) {
-        setNewTagIdentifier('');
-        setNewTagMainName('');
-        setNewTagBrand('');
-        setNewTagMarkingSelections({});
-        // reset to default status 'info' (В работе)
-        setNewTagActuality('info');
-        loadTags();
-      }
-    } catch (err) {
-      console.error('Failed to create tag manually:', err);
-    }
-  };
+  // Строка быстрого создания: состояние и логика — в useQuickCreate. Вызывается
+  // здесь, после загрузки тегов и доски, потому что им нужны loadTags и поиск
+  // свободного места
+  const {
+    newTagIdentifier, setNewTagIdentifier, newTagMainName, setNewTagMainName,
+    setNewTagDepartment, setNewTagFluid, newTagActuality, setNewTagActuality,
+    newTagBrand, setNewTagBrand, isIdentifierUnique, matchingSuggestions,
+    handleDynamicCategoryChange, handleTagIdentifierChange, handleCreateTag,
+  } = useQuickCreate({
+    tags, activeProject, user, dictionaries, pan, zoom, findFreePosition, newTagSpotRef,
+    splitSegments, checkTagExists, loadTags, dynamicCategorySelections, setDynamicCategorySelections,
+  });
 
   // Delete Node tag completely
   const handleDeleteTag = async (tagId: string) => {
@@ -2377,8 +2261,6 @@ export default function Registry() {
     { lineage: getParentTraceLineage, meta: parseTagMetadata },
   );
 
-  const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
-
   const startNewTag = () => {
     if (activeTab !== 'board' && activeTab !== 'table') setActiveTab('table');
     setTimeout(() => (document.querySelector('#registry-screen-root [data-tour="tag-code-input"]') as HTMLInputElement | null)?.focus(), 60);
@@ -2415,166 +2297,27 @@ export default function Registry() {
       {(activeTab === 'board' || activeTab === 'table' || activeTab === 'tree') && (
       <div className="fx-tools items-start">
         {(activeTab === 'board' || activeTab === 'table') && (
-        <form onSubmit={handleCreateTag} className="flex flex-col gap-1.5 min-w-0 flex-1 text-left" aria-label="Новый тег">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Tag identifier code */}
-            <div className="relative w-44">
-              <div className="relative animate-fadeIn">
-                <input
-                  type="text"
-                  required
-                  data-tour="tag-code-input"
-                  placeholder="Код тега *"
-                  aria-label="Код тега (EN)"
-                  value={newTagIdentifier}
-                  onChange={handleTagIdentifierChange}
-                  className={`fx-input code pr-16 ${newTagIdentifier && !isIdentifierUnique ? 'border-rose-400 dark:border-rose-700' : ''}`}
-                />
-                {newTagIdentifier && (
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-xs">
-                    {isIdentifierUnique ? <Status tone="emerald">Свободен</Status> : <Status tone="rose">Занят</Status>}
-                  </div>
-                )}
-              </div>
-              
-              {/* Auto Suggestions list */}
-              {newTagIdentifier && matchingSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
-                  <div className="text-xs font-mono font-medium text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
-                    <span>Существующие теги</span>
-                    <span className="text-xs font-sans font-normal lowercase text-slate-500">выберите</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    {matchingSuggestions.map((st) => (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => {
-                          setNewTagIdentifier(st.identifier);
-                          if (st.department) setNewTagDepartment(st.department);
-                          if (st.fluid) setNewTagFluid(st.fluid);
-                          const stMeta = parseTagMetadata(st);
-                          if (stMeta.mainName) setNewTagMainName(stMeta.mainName);
-                          setNewTagActuality(getTagOverallStatus(st));
-                        }}
-                        className="w-full text-left px-2 py-1 text-xs text-slate-707 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between items-center transition-colors font-mono cursor-pointer"
-                      >
-                        <span className="font-medium text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
-                          {parseTagMetadata(st).mainName || <span className="opacity-40 text-xs">Без наименования</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Required Mark input field */}
-            <div className="w-40">
-              <input
-                type="text"
-                required
-                placeholder="Марка *" aria-label="Марка оборудования"
-                value={newTagBrand}
-                onChange={(e) => setNewTagBrand(e.target.value)}
-                className="fx-input"
-              />
-            </div>
-
-            {/* Main Name string input */}
-            <div className="w-56">
-              <input
-                type="text"
-                placeholder="Наименование" aria-label="Главное наименование"
-                value={newTagMainName}
-                onChange={(e) => setNewTagMainName(e.target.value)}
-                className="fx-input"
-              />
-            </div>
-
-            {/* Actuality Selector */}
-            <div className="w-40" title="Актуальность">
-              <CustomSelect
-                value={newTagActuality}
-                onChange={(val) => setNewTagActuality(val as any)}
-                options={actualitySelectOptions}
-              />
-            </div>
-
-            {/* Actions (Buttons) */}
-            <div className="flex items-center gap-1.5">
-              {/* Advanced Toggle button */}
-              <button
-                type="button"
-                onClick={() => setShowAdvancedCreation(!showAdvancedCreation)}
-                aria-pressed={showAdvancedCreation}
-                className="fx-btn fx-btn-quiet"
-                title="Дополнительные поля спецификации"
-              >
-                <Sliders className="w-3.5 h-3.5 shrink-0" />
-                <span>Доп</span>
-                <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 ${showAdvancedCreation ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Submit create button */}
-              <button
-                type="submit"
-                data-tour="tag-create-btn"
-                disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
-                className="fx-btn fx-btn-primary"
-              >
-                <Plus />Создать
-              </button>
-            </div>
-          </div>
-
-          {/* Collapsible advanced details row */}
-          {showAdvancedCreation && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              style={{ overflow: 'visible' }}
-              className="flex flex-wrap items-center gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-900/60 overflow-visible text-left"
-            >
-              {(() => {
-                const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
-                const cats = configDict
-                  ? (configDict.items || [])
-                      .filter((i: any) => !i.parentId)
-                      .sort((a: any, b: any) => a.code.localeCompare(b.code))
-                  : [];
-
-                if (cats.length > 0) {
-                  return cats.map((cat: any) => {
-                    const options = (configDict?.items || [])
-                      .filter((i: any) => i.parentId === cat.id)
-                      .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
-
-                    return (
-                      <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] @[760px]:min-w-[180px] @[1080px]:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-xs font-medium text-slate-450 dark:text-slate-500 leading-none truncate" title={cat.nameRu}>
-                          {cat.nameRu}
-                        </span>
-                        <CustomSelect
-                          value={dynamicCategorySelections[cat.id] || ''}
-                          onChange={(val) => handleDynamicCategoryChange(cat.id, val)}
-                          placeholder="-- выбрать --"
-                          options={options.map((opt: any) => ({
-                            value: opt.nameRu,
-                            label: opt.nameRu
-                          }))}
-                        />
-                      </div>
-                    );
-                  });
-                }
-                return <span className="text-xs text-slate-400">Дополнительные поля для ККС не настроены в справочниках.</span>;
-              })()}
-            </motion.div>
-          )}
-        </form>
+          <QuickCreateBar
+            newTagIdentifier={newTagIdentifier}
+            setNewTagIdentifier={setNewTagIdentifier}
+            handleTagIdentifierChange={handleTagIdentifierChange}
+            isIdentifierUnique={isIdentifierUnique}
+            matchingSuggestions={matchingSuggestions}
+            newTagBrand={newTagBrand}
+            setNewTagBrand={setNewTagBrand}
+            newTagMainName={newTagMainName}
+            setNewTagMainName={setNewTagMainName}
+            newTagActuality={newTagActuality}
+            setNewTagActuality={setNewTagActuality}
+            setNewTagDepartment={setNewTagDepartment}
+            setNewTagFluid={setNewTagFluid}
+            showAdvancedCreation={showAdvancedCreation}
+            setShowAdvancedCreation={setShowAdvancedCreation}
+            dictionaries={dictionaries}
+            dynamicCategorySelections={dynamicCategorySelections}
+            handleDynamicCategoryChange={handleDynamicCategoryChange}
+            handleCreateTag={handleCreateTag}
+          />
         )}
 
         {/* Универсальный поиск по разделу: тег, наименование, марка, дубли */}
