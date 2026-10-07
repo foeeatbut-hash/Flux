@@ -72,28 +72,28 @@ if ($SelfCheck) {
     $base = if ($OutDir) { $OutDir } else { Join-Path $env:TEMP ('e3-probe-selfcheck-' + $stamp) }
     Initialize-Log $base
     Write-Section 'S' 'Самопроверка скрипта (без E3)'
-    $failed = 0
+    $selfFails = 0
     if (-not (Initialize-TypeInfo)) { Write-Human '✕ C# разборщика библиотек типов не собрался' 'Red'; exit 1 }
     Write-Human '✓ C# разборщика библиотек типов собран'
     try {
         $fso = New-Object -ComObject 'Scripting.FileSystemObject'
         $names = Export-ApiObject $fso 'FileSystemObject'
         if ($names.Count -gt 20 -and ($names -contains 'FileExists')) { Write-Human ('✓ опись FileSystemObject: членов ' + $names.Count) }
-        else { Write-Human ('✕ опись FileSystemObject неполная: ' + $names.Count) 'Red'; $failed++ }
+        else { Write-Human ('✕ опись FileSystemObject неполная: ' + $names.Count) 'Red'; $selfFails++ }
         Save-ApiJson
         $json = Get-Content (Join-Path $base 'api.json') -Raw -Encoding UTF8
         $null = ConvertFrom-Json $json
         Write-Human '✓ api.json разбирается как JSON'
         $reg = Get-ProgIdRegistration 'Scripting.FileSystemObject'
-        if ($reg.clsid) { Write-Human ('✓ реестр: ' + $reg.clsid + ' -> ' + $reg.server) } else { Write-Human ('✕ реестр: ' + $reg.error) 'Red'; $failed++ }
+        if ($reg.clsid) { Write-Human ('✓ реестр: ' + $reg.clsid + ' -> ' + $reg.server) } else { Write-Human ('✕ реестр: ' + $reg.error) 'Red'; $selfFails++ }
         $r = Invoke-Attempt -Op 'self.fso.FileExists' -Label 'fso.FileExists' -ArgsText 'C:\Windows\notepad.exe' -Action { Invoke-Com -Target $fso -Name 'FileExists' -CallArgs @('C:\Windows\notepad.exe') -RefIdx @() }
-        if (-not $r.Ok -or $r.Value.Ret -ne $true) { $failed++ }
+        if (-not $r.Ok -or $r.Value.Ret -ne $true) { $selfFails++ }
         $r = Invoke-Attempt -Op 'self.fso.nomethod' -Label 'fso.NoSuchMethod' -ArgsText '' -Action { Invoke-Com -Target $fso -Name 'NoSuchMethod' -CallArgs @() -RefIdx @() }
-        if ($r.Ok) { $failed++ } else { Write-Human ('✓ несуществующий метод даёт ошибку с HRESULT 0x' + $r.Record.hresult) }
-    } catch { Write-Human ('✕ самопроверка: ' + $_.Exception.Message) 'Red'; $failed++ }
+        if ($r.Ok) { $selfFails++ } else { Write-Human ('✓ несуществующий метод даёт ошибку с HRESULT 0x' + $r.Record.hresult) }
+    } catch { Write-Human ('✕ самопроверка: ' + $_.Exception.Message) 'Red'; $selfFails++ }
     Save-Json
-    Write-Human ('Самопроверка завершена, провалов: ' + $failed)
-    exit $failed
+    Write-Human ('Самопроверка завершена, провалов: ' + $selfFails)
+    exit $selfFails
 }
 
 # ---------------------------------------------------------------- обычный запуск
