@@ -75,13 +75,32 @@
       "sources": [
         "src/screens/E3FluxScreen.tsx",
         "src/components/e3flux/E3ProjectTable.tsx",
+        "src/components/e3flux/E3SolutionsTab.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "src/components/e3flux/E3SolutionDialog.tsx",
+        "src/components/e3flux/E3SolutionsImport.tsx",
+        "src/components/e3flux/E3FeaturesPanel.tsx",
+        "src/components/e3flux/E3RulesPanel.tsx",
+        "src/components/e3flux/E3DictionaryPanel.tsx",
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "src/components/e3flux/E3SelectionDialog.tsx",
+        "src/components/e3flux/E3ProfileForm.tsx",
+        "src/components/e3flux/useSolutionBook.ts",
+        "src/components/e3flux/e3SolutionText.ts",
         "src/components/catalog/E3AttributesPanel.tsx",
         "src/components/catalog/E3AttributeDialog.tsx",
         "src/components/catalog/E3AttributesImport.tsx",
         "e3/attributes.ts",
         "e3/attributeWorkbook.ts",
+        "e3/solutions.ts",
+        "e3/solutionSelect.ts",
+        "e3/solutionWorkbook.ts",
+        "e3/solutionTypes.ts",
         "src/lib/e3Table.ts",
-        "server/routes/e3Attributes.ts"
+        "src/lib/e3Positions.ts",
+        "src/services/e3SolutionsService.ts",
+        "server/routes/e3Attributes.ts",
+        "server/routes/e3Solutions.ts"
       ]
     },
     {
@@ -218,6 +237,24 @@
     {
       "id": "eng-e3-attributes-http",
       "path": "scripts/test-e3-attributes-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-solutions",
+      "path": "scripts/test-e3-solutions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-solutions-http",
+      "path": "scripts/test-e3-solutions-http.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -1953,6 +1990,238 @@
         {
           "layer": "browser-live",
           "scenario": "В E3Flux на проекте с оборудованием скачать Excel и открыть книгу.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.import-solutions",
+      "program": "e3flux",
+      "label": "Загрузить классификатор типовых решений из Excel",
+      "sources": [
+        "src/components/e3flux/E3SolutionsImport.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "server/routes/e3Solutions.ts",
+        "e3/solutions.ts"
+      ],
+      "triggers": [
+        "header button",
+        "file picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "План показывает новые, изменённые, правленые вручную и отсутствующие решения до записи; запись и отмена загрузки целиком."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Разбор листов владельца, план и применение загрузки сохраняют правленое в каталоге."
+          ]
+        },
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись каталога проверяет версию и права, снимает состояние до записи и откатывает его."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux на вкладке «Типовые решения» загрузить классификатор из Excel, проверить план, записать и отменить загрузку.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-solution",
+      "program": "e3flux",
+      "label": "Править или добавить типовое решение",
+      "sources": [
+        "src/components/e3flux/E3SolutionDialog.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click",
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Поля, ответы на признаки и «подтверждено» сохраняются у одного решения; правка полей файла закрывает решение от перезаписи загрузкой."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Правка одного решения отклоняется при устаревшей версии и при отсутствии права."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть решение, сменить ответ на признак, сохранить, открыть снова; добавить решение вручную.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.download-solutions",
+      "program": "e3flux",
+      "label": "Скачать каталог типовых решений в Excel",
+      "sources": [
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "e3/solutionWorkbook.ts"
+      ],
+      "triggers": [
+        "header button",
+        "download"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Книга того же вида, что файл классификатора, плюс столбец на каждый признак и лист «Обозначения»; загруженная обратно, даёт те же решения."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Круг «выгрузил → загрузил»: решения, ответы на признаки и словарь сохраняются."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux скачать каталог и загрузить скачанный файл обратно: план должен показать «без изменений».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-features",
+      "program": "e3flux",
+      "label": "Править признаки, правила и обозначения каталога",
+      "sources": [
+        "src/components/e3flux/E3FeaturesPanel.tsx",
+        "src/components/e3flux/E3RulesPanel.tsx",
+        "src/components/e3flux/E3DictionaryPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click",
+        "header button",
+        "confirm dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Признак, правило или обозначение сохраняются отдельной записью по версии каталога; удаление признака убирает его правила."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Проверка входных данных признаков, правил и словаря отсекает негодное."
+          ]
+        },
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись признака, правила и словаря идёт по версии каталога."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить варианты ответа признака, добавить правило и обозначение, удалить правило.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.select-by-project",
+      "program": "e3flux",
+      "label": "Подобрать типовые решения по позициям проекта",
+      "sources": [
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "src/components/e3flux/E3SelectionDialog.tsx",
+        "e3/solutionSelect.ts",
+        "src/lib/e3Positions.ts"
+      ],
+      "triggers": [
+        "filter control",
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Каждой позиции показано подобранное решение, «нужен ответ» или «решения нет»; карточка называет признак, на который нет ответа."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Подбор по ответам ОВ, профилю и раскладке: одно решение, несколько кандидатов, ближайшие при отсутствии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть «Подбор по проекту» на проекте с оборудованием, найти позицию со статусом «нужен ответ» и открыть её карточку.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-profile",
+      "program": "e3flux",
+      "label": "Задать профиль автоматизации проекта",
+      "sources": [
+        "src/components/e3flux/E3ProfileForm.tsx",
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "save button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Ответы профиля сразу пересчитывают подбор и записываются по версии профиля, отдельной от версии каталога."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Профиль проекта доступен только участнику проекта и пишется по своей версии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выбрать способ пуска в профиле, убедиться, что статусы позиций поменялись, сохранить и открыть заново.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]
