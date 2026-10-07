@@ -94,6 +94,17 @@
         "src/components/e3flux/E3ClassMapPanel.tsx",
         "src/components/e3flux/useSchemeData.ts",
         "src/components/e3flux/useSchemeState.ts",
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "src/components/e3flux/E3ExportBar.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportPlan.ts",
+        "e3/exportCompare.ts",
+        "e3/exportRun.ts",
+        "e3/exportTypes.ts",
+        "e3/fakeBridge.ts",
+        "src/services/e3ExportService.ts",
+        "server/routes/e3Exports.ts",
+        "server/e3ExportStore.ts",
         "e3/layout.ts",
         "e3/nodeState.ts",
         "e3/bridgeTypes.ts",
@@ -275,6 +286,24 @@
     {
       "id": "eng-e3-layout",
       "path": "scripts/test-e3-layout.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export",
+      "path": "scripts/test-e3-export.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export-http",
+      "path": "scripts/test-e3-export-http.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -2377,6 +2406,129 @@
         {
           "layer": "browser-live",
           "scenario": "Открыть тип «Вентилятор», снять класс, сохранить и открыть «Подбор по проекту».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export",
+      "program": "e3flux",
+      "label": "Выгрузить узлы схемы в проект E3 по плану",
+      "sources": [
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportPlan.ts",
+        "e3/exportCompare.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "header button",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сначала план: ошибки блокируют, предупреждения нет, сводка «поставить / обновить / заменить / удалить»; запись по шагам с журналом; связи пишутся вместе с итогом."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export",
+          "layer": "unit",
+          "claims": [
+            "Проверки плана, порядок шагов, сравнение трёх сторон (С1, С2, С5, С7, С10, С16), выгрузка на подставном мосте."
+          ]
+        },
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Состояния выгрузки идут вперёд, DONE принимается только при всех шагах, связи пишутся с итогом."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме с подставным мостом (FLUX_E3_FAKE=1) открыть «Схема», нажать «Выгрузить в E3.series», проверить план, выгрузить: узлы получают знак ●.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export-resume",
+      "program": "e3flux",
+      "label": "Продолжить или убрать прерванную выгрузку",
+      "sources": [
+        "src/components/e3flux/E3ExportBar.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportRun.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Прерванная выгрузка показывает «сделано N из M»; продолжение выполняет только оставшиеся шаги без дублей; «убрать сделанное» снимает блоки этой выгрузки, которых не трогали, и называет тронутые."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export",
+          "layer": "unit",
+          "claims": [
+            "Обрыв и продолжение без дублей; «убрать сделанное» оставляет блоки с проводами, сдвинутые и правленые."
+          ]
+        },
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Продолжение отдаёт невыполненные шаги; отмена снимает связи только этой выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме выбрать «обрыв на шаге 3», выгрузить, затем «Продолжить»: в подставном E3 нет дублей блоков.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export-queue",
+      "program": "e3flux",
+      "label": "Подождать, пока в проект E3 идёт другая выгрузка",
+      "sources": [
+        "src/components/e3flux/useE3Export.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Вторая выгрузка в тот же проект E3 получает «занято» и ждёт; брошенная выгрузка не держит проект дольше десяти минут."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "С18: вторая выгрузка ждёт первую; брошенная RUNNING освобождает проект."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запустить выгрузку в одном окне и вторую в другом: вторая сообщает, что идёт другая выгрузка, и ждёт.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]
