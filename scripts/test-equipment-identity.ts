@@ -17,6 +17,10 @@ import { parseVezaXml } from '../server/vezaXml';
 import { detectEquipType, type ParsedBlock, type ParsedUnit } from '../server/equipmentParser';
 import { planEquipmentImport, filterBySelection, blockKey, type ImportPlan } from '../server/equipmentPlan';
 import { importEquipmentToDB } from '../server/equipmentImport';
+import { setPrisma } from '../server/context';
+import { registerEquipmentUndoRoutes } from '../server/routes/equipmentUndo';
+import { missingKey } from '../server/equipmentResolve';
+import express from 'express';
 
 let failed = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -49,13 +53,13 @@ const FILE = 'расчёт.xml';
 interface Run { plan: ImportPlan; summary: Awaited<ReturnType<typeof importEquipmentToDB>>; before: Set<string> }
 
 /** План, затем запись — на одних и тех же данных и решениях, как это делает окно */
-async function load(db: MemoryDb, units: ParsedUnit[], o: { file?: string; choices?: Record<string, string>; select?: Set<string> | null } = {}): Promise<Run> {
+async function load(db: MemoryDb, units: ParsedUnit[], o: { file?: string; choices?: Record<string, string>; select?: Set<string> | null; remove?: boolean; mode?: 'wait' | 'immediate' } = {}): Promise<Run> {
   const file = o.file || FILE;
   const before = new Set(db.elements.map(e => e.id));
   const result: any = { units: JSON.parse(JSON.stringify(units)) };
-  const plan = await planEquipmentImport(db.prisma, 'p1', 'AHU', result, { fileName: file, choices: o.choices });
+  const plan = await planEquipmentImport(db.prisma, 'p1', 'AHU', result, { fileName: file, choices: o.choices, removeMissing: o.remove });
   const chosen = o.select ? filterBySelection(result, o.select) : result;
-  const summary = await importEquipmentToDB(db.prisma, 'p1', 'AHU', file, chosen, 'wait', plan.tagLinks, {}, { choices: o.choices, full: result });
+  const summary = await importEquipmentToDB(db.prisma, 'p1', 'AHU', file, chosen, o.mode || 'wait', plan.tagLinks, {}, { choices: o.choices, full: result, removeMissing: o.remove });
   return { plan, summary, before };
 }
 
@@ -375,9 +379,186 @@ const fanKey = (u: string, n: string) => blockKey(u, mbN, n);
     ok('позиция из файла нашла свою запись, а не ручную с тем же адресом', rm.plan.blocks.find(b => b.itemCode === '1.2')?.elementId === orig && byId(dbM, manual.id)?.manual === true);
   }
 
+  await lifecycle();
+
   console.log(failed === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);
 })();
 
 /** Ключ строки «это она?» для переименованной установки */
 function rn0(u: ParsedUnit): string { return `unit‖${u.name}‖${FILE}`; }
+
+/** Отмена партии — тем же маршрутом, что вызывает окно, на той же памяти */
+async function undoBatch(db: MemoryDb, batchId: string) {
+  setPrisma(db.prisma);
+  const app = express();
+  registerEquipmentUndoRoutes(app as any);
+  const call = async (method: 'get' | 'post', path: string, body: any = {}, params: any = {}) => {
+    const layer = (app as any)._router.stack.find((l: any) => l.route?.path === path && l.route.methods[method]);
+    const res: any = { statusCode: 200, status(c: number) { this.statusCode = c; return this; }, json(v: any) { this.body = v; return this; } };
+    await layer.route.stack[0].handle({ body, params, query: {} }, res);
+    return res;
+  };
+  const plan = (await call('get', '/api/equipment/import-undo/:batchId', {}, { batchId })).body;
+  const done = (await call('post', '/api/equipment/import-undo', { batchId })).body;
+  return { plan, done };
+}
+
+const rm = (el: any) => (el?.conflictLog ? JSON.parse(el.conflictLog).__removal : undefined);
+
+async function lifecycle() {
+  console.log('9. Д3: позиция пропала из расчёта — снята, а не удалена; вернулась — та же запись');
+  const withTags = () => veza({ tags: true });
+  const dbL = memoryEquipmentDb();
+  await load(dbL, [withTags()]);
+  const mbRow = dbL.monoblocks.find(m => m.name === mbN)!;
+  const manual = await dbL.prisma.componentElement.create({ data: { monoblockId: mbRow.id, itemCode: 'рук-1', name: 'Датчик вручную', equipType: 'ДАТЧИК', specs: null, status: 'OK', role: 'ДАТЧИК', manual: true, version: 1 } });
+  const ids = (code: string) => idOf(dbL, U1, mbN, code)!;
+  const filterId = ids('1.2'), fan2 = ids('1.3/вентилятор2'), motor2 = ids('1.3/вентилятор2/двигатель1');
+  const v0 = new Map(dbL.elements.map(e => [e.id, e.version]));
+  const smaller = (): ParsedUnit => {
+    const u = withTags();
+    u.monoblocks[0].blocks = blocksOf(u).filter(b => b.name !== '1.2' && !b.name.startsWith('1.3/вентилятор2'));
+    return u;
+  };
+  const frag = await load(dbL, [smaller()]);
+  ok('без признака «полный файл» ничего не снимается (фрагмент не удаляет)', frag.plan.missing.length === 0 && !frag.summary.removedBlocks && byId(dbL, filterId).status !== 'REMOVED', frag.summary);
+
+  const gone = await load(dbL, [smaller()], { remove: true });
+  ok('в плане список «будет снято» и счётчик', gone.plan.missing.length === 3 && gone.plan.totals.removed === 3
+    && [filterId, fan2, motor2].every(id => gone.plan.missing.some(m => m.id === id)), gone.plan.missing.map(m => m.at));
+  ok('сняты три, записи на месте', [filterId, fan2, motor2].every(id => byId(dbL, id)?.status === 'REMOVED') && gone.summary.removedBlocks === 3, gone.summary);
+  ok('отметка о снятии: когда, какой партией, почему', rm(byId(dbL, filterId))?.why === 'missing' && rm(byId(dbL, filterId))?.batchId === gone.summary.batchId && !!rm(byId(dbL, filterId))?.at);
+  ok('строка истории REMOVE с партией', dbL.history.filter(h => h.changeType === 'REMOVE' && h.batchId === gone.summary.batchId).length === 3);
+  ok('ручная позиция не снята', byId(dbL, manual.id)?.status === 'OK');
+  ok('остальные не тронуты', byId(dbL, ids('1.3'))?.status === 'OK' && byId(dbL, ids('1.1/клапан1'))?.status === 'OK');
+  ok('тег снятой позиции остаётся при ней', dbL.tagsOf(fan2).includes('PR-01-BL-002A'));
+  ok('версия снятых выросла, у нетронутых — нет', byId(dbL, filterId).version === v0.get(filterId)! + 1 && byId(dbL, ids('1.1/клапан1')).version === v0.get(ids('1.1/клапан1')));
+  ok('план и запись называют одни записи', gone.plan.missing.every(m => byId(dbL, m.id)?.status === 'REMOVED') && gone.plan.totals.removed === gone.summary.removedBlocks);
+
+  const again = await load(dbL, [smaller()], { remove: true });
+  ok('повторная загрузка того же не снимает снятое второй раз', again.plan.missing.length === 0 && !again.summary.removedBlocks);
+
+  const back = await load(dbL, [withTags()], { remove: true });
+  ok('вернулись в расчёт — та же запись, статус OK, отметка убрана',
+    [filterId, fan2, motor2].every(id => byId(dbL, id)?.status === 'OK' && byId(dbL, id)?.conflictLog === null) && back.summary.newBlocks === 0 && back.summary.restoredBlocks === 3, back.summary);
+  ok('в плане видно, что вернётся', back.plan.blocks.filter(b => b.restores).length === 3 && back.plan.totals.restored === 3);
+  ok('новых записей нет, тег на месте', dbL.elements.filter(e => e.itemCode === '1.3/вентилятор2').length === 1 && dbL.tagsOf(fan2).includes('PR-01-BL-002A'));
+  ok('возврат поднял версию', byId(dbL, filterId).version === v0.get(filterId)! + 2);
+  parity('возврат', dbL, back, [U1]);
+
+  const keep = await load(dbL, [smaller()], { remove: true, choices: { [missingKey(filterId)]: 'keep' } });
+  ok('«оставить» из плана уважается', keep.plan.missing.find(m => m.id === filterId)?.remove === false && byId(dbL, filterId).status === 'OK' && byId(dbL, fan2).status === 'REMOVED', keep.summary);
+
+  console.log('9а. Отмена партии возвращает всё, что партия сделала');
+  {
+    const db = memoryEquipmentDb();
+    await load(db, [withTags()]);
+    const f = idOf(db, U1, mbN, '1.2')!, fan2b = idOf(db, U1, mbN, '1.3/вентилятор2')!;
+    const r = await load(db, [smaller()], { remove: true });
+    const { plan, done } = await undoBatch(db, r.summary.batchId);
+    ok('план отмены называет снятые', plan.reinstate.length === 3, plan);
+    ok('снятые вернулись: OK и без отметки', [f, fan2b].every(id => byId(db, id)?.status === 'OK' && byId(db, id)?.conflictLog === null) && done.reinstated === 3, done);
+
+    // Переезды: прежний код и адрес
+    const dbM = memoryEquipmentDb();
+    await load(dbM, [veza()]);
+    const fid = idOf(dbM, U1, mbN, '1.2')!, fanBlock = idOf(dbM, U1, mbN, '1.3')!;
+    const sh = shifted2();
+    const rm2 = await load(dbM, [sh]);
+    ok('переезд записан в историю со старым адресом', dbM.history.some(h => h.changeType === 'MOVE' && h.elementId === fid && JSON.parse(h.oldSpecs).itemCode === '1.2'));
+    const u2 = await undoBatch(dbM, rm2.summary.batchId);
+    ok('отмена вернула прежние коды', byId(dbM, fid)?.itemCode === '1.2' && byId(dbM, fanBlock)?.itemCode === '1.3' && u2.done.unmoved >= 2, [byId(dbM, fid)?.itemCode, u2.done]);
+    ok('и внутри блока — прежние пути, владелец прежний', byId(dbM, idOf(dbM, U1, mbN, '1.3/вентилятор1/двигатель1')!)?.parentElementId === idOf(dbM, U1, mbN, '1.3/вентилятор1'));
+    ok('нагреватель, заведённый партией, убран', !dbM.elements.some(e => e.name === 'Нагреватель водяной'));
+
+    // Возврат тоже отменяется
+    const dbR = memoryEquipmentDb();
+    await load(dbR, [withTags()]);
+    await load(dbR, [smaller()], { remove: true });
+    const rb = await load(dbR, [withTags()], { remove: true });
+    const ur = await undoBatch(dbR, rb.summary.batchId);
+    ok('возврат этой партией отменяем: позиции снова сняты, отметка прежняя', ur.done.reinstated === 0 && [f, fan2b].every(id => byId(dbR, id)?.status === 'REMOVED' && rm(byId(dbR, id))?.why === 'missing'), ur);
+  }
+
+  console.log('10. «Переподобрано» переносит тег на новую запись; «Другое изделие» — нет');
+  {
+    // Файл без тегов: тег поставили руками, а расчёт пересобрали с другим вентилятором
+    const retype = (): ParsedUnit => { const u = veza(); block(u, '1.3/вентилятор1').title = 'Вентилятор ДРУГОЙ-200 №1'; return u; };
+    const fanKeyN = blockKey(U1, mbN, '1.3/вентилятор1');
+    const db = memoryEquipmentDb();
+    await load(db, [withTags()]);
+    const old = idOf(db, U1, mbN, '1.3/вентилятор1')!;
+    const r = await load(db, [retype()], { choices: { [fanKeyN]: 'reselect' } });
+    const neu = db.elements.find(e => e.itemCode === '1.3/вентилятор1' && e.status !== 'REMOVED' && e.id !== old)!;
+    ok('тег перешёл на новую запись', db.tagsOf(neu.id).includes('PR-01-BL-001A') && !db.tagsOf(old).includes('PR-01-BL-001A'), [db.tagsOf(neu.id), db.tagsOf(old)]);
+    ok('у снятой остаётся ссылка «заменено на»', rm(byId(db, old))?.replacedBy === neu.id && byId(db, old)?.status === 'REMOVED');
+    ok('в истории — строка о переносе', db.history.some(h => h.changeType === 'TAG_MOVE' && h.elementId === old && h.batchId === r.summary.batchId));
+    ok('новая запись заведена этим ввозом — версия 1, хотя тег уже на ней', neu.version === 1, neu.version);
+    ok('снятая версией выросла', byId(db, old).version === 2, byId(db, old).version);
+    parity('переподбор с тегом', db, r, [U1]);
+    const un = await undoBatch(db, r.summary.batchId);
+    ok('отмена: тег вернулся прежней записи, она снова действует, новая убрана',
+      db.tagsOf(old).includes('PR-01-BL-001A') && byId(db, old)?.status === 'OK' && !db.elements.some(e => e.id === neu.id) && un.done.retagged === 1, un.done);
+
+    const db2 = memoryEquipmentDb();
+    await load(db2, [withTags()]);
+    const old2 = idOf(db2, U1, mbN, '1.3/вентилятор1')!;
+    const r2 = await load(db2, [retype()], { choices: { [fanKeyN]: 'other' } });
+    const neu2 = db2.elements.find(e => e.itemCode === '1.3/вентилятор1' && e.status !== 'REMOVED' && e.id !== old2)!;
+    ok('«Другое изделие»: тег остаётся на снятой', db2.tagsOf(old2).includes('PR-01-BL-001A') && db2.tagsOf(neu2.id).length === 0 && byId(db2, old2).status === 'REMOVED' && !rm(byId(db2, old2)).replacedBy, db2.tagsOf(old2));
+
+    const free = retype(); block(free, '1.3/вентилятор1').tags = ['PR-01-BL-777A'];
+    const db3 = memoryEquipmentDb();
+    await load(db3, [withTags()]);
+    const r3 = await load(db3, [free], { choices: { [fanKeyN]: 'other' } });
+    const neu3 = db3.elements.find(e => e.itemCode === '1.3/вентилятор1' && e.status !== 'REMOVED' && e.id !== idOf(db3, U1, mbN, '1.3/вентилятор2'))!;
+    ok('«Другое изделие»: свободный тег из файла достаётся новой записи', db3.tagsOf(neu3.id).includes('PR-01-BL-777A') && r3.summary.tagConflicts.length === 0, [r3.summary.tagConflicts, db3.tagsOf(neu3.id)]);
+
+    // Тот же тег в файле на изделии другого типа: тег занят снятой записью — объясняем, не отнимаем
+    const clash = withTags(); const cb = block(clash, '1.3/вентилятор1'); cb.role = 'ПРИВОД'; cb.equipType = 'ПРИВОД';
+    const db4 = memoryEquipmentDb();
+    await load(db4, [withTags()]);
+    const o4 = idOf(db4, U1, mbN, '1.3/вентилятор1')!;
+    const r4 = await load(db4, [clash]);
+    ok('тег на изделии другого типа: по умолчанию «Другое изделие», тег остаётся прежней записи и это сказано',
+      r4.plan.matches.some(m => m.closeness === 'other' && m.choice === 'other') && db4.tagsOf(o4).includes('PR-01-BL-001A') && r4.summary.tagConflicts.length === 1, [r4.plan.matches.map(m => m.choice), r4.summary.tagConflicts]);
+  }
+
+  console.log('11. Версия позиции растёт при любом принятом изменении');
+  {
+    const db = memoryEquipmentDb();
+    await load(db, [veza()]);
+    ok('новая запись — версия 1', db.elements.every(e => e.version === 1));
+    await load(db, [veza()]);
+    ok('повторная загрузка того же не меняет версий', db.elements.every(e => e.version === 1), db.elements.map(e => e.version));
+
+    const motorId = idOf(db, U1, mbN, '1.3/вентилятор1/двигатель1')!;
+    const t = veza(); block(t, '1.3/вентилятор1/двигатель1').tags = ['PR-01-MT-001A'];
+    await load(db, [t]);
+    ok('тег привязан — версия +1', byId(db, motorId).version === 2, byId(db, motorId).version);
+    await load(db, [t]);
+    ok('тот же тег повторно — версия прежняя', byId(db, motorId).version === 2);
+
+    await load(db, [shifted2()]);
+    const filter = db.elements.find(e => e.name === 'Фильтр карманный')!;
+    ok('переезд — версия +1', filter.version === 2, filter.version);
+    ok('нетронутая позиция — версия прежняя', byId(db, idOf(db, U1, mbN, '1.1/клапан1')!).version === 1);
+    ok('состав (владелец, адрес) тоже считается: мотор переехал вместе с вентилятором', byId(db, motorId).version === 3, byId(db, motorId).version);
+
+    const before = byId(db, motorId).version;
+    // Расчёт тот же по составу, но коды уже сдвинуты — берём сдвинутый
+    const sh2 = shifted2(); block(sh2, '1.4/вентилятор1/двигатель1').groups[0].params[0].value = '15.5';
+    sh2.monoblocks[0].blocks.find(b => b.name === '1.4/вентилятор1/двигатель1')!.tags = ['PR-01-MT-001A'];
+    await load(db, [sh2], { mode: 'immediate' });
+    ok('принятая правка характеристик — ровно +1', byId(db, motorId).version === before + 1 && /15\.5/.test(byId(db, motorId).specs), [before, byId(db, motorId).version]);
+  }
+}
+
+/** Д1: вставили блок, коды сдвинулись */
+function shifted2(): ParsedUnit {
+  const u = veza();
+  recode(u, '1.3', '1.4'); recode(u, '1.2', '1.3');
+  u.monoblocks[0].blocks.splice(2, 0, mkBlock('1.2', 'Нагреватель водяной', 'НАГРЕВАТЕЛЬ', [['Мощность', '40']]));
+  return u;
+}

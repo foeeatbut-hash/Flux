@@ -27,7 +27,11 @@ export function memoryEquipmentDb(): MemoryDb {
   const links = new Set<string>(); // `${elementId}|${tagId}`
 
   const fits = (row: Row, where: Row = {}) => Object.entries(where).every(([k, v]) => {
-    if (v && typeof v === 'object') throw new Error(`memoryEquipmentDb: условие ${k} не поддержано`);
+    if (v && typeof v === 'object' && !(v instanceof Date)) {
+      if (Array.isArray((v as any).in)) return (v as any).in.includes(row[k]);
+      if ((v as any).gte instanceof Date) return new Date(row[k]).getTime() >= (v as any).gte.getTime();
+      throw new Error(`memoryEquipmentDb: условие ${k} не поддержано`);
+    }
     return row[k] === v;
   });
   const tagsOf = (elId: string) => tags.filter(t => links.has(`${elId}|${t.id}`)).map(t => t.identifier);
@@ -38,9 +42,16 @@ export function memoryEquipmentDb(): MemoryDb {
     ...t,
     ...(shape ? { componentElements: elements.filter(e => links.has(`${e.id}|${t.id}`)).map(e => ({ id: e.id, name: e.name, itemCode: e.itemCode })) } : {}),
   });
+  const asList = (x: any): any[] => (x === undefined ? [] : Array.isArray(x) ? x : [x]);
   const patch = (row: Row, data: Row) => {
     for (const [k, v] of Object.entries(data)) {
-      if (k === 'tags') { links.add(`${row.id}|${(v as any).connect.id}`); continue; }
+      if (k === 'tags') {
+        for (const t of asList((v as any).connect)) links.add(`${row.id}|${t.id}`);
+        for (const t of asList((v as any).disconnect)) links.delete(`${row.id}|${t.id}`);
+        continue;
+      }
+      // Рост версии делает «база», как настоящая: { increment: n }
+      if (v && typeof v === 'object' && 'increment' in (v as any)) { row[k] = (row[k] ?? 0) + (v as any).increment; continue; }
       row[k] = v;
     }
     return row;
@@ -48,9 +59,13 @@ export function memoryEquipmentDb(): MemoryDb {
 
   const prisma: any = {
     equipmentSystem: {
-      findMany: async ({ where }: any) => systems.filter(s => fits(s, where)).map(s => ({ ...s })),
+      findMany: async ({ where, include }: any) => systems.filter(s => fits(s, where)).map(s => ({
+        ...s,
+        ...(include?.monoblocks ? { monoblocks: monoblocks.filter(m => m.systemId === s.id).map(m => ({ id: m.id })) } : {}),
+      })),
       create: async ({ data }: any) => { const r = { id: id('sys'), createdAt: new Date(), ...data }; systems.push(r); return { ...r }; },
       update: async ({ where, data }: any) => ({ ...patch(systems.find(s => s.id === where.id)!, data) }),
+      delete: async ({ where }: any) => { const i = systems.findIndex(s => s.id === where.id); if (i >= 0) systems.splice(i, 1); return {}; },
     },
     monoblock: {
       findFirst: async ({ where }: any) => { const r = monoblocks.find(m => fits(m, where)); return r ? { ...r } : null; },
@@ -59,6 +74,7 @@ export function memoryEquipmentDb(): MemoryDb {
         ...m,
         components: elements.filter(e => e.monoblockId === m.id).map(e => withTags(e, include?.components?.include)),
       })),
+      delete: async ({ where }: any) => { const i = monoblocks.findIndex(m => m.id === where.id); if (i >= 0) monoblocks.splice(i, 1); return {}; },
     },
     componentElement: {
       create: async ({ data }: any) => {
@@ -69,8 +85,18 @@ export function memoryEquipmentDb(): MemoryDb {
         return { ...r };
       },
       update: async ({ where, data }: any) => ({ ...patch(elements.find(e => e.id === where.id)!, data) }),
+      findMany: async ({ where, include }: any) => elements.filter(e => fits(e, where)).map(e => ({
+        ...e,
+        ...(include?.monoblock ? { monoblock: { ...monoblocks.find(m => m.id === e.monoblockId)!, system: systems.find(s => s.id === monoblocks.find(m => m.id === e.monoblockId)?.systemId) } } : {}),
+      })),
+      delete: async ({ where }: any) => {
+        const i = elements.findIndex(e => e.id === where.id);
+        if (i >= 0) { for (const k of [...links]) if (k.startsWith(`${where.id}|`)) links.delete(k); elements.splice(i, 1); }
+        return {};
+      },
     },
     equipmentHistory: {
+      findMany: async ({ where }: any) => history.filter(h => fits(h, where)).map(h => ({ ...h })),
       create: async ({ data }: any) => { const r = { id: id('h'), changedAt: new Date(), ...data }; history.push(r); return r; },
     },
     tag: {
