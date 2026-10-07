@@ -4,6 +4,7 @@ import { emitEntityChanged } from '../entityChanged.js';
 import { readEquipmentFile } from '../equipmentFile.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
 import { planEquipmentImport, applyEdits, filterBySelection } from '../equipmentPlan.js';
+import { cleanChoices } from '../equipmentResolve.js';
 import { cleanTagLinks } from './equipmentDraft.js';
 
 // Оборудование, ядро: план и запись импорта расчёта в категорию, категории,
@@ -50,13 +51,13 @@ export function registerEquipmentCoreRoutes(app: Express): void {
   // Dry-run: что изменится в проекте, без записи (дерево + дифф для предпросмотра)
   app.post('/api/equipment/import-plan', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { fileId, category, projectId: reqProjectId, edits } = req.body;
+    const { fileId, category, projectId: reqProjectId, edits, choices } = req.body;
     if (!fileId || !category) return res.status(400).json({ error: 'Не указан файл или категория' });
     try {
       const projectId = await resolveImportProject(reqProjectId);
       const { result, fileName } = await readEquipmentFile(fileId, projectId, (req as any).authUser);
       const edited = applyEdits(result, edits);
-      const plan = await planEquipmentImport(prisma, projectId, category, edited);
+      const plan = await planEquipmentImport(prisma, projectId, category, edited, { fileName, choices: cleanChoices(choices) });
       res.json({ success: true, fileName, plan });
     } catch (err: any) {
       if (err && err.status) return res.status(err.status).json({ error: err.error });
@@ -67,7 +68,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
 
   app.post('/api/equipment/import-to-category', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { fileId, category, projectId: reqProjectId, edits, selection, tagLinks } = req.body;
+    const { fileId, category, projectId: reqProjectId, edits, selection, tagLinks, choices } = req.body;
     if (!fileId || !category) {
       return res.status(400).json({ error: 'Не указан файл или категория' });
     }
@@ -88,13 +89,19 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
       const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-      const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id });
+      // Спорные строки плана: сопоставление идёт по полному расчёту, пишется выбранное
+      const summary = await importEquipmentToDB(
+        prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks),
+        { userId: (req as any).authUser?.id }, { choices: cleanChoices(choices), full: edited },
+      );
 
       res.json({
         success: true,
         conflictsCount: summary.conflictsCount,
         newBlocks: summary.newBlocks,
         updatedBlocks: summary.updatedBlocks,
+        movedBlocks: summary.movedBlocks || 0,
+        supersededBlocks: summary.supersededBlocks || 0,
         systems: summary.systems,
         batchId: summary.batchId,
         tagsLinked: summary.tagsLinked,

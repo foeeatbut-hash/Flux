@@ -20,14 +20,21 @@ const specs = JSON.stringify({
 });
 const makePrisma = (overrides?: Record<string, string>, tags: any[] = []) => ({
   equipmentSystem: { findMany: async () => [{ id: 'sys1', name: 'У1' }] },
-  monoblock: { findFirst: async ({ where }: any) => (where.name === 'M1' ? { id: 'mb1' } : null) },
-  componentElement: {
-    findFirst: async ({ where }: any) => (where.itemCode === 'Б1'
-      ? { id: 'el1', specs, overrides: overrides ? JSON.stringify(overrides) : null }
-      : null),
+  // Сопоставление читает установку целиком: моноблоки с их позициями
+  monoblock: {
+    findMany: async () => [{
+      id: 'mb1', name: 'M1',
+      components: [{
+        id: 'el1', itemCode: 'Б1', name: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', role: 'БЛОК', specs,
+        overrides: overrides ? JSON.stringify(overrides) : null, tags: [],
+      }],
+    }],
   },
   tag: { findMany: async () => tags },
 });
+
+// Служебный блок установки идёт в плане первым и есть всегда, поэтому нужный блок ищется по ключу
+const b1 = (plan: any) => plan.blocks.find((b: any) => b.itemCode === 'Б1');
 
 const result = (value: string, tags?: string[]) => ({
   units: [{
@@ -45,12 +52,12 @@ const result = (value: string, tags?: string[]) => ({
   {
     const plan = await planEquipmentImport(makePrisma(), 'p1', 'AHU', result('5000') as any);
     ok('существующая установка сопоставлена, а не создана', plan.systems[0].action === 'match', plan.systems[0]);
-    ok('одинаковое значение — без изменений', plan.blocks[0].action === 'unchanged', plan.blocks[0]);
+    ok('одинаковое значение — без изменений', b1(plan).action === 'unchanged', b1(plan));
   }
   {
     const plan = await planEquipmentImport(makePrisma(), 'p1', 'AHU', result('6200') as any);
-    ok('другое значение — обновление', plan.blocks[0].action === 'update', plan.blocks[0].action);
-    ok('старое значение показано рядом', plan.blocks[0].params[0].oldValue === '5000', plan.blocks[0].params[0]);
+    ok('другое значение — обновление', b1(plan).action === 'update', b1(plan).action);
+    ok('старое значение показано рядом', b1(plan).params[0].oldValue === '5000', b1(plan).params[0]);
     ok('конфликт посчитан', plan.totals.conflicts === 1, plan.totals);
   }
 
@@ -111,8 +118,11 @@ const result = (value: string, tags?: string[]) => ({
     };
     const plan = await planEquipmentImport(makePrisma(), 'p1', 'AHU', fresh as any);
     ok('незнакомая установка — создание', plan.systems[0].action === 'create');
-    ok('незнакомый блок — создание', plan.blocks[0].action === 'create');
-    ok('новых параметров посчитано', plan.blocks[0].newCount === 1, plan.blocks[0]);
+    const klapan = plan.blocks.find((b: any) => b.itemCode === 'Б9')!;
+    ok('незнакомый блок — создание', klapan.action === 'create');
+    ok('новых параметров посчитано', klapan.newCount === 1, klapan);
+    ok('установка без параметров всё равно получает запись (Д6)',
+      plan.blocks[0].itemCode === '__unit__' && plan.blocks[0].action === 'create', plan.blocks[0]);
   }
 
   console.log('5. Теги бланка: найти, привязать, создать');

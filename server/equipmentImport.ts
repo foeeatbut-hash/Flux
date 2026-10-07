@@ -1,5 +1,7 @@
 import { EquipParseResult, SpecGroup } from './equipmentParser.js';
-import { blockKey, matchSystem } from './specUtils.js';
+import { blockKey } from './specUtils.js';
+import { newContext, resolveUnit, unitBlocksOf } from './equipmentResolve.js';
+import type { DbItem } from './equipmentIdentity.js';
 import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
@@ -44,6 +46,22 @@ export interface ImportSummary {
   tagParents?: number;
   /** Родство, которое человек назначил рукой и которое импорт не тронул */
   tagParentsKept?: string[];
+  /** Позиции, найденные на другом адресе: ID прежний, меняется только адрес */
+  movedBlocks?: number;
+  /** Прежние записи, снятые «Переподобрано» или «Другое изделие» (`REMOVED`, не удалены) */
+  supersededBlocks?: number;
+}
+
+/** Выбор инженера по спорным строкам плана и расчёт целиком, по которому они строились */
+export interface IdentityInput {
+  /** blockKey / `unit‖имя‖файл` → вариант (см. equipmentIdentity, equipmentSystemMatch) */
+  choices?: Record<string, string>;
+  /**
+   * Расчёт до отбора по галочкам. Сопоставление идёт по нему, а пишется только
+   * выбранное: иначе снятая галочка меняла бы, кому достаётся прежняя запись, и
+   * запись расходилась бы с предпросмотром.
+   */
+  full?: EquipParseResult;
 }
 
 /**
@@ -62,6 +80,7 @@ export async function importEquipmentToDB(
   tagLinks?: TagLink[],
   /** Кто импортирует: от его имени теги попадают в историю изменений */
   actor: { userId?: string | null } = {},
+  identity: IdentityInput = {},
 ): Promise<ImportSummary> {
   // Партия: всё, что записал один ввоз расчёта. Без неё «отменить импорт»
   // пришлось бы собирать по времени, а два импорта подряд слились бы в один.
@@ -79,15 +98,30 @@ export async function importEquipmentToDB(
   const placed: { unit: string; key: string; parentKey: string; title: string }[] = [];
 
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
-  for (const unitData of result.units) {
+  const matchOn = identity.full ?? result;
+  const ctx = newContext(existingSystems, fileName, matchOn.units, identity.choices || {});
+  // Отбор по галочкам сохраняет порядок установок: очередь по имени и файлу
+  // отдаёт каждой установке полного расчёта её же (отобранную) версию
+  const queue = new Map<string, typeof result.units>();
+  if (identity.full) for (const u of result.units) {
+    const k = `${u.name}\u2016${u.fileName || ''}`;
+    queue.set(k, [...(queue.get(k) || []), u]);
+  }
+  for (const matchUnit of matchOn.units) {
+    // Сопоставление — по полному расчёту; пишется только то, что осталось после отбора
+    const unitData = identity.full ? queue.get(`${matchUnit.name}\u2016${matchUnit.fileName || ''}`)?.shift() : matchUnit;
+    // Тот же разбор, что у плана (equipmentResolve): предпросмотр обещал «обновим
+    // существующую» — значит, обновляем её, даже если в реестре она записана с
+    // опечаткой, а позиции находятся по тегу, составу и характеристикам, а не
+    // только по адресу
+    const resolved = await resolveUnit(prisma, ctx, matchUnit);
+    if (!unitData) continue;
     summary.systems++;
-    // Тот же поиск, что у плана: предпросмотр обещал «обновим существующую» —
-    // значит, обновляем её, даже если в реестре она записана с опечаткой
-    const found = matchSystem(existingSystems as any[], unitData.name);
-    let system: any = found.system;
-    if (system && found.how === 'similar' && system.name !== unitData.name) {
+    let system: any = resolved.system.system;
+    if (system && (resolved.system.how === 'similar' || resolved.system.how === 'renamed') && system.name !== unitData.name) {
       // В реестре — прежнее написание с опечаткой раскладки, в файле —
-      // исправленное. Установка остаётся той же, меняется только имя
+      // исправленное, либо установку переименовали и инженер подтвердил, что это
+      // она. Установка остаётся той же, меняется только имя
       system = await prisma.equipmentSystem.update({ where: { id: system.id }, data: { name: unitData.name } });
     }
     if (!system) {
@@ -95,15 +129,11 @@ export async function importEquipmentToDB(
         data: { projectId, name: unitData.name, category, fileName: unitData.fileName || fileName },
       });
       existingSystems.push(system);
+      ctx.claimed.add(system.id);
     }
 
     // Параметры самой установки храним отдельным служебным блоком "__unit__"
-    const unitBlocks = [
-      { name: '__unit__', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups },
-      ...unitData.monoblocks.flatMap(mb =>
-        mb.blocks.map(b => ({ ...b, __mb: mb }))
-      ),
-    ];
+    const unitBlocks = unitBlocksOf(unitData);
 
     // Создаём моноблоки заранее
     const mbMap: Record<string, any> = {};
@@ -116,24 +146,21 @@ export async function importEquipmentToDB(
     let unitMb = await prisma.monoblock.findFirst({ where: { systemId: system.id, name: '__unit__' } });
     if (!unitMb) unitMb = await prisma.monoblock.create({ data: { systemId: system.id, name: '__unit__' } });
 
-    for (const blk of unitBlocks as any[]) {
-      // Служебный блок параметров установки заводим, только если параметры есть.
-      // План импорта считает так же — иначе предпросмотр обещал бы четыре блока,
-      // а в базе появлялось пять, и лишний висел бы пустым.
-      if (blk.name === '__unit__' && !(blk.groups || []).length) continue;
-      const monoblock = blk.__mb ? mbMap[blk.__mb.name] : unitMb;
+    for (const blk of unitBlocks) {
+      // Служебный блок установки заводится всегда, даже без параметров: на него
+      // вешаются тег установки и связь с E3. План импорта считает так же —
+      // иначе предпросмотр обещал бы четыре блока, а в базе появлялось пять
+      const monoblock = blk.mbName ? mbMap[blk.mbName] : unitMb;
       const newGroups = blk.groups || [];
       const serialized = JSON.stringify({ groups: newGroups });
 
-      const keyOfBlock = blockKey(unitData.name, blk.__mb ? blk.__mb.name : '', blk.name);
-      let component = await prisma.componentElement.findFirst({
-        where: { monoblockId: monoblock.id, itemCode: blk.name },
-        include: { tags: true },
-      });
+      const keyOfBlock = blockKey(unitData.name, blk.mbName, blk.code);
+      const found = resolved.byKey.get(keyOfBlock);
+      const component: any = found?.element?.row || null;
 
       // Состав: роль, владелец, номер экземпляра и порядок из файла. Владелец
       // уже записан — разбор отдаёт блок раньше своих подпозиций
-      const parentId = blk.parentName ? idByItemCode.get(`${monoblock.id}‖${blk.parentName}`) : undefined;
+      const parentId = blk.parent ? idByItemCode.get(`${monoblock.id}‖${blk.parent}`) : undefined;
       const place = {
         role: blk.role || 'БЛОК',
         parentElementId: parentId ?? null,
@@ -148,8 +175,8 @@ export async function importEquipmentToDB(
         const created = await prisma.componentElement.create({
           data: {
             monoblockId: monoblock.id,
-            itemCode: blk.name,
-            name: blk.title || blk.name,
+            itemCode: blk.code,
+            name: blk.title || blk.code,
             equipType: blk.equipType || 'ПРОЧЕЕ',
             specs: serialized,
             version: 1,
@@ -157,8 +184,8 @@ export async function importEquipmentToDB(
             ...place,
           },
         });
-        idByItemCode.set(`${monoblock.id}‖${blk.name}`, created.id);
-        placed.push({ unit: unitData.name, key: keyOfBlock, parentKey: blk.parentName ? blockKey(unitData.name, blk.__mb ? blk.__mb.name : '', blk.parentName) : '', title: blk.title || blk.name });
+        idByItemCode.set(`${monoblock.id}‖${blk.code}`, created.id);
+        placed.push({ unit: unitData.name, key: keyOfBlock, parentKey: blk.parent ? blockKey(unitData.name, blk.mbName, blk.parent) : '', title: blk.title || blk.code });
         // Заведение тоже пишем в историю: без этой записи отмена импорта не
         // знала бы, какие элементы завёл именно он, и оставила бы их навсегда
         await prisma.equipmentHistory.create({
@@ -170,12 +197,17 @@ export async function importEquipmentToDB(
         });
         componentIdByKey.set(keyOfBlock, created.id);
         summary.newBlocks++;
+        // «Переподобрано» и «Другое изделие»: прежнюю запись не удаляем, а снимаем
+        if (found?.replaces) {
+          await supersede(prisma, found.replaces, batchId, found.linked ? created.id : undefined);
+          summary.supersededBlocks = (summary.supersededBlocks || 0) + 1;
+        }
         continue;
       }
 
       componentIdByKey.set(keyOfBlock, component.id);
-      idByItemCode.set(`${monoblock.id}‖${blk.name}`, component.id);
-      placed.push({ unit: unitData.name, key: keyOfBlock, parentKey: blk.parentName ? blockKey(unitData.name, blk.__mb ? blk.__mb.name : '', blk.parentName) : '', title: blk.title || blk.name });
+      idByItemCode.set(`${monoblock.id}‖${blk.code}`, component.id);
+      placed.push({ unit: unitData.name, key: keyOfBlock, parentKey: blk.parent ? blockKey(unitData.name, blk.mbName, blk.parent) : '', title: blk.title || blk.code });
       /**
        * Место в составе обновляется всегда, даже когда параметры не менялись.
        *
@@ -184,8 +216,16 @@ export async function importEquipmentToDB(
        * бы висеть рядом с блоком, а не внутри вентилятора, и родителя тега
        * взять было бы неоткуда. Ручную позицию это не задевает: её в файле нет,
        * и цикл до неё не доходит.
+       *
+       * Адрес тоже часть места: найденная на другом адресе позиция сохраняет ID,
+       * а код и моноблок берёт из файла.
        */
-      await prisma.componentElement.update({ where: { id: component.id }, data: place });
+      const moved = component.itemCode !== blk.code || component.monoblockId !== monoblock.id;
+      if (moved) summary.movedBlocks = (summary.movedBlocks || 0) + 1;
+      await prisma.componentElement.update({
+        where: { id: component.id },
+        data: moved ? { ...place, itemCode: blk.code, monoblockId: monoblock.id } : place,
+      });
 
       const oldParsed = component.specs ? JSON.parse(component.specs) : { groups: [] };
       const oldGroups = oldParsed.groups || [];
@@ -259,6 +299,38 @@ export async function importEquipmentToDB(
   }
 
   return summary;
+}
+
+/**
+ * Снимает прежнюю запись, когда на её место пришла другая («Переподобрано» или
+ * «Другое изделие»). Запись не удаляется: тег, история и связь с E3 остаются
+ * при ней, а отмена партии может её вернуть.
+ *
+ * Связь «заменено на» лежит в `conflictLog` прежней записи — отдельным ключом
+ * `__removal`, рядом с которым спорные параметры (ключи по имени поля) не
+ * живут: снятая позиция конфликтов не разбирает. Без новой колонки и миграции.
+ * Нет `replacedBy` — «Другое изделие», связи нет, и для E3 это удаление и новая
+ * позиция, а не замена на месте.
+ */
+async function supersede(prisma: any, old: DbItem, batchId: string, replacedBy?: string): Promise<void> {
+  const row = old.row;
+  await prisma.componentElement.update({
+    where: { id: old.id },
+    data: {
+      status: 'REMOVED', hasConflict: false, conflictType: null, paramConflicts: null,
+      conflictLog: JSON.stringify({
+        __removal: { at: new Date().toISOString(), batchId, why: replacedBy ? 'reselected' : 'other', ...(replacedBy ? { replacedBy } : {}) },
+      }),
+    },
+  });
+  // След в истории: по партии видно, что она сняла
+  await prisma.equipmentHistory.create({
+    data: {
+      elementId: old.id, version: row.version ?? 1,
+      oldSpecs: row.specs ?? null, newSpecs: row.specs ?? null,
+      changeType: 'REMOVE', batchId,
+    },
+  });
 }
 
 /**

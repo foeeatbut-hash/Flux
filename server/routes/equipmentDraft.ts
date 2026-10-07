@@ -7,6 +7,7 @@ import { SKIP_KIND } from '../vezaDict.js';
 import { ROLES } from '../../equipment/roles.js';
 import { TAG_MAX } from '../../equipment/tagPolicy.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
+import { cleanChoices } from '../equipmentResolve.js';
 import type { TagLink } from '../equipmentTags.js';
 
 // ── Ввоз распознанного документа (PDF / Word / скан / буфер) ────────────────
@@ -280,7 +281,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
   // План по распознанному документу: тот же дифф, те же теги, что у файла.
   // Ничего не пишет — предпросмотр обязан быть безопасным.
   app.post('/api/equipment/import-draft-plan', async (req: Request, res: Response) => {
-    const { units, category, projectId: reqProjectId, edits } = req.body;
+    const { units, category, projectId: reqProjectId, edits, choices, fileName } = req.body;
     if (!Array.isArray(units) || units.length === 0) {
       return res.status(400).json({ error: 'Пустой результат распознавания' });
     }
@@ -288,7 +289,9 @@ export function registerEquipmentDraftRoutes(app: Express): void {
     try {
       const projectId = await resolveProject(reqProjectId);
       const result = applyEdits(sanitizeDraftUnits(units), edits as EditMap | undefined);
-      const plan = await planEquipmentImport(getPrisma(), projectId, category, result);
+      const plan = await planEquipmentImport(getPrisma(), projectId, category, result, {
+        fileName: clean(fileName, 200) || 'Распознанный документ', choices: cleanChoices(choices),
+      });
       res.json({ plan });
     } catch (error: any) {
       const known = draftFailure(error);
@@ -300,7 +303,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
 
   // Запись подтверждённого предпросмотра
   app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
-    const { units, category, fileName, projectId: reqProjectId, tagLinks, edits, selection } = req.body;
+    const { units, category, fileName, projectId: reqProjectId, tagLinks, edits, selection, choices } = req.body;
     if (!Array.isArray(units) || units.length === 0) {
       return res.status(400).json({ error: 'Пустой результат распознавания' });
     }
@@ -323,6 +326,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
         prisma, projectId, category,
         clean(fileName, 200) || 'Распознанный документ',
         result, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id },
+        { choices: cleanChoices(choices), full: edited },
       );
       res.json({ success: true, ...summary, conflictMode });
     } catch (error: any) {

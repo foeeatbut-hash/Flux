@@ -418,7 +418,7 @@ export function diffSpecs(oldJson: any, newJson: any): ParamChange[] {
   return out.sort((x, y) => x.group.localeCompare(y.group, 'ru') || x.key.localeCompare(y.key, 'ru'));
 }
 
-const RU_CHANGE: Record<string, string> = { CREATE: 'заведён', UPDATE: 'изменён', DELETE: 'удалён' };
+const RU_CHANGE: Record<string, string> = { CREATE: 'заведён', UPDATE: 'изменён', DELETE: 'удалён', REMOVE: 'снят' };
 
 /**
  * Лист изменений по истории оборудования.

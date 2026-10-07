@@ -1,6 +1,9 @@
 import { EquipParseResult, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
-import { overrideKey, blockKey, matchSystem } from './specUtils.js';
+import { overrideKey, blockKey } from './specUtils.js';
+import { newContext, resolveUnit } from './equipmentResolve.js';
+import type { MatchRow } from './equipmentIdentity.js';
+import type { SystemRow } from './equipmentSystemMatch.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { parseRuNumber } from './normalize.js';
@@ -46,6 +49,14 @@ export interface PlanBlock {
   tagNotes?: TagEvidence[];
   /** Вид узла выгрузки; `note` — позиция заведена по примечанию */
   sourceKind?: string;
+
+  // ── Кто это в проекте ──
+  /** Запись проекта, в которую лягут данные; пусто — позиция получит новый ID */
+  elementId?: string;
+  /** Как нашлась: tag — по тегу, address — по адресу, moved — переехала */
+  matchedBy?: 'tag' | 'address' | 'moved';
+  /** Прежняя запись, которую «Переподобрано» или «Другое изделие» снимет */
+  replacesId?: string;
 }
 
 export interface PlanSystem {
@@ -54,6 +65,8 @@ export interface PlanSystem {
   matchedName?: string;        // если сопоставлена fuzzy — фактическое имя в БД
   /** Обозначение исправлено при разборе: что было в файле и что заменено */
   nameFix?: { from: string; what: string };
+  /** Установка переименована: прежнее имя; ID остаётся прежним */
+  renamedFrom?: string;
 }
 
 export interface ImportPlan {
@@ -65,6 +78,13 @@ export interface ImportPlan {
    * предпросмотре; молча теги не создаются и не перевешиваются.
    */
   tagLinks: TagLink[];
+  /**
+   * Спорные позиции: переехавшие и те, у кого по адресу стоит другое изделие.
+   * Каждая — строка с вариантами; выбор уходит в запись в `choices`.
+   */
+  matches: MatchRow[];
+  /** Спорные установки: «это она?» при переименовании и выбор среди одноимённых */
+  systemRows: SystemRow[];
   /**
    * Виды узлов выгрузки, которых программа не знает.
    *
@@ -156,68 +176,59 @@ export function isSelected(sel: Selection, key: string): boolean {
 }
 
 // ── Построение плана ──
+export interface PlanOptions {
+  /** Имя файла: по нему различаются одноимённые установки разных файлов */
+  fileName?: string;
+  /** Решения инженера по спорным строкам: blockKey / `unit‖имя‖файл` → вариант */
+  choices?: Record<string, string>;
+}
+
 export async function planEquipmentImport(
   prisma: any,
   projectId: string,
   category: string,
   result: EquipParseResult,
+  opts: PlanOptions = {},
 ): Promise<ImportPlan> {
   const plan: ImportPlan = {
     systems: [],
     blocks: [],
     tagLinks: [],
+    matches: [],
+    systemRows: [],
     ...(result.unknownKinds?.length ? { unknownKinds: result.unknownKinds } : {}),
     totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
   };
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
+  const ctx = newContext(existingSystems, opts.fileName || '', result.units, opts.choices || {});
   // Позиции с тегами — их разбирает planTagLinks после обхода дерева
   const tagged: { key: string; tags?: string[] }[] = [];
 
   for (const unitData of result.units) {
     plan.totals.systems++;
-    // Точное имя, затем то же без опечаток раскладки (у1==У1==y1==У-1)
-    const found = matchSystem(existingSystems as any[], unitData.name);
-    const system: any = found.system;
-    const matchedName = found.how === 'similar' ? system.name : undefined;
+    // Тот же разбор, что и при записи (equipmentResolve): предпросмотр обещает
+    // ровно то, что запишется. Установка и каждая позиция находятся не только
+    // по имени и адресу, но и по тегу, составу и характеристикам
+    const resolved = await resolveUnit(prisma, ctx, unitData);
+    const system: any = resolved.system.system;
+    const matchedName = resolved.system.how === 'similar' ? system.name : undefined;
     plan.systems.push({
       name: unitData.name,
       title: unitData.title,
       action: system ? 'match' : 'create',
       matchedName,
+      ...(resolved.system.how === 'renamed' ? { renamedFrom: system.name } : {}),
       ...(unitData.nameFix ? { nameFix: unitData.nameFix } : {}),
     });
+    if (resolved.system.row) plan.systemRows.push(resolved.system.row);
 
-    // Плоский список блоков установки (как в importEquipmentToDB)
-    const flatBlocks: {
-      code: string; mbName: string; title: string; equipType: string; groups: SpecGroup[]; tags?: string[];
-      role?: string; parent?: string; instanceNo?: number; instanceCount?: number; sourceOrder?: number;
-      tagNotes?: TagEvidence[]; sourceKind?: string;
-    }[] = [
-      { code: '__unit__', mbName: '', title: unitData.title, equipType: 'УСТАНОВКА', groups: unitData.groups, tags: unitData.tags, role: 'УСТАНОВКА' },
-      ...unitData.monoblocks.flatMap(mb =>
-        mb.blocks.map(b => ({
-          code: b.name, mbName: mb.name, title: b.title, equipType: b.equipType, groups: b.groups, tags: b.tags,
-          role: b.role, parent: b.parentName, instanceNo: b.instanceNo, instanceCount: b.instanceCount,
-          sourceOrder: b.sourceOrder, tagNotes: b.tagNotes, sourceKind: b.sourceKind,
-        }))),
-    ];
-
-    for (const blk of flatBlocks) {
-      if (blk.code === '__unit__' && (!blk.groups || blk.groups.length === 0)) continue;
-
-      // Существующий элемент: моноблок по имени (или служебный __unit__), затем itemCode
-      let component: any = null;
-      if (system) {
-        const mbName = blk.mbName || '__unit__';
-        const mb = await prisma.monoblock.findFirst({ where: { systemId: system.id, name: mbName } });
-        if (mb) {
-          component = await prisma.componentElement.findFirst({
-            where: { monoblockId: mb.id, itemCode: blk.code },
-          });
-        }
-      }
+    for (const blk of resolved.blocks) {
+      const key = blockKey(unitData.name, blk.mbName, blk.code);
+      const found = resolved.byKey.get(key);
+      const component: any = found?.element?.row || null;
+      if (found?.row) plan.matches.push(found.row);
 
       const oldParsed = component?.specs ? safeParse(component.specs) : { groups: [] };
       const oldMap = flattenGroups(oldParsed.groups || []);
@@ -253,15 +264,18 @@ export async function planEquipmentImport(
       plan.totals.conflicts += changedCount;
       plan.totals.overrides += overrideImpact;
 
-      tagged.push({ key: blockKey(unitData.name, blk.mbName, blk.code), tags: blk.tags });
+      tagged.push({ key, tags: blk.tags });
       plan.blocks.push({
-        key: blockKey(unitData.name, blk.mbName, blk.code),
+        key,
         systemName: unitData.name,
         monoblockName: blk.mbName,
         itemCode: blk.code,
         title: blk.title,
         equipType: blk.equipType,
         action, params, changedCount, newCount, overrideImpact,
+        ...(component ? { elementId: component.id } : {}),
+        ...(found && found.how !== 'new' ? { matchedBy: found.how } : {}),
+        ...(found?.replaces ? { replacesId: found.replaces.id } : {}),
         ...(blk.role ? { role: blk.role } : {}),
         ...(blk.parent ? { parentKey: blockKey(unitData.name, blk.mbName, blk.parent) } : {}),
         ...(blk.instanceNo ? { instanceNo: blk.instanceNo, instanceCount: blk.instanceCount } : {}),
@@ -287,6 +301,10 @@ export async function planEquipmentImport(
     // обязан показывать то, что случится на записи, а не более мягкую картину
     const policy = await importPolicyOfProject(projectId);
     plan.tagLinks = planTagLinks(tagged, existingTags, policy);
+    // Тег, уже стоящий на этой же записи, занятым не считается: при повторной
+    // загрузке он «занят» тем самым изделием, в которое и ложится позиция
+    const ownId = new Map(plan.blocks.filter(b => b.elementId).map(b => [b.key, b.elementId]));
+    plan.tagLinks = plan.tagLinks.map(l => (l.takenBy && ownId.get(l.blockKey) === l.takenBy ? { ...l, takenBy: undefined } : l));
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
     plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;
@@ -329,6 +347,8 @@ export function filterBySelection(result: EquipParseResult, sel: Selection): Equ
       return { ...mb, blocks };
     }).filter(mb => mb.blocks.length > 0);
     return { ...u, groups: unitGroupsKept ? u.groups : [], monoblocks };
-  }).filter(u => u.monoblocks.length > 0 || u.groups.length > 0);
+    // Установка без параметров и без блоков остаётся, если выбрана её запись:
+    // служебный блок заводится всегда (Д6), и предпросмотр обещал его
+  }).filter(u => u.monoblocks.length > 0 || u.groups.length > 0 || isSelected(sel, blockKey(u.name, '', '__unit__')));
   return { units };
 }
