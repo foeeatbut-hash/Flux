@@ -14,6 +14,7 @@ import { Minus, Square, X, Copy } from 'lucide-react';
 import { SECTIONS, isKnownSection, sectionForPath } from '../workspace/sections';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
+import { useWindowTitleStore } from '../store/windowTitleStore';
 import { MIN_W, snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
 import { layoutsFor, otherShares, panelSpot, shareStyle, type Layout, type Share } from '../lib/layouts';
 import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
@@ -114,7 +115,18 @@ function WindowFrame({
     el.addEventListener('pointerup', onUp);
   };
 
-  const btn = 'w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors';
+  // Раздел может занять заголовок целиком (Проводник: полоса вкладок 38 точек).
+  // Тогда рама отдаёт ему место, а сама оставляет только кнопки окна
+  const claim = useWindowTitleStore((s) => s.claims[win.id]);
+  const hostRef = React.useCallback((el: HTMLDivElement | null) => useWindowTitleStore.getState().setHost(win.id, el), [win.id]);
+  React.useEffect(() => () => { useWindowTitleStore.getState().setHost(win.id, null); }, [win.id]);
+
+  const btn = claim
+    // Кнопки на всю высоту полосы, 46 точек шириной, как в Windows 11; красная заливка у «Закрыть» — тоже оттуда
+    ? 'w-[46px] self-stretch flex items-center justify-center cursor-pointer transition-colors'
+    : 'w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors';
+  // Цвет кнопок полосы раздела: светлая плашка при наведении, как в Windows 11
+  const capClaimed = 'text-slate-500 dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/10';
 
   return (
     <div
@@ -143,17 +155,23 @@ function WindowFrame({
       <div
         onPointerDown={(e) => drag(e, null)}
         onDoubleClick={() => st.getState().maximize(win.id)}
-        /* 34 точки: попасть можно, и не жалко экрана при четырёх окнах */
-        className={`h-[34px] shrink-0 flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing
+        style={claim ? { height: claim.height } : undefined}
+        /* 34 точки: попасть можно, и не жалко экрана при четырёх окнах. Когда
+           раздел занял заголовок, высоту и фон полосы задаёт он */
+        className={claim
+          ? `shrink-0 flex items-center select-none ${claim.className}`
+          : `h-[34px] shrink-0 flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing
                     border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg`}
       >
-        {Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-slate-500 dark:text-slate-300' : 'text-slate-300 dark:text-slate-500'}`} />}
-        <span className={`flex-1 min-w-0 truncate text-xs font-medium ${isTop ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}
-          title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>
+        {!claim && Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-slate-500 dark:text-slate-300' : 'text-slate-300 dark:text-slate-500'}`} />}
+        {!claim && <span className={`flex-1 min-w-0 truncate text-xs font-medium ${isTop ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}
+          title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>}
+        {/* Место раздела: пустое и скрытое, пока слот не занят */}
+        <div ref={hostRef} data-title-host className={claim ? 'flex-1 min-w-0 self-stretch' : 'hidden'} />
         <button type="button" title="Свернуть" aria-label="Свернуть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => st.getState().minimize(win.id)}
-          className={`${btn} text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850`}>
+          className={`${btn} ${claim ? capClaimed : 'text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850'}`}>
           <Minus className="w-3.5 h-3.5" />
         </button>
         {/* Квадратик: нажатие разворачивает, наведение и правая кнопка
@@ -166,13 +184,13 @@ function WindowFrame({
           onContextMenu={(e) => { e.preventDefault(); onSnapOpen(win.id, e.currentTarget as HTMLElement); }}
           onMouseEnter={(e) => onSnapArm(win.id, e.currentTarget as HTMLElement)}
           onMouseLeave={onSnapDisarm}
-          className={`${btn} text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850`}>
+          className={`${btn} ${claim ? capClaimed : 'text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850'}`}>
           {win.maximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3 h-3" />}
         </button>
         <button type="button" title="Закрыть" aria-label="Закрыть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => { void st.getState().requestClose(win.id); }}
-          className={`${btn} text-slate-500 hover:bg-rose-600 hover:text-white`}>
+          className={`${btn} ${claim ? 'text-slate-500 dark:text-slate-300 hover:bg-[#c42b1c]' : 'text-slate-500 hover:bg-rose-600'} hover:text-white`}>
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
