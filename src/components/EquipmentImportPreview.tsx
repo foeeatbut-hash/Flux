@@ -7,6 +7,7 @@ import {
 import { rememberImport } from '../lib/lastImport';
 import TagLinksPanel, { type TagLink, writtenAs } from './import/TagLinksPanel';
 import UnknownKinds from './import/UnknownKinds';
+import InSchemeNotice from './import/InSchemeNotice';
 import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
@@ -53,6 +54,8 @@ interface ImportPlan {
   systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
   /** Спорные позиции и установки: строки с вариантами, решает инженер */
   matches?: MatchRow[]; systemRows?: SystemRow[]; missing?: MissingRow[];
+  /** Сколько затрагиваемых позиций уже стоит в схеме КИП (предупреждение, не запрет) */
+  inScheme?: { count: number; bySystem: Record<string, number> };
   unknownKinds?: string[];
   totals: { removed?: number; restored?: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
@@ -362,6 +365,8 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                 </button>
               )}
             </div>
+
+            {plan.inScheme && plan.inScheme.count > 0 && <InSchemeNotice inScheme={plan.inScheme} />}
 
             {(plan.unknownKinds || []).length > 0 && (
               <UnknownKinds kinds={plan.unknownKinds || []} onSaved={() => loadPlan(edits)} />
