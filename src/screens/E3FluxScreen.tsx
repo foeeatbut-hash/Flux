@@ -2,14 +2,17 @@
  * E3Flux — отдельная программа Flux для всего, что связано с E3.series.
  *
  * Выгрузка оборудования в таком виде уберётся (решение владельца), поэтому
- * атрибуты E3 живут здесь, а не в «Выгрузке данных» и не в Каталоге. Сейчас
- * готовы два рабочих места: справочник атрибутов и таблица атрибутов проекта;
- * типовые решения и схема придут следующими обновлениями.
+ * атрибуты E3 живут здесь, а не в «Выгрузке данных» и не в Каталоге. Готовы
+ * четыре рабочих места: таблица атрибутов проекта, справочник атрибутов,
+ * типовые решения (каталог, профиль и подбор по позициям) и схема (список,
+ * холст листа и карточка узла). Выгрузка в E3 ждёт моста.
  */
 import React, { useEffect, useState } from 'react';
 import SectionErrorBoundary from '../components/SectionErrorBoundary';
 import E3AttributesPanel from '../components/catalog/E3AttributesPanel';
 import E3ProjectTable from '../components/e3flux/E3ProjectTable';
+import E3SchemeTab from '../components/e3flux/E3SchemeTab';
+import E3SolutionsTab from '../components/e3flux/E3SolutionsTab';
 import NoProject from '../components/NoProject';
 import { SectionHead, Tabs } from '../components/ui';
 import { catalogWorkspaceService } from '../services/catalogWorkspaceService';
@@ -40,7 +43,8 @@ export default function E3FluxScreen() {
     <div className="min-h-0 flex-1">
       {tab === 'project' ? (project ? <E3ProjectTable key={project.id} projectId={project.id} projectName={project.name} onOpenBook={() => setTab('book')} say={say} /> : <NoProject what="атрибутов E3" />)
         : tab === 'book' ? <div className="h-full p-3"><E3AttributesPanel rights={rights} /></div>
-        : <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Будет в следующем обновлении</p>}
+        : tab === 'solutions' ? <E3SolutionsTab rights={rights} projectId={project?.id || ''} />
+        : project ? <E3SchemeTab key={project.id} projectId={project.id} onOpenProfile={() => setTab('solutions')} /> : <NoProject what="схемы E3" />}
     </div>
   </div></SectionErrorBoundary>;
 }
