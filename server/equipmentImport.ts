@@ -1,7 +1,8 @@
 import { EquipParseResult, SpecGroup } from './equipmentParser.js';
 import { blockKey } from './specUtils.js';
 import { newContext, resolveUnit, unitBlocksOf } from './equipmentResolve.js';
-import type { DbItem } from './equipmentIdentity.js';
+import { BUMP } from './equipmentVersion.js';
+import { markRemoved, restoreRemoved, recordMove, transferTags } from './equipmentLifecycle.js';
 import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
@@ -50,6 +51,10 @@ export interface ImportSummary {
   movedBlocks?: number;
   /** Прежние записи, снятые «Переподобрано» или «Другое изделие» (`REMOVED`, не удалены) */
   supersededBlocks?: number;
+  /** Позиции, которых нет в расчёте: сняты (`REMOVED`), не удалены */
+  removedBlocks?: number;
+  /** Снятые ранее позиции, вернувшиеся в расчёт: запись и ID те же */
+  restoredBlocks?: number;
 }
 
 /** Выбор инженера по спорным строкам плана и расчёт целиком, по которому они строились */
@@ -62,6 +67,8 @@ export interface IdentityInput {
    * запись расходилась бы с предпросмотром.
    */
   full?: EquipParseResult;
+  /** Полный файл расчёта: позиции, которых в нём нет, снимаются. У фрагмента — нет */
+  removeMissing?: boolean;
 }
 
 /**
@@ -94,12 +101,14 @@ export async function importEquipmentToDB(
   const componentIdByKey = new Map<string, string>();
   // itemCode внутри моноблока → id: по нему подпозиция находит своего владельца
   const idByItemCode = new Map<string, string>();
+  // Позиции, заведённые этим ввозом: их версия 1 остаётся единицей, даже если тег лёг сразу
+  const createdIds = new Set<string>();
   // Состав в терминах blockKey — из него строится родство тегов
   const placed: { unit: string; key: string; parentKey: string; title: string }[] = [];
 
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
   const matchOn = identity.full ?? result;
-  const ctx = newContext(existingSystems, fileName, matchOn.units, identity.choices || {});
+  const ctx = newContext(existingSystems, fileName, matchOn.units, identity.choices || {}, !!identity.removeMissing);
   // Отбор по галочкам сохраняет порядок установок: очередь по имени и файлу
   // отдаёт каждой установке полного расчёта её же (отобранную) версию
   const queue = new Map<string, typeof result.units>();
@@ -185,6 +194,7 @@ export async function importEquipmentToDB(
           },
         });
         idByItemCode.set(`${monoblock.id}‖${blk.code}`, created.id);
+        createdIds.add(created.id);
         placed.push({ unit: unitData.name, key: keyOfBlock, parentKey: blk.parent ? blockKey(unitData.name, blk.mbName, blk.parent) : '', title: blk.title || blk.code });
         // Заведение тоже пишем в историю: без этой записи отмена импорта не
         // знала бы, какие элементы завёл именно он, и оставила бы их навсегда
@@ -199,7 +209,10 @@ export async function importEquipmentToDB(
         summary.newBlocks++;
         // «Переподобрано» и «Другое изделие»: прежнюю запись не удаляем, а снимаем
         if (found?.replaces) {
-          await supersede(prisma, found.replaces, batchId, found.linked ? created.id : undefined);
+          await markRemoved(prisma, found.replaces, batchId, found.linked ? 'reselected' : 'other',
+            { replacedBy: found.linked ? created.id : undefined, releaseTags: found.linked });
+          // «Переподобрано»: позиция в схеме та же, поэтому теги идут за ней
+          if (found.linked) await transferTags(prisma, { projectId, userId: actor.userId }, found.replaces, { id: created.id, title: blk.title || blk.code }, batchId);
           summary.supersededBlocks = (summary.supersededBlocks || 0) + 1;
         }
         continue;
@@ -221,66 +234,69 @@ export async function importEquipmentToDB(
        * а код и моноблок берёт из файла.
        */
       const moved = component.itemCode !== blk.code || component.monoblockId !== monoblock.id;
-      if (moved) summary.movedBlocks = (summary.movedBlocks || 0) + 1;
-      await prisma.componentElement.update({
-        where: { id: component.id },
-        data: moved ? { ...place, itemCode: blk.code, monoblockId: monoblock.id } : place,
-      });
+      const next: Record<string, any> = moved ? { ...place, itemCode: blk.code, monoblockId: monoblock.id } : { ...place };
+      // Версия растёт только от настоящего изменения: повторный ввоз того же
+      // расчёта не должен «менять» все позиции
+      const data: Record<string, any> = {};
+      for (const k of Object.keys(next)) if ((component[k] ?? null) !== (next[k] ?? null)) data[k] = next[k];
+      let changed = Object.keys(data).length > 0;
+      if (moved) {
+        summary.movedBlocks = (summary.movedBlocks || 0) + 1;
+        await recordMove(prisma, component, { monoblockId: monoblock.id, itemCode: blk.code, parentElementId: place.parentElementId }, batchId);
+      }
+      // Пропавшая ранее позиция вернулась: та же запись, статус OK
+      if (found?.element?.removed) {
+        await restoreRemoved(prisma, component, batchId);
+        summary.restoredBlocks = (summary.restoredBlocks || 0) + 1;
+      }
 
       const oldParsed = component.specs ? JSON.parse(component.specs) : { groups: [] };
       const oldGroups = oldParsed.groups || [];
       const conflicts = diffSpecs(oldGroups, newGroups);
+      const name = blk.title || component.name;
+      const equipType = blk.equipType || component.equipType;
+      if (name !== component.name) { data.name = name; changed = true; }
+      if (equipType !== component.equipType) { data.equipType = equipType; changed = true; }
 
-      if (conflicts.length === 0) {
-        // Нет изменений — освежим название/тип на всякий случай
-        await prisma.componentElement.update({
-          where: { id: component.id },
-          data: { name: blk.title || component.name, equipType: blk.equipType || component.equipType },
-        });
-        continue;
-      }
+      if (conflicts.length > 0) {
+        summary.updatedBlocks++;
+        summary.conflictsCount += conflicts.length;
 
-      summary.updatedBlocks++;
-      summary.conflictsCount += conflicts.length;
-
-      // История версий
-      await prisma.equipmentHistory.create({
-        data: {
-          elementId: component.id,
-          version: component.version,
-          oldSpecs: component.specs,
-          newSpecs: serialized,
-          changeType: 'UPDATE',
-          batchId,
-        },
-      });
-
-      if (conflictMode === 'immediate') {
-        await prisma.componentElement.update({
-          where: { id: component.id },
+        // История версий
+        await prisma.equipmentHistory.create({
           data: {
-            specs: serialized,
-            name: blk.title || component.name,
-            equipType: blk.equipType || component.equipType,
-            version: component.version + 1,
-            hasConflict: false,
-            status: 'OK',
-            paramConflicts: null,
+            elementId: component.id,
+            version: component.version,
+            oldSpecs: component.specs,
+            newSpecs: serialized,
+            changeType: 'UPDATE',
+            batchId,
           },
         });
-      } else {
-        // 'wait' — оставляем старые значения, помечаем конфликты для решения
+
+        if (conflictMode === 'immediate') {
+          Object.assign(data, { specs: serialized, hasConflict: false, status: 'OK', paramConflicts: null });
+          changed = true;
+        } else {
+          // 'wait' — оставляем старые значения, помечаем конфликты для решения
+          Object.assign(data, { hasConflict: true, status: 'CONFLICT', conflictType: 'SPEC_CHANGE', paramConflicts: JSON.stringify(conflicts) });
+        }
+      }
+      if (Object.keys(data).length) {
         await prisma.componentElement.update({
           where: { id: component.id },
-          data: {
-            equipType: blk.equipType || component.equipType,
-            hasConflict: true,
-            status: 'CONFLICT',
-            conflictType: 'SPEC_CHANGE',
-            paramConflicts: JSON.stringify(conflicts),
-          },
+          data: changed ? { ...data, ...BUMP } : data,
         });
       }
+    }
+
+    // Пропавшие из расчёта: не удаляются, а снимаются; решение инженера «оставить» уважается
+    for (const gone of resolved.missing) {
+      if (!gone.remove) continue;
+      const item = ctx.items.get(system.id)?.find(e => e.id === gone.id);
+      if (!item) continue;
+      await markRemoved(prisma, item, batchId, 'missing');
+      summary.removedBlocks = (summary.removedBlocks || 0) + 1;
     }
   }
 
@@ -288,7 +304,7 @@ export async function importEquipmentToDB(
   // ровно на те позиции, которые он видел в предпросмотре
   if (tagLinks && tagLinks.length) {
     const policy = await importPolicyOfProject(projectId);
-    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy, actor);
+    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy, actor, createdIds);
     summary.tagsLinked = applied.linked;
     summary.tagsCreated = applied.created;
     summary.tagConflicts = applied.conflicts;
@@ -299,38 +315,6 @@ export async function importEquipmentToDB(
   }
 
   return summary;
-}
-
-/**
- * Снимает прежнюю запись, когда на её место пришла другая («Переподобрано» или
- * «Другое изделие»). Запись не удаляется: тег, история и связь с E3 остаются
- * при ней, а отмена партии может её вернуть.
- *
- * Связь «заменено на» лежит в `conflictLog` прежней записи — отдельным ключом
- * `__removal`, рядом с которым спорные параметры (ключи по имени поля) не
- * живут: снятая позиция конфликтов не разбирает. Без новой колонки и миграции.
- * Нет `replacedBy` — «Другое изделие», связи нет, и для E3 это удаление и новая
- * позиция, а не замена на месте.
- */
-async function supersede(prisma: any, old: DbItem, batchId: string, replacedBy?: string): Promise<void> {
-  const row = old.row;
-  await prisma.componentElement.update({
-    where: { id: old.id },
-    data: {
-      status: 'REMOVED', hasConflict: false, conflictType: null, paramConflicts: null,
-      conflictLog: JSON.stringify({
-        __removal: { at: new Date().toISOString(), batchId, why: replacedBy ? 'reselected' : 'other', ...(replacedBy ? { replacedBy } : {}) },
-      }),
-    },
-  });
-  // След в истории: по партии видно, что она сняла
-  await prisma.equipmentHistory.create({
-    data: {
-      elementId: old.id, version: row.version ?? 1,
-      oldSpecs: row.specs ?? null, newSpecs: row.specs ?? null,
-      changeType: 'REMOVE', batchId,
-    },
-  });
 }
 
 /**

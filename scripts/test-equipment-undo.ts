@@ -94,7 +94,7 @@ ok('список отсортирован по коду', many.restore[0].itemCo
 
 console.log('8. Сводка и время партии');
 ok('сводка перечисляет всё', /вернём|удалим|пропустим/.test(describePlan(many)), describePlan(many));
-ok('пустой план говорит прямо', describePlan({ batchId: 'x', restore: [], remove: [], skip: [] }) === 'отменять нечего');
+ok('пустой план говорит прямо', describePlan({ batchId: 'x', restore: [], remove: [], skip: [], reinstate: [], reremove: [], unmove: [], retag: [] }) === 'отменять нечего');
 ok('время партии читается', batchTime('imp-1750000000000-abc123') === 1750000000000);
 ok('чужой идентификатор не ломает разбор', batchTime('что-то не то') === 0);
 

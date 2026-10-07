@@ -1,7 +1,7 @@
 import { EquipParseResult, SpecGroup, SpecParam, TagEvidence } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
 import { overrideKey, blockKey } from './specUtils.js';
-import { newContext, resolveUnit } from './equipmentResolve.js';
+import { newContext, resolveUnit, type MissingRow } from './equipmentResolve.js';
 import type { MatchRow } from './equipmentIdentity.js';
 import type { SystemRow } from './equipmentSystemMatch.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
@@ -57,6 +57,10 @@ export interface PlanBlock {
   matchedBy?: 'tag' | 'address' | 'moved';
   /** Прежняя запись, которую «Переподобрано» или «Другое изделие» снимет */
   replacesId?: string;
+  /** «Переподобрано»: теги прежней записи переходят на новую */
+  replacesLinked?: boolean;
+  /** Позиция была снята как пропавшая и возвращается в расчёт: запись та же, статус OK */
+  restores?: boolean;
 }
 
 export interface PlanSystem {
@@ -83,6 +87,11 @@ export interface ImportPlan {
    * Каждая — строка с вариантами; выбор уходит в запись в `choices`.
    */
   matches: MatchRow[];
+  /**
+   * Позиции проекта, которых нет в этом расчёте: «будет снято». Только у полного
+   * файла расчёта; у фрагмента (распознанный документ) список всегда пуст.
+   */
+  missing: MissingRow[];
   /** Спорные установки: «это она?» при переименовании и выбор среди одноимённых */
   systemRows: SystemRow[];
   /**
@@ -93,7 +102,7 @@ export interface ImportPlan {
    * вид к роли прямо здесь.
    */
   unknownKinds?: string[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
+  totals: { removed: number; restored: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -181,6 +190,8 @@ export interface PlanOptions {
   fileName?: string;
   /** Решения инженера по спорным строкам: blockKey / `unit‖имя‖файл` → вариант */
   choices?: Record<string, string>;
+  /** Это полный файл расчёта: позиции, которых в нём нет, будут сняты */
+  removeMissing?: boolean;
 }
 
 export async function planEquipmentImport(
@@ -195,14 +206,15 @@ export async function planEquipmentImport(
     blocks: [],
     tagLinks: [],
     matches: [],
+    missing: [],
     systemRows: [],
     ...(result.unknownKinds?.length ? { unknownKinds: result.unknownKinds } : {}),
-    totals: { systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
+    totals: { removed: 0, restored: 0, systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
   };
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
-  const ctx = newContext(existingSystems, opts.fileName || '', result.units, opts.choices || {});
+  const ctx = newContext(existingSystems, opts.fileName || '', result.units, opts.choices || {}, !!opts.removeMissing);
   // Позиции с тегами — их разбирает planTagLinks после обхода дерева
   const tagged: { key: string; tags?: string[] }[] = [];
 
@@ -223,6 +235,8 @@ export async function planEquipmentImport(
       ...(unitData.nameFix ? { nameFix: unitData.nameFix } : {}),
     });
     if (resolved.system.row) plan.systemRows.push(resolved.system.row);
+    plan.missing.push(...resolved.missing);
+    plan.totals.removed += resolved.missing.filter(m => m.remove).length;
 
     for (const blk of resolved.blocks) {
       const key = blockKey(unitData.name, blk.mbName, blk.code);
@@ -261,6 +275,7 @@ export async function planEquipmentImport(
       if (action === 'create') plan.totals.newBlocks++;
       else if (action === 'update') plan.totals.updatedBlocks++;
       else plan.totals.unchangedBlocks++;
+      if (found?.element?.removed) plan.totals.restored++;
       plan.totals.conflicts += changedCount;
       plan.totals.overrides += overrideImpact;
 
@@ -275,7 +290,8 @@ export async function planEquipmentImport(
         action, params, changedCount, newCount, overrideImpact,
         ...(component ? { elementId: component.id } : {}),
         ...(found && found.how !== 'new' ? { matchedBy: found.how } : {}),
-        ...(found?.replaces ? { replacesId: found.replaces.id } : {}),
+        ...(found?.replaces ? { replacesId: found.replaces.id, replacesLinked: found.linked } : {}),
+        ...(found?.element?.removed ? { restores: true } : {}),
         ...(blk.role ? { role: blk.role } : {}),
         ...(blk.parent ? { parentKey: blockKey(unitData.name, blk.mbName, blk.parent) } : {}),
         ...(blk.instanceNo ? { instanceNo: blk.instanceNo, instanceCount: blk.instanceCount } : {}),
@@ -304,7 +320,10 @@ export async function planEquipmentImport(
     // Тег, уже стоящий на этой же записи, занятым не считается: при повторной
     // загрузке он «занят» тем самым изделием, в которое и ложится позиция
     const ownId = new Map(plan.blocks.filter(b => b.elementId).map(b => [b.key, b.elementId]));
-    plan.tagLinks = plan.tagLinks.map(l => (l.takenBy && ownId.get(l.blockKey) === l.takenBy ? { ...l, takenBy: undefined } : l));
+    // «Переподобрано» переносит теги прежней записи на новую: и они заняты не чужим
+    const handsOver = new Map(plan.blocks.filter(b => b.replacesId && b.replacesLinked).map(b => [b.key, b.replacesId]));
+    plan.tagLinks = plan.tagLinks.map(l => (l.takenBy && (ownId.get(l.blockKey) === l.takenBy || handsOver.get(l.blockKey) === l.takenBy)
+      ? { ...l, takenBy: undefined } : l));
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
     plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;

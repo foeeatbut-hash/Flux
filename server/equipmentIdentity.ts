@@ -112,8 +112,17 @@ export interface DbItem {
   order: number;
   instanceNo?: number;
   tags: string[];         // идентификаторы тегов, стоящих на позиции
+  tagIds: string[];
+  /** Снята как «пропавшая из расчёта»: такая может вернуться, остальные снятые не участвуют */
+  removed: boolean;
   sig: Sig;
   row: any;               // строка базы целиком — запись берёт из неё версию и характеристики
+}
+
+/** Отметка о снятии из `conflictLog` позиции: когда, какой партией и почему */
+export interface Removal { at: string; batchId: string; why: 'missing' | 'reselected' | 'other'; replacedBy?: string }
+export function removalOf(row: any): Removal | null {
+  try { return row?.conflictLog ? JSON.parse(row.conflictLog)?.__removal || null : null; } catch (_) { return null; }
 }
 
 export const addressOf = (x: { mb: string; code: string }) => (x.mb ? `${x.mb} / ${x.code}` : x.code);
@@ -129,7 +138,7 @@ export interface MatchRow {
   closeness: Closeness;
   title: string;
   at: string;
-  was: { id: string; title: string; at: string; tags: string[]; label: string };
+  was: { id: string; title: string; at: string; tags: string[]; label: string; removed: boolean };
   now: { label: string };
   why: string;
   options: { value: MatchChoice; label: string }[];
@@ -183,13 +192,17 @@ export function matchItems(
   const out = new Map<string, Resolution>();
   // Снятые и ручные в сопоставлении не участвуют: первые вернёт отдельная
   // логика, вторых файл не знает
-  const pool = existing.filter(e => e.row?.status !== 'REMOVED' && !e.row?.manual);
+  // Вернуться в расчёт может только пропавшая позиция: переподобранную и «другое
+  // изделие» файл обратно не поднимает
+  const pool = existing.filter(e => (e.row?.status !== 'REMOVED' || e.removed) && !e.row?.manual);
   const taken = new Map<string, string>();          // id записи → ключ позиции, которая её заняла
   const byAddr = new Map<string, DbItem[]>();
   for (const e of pool) {
     const k = `${e.mb}‖${e.code}`;
     (byAddr.get(k) ?? byAddr.set(k, []).get(k)!).push(e);
   }
+  // Действующая запись на адресе важнее снятой
+  for (const list of byAddr.values()) list.sort((a, b) => Number(a.removed) - Number(b.removed));
   const free = (e: DbItem) => !taken.has(e.id);
   const claim = (b: FileItem, e: DbItem, how: Resolution['how']) => {
     taken.set(e.id, b.key);
@@ -221,7 +234,7 @@ export function matchItems(
       const v = votes.get(e.id) || { e, n: 0 };
       v.n++; votes.set(e.id, v);
     }
-    const best = [...votes.values()].sort((x, y) => y.n - x.n
+    const best = [...votes.values()].sort((x, y) => y.n - x.n || Number(x.e.removed) - Number(y.e.removed)
       || Number(`${y.e.mb}‖${y.e.code}` === `${b.mb}‖${b.code}`) - Number(`${x.e.mb}‖${x.e.code}` === `${b.mb}‖${b.code}`))[0];
     if (!best) continue;
     // Тег называет эту позицию, даже если код другой; смена ТИПА под тем же
@@ -257,7 +270,7 @@ export function matchItems(
       const own = !!ownerId && e.parentId === ownerId;
       pairs.push({
         b, e, own,
-        s: score(b.sig, e.sig) + (own ? 3 : 0) + (e.mb === b.mb ? 1 : 0)
+        s: score(b.sig, e.sig) + (own ? 3 : 0) + (e.mb === b.mb ? 1 : 0) - (e.removed ? 0.25 : 0)
           + (b.instanceNo && e.instanceNo === b.instanceNo ? 0.5 : 0),
         gap: Math.abs(b.order - e.order),
       });
@@ -281,14 +294,16 @@ export function matchItems(
       .filter(v => v !== 'reselect' || c !== 'other')
       .map(v => ({ value: v, label: CHOICE_LABEL[v] }));
     const choice = asked && options.some(o => o.value === asked) ? asked : def;
-    const why = kind === 'moved'
+    const why = e.removed
+      ? `«${b.title}», снятая ранее (${addressOf(e)}), вернулась в расчёт на ${addressOf(b)}`
+      : kind === 'moved'
       ? `«${b.title}» переехала с ${addressOf(e)} на ${addressOf(b)}`
       : c === 'other'
         ? `На ${addressOf(b)} раньше стояло «${describe(e.sig)}», теперь «${describe(b.sig)}»`
         : `На ${addressOf(b)} теперь другой типоразмер: было «${describe(e.sig)}», стало «${describe(b.sig)}»`;
     return {
       key: b.key, kind, closeness: c, title: b.title, at: addressOf(b),
-      was: { id: e.id, title: e.title, at: addressOf(e), tags: e.tags, label: describe(e.sig) },
+      was: { id: e.id, title: e.title, at: addressOf(e), tags: e.tags, label: describe(e.sig), removed: e.removed },
       now: { label: describe(b.sig) },
       why, options, default: def, choice,
     };
@@ -297,7 +312,8 @@ export function matchItems(
     const row = rowOf(b, e, kind);
     taken.set(e.id, b.key);
     if (row.choice === 'same') out.set(b.key, { element: e, replaces: null, linked: false, how, row });
-    else out.set(b.key, { element: null, replaces: e, linked: row.choice === 'reselect', how: 'new', row });
+    // Снятую ранее позицию снимать второй раз нечем: она просто остаётся снятой
+    else out.set(b.key, { element: null, replaces: e.removed ? null : e, linked: row.choice === 'reselect', how: 'new', row });
   };
   for (const b of blocks) {
     const e = moves.get(b.key);
@@ -321,4 +337,18 @@ export function matchItems(
 
   for (const b of blocks) if (!out.has(b.key)) out.set(b.key, { element: null, replaces: null, linked: false, how: 'new' });
   return out;
+}
+
+/**
+ * Позиции установки, которых нет в новом расчёте: действующие, не ручные, и
+ * ни одна позиция файла их не заняла и не заменила. Файл ничего не знает о
+ * ручных позициях, поэтому снимать их нельзя.
+ */
+export function missingOf(existing: DbItem[], resolved: Map<string, Resolution>): DbItem[] {
+  const used = new Set<string>();
+  for (const r of resolved.values()) {
+    if (r.element) used.add(r.element.id);
+    if (r.replaces) used.add(r.replaces.id);
+  }
+  return existing.filter(e => !used.has(e.id) && !e.row?.manual && e.row?.status !== 'REMOVED' && e.code !== '__unit__');
 }

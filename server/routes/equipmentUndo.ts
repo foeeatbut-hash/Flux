@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
+import { withBump } from '../equipmentVersion.js';
 import { planUndo, batchTime, describePlan, type ElementNow, type HistoryRow } from '../equipmentUndo.js';
 
 /**
@@ -26,6 +27,7 @@ async function loadBatch(batchId: string) {
     map.set(e.id, {
       id: e.id, itemCode: String(e.itemCode || e.name || ''),
       specs: e.specs ?? null, version: Number(e.version || 1),
+      status: e.status, conflictLog: e.conflictLog ?? null, monoblockId: e.monoblockId,
       where: `${e.monoblock?.system?.name || ''} · ${e.monoblock?.name || ''}`,
     });
   }
@@ -52,7 +54,8 @@ export function registerEquipmentUndoRoutes(app: Express): void {
 
       const { rows, map } = await loadBatch(batchId);
       const plan = planUndo(batchId, rows, map);
-      if (!plan.restore.length && !plan.remove.length) {
+      const life = plan.reinstate.length + plan.reremove.length + plan.unmove.length + plan.retag.length;
+      if (!plan.restore.length && !plan.remove.length && !life) {
         return res.json({ restored: 0, removed: 0, skipped: plan.skip.length, summary: describePlan(plan) });
       }
 
@@ -71,11 +74,45 @@ export function registerEquipmentUndoRoutes(app: Express): void {
         await prisma.componentElement.update({
           where: { id: it.elementId },
           data: {
-            specs: it.specs ?? null,
-            version: it.version ?? 1,
-            hasConflict: false, status: 'OK',
-            paramConflicts: null, conflictType: null,
+            // Отмена — тоже изменение: версия растёт, а не откатывается к прежнему
+            // числу, иначе «выгрузили v5, сейчас v5» скрыло бы, что содержимое иное
+            ...withBump({
+              specs: it.specs ?? null,
+              hasConflict: false, status: 'OK',
+              paramConflicts: null, conflictType: null,
+            }),
           },
+        });
+      }
+      // Теги «Переподобрано» — обратно, ДО удаления новых записей: удаление унесло бы связь
+      for (const it of plan.retag) {
+        const keep: string[] = [];
+        for (const tagId of it.tagIds || []) {
+          const tag = await prisma.tag.findUnique({ where: { id: tagId }, include: { componentElements: { select: { id: true } } } });
+          const on = (tag?.componentElements || []).map((c: any) => c.id);
+          // Тег уже у кого-то третьего — не отнимаем
+          if (tag && on.every((x: string) => x === it.toId || x === it.elementId)) keep.push(tagId);
+        }
+        if (!keep.length) continue;
+        if (it.toId) await prisma.componentElement.update({ where: { id: it.toId }, data: withBump({ tags: { disconnect: keep.map(id => ({ id })) } }) }).catch(() => {});
+        await prisma.componentElement.update({ where: { id: it.elementId }, data: withBump({ tags: { connect: keep.map(id => ({ id })) } }) }).catch(() => {});
+      }
+      for (const it of plan.unmove) {
+        await prisma.componentElement.update({
+          where: { id: it.elementId },
+          data: withBump({ monoblockId: it.address!.monoblockId, itemCode: it.address!.itemCode, parentElementId: it.address!.parentElementId }),
+        });
+      }
+      for (const it of plan.reinstate) {
+        await prisma.componentElement.update({
+          where: { id: it.elementId },
+          data: withBump({ status: 'OK', conflictLog: null, hasConflict: false, conflictType: null, paramConflicts: null }),
+        });
+      }
+      for (const it of plan.reremove) {
+        await prisma.componentElement.update({
+          where: { id: it.elementId },
+          data: withBump({ status: 'REMOVED', conflictLog: it.conflictLog ?? null }),
         });
       }
       for (const it of plan.remove) {
@@ -112,6 +149,9 @@ export function registerEquipmentUndoRoutes(app: Express): void {
 
       res.json({
         restored: plan.restore.length,
+        reinstated: plan.reinstate.length,
+        unmoved: plan.unmove.length,
+        retagged: plan.retag.length,
         removed: plan.remove.length,
         skipped: plan.skip.length,
         emptied,

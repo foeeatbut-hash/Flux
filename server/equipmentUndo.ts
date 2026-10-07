@@ -30,9 +30,13 @@ export interface ElementNow {
   specs: string | null;
   version: number;
   where: string;
+  /** Состояние для отмены снятия, переезда и переноса тегов (загрузка партии их заполняет) */
+  status?: string;
+  conflictLog?: string | null;
+  monoblockId?: string;
 }
 
-export type UndoAction = 'restore' | 'remove' | 'skip';
+export type UndoAction = 'restore' | 'remove' | 'skip' | 'reinstate' | 'reremove' | 'unmove' | 'retag';
 
 export interface UndoItem {
   elementId: string;
@@ -44,6 +48,13 @@ export interface UndoItem {
   /** Значение, которое вернём (только для restore) */
   specs?: string | null;
   version?: number;
+  /** unmove: адрес, на который позиция возвращается */
+  address?: { monoblockId: string; itemCode: string; parentElementId: string | null };
+  /** reremove: что лежало в conflictLog до возврата */
+  conflictLog?: string | null;
+  /** retag: теги, которые вернутся с новой записи на прежнюю */
+  tagIds?: string[];
+  toId?: string;
 }
 
 export interface UndoPlan {
@@ -51,7 +62,18 @@ export interface UndoPlan {
   restore: UndoItem[];
   remove: UndoItem[];
   skip: UndoItem[];
+  /** Снятые этой партией позиции, которые вернутся (статус OK, отметка убрана) */
+  reinstate: UndoItem[];
+  /** Возвращённые этой партией, которые снова станут снятыми */
+  reremove: UndoItem[];
+  /** Переехавшие позиции — на прежний адрес */
+  unmove: UndoItem[];
+  /** «Переподобрано»: теги возвращаются на прежнюю запись */
+  retag: UndoItem[];
 }
+
+const LIFE = new Set(['REMOVE', 'RESTORE', 'MOVE', 'TAG_MOVE']);
+const parse = (x: string | null | undefined): any => { try { return x ? JSON.parse(x) : null; } catch (_) { return null; } };
 
 /** Сравнение характеристик по смыслу, а не по строке: пробелы и порядок ключей
  *  в JSON меняются при пересохранении, а данные при этом те же */
@@ -77,8 +99,10 @@ function sameSpecs(a: string | null, b: string | null): boolean {
  * Считается до записи, показывается человеку и только потом применяется —
  * прямой записи «по кнопке» в программе быть не должно.
  */
-export function planUndo(batchId: string, rows: HistoryRow[], elements: Map<string, ElementNow>): UndoPlan {
-  const plan: UndoPlan = { batchId, restore: [], remove: [], skip: [] };
+export function planUndo(batchId: string, allRows: HistoryRow[], elements: Map<string, ElementNow>): UndoPlan {
+  const plan: UndoPlan = { batchId, restore: [], remove: [], skip: [], reinstate: [], reremove: [], unmove: [], retag: [] };
+  const life = allRows.filter(r => LIFE.has(r.changeType));
+  const rows = allRows.filter(r => !LIFE.has(r.changeType));
 
   // Свежие записи первыми: если импорт трогал элемент дважды, возвращаем к
   // тому, что было до первого касания
@@ -121,9 +145,54 @@ export function planUndo(batchId: string, rows: HistoryRow[], elements: Map<stri
     });
   }
 
+  planLife(plan, life, elements, batchId);
+
   const byCode = (a: UndoItem, b: UndoItem) => a.itemCode.localeCompare(b.itemCode, 'ru');
-  plan.restore.sort(byCode); plan.remove.sort(byCode); plan.skip.sort(byCode);
+  for (const l of [plan.restore, plan.remove, plan.skip, plan.reinstate, plan.reremove, plan.unmove, plan.retag]) l.sort(byCode);
   return plan;
+}
+
+/**
+ * Снятие, возврат, переезд и перенос тегов — то, что партия сделала с жизнью
+ * записи, а не с её характеристиками. Правило то же: чужую работу не трогаем.
+ */
+function planLife(plan: UndoPlan, rows: HistoryRow[], elements: Map<string, ElementNow>, batchId: string): void {
+  const sorted = [...rows].sort((a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime());
+  const item = (el: ElementNow | undefined, id: string, action: UndoAction, extra: Partial<UndoItem> = {}): UndoItem =>
+    ({ elementId: id, itemCode: el?.itemCode || '—', where: el?.where || '', action, ...extra });
+  const skip = (el: ElementNow | undefined, id: string, reason: string) => plan.skip.push(item(el, id, 'skip', { reason }));
+  const firstLast = (type: string) => {
+    const by = new Map<string, HistoryRow[]>();
+    for (const r of sorted) if (r.changeType === type) (by.get(r.elementId) ?? by.set(r.elementId, []).get(r.elementId)!).push(r);
+    return by;
+  };
+
+  for (const [id, list] of firstLast('REMOVE')) {
+    const el = elements.get(id);
+    if (!el) { skip(el, id, 'позиции уже нет'); continue; }
+    if (el.status !== 'REMOVED') { skip(el, id, 'позицию уже вернули'); continue; }
+    if (parse(el.conflictLog)?.__removal?.batchId !== batchId) { skip(el, id, 'позицию сняла другая партия'); continue; }
+    plan.reinstate.push(item(el, id, 'reinstate'));
+  }
+  for (const [id, list] of firstLast('RESTORE')) {
+    const el = elements.get(id);
+    if (!el) { skip(el, id, 'позиции уже нет'); continue; }
+    if (el.status === 'REMOVED') { skip(el, id, 'позицию уже сняли'); continue; }
+    plan.reremove.push(item(el, id, 'reremove', { conflictLog: list[0].oldSpecs }));
+  }
+  for (const [id, list] of firstLast('MOVE')) {
+    const el = elements.get(id);
+    if (!el) { skip(el, id, 'позиции уже нет'); continue; }
+    const was = parse(list[0].oldSpecs), now = parse(list[list.length - 1].newSpecs);
+    if (!was || !now) continue;
+    if (el.monoblockId !== now.monoblockId || el.itemCode !== now.itemCode) { skip(el, id, 'после импорта её уже переносили'); continue; }
+    plan.unmove.push(item(el, id, 'unmove', { address: was }));
+  }
+  for (const [id, list] of firstLast('TAG_MOVE')) {
+    const was = parse(list[0].oldSpecs), now = parse(list[list.length - 1].newSpecs);
+    if (!was?.tagIds?.length || !now?.elementId) continue;
+    plan.retag.push(item(elements.get(id), id, 'retag', { tagIds: was.tagIds, toId: now.elementId }));
+  }
 }
 
 /** Момент импорта, зашитый в идентификатор партии: imp-<мс>-<хвост> */
@@ -137,6 +206,10 @@ export function describePlan(plan: UndoPlan): string {
   const parts: string[] = [];
   if (plan.restore.length) parts.push(`вернём характеристики: ${plan.restore.length}`);
   if (plan.remove.length) parts.push(`удалим заведённые импортом: ${plan.remove.length}`);
+  if (plan.reinstate.length) parts.push(`вернём снятые: ${plan.reinstate.length}`);
+  if (plan.reremove.length) parts.push(`снимем снова возвращённые: ${plan.reremove.length}`);
+  if (plan.unmove.length) parts.push(`вернём на прежний адрес: ${plan.unmove.length}`);
+  if (plan.retag.length) parts.push(`вернём теги прежним записям: ${plan.retag.length}`);
   if (plan.skip.length) parts.push(`пропустим (уже правили): ${plan.skip.length}`);
   return parts.length ? parts.join(', ') : 'отменять нечего';
 }

@@ -12,6 +12,7 @@ import {
   DEFAULT_TAG_POLICY, autoFixTag, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
 } from '../equipment/tagPolicy.js';
 import { TAG_SOURCE, recordTagCreated } from './tagHistory.js';
+import { withBump } from './equipmentVersion.js';
 
 export interface TagCandidate { id: string; identifier: string; why: string }
 
@@ -195,6 +196,8 @@ export async function applyTagLinks(
   policy: TagPolicy = DEFAULT_TAG_POLICY,
   /** Кто импортирует: теги, заведённые импортом, пишутся в историю с его именем */
   actor: { userId?: string | null } = {},
+  /** Позиции, заведённые этим же ввозом: их первая версия — уже с тегом, поднимать её не из чего */
+  fresh: Set<string> = new Set(),
 ): Promise<TagApplyResult> {
   const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [], assigned: [] };
   for (const link of links) {
@@ -248,10 +251,14 @@ export async function applyTagLinks(
       res.conflicts.push(`«${tag.identifier}» уже привязан к «${takenBy.name || takenBy.itemCode}» — оставлен как был`);
       continue;
     }
-    await prisma.componentElement.update({
-      where: { id: componentId },
-      data: { tags: { connect: { id: tagId } } },
-    });
+    // Уже стоящий на этой позиции тег заново не привязывается: повторный ввоз
+    // не должен поднимать версию позиции без причины
+    if (!(tag.componentElements || []).some((c: any) => c.id === componentId)) {
+      await prisma.componentElement.update({
+        where: { id: componentId },
+        data: fresh.has(componentId) ? { tags: { connect: { id: tagId } } } : withBump({ tags: { connect: { id: tagId } } }),
+      });
+    }
     res.assigned.push({ blockKey: link.blockKey, componentId, tagId: tagId!, identifier: tag.identifier });
     res.linked++;
   }

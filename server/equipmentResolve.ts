@@ -9,7 +9,7 @@
  */
 import type { SpecGroup, TagEvidence, ParsedUnit } from './equipmentParser.js';
 import { blockKey } from './specUtils.js';
-import { matchItems, sigOf, type DbItem, type FileItem, type Resolution } from './equipmentIdentity.js';
+import { matchItems, missingOf, removalOf, addressOf, sigOf, type DbItem, type FileItem, type Resolution } from './equipmentIdentity.js';
 import { resolveSystem, type SysLite, type SystemResolution } from './equipmentSystemMatch.js';
 
 /** Позиция установки в одном виде для плана и записи: служебный блок первым, затем блоки по моноблокам */
@@ -64,6 +64,8 @@ export async function loadSystemItems(prisma: any, systemId: string): Promise<Db
       order: c.sourceOrder ?? 0,
       instanceNo: c.instanceNo ?? undefined,
       tags: (c.tags || []).map((t: any) => t.identifier),
+      tagIds: (c.tags || []).map((t: any) => t.id),
+      removed: c.status === 'REMOVED' && removalOf(c)?.why === 'missing',
       sig: sigOf({
         itemCode: c.itemCode, name: c.name, equipType: c.equipType, role: c.role, sourceKind: c.sourceKind,
         specs: c.specs, equipClass: c.equipClass, equipKind: c.equipKind,
@@ -82,17 +84,39 @@ export interface ResolveContext {
   fileUnitNames: string[];
   choices: Record<string, string>;
   items: Map<string, DbItem[]>;
+  /**
+   * Снимать ли то, чего нет в расчёте. Только для полного файла расчёта: у
+   * фрагмента (распознанный документ, выделение) отсутствие позиции не значит,
+   * что её нет в проекте (flux-data-safety, §2).
+   */
+  removeMissing: boolean;
 }
 
-export function newContext(existing: SysLite[], fileName: string, units: ParsedUnit[], choices: Record<string, string> = {}): ResolveContext {
-  return { existing, claimed: new Set(), fileName, fileUnitNames: units.map(u => u.name), choices, items: new Map() };
+export function newContext(existing: SysLite[], fileName: string, units: ParsedUnit[], choices: Record<string, string> = {}, removeMissing = false): ResolveContext {
+  return { existing, claimed: new Set(), fileName, fileUnitNames: units.map(u => u.name), choices, items: new Map(), removeMissing };
 }
+
+/** Строка «будет снято»: позиция есть в проекте, а в расчёте её нет */
+export interface MissingRow {
+  /** `missing‖id` — по нему приходит решение «оставить» */
+  key: string;
+  id: string;
+  systemName: string;
+  title: string;
+  at: string;
+  tags: string[];
+  /** Снимется ли при записи: умолчание «да», инженер может оставить */
+  remove: boolean;
+}
+export const missingKey = (id: string) => `missing\u2016${id}`;
 
 export interface ResolvedUnit {
   system: SystemResolution;
   blocks: UnitBlock[];
   /** blockKey → что решено с позицией */
   byKey: Map<string, Resolution>;
+  /** Пропавшие позиции установки (пусто, если снимать не просили) */
+  missing: MissingRow[];
 }
 
 export async function resolveUnit(prisma: any, ctx: ResolveContext, u: ParsedUnit): Promise<ResolvedUnit> {
@@ -124,8 +148,15 @@ export async function resolveUnit(prisma: any, ctx: ResolveContext, u: ParsedUni
       specs: { groups: b.groups },
     }),
   }));
-  const byKey = matchItems(file, system.system ? await itemsOf(system.system.id) : [], ctx.choices);
-  return { system, blocks, byKey };
+  const items = system.system ? await itemsOf(system.system.id) : [];
+  const byKey = matchItems(file, items, ctx.choices);
+  const missing: MissingRow[] = ctx.removeMissing
+    ? missingOf(items, byKey).map(e => ({
+      key: missingKey(e.id), id: e.id, systemName: u.name, title: e.title, at: addressOf(e), tags: e.tags,
+      remove: ctx.choices[missingKey(e.id)] !== 'keep',
+    }))
+    : [];
+  return { system, blocks, byKey, missing };
 }
 
 /**

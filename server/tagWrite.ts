@@ -24,6 +24,7 @@
  * коллеге ложный конфликт. По той же причине он не считается правкой в истории.
  */
 
+import { bumpElementsOfTags } from './equipmentVersion.js';
 import { parseMetadata } from './tagHistory.js';
 
 export type MetadataPatch = Record<string, unknown>;
@@ -156,6 +157,8 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   // — это и есть «успели изменить»
   try {
     const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data });
+    // Код тега — часть позиции: изменился — версия позиции выросла
+    if ('identifier' in data) await bumpElementsOfTags(tx, [id]);
     return { before: cur, tag, unchanged: false };
   } catch (e: any) {
     if (e?.code === 'P2025') return 'retry';

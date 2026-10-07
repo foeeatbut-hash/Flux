@@ -4,6 +4,7 @@ import { ROLES, roleById, roleFits, type RoleId } from '../../equipment/roles.js
 import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
 import { importPolicyOfProject } from './tagPolicy.js';
+import { withBump } from '../equipmentVersion.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, type TagChangeSet } from '../tagHistory.js';
 
@@ -167,7 +168,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
       }
       const row = await getPrisma().componentElement.update({
         where: { id: req.params.id },
-        data: { equipClass: equipClass || null, equipKind: equipKind || null },
+        data: withBump({ equipClass: equipClass || null, equipKind: equipKind || null }),
       });
       res.json({ ok: true, equipClass: row.equipClass || '', equipKind: row.equipKind || '' });
     } catch (err: any) { sendError(res, err); }
@@ -242,7 +243,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const actor = { userId: authUserOf(req)?.id };
       const tag = await resolveTag(prisma, projectId, req.body?.identifier, { actor });
       if (!tag.ok) return res.status(tag.status || 400).json({ error: tag.problem, fix: tag.fix, field: 'tag' });
-      await prisma.componentElement.update({ where: { id: comp.id }, data: { tags: { connect: { id: tag.tagId } } } });
+      await prisma.componentElement.update({ where: { id: comp.id }, data: withBump({ tags: { connect: { id: tag.tagId } } }) });
       const parentTag = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
       res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag });
     } catch (err: any) { sendError(res, err); }
