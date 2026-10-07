@@ -20,6 +20,30 @@ export async function catalogSetting(db: any, key: string, fallback: any): Promi
 export async function putCatalogSetting(db: any, key: string, value: any) {
   return db.appSetting.upsert({ where: { id: settingId(key) }, create: { id: settingId(key), key, value: JSON.stringify(value) }, update: { value: JSON.stringify(value) } });
 }
+/**
+ * Настройка в том виде, как лежит в базе. Нужна, чтобы записать «по старому
+ * значению»: разобранный JSON уже не сравнить с тем, что в строке.
+ */
+export async function catalogSettingRaw(db: any, key: string): Promise<string | null> {
+  const row = await db.appSetting.findUnique({ where: { id: settingId(key) } });
+  return row ? row.value : null;
+}
+/**
+ * Записать настройку, только если она не менялась с чтения (как заявка в
+ * stageCatalogDraft). Пока человек правил, коллега мог записать своё; без
+ * заявки вторая запись молча стёрла бы первую. `before` — строка, которую
+ * читали, или null, если настройки ещё не было.
+ */
+export async function claimCatalogSetting(db: any, key: string, before: string | null, value: any, conflict: string): Promise<void> {
+  const id = settingId(key);
+  if (before === null) {
+    try { await db.appSetting.create({ data: { id, key, value: JSON.stringify(value) } }); }
+    catch (e: any) { if (e?.code === 'P2002') catalogFailure(409, conflict); throw e; }
+    return;
+  }
+  const claim = await db.appSetting.updateMany({ where: { id, value: before }, data: { value: JSON.stringify(value) } });
+  if (claim.count !== 1) catalogFailure(409, conflict);
+}
 export async function catalogGrants(db: any): Promise<CatalogGrant[]> { return catalogSetting(db, 'catalog_grants', []); }
 export async function catalogAllowed(db: any, user: any, action: CatalogAction, document: any, can: (u: any, p: string) => boolean, entity?: CatalogEntity): Promise<boolean> {
   if (!user?.id || user.isActive === false) return false;

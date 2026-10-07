@@ -51,6 +51,7 @@ import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
+import { registerE3AttributeRoutes } from './server/routes/e3Attributes.js';
 import { entryOf } from './src/lib/permissions.js';
 import { registerBuilderRoutes } from './server/routes/builder.js';
 import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
@@ -1160,6 +1161,9 @@ registerMailSharedRoutes(app);
 registerMailComposeRoutes(app, { userDataPath });
 registerMailLinkRoutes(app, { userDataPath });
 registerTableTemplateRoutes(app);
+// До каталога: его общий PUT /api/catalog/:entity/:id перехватил бы
+// /api/catalog/e3-attributes/item как правку записи «e3-attributes»
+registerE3AttributeRoutes(app, userCan);
 registerCatalogRoutes(app, userCan);
 registerBuilderRoutes(app);
 registerEquipmentViewRoutes(app);
