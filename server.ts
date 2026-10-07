@@ -53,6 +53,7 @@ import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
 import { registerE3AttributeRoutes } from './server/routes/e3Attributes.js';
 import { registerE3SolutionRoutes } from './server/routes/e3Solutions.js';
+import { registerE3ExportRoutes } from './server/routes/e3Exports.js';
 import { entryOf } from './src/lib/permissions.js';
 import { registerBuilderRoutes } from './server/routes/builder.js';
 import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
@@ -1167,6 +1168,7 @@ registerTableTemplateRoutes(app);
 // то же для /api/catalog/e3-solutions/*
 registerE3AttributeRoutes(app, userCan);
 registerE3SolutionRoutes(app, userCan);
+registerE3ExportRoutes(app, userCan);
 registerCatalogRoutes(app, userCan);
 registerBuilderRoutes(app);
 registerEquipmentViewRoutes(app);
