@@ -32,63 +32,49 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
   );
 }
 
-// ── Раздел «Теги»: подразделы «Схема» и «Дерево» ─────────────────────────────
+// ── Раздел «Теги»: способ создания связей ────────────────────────────────────
+// Выбор один на холст и на дерево: два одинаковых выбора рядом только
+// путали — человек привык к одному способу и не хочет настраивать его дважды.
+// Хранится в registry_link_mode; прежний tree_link_mode в базе остаётся, но
+// больше не читается и не пишется.
 export default function TagsSection({ addToast }: any) {
-  const [canvasMode, setCanvasMode] = useState<'click' | 'drag'>('click');
-  const [treeMode, setTreeMode] = useState<'click' | 'drag'>('click');
+  const [mode, setMode] = useState<'click' | 'drag'>('click');
 
   useEffect(() => {
     fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
-      if (d.global === 'drag' || d.global === 'click') setCanvasMode(d.global);
-    }).catch(() => {});
-    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
-      if (d.global === 'drag' || d.global === 'click') setTreeMode(d.global);
+      if (d.global === 'drag' || d.global === 'click') setMode(d.global);
     }).catch(() => {});
   }, []);
 
-  const save = async (key: 'registry_link_mode' | 'tree_link_mode', m: 'click' | 'drag') => {
-    const set = key === 'registry_link_mode' ? setCanvasMode : setTreeMode;
-    const was = key === 'registry_link_mode' ? canvasMode : treeMode;
-    set(m);
+  const save = async (m: 'click' | 'drag') => {
+    const was = mode;
+    setMode(m);
     // Способ связей общий для всех, и меняет его администратор. Раньше ответ
     // сервера не читался, и отказ показывался как «сохранено»
-    const res = await fetch(`/api/settings/${key}`, {
+    const res = await fetch('/api/settings/registry_link_mode', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: null, value: m }),
     }).catch(() => null);
     if (!res?.ok) {
-      set(was);
+      setMode(was);
       addToast?.(res?.status === 403 ? 'Способ связей для всех меняет администратор' : 'Не удалось сохранить способ связей', 'error');
       return;
     }
-    try { window.dispatchEvent(new CustomEvent('flux:settings-changed', { detail: { key, value: m } })); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('flux:settings-changed', { detail: { key: 'registry_link_mode', value: m } })); } catch (_) {}
     addToast?.('Способ создания связей сохранён', 'success');
   };
 
   return (
-    <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
-      <div className="space-y-5">
-        <div className="fx-set-group">
-          <div className="fx-group-title mb-1">Схема · подключение связей</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
-          <LinkModeChooser
-            value={canvasMode}
-            onChange={(m) => save('registry_link_mode', m)}
-            clickDesc="Кнопка «связать» на карточке → клик по целевому тегу. Минимум точности, удобно мышью."
-            dragDesc="Точки-порты по краям карточки: тянешь линию от одного тега к другому."
-          />
-        </div>
-
-        <div className="fx-set-group">
-          <div className="fx-group-title mb-1">Дерево · подключение связей</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги во вкладке «Дерево связей».</p>
-          <LinkModeChooser
-            value={treeMode}
-            onChange={(m) => save('tree_link_mode', m)}
-            clickDesc="Кнопка «связать» у строки → клик по строке-получателю. Она станет дочерней."
-            dragDesc="Перетаскиваешь строку тега на другую — перетащенный становится дочерним."
-          />
-        </div>
+    <SectionShell title="Теги" desc="Настройки раздела «Теги»: как соединять теги на холсте и в дереве.">
+      <div className="fx-set-group">
+        <div className="fx-group-title mb-1">Как соединять теги</div>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Один способ для схемы-холста и для дерева связей.</p>
+        <LinkModeChooser
+          value={mode}
+          onChange={save}
+          clickDesc="Кнопка «связать» у тега или строки, затем клик по второму тегу. Не нужна точность, удобно мышью."
+          dragDesc="На холсте — тянуть линию от точки-порта одного тега к другому; в дереве — перетащить строку тега на другую."
+        />
       </div>
     </SectionShell>
   );

@@ -7,7 +7,6 @@ import { useInsightStore } from '../store/insightStore';
 import { dataService } from '../services/dataService';
 import {
   Table,
-  Plus,
   Trash2,
   Edit2,
   Link2,
@@ -19,19 +18,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  Info,
   HelpCircle,
   Activity,
   Eye,
   ArrowRight,
   ClipboardCheck,
   Check,
-  Edit,
-  Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import CustomSelect from '../components/CustomSelect';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
 import { useShareStore } from '../store/shareStore';
@@ -42,7 +37,7 @@ import ExchangeTab from '../components/registry/ExchangeTab';
 import { type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange } from '../lib/tagExchange';
 import {
-  linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
+  linkChild, unlinkChild, whyNotLink, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
 import {
   layoutForest, linkPath, portAt, boundsOf, fitView, zoomAt, screenToWorld,
@@ -50,6 +45,7 @@ import {
   DEFAULT_BOX as LAYOUT_BOX, GRID, type TreeAxis, type Point,
 } from '../lib/tagLayout';
 import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
+import BoardCard, { type PortHover } from '../components/registry/BoardCard';
 import CardActions from '../components/registry/CardActions';
 import DuplicatesPanel from '../components/registry/DuplicatesPanel';
 import SegmentCollectorTab from '../components/registry/SegmentCollectorTab';
@@ -59,9 +55,16 @@ import TagCardModal from '../components/registry/TagCardModal';
 import RegistryHeader from '../components/registry/RegistryHeader';
 import BoardControls from '../components/registry/BoardControls';
 import BoardContextMenu from '../components/registry/BoardContextMenu';
+import QuickCreateBar from '../components/registry/QuickCreateBar';
+import { useQuickCreate } from '../components/registry/useQuickCreate';
+import { useTagExtractor } from '../components/registry/useTagExtractor';
+import { useRegistryTags } from '../components/registry/useRegistryTags';
+import { useTagTreeOps } from '../components/registry/useTagTreeOps';
+import { saveTagMetadataPatch, rememberVersions } from '../components/registry/tagWrite';
+import { splitSegments } from '../lib/tagExtract';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
-import { parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
+import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
 
 import { useShallow } from 'zustand/react/shallow';
 // Диалоги программы вместо системных окон Windows
@@ -72,19 +75,6 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // вписанными в четырёх местах этого файла и однажды разошлись с разметкой
 const CARD_W = LAYOUT_BOX.w;
 const CARD_H = LAYOUT_BOX.h;
-
-const emojiOptions = [
-  { value: 'actual', label: '🟢' },
-  { value: 'warning', label: '🟡' },
-  { value: 'critical', label: '🔴' },
-  { value: 'info', label: '🔵' },
-  { value: 'draft', label: '⚪' }
-];
-
-interface PortHover {
-  tagId: string;
-  side: 'left' | 'right';
-}
 
 interface ActiveConnectionDrag {
   sourceId: string;
@@ -137,10 +127,11 @@ export default function Registry() {
   const linkingFromRef = useRef<string | null>(null);
   useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
 
-  // Способ создания связей на ХОЛСТЕ и в ДЕРЕВЕ: 'click' или 'drag'. Настройки
-  // из «Настройки → Теги»; меняются вживую по событию.
+  // Способ создания связей — один и для холста, и для дерева: 'click' или
+  // 'drag'. Раньше на дерево был отдельный ключ tree_link_mode, и в Настройках
+  // стояли два одинаковых выбора; теперь выбор один (Настройки → Теги), ключ
+  // registry_link_mode. Меняется вживую по событию.
   const [linkMode, setLinkMode] = useState<'click' | 'drag'>('click');
-  const [treeLinkMode, setTreeLinkMode] = useState<'click' | 'drag'>('click');
   // Режим «связать» в дереве (клик по «+» у строки → клик по строке-получателю)
   const [treeLinkingFrom, setTreeLinkingFrom] = useState<string | null>(null);
   const treeLinkingFromRef = useRef<string | null>(null);
@@ -152,14 +143,12 @@ export default function Registry() {
     fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
       if (d.global === 'drag' || d.global === 'click') setLinkMode(d.global);
     }).catch(() => {});
-    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
-      if (d.global === 'drag' || d.global === 'click') setTreeLinkMode(d.global);
-    }).catch(() => {});
     const onSettings = (e: any) => {
       const v = e?.detail?.value;
       if (v !== 'click' && v !== 'drag') return;
-      if (e.detail.key === 'registry_link_mode') { setLinkMode(v); setLinkingFrom(null); }
-      if (e.detail.key === 'tree_link_mode') { setTreeLinkMode(v); setTreeLinkingFrom(null); }
+      if (e.detail.key !== 'registry_link_mode') return;
+      // Недоделанная связь прежнего способа сбрасывается в обоих местах
+      setLinkMode(v); setLinkingFrom(null); setTreeLinkingFrom(null);
     };
     window.addEventListener('flux:settings-changed', onSettings);
     return () => window.removeEventListener('flux:settings-changed', onSettings);
@@ -543,19 +532,10 @@ export default function Registry() {
   const [showTableDescriptions, setShowTableDescriptions] = useState<{ [tagId: string]: boolean }>({});
   const [showOptionalTableColumns, setShowOptionalTableColumns] = useState(false);
 
-  // Quick manually create tag
-  const [newTagIdentifier, setNewTagIdentifier] = useState('');
-  const [newTagMainName, setNewTagMainName] = useState('');
-  const [newTagDepartment, setNewTagDepartment] = useState('Отдел КИПиА');
-  const [newTagFluid, setNewTagFluid] = useState('Воздух');
-  const [newTagActuality, setNewTagActuality] = useState<'actual' | 'warning' | 'critical' | 'info' | 'draft'>('info');
+  // Остались здесь, а не в useQuickCreate: «Доп» открывает меню правой кнопки
+  // по холсту, а выбор по умолчанию раскладывает загрузка словарей
   const [showAdvancedCreation, setShowAdvancedCreation] = useState(false);
   const [dynamicCategorySelections, setDynamicCategorySelections] = useState<Record<string, string>>({});
-
-  // Brand (Марка) Creation & Editing States
-  const [newTagBrand, setNewTagBrand] = useState('');
-  const [newTagMarkingSelections, setNewTagMarkingSelections] = useState<Record<string, string>>({});
-  const [newTagMarkingSeparator, setNewTagMarkingSeparator] = useState('-');
 
   const [editTagBrand, setEditTagBrand] = useState('');
 
@@ -584,104 +564,10 @@ export default function Registry() {
     }
   }, [editingTag]);
 
-  const handleDynamicCategoryChange = (catId: string, val: string) => {
-    setDynamicCategorySelections(prev => ({
-      ...prev,
-      [catId]: val
-    }));
-  };
-
-  // Cyrillic layout warning and char blocker
-  const handleTagIdentifierChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (/[а-яА-ЯёЁ]/.test(val)) {
-      addToast("Смените раскладку! Ввод тегов разрешен только на латинице.", "error");
-      return;
-    }
-    setNewTagIdentifier(val);
-  };
-
-  const matchingSuggestions = useMemo(() => {
-    if (!newTagIdentifier) return [];
-    const searchVal = newTagIdentifier.trim().toLowerCase();
-    const prefix = tags.filter(t => t.identifier.toLowerCase().startsWith(searchVal));
-    const sub = tags.filter(t => !t.identifier.toLowerCase().startsWith(searchVal) && t.identifier.toLowerCase().includes(searchVal));
-    return [...prefix, ...sub].slice(0, 8);
-  }, [newTagIdentifier, tags]);
-
-  // Text Extractor Tool State
-  const [pastedDocText, setPastedDocText] = useState('');
-  const [extractedTags, setExtractedTags] = useState<{ identifier: string; exists: boolean }[]>([]);
-
-  // Regex splitting utility
-  const splitSegments = useCallback((str: string): string[] => {
-    if (!str) return [];
-    return str.split(/[-.,\/ ]+/).filter(Boolean);
-  }, []);
-
   const [tagSearchQueries, setTagSearchQueries] = useState<{ [position: number]: string }>({});
   const [markSearchQueries, setMarkSearchQueries] = useState<{ [position: number]: string }>({});
 
   const [dictionaries, setDictionaries] = useState<any[]>([]);
-
-  // Load all tags
-  // Последний прочитанный список — состояние в замыкании эффекта уже устарело,
-  // а подсветке после захвата нужны свежие карточки прямо сейчас
-  const loadedTagsRef = useRef<any[]>([]);
-
-  const loadTags = async () => {
-    if (!activeProject) return;
-    setIsLoading(true);
-    try {
-      const data = await dataService.getTags(activeProject.id);
-      const tagsList = data.tags || [];
-      const tagsWithParsedMetadata = tagsList.map((t: any) => ({
-        ...t,
-        parsedMetadata: parseTagMetadata(t)
-      }));
-      /**
-       * Выправить дерево, если его успели испортить.
-       *
-       * Прежняя строка «Родительский тег» писала выбранного родителя в
-       * СОБСТВЕННЫЙ список детей тега: связь смотрела в обе стороны сразу, и
-       * дерево читалось наизнанку — родитель оказывался ребёнком своего же
-       * ребёнка. Строку убрали, но записи в базе остались, и сами они не
-       * выпрямятся. Правки нужны редко: здоровое дерево не даёт ни одной.
-       */
-      const patches = repairTagTree(tagsWithParsedMetadata.map((t: any) => ({
-        id: t.id,
-        connections: t.parsedMetadata.connections || [],
-        parentId: t.parsedMetadata.parentId,
-      })));
-      for (const patch of patches) {
-        const t = tagsWithParsedMetadata.find((x: any) => x.id === patch.id);
-        if (!t) continue;
-        t.parsedMetadata = { ...t.parsedMetadata, connections: patch.connections, parentId: patch.parentId };
-        t.metadata = JSON.stringify(t.parsedMetadata);
-        void fetch(`/api/tags/${patch.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ metadata: t.metadata }),
-        }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
-      }
-      if (patches.length) {
-        addToast(`Связи тегов выправлены: ${patches.length}`, 'info');
-      }
-      setTags(tagsWithParsedMetadata);
-      loadedTagsRef.current = tagsWithParsedMetadata;
-      // Выделение не должно ссылаться на удалённые теги (иначе «Выбрано: 2»
-      // после удаления одного из выбранных и лишние рендеры)
-      const liveIds = new Set(tagsList.map((t: any) => t.id));
-      setSelectedTagIds(prev => {
-        if (prev.size === 0) return prev;
-        const next = new Set(Array.from(prev).filter(id => liveIds.has(id)));
-        return next.size === prev.size ? prev : next;
-      });
-    } catch (err) {
-      console.error('Failed to load tags:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const loadDictionaries = async () => {
     if (!activeProject) return;
@@ -721,76 +607,15 @@ export default function Registry() {
     loadDictionaries();
   }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
-  // ИИ-чат мог переименовать тег — перечитываем список, чтобы холст обновился
-  useEffect(() => {
-    const onTagsChanged = () => loadTags();
-    window.addEventListener('flux:tags-changed', onTagsChanged);
-    return () => window.removeEventListener('flux:tags-changed', onTagsChanged);
-  }, []);
-
-  // ── Подсветка после захвата с экрана ────────────────────────────────────
-  //
-  // Вспышки мало: отвернулся — и всё, что добавилось, потерялось. Поэтому
-  // кроме волны в шапке остаётся закрываемая плашка «последний захват».
-  // И вспышка обязана переезжать за инженером: подсветку зажигаем в том виде,
-  // который открыт сейчас, и перезажигаем при переключении вкладки.
-  const [lastCapture, setLastCapture] = useState<
-    { created: string[]; filled: string[]; duplicated: string[] } | null
-  >(null);
-  const captureUntilRef = useRef(0);
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-
-  const flashCapture = (data: { created: string[]; filled: string[]; duplicated: string[] }) => {
-    const queue: { id: string; cls: string }[] = [
-      ...data.created.map((id) => ({ id, cls: 'capture-pulse-new' })),
-      ...data.filled.map((id) => ({ id, cls: 'capture-pulse-fill' })),
-      ...data.duplicated.map((id) => ({ id, cls: 'capture-pulse-dup' })),
-    ];
-    queue.forEach(({ id, cls }, i) => {
-      setTimeout(() => {
-        // Один и тот же тег в разных видах живёт под своим идентификатором;
-        // подсвечиваем тот элемент, который сейчас есть в разметке
-        for (const domId of [`tag-card-${id}`, `tree-node-${id}`, `spec-row-${id}`]) {
-          const el = document.getElementById(domId);
-          if (!el) continue;
-          el.classList.add(cls);
-          setTimeout(() => el.classList.remove(cls), 3000);
-        }
-      }, i * 60);
-    });
-  };
-
-  useEffect(() => {
-    const onApplied = async (e: Event) => {
-      const d = (e as CustomEvent).detail as
-        { created: string[]; filled: string[]; duplicated: string[] };
-      if (!d) return;
-      const total = d.created.length + d.filled.length + d.duplicated.length;
-      if (!total) return;
-      setLastCapture(d);
-      captureUntilRef.current = Date.now() + 3600 + total * 60;
-      await loadTags();
-      // Ждём отрисовку списка, иначе подсвечивать ещё нечего
-      requestAnimationFrame(() => setTimeout(() => {
-        const ids = [...d.created, ...d.filled];
-        const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
-        // Наводим камеру только на холсте: в дереве и таблице она ни при чём
-        if (cards.length && activeTabRef.current === 'board') fitToTags(cards as any[]);
-        flashCapture(d);
-      }, 60));
-    };
-    window.addEventListener('flux:capture-applied', onApplied as EventListener);
-    return () => window.removeEventListener('flux:capture-applied', onApplied as EventListener);
-  }, []);
-
-  // Переключили вид, пока окно подсветки не истекло — зажигаем заново
-  useEffect(() => {
-    if (!lastCapture || Date.now() > captureUntilRef.current) return;
-    const t = setTimeout(() => flashCapture(lastCapture), 140);
-    return () => clearTimeout(t);
-  }, [activeTab]);
-
+  // Загрузка тегов и подсветка после захвата — в useRegistryTags. Вызов стоит
+  // там же, где раньше были их эффекты: после «загрузить при смене проекта»,
+  // чтобы порядок эффектов не изменился
+  const {
+    loadedTagsRef, loadTags, lastCapture, setLastCapture, captureUntilRef, flashCapture,
+  } = useRegistryTags({
+    activeProject, activeTab, setTags, setIsLoading, setSelectedTagIds,
+    fitToTags: (list) => fitToTags(list),
+  });
 
   /**
    * Колесо мыши.
@@ -876,67 +701,6 @@ export default function Registry() {
     return tags.some(t => t.identifier.trim().toLowerCase() === norm);
   };
 
-  // Extract tags from raw documentation text
-  const handleExtractTagsText = () => {
-    if (!pastedDocText) {
-      setExtractedTags([]);
-      return;
-    }
-
-    // Match patterns that look like components with separators
-    // e.g. 3700-C01-HVC-001 or 01/AHU-001 or TE.101 etc.
-    // Minimum length 4 characters, containing at least one of the separators
-    const regex = /([a-zA-Z0-9А-Яа-яЁё]+(?:[\-\.\/\\_][a-zA-Z0-9А-Яа-яЁё]+)+)/g;
-    const matches = pastedDocText.match(regex) || [];
-    
-    // De-duplicate
-    const uniqueMatches: string[] = Array.from(new Set(matches.map(m => m.trim()))) as string[];
-    
-    const evaluated = uniqueMatches.map((identifier: string) => ({
-      identifier,
-      exists: checkTagExists(identifier)
-    }));
-    
-    setExtractedTags(evaluated);
-  };
-
-  // Fast register extracted tag from text tool
-  const handleQuickRegisterExtracted = async (identifier: string) => {
-    if (!activeProject || checkTagExists(identifier)) return;
-    try {
-      const { x: dropX, y: dropY } = findFreePosition((300 - pan.x) / zoom, (250 - pan.y) / zoom);
-
-      const initialMeta: ParsedMetadata = {
-        x: dropX,
-        y: dropY,
-        connections: [],
-        descriptions: [
-          { id: 'ext1', text: 'Зарегистрирован из текста', comment: 'Быстрый импорт через текстовый инспектор.', status: 'info' }
-        ]
-      };
-
-      const res = await fetch(`/api/projects/${activeProject.id}/tags`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier,
-          department: 'Технологический отдел',
-          fluid: 'Автодетект',
-          wbs: 'WBS-EXTRACTED',
-          metadata: JSON.stringify(initialMeta)
-        })
-      });
-
-      if (res.ok) {
-        await loadTags();
-        // Update live extractor checklist
-        setExtractedTags(prev => prev.map(t => t.identifier === identifier ? { ...t, exists: true } : t));
-      }
-    } catch (err) {
-      console.error('Failed to quick register tag:', err);
-    }
-  };
-
   // parseTagMetadata / getTagOverallStatus / statusConfig вынесены на уровень
   // модуля (см. выше компонента): они чистые и нужны компоненту поиска.
 
@@ -958,22 +722,21 @@ export default function Registry() {
   };
 
   // Safe save metadata to database
-  const saveTagMetadata = async (tagId: string, metadata: ParsedMetadata) => {
-    try {
-      // Служебные пометки окна в базу не едут, а записанные координаты делают
-      // тег размещённым: иначе перенесённый автотег возвращался в сетку
-      const clean = cleanMeta(metadata);
-      setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: { ...clean, _noPos: false }, metadata: JSON.stringify(clean) } : t));
-
-      await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: JSON.stringify(clean) })
-      });
-    } catch (err) {
-      console.error('Failed to save tag metadata:', err);
-    }
+  // Уходят только изменившиеся ключи и версия, которую экран читал (tagWrite.ts):
+  // копия тега устаревает за время работы, и целиком она стирала бы чужие правки
+  const saveTagMetadata = async (tagId: string, metadata: ParsedMetadata): Promise<boolean> => {
+    const tag = tags.find(t => t.id === tagId) || { id: tagId };
+    // Служебные пометки окна в базу не едут, а записанные координаты делают
+    // тег размещённым: иначе перенесённый автотег возвращался в сетку
+    const clean = cleanMeta(metadata);
+    setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: { ...clean, _noPos: false }, metadata: JSON.stringify(clean) } : t));
+    return saveTagMetadataPatch(tag, clean, tagWriteDeps);
   };
+  // Свежая копия при конфликте попадает и в открытую карточку, а не только в список
+  const tagWriteDeps = { setTags, addToast, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
+  // Поля тега (код, марка, WBS) тоже идут с версией и забирают новую себе: иначе
+  // следующая правка комментария ушла бы со старой версией и получила конфликт с собой
+  const saveTagFields = (tag: any, fields: Record<string, unknown>) => saveTagMetadataPatch(tag, tag?.metadata, tagWriteDeps, fields);
 
   // Seed demo data loop (using standard separators as requested)
   const handleSeedDemoData = async () => {
@@ -1758,6 +1521,10 @@ export default function Registry() {
   const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } =>
     freeSpot(Object.values(cardPositionsRef.current), { x: baseX, y: baseY }, LAYOUT_BOX);
 
+  // Вытаскивание обозначений из текста: состояние и обработчики — в useTagExtractor.
+  // Вызывается после findFreePosition: это const, и раньше строки с ней он не виден
+  useTagExtractor({ activeProject, pan, zoom, findFreePosition, checkTagExists, loadTags });
+
   // «Поделиться в чате»: каждый выбранный тег — отдельная кликабельная кнопка
   // с названием тега, но всё в одном сообщении
   const shareTagsInChat = (ids: string[]) => {
@@ -1816,15 +1583,19 @@ export default function Registry() {
    * координат просто не сохранилась бы, ничего об этом не сказав.
    */
   const applyPositions = async (positions: Record<string, { x: number; y: number }>) => {
+    // Локальная копия — полная metadata, а на сервер уходят одни координаты:
+    // он сливает ключи, и устаревший снимок остальных ключей чужих правок не затрёт
     const updates: { id: string; metadata: string }[] = [];
+    const full: { id: string; metadata: string }[] = [];
     for (const t of tags) {
       const p = positions[t.id];
       if (!p) continue;
       cardPositionsRef.current[t.id] = p;
-      updates.push({ id: t.id, metadata: JSON.stringify(cleanMeta({ ...parseTagMetadata(t), x: p.x, y: p.y })) });
+      updates.push({ id: t.id, metadata: JSON.stringify({ x: p.x, y: p.y }) });
+      full.push({ id: t.id, metadata: JSON.stringify(cleanMeta({ ...parseTagMetadata(t), x: p.x, y: p.y })) });
     }
     if (!updates.length) return;
-    const byId = new Map(updates.map((u) => [u.id, u.metadata]));
+    const byId = new Map(full.map((u) => [u.id, u.metadata]));
     // parsedMetadata сбрасываем, а не переписываем: разбор кэшируется прямо в
     // объекте тега, и старый разбор пережил бы новую строку
     setTags((prev: any[]) => prev.map((t) => (byId.has(t.id)
@@ -1837,6 +1608,7 @@ export default function Registry() {
         body: JSON.stringify({ updates: updates.slice(i, i + 500) }),
       });
       if (!res.ok) throw new Error('bulk-metadata');
+      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
     }
   };
 
@@ -1921,7 +1693,8 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    // Конфликт: введённый текст остаётся в поле — «повторите правку» не должно стирать набранное
+    if (!await saveTagMetadata(tagId, meta)) return;
 
     setQuickDescText(prev => ({ ...prev, [tagId]: '' }));
     setQuickCommentText(prev => ({ ...prev, [tagId]: '' }));
@@ -1941,9 +1714,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -1957,9 +1730,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -1971,11 +1744,7 @@ export default function Registry() {
     if (!tag || !code || code === tag.identifier) return;
     if (/[а-яё]/i.test(code)) { addToast('Код тега только на латинице', 'error'); setModalCode(tag.identifier); return; }
     try {
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: code }),
-      });
-      if (!res.ok) throw new Error();
+      if (!await saveTagFields(tag, { identifier: code })) { setModalCode(tag.identifier); return; }
       setTags(prev => prev.map(t => t.id === tagId ? { ...t, identifier: code } : t));
       if (editingTag && editingTag.id === tagId) setEditingTag((prev: any) => prev ? { ...prev, identifier: code } : null);
       flashSaved();
@@ -2025,21 +1794,11 @@ export default function Registry() {
         metadata: JSON.stringify(meta) 
       } : t));
 
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          department: updatedDepartment,
-          fluid: updatedFluid,
-          metadata: JSON.stringify(meta)
-        })
-      });
-
-      if (!res.ok) throw new Error("Sync failed");
-      const data = await res.json();
+      // Версия и только изменившиеся ключи — как в saveTagMetadata (tagWrite.ts)
+      if (!await saveTagMetadataPatch(tag, meta, { setTags, addToast }, { department: updatedDepartment, fluid: updatedFluid })) return;
 
       if (editingTag && editingTag.id === tagId) {
-        setEditingTag(data.tag ? { ...data.tag, parsedMetadata: meta } : { ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
+        setEditingTag({ ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
       }
     } catch (err) {
       console.error("Error updating dynamic fields:", err);
@@ -2057,16 +1816,7 @@ export default function Registry() {
         brand: value
       } : t));
 
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brand: value
-        })
-      });
-
-      if (!res.ok) throw new Error("Sync failed");
-      const data = await res.json();
+      if (!await saveTagFields(tag, { brand: value })) return;
 
       if (editingTag && editingTag.id === tagId) {
         setEditingTag(prev => prev ? { ...prev, brand: value } : null);
@@ -2094,9 +1844,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -2120,142 +1870,31 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
 
-  // Manual fast tag create with verification
-  const handleCreateTag = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTagIdentifier || !newTagBrand.trim() || !activeProject) {
-      addToast("Ошибка: Заполните обязательные поля Tag и Mark!", "error");
-      return;
-    }
+  // Строка быстрого создания: состояние и логика — в useQuickCreate. Вызывается
+  // здесь, после загрузки тегов и доски, потому что им нужны loadTags и поиск
+  // свободного места
+  const {
+    newTagIdentifier, setNewTagIdentifier, newTagMainName, setNewTagMainName,
+    setNewTagDepartment, setNewTagFluid, newTagActuality, setNewTagActuality,
+    newTagBrand, setNewTagBrand, isIdentifierUnique, matchingSuggestions,
+    handleDynamicCategoryChange, handleTagIdentifierChange, handleCreateTag,
+  } = useQuickCreate({
+    tags, activeProject, user, dictionaries, pan, zoom, findFreePosition, newTagSpotRef,
+    splitSegments, checkTagExists, loadTags, dynamicCategorySelections, setDynamicCategorySelections,
+  });
 
-    if (checkTagExists(newTagIdentifier)) {
-      void openAlert('Такой тег уже есть', `Тег «${newTagIdentifier}» уже заведён в этом проекте. Укажите другой код.`);
-      return;
-    }
-
-    try {
-      // Новая карточка появляется на свободном месте — не перекрывая существующие.
-      // Если тег заводят через меню правой кнопки, «свободное место» ищется от
-      // той точки, куда нажали, а не от центра экрана
-      const spot = newTagSpotRef.current || { x: (300 - pan.x) / zoom, y: (200 - pan.y) / zoom };
-      newTagSpotRef.current = null;
-      const { x: dropX, y: dropY } = findFreePosition(spot.x, spot.y);
-
-      const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
-      const cats = configDict
-        ? (configDict.items || [])
-            .filter((i: any) => !i.parentId)
-            .sort((a: any, b: any) => a.code.localeCompare(b.code))
-        : [];
-
-      let finalDepartment = newTagDepartment;
-      let finalFluid = newTagFluid || 'Воздух';
-      const finalDynamicFields: Record<string, string> = {};
-
-      cats.forEach((cat: any) => {
-        const value = dynamicCategorySelections[cat.id] || '';
-        finalDynamicFields[cat.nameRu] = value;
-
-        const lowName = cat.nameRu.toLowerCase();
-        const lowCode = cat.code.toLowerCase();
-        if (lowCode.includes('dep') || lowName.includes('дисциплина') || lowName.includes('отдел')) {
-          finalDepartment = value;
-        } else if (lowCode.includes('fluid') || lowName.includes('среда') || lowName.includes('свойство') || lowName.includes('fluid')) {
-          finalFluid = value;
-        }
-      });
-
-      const initialMeta: ParsedMetadata = {
-        x: dropX,
-        y: dropY,
-        connections: [],
-        descriptions: [
-          {
-            id: 'desc-' + Math.random().toString(36).substr(2, 9),
-            text: 'Первичный статус',
-            comment: 'Установлено при создании тега',
-            status: newTagActuality,
-            createdBy: user?.name || user?.login || 'Пользователь',
-            createdAt: new Date().toISOString()
-          }
-        ],
-        mainName: newTagMainName.trim(),
-        dynamicFields: finalDynamicFields,
-        createdBy: user?.name || user?.login || 'Пользователь',
-        createdAt: new Date().toISOString(),
-        tagSegments: splitSegments(newTagIdentifier.trim()),
-        markSegments: splitSegments(newTagBrand.trim())
-      };
-
-      const res = await fetch(`/api/projects/${activeProject.id}/tags`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: newTagIdentifier.trim(),
-          department: finalDepartment,
-          fluid: finalFluid,
-          wbs: '',
-          brand: newTagBrand.trim() || null,
-          metadata: JSON.stringify(initialMeta)
-        })
-      });
-
-      if (res.ok) {
-        setNewTagIdentifier('');
-        setNewTagMainName('');
-        setNewTagBrand('');
-        setNewTagMarkingSelections({});
-        // reset to default status 'info' (В работе)
-        setNewTagActuality('info');
-        loadTags();
-      }
-    } catch (err) {
-      console.error('Failed to create tag manually:', err);
-    }
-  };
-
-  // Delete Node tag completely
-  const handleDeleteTag = async (tagId: string) => {
-    if (!await openConfirm('Удалить тег?', 'Тег и все его связи с другим оборудованием будут удалены. Действие необратимо.', { confirmLabel: 'Удалить тег', tone: 'danger' })) return;
-    try {
-      for (const otherTag of tags) {
-        if (otherTag.id === tagId) continue;
-        const otherMeta = parseTagMetadata(otherTag);
-        let updated = false;
-        if (otherMeta.connections.includes(tagId)) {
-          otherMeta.connections = otherMeta.connections.filter(id => id !== tagId);
-          updated = true;
-        }
-        if (otherMeta.parentId === tagId) {
-          otherMeta.parentId = undefined;
-          updated = true;
-        }
-        if (updated) {
-          await saveTagMetadata(otherTag.id, otherMeta);
-        }
-      }
-
-      await fetch(`/api/tags/${tagId}`, { method: 'DELETE' });
-      setEditingTag(null);
-      // Убираем удалённый тег из выделения сразу, не дожидаясь перезагрузки
-      setSelectedTagIds(prev => {
-        if (!prev.has(tagId)) return prev;
-        const next = new Set(prev);
-        next.delete(tagId);
-        return next;
-      });
-      loadTags();
-    } catch (err) {
-      console.error('Failed to delete tag:', err);
-    }
-  };
+  // Удаление тега, сборка дерева и цепочка предков — в useTagTreeOps. Вызов стоит
+  // раньше сборщика по сегментам: ему нужна getParentTraceLineage
+  const { handleDeleteTag, buildTree, getParentTraceLineage } = useTagTreeOps({
+    tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags,
+  });
 
   // Re-assign logical parenting
   const handleSort = (key: string) => {
@@ -2288,60 +1927,8 @@ export default function Registry() {
     });
   };
 
-  // Build tree logic for dependencies view
-  const buildTree = () => {
-    const tagMap: { [id: string]: any } = {};
-    const rootNodes: any[] = [];
-
-    const matchingTags = tags.filter(t => 
-      t.identifier.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (t.department && t.department.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-
-    matchingTags.forEach(t => {
-      const meta = parseTagMetadata(t);
-      tagMap[t.id] = {
-        ...t,
-        meta,
-        children: []
-      };
-    });
-
-    matchingTags.forEach(t => {
-      const node = tagMap[t.id];
-      const pId = node.meta.parentId;
-      if (pId && tagMap[pId]) {
-        tagMap[pId].children.push(node);
-      } else {
-        rootNodes.push(node);
-      }
-    });
-
-    return rootNodes;
-  };
-
   const toggleTagExpand = (id: string) => {
     setExpandedTagIds(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // Calculate full lineage chain of tag (from parent down to child list)
-  const getParentTraceLineage = (tagId: string): string => {
-    const chainList: string[] = [];
-    let currentId: string | undefined = tagId;
-    const visited = new Set<string>();
-
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      const tag = tags.find(t => t.id === currentId);
-      if (tag) {
-        chainList.unshift(tag.identifier);
-        const meta = parseTagMetadata(tag);
-        currentId = meta.parentId;
-      } else {
-        break;
-      }
-    }
-    return chainList.join(' ➔ ');
   };
 
   // Сборщик по сегментам: состояние и логика — в useSegmentCollector. Хук вызывается здесь,
@@ -2391,8 +1978,6 @@ export default function Registry() {
     { lineage: getParentTraceLineage, meta: parseTagMetadata },
   );
 
-  const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
-
   const startNewTag = () => {
     if (activeTab !== 'board' && activeTab !== 'table') setActiveTab('table');
     setTimeout(() => (document.querySelector('#registry-screen-root [data-tour="tag-code-input"]') as HTMLInputElement | null)?.focus(), 60);
@@ -2429,166 +2014,27 @@ export default function Registry() {
       {(activeTab === 'board' || activeTab === 'table' || activeTab === 'tree') && (
       <div className="fx-tools items-start">
         {(activeTab === 'board' || activeTab === 'table') && (
-        <form onSubmit={handleCreateTag} className="flex flex-col gap-1.5 min-w-0 flex-1 text-left" aria-label="Новый тег">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Tag identifier code */}
-            <div className="relative w-44">
-              <div className="relative animate-fadeIn">
-                <input
-                  type="text"
-                  required
-                  data-tour="tag-code-input"
-                  placeholder="Код тега *"
-                  aria-label="Код тега (EN)"
-                  value={newTagIdentifier}
-                  onChange={handleTagIdentifierChange}
-                  className={`fx-input code pr-16 ${newTagIdentifier && !isIdentifierUnique ? 'border-rose-400 dark:border-rose-700' : ''}`}
-                />
-                {newTagIdentifier && (
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-xs">
-                    {isIdentifierUnique ? <Status tone="emerald">Свободен</Status> : <Status tone="rose">Занят</Status>}
-                  </div>
-                )}
-              </div>
-              
-              {/* Auto Suggestions list */}
-              {newTagIdentifier && matchingSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
-                  <div className="text-xs font-mono font-medium text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
-                    <span>Существующие теги</span>
-                    <span className="text-xs font-sans font-normal lowercase text-slate-500">выберите</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    {matchingSuggestions.map((st) => (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => {
-                          setNewTagIdentifier(st.identifier);
-                          if (st.department) setNewTagDepartment(st.department);
-                          if (st.fluid) setNewTagFluid(st.fluid);
-                          const stMeta = parseTagMetadata(st);
-                          if (stMeta.mainName) setNewTagMainName(stMeta.mainName);
-                          setNewTagActuality(getTagOverallStatus(st));
-                        }}
-                        className="w-full text-left px-2 py-1 text-xs text-slate-707 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between items-center transition-colors font-mono cursor-pointer"
-                      >
-                        <span className="font-medium text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
-                          {parseTagMetadata(st).mainName || <span className="opacity-40 text-xs">Без наименования</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Required Mark input field */}
-            <div className="w-40">
-              <input
-                type="text"
-                required
-                placeholder="Марка *" aria-label="Марка оборудования"
-                value={newTagBrand}
-                onChange={(e) => setNewTagBrand(e.target.value)}
-                className="fx-input"
-              />
-            </div>
-
-            {/* Main Name string input */}
-            <div className="w-56">
-              <input
-                type="text"
-                placeholder="Наименование" aria-label="Главное наименование"
-                value={newTagMainName}
-                onChange={(e) => setNewTagMainName(e.target.value)}
-                className="fx-input"
-              />
-            </div>
-
-            {/* Actuality Selector */}
-            <div className="w-40" title="Актуальность">
-              <CustomSelect
-                value={newTagActuality}
-                onChange={(val) => setNewTagActuality(val as any)}
-                options={actualitySelectOptions}
-              />
-            </div>
-
-            {/* Actions (Buttons) */}
-            <div className="flex items-center gap-1.5">
-              {/* Advanced Toggle button */}
-              <button
-                type="button"
-                onClick={() => setShowAdvancedCreation(!showAdvancedCreation)}
-                aria-pressed={showAdvancedCreation}
-                className="fx-btn fx-btn-quiet"
-                title="Дополнительные поля спецификации"
-              >
-                <Sliders className="w-3.5 h-3.5 shrink-0" />
-                <span>Доп</span>
-                <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 ${showAdvancedCreation ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Submit create button */}
-              <button
-                type="submit"
-                data-tour="tag-create-btn"
-                disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
-                className="fx-btn fx-btn-primary"
-              >
-                <Plus />Создать
-              </button>
-            </div>
-          </div>
-
-          {/* Collapsible advanced details row */}
-          {showAdvancedCreation && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              style={{ overflow: 'visible' }}
-              className="flex flex-wrap items-center gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-900/60 overflow-visible text-left"
-            >
-              {(() => {
-                const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
-                const cats = configDict
-                  ? (configDict.items || [])
-                      .filter((i: any) => !i.parentId)
-                      .sort((a: any, b: any) => a.code.localeCompare(b.code))
-                  : [];
-
-                if (cats.length > 0) {
-                  return cats.map((cat: any) => {
-                    const options = (configDict?.items || [])
-                      .filter((i: any) => i.parentId === cat.id)
-                      .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
-
-                    return (
-                      <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] @[760px]:min-w-[180px] @[1080px]:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-xs font-medium text-slate-450 dark:text-slate-500 leading-none truncate" title={cat.nameRu}>
-                          {cat.nameRu}
-                        </span>
-                        <CustomSelect
-                          value={dynamicCategorySelections[cat.id] || ''}
-                          onChange={(val) => handleDynamicCategoryChange(cat.id, val)}
-                          placeholder="-- выбрать --"
-                          options={options.map((opt: any) => ({
-                            value: opt.nameRu,
-                            label: opt.nameRu
-                          }))}
-                        />
-                      </div>
-                    );
-                  });
-                }
-                return <span className="text-xs text-slate-400">Дополнительные поля для ККС не настроены в справочниках.</span>;
-              })()}
-            </motion.div>
-          )}
-        </form>
+          <QuickCreateBar
+            newTagIdentifier={newTagIdentifier}
+            setNewTagIdentifier={setNewTagIdentifier}
+            handleTagIdentifierChange={handleTagIdentifierChange}
+            isIdentifierUnique={isIdentifierUnique}
+            matchingSuggestions={matchingSuggestions}
+            newTagBrand={newTagBrand}
+            setNewTagBrand={setNewTagBrand}
+            newTagMainName={newTagMainName}
+            setNewTagMainName={setNewTagMainName}
+            newTagActuality={newTagActuality}
+            setNewTagActuality={setNewTagActuality}
+            setNewTagDepartment={setNewTagDepartment}
+            setNewTagFluid={setNewTagFluid}
+            showAdvancedCreation={showAdvancedCreation}
+            setShowAdvancedCreation={setShowAdvancedCreation}
+            dictionaries={dictionaries}
+            dynamicCategorySelections={dynamicCategorySelections}
+            handleDynamicCategoryChange={handleDynamicCategoryChange}
+            handleCreateTag={handleCreateTag}
+          />
         )}
 
         {/* Универсальный поиск по разделу: тег, наименование, марка, дубли */}
@@ -2760,466 +2206,51 @@ export default function Registry() {
                 <div className="absolute inset-0">
                   {tags.map((tag) => {
                     if (!isTagVisibleOnBoard(tag)) return null;
-                    const meta = parseTagMetadata(tag);
-                    const isSourceOfDrag = activeConnectionDrag?.sourceId === tag.id;
-                    const hoveredLeft = hoveredPort?.tagId === tag.id && hoveredPort.side === 'left';
-                    const hoveredRight = hoveredPort?.tagId === tag.id && hoveredPort.side === 'right';
-
-                    const isExpanded = !!expandedCardIds[tag.id];
-                    const overallStatus = getTagOverallStatus(tag);
-                    const statusVal = statusConfig[overallStatus] || statusConfig.draft;
-                    const dup = isDuplicateTag(tag);
-                    const isSelected = selectedTagIds.has(tag.id);
-
                     return (
-                      <div
+                      <BoardCard
                         key={tag.id}
-                        id={`tag-card-${tag.id}`}
-                        data-share-focus={`tag:${tag.id}`}
-                        className={`absolute pointer-events-auto w-[310px] rounded-lg border text-left transition-shadow duration-200 select-none ${
-                          linkingFrom === tag.id
-                            ? 'ring-2 ring-sky-500 border-sky-500 shadow-xl z-40'
-                            : linkingFrom
-                              ? 'bg-white dark:bg-slate-950 border-sky-300/60 dark:border-sky-800/50 shadow-xs hover:ring-2 hover:ring-sky-400 cursor-crosshair z-10'
-                            // «Тащу эту» и «выбрана» раньше различались цветом:
-                            // зелёный против синего. Синего в палитре нет, а
-                            // выбранное во всей программе зелёное — поэтому оба
-                            // состояния теперь зелёные и разведены весом: у
-                            // перетаскиваемой карточки кольцо темнее и тень выше.
-                            : isSourceOfDrag
-                            ? 'ring-2 ring-emerald-700 border-emerald-700 shadow-xl z-30'
-                            : isSelected
-                              ? `bg-white dark:bg-slate-950 ring-2 ring-emerald-500 border-emerald-400 dark:border-emerald-600 shadow-lg text-slate-900 dark:text-slate-100 ${isExpanded ? 'z-40' : 'z-20'}`
-                              : dup
-                                ? `bg-white dark:bg-slate-950 ring-2 ring-rose-400/70 border-rose-300 dark:border-rose-700/60 shadow-xs hover:shadow-md text-slate-900 dark:text-slate-100 ${isExpanded ? 'z-30' : 'z-10'}`
-                                : `bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 shadow-xs hover:shadow-md text-slate-900 dark:text-slate-100 ${isExpanded ? 'z-30' : 'z-10'}`
-                        }`}
-                        style={{
-                          transform: (() => {
-                            const live = cardPositionsRef.current[tag.id] || meta;
-                            return `translate(${live.x}px, ${live.y}px)`;
-                          })(),
-                          left: 0,
-                          top: 0
-                        }}
-                        onMouseDown={(e) => handleTagMouseDown(e, tag.id, meta)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          // После правого перетаскивания (панорама) меню не показываем
-                          if (panMovedRef.current) { panMovedRef.current = false; return; }
-                          // ПКМ по невыделенной карточке — выделяем только её (как в проводнике)
-                          if (!selectedTagIds.has(tag.id)) setSelectedTagIds(new Set([tag.id]));
-                          setCardMenu({ x: e.clientX, y: e.clientY, tagId: tag.id });
-                        }}
-                      >
-                        {/* Порты для связи перетаскиванием — только в режиме «Перетаскиванием» */}
-                        {linkMode === 'drag' && (<>
-                        <div
-                          className={`absolute connection-port left-0 top-[22px] -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-ui hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredLeft
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
-                              : 'bg-slate-200 dark:bg-slate-800'
-                          }`}
-                          onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'left')}
-                          onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'left' }); }}
-                          onMouseLeave={() => setHoveredPort(null)}
-                          title="Сюда приходит линия от родителя"
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
-                        </div>
-
-                        <div
-                          className={`absolute connection-port right-0 top-[22px] translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-ui hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredRight
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
-                              : 'bg-slate-200 dark:bg-slate-800'
-                          }`}
-                          onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'right')}
-                          onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'right' }); }}
-                          onMouseLeave={() => setHoveredPort(null)}
-                          title="Отсюда тянут линию к дочернему тегу"
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
-                        </div>
-                        </>)}
-
-                        {/* CARD COMPACT HEADER ROW (Always visible) */}
-                        <div className="px-4 py-3 cursor-move flex flex-col gap-1 w-full">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 min-w-0">
-                              {/* Actuality Color Dot */}
-                              <span 
-                                className={`w-3.5 h-3.5 rounded-full inline-block shrink-0 border border-slate-200 dark:border-slate-800 ${statusVal.text} bg-current`}
-                                title={`Актуальность: ${statusVal.label}`}
-                              />
-                              <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              <span className="font-mono font-medium tracking-tight text-xs text-slate-800 dark:text-slate-100 truncate select-all">
-                                {tag.identifier}
-                              </span>
-                              {dup && (
-                                <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60" title="Дубликат кода тега">
-                                  дубль
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0 no-drag select-none">
-                              {/* Связать: клик → затем клик по целевому тегу (режим «Кликом») */}
-                              {linkMode === 'click' && (
-                                <button type="button"
-                                  title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setLinkingFrom(prev => prev === tag.id ? null : tag.id);
-                                  }}
-                                  className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                                    linkingFrom === tag.id
-                                      ? 'bg-sky-500 text-white'
-                                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
-                                  }`}
-                                >
-                                  <Link2 className="w-4 h-4" />
-                                </button>
-                              )}
-                              {/* Toggle Info / Expand Detailed View */}
-                              <button type="button"
-                                title={isExpanded ? "Свернуть комментарии" : "Открыть комментарии тега"}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedCardIds(prev => ({ ...prev, [tag.id]: !prev[tag.id] }));
-                                }}
-                                className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                                  isExpanded
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
-                                }`}
-                              >
-                                <Info className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {/* Наименование — только если есть (пустые строки не занимают место) */}
-                          {meta.mainName && (
-                            <div className="text-xs font-semibold text-slate-600 dark:text-slate-350 truncate mt-0.5 pl-5" title={meta.mainName}>
-                              {meta.mainName}
-                            </div>
-                          )}
-
-                          {/* Марка и актуальность */}
-                          <div className="flex items-center gap-1.5 pl-5 mt-0.5 min-w-0">
-                            {tag.brand && (
-                              <span className="font-mono text-xs font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
-                                {tag.brand}
-                              </span>
-                            )}
-                            <span className={`text-2xs font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
-                              {statusVal.label}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* EXPANDED SECTION */}
-                        {isExpanded && (
-                          <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-300">
-                            
-                            {/* INFO TAG FLUID/DEPT */}
-                            <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-xs text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">
-                              <span className="truncate max-w-[130px]" title={tag.department}>
-                                Отд: <strong className="text-slate-700 dark:text-slate-300">{tag.department || 'Комплекс'}</strong>
-                              </span>
-                              <span className="truncate max-w-[120px]" title={tag.fluid}>
-                                Среда: <strong className="text-slate-700 dark:text-slate-300">{tag.fluid || 'Воздух'}</strong>
-                              </span>
-                            </div>
-
-                            {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
-                            <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-medium text-slate-400">Связи</span>
-                                {/* Две кнопки, а не одна: чипы связей и раньше показывали
-                                    и родителя (↑), и детей (↓), а завести можно было
-                                    только ребёнка. Родителя приходилось искать на холсте
-                                    и тянуть линию — из другого конца проекта это неудобно */}
-                                <span className="flex items-center gap-2 shrink-0">
-                                  <button type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'parent') ? null : { tagId: tag.id, search: '', dir: 'parent' }); }}
-                                    className="fx-btn fx-btn-quiet fx-btn-sm"
-                                  >
-                                    {(incomingByTagId[tag.id] || []).length ? '↑ сменить родителя' : '+ родительский тег'}
-                                  </button>
-                                  <button type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'child') ? null : { tagId: tag.id, search: '', dir: 'child' }); }}
-                                    className="fx-btn fx-btn-quiet fx-btn-sm"
-                                  >
-                                    + дочерний тег
-                                  </button>
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
-                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs font-medium text-emerald-700 dark:text-emerald-300" title={`Родитель: ${tagsById[pid].identifier}`}>
-                                    ↑ <span className="font-mono truncate max-w-[110px]">{tagsById[pid].identifier}</span>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
-                                      <X className="w-2.5 h-2.5" />
-                                    </button>
-                                  </span>
-                                ))}
-                                {(meta.connections || []).map(cid => tagsById[cid] && (
-                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs font-medium text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
-                                    ↓ <span className="font-mono truncate max-w-[110px]">{tagsById[cid].identifier}</span>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
-                                      <X className="w-2.5 h-2.5" />
-                                    </button>
-                                  </span>
-                                ))}
-                                {(incomingByTagId[tag.id] || []).length === 0 && (meta.connections || []).length === 0 && (
-                                  <span className="text-2xs text-slate-400">Нет связей</span>
-                                )}
-                              </div>
-                              {linkPicker?.tagId === tag.id && (() => {
-                                const wantParent = linkPicker.dir === 'parent';
-                                const oldParent = (incomingByTagId[tag.id] || [])[0];
-                                const candidates = linkCandidates(tag.id, linkPicker.dir, linkPicker.search);
-                                return (
-                                <div className="pt-1 space-y-1">
-                                  {/* Родитель у тега один, и linkChild сам отцепит прежнего.
-                                      Молчаливая подмена здесь и была бы возвратом к той
-                                      поломке, из-за которой строку «Родительский тег» убрали */}
-                                  {wantParent && oldParent && tagsById[oldParent] && (
-                                    <p className="text-2xs text-amber-700 dark:text-amber-400">
-                                      Заменит нынешнего родителя:{' '}
-                                      <b className="font-mono">{tagsById[oldParent].identifier}</b>
-                                    </p>
-                                  )}
-                                  <input
-                                    autoFocus
-                                    value={linkPicker.search}
-                                    onChange={(e) => setLinkPicker({ tagId: tag.id, search: e.target.value, dir: linkPicker.dir })}
-                                    onKeyDown={(e) => { if (e.key === 'Escape') setLinkPicker(null); }}
-                                    placeholder={wantParent ? 'Найти родительский тег…' : 'Найти дочерний тег…'}
-                                    className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-400"
-                                  />
-                                  <div className="max-h-32 overflow-y-auto space-y-0.5">
-                                    {candidates.length === 0 && (
-                                      <p className="px-2 py-1 text-2xs text-slate-400">
-                                        {wantParent
-                                          ? 'Подходящих тегов нет: свой же состав родителем стать не может.'
-                                          : 'Подходящих тегов нет.'}
-                                      </p>
-                                    )}
-                                    {candidates.map(t => (
-                                      <button type="button" key={t.id}
-                                        /* Порядок доводов и есть всё различие: первым идёт
-                                           РОДИТЕЛЬ, вторым — ребёнок. Перепутанный вызов
-                                           однажды перевернул дерево целиком */
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          if (wantParent) await handleAddConnection(t.id, tag.id);
-                                          else await handleAddConnection(tag.id, t.id);
-                                          setLinkPicker(null);
-                                        }}
-                                        className="fx-btn fx-btn-quiet fx-btn-sm w-full">
-                                        {wantParent ? '↑' : '↓'} {t.identifier}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                                );
-                              })()}
-                            </div>
-
-                            {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
-                            <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                                Комментарии ({meta.descriptions.length})
-                              </div>
-
-                              {meta.descriptions.map((desc) => {
-                                const config = statusConfig[desc.status] || statusConfig.draft;
-                                const StatusIcon = config.icon;
-                                const isEditingThisDesc = editingDescId === desc.id;
-
-                                return (
-                                  <div key={desc.id} className="p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-150/60 dark:border-slate-850 rounded-xl flex flex-col gap-1 text-left">
-                                    {isEditingThisDesc ? (
-                                      /* INLINE ITEM EDITOR FORM */
-                                      <div className="space-y-2 pt-1">
-                                        <div className="grid grid-cols-2 gap-1.5">
-                                          <div className="space-y-0.5">
-                                            <span className="text-xs font-medium text-slate-400">Название</span>
-                                            <input
-                                              type="text"
-                                              value={editDescForm.text}
-                                              onChange={(e) => setEditDescForm(prev => ({ ...prev, text: e.target.value }))}
-                                              className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                                            />
-                                          </div>
-                                          <div className="space-y-0.5">
-                                            <span className="text-xs font-medium text-slate-400">Актуальность</span>
-                                            <CustomSelect
-                                              value={editDescForm.status}
-                                              onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
-                                              options={actualitySelectOptions}
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <div className="space-y-0.5">
-                                          <span className="text-xs font-medium text-slate-400">Комментарий</span>
-                                          <textarea
-                                            value={editDescForm.comment}
-                                            onChange={(e) => setEditDescForm(prev => ({ ...prev, comment: e.target.value }))}
-                                            className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                                            rows={2}
-                                          />
-                                        </div>
-
-                                        <div className="flex justify-end gap-1.5 pt-1">
-                                          <button type="button"
-                                            onClick={() => setEditingDescId(null)}
-                                            className="px-2 py-0.5 text-xs text-slate-450 hover:text-slate-650 transition-colors cursor-pointer"
-                                          >
-                                            Отмена
-                                          </button>
-                                          <button type="button"
-                                            onClick={async () => {
-                                              await handleUpdateDescription(tag.id, desc.id, {
-                                                text: editDescForm.text,
-                                                comment: editDescForm.comment,
-                                                status: editDescForm.status
-                                              });
-                                              setEditingDescId(null);
-                                            }}
-                                            className="fx-btn fx-btn-primary fx-btn-sm"
-                                          >
-                                            Записать
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      /* STANDARD DISPLAY MODE WITH TIMESTAMPS */
-                                      <>
-                                        <div className="flex items-start justify-between gap-1.5">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
-                                            <span
-                                              className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
-                                              title={`${desc.text}${desc.createdBy ? `\nСоздал: ${desc.createdBy}${desc.createdAt ? ` (${formatDateStr(desc.createdAt)})` : ''}` : ''}${desc.updatedBy ? `\nИзменил: ${desc.updatedBy}${desc.updatedAt ? ` (${formatDateStr(desc.updatedAt)})` : ''}` : ''}`}
-                                            >{desc.text}</span>
-                                          </div>
-                                          <div className="flex items-center gap-1 shrink-0">
-                                            <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
-                                              <StatusIcon className="w-1.5 h-1.5" />
-                                              {config.label}
-                                            </span>
-                                            
-                                            {/* Actions */}
-                                            <button type="button"
-                                              title="Изменить комментарий"
-                                              onClick={() => {
-                                                setEditingDescId(desc.id);
-                                                setEditDescForm({
-                                                  text: desc.text,
-                                                  comment: desc.comment || '',
-                                                  status: desc.status
-                                                });
-                                              }}
-                                              className="p-1 hover:text-emerald-600 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 cursor-pointer"
-                                            >
-                                              <Edit className="w-2.5 h-2.5" />
-                                            </button>
-                                            <button type="button"
-                                              title="Удалить комментарий"
-                                              onClick={() => handleRemoveDescription(tag.id, desc.id)}
-                                              className="p-1 hover:text-rose-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 cursor-pointer"
-                                            >
-                                              <Trash2 className="w-2.5 h-2.5" />
-                                            </button>
-                                          </div>
-                                        </div>
-
-                                        {desc.comment && (
-                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 leading-snug">
-                                            {desc.comment}
-                                          </p>
-                                        )}
-
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              })}
-
-                              {meta.descriptions.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs">
-                                  Описания отсутствуют.
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Быстрое добавление комментария */}
-                            <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-105 dark:border-slate-850 space-y-2 no-drag text-left text-xs">
-                              <div className="flex gap-1.5">
-                                <input
-                                  type="text"
-                                  placeholder="Напр. Вентилятор В-1"
-                                  value={quickDescText[tag.id] || ''}
-                                  onChange={(e) => setQuickDescText(prev => ({ ...prev, [tag.id]: e.target.value }))}
-                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-xs flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                />
-                                <CustomSelect
-                                  value={quickStatus[tag.id] || 'actual'}
-                                  onChange={(val) => setQuickStatus(prev => ({ ...prev, [tag.id]: val as any }))}
-                                  options={emojiOptions}
-                                />
-                              </div>
-                              
-                              <div className="flex gap-1.5">
-                                <input
-                                  type="text"
-                                  placeholder="Замечания..."
-                                  value={quickCommentText[tag.id] || ''}
-                                  onChange={(e) => setQuickCommentText(prev => ({ ...prev, [tag.id]: e.target.value }))}
-                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-xs flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                />
-                                <button type="button"
-                                  onClick={() => handleAddDescription(
-                                    tag.id, 
-                                    quickDescText[tag.id], 
-                                    quickCommentText[tag.id], 
-                                    quickStatus[tag.id] || 'actual'
-                                  )}
-                                  className="fx-btn fx-btn-primary fx-btn-sm"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Действия карточки */}
-                            <div className="p-2 bg-slate-100/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end text-xs rounded-b-2xl no-drag">
-                              <div className="flex items-center gap-1.5">
-                                <button type="button"
-                                  title="Настроить связи / свойства в модали"
-                                  onClick={() => setEditingTag(tag)}
-                                  className="flex items-center gap-1 px-2 py-1 hover:text-emerald-600 dark:hover:text-emerald-400 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-xs font-semibold cursor-pointer"
-                                >
-                                  <Edit2 className="w-3 h-3" /> Настройка
-                                </button>
-                                <button type="button"
-                                  title="Удалить тег с холста"
-                                  onClick={() => handleDeleteTag(tag.id)}
-                                  className="p-1 px-2 hover:text-rose-600 text-slate-550 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors text-xs font-semibold cursor-pointer"
-                                >
-                                  <Trash2 className="w-3 h-3" /> Удалить
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                        tag={tag}
+                        tagsById={tagsById}
+                        incomingByTagId={incomingByTagId}
+                        selectedTagIds={selectedTagIds}
+                        expandedCardIds={expandedCardIds}
+                        linkMode={linkMode}
+                        linkingFrom={linkingFrom}
+                        activeConnectionDrag={activeConnectionDrag}
+                        hoveredPort={hoveredPort}
+                        draggedTagId={draggedTagId}
+                        cardPositionsRef={cardPositionsRef}
+                        panMovedRef={panMovedRef}
+                        linkPicker={linkPicker}
+                        setLinkPicker={setLinkPicker}
+                        linkCandidates={linkCandidates}
+                        setLinkingFrom={setLinkingFrom}
+                        setHoveredPort={setHoveredPort}
+                        setSelectedTagIds={setSelectedTagIds}
+                        setExpandedCardIds={setExpandedCardIds}
+                        setCardMenu={setCardMenu}
+                        setEditingTag={setEditingTag}
+                        editingDescId={editingDescId}
+                        setEditingDescId={setEditingDescId}
+                        editDescForm={editDescForm}
+                        setEditDescForm={setEditDescForm}
+                        quickDescText={quickDescText}
+                        setQuickDescText={setQuickDescText}
+                        quickCommentText={quickCommentText}
+                        setQuickCommentText={setQuickCommentText}
+                        quickStatus={quickStatus}
+                        setQuickStatus={setQuickStatus}
+                        isDuplicateTag={isDuplicateTag}
+                        formatDateStr={formatDateStr}
+                        handleTagMouseDown={handleTagMouseDown}
+                        handlePortMouseDown={handlePortMouseDown}
+                        handleAddConnection={handleAddConnection}
+                        handleRemoveConnection={handleRemoveConnection}
+                        handleAddDescription={handleAddDescription}
+                        handleUpdateDescription={handleUpdateDescription}
+                        handleRemoveDescription={handleRemoveDescription}
+                        handleDeleteTag={handleDeleteTag}
+                      />
                     );
                   })}
                 </div>
@@ -3356,7 +2387,7 @@ export default function Registry() {
             <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5" />
-                {treeLinkMode === 'click'
+                {linkMode === 'click'
                   ? <>Связи кликом: кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
                   : <>Связи перетаскиванием: тяните строку тега на другую (перетащенный станет дочерним).</>}
               </span>
@@ -3457,6 +2488,7 @@ export default function Registry() {
           editTagBrand={editTagBrand}
           setEditTagBrand={setEditTagBrand}
           onUpdateBrand={handleUpdateBrand}
+          onSaveFields={saveTagFields}
           projectBrands={projectBrands}
           setTags={setTags}
           dictionaries={dictionaries}
@@ -3509,21 +2541,21 @@ export default function Registry() {
       <div key={node.id}>
         <div
           id={`tree-node-${node.id}`}
-          draggable={treeLinkMode === 'drag'}
+          draggable={linkMode === 'drag'}
           onDragStart={(e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             treeDraggedIdRef.current = node.id;
             e.dataTransfer.effectAllowed = 'move';
             try { e.dataTransfer.setData('text/plain', node.id); } catch (_) {}
           }}
           onDragOver={(e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             const from = treeDraggedIdRef.current;
             if (from && from !== node.id) { e.preventDefault(); if (treeDragOverId !== node.id) setTreeDragOverId(node.id); }
           }}
           onDragLeave={() => { if (treeDragOverId === node.id) setTreeDragOverId(null); }}
           onDrop={async (e) => {
-            if (treeLinkMode !== 'drag') return;
+            if (linkMode !== 'drag') return;
             e.preventDefault();
             const from = treeDraggedIdRef.current;
             treeDraggedIdRef.current = null;
@@ -3557,7 +2589,7 @@ export default function Registry() {
             setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
           }}
           aria-current={selectedTagIds.has(node.id) || treeLinkingFrom === node.id || undefined}
-          className={`fx-li group/tr justify-between ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
+          className={`fx-li group/tr justify-between ${linkMode === 'drag' ? 'cursor-move' : ''} ${
             treeDragOverId === node.id || treeLinkingFrom === node.id
               ? 'ring-1 ring-inset ring-sky-400'
               : treeLinkingFrom ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-sky-300' : ''
@@ -3622,7 +2654,7 @@ export default function Registry() {
             )}
 
             <div className={`flex gap-0.5 ${treeLinkingFrom === node.id ? '' : 'invisible group-hover/tr:visible group-focus-within/tr:visible'}`}>
-              {treeLinkMode === 'click' && (
+              {linkMode === 'click' && (
                 <button type="button"
                   onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
                   title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}

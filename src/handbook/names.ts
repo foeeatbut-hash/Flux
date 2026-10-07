@@ -42,7 +42,6 @@ export const THING_RU: Record<string, string> = {
   ConstructorDocVersion: 'версия книги',
   Dictionary: 'справочник значений',
   DictionaryItem: 'значение справочника',
-  DocFormula: 'формула документа',
   DocRegister: 'ведомость документов',
   DocRegisterItem: 'строка ведомости',
   DocRegisterItemRevision: 'ревизия строки ведомости',

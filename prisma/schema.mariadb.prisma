@@ -523,6 +523,11 @@ model NoteShare {
   @@index([userId])
 }
 
+// НЕ ИСПОЛЬЗУЕТСЯ с удаления «Формул документа» из программы (октябрь 2026):
+// ни экрана, ни маршрутов, ни кода, который читал бы или писал эту таблицу.
+// Таблица и данные в ней сохранены до отдельного решения владельца — без него
+// модель не удалять и не переименовывать: схема синхронизируется с базой, а
+// данные сотрудников без решения не стираются.
 model DocFormula {
   id          String   @id @default(uuid())
   projectId   String
@@ -1709,6 +1714,32 @@ model ProjectTagPolicy {
   version     Int      @default(1)
   updatedById String?
   updatedAt   DateTime @default(now())
+}
+
+/// История изменений тега: только дописывается, ничего не правит и не стирает.
+///
+/// Связи с Tag нет намеренно: внешний ключ с каскадом стёр бы историю вместе
+/// с тегом, а «кто и когда удалил» нужно знать именно после удаления. Поэтому
+/// tagId и projectId — просто значения. Таблица заводится и подстраховкой
+/// (server/tagChangeTable.ts), как ProjectTagPolicy.
+model TagChange {
+  id        String   @id @default(uuid())
+  tagId     String
+  projectId String
+  at        DateTime @default(now())
+  /// Кто: из сессии запроса, а не из тела
+  userId    String?
+  /// Откуда: «Теги», «Закупки», «импорт оборудования», «захват»…
+  source    String   @default("")
+  /// создан | изменён | удалён | связь добавлена | связь убрана | комментарий добавлен | комментарий изменён | комментарий удалён
+  kind      String
+  /// Что менялось: поле тега или ключ metadata
+  field     String   @default("")
+  before    String? @db.Text
+  after     String? @db.Text
+
+  @@index([tagId, at])
+  @@index([projectId])
 }
 
 model PlayMatch {

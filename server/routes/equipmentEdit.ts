@@ -5,6 +5,7 @@ import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
+import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, type TagChangeSet } from '../tagHistory.js';
 
 /**
  * Правка реестра оборудования вручную: удаление лишней позиции.
@@ -238,10 +239,11 @@ export function registerEquipmentEditRoutes(app: Express): void {
       });
       if (!comp) return res.status(404).json({ error: 'Позиция не найдена' });
       const projectId = comp.monoblock?.system?.projectId || '';
-      const tag = await resolveTag(prisma, projectId, req.body?.identifier);
+      const actor = { userId: authUserOf(req)?.id };
+      const tag = await resolveTag(prisma, projectId, req.body?.identifier, { actor });
       if (!tag.ok) return res.status(tag.status || 400).json({ error: tag.problem, fix: tag.fix, field: 'tag' });
       await prisma.componentElement.update({ where: { id: comp.id }, data: { tags: { connect: { id: tag.tagId } } } });
-      const parentTag = await linkParentTag(prisma, projectId, comp.id, tag.tagId!);
+      const parentTag = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
       res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag });
     } catch (err: any) { sendError(res, err); }
   });
@@ -270,7 +272,7 @@ export interface TagResolution {
  * исправляется так же, как при импорте. Один тег — одно изделие: занятый тег
  * отказом, с названием того, кто его держит.
  */
-export async function resolveTag(prisma: any, projectId: string, raw: unknown, opts: { dryRun?: boolean } = {}): Promise<TagResolution> {
+export async function resolveTag(prisma: any, projectId: string, raw: unknown, opts: { dryRun?: boolean; actor?: { userId?: string | null } } = {}): Promise<TagResolution> {
   const written = String(raw ?? '').trim();
   const policy = await importPolicyOfProject(projectId);
   const fix = autoFixTag(written, policy);
@@ -291,6 +293,7 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
   if (existing) return { ok: true, identifier: check.identifier, corrected, tagId: existing.id, existing: true };
   if (opts.dryRun) return { ok: true, identifier: check.identifier, corrected, created: true };
   const made = await prisma.tag.create({ data: { identifier: check.identifier, projectId } });
+  await recordTagCreated(prisma, { projectId, userId: opts.actor?.userId, source: TAG_SOURCE.equipmentEdit }, made);
   return { ok: true, identifier: check.identifier, corrected, tagId: made.id, created: true };
 }
 
@@ -311,7 +314,7 @@ async function createPosition(
 
   let tag: TagResolution | null = null;
   if (String(req.body?.tag || '').trim()) {
-    tag = await resolveTag(prisma, at.projectId, req.body.tag);
+    tag = await resolveTag(prisma, at.projectId, req.body.tag, { actor: { userId: me?.id } });
     if (!tag.ok) { res.status(tag.status || 400).json({ error: tag.problem, fix: tag.fix, field: 'tag' }); return; }
   }
 
@@ -362,7 +365,7 @@ async function createPosition(
   // Родство тега: по тому же правилу, что и при импорте — тег ближайшего
   // тегированного владельца, а если такого нет, тег установки
   let parentTag = '';
-  if (tag?.tagId) parentTag = await linkParentTag(prisma, at.projectId, created.id, tag.tagId);
+  if (tag?.tagId) parentTag = await linkParentTag(prisma, at.projectId, created.id, tag.tagId, { userId: me?.id });
 
   const parentRole = at.parent ? (at.parent.role || 'БЛОК') : 'БЛОК';
   const fits = roleFits(parentRole, role);
@@ -384,7 +387,7 @@ async function createPosition(
  * Возвращает написание родительского тега — его показывают человеку сразу:
  * «датчик встал под тег двигателя», а не молча.
  */
-async function linkParentTag(prisma: any, projectId: string, componentId: string, tagId: string): Promise<string> {
+async function linkParentTag(prisma: any, projectId: string, componentId: string, tagId: string, actor: { userId?: string | null } = {}): Promise<string> {
   if (!projectId) return '';
   const rows = await prisma.componentElement.findMany({
     where: { monoblock: { system: { projectId } } },
@@ -424,13 +427,17 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
   const plan = planTagParents(positions, root?.tagId || '', nodes, handSet);
 
   const metaById = new Map<string, any>(tags.map((t: any) => [t.id, safeMeta(t.metadata)]));
+  const history: Array<TagChangeSet | null> = [];
   for (const patch of plan.patches) {
     const meta = { ...(metaById.get(patch.id) || {}) };
     meta.connections = patch.connections;
     if (patch.parentId) meta.parentId = patch.parentId; else delete meta.parentId;
     if (meta.parentBy !== 'hand') meta.parentBy = 'import';
     await prisma.tag.update({ where: { id: patch.id }, data: { metadata: JSON.stringify(meta) } });
+    const was = tags.find((t: any) => t.id === patch.id);
+    if (was) history.push(updateSet({ id: was.id, projectId, metadata: was.metadata }, { id: was.id, metadata: meta }));
   }
+  await recordChangeSets(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentEdit }, history);
 
   const mineDecision = plan.decisions.find(d => d.childTagId === tagId && d.applied);
   return mineDecision ? (tags.find((t: any) => t.id === mineDecision.parentTagId)?.identifier || '') : '';

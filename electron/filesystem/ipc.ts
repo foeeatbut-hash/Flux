@@ -1,18 +1,22 @@
-import { app, dialog, ipcMain, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { app, dialog, ipcMain, shell, BrowserWindow, nativeImage, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
+import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, WINDOWS_FILES_DROP, WINDOWS_FILES_SEARCH, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
 import { WindowsFilesService } from './service';
 import { WindowsFilesError } from './paths';
 import { windowsPublicDesktopFolder } from '../desktopShell';
 import { enumerateWindowsVolumes, openWindowsRecycleBin } from './nativePlaces';
+import { NativeShellHost } from '../nativeShellHost';
+import { ShellCommands } from './shellCommands';
+import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction, undoGroup } from './explorerBridge';
+import { ViewStateStore } from './viewState';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
   mayRead: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
   mayWrite: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
 }
-const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'setMetadata']);
+const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
   EPERM: 'Файл занят другой программой или Windows запретила действие.',
@@ -23,6 +27,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   ENOTDIR: 'Родитель файла больше не является папкой.',
   ELOOP: 'Ссылку нельзя открыть без отдельного подключения папки.',
 };
+/** Том для интерфейса: метка, буква и занятое место — всё, что нужно плитке «Локальный диск (C:)». */
+const volumeFields = (volume: Awaited<ReturnType<typeof enumerateWindowsVolumes>>[number]) => ({
+  id: volume.id, name: volume.name, kind: volume.kind, networkPath: volume.networkPath, size: volume.size, free: volume.free,
+  label: volume.label, letter: volume.letter, used: volume.used, ...(volume.fileSystem ? { fileSystem: volume.fileSystem } : {}),
+});
 export function windowsFilesFailure(error: any): WindowsFilesResponse {
   if (error instanceof WindowsFilesError) return { ok: false, error: { code: error.code, message: error.message } };
   const code = typeof error?.code === 'string' ? error.code : 'FILESYSTEM_ERROR';
@@ -31,16 +40,36 @@ export function windowsFilesFailure(error: any): WindowsFilesResponse {
 export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): Promise<WindowsFilesService> {
   const activeSenders = new Set<number>();
   const icons = new Map<string, { at: number; value: Promise<string | null> }>();
+  // Нативный помощник поднимается при первом обращении и сам засыпает; до этого он ничего не стоит.
+  const nativeHost = new NativeShellHost();
+  let shellCommands: ShellCommands;
   const service = await WindowsFilesService.create({
     userData: app.getPath('userData'),
     knownFolders: { desktop: app.getPath('desktop'), documents: app.getPath('documents'), downloads: app.getPath('downloads') },
     trashItem: filename => shell.trashItem(filename),
     showItemInFolder: filename => shell.showItemInFolder(filename),
     openPath: filename => shell.openPath(filename),
+    restoreFromTrash: info => shellCommands.restoreFromTrash(info),
+    startDrag: async (owner, files) => {
+      const target = webContents.fromId(owner);
+      if (!target || target.isDestroyed()) throw new WindowsFilesError('NOT_SUPPORTED', 'Окно закрыто.');
+      // Значок перетаскиваемого файла берётся у Windows; без него Electron отказывается начинать перетаскивание.
+      const icon = await app.getFileIcon(files[0], { size: 'normal' }).catch(() => nativeImage.createEmpty());
+      target.startDrag({ file: files[0], files, icon: icon.isEmpty() ? nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lX8AAAAASUVORK5CYII=') : icon });
+    },
     onChanged: change => {
       // События несут лишь capability и относительный путь; содержимое повторно читается с проверкой сессии.
       for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && activeSenders.has(window.webContents.id)) window.webContents.send(WINDOWS_FILES_CHANGED, change);
     },
+  });
+  shellCommands = new ShellCommands(service, nativeHost);
+  const viewState = await ViewStateStore.load(app.getPath('userData'));
+  const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState,
+    // Страница поиска уходит только окну, которое его запустило и ещё живо.
+    emitSearch: (owner, event) => { const target = webContents.fromId(owner); if (target && !target.isDestroyed() && activeSenders.has(owner)) target.send(WINDOWS_FILES_SEARCH, event); } });
+  // Пути брошенных файлов приходят из preload по каналу, которого страница не видит; страница получает только билет.
+  ipcMain.on(WINDOWS_FILES_DROP, (event: IpcMainEvent, payload: { ticket?: unknown; paths?: unknown } | undefined) => {
+    try { if (options.isTrusted(event as unknown as IpcMainInvokeEvent)) explorer.registerDrop(event.sender.id, payload?.ticket, payload?.paths); } catch { /* неверный билет — просто нет билета */ }
   });
   // Общий Desktop входит в вид Shell, но не находится в личном Desktop пользователя.
   const publicDesktop = await windowsPublicDesktopFolder();
@@ -52,7 +81,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
       if (WRITE_ACTIONS.has(request.action) && !await options.mayWrite(event)) throw new WindowsFilesError('READ_ONLY', 'Изменение файлов недоступно: проверьте права и лицензию Flux.');
       if (!activeSenders.has(event.sender.id)) {
         activeSenders.add(event.sender.id);
-        event.sender.once('destroyed', () => { activeSenders.delete(event.sender.id); service.closeOwner(event.sender.id); });
+        event.sender.once('destroyed', () => { activeSenders.delete(event.sender.id); service.closeOwner(event.sender.id); explorer.closeOwner(event.sender.id); });
       }
       let data: unknown;
       switch (request.action) {
@@ -62,9 +91,9 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           data = await Promise.all(volumes.map(async volume => {
             try {
               const root = await service.addRoot(volume.path, volume.name);
-              return { id: volume.id, name: volume.name, kind: volume.kind, networkPath: volume.networkPath, size: volume.size, free: volume.free, root };
+              return { ...volumeFields(volume), root };
             } catch {
-              return { id: volume.id, name: volume.name, kind: volume.kind, networkPath: volume.networkPath, size: volume.size, free: volume.free, root: { id: '', name: volume.name, kind: 'custom', available: false } };
+              return { ...volumeFields(volume), root: { id: '', name: volume.name, kind: 'custom', available: false } };
             }
           }));
           break;
@@ -128,26 +157,29 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         }
         case 'write': data = await service.write(request.ref, request.base64, request.baseSha256); break;
         case 'publish': data = await service.publish(request.parent, request.name, request.base64, request.draftId); break;
-        case 'createDraft': data = await service.createDraft(request.parent, request.name, request.base64); break;
-        case 'createDraftFolder': data = await service.createDraftFolder(request.parent, request.name); break;
-        case 'publishDraft': data = await service.publishDraft(request.ref); break;
-        case 'publishDraftTree': data = await service.publishDraftTree(request.ref); break;
-        case 'mkdir': data = await service.mkdir(request.parent, request.name); break;
-        case 'rename': data = await service.rename(request.ref, request.name); break;
-        case 'copy': data = await service.copy(request.ref, request.parent, request.name); break;
-        case 'move': data = await service.move(request.ref, request.parent, request.name, request.baseSha256); break;
-        case 'trash': data = await service.trash(request.ref, request.baseSha256); break;
+        // group — номер пакета для отмены: вставка нескольких файлов отменяется одним Ctrl+Z.
+        case 'createDraft': data = await service.createDraft(request.parent, request.name, request.base64, { group: undoGroup(request.group) }); break;
+        case 'createDraftFolder': data = await service.createDraftFolder(request.parent, request.name, { group: undoGroup(request.group) }); break;
+        case 'publishDraft': data = await service.publishDraft(request.ref, request.choices); break;
+        case 'publishDraftTree': data = await service.publishDraftTree(request.ref, request.choices); break;
+        case 'mkdir': data = await service.mkdir(request.parent, request.name, { group: undoGroup(request.group) }); break;
+        case 'rename': data = await service.rename(request.ref, request.name, { group: undoGroup(request.group) }); break;
+        case 'copy': data = await service.copy(request.ref, request.parent, request.name, { group: undoGroup(request.group), carryMeta: request.carryMeta === true }); break;
+        case 'move': data = await service.move(request.ref, request.parent, request.name, request.baseSha256, { group: undoGroup(request.group) }); break;
+        case 'trash': data = await service.trash(request.ref, request.baseSha256, { group: undoGroup(request.group) }); break;
         case 'reveal': data = await service.reveal(request.ref); break;
         case 'open': data = await service.open(request.ref); break;
         case 'metadata': data = await service.metadata(request.ref); break;
         case 'setMetadata': data = await service.setMetadata(request.ref, request.metadata); break;
         case 'watch': data = await service.watch(request.ref, event.sender.id); break;
         case 'unwatch': data = await service.unwatch(request.ref, event.sender.id); break;
-        default: throw new WindowsFilesError('INVALID_ACTION', 'Команда проводника неизвестна.');
+        default:
+          if (!isExplorerAction(request.action)) throw new WindowsFilesError('INVALID_ACTION', 'Команда проводника неизвестна.');
+          data = await explorer.handle(request, event.sender.id);
       }
       return { ok: true, data };
     } catch (error) { return windowsFilesFailure(error); }
   });
-  app.once('before-quit', () => service.close());
+  app.once('before-quit', () => { service.close(); nativeHost.close(); });
   return service;
 }

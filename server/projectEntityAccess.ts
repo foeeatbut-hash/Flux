@@ -4,7 +4,7 @@ import { canSeeProject } from './routes/members.js';
 import { isAdminActor, projectIdsOfRequest } from './projectAccess.js';
 
 /** Проект определяется серверной записью, а не присланным рядом projectId. */
-export type ProjectEntity = 'tag' | 'component' | 'system' | 'monoblock' | 'folder' | 'file' | 'formula' | 'constructor' | 'importBatch' | 'historyBatch' | 'chatGroup';
+export type ProjectEntity = 'tag' | 'component' | 'system' | 'monoblock' | 'folder' | 'file' | 'constructor' | 'importBatch' | 'historyBatch' | 'chatGroup';
 export interface EntityRef { kind: ProjectEntity; id: string }
 const SAFE_ID = (id: unknown): id is string => typeof id === 'string' && !!id.trim() && id.length <= 200;
 
@@ -20,7 +20,6 @@ export function entityRefsOfRequest(path: string, body: any = {}, query: any = {
     [/^\/api\/equipment\/monoblock\/([^/]+)(?:\/|$)/i, 'monoblock'],
     [/^\/api\/folders\/([^/]+)(?:\/|$)/i, 'folder'],
     [/^\/api\/(?:office\/files|files|project-data\/files)\/([^/]+)(?:\/|$)/i, 'file'],
-    [/^\/api\/formulas\/([^/]+)(?:\/|$)/i, 'formula'],
     [/^\/api\/constructor\/docs\/([^/]+)(?:\/|$)/i, 'constructor'],
     [/^\/api\/import-jobs\/([^/]+)\/cancel$/i, 'importBatch'],
     [/^\/api\/equipment\/import-undo\/([^/]+)$/i, 'historyBatch'],
@@ -35,7 +34,7 @@ export function entityRefsOfRequest(path: string, body: any = {}, query: any = {
   if (pair) add('tag', decodeURIComponent(pair[1]));
   // Ссылки на данные проектов также бывают в составе импорта, копирования и чата.
   for (const source of [body, query]) {
-    for (const [key, kind] of Object.entries({ tagId: 'tag', componentId: 'component', elementId: 'component', linkedElementId: 'component', parentElementId: 'component', systemId: 'system', monoblockId: 'monoblock', folderId: 'folder', targetFolderId: 'folder', fileId: 'file', sourceFileId: 'file', formulaId: 'formula', groupId: 'chatGroup', toGroupId: 'chatGroup' }) as [string, ProjectEntity][]) add(kind, source?.[key]);
+    for (const [key, kind] of Object.entries({ tagId: 'tag', componentId: 'component', elementId: 'component', linkedElementId: 'component', parentElementId: 'component', systemId: 'system', monoblockId: 'monoblock', folderId: 'folder', targetFolderId: 'folder', fileId: 'file', sourceFileId: 'file', groupId: 'chatGroup', toGroupId: 'chatGroup' }) as [string, ProjectEntity][]) add(kind, source?.[key]);
   }
   if (/^\/api\/tags\/bulk-metadata$/i.test(route) && Array.isArray(body.updates)) for (const u of body.updates.slice(0, 2000)) add('tag', u?.id);
   if (/^\/api\/files\/copy$/i.test(route) && Array.isArray(body.ids)) for (const id of body.ids) add('file', id);
@@ -59,8 +58,8 @@ export async function projectsOfEntity(prisma: any, ref: EntityRef): Promise<str
   const where = { id: ref.id };
   let rows: any[] = [];
   switch (ref.kind) {
-    case 'tag': case 'folder': case 'formula': case 'constructor': case 'importBatch': case 'chatGroup': {
-      const table = { tag: 'tag', folder: 'folder', formula: 'docFormula', constructor: 'constructorDoc', importBatch: 'importBatch', chatGroup: 'chatGroup' }[ref.kind];
+    case 'tag': case 'folder': case 'constructor': case 'importBatch': case 'chatGroup': {
+      const table = { tag: 'tag', folder: 'folder', constructor: 'constructorDoc', importBatch: 'importBatch', chatGroup: 'chatGroup' }[ref.kind];
       const row = await prisma[table].findUnique({ where, select: { projectId: true } });
       rows = row ? [row.projectId] : []; break;
     }

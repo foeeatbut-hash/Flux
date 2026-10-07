@@ -68,6 +68,8 @@ function childEnvironment(dataDir, port, runId) {
     PORT: String(port),
     VENT_APP_DATA: dataDir,
     FLUX_TEST_OWNER: '1',
+    // Flux Play отключён без этого признака (play/enabled.ts); в стенде его наборы идут
+    FLUX_PLAY: '1',
     FLUX_TEST_LICENSE: '1',
     FLUX_TEST_LICENSE_AUTO: '1',
     FLUX_EMBEDDED: '1',

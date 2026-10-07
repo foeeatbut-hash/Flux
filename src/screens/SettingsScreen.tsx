@@ -11,7 +11,7 @@ import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Sigma, Languages, Globe, Gamepad2,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Languages, Globe, Gamepad2,
 } from 'lucide-react';
 import { isTopAdmin } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
@@ -22,12 +22,12 @@ import { canManagePlay } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { SectionHead } from '../components/ui';
 import { PLAY_ADMIN } from '../../play/features';
+import { playEnabled } from '../../play/enabled';
 import ManagementSection from '../components/settings/ManagementSection';
 import BackupSection from '../components/settings/BackupSection';
 import EquipmentSection from '../components/settings/EquipmentSection';
 import TagsSection from '../components/settings/TagsSection';
 import DatabaseSection from '../components/settings/DatabaseSection';
-import FormulasSection from '../components/settings/FormulasSection';
 import DocflowSection from '../components/settings/DocflowSection';
 import RolesSection from '../components/settings/RolesSection';
 
@@ -37,12 +37,12 @@ import { useShallow } from 'zustand/react/shallow';
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'play' | 'tagrules';
+type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'play' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
 // каждого проекта. Раньше они шли одним списком, и было непонятно, почему
-// «Формулы документа», настроенные вчера, сегодня в другом проекте пустые.
+// «Правила тегов», настроенные вчера, сегодня в другом проекте пустые.
 type SettingScope = 'global' | 'project';
 
 const SECTIONS: Array<{
@@ -86,9 +86,9 @@ const SECTIONS: Array<{
   // управление, — и видит даже при выключенной платформе: иначе выключатель
   // отнимал бы право, которым его двигают
   // Главному администратору лист виден всегда: включить платформу больше некому
-  { id: 'play', label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global', entitlement: PLAY_ADMIN, orTop: true },
+  // Платформа отключена: лист есть только при FLUX_PLAY=1 (play/enabled.ts)
+  ...(playEnabled() ? [{ id: 'play' as const, label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global' as const, entitlement: PLAY_ADMIN, orTop: true }] : []),
   // Своё в каждом проекте
-  { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },
   // Правила тегов: алфавит и приставки. Своё в каждом проекте — в одном
   // заказчик требует кириллицу, в другом её запрещает, и общее правило
   // сделало бы половину проектов неработающими
@@ -188,7 +188,6 @@ export default function SettingsScreen() {
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'formulas' && <FormulasSection />}
         {section === 'tags' && <TagsSection addToast={addToast} />}
         {section === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
@@ -209,7 +208,7 @@ export default function SettingsScreen() {
         {section === 'database' && <DatabaseSection />}
         {section === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
         {section === 'logs' && <LogsSection addLog={addLog} />}
-        {section === 'play' && <PlayPlatform addToast={addToast} />}
+        {playEnabled() && section === 'play' && <PlayPlatform addToast={addToast} />}
         {section === 'tagrules' && <TagRules addToast={addToast} />}
       </div>
       </div>

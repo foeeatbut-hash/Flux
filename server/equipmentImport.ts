@@ -3,6 +3,7 @@ import { blockKey, matchSystem } from './specUtils.js';
 import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
+import { TAG_SOURCE, recordChangeSets, updateSet, type TagChangeSet } from './tagHistory.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
 export function flattenGroups(groups: SpecGroup[]): Record<string, { value: string; unit: string }> {
@@ -59,6 +60,8 @@ export async function importEquipmentToDB(
   result: EquipParseResult,
   conflictMode: 'immediate' | 'wait',
   tagLinks?: TagLink[],
+  /** Кто импортирует: от его имени теги попадают в историю изменений */
+  actor: { userId?: string | null } = {},
 ): Promise<ImportSummary> {
   // Партия: всё, что записал один ввоз расчёта. Без неё «отменить импорт»
   // пришлось бы собирать по времени, а два импорта подряд слились бы в один.
@@ -245,12 +248,12 @@ export async function importEquipmentToDB(
   // ровно на те позиции, которые он видел в предпросмотре
   if (tagLinks && tagLinks.length) {
     const policy = await importPolicyOfProject(projectId);
-    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy);
+    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy, actor);
     summary.tagsLinked = applied.linked;
     summary.tagsCreated = applied.created;
     summary.tagConflicts = applied.conflicts;
 
-    const built = await linkTagsByComposition(prisma, projectId, result, placed, applied.assigned);
+    const built = await linkTagsByComposition(prisma, projectId, result, placed, applied.assigned, actor);
     summary.tagParents = built.made;
     summary.tagParentsKept = built.kept;
   }
@@ -275,6 +278,7 @@ async function linkTagsByComposition(
   result: EquipParseResult,
   placed: { unit: string; key: string; parentKey: string; title: string }[],
   assigned: { blockKey: string; tagId: string }[],
+  actor: { userId?: string | null } = {},
 ): Promise<{ made: number; kept: string[] }> {
   if (!assigned.length) return { made: 0, kept: [] };
 
@@ -336,6 +340,8 @@ async function linkTagsByComposition(
     }
   }
 
+  const history: Array<TagChangeSet | null> = [];
+  const rowById = new Map<string, any>(rows.map((t: any) => [t.id, t]));
   for (const patch of allPatches.values()) {
     const meta = { ...(metaById.get(patch.id) || {}) };
     meta.connections = patch.connections;
@@ -344,7 +350,10 @@ async function linkTagsByComposition(
     // руки инженера и не перебьёт чужое решение
     if (meta.parentBy !== 'hand') meta.parentBy = 'import';
     await prisma.tag.update({ where: { id: patch.id }, data: { metadata: JSON.stringify(meta) } });
+    const was = rowById.get(patch.id);
+    if (was) history.push(updateSet({ id: was.id, projectId, metadata: was.metadata }, { id: was.id, metadata: meta }));
   }
+  await recordChangeSets(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, history);
 
   return { made, kept };
 }

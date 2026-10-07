@@ -48,6 +48,26 @@ function noteIpc(channel: string, start: number, ok: boolean, error?: string, co
   );
 };
 
+// ── Файлы, брошенные из Проводника Windows ──────────────────────────────────
+//
+// Пути знает только этот слой. Он слушает настоящее событие drop (isTrusted:
+// подделать его из страницы нельзя), спрашивает у Electron пути и отдаёт их
+// главному процессу по каналу, которого мост окну не открывает. Страница
+// получает билет и имена. Команда importPaths принимает билет, а не пути:
+// иначе любая правка страницы читала бы любой файл диска.
+let lastDrop: { ticket: string; names: string[]; at: number } | null = null;
+window.addEventListener('drop', (event: DragEvent) => {
+  if (!event.isTrusted) return;
+  try {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    const paths = files.map(file => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } }).filter(Boolean);
+    if (!paths.length) return;
+    const ticket = crypto.randomUUID();
+    ipcRenderer.send('windows-files:drop-paths', { ticket, paths });
+    lastDrop = { ticket, names: files.map(file => file.name), at: Date.now() };
+  } catch (_) { /* перетаскивание не должно ломать страницу */ }
+}, true);
+
 contextBridge.exposeInMainWorld('electron', {
   windowsNotifications: {
     snapshot: () => ipcRenderer.invoke(WINDOWS_NOTIFICATIONS_SNAPSHOT),
@@ -69,6 +89,14 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('windows-files:changed', listener);
       return () => ipcRenderer.removeListener('windows-files:changed', listener);
     },
+    // Страницы поиска приходят событиями, отдельно от ответа на команду search.
+    onSearch: (callback: (event: unknown) => void) => {
+      const listener = (_event: unknown, page: unknown) => callback(page);
+      ipcRenderer.on('windows-files:search', listener);
+      return () => ipcRenderer.removeListener('windows-files:search', listener);
+    },
+    /** Билет и имена последнего настоящего перетаскивания из Windows; пути страница не получает. */
+    takeDrop: () => lastDrop && Date.now() - lastDrop.at < 5 * 60_000 ? { ticket: lastDrop.ticket, names: lastDrop.names } : null,
   },
   localOffice: {
     invoke: (request: unknown) => ipcRenderer.invoke('windows-office:invoke', request),

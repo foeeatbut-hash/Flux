@@ -197,15 +197,21 @@ const LEGACY: Record<string, number> = {
   // карточки — в CardActions, панель дублей — в DuplicatesPanel, геометрия и
   // раскладка — в lib/tagLayout, вкладки «Спецификация» и «Подбор» — в
   // SpecTable и SegmentCollectorTab, карточка тега, шапка, управление холстом и
-  // его меню — в свои компоненты: планка ниже. Дальше — docs/refactor/registry.md
-  'src/screens/Registry.tsx': 3670,
+  // его меню, карточка доски (BoardCard), строка быстрого создания
+  // (QuickCreateBar + useQuickCreate) — в свои компоненты; загрузка тегов,
+  // разбор текста и операции над деревом — в хуки useRegistryTags,
+  // useTagExtractor, useTagTreeOps: планка ниже.
+  // Дальше — docs/refactor/registry.md
+  'src/screens/Registry.tsx': 2719,
   // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
   // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
   // догоняющая миграция SQLite — в server/localSchema.ts
   'server.ts': 1522,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
-  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx: планка ниже
-  'src/screens/Explorer.tsx': 2362,
+  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx, диалоги
+  // оборудования и ВДР, панель просмотра и боковая панель — в свои
+  // компоненты: планка ниже
+  'src/screens/Explorer.tsx': 2137,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
 };

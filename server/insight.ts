@@ -72,7 +72,7 @@ export interface VdrLite {
   vdrCode: string; revision: string; status: string; tagCodes: string[];
   docId: string | null; issueDate: string | null; dueDate: string | null;
 }
-export interface NoteLite { id: string; title: string; text: string }
+export interface NoteLite { id: string; title: string; text: string; updatedAt?: string | null }
 export interface MailLite {
   id: string; accountId: string; folderId: string; threadKey: string;
   subject: string; from: string; text: string; sentAt: string | null;
@@ -189,7 +189,7 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     prisma.docRegister.findMany({ where: { projectId }, include: { items: true } }).catch(() => []),
     prisma.userNote.findMany({
       where: { OR: [{ ownerId: uid }, { ownerId: null }] },
-      select: { id: true, title: true, content: true }, take: 300,
+      select: { id: true, title: true, content: true, updatedAt: true }, take: 300,
     }).catch(() => []),
     // Переписка — личная. Берём только то, что этот человек и так видит: свои
     // сообщения, адресованные ему и группы, где он состоит. Иначе панель
@@ -298,7 +298,7 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
       updatedAt: f.updatedAt ? new Date(f.updatedAt).toISOString() : null,
     })),
     vdr,
-    notes: (notes || []).map((n: any) => ({ id: n.id, title: String(n.title || ''), text: noteText(n.content || '') })),
+    notes: (notes || []).map((n: any) => ({ id: n.id, title: String(n.title || ''), text: noteText(n.content || ''), updatedAt: n.updatedAt ? new Date(n.updatedAt).toISOString() : null })),
     mail: (mail || []).map((m: any) => ({
       id: m.id, accountId: m.accountId, folderId: m.folderId, threadKey: String(m.threadKey || ''),
       subject: String(m.subject || ''),
@@ -405,14 +405,11 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
           route: fileRoute(f),
         })),
       },
-      {
-        id: 'vdr', title: 'Реестр ВДР', hint: 'Строки, выпускаемые на это оборудование',
-        links: snap.vdr.filter(v => v.tagCodes.some(c => c === code) || mentions(v.titleRu, code)).map(v => ({
-          kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
-          subtitle: `${v.registerName} · рев. ${v.revision}`,
-          route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
-        })),
-      },
+      // Группы «Реестр ВДР» у тега нет: связь ВДР с тегом держится на коде строкой
+      // (DocRegisterItem.equipmentTags), и переименование тега её рвёт. Владелец
+      // 6 октября 2026: «пока отключим связь с ВДР». Вернуть — когда связь пойдёт
+      // по id тега. Данные equipmentTags не тронуты. У файла ВДР-группа остаётся:
+      // там связь идёт по названию файла, а не по коду тега.
       {
         id: 'mail', title: 'Почта', hint: 'Письма, где встречается обозначение',
         links: snap.mail.filter(m => mentions(m.text, code)).slice(0, 25).map(m => ({

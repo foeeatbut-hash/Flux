@@ -74,6 +74,8 @@ async function main() {
       const child = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], { cwd: root, env: { ...process.env,
         PORT: String(port + index), FLUX_LISTEN_HOST: '127.0.0.1', NODE_ENV: 'production', VENT_APP_DATA: dir,
         FLUX_DIAGNOSTICS_DIR: path.join(dir, 'diagnostics'), FLUX_TEST_LICENSE: '1', FLUX_TEST_LICENSE_AUTO: '1', FLUX_TEST_OWNER: '1',
+        // Flux Play отключён без этого признака (play/enabled.ts), а набор проверяет именно его
+        FLUX_PLAY: '1',
       }, stdio: ['ignore', 'pipe', 'pipe'] });
       child.stdout?.pipe(log); child.stderr?.pipe(log);
       servers.push(child);

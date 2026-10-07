@@ -88,7 +88,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
       const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-      const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks));
+      const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id });
 
       res.json({
         success: true,

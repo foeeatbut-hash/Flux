@@ -1,27 +1,26 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
-import { ArrowUpDown, FileSpreadsheet, FileText, Folder, FolderPlus,
+import { ArrowUpDown, Folder,
   Monitor, MoreVertical, Palette, RefreshCw, Rows3, Shapes, Trash2, ExternalLink } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
-import { blankBytes } from '../../lib/blankFiles';
 import type { ShellDesktopSnapshot, ShellDesktopItem, ShellDesktopBridge } from '../../../filesystem/shellDesktop';
 import FileShareDialog from '../explorer/FileShareDialog';
 import { useStore } from '../../store/store';
 import { sharedSourceHref } from '../../services/fileSharingService';
 import {
-  bytesToBase64, fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
+  fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
 } from '../../lib/windowsFiles';
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
-import { zip } from '../../../feedback/zip';
+import { useCreatePanel } from '../files/CreatePanel';
+import { isCreated } from '../files/createEntry';
 
 type Cell = { col: number; row: number };
 type DesktopItem =
   | { id: string; kind: 'file'; entry: WindowsFileEntry }
   | { id: string; kind: 'shell'; item: ShellDesktopItem };
-type CreateKind = 'windows-folder' | 'windows-doc' | 'windows-sheet' | 'windows-text' | 'flux-folder' | 'flux-doc' | 'flux-sheet' | 'flux-text' | 'flux-archive';
 const LAYOUT_PREFIX = 'flux_windows_desktop_cells_v1:';
 const CELL_WIDTH = 104;
 const CELL_HEIGHT = 100;
@@ -82,7 +81,6 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const addToast = useToastStore((state) => state.addToast);
   const userId = useStore((state) => state.user?.id);
   const areaRef = React.useRef<HTMLDivElement>(null);
-  const nameRef = React.useRef<HTMLInputElement>(null);
   const [root, setRoot] = React.useState<WindowsRoot | null>(null);
   const [entries, setEntries] = React.useState<WindowsFileEntry[]>([]);
   const [shellDesktop, setShellDesktop] = React.useState<ShellDesktopSnapshot | null>(null);
@@ -92,8 +90,6 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const [selected, setSelected] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
-  const [creating, setCreating] = React.useState<CreateKind | null>(null);
-  const [name, setName] = React.useState('');
   const [menu, setMenu] = React.useState<{ x: number; y: number; itemId: string | null } | null>(null);
   const [sortBy, setSortBy] = React.useState<'name' | 'type' | 'modified'>('name');
   const [iconScale, setIconScale] = React.useState<'small' | 'medium' | 'large'>('medium');
@@ -171,9 +167,6 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     return () => { alive = false; off(); void windowsFilesRequest({ action: 'unwatch', ref }); };
   }, [root?.id, refresh]);
   React.useEffect(() => {
-    if (creating) nameRef.current?.focus();
-  }, [creating]);
-  React.useEffect(() => {
     const api = shellBridge();
     if (!api) { setShellDesktop({ status: 'unsupported', message: 'Native shell bridge unavailable', revision: 'unavailable', items: [], view: null }); return; }
     let alive = true;
@@ -244,65 +237,16 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     return result.data;
   };
 
-  const beginCreate = (kind: CreateKind) => {
-    setMenu(null);
-    const defaults: Record<CreateKind, string> = {
-      'windows-folder': 'Новая папка', 'windows-doc': 'Новый документ.docx',
-      'windows-sheet': 'Новая таблица.xlsx', 'windows-text': 'Новый текстовый документ.txt',
-      'flux-folder': 'Новая папка', 'flux-doc': 'Новый документ.docx',
-      'flux-sheet': 'Новая таблица.xlsx', 'flux-text': 'Новый текстовый документ.txt',
-      'flux-archive': 'Новый архив.zip',
-    };
-    setName(defaults[kind]);
-    setCreating(kind);
-  };
-
-  const create = async () => {
-    if (!root || !creating) return;
-    const cleanName = name.trim();
-    if (!cleanName || /[\\/:*?"<>|]/u.test(cleanName)) { addToast('Укажите имя без символов \\/ : * ? " < > |', 'error'); return; }
-    const parent = ROOT_REF(root.id);
-    try {
-      if (creating === 'windows-folder') {
-        const result = await invoke({ action: 'mkdir', parent, name: cleanName });
-        if (result) { setCreating(null); await refresh(root.id); addToast('Папка создана на рабочем столе Windows', 'success'); }
-        return;
-      }
-      const inFlux = creating.startsWith('flux-');
-      if (creating.endsWith('folder')) {
-        const result = await invoke({ action: 'createDraftFolder', parent, name: cleanName });
-        if (result) { setCreating(null); await refresh(root.id); addToast('Папка создана в Flux. Опубликуйте её в Windows, когда будете готовы.', 'success'); }
-        return;
-      }
-      const kind = creating.endsWith('doc') ? 'doc' : creating.endsWith('sheet') ? 'sheet' : null;
-      const extension = creating.endsWith('doc') ? '.docx' : creating.endsWith('sheet') ? '.xlsx' : creating.endsWith('archive') ? '.zip' : '.txt';
-      const finalName = cleanName.toLowerCase().endsWith(extension) ? cleanName : `${cleanName}${extension}`;
-      const bytes = kind ? await blankBytes(kind) : creating.endsWith('archive') ? zip([]) : new TextEncoder().encode('');
-      let result: any;
-      // Windows creations publish immediately. Flux creations stay recoverable
-      // in the local draft store until the user explicitly publishes them.
-      // Документы публикуются в выбранной папке Windows, поэтому остаются
-      // обычными файлами и получают значок программы, назначенной в системе.
-      const draft = await invoke({ action: 'createDraft', parent, name: finalName, base64: bytesToBase64(bytes) }) as { ref?: WindowsFileRef } | null;
-      if (!draft?.ref) return;
-      if (inFlux) {
-        setCreating(null); await refresh(root.id); addToast('Черновик создан в Flux.', 'success'); return;
-      }
-      result = await invoke({ action: 'publishDraft', ref: draft.ref });
-      result = result as { ref?: WindowsFileRef } | null;
-      if (result?.ref) {
-        setCreating(null);
-        await refresh(root.id);
-        navigate(fileRefHref(result.ref));
-        addToast('Файл создан на рабочем столе Windows', 'success');
-      } else {
-        // Публикация могла завершиться ошибкой после создания черновика; он
-        // остаётся видимым, чтобы повторная попытка не затёрла пользовательские данные.
-        setCreating(null);
-        await refresh(root.id);
-      }
-    } catch (cause: any) { addToast(cause?.message || 'Не удалось создать файл', 'error'); }
-  };
+  // Создание — общий код с Проводником (components/files). Рабочий стол решает
+  // только, что сделать после: перечитать стол и открыть новый файл Windows.
+  const panel = useCreatePanel({
+    parent: root ? ROOT_REF(root.id) : null,
+    where: 'на рабочем столе Windows',
+    onCreated: async (outcome) => {
+      await refresh(root!.id);
+      if (isCreated(outcome) && outcome.place === 'windows' && outcome.kind !== 'folder' && outcome.ref) navigate(fileRefHref(outcome.ref));
+    },
+  });
 
   const doProperties = async (entry: WindowsFileEntry) => {
     if (!root) return;
@@ -381,7 +325,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
       </div>
       </div>
 
-      {creating && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(null); }}><div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface"><h2 id="windows-create-title" className="text-lg font-semibold">{creating.startsWith('flux-') ? (creating.endsWith('folder') ? 'Новая папка Flux' : creating.endsWith('archive') ? 'Новый архив Flux' : 'Новый файл Flux') : creating === 'windows-folder' ? 'Новая папка Windows' : 'Новый файл Windows'}</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{creating.startsWith('flux-') ? 'Объект сохранится только в Flux. Позже его можно сохранить в Windows.' : 'Объект появится в настоящем каталоге Windows.'}</p><label className="mt-4 block text-sm">Имя<input ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); if (event.key === 'Escape') setCreating(null); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCreating(null)} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button><button type="button" onClick={() => void create()} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button></div></div></div>}
+      {panel.element}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={current?.kind === 'file' ? [
         { label: current.entry.kind === 'directory' ? 'Открыть папку' : 'Открыть в Flux', icon: <ExternalLink />, onClick: () => openItem(current) },
@@ -404,19 +348,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
           ...([{ key: 'name', label: 'По имени' }, { key: 'type', label: 'По типу' }, { key: 'modified', label: 'По дате изменения' }] as const).map(({ key, label }) => ({ label, checked: sortBy === key, onClick: () => arrange(key) })),
         ] },
         { label: 'Обновить', icon: <RefreshCw />, onClick: () => { setMenu(null); void refresh(root?.id); } },
-        { label: 'Создать Windows', icon: <FolderPlus />, items: [
-          { label: 'Папку', icon: <Folder />, onClick: () => beginCreate('windows-folder') },
-          { label: 'Документ Word', icon: <FileText />, onClick: () => beginCreate('windows-doc') },
-          { label: 'Книгу Excel', icon: <FileSpreadsheet />, onClick: () => beginCreate('windows-sheet') },
-          { label: 'Текстовый файл', icon: <FileText />, onClick: () => beginCreate('windows-text') },
-        ] },
-        { label: 'Создать в Flux', icon: <FolderPlus />, items: [
-          { label: 'Папку', icon: <Folder />, onClick: () => beginCreate('flux-folder') },
-          { label: 'Документ Word', icon: <FileText />, onClick: () => beginCreate('flux-doc') },
-          { label: 'Книгу Excel', icon: <FileSpreadsheet />, onClick: () => beginCreate('flux-sheet') },
-          { label: 'Текстовый файл', icon: <FileText />, onClick: () => beginCreate('flux-text') },
-          { label: 'Архив ZIP', icon: <Folder />, onClick: () => beginCreate('flux-archive') },
-        ] },
+        ...panel.sections(),
         { label: 'Параметры экрана', icon: <Monitor />, onClick: () => navigate('/settings?section=general#monitors') },
         { label: 'Персонализация', icon: <Palette />, onClick: () => navigate('/settings?section=general#appearance') },
       ]} />}

@@ -48,7 +48,6 @@ const check = (name: string, value: unknown) => { assert.ok(value, name); checks
     monoblock: { findUnique: async ({ where }: any) => ({ system: { projectId: `p-mono-${where.id}` } }) },
     folder: { findUnique: async ({ where }: any) => ({ projectId: `p-folder-${where.id}` }) },
     fileNode: { findUnique: async ({ where }: any) => ({ folder: { projectId: `p-file-${where.id}` } }) },
-    docFormula: { findUnique: async ({ where }: any) => ({ projectId: `p-formula-${where.id}` }) },
     constructorDoc: { findUnique: async ({ where }: any) => ({ projectId: `p-constructor-${where.id}` }) },
     importBatch: { findUnique: async ({ where }: any) => ({ projectId: `p-import-${where.id}` }) },
     chatGroup: { findUnique: async ({ where }: any) => ({ projectId: `p-chat-${where.id}` }) },
@@ -64,15 +63,14 @@ const check = (name: string, value: unknown) => { assert.ok(value, name); checks
     projectsOfEntity(prisma, { kind: 'monoblock', id: 'm1' }),
     projectsOfEntity(prisma, { kind: 'folder', id: 'd1' }),
     projectsOfEntity(prisma, { kind: 'file', id: 'f1' }),
-    projectsOfEntity(prisma, { kind: 'formula', id: 'f1' }),
     projectsOfEntity(prisma, { kind: 'constructor', id: 'd1' }),
     projectsOfEntity(prisma, { kind: 'importBatch', id: 'b1' }),
     projectsOfEntity(prisma, { kind: 'chatGroup', id: 'g1' }),
     projectsOfEntity(prisma, { kind: 'historyBatch', id: 'batch' }),
   ]);
   check('каждый тип сущности разрешается в проект по серверной связи', mappings.map(x => x[0]).join(',') ===
-    'p-tag,p-equipment,p-system-s1,p-mono-m1,p-folder-d1,p-file-f1,p-formula-f1,p-constructor-d1,p-import-b1,p-chat-g1,p-history');
-  check('история оборудования дедуплицирует повторяющиеся проекты', mappings[10].length === 1);
+    'p-tag,p-equipment,p-system-s1,p-mono-m1,p-folder-d1,p-file-f1,p-constructor-d1,p-import-b1,p-chat-g1,p-history');
+  check('история оборудования дедуплицирует повторяющиеся проекты', mappings[9].length === 1);
   check('отсутствующая сущность не даёт выдуманный проект', (await projectsOfEntity({ tag: { findUnique: async () => null } }, { kind: 'tag', id: 'missing' })).length === 0);
   check('проверка использует запрошенный ID для чтения сущности', calls.includes('component:c1'));
   console.log(`${checks} проверок пройдено`);

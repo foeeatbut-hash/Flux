@@ -32,6 +32,7 @@ import { useDisplayStore } from './store/displayStore';
 import { SECTIONS } from './workspace/sections';
 import { mayClose } from './lib/closeGuard';
 import PlayInviteWatcher from './play/InviteWatcher';
+import { playEnabled } from '../play/enabled';
 import OwnedFileShareSync from './components/explorer/OwnedFileShareSync';
 
 function ScreenLoader() {
@@ -399,7 +400,7 @@ export default function App() {
             <ServerGate>
               <LicenseGate>
                 <AnimatedRoutes />
-                <PlayInviteWatcher />
+                {playEnabled() && <PlayInviteWatcher />}
                 <TagNavigationPanel />
                 <AutomaticIncidentWatcher />
                 <OwnedFileShareSync />

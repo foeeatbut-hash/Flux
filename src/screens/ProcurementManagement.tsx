@@ -18,6 +18,7 @@ import { countOf } from '../lib/plural';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { SectionHead, Tabs, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
 import NoProject from '../components/NoProject';
+import { saveProcurement, rememberVersions } from '../components/registry/tagWrite';
 
 import { useShallow } from 'zustand/react/shallow';
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
@@ -357,19 +358,14 @@ function ProcurementTab() {
   }, [viewMode, tags, rowsById, rowMatchesFilters]);
 
   // ── Сохранение и смена этапов ───────────────────────────────────────────────
-  const saveProc = async (tag: any, meta: any, proc: ProcurementInfo) => {
+  // Пишется только ключ procurement, отдельным запросом: копия тега у экрана
+  // устаревает, и целиком она стирала бы комментарии, добавленные в «Тегах».
+  // Конфликт версии (тег изменили, пока экран был открыт) saveProcurement сам
+  // превращает в свежую копию и подсказку «повторите правку».
+  const saveProc = async (tag: any, meta: any, proc: ProcurementInfo): Promise<boolean> => {
     const newMeta = { ...meta, procurement: proc };
     setTags(prev => prev.map(t => t.id === tag.id ? { ...t, metadata: JSON.stringify(newMeta), parsedMetadata: undefined, __procMeta: undefined } : t));
-    try {
-      await fetch(`/api/tags/${tag.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: JSON.stringify(newMeta) })
-      });
-    } catch (err) {
-      console.error('Failed to save procurement info:', err);
-      addToast('Не удалось сохранить изменения', 'error');
-    }
+    return saveProcurement(tag, proc, { setTags, addToast });
   };
 
   // Установка этапа одной позиции (с датами промежуточных этапов).
@@ -399,8 +395,9 @@ function ProcurementTab() {
   const setStage = async (row: Row, targetIdx: number) => {
     // Повторный клик по текущему этапу — откат на шаг назад
     const finalIdx = (targetIdx === row.stageIdx && targetIdx > 0) ? targetIdx - 1 : targetIdx;
-    await saveProc(row.tag, row.meta, applyStage(row, finalIdx));
-    if (finalIdx !== row.stageIdx) {
+    // Конфликт версии уже показал свой тост; «этап установлен» поверх него было бы неправдой
+    const saved = await saveProc(row.tag, row.meta, applyStage(row, finalIdx));
+    if (saved && finalIdx !== row.stageIdx) {
       addToast(`«${row.tag.identifier}»: этап «${row.stages[finalIdx]?.label}»`, finalIdx > row.stageIdx ? 'success' : 'info');
     }
   };
@@ -412,16 +409,19 @@ function ProcurementTab() {
   const setStageBulk = async (targetIdx: number) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    const updates: { id: string; metadata: string }[] = [];
+    // На сервер уходит один ключ procurement (и source «Закупки», который не даёт
+    // записать ничего другого); локально — полная копия для мгновенного отклика
+    const updates: { id: string; metadata: { procurement: ProcurementInfo } }[] = [];
+    const metaById = new Map<string, string>();
     for (const id of ids) {
       const row = rowsById[id];
       if (!row) continue;
       const idx = Math.min(targetIdx, row.stages.length - 1);
-      const newMeta = { ...row.meta, procurement: applyStage(row, idx) };
-      updates.push({ id, metadata: JSON.stringify(newMeta) });
+      const proc = applyStage(row, idx);
+      updates.push({ id, metadata: { procurement: proc } });
+      metaById.set(id, JSON.stringify({ ...row.meta, procurement: proc }));
     }
     // Мгновенное локальное обновление
-    const metaById = new Map(updates.map(u => [u.id, u.metadata]));
     setTags(prev => prev.map(t => metaById.has(t.id)
       ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
       : t));
@@ -429,9 +429,10 @@ function ProcurementTab() {
       const res = await fetch('/api/tags/bulk-metadata', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
+        body: JSON.stringify({ updates, source: 'Закупки' }),
       });
       if (!res.ok) throw new Error('bulk update failed');
+      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
       addToast(`Этап установлен для позиций: ${updates.length}`, 'success');
     } catch (err) {
       console.error('Bulk stage update failed:', err);
@@ -444,16 +445,17 @@ function ProcurementTab() {
   const setTemplateBulk = async (templateId: string) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    const updates: { id: string; metadata: string }[] = [];
+    const updates: { id: string; metadata: { procurement: ProcurementInfo } }[] = [];
+    const metaById = new Map<string, string>();
     for (const id of ids) {
       const row = rowsById[id];
       if (!row) continue;
       const proc = normalizeProc(row.proc);
       if (templateId) proc.templateId = templateId;
       else delete proc.templateId;
-      updates.push({ id, metadata: JSON.stringify({ ...row.meta, procurement: proc }) });
+      updates.push({ id, metadata: { procurement: proc } });
+      metaById.set(id, JSON.stringify({ ...row.meta, procurement: proc }));
     }
-    const metaById = new Map(updates.map(u => [u.id, u.metadata]));
     setTags(prev => prev.map(t => metaById.has(t.id)
       ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
       : t));
@@ -461,9 +463,10 @@ function ProcurementTab() {
       const res = await fetch('/api/tags/bulk-metadata', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
+        body: JSON.stringify({ updates, source: 'Закупки' }),
       });
       if (!res.ok) throw new Error('bulk template failed');
+      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
       const name = templateId === DEFAULT_TEMPLATE_ID ? 'Стандартный'
         : templateId === '' ? 'Автоматически (по правилам)'
         : (templates.find(t => t.id === templateId)?.name || templateId);

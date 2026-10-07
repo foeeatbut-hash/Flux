@@ -301,19 +301,6 @@ export default function Dashboard() {
     return b.getDate() === n.getDate() && b.getMonth() === n.getMonth();
   }, [user]);
 
-  // Фон можно выключить: на слабой машине и в режиме сосредоточенной работы
-  // движение за плитками мешает.
-  const [backdropOn, setBackdropOn] = useState<boolean>(() => {
-    try { return localStorage.getItem('flux_backdrop') !== '0'; } catch { return true; }
-  });
-  useEffect(() => {
-    const onChange = () => {
-      try { setBackdropOn(localStorage.getItem('flux_backdrop') !== '0'); } catch (_) {}
-    };
-    window.addEventListener('flux:backdrop-changed', onChange);
-    return () => window.removeEventListener('flux:backdrop-changed', onChange);
-  }, []);
-
   const openSticker = (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
     const win = window as any;
@@ -345,16 +332,12 @@ export default function Dashboard() {
   return (
     <>
       {/* Фон под плитками: время года и время суток, в день рождения — праздник */}
-      {backdropOn && (
-        <>
-          <SeasonalBackdrop birthday={isBirthday} className="absolute inset-0 z-0" />
-          {/* Дымка поверх неба. Без неё небо спорит с текстом: заголовок и
-              мелкие подписи ложатся прямо на градиент и теряют контраст. */}
-          <div aria-hidden className="absolute inset-0 z-0 pointer-events-none
-            bg-gradient-to-b from-white/55 via-white/25 to-white/65
-            dark:from-dark-bg/60 dark:via-dark-bg/30 dark:to-dark-bg/70" />
-        </>
-      )}
+      <SeasonalBackdrop birthday={isBirthday} className="absolute inset-0 z-0" />
+      {/* Дымка поверх неба. Без неё небо спорит с текстом: заголовок и
+          мелкие подписи ложатся прямо на градиент и теряют контраст. */}
+      <div aria-hidden className="absolute inset-0 z-0 pointer-events-none
+        bg-gradient-to-b from-white/55 via-white/25 to-white/65
+        dark:from-dark-bg/60 dark:via-dark-bg/30 dark:to-dark-bg/70" />
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}

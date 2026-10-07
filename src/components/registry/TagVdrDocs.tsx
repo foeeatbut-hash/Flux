@@ -1,6 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// ОТКЛЮЧЁН (решение владельца, 6 октября 2026): карточка тега его не подключает.
+// Связь ВДР с тегом держится на коде строкой (DocRegisterItem.equipmentTags), и
+// переименование тега её рвёт. Вернуть можно, когда связь пойдёт по id тега.
+// Файл не удалён намеренно — это готовый вид списка для возврата.
+//
 // ── Документы ВДР по тегу: тег — главный у строки реестра ──
 // Показывается в карточке тега; клик — переход к строке в Менеджмент → ВДР.
 export default function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: string }) {

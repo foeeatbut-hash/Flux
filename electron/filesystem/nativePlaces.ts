@@ -9,6 +9,11 @@ export interface NativeWindowsVolume {
   networkPath?: string;
   size: number | null;
   free: number | null;
+  /** Метка тома как её показывает Проводник; у тома без метки — название по типу диска. */
+  label: string;
+  letter: string;
+  used: number | null;
+  fileSystem?: string;
 }
 
 type CimVolume = {
@@ -18,15 +23,21 @@ type CimVolume = {
   providerName?: unknown;
   size?: unknown;
   freeSpace?: unknown;
+  fileSystem?: unknown;
 };
 
 const VOLUME_SCRIPT = [
-  "$ErrorActionPreference='Stop'; $rows = Get-CimInstance -ClassName Win32_LogicalDisk | Where-Object { $_.DriveType -in @(2,3,4,5,6) } | Select-Object @{Name='path';Expression={$_.DeviceID + '\\'}},@{Name='label';Expression={$_.VolumeName}},@{Name='driveType';Expression={$_.DriveType}},@{Name='providerName';Expression={$_.ProviderName}},@{Name='size';Expression={$_.Size}},@{Name='freeSpace';Expression={$_.FreeSpace}}",
+  "$ErrorActionPreference='Stop'; $rows = Get-CimInstance -ClassName Win32_LogicalDisk | Where-Object { $_.DriveType -in @(2,3,4,5,6) } | Select-Object @{Name='path';Expression={$_.DeviceID + '\\'}},@{Name='label';Expression={$_.VolumeName}},@{Name='driveType';Expression={$_.DriveType}},@{Name='providerName';Expression={$_.ProviderName}},@{Name='size';Expression={$_.Size}},@{Name='freeSpace';Expression={$_.FreeSpace}},@{Name='fileSystem';Expression={$_.FileSystem}}",
   '$rows | ConvertTo-Json -Compress',
 ].join('; ');
 
 const DRIVE_KINDS: Record<number, NativeWindowsVolumeKind> = {
   2: 'removable', 3: 'fixed', 4: 'network', 5: 'optical', 6: 'ram',
+};
+
+// Названия, которые Проводник Windows на русском показывает у тома без метки.
+const DEFAULT_LABELS: Record<NativeWindowsVolumeKind, string> = {
+  fixed: 'Локальный диск', removable: 'Съёмный диск', network: 'Сетевой диск', optical: 'CD-дисковод', ram: 'RAM-диск',
 };
 
 function finiteNumber(value: unknown): number | null {
@@ -55,12 +66,19 @@ export function parseWindowsLogicalDisks(raw: string): NativeWindowsVolume[] {
     const id = `native:${path.slice(0, 2).toLocaleLowerCase('en-US')}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    const label = typeof row.label === 'string' ? row.label.trim() : '';
+    const given = typeof row.label === 'string' ? row.label.trim() : '';
     const provider = typeof row.providerName === 'string' ? row.providerName.trim() : '';
+    const share = kind === 'network' ? /^\\\\([^\\]+)\\([^\\]+)/u.exec(provider) : null;
+    // Сетевой диск без метки Windows подписывает общей папкой: «projects (\\server)».
+    const label = given || (share ? `${share[2]} (\\\\${share[1]})` : DEFAULT_LABELS[kind]);
+    const letter = path.slice(0, 2).toLocaleUpperCase('en-US');
+    const size = finiteNumber(row.size), free = finiteNumber(row.freeSpace);
+    const fileSystem = typeof row.fileSystem === 'string' && /^[A-Za-z0-9 ._-]{1,16}$/u.test(row.fileSystem.trim()) ? row.fileSystem.trim() : '';
     volumes.push({
-      id, path, name: label ? `${label} (${path.slice(0, 2)})` : path.slice(0, 2), kind,
-      ...(kind === 'network' && /^\\\\[^\\]+\\[^\\]+/u.test(provider) ? { networkPath: provider } : {}),
-      size: finiteNumber(row.size), free: finiteNumber(row.freeSpace),
+      id, path, label, letter, name: `${label} (${letter})`, kind,
+      ...(share ? { networkPath: provider } : {}),
+      size, free, used: size !== null && free !== null && free <= size ? size - free : null,
+      ...(fileSystem ? { fileSystem } : {}),
     });
   }
   return volumes.sort((a, b) => a.path.localeCompare(b.path, 'en', { numeric: true }));

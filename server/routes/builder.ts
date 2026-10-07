@@ -4,6 +4,7 @@ import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { planTagLinks, type TagLink } from '../equipmentTags.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
+import { TAG_SOURCE, tagChangeContext, recordChangeSets, createdSet, deletedSet, type TagChangeSet } from '../tagHistory.js';
 
 /**
  * Конструктор: ведомости подбора оборудования по проекту.
@@ -289,7 +290,10 @@ export function registerBuilderRoutes(app: Express): void {
       const snap = parse<{ rows: any[]; created: string[]; createdTags?: string[] }>(batch.beforeJson, { rows: [], created: [] });
       const keptTags: string[] = [];
       let removedTags = 0;
+      // Что удалено — в историю тегов, но после транзакции: сбой записи журнала не должен откатывать отмену
+      const gone: TagChangeSet[] = [];
       await prisma.$transaction(async (tx: any) => {
+        gone.length = 0;
         for (const r of snap.rows) {
           const { id, createdAt, updatedAt, ...fields } = r;
           await tx.selectionItem.update({ where: { id }, data: { ...fields, deletedAt: r.deletedAt ? new Date(r.deletedAt) : null } });
@@ -310,10 +314,12 @@ export function registerBuilderRoutes(app: Express): void {
           const usedElsewhere = await tx.selectionItem.count({ where: { deletedAt: null, dataJson: { contains: tagId }, id: { notIn: snap.rows.map((r) => r.id) } } });
           if (tag.componentElements.length || tag.mainFiles.length || tag.additionalFiles.length || tag.equipmentId || usedElsewhere) { keptTags.push(tag.identifier); continue; }
           await tx.tag.delete({ where: { id: tagId } });
+          gone.push(deletedSet(tag));
           removedTags++;
         }
         await tx.selectionBatch.update({ where: { id: batch.id }, data: { undone: true } });
       }, TX_LONG);
+      await recordChangeSets(prisma, tagChangeContext(req, batch.projectId || '', TAG_SOURCE.builder), gone);
       broadcast('builder:list', { listId: batch.listId });
       res.json({ ok: true, listId: batch.listId, removedTags, keptTags });
     } catch (err: any) { sendError(res, err); }
@@ -418,10 +424,12 @@ export function registerBuilderRoutes(app: Express): void {
       const before: any[] = [];
       const byItem = new Map<string, Record<string, string>>();
       const createdTags: string[] = [];
+      const born: TagChangeSet[] = [];
       const refused: string[] = [];
       let batchId = '';
       let linked = 0;
       await prisma.$transaction(async (tx: any) => {
+        born.length = 0;
         for (const l of links) {
           const row = items.get(l.blockKey);
           if (!row || (l.action !== 'link' && l.action !== 'create' && l.action !== 'ambiguous')) continue;
@@ -443,7 +451,10 @@ export function registerBuilderRoutes(app: Express): void {
             const dup = await tx.tag.findFirst({ where: { projectId: list.projectId, identifier: l.identifier } });
             const brand = parse<any>(row.dataJson, {}).designation || null;
             if (dup) { tagId = dup.id; linked++; }
-            else { tagId = (await tx.tag.create({ data: { projectId: list.projectId, identifier: l.identifier, brand } })).id; createdTags.push(tagId); }
+            else {
+              const made = await tx.tag.create({ data: { projectId: list.projectId, identifier: l.identifier, brand } });
+              tagId = made.id; createdTags.push(tagId); born.push(createdSet(made));
+            }
           } else {
             refused.push(`«${l.identifier}» совпадает с несколькими тегами проекта — выберите нужный`);
             continue;
@@ -462,6 +473,7 @@ export function registerBuilderRoutes(app: Express): void {
           batchId = (await tx.selectionBatch.create({ data: { listId: list.id, projectId: list.projectId, title: 'Связь с тегами проекта', beforeJson: JSON.stringify({ rows: before, created: [], createdTags }), createdById: me(req)?.id || null } })).id;
         }
       }, TX_LONG);
+      await recordChangeSets(prisma, tagChangeContext(req, list.projectId, TAG_SOURCE.builder), born);
       broadcast('builder:list', { listId: list.id });
       res.json({ created: createdTags.length, linked, refused, batchId: batchId || null });
     } catch (err: any) { sendError(res, err); }

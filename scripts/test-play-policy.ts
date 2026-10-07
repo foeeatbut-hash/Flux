@@ -157,5 +157,27 @@ console.log('\n6. Правило одно на окно и на сервер');
   ok('сервер берёт решение оттуда же', read('server/play/access.ts').includes("from '../../play/policy.js'"));
 }
 
+console.log('\n7. Платформа отключена без FLUX_PLAY=1');
+{
+  // Flux Play выносят в отдельную portable-программу; пока обычная сборка его
+  // не показывает и не запускает. Признак один — play/enabled.ts, и места,
+  // которые он включает, не должны разъехаться: живая половина платформы без
+  // второй хуже, чем обе выключенные
+  const enabled = read('play/enabled.ts');
+  ok('признак читает FLUX_PLAY=1', enabled.includes("FLUX_PLAY === '1'"));
+  const server = read('server.ts');
+  const gate = server.indexOf('if (playEnabled()) {');
+  const calls = ['registerPlayAccess(app)', 'registerPlayDiagnostics(app)', 'registerPlayRoutes(app)', 'startPlayOutbox()', 'startPresenceSweep()'];
+  ok('маршруты, заслон, очередь и уборка — внутри признака', gate > 0 && calls.every((c) => server.indexOf(c) > gate), gate);
+  ok('сокет платформы — только при признаке', /playEnabled\(\)\s*\)\s*attachPlaySocket/.test(read('server/sockets.ts')) || /playEnabled\(\)\s*&&\s*uid|uid\s*&&\s*playEnabled\(\)\)\s*attachPlaySocket/.test(read('server/sockets.ts')));
+  ok('менеджер игр Electron — только при признаке', /if \(playEnabled\(\)\) setupGames/.test(read('electron/main.ts')));
+  ok('окно получает признак от сборки', read('vite.config.ts').includes('__FLUX_PLAY__'));
+  ok('раздел /play стоит за признаком', /PLAY_SECTION: SectionDef\[\] = playEnabled\(\)/.test(read('src/workspace/sections.tsx')));
+  ok('наблюдатель за приглашениями — за признаком', read('src/App.tsx').includes('playEnabled() && <PlayInviteWatcher'));
+  ok('лист настроек Play — за признаком', read('src/screens/SettingsScreen.tsx').includes("playEnabled() ? [{ id: 'play'"));
+  ok('права Play в карточке сотрудника — за признаком', read('src/screens/UsersManagement.tsx').includes('const showsPlay = playEnabled() &&'));
+  ok('статья руководства — за признаком', read('src/handbook/registry.ts').includes("a.id !== 'play' || playEnabled()"));
+}
+
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);
