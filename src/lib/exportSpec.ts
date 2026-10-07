@@ -21,12 +21,19 @@
 import { buildEquipmentExchange, byTag, paramColumnKey, type ExchangeComponent, type ParamColumn } from './equipmentExchange';
 import { classById, classOrder, isClassId } from '../../equipment/classes';
 import { compareTags } from '../../equipment/notes';
+import { sanitizeSource, type E3Source } from '../../e3/attributes';
 import type { TableLayout } from './tableLayout';
 import type { ExportGrid } from './exportGrid';
 
 export type ExportOrder = 'tag' | 'class-tag' | 'unit-tag';
 
-export interface ExportColumn { key: string; label: string; unit?: string; formula?: string }
+/**
+ * Столбец выгрузки. `source` есть только у столбцов атрибутов E3 (`e3:<имя>`):
+ * откуда Flux берёт значение. Он хранится в шаблоне, а не вычисляется по
+ * справочнику: шаблон, сохранённый вчера, должен выгружать то же, что вчера,
+ * даже если справочник с тех пор поправили.
+ */
+export interface ExportColumn { key: string; label: string; unit?: string; formula?: string; source?: E3Source }
 export interface WorkbookTemplate { base64: string; baseline: ExportGrid }
 
 export interface ExportSpec {
@@ -86,9 +93,9 @@ export function specOf(raw: unknown, v1?: { role?: string; fields?: { group: str
   if (typeof r === 'string') { try { r = JSON.parse(r); } catch (_) { r = null; } }
   if (r && r.v === 2) {
     const columns = (Array.isArray(r.columns) ? r.columns : [])
-      .map((c: any) => ({ key: String(c?.key || ''), label: String(c?.label || '').trim(), unit: String(c?.unit || ''), ...(c?.formula ? { formula: String(c.formula) } : {}) }))
-      .filter((c: ExportColumn) => c.key && (c.key.startsWith('param:') || c.key.startsWith('formula:') || SERVICE_COLUMNS.some((s) => s.key === c.key)))
-      .map((c: ExportColumn) => ({ ...c, label: c.label || service(c.key)?.label || c.key.split('|').pop() || c.key }));
+      .map((c: any) => ({ key: String(c?.key || ''), label: String(c?.label || '').trim(), unit: String(c?.unit || ''), ...(c?.formula ? { formula: String(c.formula) } : {}), ...(sanitizeSource(c?.source) ? { source: sanitizeSource(c.source)! } : {}) }))
+      .filter((c: ExportColumn) => c.key && (c.key.startsWith('param:') || c.key.startsWith('formula:') || (c.key.startsWith('e3:') && c.key.length > 3) || SERVICE_COLUMNS.some((s) => s.key === c.key)))
+      .map((c: ExportColumn) => ({ ...c, label: c.label || service(c.key)?.label || (c.key.startsWith('e3:') ? c.key.slice(3) : c.key.split('|').pop()) || c.key }));
     return {
       v: 2,
       classes: strings(r.classes).filter(isClassId),
@@ -152,7 +159,7 @@ export function orderItems(items: ExchangeComponent[], order: ExportOrder): Exch
 function asColumns(spec: ExportSpec, known: ParamColumn[]): ParamColumn[] {
   return spec.columns.map((c) => {
     const k = known.find((x) => x.key === c.key);
-    return { key: c.key, label: c.label, unit: c.unit ?? k?.unit ?? '', group: k?.group || '', param: k?.param || '' };
+    return { key: c.key, label: c.label, unit: c.unit ?? k?.unit ?? '', group: k?.group || '', param: k?.param || '', ...(c.source ? { source: c.source } : {}) };
   });
 }
 

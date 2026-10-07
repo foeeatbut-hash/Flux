@@ -19,6 +19,7 @@ import type { Column } from './exchange';
 import { convert, parseNumericValue, unitInfo } from '../import/valueGrammar';
 import { compareTags } from '../../equipment/notes';
 import { classTitle, modelOf } from '../../equipment/classes';
+import type { E3Source } from '../../e3/attributes';
 
 export interface ExchangeParam { key: string; value: string; unit: string }
 export interface ExchangeGroup { title: string; params: ExchangeParam[] }
@@ -40,6 +41,8 @@ export interface ExchangeComponent {
   role?: string;
   /** Тег владельца позиции; пусто — владелец без тега или это блок */
   parentTag?: string;
+  /** Название ближайшего владельца позиции — для атрибута E3 «название узла» */
+  parentName?: string;
   /** Тег установки — главный тег, корень всей цепочки */
   unitTag?: string;
   /** Номер экземпляра, когда позиций несколько: «Вентилятор №2» */
@@ -119,6 +122,8 @@ export interface ParamColumn extends Column {
   unit: string;
   group: string;
   param: string;
+  /** Только у столбцов атрибутов E3 (`e3:<имя>`): откуда брать значение */
+  source?: E3Source;
 }
 
 /** Столбец числовой, если его единица известна онтологии. */
@@ -225,8 +230,57 @@ function inColumnUnit(
   return { text: String(rounded) };
 }
 
+/** Название характеристики для сравнения: без регистра, ё = е, пробелы схлопнуты */
+const paramName = (s: string): string => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/ё/g, 'е');
+
+/**
+ * Характеристика по названию — для атрибута E3, где разделов карточки никто
+ * не знает: «Мощность» ищется во всех разделах. Если названий несколько,
+ * берётся первое с непустым значением (ручная правка считается значением).
+ * «Раздел|Название» указывает характеристику точно.
+ */
+function paramByName(it: ExchangeComponent, name: string): { value: string; unit: string } {
+  const bar = name.indexOf('|');
+  if (bar >= 0) return paramRaw(it, name.slice(0, bar).trim(), name.slice(bar + 1).trim());
+  const want = paramName(name);
+  const found: { group: string; key: string }[] = [];
+  for (const g of it.groups || []) for (const p of g.params || []) if (p?.key && paramName(p.key) === want) found.push({ group: g.title, key: p.key });
+  // Правка есть и у характеристики, которой в разобранных группах нет
+  for (const k of Object.keys(it.overrides || {})) {
+    const at = k.indexOf('||');
+    if (at >= 0 && paramName(k.slice(at + 2)) === want && !found.some((f) => overrideKey(f.group, f.key) === k)) found.push({ group: k.slice(0, at), key: k.slice(at + 2) });
+  }
+  let first: { value: string; unit: string } | null = null;
+  for (const f of found) {
+    const raw = paramRaw(it, f.group, f.key);
+    if (raw.value) return raw;
+    first = first || raw;
+  }
+  return first || { value: '', unit: '' };
+}
+
+/**
+ * Ячейка атрибута E3. Поле берётся как у одноимённого служебного столбца —
+ * одно правило на выгрузку и на E3, иначе в Excel стоял бы один тег
+ * родителя, а в схеме другой.
+ */
+function e3Cell(it: ExchangeComponent, source: E3Source | undefined, columnUnit: string): { text: string; raw?: { value: string; unit: string }; unit?: string; problem?: string } {
+  if (!source) return { text: '' };
+  switch (source.kind) {
+    case 'field': return { text: equipmentCell(it, source.key) };
+    case 'const': return { text: source.value };
+    case 'param': {
+      const unit = columnUnit || source.unit || '';
+      const raw = paramByName(it, source.name);
+      return { ...inColumnUnit(raw, unit), raw, unit };
+    }
+    default: return { text: '' };
+  }
+}
+
 /** Значение одной ячейки. Пустое поле — пустая строка, а не «undefined» */
-export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = ''): string {
+export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '', source?: E3Source): string {
+  if (key.startsWith('e3:')) return e3Cell(it, source, columnUnit).text;
   if (key.startsWith('param:')) {
     const rest = key.slice('param:'.length);
     const bar = rest.indexOf('|');
@@ -247,6 +301,7 @@ export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '
     case 'equipType': return String(it.equipType || '');
     case 'role': return String(it.role || '');
     case 'parentTag': return String(it.parentTag || '');
+    case 'parentName': return String(it.parentName || '');
     case 'unitTag': return String(it.unitTag || '');
     case 'instanceNo': return it.instanceNo ? String(it.instanceNo) : '';
     case 'origin': return it.manual ? 'заведено вручную' : it.sourceKind === 'note' ? 'по примечанию' : 'из расчёта';
@@ -325,6 +380,15 @@ export function buildEquipmentExchange(items: ExchangeComponent[], cols: Column[
           problems.push({
             tag: (it.tags || [])[0]?.identifier || it.itemCode || it.name || '',
             column: c.label, value: raw.value, from: raw.unit, to: unit, why: cell.problem,
+          });
+        }
+        row.push(cell.text);
+      } else if (c.key.startsWith('e3:')) {
+        const cell = e3Cell(it, (c as ParamColumn).source, unit);
+        if (cell.problem && cell.raw) {
+          problems.push({
+            tag: (it.tags || [])[0]?.identifier || it.itemCode || it.name || '',
+            column: c.label, value: cell.raw.value, from: cell.raw.unit, to: cell.unit || '', why: cell.problem,
           });
         }
         row.push(cell.text);

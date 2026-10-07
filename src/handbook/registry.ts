@@ -3,6 +3,7 @@ import { WORK_ARTICLES } from './workArticles';
 import { TOPIC_ARTICLES } from './topicArticles';
 import { BUILDER_ARTICLES } from './builderArticles';
 import { NATIVE_ARTICLES } from './nativeArticles';
+import { E3_ARTICLES } from './e3Articles';
 import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type HandbookHit } from './model';
 import { resolveSectionPath } from '../lib/sectionAliases';
 import { playEnabled } from '../../play/enabled';
@@ -20,6 +21,7 @@ export const ARTICLES: HandbookArticle[] = [
   // руководство молчит так же, как Пуск
   ...WORK_ARTICLES.filter((a) => a.id !== 'play' || playEnabled()),
   ...BUILDER_ARTICLES,
+  ...E3_ARTICLES,
   ...NATIVE_ARTICLES,
   ...TOPIC_ARTICLES,
 ];

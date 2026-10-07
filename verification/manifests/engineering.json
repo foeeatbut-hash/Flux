@@ -67,6 +67,24 @@
       ]
     },
     {
+      "id": "e3flux",
+      "label": "E3Flux",
+      "routes": [
+        "/e3flux"
+      ],
+      "sources": [
+        "src/screens/E3FluxScreen.tsx",
+        "src/components/e3flux/E3ProjectTable.tsx",
+        "src/components/catalog/E3AttributesPanel.tsx",
+        "src/components/catalog/E3AttributeDialog.tsx",
+        "src/components/catalog/E3AttributesImport.tsx",
+        "e3/attributes.ts",
+        "e3/attributeWorkbook.ts",
+        "src/lib/e3Table.ts",
+        "server/routes/e3Attributes.ts"
+      ]
+    },
+    {
       "id": "builder",
       "label": "Конструктор оборудования",
       "routes": [
@@ -182,6 +200,24 @@
     {
       "id": "eng-catalog-import",
       "path": "scripts/test-catalog-import.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-attributes",
+      "path": "scripts/test-e3-attributes.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-attributes-http",
+      "path": "scripts/test-e3-attributes-http.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -1806,6 +1842,117 @@
         {
           "layer": "browser-live",
           "scenario": "В тестовом проекте выполнить действие «Передать текущую выгрузку в Таблицу Flux Office» и повторно открыть изменённые данные.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.import-attributes",
+      "program": "e3flux",
+      "label": "Загрузить справочник атрибутов E3 из Excel",
+      "sources": [
+        "src/components/catalog/E3AttributesImport.tsx",
+        "server/routes/e3Attributes.ts",
+        "e3/attributes.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "План показывает новые, изменённые и отсутствующие атрибуты до записи; запись и отмена загрузки целиком."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-attributes",
+          "layer": "unit",
+          "claims": [
+            "Разбор листа владельца, план и применение загрузки сохраняют правленое в каталоге."
+          ]
+        },
+        {
+          "suite": "eng-e3-attributes-http",
+          "layer": "unit",
+          "claims": [
+            "Запись справочника проверяет версию и права и снимает состояние до записи."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux загрузить «Список атрибутов» из Excel, проверить план, записать и отменить загрузку.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-attribute",
+      "program": "e3flux",
+      "label": "Настроить источник значения атрибута",
+      "sources": [
+        "src/components/catalog/E3AttributeDialog.tsx",
+        "server/routes/e3Attributes.ts"
+      ],
+      "triggers": [
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Источник, типы Flux и правило спора сохраняются у одного атрибута; чужая правка даёт сообщение о версии."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-attributes-http",
+          "layer": "unit",
+          "claims": [
+            "Правка одного атрибута отклоняется при устаревшей версии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть атрибут, сменить источник значения, сохранить и открыть снова.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.download-project-attributes",
+      "program": "e3flux",
+      "label": "Скачать атрибуты проекта в Excel",
+      "sources": [
+        "src/components/e3flux/E3ProjectTable.tsx",
+        "e3/attributeWorkbook.ts",
+        "src/lib/e3Table.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Строка 1 — имена E3, строка 2 — описания; атрибуты с «Да» заполнены из проекта, остальные пустые."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-attributes",
+          "layer": "unit",
+          "claims": [
+            "Книга атрибутов проекта строит листы по типам с именами E3 и описаниями."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux на проекте с оборудованием скачать Excel и открыть книгу.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]

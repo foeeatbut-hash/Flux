@@ -43,6 +43,7 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Сотрудники', '/users', true],
   ['Мессенджер', '/chat', true],
   ['Почта', '/mail', true],
+  ['E3Flux', '/e3flux', true],
 ];
 
 const PROBE = String.raw`(() => {
