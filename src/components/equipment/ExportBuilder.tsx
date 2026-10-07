@@ -1,6 +1,5 @@
 import React from 'react';
 import ExportWorkbook, { type ExportWorkbookHandle } from './ExportWorkbook';
-import ExportE3Button from './ExportE3Button';
 import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
 import { useStore } from '../../store/store';
@@ -368,8 +367,6 @@ export default function ExportBuilder({ projectId, scopes, rowsOf, say, onClose,
                     title="Поставить эти служебные столбцы; выбранные характеристики останутся">{p.title}</button>
                 ))}
               </div>
-              <ExportE3Button chosenClasses={spec.classes} scopeClasses={classCounts.map(([c]) => c)} say={say}
-                onApply={(columns, order) => setSpec((s) => ({ ...s, columns, order }))} />
               <div className="flex items-center gap-2">
                 <div className={`${label} flex-1`}>Столбцы</div>
                 {spec.columns.length > 0 && (
