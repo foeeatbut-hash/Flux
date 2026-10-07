@@ -630,13 +630,17 @@ public static class FluxShellFiles {
     Stage = "bin-restore-original";
     string original = Str(args, "path"); string folder = Path.GetDirectoryName(original), file = Path.GetFileName(original);
     DateTime after = DateTime.FromFileTimeUtc(0); object stamp;
-    if (args.TryGetValue("deletedAfter", out stamp) && (stamp is long || stamp is int || stamp is double)) after = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(Convert.ToDouble(stamp));
+    // Корзина отдаёт время удаления с точностью до секунды, а метка Flux — до миллисекунды:
+    // без запаса файл, удалённый в 55.700, записан как 55.000 и не проходит «не раньше 55.650»
+    if (args.TryGetValue("deletedAfter", out stamp) && (stamp is long || stamp is int || stamp is double)) after = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(Convert.ToDouble(stamp)).AddSeconds(-2);
     IShellItem best = null; DateTime bestTime = DateTime.MinValue;
     foreach (IShellItem child in Children(Bin(), 20000)) {
       bool keep = false;
       try {
         IShellItem2 item = (IShellItem2)child;
         string from = BinString(item, KEY_DeletedFrom); string name = Text(child, 0u);
+        // На части Windows (Server на CI) имя элемента корзины — полный исходный путь: берём последнее звено
+        if (name != null && name.IndexOf('\\') >= 0) name = Path.GetFileName(name.TrimEnd('\\'));
         DateTime? when = Deleted(item);
         // Имя в корзине может быть показано без расширения (настройка Проводника): сравнивается и так, и так.
         bool sameName = String.Equals(name, file, StringComparison.OrdinalIgnoreCase) || String.Equals(name, Path.GetFileNameWithoutExtension(file), StringComparison.OrdinalIgnoreCase);
