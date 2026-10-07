@@ -11,7 +11,7 @@
 import React, { lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks, Archive } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Gamepad2, Library, Blocks, Archive, Workflow } from 'lucide-react';
 import { APP_PLAY } from '../../play/features';
 import { playEnabled } from '../../play/enabled';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
@@ -65,6 +65,7 @@ const CalendarScreen = lazy(() => import('../screens/CalendarScreen'));
 // выбрасывает кусок вместе с загрузкой экрана
 const PlayScreen = /* @__PURE__ */ lazy(() => import('../play/PlayScreen'));
 const CatalogScreen = lazy(() => import('../screens/CatalogScreen'));
+const E3FluxScreen = lazy(() => import('../screens/E3FluxScreen'));
 const BuilderScreen = lazy(() => import('../screens/BuilderScreen'));
 const ArchivesScreen = lazy(() => import('../screens/Archives'));
 
@@ -163,6 +164,9 @@ export const SECTIONS: SectionDef[] = [
   { path: '/builder', title: 'Конструктор', icon: Blocks, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
   // Каталог — справочник оборудования программы, а не проекта
   { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
+  // E3Flux — всё про E3.series: атрибуты проекта, справочник атрибутов, дальше
+  // типовые решения и схема. Проектная область: таблица строится по проекту
+  { path: '/e3flux', title: 'E3Flux', icon: Workflow, scope: 'project', scroll: 'fixed', pad: false, Component: E3FluxScreen },
   { path: '/archives', title: 'Архив', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, Component: ArchivesScreen },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: Explorer },
   // Редакторы остаются маршрутами для существующих файлов и создания новых,

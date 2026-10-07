@@ -17,6 +17,11 @@ import {
 import { specOf, exportTable, defaultSpec } from '../src/lib/exportSpec';
 import { buildEquipmentExchange, equipmentCell, type ExchangeComponent, type ParamColumn } from '../src/lib/equipmentExchange';
 import { rowsOfSystem } from '../src/lib/equipmentRows';
+import * as XLSX from 'xlsx';
+import { e3Rows } from '../src/lib/e3Table';
+import {
+  attributeWorkbookBytes, buildAttributeSheets, isFluxColumn, isMissingCell, safeSheetName, E3_ID_HEADER, type E3Row,
+} from '../e3/attributeWorkbook';
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -305,6 +310,64 @@ console.log('Проверка входных данных');
   eq('неизвестное правило спора', err((a) => ({ ...a, conflict: 'always' })), true);
   eq('нет имени', err((a) => ({ ...a, name: '  ' })), true);
   eq('service не boolean', err((a) => ({ ...a, service: 'ДА' })), true);
+}
+
+console.log('Книга атрибутов проекта');
+{
+  const items = applyAttributePlan([], parsed.items, { missing: 'keep' }).map((a) => {
+    if (a.name === 'MOTOR_POWER') return { ...a, source: { kind: 'param', name: 'Мощность', unit: 'кВт' } as const };
+    if (a.name === 'INST_RANGE_MIN') return { ...a, source: { kind: 'param', name: 'Начало диапазона' } as const };
+    return a;
+  });
+  const pos = (id: string, cls: string, tag: string, groups: ExchangeComponent['groups'] = []): ExchangeComponent => ({
+    id, itemCode: id, name: `Позиция ${id}`, equipType: cls, cls, groups, tags: tag ? [{ identifier: tag }] : [],
+    systemName: 'П-1', monoblockName: '', parentTag: '', parentName: '', unitTag: 'X-P-1',
+  });
+  const motor = pos('m-1', 'ДВИГАТЕЛЬ', 'M-1', [{ title: 'Электрика', params: [{ key: 'Мощность', value: '7500', unit: 'Вт' }] }]);
+  const motor2 = pos('m-2', 'ДВИГАТЕЛЬ', 'M-2');
+  const sensor = pos('s-1', 'ДАТЧИК', 'S-1');
+  const columns = e3Columns(items, ['ДВИГАТЕЛЬ', 'ДАТЧИК'], { header: 'name' });
+  const { rows } = e3Rows([sensor, motor2, motor], items, columns, { classes: [], taggedOnly: false });
+  const j = (key: string) => columns.findIndex((c) => c.key === key);
+
+  eq('строки по типам и тегам: двигатели раньше датчика', rows.map((r) => r.id), ['m-1', 'm-2', 's-1']);
+  eq('значение приведено к единице столбца', rows[0].cells[j('e3:MOTOR_POWER')], '7.5');
+  eq('тег даёт Device Designation', rows[0].cells[j('e3:Device Designation')], 'M-1');
+  eq('атрибут чужого типа — пусто и неприменимо', [rows[2].cells[j('e3:MOTOR_POWER')], rows[2].na[j('e3:MOTOR_POWER')]], ['', true]);
+  eq('«Да» без значения — нет данных', isMissingCell(columns[j('e3:MOTOR_POWER')], rows[1].cells[j('e3:MOTOR_POWER')], rows[1].na[j('e3:MOTOR_POWER')]), true);
+  eq('чужой тип нехваткой не считается', isMissingCell(columns[j('e3:MOTOR_POWER')], '', true), false);
+  eq('без «Да» столбец пуст и данных не требует', [isFluxColumn(columns[j('e3:GLOBAL_BLOCK_NAME')]), isMissingCell(columns[j('e3:GLOBAL_BLOCK_NAME')], '')], [false, false]);
+  eq('отбор «только с тегом»', e3Rows([pos('x', 'ДВИГАТЕЛЬ', ''), motor], items, columns, { classes: [], taggedOnly: true }).rows.map((r) => r.id), ['m-1']);
+  eq('отбор по типу', e3Rows([sensor, motor], items, columns, { classes: ['ДАТЧИК'], taggedOnly: false }).rows.map((r) => r.id), ['s-1']);
+
+  const read = (mode: 'class' | 'single') => XLSX.read(attributeWorkbookBytes(buildAttributeSheets({ columns, items, rows, mode })), { type: 'array', cellStyles: true });
+  const grid = (wb: XLSX.WorkBook, name: string) => XLSX.utils.sheet_to_json<string[]>(wb.Sheets[name], { header: 1, defval: '', blankrows: true });
+
+  const byClass = read('class');
+  eq('лист на тип, в порядке типов', byClass.SheetNames, ['Двигатели', 'Датчики']);
+  const motors = grid(byClass, 'Двигатели');
+  eq('строка 1 — имена E3', motors[0].slice(0, 3), [E3_ID_HEADER[0], 'Device Designation', 'GLOBAL_TAG_UNIT']);
+  eq('строка 2 — описания', [motors[1][0], motors[1][1], motors[1][motors[0].indexOf('MOTOR_POWER')]], [E3_ID_HEADER[1], 'GLOBAL_TAG устройства', 'MOTOR_Мощность']);
+  eq('данные с третьей строки, столбец A — id', motors.slice(2).map((r) => r[0]), ['m-1', 'm-2']);
+  eq('значение в книге', motors[2][motors[0].indexOf('MOTOR_POWER')], '7.5');
+  eq('на листе двигателей нет столбцов КИП', motors[0].includes('INST_RANGE_MIN'), false);
+  eq('на листе датчиков нет столбцов двигателя', grid(byClass, 'Датчики')[0].includes('MOTOR_POWER'), false);
+  eq('на листе датчиков есть КИП', grid(byClass, 'Датчики')[0].includes('INST_RANGE_MIN'), true);
+  eq('столбец A скрыт, остальные нет', [byClass.Sheets['Двигатели']['!cols']?.[0]?.hidden, !!byClass.Sheets['Двигатели']['!cols']?.[1]?.hidden], [true, false]);
+
+  const single = read('single');
+  const one = grid(single, 'Атрибуты E3');
+  eq('один лист: все строки и столбцы', [one.length, one[0].length], [2 + rows.length, 1 + columns.length]);
+  eq('один лист: у чужого типа пусто', one[4][one[0].indexOf('MOTOR_POWER')], '');
+  eq('id остаются по строкам', one.slice(2).map((r) => r[0]), ['m-1', 'm-2', 's-1']);
+
+  const empty = XLSX.read(attributeWorkbookBytes(buildAttributeSheets({ columns, items, rows: [], mode: 'class' })), { type: 'array' });
+  eq('без строк остаётся лист с заголовками', [empty.SheetNames, grid(empty, empty.SheetNames[0]).length], [['Атрибуты'], 2]);
+
+  const taken = new Set<string>();
+  eq('имя листа: запрещённые знаки и длина', safeSheetName('Узлы/обвязки: [секция]?*' + 'я'.repeat(40), taken).length <= 31, true);
+  eq('имя листа: пустое', safeSheetName('  ', new Set()), 'Лист');
+  eq('имя листа: повтор без учёта регистра', [safeSheetName('Насосы', taken), safeSheetName('НАСОСЫ', taken)], ['Насосы', 'НАСОСЫ 2']);
 }
 
 if (failed) {
