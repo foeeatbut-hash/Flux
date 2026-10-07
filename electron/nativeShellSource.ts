@@ -55,6 +55,14 @@ public static class FluxShellFiles {
   }
   [ComImport, Guid("7E9FB0D3-919F-4307-AB2E-9B1860310C93"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   public interface IShellItem2 : IShellItem {
+    // Для [ComImport] .NET не переносит методы базового интерфейса в таблицу вызовов:
+    // без повторного объявления GetProperty и GetFileTime попадали на пять мест раньше
+    // и обрушивали процесс (AccessViolation при чтении корзины на CI). Порядок — как в IShellItem.
+    [PreserveSig] new int BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    [PreserveSig] new int GetParent(out IShellItem ppsi);
+    [PreserveSig] new int GetDisplayName(uint sigdnName, out IntPtr ppszName);
+    [PreserveSig] new int GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+    [PreserveSig] new int Compare(IShellItem psi, uint hint, out int piOrder);
     [PreserveSig] int GetPropertyStore(int flags, ref Guid riid, out IntPtr ppv);
     [PreserveSig] int GetPropertyStoreWithCreateObject(int flags, IntPtr punkCreateObject, ref Guid riid, out IntPtr ppv);
     [PreserveSig] int GetPropertyStoreForKeys(IntPtr rgKeys, uint cKeys, int flags, ref Guid riid, out IntPtr ppv);
@@ -87,7 +95,16 @@ public static class FluxShellFiles {
     [PreserveSig] int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
   }
   [ComImport, Guid("000214F4-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-  public interface IContextMenu2 : IContextMenu { [PreserveSig] int HandleMenuMsg(uint msg, IntPtr wParam, IntPtr lParam); }
+  public interface IContextMenu2 : IContextMenu {
+    // Методы IContextMenu объявлены заново по той же причине, что в IShellItem2: иначе
+    // HandleMenuMsg уходил в слот QueryContextMenu, меню наполнялось повторно с мусорными
+    // аргументами, номера команд сдвигались («Удалить» отвечало open, «Свойства» — printto),
+    // а подменю («Отправить», 7-Zip) падали с AccessViolation
+    [PreserveSig] new int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
+    [PreserveSig] new int InvokeCommand(IntPtr pici);
+    [PreserveSig] new int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
+    [PreserveSig] int HandleMenuMsg(uint msg, IntPtr wParam, IntPtr lParam);
+  }
   [ComImport, Guid("973810AE-9599-4B88-9E4D-6EE98C9552DA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   public interface IEnumAssocHandlers { [PreserveSig] int Next(uint celt, out IAssocHandler rgelt, out uint pceltFetched); }
   [ComImport, Guid("F04061AC-1659-4A3F-A954-775AA57FC083"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
