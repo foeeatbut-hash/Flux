@@ -34,7 +34,6 @@ export default function TagNavigationPanel() {
   const [tag, setTag] = useState<TagRow | null>(null);
   const [parents, setParents] = useState<TagRow[]>([]);
   const [children, setChildren] = useState<Array<{ tag: TagRow; depth: number }>>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
   const [project, setProject] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,7 +46,6 @@ export default function TagNavigationPanel() {
     setTag(null);
     setParents([]);
     setChildren([]);
-    setDocuments([]);
     loadProjects().then(() => {
       if (current) {
         setProject(projectName(target.projectId));
@@ -91,10 +89,7 @@ export default function TagNavigationPanel() {
             const location = componentLocations.get(component.id);
             return location ? { ...component, monoblock: { name: location.monoblockName, system: { name: location.systemName } } } : component;
           }) });
-          fetch(`/api/vdr/items/by-tag?projectId=${encodeURIComponent(target.projectId)}&tag=${encodeURIComponent(found.identifier)}`)
-            .then((response) => response.ok ? response.json() : { items: [] })
-            .then((data) => { if (current) setDocuments((data.items || []).filter((item: any) => !item.titleEn?.includes('Vendor Document Register'))); })
-            .catch(() => { if (current) setDocuments([]); });
+          // Список документов ВДР убран: связь ВДР с тегом отключена, пока она держится на коде строкой
         }
         else setError(`Тег ${target.identifier} в этом проекте не найден.`);
       })
@@ -175,16 +170,6 @@ export default function TagNavigationPanel() {
               </ul>
             ) : <p className="text-xs text-slate-500 dark:text-slate-400">Оборудование к тегу пока не привязано.</p>}
           </section>
-          {documents.length > 0 && <section className="mt-4" aria-labelledby="tag-documents-heading">
-            <h3 id="tag-documents-heading" className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">Документы · {documents.length}</h3>
-            <ul className="space-y-1">
-              {documents.slice(0, 5).map((document) => <li key={document.id}>
-                <button type="button" className="fx-li w-full truncate text-left text-xs" onClick={() => visit(`Документ ${document.contractorNo || document.titleRu || document.titleEn}`, `/management?vdr=${encodeURIComponent(document.registerId)}&item=${encodeURIComponent(document.id)}`)}>
-                  {document.contractorNo || document.titleRu || document.titleEn}
-                </button>
-              </li>)}
-            </ul>
-          </section>}
           {parseTagMetadata(tag).descriptions.filter((item) => item.comment?.trim()).length > 0 && <section className="mt-4" aria-labelledby="tag-comments-heading">
             <h3 id="tag-comments-heading" className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">Обсуждения</h3>
             <ul className="space-y-2">

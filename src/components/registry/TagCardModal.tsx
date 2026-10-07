@@ -1,6 +1,6 @@
 /**
  * Карточка тега: окно правки одного тега (код, наименование, марка, WBS,
- * дополнительные поля из справочника, комментарии, документы ВДР).
+ * дополнительные поля из справочника, комментарии).
  *
  * Вынесена из Registry.tsx как есть. Состояние формы (`modalCode`,
  * `modalMainName`, `editTagBrand`, `savedFlash`) здесь намеренно не живёт:
@@ -16,7 +16,6 @@ import CustomSelect from '../CustomSelect';
 import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
-import TagVdrDocs from './TagVdrDocs';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
 import { openInProject } from '../../lib/projectScope';
 import {
@@ -44,6 +43,8 @@ export interface TagCardModalProps {
   editTagBrand: string;
   setEditTagBrand: (brand: string) => void;
   onUpdateBrand: (tagId: string, value: string) => Promise<void>;
+  /** Запись полей тега (WBS) с версией, которую читал экран: при конфликте тег перечитывается */
+  onSaveFields: (tag: any, fields: Record<string, unknown>) => Promise<boolean>;
   projectBrands: string[];
   setTags: React.Dispatch<React.SetStateAction<any[]>>;
   /** Справочники проекта: из «__tag_creation_config__» берутся дополнительные поля */
@@ -59,7 +60,7 @@ export interface TagCardModalProps {
 export default function TagCardModal({
   tag, setEditingTag, loadTags, modalCode, setModalCode, onRenameTag, savedFlash, flashSaved,
   onDeleteTag, modalMainName, setModalMainName, onUpdateMainName, editTagBrand, setEditTagBrand,
-  onUpdateBrand, projectBrands, setTags, dictionaries, onUpdateDynamicFields, onAddDescription,
+  onUpdateBrand, onSaveFields, projectBrands, setTags, dictionaries, onUpdateDynamicFields, onAddDescription,
   onUpdateDescription, onRemoveDescription, formatDate, projectId,
 }: TagCardModalProps) {
   const { addToast } = useToastStore();
@@ -79,7 +80,7 @@ export default function TagCardModal({
                       spellCheck={false}
                       aria-label="Код тега"
                       className="fx-input min-w-0 flex-1 font-mono"
-                      title="Код тега можно изменить прямо здесь — связи сохранятся"
+                      title="Код можно изменить здесь; позиции, файлы и закупка останутся привязаны"
                     />
           <span className={`fx-note shrink-0 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>Сохранено</span>
         </span>
@@ -183,11 +184,7 @@ export default function TagCardModal({
                     const v = e.target.value.trim();
                     if (v === (tag.wbs || '')) return;
                     try {
-                      const res = await fetch(`/api/tags/${tag.id}`, {
-                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ wbs: v }),
-                      });
-                      if (!res.ok) throw new Error();
+                      if (!await onSaveFields(tag, { wbs: v })) return;
                       setTags(prev => prev.map(t => t.id === tag.id ? { ...t, wbs: v } : t));
                       setEditingTag((prev: any) => prev ? { ...prev, wbs: v } : null);
                       flashSaved();
@@ -260,8 +257,8 @@ export default function TagCardModal({
               onRemove={(id) => onRemoveDescription(tag.id, id)}
             />
 
-            {/* Документы ВДР по этому тегу (главный тег строки реестра) */}
-            <TagVdrDocs identifier={tag.identifier} projectId={projectId} />
+            {/* Список документов ВДР убран: связь ВДР с тегом отключена, пока она держится на коде строкой
+                (переименование её рвёт). Вернуть — по id тега; TagVdrDocs.tsx оставлен для этого */}
 
           </div>
 

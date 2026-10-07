@@ -17,6 +17,7 @@ import {
 import { parsePrismaSchema, needsWidening, isTextDefaultRefusal } from '../server/schema-sync';
 import { readFileSync } from 'fs';
 import { TABLES as OFFICE_TABLES } from '../server/officeBus';
+import { TAG_CHANGE_TABLES } from '../server/tagChangeTable';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -343,6 +344,46 @@ console.log('Таблицы Flux Office: SQL под каждый движок');
   }
   check('журнал событий: (fileId, seq) — уникальный индекс',
     !!OFFICE_TABLES.find((t) => t.table === 'OfficeEvent')?.indexes?.some((i) => i.unique && i.cols.join(',') === 'fileId,seq'));
+}
+
+
+// История изменений тега (server/tagChangeTable.ts): та же двойная жизнь, что у
+// таблиц Flux Office, — модель в трёх схемах Prisma и описание-подстраховка.
+// Плюс правило, ради которого таблица заведена отдельно: связи с Tag нет, иначе
+// каскадное удаление стёрло бы историю вместе с тегом.
+console.log('История тега: подстраховка и схема Prisma не расходятся');
+{
+  const files: Array<[string, 'sqlite' | 'postgresql' | 'mysql']> = [
+    ['prisma/schema.prisma', 'sqlite'], ['prisma/schema.postgresql.prisma', 'postgresql'], ['prisma/schema.mariadb.prisma', 'mysql'],
+  ];
+  const spec = TAG_CHANGE_TABLES[0];
+  for (const [file, dialect] of files) {
+    const text = readFileSync(file, 'utf-8');
+    const m = parsePrismaSchema(dialect, text).find((x) => x.name === 'TagChange');
+    check(`${file}: модель TagChange есть`, !!m);
+    if (!m) continue;
+    const names = m.columns.map((c) => c.name).sort().join(',');
+    check(`${file}: у TagChange те же колонки`, names === spec.cols.map((c) => c.name).sort().join(','), [names, spec.cols.map((c) => c.name).join(',')]);
+    for (const c of spec.cols) {
+      const pc = m.columns.find((x) => x.name === c.name);
+      if (!pc) continue;
+      check(`${file}: TagChange.${c.name} — NULL там же, где в схеме`, pc.nullable === !(c.pk || c.notNull), [pc.nullable, c.notNull]);
+    }
+    const body = /model TagChange \{([\s\S]*?)\n\}/.exec(text)?.[1] || '';
+    check(`${file}: у TagChange нет связи с Tag — удаление тега не стирает историю`, !/@relation|\bTag\b\s/.test(body.replace(/\/\/\/.*$/gm, '')), body);
+    for (const ix of spec.indexes || []) {
+      const cols = ix.cols.join(', ');
+      check(`${file}: индекс ${ix.name} (${cols}) объявлен в схеме`, body.includes(`@@index([${cols}])`), body);
+    }
+  }
+  for (const d of ['sqlite', 'postgresql', 'mysql'] as const) {
+    const sql = createTableSql(d, spec.table, spec.cols);
+    check(`TagChange на ${d}: колонки «before» и «after» в кавычках движка`, d === 'mysql' ? sql.includes('`before`') && sql.includes('`after`') : sql.includes('"before"') && sql.includes('"after"'), sql);
+  }
+  check('TagChange на MariaDB: ключ и индексируемые строки — VARCHAR(191)',
+    columnSql('mysql', spec.cols.find((c) => c.name === 'tagId')!).includes('VARCHAR(191)'));
+  check('TagChange на MariaDB: «было» и «стало» — LONGTEXT без умолчания',
+    ['before', 'after'].every((n) => columnSql('mysql', spec.cols.find((c) => c.name === n)!).includes('LONGTEXT')));
 }
 
 

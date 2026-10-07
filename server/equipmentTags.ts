@@ -11,6 +11,7 @@
 import {
   DEFAULT_TAG_POLICY, autoFixTag, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
 } from '../equipment/tagPolicy.js';
+import { TAG_SOURCE, recordTagCreated } from './tagHistory.js';
 
 export interface TagCandidate { id: string; identifier: string; why: string }
 
@@ -192,6 +193,8 @@ export async function applyTagLinks(
   links: TagLink[],
   componentIdByKey: Map<string, string>,
   policy: TagPolicy = DEFAULT_TAG_POLICY,
+  /** Кто импортирует: теги, заведённые импортом, пишутся в историю с его именем */
+  actor: { userId?: string | null } = {},
 ): Promise<TagApplyResult> {
   const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [], assigned: [] };
   for (const link of links) {
@@ -218,6 +221,7 @@ export async function applyTagLinks(
     let tagId = link.existingTagId;
     if (link.action === 'create' || !tagId) {
       const created = await prisma.tag.create({ data: { identifier: link.identifier, projectId } });
+      await recordTagCreated(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, created);
       tagId = created.id;
       res.created++;
     }

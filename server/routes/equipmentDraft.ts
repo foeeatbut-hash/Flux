@@ -322,7 +322,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       const summary = await importEquipmentToDB(
         prisma, projectId, category,
         clean(fileName, 200) || 'Распознанный документ',
-        result, conflictMode, cleanTagLinks(tagLinks),
+        result, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id },
       );
       res.json({ success: true, ...summary, conflictMode });
     } catch (error: any) {

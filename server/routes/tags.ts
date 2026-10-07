@@ -10,6 +10,11 @@ import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
+import { writeTag, writeTags, metadataPatchOf, tagWriteFailure } from '../tagWrite.js';
+import {
+  TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted,
+  updateSet, createdSet, deletedSet, type TagChangeSet,
+} from '../tagHistory.js';
 
 // Теги проекта: список и ручное создание, массовый импорт, захват с экрана
 // (применение и отмена), разбор Excel/XML, системы и привязка тегов к
@@ -95,6 +100,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           metadata: metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null
         }
       });
+      // Автор создания — из сессии, для любого пути создания (в metadata.createdBy
+      // он был только у быстрой строки, и то именем, а не идентификатором)
+      await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), tag);
       res.json({ tag });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -129,6 +137,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     let { projectId } = req.params;
     const { rows, mode } = req.body;
+    // Объявлено до try: при сбое посреди импорта уже сделанное всё равно попадает в историю
+    const history: Array<TagChangeSet | null> = [];
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } }); projectId = fp.id;
@@ -163,7 +173,10 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           let exMeta: any = {}; try { exMeta = ex.metadata ? JSON.parse(ex.metadata) : {}; } catch {}
           const merged = { ...exMeta, ...(r.name ? { mainName: String(r.name) } : {}), ...(r.actuality ? { actuality: String(r.actuality) } : {}) };
           if (!Array.isArray(merged.connections)) merged.connections = [];
-          await prisma.tag.update({ where: { id: ex.id }, data: { ...baseData, metadata: JSON.stringify(merged) } });
+          const after = await prisma.tag.update({ where: { id: ex.id }, data: { ...baseData, metadata: JSON.stringify(merged) } });
+          history.push(updateSet(ex, after));
+          // Следующая строка с тем же кодом сравнивается уже с записанным, а не с исходным
+          byCode.set(code, after);
           updated++; codeToId.set(code, ex.id);
         } else {
           if (ex) dupes.push(code);
@@ -171,6 +184,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           if (r.name) meta.mainName = String(r.name);
           if (r.actuality) meta.actuality = String(r.actuality);
           const t = await prisma.tag.create({ data: { projectId, ...baseData, metadata: JSON.stringify(meta) } });
+          history.push(createdSet(t));
           created++; codeToId.set(code, t.id); col++;
         }
         if (r.parent) parentLinks.push({ childCode: code, parentCode: String(r.parent).trim() });
@@ -184,10 +198,15 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         const p = await prisma.tag.findUnique({ where: { id: parentId } });
         let pm: any = {}; try { pm = p?.metadata ? JSON.parse(p.metadata) : {}; } catch {}
         pm.connections = [...new Set([...(Array.isArray(pm.connections) ? pm.connections : []), ...childIds])];
-        await prisma.tag.update({ where: { id: parentId }, data: { metadata: JSON.stringify(pm) } });
+        const after = await prisma.tag.update({ where: { id: parentId }, data: { metadata: JSON.stringify(pm) } });
+        if (p) history.push(updateSet(p, after));
       }
+      await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tagImport), history);
       res.json({ created, updated, duplicates: [...new Set(dupes)] });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) {
+      await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.tagImport), history);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Применение плана захвата с экрана.
@@ -209,6 +228,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         targetId?: string;
       }[];
     };
+    const history: Array<TagChangeSet | null> = [];
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst();
@@ -266,7 +286,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           if (r.name && (action === 'replace' || !meta.mainName)) meta.mainName = String(r.name);
           if (r.actuality && (action === 'replace' || !meta.actuality)) meta.actuality = String(r.actuality);
           if (!Array.isArray(meta.connections)) meta.connections = [];
-          await prisma.tag.update({ where: { id: target.id }, data: { ...data, metadata: JSON.stringify(meta) } });
+          const after = await prisma.tag.update({ where: { id: target.id }, data: { ...data, metadata: JSON.stringify(meta) } });
+          history.push(updateSet(target, after));
+          byId.set(target.id, after);
           filled.push({ id: target.id, identifier: target.identifier });
           continue;
         }
@@ -288,11 +310,16 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             metadata: JSON.stringify(meta),
           },
         });
+        history.push(createdSet(t));
         (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
       }
 
+      await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.capture), history);
       res.json({ created, filled, duplicated, linked, skipped });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) {
+      await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.capture), history);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Update tag fields and json metadata
@@ -309,17 +336,23 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       restore: { id: string; brand: string | null; department: string | null;
                  fluid: string | null; wbs: string | null; metadata: string | null }[];
     };
+    const history: Array<TagChangeSet | null> = [];
     try {
       let deleted = 0, restored = 0;
       // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
       if (Array.isArray(deleteIds) && deleteIds.length) {
-        const r = await prisma.tag.deleteMany({ where: { id: { in: deleteIds.slice(0, 2000) }, projectId } });
+        const ids = deleteIds.slice(0, 2000);
+        // Коды читаем до удаления: после него записать в историю, что именно
+        // удалено, было бы нечем
+        const going = await prisma.tag.findMany({ where: { id: { in: ids }, projectId }, select: { id: true, identifier: true } });
+        const r = await prisma.tag.deleteMany({ where: { id: { in: ids }, projectId } });
         deleted = r.count;
+        for (const g of going) history.push(deletedSet(g));
       }
       for (const t of (restore || []).slice(0, 2000)) {
         const own = await prisma.tag.findFirst({ where: { id: String(t.id), projectId } });
         if (!own) continue;
-        await prisma.tag.update({
+        const after = await prisma.tag.update({
           where: { id: t.id },
           data: {
             brand: t.brand ?? null,
@@ -329,47 +362,72 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             metadata: t.metadata ?? null,
           },
         });
+        history.push(updateSet(own, after));
         restored++;
       }
+      await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.restore), history);
       res.json({ deleted, restored });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) {
+      await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.restore), history);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Массовое обновление metadata тегов одним запросом (Менеджмент: этап для N позиций).
   // Раньше клиент слал N последовательных PUT — на больших выборках это заметно тормозило.
   // ВАЖНО: маршрут объявлен раньше '/api/tags/:id', иначе «bulk-metadata» сматчится как id.
+  //
+  // Как и одиночная запись, сливает присланные верхние ключи с текущими
+  // (server/tagWrite.ts): раньше экран «Закупки» присылал metadata целиком, и
+  // каждая смена этапа у N позиций заодно стирала чужие комментарии.
+  // `source: 'Закупки'` сужает запрос до ключа procurement — остальное он не тронет.
   app.put('/api/tags/bulk-metadata', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { updates } = req.body as { updates: { id: string; metadata: string }[] };
+    const { updates, source } = req.body as { updates: { id: string; metadata: unknown }[]; source?: string };
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'updates[] required' });
     }
     const limited = updates.slice(0, 2000);
-    await prisma.$transaction(
-      limited.map(u => prisma.tag.update({
-        where: { id: String(u.id) },
-        data: { metadata: typeof u.metadata === 'string' ? u.metadata : JSON.stringify(u.metadata) },
-      }))
-    );
-    res.json({ success: true, updated: limited.length });
+    const procurement = source === TAG_SOURCE.procurement;
+    try {
+      const { results, missing } = await writeTags(prisma, limited.map(u => ({
+        id: String(u.id),
+        input: { metadata: metadataPatchOf(u.metadata), onlyKeys: procurement ? ['procurement'] : undefined },
+      })));
+      // Раскладка карточек сюда тоже приходит, но координаты правкой не считаются
+      await recordChangeSets(prisma, tagChangeContext(req, '', procurement ? TAG_SOURCE.procurement : TAG_SOURCE.tags),
+        results.filter(r => !r.unchanged).map(r => updateSet(r.before, r.tag)));
+      // Новые версии — чтобы экран не держал устаревшую после собственной записи
+      res.json({ success: true, updated: results.length, missing, versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
+    } catch (err: any) {
+      const known = tagWriteFailure(err);
+      if (known) return res.status(known.status).json(known.body);
+      res.status(500).json({ error: err.message });
+    }
   });
+
+  // Правка тега. metadata СЛИВАЕТСЯ с текущей по верхним ключам (null удаляет ключ),
+  // а `version` (updatedAt, как его прочитал экран) защищает от затирания чужой правки:
+  // тег изменился — ответ 409 с текущим тегом. Подробности — server/tagWrite.ts.
   app.put('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { identifier, department, wbs, fluid, metadata, equipmentId, brand } = req.body;
-    const tag = await prisma.tag.update({
-      where: { id: req.params.id },
-      data: {
-        identifier,
-        department: department === undefined ? undefined : (department || null),
-        wbs: wbs === undefined ? undefined : (wbs || null),
-        fluid: fluid === undefined ? undefined : (fluid || null),
-        equipmentId: equipmentId === undefined ? undefined : (equipmentId || null),
-        brand: brand === undefined ? undefined : (brand || null),
-        metadata: metadata === undefined ? undefined : (typeof metadata === 'string' ? metadata : JSON.stringify(metadata))
+    const { identifier, department, wbs, fluid, metadata, equipmentId, brand, version } = req.body;
+    try {
+      const { before, tag, unchanged } = await writeTag(prisma, req.params.id, {
+        fields: { identifier, department, wbs, fluid, equipmentId, brand },
+        metadata: metadataPatchOf(metadata),
+        version: version === undefined ? undefined : (version === null ? null : String(version)),
+      });
+      if (!unchanged) {
+        await recordTagUpdate(prisma, tagChangeContext(req, tag.projectId, TAG_SOURCE.tags), before, tag);
+        emitEntityChanged('tag', tag.id, req);
       }
-    });
-    emitEntityChanged('tag', tag.id, req);
-    res.json({ tag });
+      res.json({ tag });
+    } catch (err: any) {
+      const known = tagWriteFailure(err);
+      if (known) return res.status(known.status).json(known.body);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Parse and import Excel/XML
@@ -564,10 +622,14 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   // Delete tag
   app.delete('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    await prisma.tag.delete({
-      where: { id: req.params.id }
-    });
-    res.json({ success: true });
+    try {
+      const gone = await prisma.tag.findUnique({ where: { id: req.params.id } });
+      if (!gone) return res.status(404).json({ error: 'Тег не найден' });
+      await prisma.tag.delete({ where: { id: req.params.id } });
+      // История удалённого тега остаётся: таблица с тегом не связана
+      await recordTagDeleted(prisma, tagChangeContext(req, gone.projectId, TAG_SOURCE.tags), gone);
+      res.json({ success: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
   // GET component element history logs
@@ -655,7 +717,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       },
       include: { equipment: true } // we just keep the include to match existing response
     });
-  
+    await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), newTag);
+
     res.json({ tag: newTag });
   });
 }

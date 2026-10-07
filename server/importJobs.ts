@@ -255,7 +255,7 @@ export async function drainImportJobs(): Promise<number> {
 
         const summary = await importEquipmentToDB(
           prisma, job.projectId, job.category, job.fileName,
-          result, 'wait', tagLinks,
+          result, 'wait', tagLinks, { userId: job.createdById },
         );
         await prisma.importJob.update({
           where: { id: job.id },

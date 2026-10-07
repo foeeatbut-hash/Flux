@@ -202,7 +202,7 @@ const LEGACY: Record<string, number> = {
   // разбор текста и операции над деревом — в хуки useRegistryTags,
   // useTagExtractor, useTagTreeOps: планка ниже.
   // Дальше — docs/refactor/registry.md
-  'src/screens/Registry.tsx': 2736,
+  'src/screens/Registry.tsx': 2719,
   // Чат, теги со словарями, ядро оборудования, проекты, уведомления, база с
   // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
   // догоняющая миграция SQLite — в server/localSchema.ts

@@ -19,7 +19,7 @@ type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 export interface TagTreeOpsDeps {
   tags: any[];
   searchQuery: string;
-  saveTagMetadata: (tagId: string, metadata: ParsedMetadata) => Promise<void>;
+  saveTagMetadata: (tagId: string, metadata: ParsedMetadata) => Promise<boolean | void>;
   setEditingTag: SetState<any | null>;
   setSelectedTagIds: SetState<Set<string>>;
   loadTags: () => Promise<void>;

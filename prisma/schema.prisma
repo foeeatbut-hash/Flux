@@ -1732,6 +1732,32 @@ model ProjectTagPolicy {
   updatedAt   DateTime @default(now())
 }
 
+/// История изменений тега: только дописывается, ничего не правит и не стирает.
+///
+/// Связи с Tag нет намеренно: внешний ключ с каскадом стёр бы историю вместе
+/// с тегом, а «кто и когда удалил» нужно знать именно после удаления. Поэтому
+/// tagId и projectId — просто значения. Таблица заводится и подстраховкой
+/// (server/tagChangeTable.ts), как ProjectTagPolicy.
+model TagChange {
+  id        String   @id @default(uuid())
+  tagId     String
+  projectId String
+  at        DateTime @default(now())
+  /// Кто: из сессии запроса, а не из тела
+  userId    String?
+  /// Откуда: «Теги», «Закупки», «импорт оборудования», «захват»…
+  source    String   @default("")
+  /// создан | изменён | удалён | связь добавлена | связь убрана | комментарий добавлен | комментарий изменён | комментарий удалён
+  kind      String
+  /// Что менялось: поле тега или ключ metadata
+  field     String   @default("")
+  before    String?
+  after     String?
+
+  @@index([tagId, at])
+  @@index([projectId])
+}
+
 model PlayMatch {
   id         String   @id @default(uuid())
   sessionId  String   @unique

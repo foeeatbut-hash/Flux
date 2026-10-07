@@ -83,7 +83,8 @@ export function useRegistryTags({
         t.metadata = JSON.stringify(t.parsedMetadata);
         void fetch(`/api/tags/${patch.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ metadata: t.metadata }),
+          // Только связи: сервер сливает ключи, и снимок остального чужих правок не затрёт; null снимает родителя
+          body: JSON.stringify({ metadata: { connections: patch.connections, parentId: patch.parentId ?? null } }),
         }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
       }
       if (patches.length) {

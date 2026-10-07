@@ -60,6 +60,7 @@ import { useQuickCreate } from '../components/registry/useQuickCreate';
 import { useTagExtractor } from '../components/registry/useTagExtractor';
 import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
+import { saveTagMetadataPatch, rememberVersions } from '../components/registry/tagWrite';
 import { splitSegments } from '../lib/tagExtract';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
@@ -721,22 +722,21 @@ export default function Registry() {
   };
 
   // Safe save metadata to database
-  const saveTagMetadata = async (tagId: string, metadata: ParsedMetadata) => {
-    try {
-      // Служебные пометки окна в базу не едут, а записанные координаты делают
-      // тег размещённым: иначе перенесённый автотег возвращался в сетку
-      const clean = cleanMeta(metadata);
-      setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: { ...clean, _noPos: false }, metadata: JSON.stringify(clean) } : t));
-
-      await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: JSON.stringify(clean) })
-      });
-    } catch (err) {
-      console.error('Failed to save tag metadata:', err);
-    }
+  // Уходят только изменившиеся ключи и версия, которую экран читал (tagWrite.ts):
+  // копия тега устаревает за время работы, и целиком она стирала бы чужие правки
+  const saveTagMetadata = async (tagId: string, metadata: ParsedMetadata): Promise<boolean> => {
+    const tag = tags.find(t => t.id === tagId) || { id: tagId };
+    // Служебные пометки окна в базу не едут, а записанные координаты делают
+    // тег размещённым: иначе перенесённый автотег возвращался в сетку
+    const clean = cleanMeta(metadata);
+    setTags(prev => prev.map(t => t.id === tagId ? { ...t, parsedMetadata: { ...clean, _noPos: false }, metadata: JSON.stringify(clean) } : t));
+    return saveTagMetadataPatch(tag, clean, tagWriteDeps);
   };
+  // Свежая копия при конфликте попадает и в открытую карточку, а не только в список
+  const tagWriteDeps = { setTags, addToast, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
+  // Поля тега (код, марка, WBS) тоже идут с версией и забирают новую себе: иначе
+  // следующая правка комментария ушла бы со старой версией и получила конфликт с собой
+  const saveTagFields = (tag: any, fields: Record<string, unknown>) => saveTagMetadataPatch(tag, tag?.metadata, tagWriteDeps, fields);
 
   // Seed demo data loop (using standard separators as requested)
   const handleSeedDemoData = async () => {
@@ -1583,15 +1583,19 @@ export default function Registry() {
    * координат просто не сохранилась бы, ничего об этом не сказав.
    */
   const applyPositions = async (positions: Record<string, { x: number; y: number }>) => {
+    // Локальная копия — полная metadata, а на сервер уходят одни координаты:
+    // он сливает ключи, и устаревший снимок остальных ключей чужих правок не затрёт
     const updates: { id: string; metadata: string }[] = [];
+    const full: { id: string; metadata: string }[] = [];
     for (const t of tags) {
       const p = positions[t.id];
       if (!p) continue;
       cardPositionsRef.current[t.id] = p;
-      updates.push({ id: t.id, metadata: JSON.stringify(cleanMeta({ ...parseTagMetadata(t), x: p.x, y: p.y })) });
+      updates.push({ id: t.id, metadata: JSON.stringify({ x: p.x, y: p.y }) });
+      full.push({ id: t.id, metadata: JSON.stringify(cleanMeta({ ...parseTagMetadata(t), x: p.x, y: p.y })) });
     }
     if (!updates.length) return;
-    const byId = new Map(updates.map((u) => [u.id, u.metadata]));
+    const byId = new Map(full.map((u) => [u.id, u.metadata]));
     // parsedMetadata сбрасываем, а не переписываем: разбор кэшируется прямо в
     // объекте тега, и старый разбор пережил бы новую строку
     setTags((prev: any[]) => prev.map((t) => (byId.has(t.id)
@@ -1604,6 +1608,7 @@ export default function Registry() {
         body: JSON.stringify({ updates: updates.slice(i, i + 500) }),
       });
       if (!res.ok) throw new Error('bulk-metadata');
+      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
     }
   };
 
@@ -1688,7 +1693,8 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    // Конфликт: введённый текст остаётся в поле — «повторите правку» не должно стирать набранное
+    if (!await saveTagMetadata(tagId, meta)) return;
 
     setQuickDescText(prev => ({ ...prev, [tagId]: '' }));
     setQuickCommentText(prev => ({ ...prev, [tagId]: '' }));
@@ -1708,9 +1714,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -1724,9 +1730,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -1738,11 +1744,7 @@ export default function Registry() {
     if (!tag || !code || code === tag.identifier) return;
     if (/[а-яё]/i.test(code)) { addToast('Код тега только на латинице', 'error'); setModalCode(tag.identifier); return; }
     try {
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: code }),
-      });
-      if (!res.ok) throw new Error();
+      if (!await saveTagFields(tag, { identifier: code })) { setModalCode(tag.identifier); return; }
       setTags(prev => prev.map(t => t.id === tagId ? { ...t, identifier: code } : t));
       if (editingTag && editingTag.id === tagId) setEditingTag((prev: any) => prev ? { ...prev, identifier: code } : null);
       flashSaved();
@@ -1792,21 +1794,11 @@ export default function Registry() {
         metadata: JSON.stringify(meta) 
       } : t));
 
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          department: updatedDepartment,
-          fluid: updatedFluid,
-          metadata: JSON.stringify(meta)
-        })
-      });
-
-      if (!res.ok) throw new Error("Sync failed");
-      const data = await res.json();
+      // Версия и только изменившиеся ключи — как в saveTagMetadata (tagWrite.ts)
+      if (!await saveTagMetadataPatch(tag, meta, { setTags, addToast }, { department: updatedDepartment, fluid: updatedFluid })) return;
 
       if (editingTag && editingTag.id === tagId) {
-        setEditingTag(data.tag ? { ...data.tag, parsedMetadata: meta } : { ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
+        setEditingTag({ ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
       }
     } catch (err) {
       console.error("Error updating dynamic fields:", err);
@@ -1824,16 +1816,7 @@ export default function Registry() {
         brand: value
       } : t));
 
-      const res = await fetch(`/api/tags/${tagId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brand: value
-        })
-      });
-
-      if (!res.ok) throw new Error("Sync failed");
-      const data = await res.json();
+      if (!await saveTagFields(tag, { brand: value })) return;
 
       if (editingTag && editingTag.id === tagId) {
         setEditingTag(prev => prev ? { ...prev, brand: value } : null);
@@ -1861,9 +1844,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -1887,9 +1870,9 @@ export default function Registry() {
     meta.updatedBy = user?.name || user?.login || 'Пользователь';
     meta.updatedAt = new Date().toISOString();
 
-    await saveTagMetadata(tagId, meta);
+    const saved = await saveTagMetadata(tagId, meta);
 
-    if (editingTag && editingTag.id === tagId) {
+    if (saved && editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
   };
@@ -2505,6 +2488,7 @@ export default function Registry() {
           editTagBrand={editTagBrand}
           setEditTagBrand={setEditTagBrand}
           onUpdateBrand={handleUpdateBrand}
+          onSaveFields={saveTagFields}
           projectBrands={projectBrands}
           setTags={setTags}
           dictionaries={dictionaries}

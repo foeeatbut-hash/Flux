@@ -43,6 +43,8 @@ import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerChatRoutes } from './server/routes/chat.js';
 import { registerDictionaryRoutes } from './server/routes/dictionaries.js';
 import { registerTagRoutes } from './server/routes/tags.js';
+import { registerTagPassportRoutes } from './server/routes/tagPassport.js';
+import { registerTagProcurementRoutes } from './server/routes/tagProcurement.js';
 import { registerProjectRoutes } from './server/routes/projects.js';
 import { registerNotificationRoutes } from './server/routes/notifications.js';
 import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
@@ -1143,6 +1145,8 @@ registerTagPolicyRoutes(app);
 
 registerDictionaryRoutes(app);
 registerTagRoutes(app, { io, notifyAll });
+registerTagPassportRoutes(app);
+registerTagProcurementRoutes(app);
 
 // --- USER NOTES & CHANGES LOGS API ---
 
