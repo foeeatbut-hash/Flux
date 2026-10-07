@@ -127,7 +127,9 @@ export async function importEquipmentToDB(
     if (!unitData) continue;
     summary.systems++;
     let system: any = resolved.system.system;
+    let renamedFrom = '';
     if (system && (resolved.system.how === 'similar' || resolved.system.how === 'renamed') && system.name !== unitData.name) {
+      renamedFrom = system.name;
       // В реестре — прежнее написание с опечаткой раскладки, в файле —
       // исправленное, либо установку переименовали и инженер подтвердил, что это
       // она. Установка остаётся той же, меняется только имя
@@ -288,6 +290,20 @@ export async function importEquipmentToDB(
           data: changed ? { ...data, ...BUMP } : data,
         });
       }
+    }
+
+    // Переименование установки (Д4) — в историю партии, иначе отмена ввоза оставила бы новое имя.
+    // Строка кладётся на служебную запись установки: у самой установки истории нет
+    const unitElementId = componentIdByKey.get(blockKey(unitData.name, '', '__unit__'));
+    if (renamedFrom && unitElementId) {
+      await prisma.equipmentHistory.create({
+        data: {
+          elementId: unitElementId, version: 1,
+          oldSpecs: JSON.stringify({ systemId: system.id, name: renamedFrom }),
+          newSpecs: JSON.stringify({ systemId: system.id, name: unitData.name }),
+          changeType: 'SYS_RENAME', batchId,
+        },
+      });
     }
 
     // Пропавшие из расчёта: не удаляются, а снимаются; решение инженера «оставить» уважается

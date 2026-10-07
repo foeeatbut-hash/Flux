@@ -318,6 +318,10 @@ const fanKey = (u: string, n: string) => blockKey(u, mbN, n);
     ok('установка та же, имя новое', dbR.systems.length === 1 && dbR.systems[0].id === sysId && dbR.systems[0].name === `${U1}.1`, dbR.systems);
     ok('позиции остались при ней, ID прежние', at(dbR, `${U1}.1`, mbN, '1.3/вентилятор1')?.id === elId && r.summary.newBlocks === 0, r.summary);
     parity('Д4', dbR, r, [`${U1}.1`]);
+    ok('переименование записано в историю партии', dbR.history.some(h => h.changeType === 'SYS_RENAME' && h.batchId === r.summary.batchId && JSON.parse(h.oldSpecs).name === U1));
+    const back = await undoBatch(dbR, r.summary.batchId);
+    ok('отмена партии вернула прежнее имя установки', dbR.systems[0].name === U1 && back.done.unrenamed === 1 && dbR.systems.length === 1, [dbR.systems, back.done]);
+    ok('позиции и ID при этом целы', dbR.elements.every(e => !!e.id) && byId(dbR, elId)?.status !== 'REMOVED');
 
     const dbN = memoryEquipmentDb();
     await load(dbN, [veza()]);

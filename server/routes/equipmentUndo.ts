@@ -28,6 +28,7 @@ async function loadBatch(batchId: string) {
       id: e.id, itemCode: String(e.itemCode || e.name || ''),
       specs: e.specs ?? null, version: Number(e.version || 1),
       status: e.status, conflictLog: e.conflictLog ?? null, monoblockId: e.monoblockId,
+      systemId: e.monoblock?.system?.id, systemName: e.monoblock?.system?.name,
       where: `${e.monoblock?.system?.name || ''} · ${e.monoblock?.name || ''}`,
     });
   }
@@ -54,7 +55,7 @@ export function registerEquipmentUndoRoutes(app: Express): void {
 
       const { rows, map } = await loadBatch(batchId);
       const plan = planUndo(batchId, rows, map);
-      const life = plan.reinstate.length + plan.reremove.length + plan.unmove.length + plan.retag.length;
+      const life = plan.reinstate.length + plan.reremove.length + plan.unmove.length + plan.retag.length + plan.unrename.length;
       if (!plan.restore.length && !plan.remove.length && !life) {
         return res.json({ restored: 0, removed: 0, skipped: plan.skip.length, summary: describePlan(plan) });
       }
@@ -96,6 +97,9 @@ export function registerEquipmentUndoRoutes(app: Express): void {
         if (!keep.length) continue;
         if (it.toId) await prisma.componentElement.update({ where: { id: it.toId }, data: withBump({ tags: { disconnect: keep.map(id => ({ id })) } }) }).catch(() => {});
         await prisma.componentElement.update({ where: { id: it.elementId }, data: withBump({ tags: { connect: keep.map(id => ({ id })) } }) }).catch(() => {});
+      }
+      for (const it of plan.unrename) {
+        await prisma.equipmentSystem.update({ where: { id: it.systemId! }, data: { name: it.name! } });
       }
       for (const it of plan.unmove) {
         await prisma.componentElement.update({
@@ -151,6 +155,7 @@ export function registerEquipmentUndoRoutes(app: Express): void {
         restored: plan.restore.length,
         reinstated: plan.reinstate.length,
         unmoved: plan.unmove.length,
+        unrenamed: plan.unrename.length,
         retagged: plan.retag.length,
         removed: plan.remove.length,
         skipped: plan.skip.length,

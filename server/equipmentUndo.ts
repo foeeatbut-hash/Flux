@@ -34,9 +34,12 @@ export interface ElementNow {
   status?: string;
   conflictLog?: string | null;
   monoblockId?: string;
+  /** Установка позиции: по ней отмена переименования проверяет, что имя ещё то, что дал ввоз */
+  systemId?: string;
+  systemName?: string;
 }
 
-export type UndoAction = 'restore' | 'remove' | 'skip' | 'reinstate' | 'reremove' | 'unmove' | 'retag';
+export type UndoAction = 'restore' | 'remove' | 'skip' | 'reinstate' | 'reremove' | 'unmove' | 'retag' | 'unrename';
 
 export interface UndoItem {
   elementId: string;
@@ -55,6 +58,9 @@ export interface UndoItem {
   /** retag: теги, которые вернутся с новой записи на прежнюю */
   tagIds?: string[];
   toId?: string;
+  /** unrename: установка и имя, которое вернётся */
+  systemId?: string;
+  name?: string;
 }
 
 export interface UndoPlan {
@@ -70,9 +76,11 @@ export interface UndoPlan {
   unmove: UndoItem[];
   /** «Переподобрано»: теги возвращаются на прежнюю запись */
   retag: UndoItem[];
+  /** Переименованные этой партией установки — прежнее имя */
+  unrename: UndoItem[];
 }
 
-const LIFE = new Set(['REMOVE', 'RESTORE', 'MOVE', 'TAG_MOVE']);
+const LIFE = new Set(['REMOVE', 'RESTORE', 'MOVE', 'TAG_MOVE', 'SYS_RENAME']);
 const parse = (x: string | null | undefined): any => { try { return x ? JSON.parse(x) : null; } catch (_) { return null; } };
 
 /** Сравнение характеристик по смыслу, а не по строке: пробелы и порядок ключей
@@ -100,7 +108,7 @@ function sameSpecs(a: string | null, b: string | null): boolean {
  * прямой записи «по кнопке» в программе быть не должно.
  */
 export function planUndo(batchId: string, allRows: HistoryRow[], elements: Map<string, ElementNow>): UndoPlan {
-  const plan: UndoPlan = { batchId, restore: [], remove: [], skip: [], reinstate: [], reremove: [], unmove: [], retag: [] };
+  const plan: UndoPlan = { batchId, restore: [], remove: [], skip: [], reinstate: [], reremove: [], unmove: [], retag: [], unrename: [] };
   const life = allRows.filter(r => LIFE.has(r.changeType));
   const rows = allRows.filter(r => !LIFE.has(r.changeType));
 
@@ -148,7 +156,7 @@ export function planUndo(batchId: string, allRows: HistoryRow[], elements: Map<s
   planLife(plan, life, elements, batchId);
 
   const byCode = (a: UndoItem, b: UndoItem) => a.itemCode.localeCompare(b.itemCode, 'ru');
-  for (const l of [plan.restore, plan.remove, plan.skip, plan.reinstate, plan.reremove, plan.unmove, plan.retag]) l.sort(byCode);
+  for (const l of [plan.restore, plan.remove, plan.skip, plan.reinstate, plan.reremove, plan.unmove, plan.retag, plan.unrename]) l.sort(byCode);
   return plan;
 }
 
@@ -188,6 +196,13 @@ function planLife(plan: UndoPlan, rows: HistoryRow[], elements: Map<string, Elem
     if (el.monoblockId !== now.monoblockId || el.itemCode !== now.itemCode) { skip(el, id, 'после импорта её уже переносили'); continue; }
     plan.unmove.push(item(el, id, 'unmove', { address: was }));
   }
+  for (const [id, list] of firstLast('SYS_RENAME')) {
+    const el = elements.get(id);
+    const was = parse(list[0].oldSpecs), now = parse(list[list.length - 1].newSpecs);
+    if (!el || !was || !now) { skip(el, id, 'позиции установки уже нет'); continue; }
+    if (el.systemName !== now.name) { skip(el, id, 'после импорта установку переименовали ещё раз'); continue; }
+    plan.unrename.push(item(el, id, 'unrename', { systemId: was.systemId, name: was.name }));
+  }
   for (const [id, list] of firstLast('TAG_MOVE')) {
     const was = parse(list[0].oldSpecs), now = parse(list[list.length - 1].newSpecs);
     if (!was?.tagIds?.length || !now?.elementId) continue;
@@ -208,6 +223,7 @@ export function describePlan(plan: UndoPlan): string {
   if (plan.remove.length) parts.push(`удалим заведённые импортом: ${plan.remove.length}`);
   if (plan.reinstate.length) parts.push(`вернём снятые: ${plan.reinstate.length}`);
   if (plan.reremove.length) parts.push(`снимем снова возвращённые: ${plan.reremove.length}`);
+  if (plan.unrename.length) parts.push(`вернём прежние имена установок: ${plan.unrename.length}`);
   if (plan.unmove.length) parts.push(`вернём на прежний адрес: ${plan.unmove.length}`);
   if (plan.retag.length) parts.push(`вернём теги прежним записям: ${plan.retag.length}`);
   if (plan.skip.length) parts.push(`пропустим (уже правили): ${plan.skip.length}`);
