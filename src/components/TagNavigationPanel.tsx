@@ -14,6 +14,8 @@ type TagRow = {
     id: string;
     name?: string;
     itemCode?: string;
+    /** REMOVED — позиция снята: пропала из расчёта или заменена */
+    status?: string;
     monoblock?: { name?: string; system?: { name?: string } };
   }>;
   metadata?: string | null;
@@ -162,7 +164,7 @@ export default function TagNavigationPanel() {
                   const composition = [system, component.monoblock?.name, component.name && component.name !== label ? component.name : ''].filter(Boolean).join(' · ');
                   return <li key={component.id}>
                     <button type="button" className="fx-li flex w-full items-center justify-between gap-2 text-left" onClick={() => visit(`Оборудование ${label}`, `/equipment?component=${encodeURIComponent(component.id)}`)}>
-                      <span className="min-w-0"><span className="block truncate text-xs text-slate-800 dark:text-slate-100">{label}</span>{composition && <span className="block truncate text-2xs text-slate-500 dark:text-slate-400">{composition}</span>}</span>
+                      <span className="min-w-0"><span className="block truncate text-xs text-slate-800 dark:text-slate-100">{label}</span>{component.status === 'REMOVED' && <span className="block truncate text-2xs text-amber-700 dark:text-amber-400" title="Позиции нет в расчёте или её заменили; тег остаётся при ней">оборудование снято</span>}{composition && <span className="block truncate text-2xs text-slate-500 dark:text-slate-400">{composition}</span>}</span>
                       <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
                     </button>
                   </li>;

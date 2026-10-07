@@ -7,7 +7,7 @@ import {
 import { rememberImport } from '../lib/lastImport';
 import TagLinksPanel, { type TagLink, writtenAs } from './import/TagLinksPanel';
 import UnknownKinds from './import/UnknownKinds';
-import MatchPanel, { type MatchRow, type SystemRow } from './import/MatchPanel';
+import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -52,9 +52,9 @@ interface PlanSystem {
 interface ImportPlan {
   systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
   /** Спорные позиции и установки: строки с вариантами, решает инженер */
-  matches?: MatchRow[]; systemRows?: SystemRow[];
+  matches?: MatchRow[]; systemRows?: SystemRow[]; missing?: MissingRow[];
   unknownKinds?: string[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
+  totals: { removed?: number; restored?: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
 type Edits = Record<string, Record<string, string>>; // blockKey → "группа‖ключ" → значение
@@ -297,7 +297,11 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   };
 
   const t = plan?.totals;
-  const matchCount = (plan?.matches?.length || 0) + (plan?.systemRows?.length || 0);
+  // «Будет снято» — только по установкам, где выбран хотя бы один блок: у целиком снятой с выбора записи не меняется
+  const liveSystems = new Set((plan?.blocks || []).filter(b => !excluded.has(b.key)).map(b => b.systemName));
+  const missingShown = (plan?.missing || []).filter(m => liveSystems.has(m.systemName));
+  const removing = missingShown.filter(m => (choices[m.key] ?? (m.remove ? 'remove' : 'keep')) === 'remove').length;
+  const matchCount = (plan?.matches?.length || 0) + (plan?.systemRows?.length || 0) + missingShown.length;
 
   return (
     <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
@@ -331,6 +335,8 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               <Chip color="emerald" label={`+${t!.newBlocks} новых`} />
               <Chip color="amber" label={`${t!.updatedBlocks} изменится`} />
               <Chip color="slate" label={`${t!.unchangedBlocks} без изменений`} />
+              {removing > 0 && <Chip color="amber" label={`будет снято: ${removing}`} />}
+              {(t!.restored || 0) > 0 && <Chip color="emerald" label={`вернётся в расчёт: ${t!.restored}`} />}
               {t!.conflicts > 0 && <Chip color="amber" label={`${t!.conflicts} расхождений значений`} />}
               {t!.overrides > 0 && <Chip color="rose" label={`затронет ручных правок: ${t!.overrides}`} />}
               {t!.warnings > 0 && <Chip color="rose" label={`⚠ проверьте: ${t!.warnings}`} />}
@@ -519,7 +525,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             {/* Спорные позиции: чья это запись в проекте */}
             {showMatches && (
               <div className="flex-1 min-h-0 flex">
-                <MatchPanel matches={plan.matches || []} systemRows={plan.systemRows || []} choices={choices} onChange={pickMatch} />
+                <MatchPanel matches={plan.matches || []} missing={missingShown} systemRows={plan.systemRows || []} choices={choices} onChange={pickMatch} />
               </div>
             )}
 
