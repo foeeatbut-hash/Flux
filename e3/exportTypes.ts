@@ -17,6 +17,10 @@ export interface ExportAttr {
   allowService?: boolean;
   /** Без значения выгрузка этого узла запрещена */
   required?: boolean;
+  /** Правило спора со скриптом E3 и правкой инженера (5.5); не задано — спросить */
+  conflict?: 'flux' | 'flux-once' | 'script' | 'ask';
+  /** Значение атрибута считает скрипт E3: расхождение — «переписал скрипт», а не правка инженера (С19) */
+  script?: boolean;
 }
 
 /** Узел Flux на момент нажатия «Выгрузить»: подбор и атрибуты считаются один раз — снимок (С17) */
@@ -36,6 +40,14 @@ export interface ExportNode {
   attrs: ExportAttr[];
   /** Отмечен в выгрузку (флажок в списке) */
   checked: boolean;
+  /** Позиция снята во Flux (`REMOVED`): узел нужен, только чтобы решить судьбу блока в E3 (С4) */
+  removed?: boolean;
+  /** Позиция заменена новой (`__removal.replacedBy`, С6) */
+  replacedBy?: string;
+  /** Классификатор или профиль изменились с прошлой выгрузки: другой подбор — предложение, а не приказ (С14) */
+  rulesChanged?: boolean;
+  /** Решение убрано из каталога: новых блоков с ним нет (С20) */
+  solutionRemoved?: boolean;
 }
 
 export type BindingState = 'PLACED' | 'REMOVED_IN_FLUX' | 'DELETED_IN_E3' | 'DETACHED';
@@ -59,7 +71,29 @@ export interface Binding {
 
 export const attrKey = (a: Pick<ExportAttr, 'owner' | 'name'>): string => `${a.owner}|${a.name}`;
 
-export type ActionKind = 'place' | 'update' | 'replace' | 'keep' | 'skip' | 'remove';
+export type ActionKind = 'place' | 'update' | 'replace' | 'keep' | 'skip' | 'remove' | 'mark-removed' | 'detach';
+
+/** Ответы инженера на вопросы плана: ключ `<узел>|<тема>`, тема — removed, deleted, dup, rules, attr:<ключ атрибута>, project */
+export type Decisions = Record<string, string>;
+
+/** Спорное, о чём план спрашивает: три значения, предложение, выбор копии блока */
+export interface PlanQuestion {
+  id: string;
+  elementId: string;
+  topic: 'attr' | 'removed' | 'deleted' | 'dup' | 'rules' | 'project';
+  text: string;
+  options: { value: string; label: string }[];
+  /** Что произойдёт, если не отвечать */
+  default: string;
+  /** Для атрибута: «в E3 · отправляли · во Flux» */
+  values?: { e3: string; sent: string; flux: string };
+}
+
+export interface AttrConflict {
+  key: string; kind: 'edited-in-e3' | 'both-changed' | 'script'; e3: string; sent: string; flux: string; applied: 'e3' | 'flux';
+  /** Инженер ответил на вопрос явно: «оставить значение E3» запоминается, и вопрос не повторяется */
+  decided?: boolean;
+}
 
 /** Решение по одному узлу после сравнения трёх сторон */
 export interface NodeAction {
@@ -75,6 +109,17 @@ export interface NodeAction {
   movedInE3?: boolean;
   /** Значения, которые правили в E3: их не перезаписываем */
   keptE3: string[];
+  conflicts?: AttrConflict[];
+  /** Вопросы к инженеру по этому узлу */
+  questions?: PlanQuestion[];
+  /** Другое решение по новым правилам (С14): без согласия блок не меняется */
+  proposal?: { solutionId: string; solutionName: string };
+  /** Замена позиции новой (С6): ID старой, чей блок заменяется */
+  replaces?: string;
+  /** Провода, которые повиснут при замене блока: выводы старого блока, которых нет у нового */
+  dangling?: string[];
+  /** Копии блока с тем же `FLUX_BLOCK`, с которых связь снимается (С12) */
+  unlink?: number[];
   /** Почему узел пропущен или как понимать действие */
   reason?: string;
   note?: string;
@@ -82,9 +127,11 @@ export interface NodeAction {
 
 export interface PlanIssue { level: 'error' | 'warning'; code: string; elementId?: string; text: string }
 
-export interface ExportSummary { place: number; update: number; replace: number; remove: number; skipped: number }
+export interface ExportSummary { place: number; update: number; replace: number; remove: number; skipped: number; mark?: number; detach?: number }
 
 export interface ExportPlan {
+  /** Что решить инженеру; пока не решено, действует умолчание из таблицы 9.3 */
+  questions: PlanQuestion[];
   errors: PlanIssue[];
   warnings: PlanIssue[];
   actions: NodeAction[];
@@ -112,4 +159,10 @@ export interface PlanContext {
   exportId: string;
   exportNo: number;
   classifierVersion: number;
+  /** Внешние выводы блоков по именам решений (для отчёта о висящих проводах) */
+  pins?: Map<string, string[]>;
+  /** Путь проекта E3 сейчас и в связи: тот же ключ при другом пути — копия или переезд (С13) */
+  e3Path?: string;
+  linkedPath?: string;
+  projectChoice?: 'moved' | 'new';
 }

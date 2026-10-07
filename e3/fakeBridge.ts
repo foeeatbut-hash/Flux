@@ -25,6 +25,8 @@ export interface FakeBlock {
   /** Отметка выгрузки, пока нет атрибутов связи */
   mark: string;
   wired: boolean;
+  /** Выводы, к которым проведены провода */
+  wiredPins: string[];
 }
 
 export interface FakeOptions {
@@ -36,6 +38,10 @@ export interface FakeOptions {
   sheetInfo?: E3SheetInfo;
   /** Блоки типовых решений, которые есть в базе E3 */
   parts?: string[];
+  /** Внешние выводы блоков по именам */
+  pins?: Record<string, string[]>;
+  /** Путь проекта E3 (для распознавания копии проекта, С13) */
+  path?: string;
   occupied?: E3Rect[];
   /** В базе заведены атрибуты связи */
   linkAttrs?: boolean;
@@ -57,7 +63,7 @@ export class FakeE3 implements E3Bridge {
 
   constructor(opts: FakeOptions = {}) {
     this.options = {
-      version: '2025', projectName: 'Корпус 3 — ВК', projectKey: null, sheet: 'Лист 12', sheetInfo: A3, parts: [], occupied: [], linkAttrs: true, ...opts,
+      version: '2025', projectName: 'Корпус 3 — ВК', projectKey: null, sheet: 'Лист 12', sheetInfo: A3, parts: [], pins: {}, path: 'D:\\E3\\Корпус3.e3s', occupied: [], linkAttrs: true, ...opts,
     } as any;
     this.key = this.options.projectKey;
   }
@@ -72,7 +78,7 @@ export class FakeE3 implements E3Bridge {
   }
 
   async listParts(names?: string[]): Promise<E3PartInfo[]> {
-    const all = this.options.parts.map((name): E3PartInfo => ({ name, kind: 'block' }));
+    const all = this.options.parts.map((name): E3PartInfo => ({ name, kind: 'block', ...(this.options.pins[name] ? { pins: this.options.pins[name] } : {}) }));
     return names ? all.filter((p) => names.includes(p.name)) : all;
   }
 
@@ -86,7 +92,7 @@ export class FakeE3 implements E3Bridge {
       const attrs: Record<string, string> = {};
       for (const [k, v] of Object.entries(b.attrs)) if (k.includes('|')) attrs[k] = v;
       const [version] = (b.attrs.FLUX_VER || '').split('#');
-      return { positionId: b.attrs.FLUX_BLOCK, solutionId: b.block, version: b.attrs.FLUX_VER || '', designation: b.designation, sheet: b.sheet, rect: b.rect, positionVersion: version, attrs, wired: b.wired };
+      return { positionId: b.attrs.FLUX_BLOCK, solutionId: b.block, version: b.attrs.FLUX_VER || '', designation: b.designation, sheet: b.sheet, rect: b.rect, positionVersion: version, attrs, wired: b.wired, wiredPins: b.wiredPins, objectId: b.id };
     });
   }
 
@@ -113,7 +119,15 @@ export class FakeE3 implements E3Bridge {
   // ── Что делает инженер руками в E3 (для проверок) ─────────────────────────
   private byPosition(positionId: string): FakeBlock | undefined { return this.blocks.find((b) => b.attrs.FLUX_BLOCK === positionId); }
   move(positionId: string, to: { x: number; y: number }): void { const b = this.byPosition(positionId); if (b) b.rect = { ...b.rect, ...to }; }
-  wire(positionId: string): void { const b = this.byPosition(positionId); if (b) b.wired = true; }
+  wire(positionId: string, pins: string[] = []): void { const b = this.byPosition(positionId); if (b) { b.wired = true; b.wiredPins = pins; } }
+  /** Инженер скопировал блок: у копии тот же `FLUX_BLOCK`, номер объекта другой (С12) */
+  copyBlock(positionId: string): FakeBlock | undefined {
+    const b = this.byPosition(positionId);
+    if (!b) return undefined;
+    const copy: FakeBlock = { ...b, id: this.nextId++, attrs: { ...b.attrs }, rect: { ...b.rect, x: b.rect.x + 60 }, wiredPins: [...b.wiredPins] };
+    this.blocks.push(copy);
+    return copy;
+  }
   editAttr(positionId: string, owner: string, name: string, value: string): void { const b = this.byPosition(positionId); if (b) b.attrs[`${owner}|${name}`] = value; }
   deleteBlock(positionId: string): void { this.blocks = this.blocks.filter((b) => b.attrs.FLUX_BLOCK !== positionId); }
   /** Блок по ID узла или по отметке выгрузки */
@@ -131,13 +145,19 @@ export class FakeE3 implements E3Bridge {
       const existing = this.find(step.positionId, step.mark);
       if (existing) return { step, ok: true, message: 'уже стоит' };
       if (!step.block || !this.options.parts.includes(step.block)) return fail(`Блока «${step.block}» нет в базе E3`);
-      this.blocks.push({ id: this.nextId++, block: step.block, sheet: this.options.sheet, rect: step.rect!, designation: '', attrs: {}, mark: step.mark || '', wired: false });
+      this.blocks.push({ id: this.nextId++, block: step.block, sheet: this.options.sheet, rect: step.rect!, designation: '', attrs: {}, mark: step.mark || '', wired: false, wiredPins: [] });
       return { step, ok: true };
     }
     if (step.kind === 'remove') {
       const had = this.find(step.positionId, step.mark);
       this.blocks = this.blocks.filter((b) => b !== had);
       return { step, ok: true, ...(had ? {} : { message: 'блока уже нет' }) };
+    }
+    if (step.kind === 'unlink') {
+      const copy = this.blocks.find((x) => x.id === step.objectId);
+      if (!copy) return { step, ok: true, message: 'копии уже нет' };
+      delete copy.attrs.FLUX_BLOCK; delete copy.attrs.FLUX_VER;
+      return { step, ok: true };
     }
     const b = this.find(step.positionId, step.mark) || this.blocks.find((x) => x.mark.endsWith(`:${step.positionId}`));
     if (!b) return fail('Блок не найден: сначала его нужно поставить');

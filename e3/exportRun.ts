@@ -78,10 +78,20 @@ export function buildBindings(
   const byNode = new Map(nodes.map((n) => [n.elementId, n]));
   const before = new Map(prev.map((b) => [b.elementId, b]));
   const out: Binding[] = [];
+  const retire = (id: string, state: Binding['state']) => {
+    const old = before.get(id);
+    if (old) out.push({ ...old, state, lastExportId: ctx.exportId });
+  };
   for (const a of plan.actions) {
-    if (a.kind === 'skip' || a.kind === 'keep' || a.kind === 'remove') continue;
-    const mine = plan.steps.map((s, i) => ({ s, i })).filter(({ s }) => s.positionId === a.elementId);
+    // Отвязывание шагов не требует: связь меняется сразу (С4, С11)
+    if (a.kind === 'detach') { retire(a.elementId, 'DETACHED'); continue; }
+    // Явное «оставить значение E3» запоминается в связи, чтобы вопрос не повторялся
+    if (a.kind === 'keep' && a.conflicts?.some((c) => c.decided)) { const old = before.get(a.elementId); if (old) out.push({ ...old, sentAttrs: sentAttrsAfter(old, a), lastExportId: ctx.exportId }); continue; }
+    if (a.kind === 'skip' || a.kind === 'keep') continue;
+    const mine = plan.steps.map((s, i) => ({ s, i })).filter(({ s }) => s.positionId === a.elementId || (a.replaces !== undefined && s.positionId === a.replaces));
     if (mine.some(({ i }) => !ok.has(i))) continue;
+    if (a.kind === 'remove') { retire(a.elementId, 'DETACHED'); continue; }
+    if (a.kind === 'mark-removed') { retire(a.elementId, 'REMOVED_IN_FLUX'); continue; }
     const node = byNode.get(a.elementId);
     if (!node) continue;
     const old = before.get(a.elementId);
@@ -90,6 +100,8 @@ export function buildBindings(
       x: a.rect.x, y: a.rect.y, rotation: 0, sentVersion: node.version, sentAttrs: sentAttrsAfter(old, a), ...(old?.overrides ? { overrides: old.overrides } : {}),
       state: 'PLACED', lastExportId: ctx.exportId,
     });
+    // С6: старая позиция заменена — её связь закрывается, новая заняла её место
+    if (a.replaces) retire(a.replaces, 'DETACHED');
   }
   return out;
 }

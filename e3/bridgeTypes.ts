@@ -28,7 +28,7 @@ export interface E3Status {
 }
 
 /** Блок или изделие базы E3: есть ли оно и из чего состоит */
-export interface E3PartInfo { name: string; kind: 'block' | 'component' | 'symbol'; contents?: string[]; size?: E3Size }
+export interface E3PartInfo { name: string; kind: 'block' | 'component' | 'symbol'; contents?: string[]; size?: E3Size; /** Внешние выводы блока: по ним при замене решения видно, какие провода повиснут */ pins?: string[] }
 
 /** Уже выгруженное: связь узла Flux с тем, что стоит в E3 */
 export interface E3BoundBlock {
@@ -48,6 +48,10 @@ export interface E3BoundBlock {
   attrs?: Record<string, string>;
   /** К блоку проведены провода: инженер уже работает с ним, снимать его нельзя */
   wired?: boolean;
+  /** К каким выводам проведены провода */
+  wiredPins?: string[];
+  /** Номер объекта E3: у копии блока тот же `FLUX_BLOCK`, а номер другой (С12) */
+  objectId?: number;
 }
 
 /**
@@ -57,7 +61,7 @@ export interface E3BoundBlock {
  * понимает, что уже сделано, и продолжение не ставит вторых блоков.
  */
 export interface E3PlanStep {
-  kind: 'place' | 'designation' | 'attribute' | 'link' | 'remove';
+  kind: 'place' | 'designation' | 'attribute' | 'link' | 'remove' | 'unlink';
   /** ID узла Flux */
   positionId: string;
   /** Словами: что делает шаг (для отчёта) */
@@ -73,6 +77,8 @@ export interface E3PlanStep {
   value?: string;
   /** Атрибуты связи: версия узла и номер выгрузки */
   ver?: string;
+  /** Номер объекта E3: шаг «отвязать» снимает связь именно с этой копии блока */
+  objectId?: number;
 }
 export interface E3StepResult { step: E3PlanStep; ok: boolean; message?: string }
 
