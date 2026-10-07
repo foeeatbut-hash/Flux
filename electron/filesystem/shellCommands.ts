@@ -189,7 +189,10 @@ export class ShellCommands {
     const ids = this.ids.replace(owner, 'bin', clean.map(row => row.key as string));
     const items: WindowsRecycleItem[] = clean.map((row, index) => {
       const time = typeof row.deletedAt === 'string' ? Date.parse(row.deletedAt) : NaN;
-      return { id: ids[index], name: row.name, location: text(row.location, 4096) ?? '', deletedAt: Number.isFinite(time) ? new Date(time).toISOString() : null,
+      // На части Windows (на CI — Server) имя элемента корзины приходит полным исходным путём,
+      // а не именем файла, как в Проводнике: оставляем последнее звено
+      const name = String(row.name).split(/[\\/]/u).filter(Boolean).pop() || String(row.name);
+      return { id: ids[index], name, location: text(row.location, 4096) ?? '', deletedAt: Number.isFinite(time) ? new Date(time).toISOString() : null,
         size: typeof row.size === 'number' && Number.isSafeInteger(row.size) && row.size >= 0 ? row.size : null, kind: row.directory === true ? 'directory' : 'file' };
     });
     return { supported: true, items };
