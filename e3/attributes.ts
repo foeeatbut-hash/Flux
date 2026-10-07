@@ -169,9 +169,9 @@ export function defaultSource(name: string): E3Source {
   const field = FIELD_SOURCES[n];
   if (field) return { kind: 'field', key: field };
   const up = String(name ?? '').trim().toUpperCase();
-  if (/^(MOTOR|ELH|LC|PEQ|COMPRO)_POWER$/.test(up)) return { kind: 'param', name: 'Мощность' };
-  if (/_VOLTAGE$/.test(up)) return { kind: 'param', name: 'Напряжение' };
-  if (/_CURRENT_RATED$/.test(up)) return { kind: 'param', name: 'Ток' };
+  if (/^(MOTOR|ELH|LC|PEQ|COMPRO)_POWER$/.test(up)) return { kind: 'param', name: 'Мощность', unit: 'кВт' };
+  if (/_VOLTAGE$/.test(up)) return { kind: 'param', name: 'Напряжение', unit: 'В' };
+  if (/_CURRENT_RATED$/.test(up)) return { kind: 'param', name: 'Ток', unit: 'А' };
   return { kind: 'none' };
 }
 

@@ -140,8 +140,12 @@ export function registerE3AttributeRoutes(app: Express, can: (user: any, feature
     const before = await load(db);
     checkVersion(req.body?.expectedVersion, before.book);
     if (!before.book.items.some((a) => a.name === name)) catalogFailure(404, `Атрибута «${name}» нет в справочнике`);
-    // Правка руками закрывает поля от перезаписи загрузкой файла
-    const items = before.book.items.map((a) => (a.name === name ? { ...a, ...patch, edited: true } : a));
+    // От перезаписи файлом закрывает только правка полей из файла (подпись,
+    // «Да»). Источник, типы и правило спора файл не трогает вовсе, и если
+    // считать их правкой, после настройки сотни источников повторная загрузка
+    // файла перестала бы обновлять описания у всех настроенных атрибутов
+    const touchesFile = patch.title !== undefined || patch.fromFlux !== undefined;
+    const items = before.book.items.map((a) => (a.name === name ? { ...a, ...patch, ...(touchesFile ? { edited: true } : {}) } : a));
     const { book } = await write(db, user, before, items, 'update');
     res.json({ book });
   }));
