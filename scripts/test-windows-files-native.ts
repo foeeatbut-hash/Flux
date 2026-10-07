@@ -56,6 +56,8 @@ async function main() {
   }
   // Системный диск: корзина на диске временных файлов раннера (D:) может быть отключена, а профиль пользователя — на C:.
   const base = await fs.mkdtemp(path.join(os.homedir(), 'flux-native-'));
+  // Трассировка помощника: если он упадёт, шаги в stderr покажут, где именно.
+  process.env.FLUX_SHELL_TRACE = '1';
   const host = new NativeShellHost();
   let service: WindowsFilesService | undefined; let shell: ShellCommands | undefined;
   try {
@@ -172,7 +174,7 @@ async function main() {
       await svc.trash(R('Корзина/в корзину.txt')); await svc.trash(R('Корзина/навсегда.txt'));
       const listed = await shell!.recycleBin(1);
       let binWhy: unknown = listed.message;
-      if (!listed.supported) binWhy = await host.call('bin-list').then(rows => `помощник ответил: ${JSON.stringify(rows).slice(0, 300)}`, (error: any) => `${error.code} ${JSON.stringify(error.nativeDiagnostic)}; stderr: ${host.lastStderr.slice(-300)}`);
+      if (!listed.supported) binWhy = await host.call('bin-list').then(rows => `помощник ответил: ${JSON.stringify(rows).slice(0, 300)}`, (error: any) => `${error.code} ${JSON.stringify(error.nativeDiagnostic)}\n   stderr помощника: ${host.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`);
       check(listed.supported, 'Список корзины Windows читается помощником', binWhy);
       const binDir = (await fs.realpath(dir('Корзина'))).toLowerCase();
       const mine = (name: string) => listed.items.find(item => item.name.replace(/\.txt$/iu, '') === name && item.location.toLowerCase() === binDir);
@@ -233,6 +235,12 @@ async function main() {
       const verbs = flat(menu.items).map(item => item.verb).filter(Boolean);
       check(menu.items.length > 0 && verbs.includes('properties'), `Классическое меню Windows построено (${flat(menu.items).length} пунктов; команды: ${verbs.slice(0, 8).join(', ')})`,
         `все пункты (подпись=команда): ${flat(menu.items).filter(item => !item.separator).map(item => `${item.label}=${item.verb ?? '-'}`).join(' | ')}`);
+      if (!verbs.includes('properties')) {
+        const raw = await host.call('menu-open', { paths: [dir('Для меню.txt')], extended: false }, 20_000);
+        const rawFlat = (items: any[]): any[] => items.flatMap(item => [item, ...(item.submenu ? rawFlat(item.submenu) : [])]);
+        console.log(`   ${raw.scan}\n   ${rawFlat(raw.items).filter(item => item.probe).map(item => `[${item.label}] ${item.probe}`).join('\n   ')}`);
+        await host.call('menu-close');
+      }
       await shell!.shellMenuClose(1, menu.token);
       skip('вызов пунктов меню и запуск программы через «Открыть с помощью»: открывают окна Windows, на неинтерактивной сессии CI не проверяются');
       skip('startDrag: требует окно Electron (webContents.startDrag); проверяется отказ для черновика на Linux и приёмкой владельца');

@@ -261,15 +261,27 @@ public static class FluxShellFiles {
   static string Verb(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2);
     try {
-      // GCS_VERBW: каноничное имя команды, не зависящее от языка Windows.
       Marshal.WriteInt16(buffer, 0);
-      try { if (menu.GetCommandString((UIntPtr)(uint)offset, 4u, IntPtr.Zero, buffer, 512) >= 0) { string wide = Marshal.PtrToStringUni(buffer); if (!String.IsNullOrEmpty(wide)) return wide; } } catch { }
-      // GCS_VERBA: часть обработчиков (в том числе встроенные пункты «Свойства», «Копировать») отвечает только на ANSI-запрос.
-      Marshal.WriteByte(buffer, 0, 0);
-      try { if (menu.GetCommandString((UIntPtr)(uint)offset, 0u, IntPtr.Zero, buffer, 512) >= 0) { string narrow = Marshal.PtrToStringAnsi(buffer); if (!String.IsNullOrEmpty(narrow)) return narrow; } } catch { }
-      return null;
+      // GCS_VERBW: каноничное имя команды, не зависящее от языка Windows.
+      if (menu.GetCommandString((UIntPtr)(uint)offset, 4u, IntPtr.Zero, buffer, 512) < 0) return null;
+      string verb = Marshal.PtrToStringUni(buffer); return String.IsNullOrEmpty(verb) ? null : verb;
+    } catch { return null; } finally { Marshal.FreeCoTaskMem(buffer); }
+  }
+  /** Что ответил GetCommandString на запрос (W — GCS_VERBW, A — GCS_VERBA): для журнала диагностики, не для интерфейса. */
+  static string VerbProbe(IContextMenu menu, int offset) {
+    IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2); string report = "";
+    try {
+      foreach (uint kind in new uint[] { 4u, 0u }) {
+        Marshal.WriteInt16(buffer, 0); string value = "";
+        int hr = -1; try { hr = menu.GetCommandString((UIntPtr)(uint)offset, kind, IntPtr.Zero, buffer, 512); value = kind == 4u ? Marshal.PtrToStringUni(buffer) : Marshal.PtrToStringAnsi(buffer); } catch (Exception failure) { value = failure.GetType().Name; }
+        report += (kind == 4u ? "W" : "A") + ":" + hr.ToString("X8") + ":" + value + " ";
+      }
+      return report;
     } finally { Marshal.FreeCoTaskMem(buffer); }
   }
+  static bool TraceOn { get { return Environment.GetEnvironmentVariable("FLUX_SHELL_TRACE") == "1"; } }
+  /** Шаги пишутся в stderr только при FLUX_SHELL_TRACE=1 (проверка на CI): при аварийном завершении по ним видно, где оно случилось. */
+  static void Trace(string text) { if (TraceOn) { Console.Error.WriteLine("FLUX_TRACE:" + text); Console.Error.Flush(); } }
   static string CleanLabel(string raw) {
     if (raw == null) return "";
     int tab = raw.IndexOf('\t'); if (tab >= 0) raw = raw.Substring(0, tab);
@@ -300,6 +312,7 @@ public static class FluxShellFiles {
       if (label.Length == 0 && !hasSub) continue; // пункты с собственной отрисовкой без текста показать нечем
       int offset = hasSub ? -1 : (int)info.wID - (int)first;
       Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
+      if (TraceOn) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " sub=" + hasSub + " " + VerbProbe(menu, offset);
       if (!hasSub) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
       else if (depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
       result.Add(entry);
@@ -322,7 +335,9 @@ public static class FluxShellFiles {
       if (hr < 0) Marshal.ThrowExceptionForHR(hr);
       List<object> tree = ReadMenu(session.Handle, session.Menu, 1, session, 0);
       Session = session;
-      return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"token", session.Token}, {"items", tree} }} });
+      Dictionary<string,object> data = new Dictionary<string,object> { {"token", session.Token}, {"items", tree} };
+      if (TraceOn) { string scan = "top=" + (hr & 0xFFFF) + " "; for (int offset = 0; offset < (hr & 0xFFFF) + 4 && offset < 400; offset++) scan += offset + "=" + (Verb(session.Menu, offset) ?? "-") + " "; data["scan"] = scan; }
+      return Json(new Dictionary<string,object> { {"ok", true}, {"data", data} });
     } catch { session.Dispose(); throw; }
   }
   static string MenuInvoke(Dictionary<string,object> args) {
@@ -504,7 +519,7 @@ public static class FluxShellFiles {
     finally { if (raw != IntPtr.Zero) Marshal.FreeCoTaskMem(raw); }
   }
   static IShellItem Bin() {
-    Stage = "bin-known-folder";
+    Stage = "bin-known-folder"; Trace("bin: SHGetKnownFolderItem");
     IShellItem bin = null; int hr = SHGetKnownFolderItem(ref FOLDERID_RecycleBin, 0, IntPtr.Zero, ref IID_IShellItem, out bin);
     if (hr >= 0 && bin != null) return bin;
     // Запасной путь: та же корзина по имени для разбора, как её называет Проводник.
@@ -514,19 +529,26 @@ public static class FluxShellFiles {
   static string BinList() {
     Stage = "bin-list";
     List<object> result = new List<object>();
-    IShellItem bin = Bin(); Stage = "bin-enum";
+    Trace("bin: открываю папку корзины");
+    IShellItem bin = Bin(); Stage = "bin-enum"; Trace("bin: папка получена, перечисляю");
+    int number = 0;
     foreach (IShellItem child in Children(bin, 20000)) {
       try {
+        number++; Trace("bin: элемент " + number + " имя");
+        string name = Text(child, 0u); Trace("bin: элемент " + number + " ключ");
+        string key = Text(child, 0x80028000u); Trace("bin: элемент " + number + " cast IShellItem2");
         IShellItem2 item = (IShellItem2)child;
-        uint attributes; child.GetAttributes(0x20000000u, out attributes);
-        ulong size; bool hasSize = item.GetUInt64(ref KEY_Size, out size) >= 0;
-        DateTime? when = Deleted(item);
+        uint attributes; child.GetAttributes(0x20000000u, out attributes); Trace("bin: элемент " + number + " размер");
+        ulong size; bool hasSize = item.GetUInt64(ref KEY_Size, out size) >= 0; Trace("bin: элемент " + number + " дата");
+        DateTime? when = Deleted(item); Trace("bin: элемент " + number + " откуда");
+        string from = BinString(item, KEY_DeletedFrom); Trace("bin: элемент " + number + " готов");
         result.Add(new Dictionary<string,object> {
-          {"key", Text(child, 0x80028000u)}, {"name", Text(child, 0u)}, {"location", BinString(item, KEY_DeletedFrom)},
+          {"key", key}, {"name", name}, {"location", from},
           {"deletedAt", when.HasValue ? when.Value.ToString("o") : null}, {"size", hasSize ? (object)size : null}, {"directory", (attributes & 0x20000000u) != 0}
         });
-      } catch { } finally { Marshal.ReleaseComObject(child); }
+      } catch (Exception failure) { Trace("bin: элемент " + number + " сбой " + failure.GetType().Name + " " + failure.Message); } finally { Marshal.ReleaseComObject(child); }
     }
+    Trace("bin: элементов " + result.Count);
     return Json(new Dictionary<string,object> { {"ok", true}, {"data", result} });
   }
   /** Команды корзины идут по разбираемым именам из последнего списка; NO_UI — без окон подтверждения. Действие над найденными. */

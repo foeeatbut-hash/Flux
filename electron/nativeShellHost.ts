@@ -88,7 +88,7 @@ export class NativeShellHost {
       this.child = child; this.buffer = ''; this.stderr = '';
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', chunk => this.onData(String(chunk)));
-      child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk).slice(-4096); });
+      child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk).slice(-16384); });
       child.stdin.on('error', () => undefined); // обрыв канала разбирается по событию exit
       child.on('exit', () => { if (this.child === child) this.onExit(); });
       child.on('error', () => { if (this.child === child) this.onExit(); });
