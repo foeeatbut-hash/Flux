@@ -7,6 +7,8 @@ on:
       - electron/**
       - filesystem/**
       - tools/windows-notification-bridge/**
+      - tools/e3-probe/**
+      - scripts/test-e3-probe.ts
       - scripts/test-*windows*.ts
       - scripts/test-desktop-shell-native.ts
       - scripts/test-remaining-*.ts
@@ -44,6 +46,12 @@ jobs:
       - name: Мост Проводника на настоящей NTFS и в Оболочке
         timeout-minutes: 15
         run: node --import tsx scripts/test-windows-files-native.ts
+      # Скрипт проверки API E3 владелец запускает в Windows PowerShell 5.1 без E3 на раннере:
+      # здесь разбирается синтаксис настоящим парсером 5.1, скрипт идёт на подставном COM,
+      # собирается C# разборщика библиотек типов и снимается опись настоящего COM-объекта.
+      - name: Скрипт проверки API E3 (PowerShell 5.1, подставной COM)
+        timeout-minutes: 10
+        run: node --import tsx scripts/test-e3-probe.ts
       - name: Компиляция компонента уведомлений и проверка MSIX
         shell: powershell
         run: tools/windows-notification-bridge/build.ps1 -OutputDirectory "$env:RUNNER_TEMP\flux-notifications"
