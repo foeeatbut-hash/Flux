@@ -118,7 +118,10 @@ export async function importDropped(service: WindowsFilesService, tickets: DropT
       } else {
         const targetFile = await service.filename(target, true);
         if (directory) {
-          if (isContained(source, targetFile)) throw new WindowsFilesError('RECURSIVE_TARGET', 'Нельзя скопировать папку внутрь неё самой.');
+          // Назначение уже канонично (realpath в resolveSafePath), путь брошенной папки — нет:
+          // Windows отдаёт его и коротким именем 8.3 (RUNNER~1), и в другом регистре. Без
+          // приведения обеих сторон «внутрь себя» не узнаётся, и папка копируется в саму себя
+          if (isContained(await fs.realpath(source), targetFile)) throw new WindowsFilesError('RECURSIVE_TARGET', 'Нельзя скопировать папку внутрь неё самой.');
           await copyWindowsTree(source, targetFile, await inspectWindowsTree(source));
         } else await fs.copyFile(source, targetFile, constants.COPYFILE_EXCL);
         const entry = await service.entry(target);
