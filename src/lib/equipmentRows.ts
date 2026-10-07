@@ -45,7 +45,7 @@ export function rowsOfSystem(
   normalizeSpecs: (raw?: string) => { groups: any[] },
 ): ExchangeComponent[] {
   const all = (sys.monoblocks || []).flatMap((mb) => mb.components || []);
-  const { unitTag, parentTagOf } = compositionOf(all as any, sys.name);
+  const { unitTag, parentTagOf, parentNameOf } = compositionOf(all as any, sys.name);
 
   return (sys.monoblocks || []).flatMap((mb) => (mb.components || [])
     // Служебный блок параметров установки в перечень изделий не входит
@@ -59,6 +59,7 @@ export function rowsOfSystem(
       monoblockName: mb.name === '__unit__' ? '' : mb.name,
       role: c.role || 'БЛОК',
       parentTag: parentTagOf(c as any),
+      parentName: parentNameOf(c as any),
       unitTag,
       instanceNo: c.instanceNo ?? null,
       manual: !!c.manual,
