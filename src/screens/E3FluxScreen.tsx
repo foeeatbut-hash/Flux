@@ -3,14 +3,15 @@
  *
  * Выгрузка оборудования в таком виде уберётся (решение владельца), поэтому
  * атрибуты E3 живут здесь, а не в «Выгрузке данных» и не в Каталоге. Готовы
- * три рабочих места: справочник атрибутов, таблица атрибутов проекта и
- * типовые решения (каталог, профиль и подбор по позициям); схема придёт
- * следующим обновлением.
+ * четыре рабочих места: таблица атрибутов проекта, справочник атрибутов,
+ * типовые решения (каталог, профиль и подбор по позициям) и схема (список,
+ * холст листа и карточка узла). Выгрузка в E3 ждёт моста.
  */
 import React, { useEffect, useState } from 'react';
 import SectionErrorBoundary from '../components/SectionErrorBoundary';
 import E3AttributesPanel from '../components/catalog/E3AttributesPanel';
 import E3ProjectTable from '../components/e3flux/E3ProjectTable';
+import E3SchemeTab from '../components/e3flux/E3SchemeTab';
 import E3SolutionsTab from '../components/e3flux/E3SolutionsTab';
 import NoProject from '../components/NoProject';
 import { SectionHead, Tabs } from '../components/ui';
@@ -43,7 +44,7 @@ export default function E3FluxScreen() {
       {tab === 'project' ? (project ? <E3ProjectTable key={project.id} projectId={project.id} projectName={project.name} onOpenBook={() => setTab('book')} say={say} /> : <NoProject what="атрибутов E3" />)
         : tab === 'book' ? <div className="h-full p-3"><E3AttributesPanel rights={rights} /></div>
         : tab === 'solutions' ? <E3SolutionsTab rights={rights} projectId={project?.id || ''} />
-        : <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Будет в следующем обновлении</p>}
+        : project ? <E3SchemeTab key={project.id} projectId={project.id} onOpenProfile={() => setTab('solutions')} /> : <NoProject what="схемы E3" />}
     </div>
   </div></SectionErrorBoundary>;
 }

@@ -32,6 +32,7 @@ export const e3SolutionsService = {
   saveRule: (rule: E3FeatureRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/rule`, { rule, expectedVersion }),
   deleteRule: (rule: E3FeatureRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/rule`, { rule, delete: true, expectedVersion }),
   saveDictionary: (dictionary: E3Dictionary, expectedVersion: number) => call<Written>('PUT', `${BASE}/dictionary`, { dictionary, expectedVersion }),
+  saveClassMap: (classMap: Record<string, string[]>, expectedVersion: number) => call<Written>('PUT', `${BASE}/classmap`, { classMap, expectedVersion }),
   revisions: () => call<E3SolutionRevision[]>('GET', `${BASE}/revisions`),
   undo: (revisionId: string, expectedVersion: number) => call<Written>('POST', `${BASE}/undo`, { revisionId, expectedVersion }),
   profile: (projectId: string) => call<E3ProfileDoc>('GET', `/projects/${encodeURIComponent(projectId)}/e3-profile`),
