@@ -8,6 +8,7 @@
  * холст листа и карточка узла). Выгрузка в E3 ждёт моста.
  */
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import SectionErrorBoundary from '../components/SectionErrorBoundary';
 import E3AttributesPanel from '../components/catalog/E3AttributesPanel';
 import E3ProjectTable from '../components/e3flux/E3ProjectTable';
@@ -24,7 +25,11 @@ type Tab = 'project' | 'book' | 'solutions' | 'scheme';
 export default function E3FluxScreen() {
   const project = useStore((s) => s.activeProject);
   const say = useToastStore((s) => s.addToast);
-  const [tab, setTab] = useState<Tab>('project');
+  // Из карточки позиции («В схеме E3 …») окно открывается на схеме и на этой позиции (docs/e3-integration.md, 6.5)
+  const [params] = useSearchParams();
+  const focus = params.get('position') || '';
+  const [tab, setTab] = useState<Tab>(focus ? 'scheme' : 'project');
+  useEffect(() => { if (focus) setTab('scheme'); }, [focus]);
   // Права справочника — те же, что у рабочей области Каталога: справочник хранится там
   const [rights, setRights] = useState({ edit: false, import: false });
   useEffect(() => {
@@ -44,7 +49,7 @@ export default function E3FluxScreen() {
       {tab === 'project' ? (project ? <E3ProjectTable key={project.id} projectId={project.id} projectName={project.name} onOpenBook={() => setTab('book')} say={say} /> : <NoProject what="атрибутов E3" />)
         : tab === 'book' ? <div className="h-full p-3"><E3AttributesPanel rights={rights} /></div>
         : tab === 'solutions' ? <E3SolutionsTab rights={rights} projectId={project?.id || ''} />
-        : project ? <E3SchemeTab key={project.id} projectId={project.id} onOpenProfile={() => setTab('solutions')} /> : <NoProject what="схемы E3" />}
+        : project ? <E3SchemeTab key={project.id} projectId={project.id} focusId={focus} onOpenProfile={() => setTab('solutions')} /> : <NoProject what="схемы E3" />}
     </div>
   </div></SectionErrorBoundary>;
 }

@@ -13,6 +13,8 @@ import { e3SolutionsService as svc, E3SolutionVersionError, type E3ProfileDoc } 
 import { buildExportSources, type ExportSystem } from '../../lib/exportWorkspace';
 import { toPositions } from '../../lib/e3Positions';
 import { count } from '../../lib/plural';
+import { can } from '../../lib/permissions';
+import { useStore } from '../../store/store';
 import { Empty, FilterSeg, Input, SectionHead, Select, Status, Toolbar } from '../ui';
 import E3ProfileForm from './E3ProfileForm';
 import E3SelectionDialog from './E3SelectionDialog';
@@ -36,6 +38,8 @@ export default function E3SelectionPanel({ book, projectId }: { book: E3Solution
   const [view, setView] = useState<View>('all');
   const [q, setQ] = useState('');
   const [open, setOpen] = useState('');
+  // Профиль ведёт инженер КИП: право `e3.export` (раздел 11); без него форма только читается
+  const mayEdit = can(useStore((s) => s.user) as any, 'e3.export');
 
   const loadProfile = React.useCallback(async () => { const p = await svc.profile(projectId); setProfile(p); setDraft(p.answers); }, [projectId]);
   useEffect(() => {
@@ -102,7 +106,7 @@ export default function E3SelectionPanel({ book, projectId }: { book: E3Solution
           <label className="fx-field shrink-0"><span className="fx-label">Установка</span>
             <Select value={scope} onChange={setScope} aria-label="Установка" options={[{ value: 'all', label: `Все установки · ${sources.rows('all').length}` }, ...units.map((u) => ({ value: u.id, label: `${u.label.replace(/^Установка «|»$/g, '')} · ${u.count}` }))]} />
           </label>
-          <E3ProfileForm features={book.features} answers={draft} dirty={dirty} busy={busy} error={profileError} canSave onChange={answer} onSave={() => void saveProfile()} />
+          <E3ProfileForm features={book.features} answers={draft} dirty={dirty} busy={busy} error={profileError} canSave={mayEdit} onChange={answer} onSave={() => void saveProfile()} />
         </aside>
         <div className="flex min-w-0 flex-1 flex-col border-l border-slate-200 dark:border-slate-800">
           <Toolbar>

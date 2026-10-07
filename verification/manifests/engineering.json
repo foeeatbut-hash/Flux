@@ -94,6 +94,9 @@
         "src/components/e3flux/E3ClassMapPanel.tsx",
         "src/components/e3flux/useSchemeData.ts",
         "src/components/e3flux/useSchemeState.ts",
+        "src/components/e3flux/E3PlanQuestions.tsx",
+        "src/components/equipment/E3SchemeLine.tsx",
+        "server/e3Impact.ts",
         "src/components/e3flux/E3ExportDialog.tsx",
         "src/components/e3flux/E3ExportBar.tsx",
         "src/components/e3flux/useE3Export.ts",
@@ -322,6 +325,24 @@
     {
       "id": "eng-e3-export-http",
       "path": "scripts/test-e3-export-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export-cases",
+      "path": "scripts/test-e3-export-cases.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-impact",
+      "path": "scripts/test-e3-impact.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -2547,6 +2568,145 @@
         {
           "layer": "browser-live",
           "scenario": "Запустить выгрузку в одном окне и вторую в другом: вторая сообщает, что идёт другая выгрузка, и ждёт.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.resolve-reexport",
+      "program": "e3flux",
+      "label": "Решить спорные случаи повторной выгрузки в окне плана",
+      "sources": [
+        "src/components/e3flux/E3PlanQuestions.tsx",
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "e3/exportCompare.ts",
+        "e3/exportPlan.ts"
+      ],
+      "triggers": [
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Спорное (правка в E3, снятая позиция, удалённый блок, копия блока, копия проекта, подбор по новым правилам) показано вопросом с умолчанием из таблицы 9.3; ответ пересчитывает план."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-cases",
+          "layer": "unit",
+          "claims": [
+            "Случаи С3, С4, С6, С8, С9, С11–С15, С17, С19, С20 на подставном мосте: умолчание и ответ инженера."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме выгрузить узел, удалить блок в подставном E3 и открыть план: появляется вопрос «удалён в E3» с вариантами.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-saved",
+      "program": "e3flux",
+      "label": "Раскладка схемы хранится за проектом",
+      "sources": [
+        "src/components/e3flux/useSchemeState.ts",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "toolbar button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Положение блоков, формат листа и снятые флажки записываются на сервер по версии; без права e3.export запись закрыта."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Раскладка и профиль проекта пишутся только с правом e3.export и по версии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Передвинуть блок, закрыть и открыть E3Flux на другом компьютере: блок стоит там же.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.in-scheme-e3",
+      "program": "e3flux",
+      "label": "Строка «В схеме E3» в карточке позиции",
+      "sources": [
+        "src/components/equipment/E3SchemeLine.tsx",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "У выгруженной позиции видны проект E3, лист и обозначение; «изменилась после выгрузки» — по версии позиции; строка открывает E3Flux на этой позиции; в истории — «Выгружена в E3»."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Сводка связей и записи журнала и истории после выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выгрузить узел, открыть позицию в Оборудовании, нажать строку «В схеме E3».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.import-in-scheme-warning",
+      "program": "e3flux",
+      "label": "Предупреждение и уведомление о позициях, уже стоящих в схеме КИП",
+      "sources": [
+        "server/e3Impact.ts",
+        "server/equipmentPlan.ts",
+        "server/equipmentImport.ts"
+      ],
+      "triggers": [
+        "file picker"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр импорта говорит «N позиций уже в схеме КИП»; после записи тому, кто выгружал, уходит одно уведомление на ввоз."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-impact",
+          "layer": "unit",
+          "claims": [
+            "Подсчёт позиций в схеме и одно уведомление на ввоз автору выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Загрузить расчёт, меняющий выгруженную позицию: в предпросмотре предупреждение, после записи у КИП уведомление.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]

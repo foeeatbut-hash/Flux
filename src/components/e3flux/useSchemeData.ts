@@ -38,13 +38,20 @@ export interface SchemeNode {
   version: string;
   /** Что отправлено в E3 в прошлый раз */
   binding?: Binding;
+  /** Позиция снята во Flux, а в схеме стоит (С4): узел нужен, чтобы решить судьбу блока */
+  removed?: boolean;
+  /** Позицию заменила новая (С6) */
+  replacedBy?: string;
+  /** Классификатор или профиль изменились с прошлой выгрузки (С14) */
+  rulesChanged?: boolean;
 }
 
-/** Короткий отпечаток строки: хватает, чтобы заметить изменение, и не тянет криптографию в окно */
-const stamp = (s: string): string => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 export interface SchemeUnit { id: string; name: string; nodes: SchemeNode[] }
 
-export function useSchemeData(projectId: string) {
+const NO_IDS: ReadonlySet<string> = new Set();
+
+/** `edited` — узлы, у которых инженер правил значения в E3 после выгрузки (знак ⇄): это знает только мост */
+export function useSchemeData(projectId: string, edited: ReadonlySet<string> = NO_IDS) {
   const [systems, setSystems] = useState<ExportSystem[] | null>(null);
   const [book, setBook] = useState<E3SolutionBook | null>(null);
   const [profile, setProfile] = useState<E3Profile>({});
@@ -70,7 +77,7 @@ export function useSchemeData(projectId: string) {
     let alive = true;
     setSystems(null); setError('');
     Promise.all([
-      fetch(`/api/projects/${encodeURIComponent(projectId)}/systems`).then((r) => { if (!r.ok) throw new Error('Оборудование недоступно. Проверьте доступ к проекту'); return r.json(); }),
+      fetch(`/api/projects/${encodeURIComponent(projectId)}/systems?removed=1`).then((r) => { if (!r.ok) throw new Error('Оборудование недоступно. Проверьте доступ к проекту'); return r.json(); }),
       e3SolutionsService.load(), e3SolutionsService.profile(projectId), e3AttributesService.load(),
     ]).then(([data, b, p, a]) => { if (alive) { setSystems(data.systems || []); setBook(b); setProfile(p.answers); setAttrs(a); } })
       .catch((e: any) => { if (alive) setError(e.message || 'Не удалось загрузить данные'); });
@@ -79,12 +86,22 @@ export function useSchemeData(projectId: string) {
 
   const model = useMemo(() => {
     if (!systems || !book) return { units: [] as SchemeUnit[], skipped: 0 };
-    const sources = buildExportSources(systems, []);
+    // Снятые позиции (`REMOVED`) в схему не входят, но нужны, чтобы решить судьбу их блоков в E3 (С4, С6)
+    const meta = new Map<string, { version: string; removed: boolean; replacedBy?: string }>();
+    const live = systems.map((s: any) => ({ ...s, monoblocks: (s.monoblocks || []).map((m: any) => ({ ...m, components: (m.components || []).filter((c: any) => {
+      let replacedBy: string | undefined;
+      try { replacedBy = c.conflictLog ? JSON.parse(c.conflictLog)?.__removal?.replacedBy : undefined; } catch (_) { replacedBy = undefined; }
+      meta.set(c.id, { version: String(c.version ?? 1), removed: c.status === 'REMOVED', ...(replacedBy ? { replacedBy } : {}) });
+      return c.status !== 'REMOVED';
+    }) })) }));
+    const sources = buildExportSources(live, []);
+    const lastDone = exports.find((x) => x.state === 'DONE');
+    const rulesChanged = !!lastDone && (lastDone.classifierVersion !== book.version || JSON.stringify(lastDone.profile ?? {}) !== JSON.stringify(profile));
     const byElement = new Map(bindings.map((b) => [b.elementId, b]));
     const names = new Set(book.solutions.filter((s) => !s.removed).map((s) => s.name.toLocaleLowerCase('ru')));
     const units: SchemeUnit[] = [];
     let skipped = 0;
-    for (const sys of systems) {
+    for (const sys of live) {
       const items = sources.rows(`unit:${sys.id}`);
       const positions = toPositions(items);
       const nodes: SchemeNode[] = [];
@@ -95,24 +112,35 @@ export function useSchemeData(projectId: string) {
         const selection = selectSolution(p, positions, book, profile);
         const sol = selection.solution;
         const rows: ExportAttr[] = attrs ? attributesForClass(attrs.items, p.cls).filter((a) => a.fromFlux).map((a) => ({
-          name: a.name, owner: '', service: a.service, allowService: a.conflict === 'flux',
+          name: a.name, owner: '', service: a.service, allowService: a.conflict === 'flux', conflict: a.conflict, script: !!a.script,
           value: a.source.kind === 'none' ? '' : equipmentCell(it, `e3:${a.name}`, a.source.kind === 'param' ? a.source.unit || '' : '', a.source),
         })) : [];
         const label = (it.tags || [])[0]?.identifier || '';
-        const id = `${it.id}:${i}`;
+        // Ключ узла — ID позиции: по нему связь переживает и перестановку, и новую загрузку расчёта
+        const id = String(it.id);
         const binding = byElement.get(id);
-        const version = stamp(JSON.stringify([sol?.id || '', label, rows.map((a) => [attrKey(a), a.value])]));
+        const version = meta.get(id)?.version || '1';
         nodes.push({
           id, label, name: String(it.name || ''), cls: p.cls, unitId: sys.id, unitName: sys.name,
           order: it.sourceOrder ?? i, item: it, selection, attrs: rows, version, ...(binding ? { binding } : {}),
-          state: nodeState(selection, binding ? { bound: binding.state === 'PLACED', changed: binding.sentVersion !== version } : null), twoLevel: !!sol?.twoLevel,
+          rulesChanged, state: nodeState(selection, binding ? { bound: binding.state === 'PLACED', changed: binding.sentVersion !== version || (!!sol && binding.solutionId !== sol.id), editedInE3: edited.has(id) } : null), twoLevel: !!sol?.twoLevel,
           hasLeft: !!sol && names.has(`${sol.name}_влево`.toLocaleLowerCase('ru')),
         });
       });
       if (nodes.length) units.push({ id: sys.id, name: sys.name, nodes });
     }
+    // Связи, чьих позиций больше нет среди действующих: снята во Flux (✕). Отвязанные не показываем
+    const known = new Set(units.flatMap((u) => u.nodes.map((n) => n.id)));
+    const gone: SchemeNode[] = bindings.filter((b) => (b.state === 'PLACED' || b.state === 'REMOVED_IN_FLUX') && !known.has(b.elementId)).map((b) => ({
+      id: b.elementId, label: b.designation, name: '', cls: 'ПРОЧЕЕ', unitId: '__removed', unitName: 'Сняты во Flux', order: 0,
+      item: { id: b.elementId, itemCode: '', name: '', equipType: '', groups: [], systemName: '', monoblockName: '' } as ExchangeComponent,
+      selection: { status: 'none', candidates: [], answers: [], nearest: [] }, attrs: [], version: meta.get(b.elementId)?.version || '', binding: b, removed: true,
+      ...(meta.get(b.elementId)?.replacedBy ? { replacedBy: meta.get(b.elementId)!.replacedBy } : {}),
+      state: nodeState(null, { bound: true, removedInFlux: true }), twoLevel: false, hasLeft: false,
+    }));
+    if (gone.length) units.push({ id: '__removed', name: 'Сняты во Flux', nodes: gone });
     return { units, skipped };
-  }, [systems, book, profile, attrs, bindings]);
+  }, [systems, book, profile, attrs, bindings, exports, edited]);
 
   return { loading: !systems || !book || !attrs, error, book, attrs, profile, units: model.units, skipped: model.skipped, e3, bindings, exports, reloadBindings: () => setTick((t) => t + 1) };
 }

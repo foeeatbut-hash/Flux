@@ -2,8 +2,9 @@
  * Вкладка «Схема» (docs/e3-integration.md, раздел 6): слева что выгружать,
  * в середине холст листа, справа свойства выбранного. Шапка (6.1) показывает
  * связь с E3: в браузере и без моста выгрузка и демонстрация закрыты с
- * объяснением, а подбор и раскладка работают. Положение блоков хранится за
- * проектом в браузере (см. useSchemeState).
+ * объяснением, а подбор и раскладка работают. Положение блоков хранится на
+ * сервере за проектом (см. useSchemeState). Выгрузка идёт через план: спорное
+ * (9.3) инженер решает в окне плана, остальное действует по умолчанию.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutGrid } from 'lucide-react';
@@ -13,11 +14,13 @@ import { SHEET_SIZES, defaultOccupied, sheetFor } from '../../../e3/sheetFormats
 import { Btn, Empty, Select, Seg, Status, Toolbar } from '../ui';
 import E3ExportBar from './E3ExportBar';
 import E3ExportDialog, { type RunView } from './E3ExportDialog';
+import { useStore } from '../../store/store';
+import { can } from '../../lib/permissions';
 import E3SchemeCanvas from './E3SchemeCanvas';
 import E3SchemeCard from './E3SchemeCard';
 import E3SchemeList, { profileLine } from './E3SchemeList';
 import { useSchemeData } from './useSchemeData';
-import { E3_FAKE, fakeBridge, prepare, resumeExport, runExport, undoExport, type Prepared } from './useE3Export';
+import { E3_FAKE, fakeBridge, prepare, replan, resumeExport, runExport, undoExport, type Prepared } from './useE3Export';
 import { e3ExportService } from '../../services/e3ExportService';
 import { useToastStore } from '../../store/toastStore';
 import { useSchemeState, type Placed } from './useSchemeState';
@@ -25,10 +28,14 @@ import { useSchemeState, type Placed } from './useSchemeState';
 const muted = 'text-slate-500 dark:text-slate-400';
 const linkState = (): E3LinkState => (typeof window !== 'undefined' && (window as any).electron ? 'no-bridge' : 'browser');
 
-export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: string; onOpenProfile: () => void }) {
-  const data = useSchemeData(projectId);
-  const { saved, update } = useSchemeState(projectId);
-  const [selected, setSelected] = useState('');
+export default function E3SchemeTab({ projectId, onOpenProfile, focusId = '' }: { projectId: string; onOpenProfile: () => void; focusId?: string }) {
+  // Знак ⇄: правили ли значения в E3 после выгрузки — это известно только мосту, поэтому набор приходит отдельно
+  const [edited, setEdited] = useState<ReadonlySet<string>>(new Set());
+  const data = useSchemeData(projectId, edited);
+  const user = useStore((s) => s.user);
+  const mayEdit = can(user as any, 'e3.export');
+  const { saved, update, ready } = useSchemeState(projectId, mayEdit);
+  const [selected, setSelected] = useState(focusId);
   const [zoom, setZoom] = useState<'fit' | 'big'>('fit');
   const link = linkState();
   const say = useToastStore((s) => s.addToast);
@@ -36,6 +43,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
   const [runView, setRunView] = useState<RunView>({ phase: 'plan', done: 0, total: 0, text: '' });
   const [exportError, setExportError] = useState('');
   const [working, setWorking] = useState(false);
+  useEffect(() => { if (focusId) setSelected(focusId); }, [focusId]);
   const fake = E3_FAKE && data.book ? fakeBridge(projectId, data.book.solutions.filter((s) => !s.removed).map((s) => s.name)) : null;
   const interrupted = data.exports[0]?.state === 'INTERRUPTED' ? data.exports[0] : null;
   // «Вписать»: масштаб по ширине области холста, а не фиксированный — окно программы двигают и растягивают
@@ -58,7 +66,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
   /** Раскладка по ходу воздуха: отмеченные узлы; поставленное руками остаётся на месте */
   const arrange = React.useCallback((keep: Record<string, Placed>, format: string) => {
     const sh = sheetFor(format);
-    const input: LayoutUnit[] = units.map((u) => ({
+    const input: LayoutUnit[] = units.filter((u) => u.id !== '__removed').map((u) => ({
       id: u.id, name: u.name,
       nodes: u.nodes.filter((n) => !off[n.id]).map((n) => ({ id: n.id, cls: n.cls, name: n.name, order: n.order, twoLevel: n.twoLevel, hasLeft: n.hasLeft, ...(keep[n.id]?.manual ? { manual: keep[n.id].rect } : {}) })),
     })).filter((u) => u.nodes.length);
@@ -70,8 +78,20 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
 
   // Первое открытие проекта: сразу раскладываем, чтобы холст не был пустым
   React.useEffect(() => {
-    if (!data.loading && nodes.length && !Object.keys(placed).length) update((s) => ({ ...s, placed: arrange({}, s.format) }));
-  }, [data.loading, nodes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (ready && !data.loading && nodes.length && !Object.keys(placed).length) update((s) => ({ ...s, placed: arrange({}, s.format) }));
+  }, [ready, data.loading, nodes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ⇄: сравнить значения в подставном E3 с отправленными (настоящий мост даст то же через readBound)
+  useEffect(() => {
+    if (!fake || !data.bindings.length) { setEdited(new Set()); return; }
+    let alive = true;
+    fake.readBound().then((bound) => {
+      const by = new Map(bound.map((b) => [b.positionId, b]));
+      const ids = data.bindings.filter((b) => b.state === 'PLACED' && by.get(b.elementId)?.attrs && Object.entries(b.sentAttrs).some(([k, v]) => by.get(b.elementId)!.attrs![k] !== undefined && by.get(b.elementId)!.attrs![k] !== v)).map((b) => b.elementId);
+      if (alive) setEdited(new Set(ids));
+    });
+    return () => { alive = false; };
+  }, [fake, data.bindings, data.exports]);
 
   // Снятые с выгрузки узлы на холсте не показываются и проблемой не считаются
   const problems = useMemo(() => new Set(checkPlacements(Object.entries(placed).filter(([id]) => !off[id]).map(([id, p]) => ({ id, rect: p.rect })), sheet, occupied)), [placed, sheet, occupied, off]);
@@ -104,7 +124,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
   const doRun = async () => {
     if (!fake || !prepared) return;
     setExportError(''); progress(0, prepared.plan.steps.length, '');
-    try { finish(await runExport(fake, projectId, data.e3, prepared, nodes, progress, data.book!.version), prepared.plan.steps.length); }
+    try { finish(await runExport(fake, projectId, data.e3, prepared, nodes, progress, data.book!.version, data.profile), prepared.plan.steps.length); }
     catch (e) { failure(e); setRunView({ phase: 'plan', done: 0, total: 0, text: '' }); data.reloadBindings(); }
   };
   const doResume = async () => {
@@ -112,7 +132,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
     setWorking(true); setExportError('');
     try {
       const full = await e3ExportService.get(interrupted.id);
-      setPrepared({ plan: { errors: [], warnings: [], actions: [], steps: full.plan.steps, summary: (full.plan as any).summary || { place: 0, update: 0, replace: 0, remove: 0, skipped: 0 } }, nodes: [], ctx: null as any, bound: [], key: '', runId: '', sheet: full.sheet });
+      setPrepared({ decisions: {}, bindings: [], plan: { questions: [], errors: [], warnings: [], actions: [], steps: full.plan.steps, summary: (full.plan as any).summary || { place: 0, update: 0, replace: 0, remove: 0, skipped: 0 } }, nodes: [], ctx: null as any, bound: [], key: '', runId: '', sheet: full.sheet });
       progress(interrupted.done, interrupted.steps, '');
       finish(await resumeExport(fake, full, nodes, off, placed, progress), interrupted.steps);
     } catch (e) { failure(e); } finally { setWorking(false); }
@@ -138,7 +158,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
           : <Status tone="slate" title="Связь с E3.series">{LINK_TEXT[link]}</Status>}
         <div className="ml-auto flex items-center gap-2">
           <Btn tone="ghost" disabled title={fake ? 'Демонстрация — следующий этап' : 'Нужна настольная версия Flux на компьютере с E3.series'}>Демонстрация</Btn>
-          <Btn tone="primary" disabled={!fake || working || !nodes.length} onClick={() => void openPlan()} title={fake ? 'Показать план выгрузки в подставной E3' : 'Нужна настольная версия Flux на компьютере с E3.series'}>Выгрузить в E3.series</Btn>
+          <Btn tone="primary" disabled={!fake || working || !nodes.length || !mayEdit} onClick={() => void openPlan()} title={!fake ? 'Нужна настольная версия Flux на компьютере с E3.series' : !mayEdit ? 'Нужно право «Выгрузка в E3.series»' : 'Показать план выгрузки в подставной E3'}>Выгрузить в E3.series</Btn>
         </div>
       </Toolbar>
       <E3ExportBar interrupted={interrupted} fake={fake} busy={working} onResume={() => void doResume()} onUndo={() => void doUndo()} />
@@ -159,7 +179,7 @@ export default function E3SchemeTab({ projectId, onOpenProfile }: { projectId: s
             )}
           </div>
         </div>
-        {prepared && <E3ExportDialog prepared={prepared} view={runView} error={exportError} onRun={() => void doRun()} onClose={() => { setPrepared(null); setExportError(''); }} />}
+        {prepared && <E3ExportDialog prepared={prepared} view={runView} error={exportError} onDecide={(id, v) => setPrepared((p) => (p ? replan(p, { ...p.decisions, [id]: v }) : p))} onRun={() => void doRun()} onClose={() => { setPrepared(null); setExportError(''); }} />}
         <E3SchemeCard node={node} features={data.book!.features} attrs={data.attrs!} problem={!!node && problems.has(node.id)} />
       </div>
     </div>

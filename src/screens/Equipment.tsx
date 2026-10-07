@@ -54,6 +54,11 @@ import ImportOperations, { type OperationBatch } from '../components/equipment/I
 import { useShallow } from 'zustand/react/shallow';
 const api = (p: string) => `/api${p}`;
 
+/** Строка истории «Выгружена в E3: проект, лист, обозначение» (docs/e3-integration.md, 8.3) */
+function e3ExportWords(raw: unknown): string {
+  try { const e = JSON.parse(String(raw || '{}')).e3 || {}; return `Выгружена в E3: ${[e.project, e.sheet, e.designation].filter(Boolean).join(', ')}`; } catch (_) { return 'Выгружена в E3'; }
+}
+
 export default function Equipment() {
   const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
@@ -673,7 +678,7 @@ export default function Equipment() {
               {historyData.map((h: any) => (
                 <div key={h.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
                   <div className="font-medium text-slate-500">v{h.version} · {new Date(h.changedAt).toLocaleString('ru-RU')}</div>
-                  <div className="text-slate-400 mt-0.5">{h.changeType}</div>
+                  <div className="text-slate-400 mt-0.5">{h.changeType === 'E3_EXPORT' ? e3ExportWords(h.newSpecs) : h.changeType}</div>
                 </div>
               ))}
             </div>

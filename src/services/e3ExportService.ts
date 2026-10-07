@@ -4,7 +4,7 @@ import type { JournalEntry } from '../../e3/exportRun';
 
 export type ExportState = 'PLANNED' | 'RUNNING' | 'DONE' | 'INTERRUPTED' | 'UNDONE';
 export interface E3Link { id: string; fluxProjectId: string; key: string; name: string; path: string; e3Version: string; partsDb: string }
-export interface E3ExportInfo { id: string; sheet: string; at: string; state: ExportState; steps: number; done: number; summary: Record<string, number>; classifierVersion: number }
+export interface E3ExportInfo { id: string; sheet: string; at: string; state: ExportState; steps: number; done: number; summary: Record<string, number>; classifierVersion: number; profile?: unknown }
 export interface E3ExportFull extends E3ExportInfo { plan: { steps: any[] }; journal: JournalEntry[]; report: any }
 
 /** Проект E3 занят другой выгрузкой (С18): окно ждёт и пробует снова */
@@ -20,7 +20,7 @@ const P = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/e3`
 
 export const e3ExportService = {
   projects: (projectId: string) => call<E3Link[]>('GET', `${P(projectId)}/projects`),
-  link: (projectId: string, body: { key: string; name: string; path?: string; e3Version?: string }) => call<E3Link>('PUT', `${P(projectId)}/link`, body),
+  link: (projectId: string, body: { key: string; name: string; path?: string; e3Version?: string; copyFrom?: string }) => call<E3Link>('PUT', `${P(projectId)}/link`, body),
   bindings: (projectId: string, e3ProjectId: string) => call<Binding[]>('GET', `${P(projectId)}/projects/${e3ProjectId}/bindings`),
   exports: (projectId: string, e3ProjectId: string) => call<E3ExportInfo[]>('GET', `${P(projectId)}/projects/${e3ProjectId}/exports`),
   create: (projectId: string, e3ProjectId: string, body: { sheet: string; plan: unknown; classifierVersion: number; profile?: unknown }) => call<E3ExportFull>('POST', `${P(projectId)}/projects/${e3ProjectId}/exports`, body),

@@ -5,6 +5,8 @@ import type { E3Dictionary, E3Feature, E3FeatureRule, E3Profile, E3Solution, E3S
 export interface E3SolutionRevision { id: string; action: 'import' | 'update' | 'restore'; createdAt: string; userId: string; count: number }
 /** Профиль проекта: версия своя, не связана с версией каталога */
 export interface E3ProfileDoc { version: number; answers: E3Profile; updatedAt: string }
+/** Раскладка схемы за проектом: где стоят блоки, формат листа и снятые флажки */
+export interface E3LayoutDoc { version: number; format: string; placed: Record<string, { rect: { x: number; y: number; w: number; h: number }; manual: boolean }>; off: Record<string, true> }
 export type E3SolutionPatch = Partial<Omit<E3Solution, 'id' | 'edited'>>;
 
 /** Устаревшую версию (409) окно отличает по типу ошибки: ему нужно перечитать книгу, а не просто показать текст */
@@ -33,6 +35,8 @@ export const e3SolutionsService = {
   deleteRule: (rule: E3FeatureRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/rule`, { rule, delete: true, expectedVersion }),
   saveDictionary: (dictionary: E3Dictionary, expectedVersion: number) => call<Written>('PUT', `${BASE}/dictionary`, { dictionary, expectedVersion }),
   saveClassMap: (classMap: Record<string, string[]>, expectedVersion: number) => call<Written>('PUT', `${BASE}/classmap`, { classMap, expectedVersion }),
+  layout: (projectId: string) => call<E3LayoutDoc>('GET', `/projects/${encodeURIComponent(projectId)}/e3-layout`),
+  saveLayout: (projectId: string, doc: Omit<E3LayoutDoc, 'version'>, expectedVersion: number) => call<E3LayoutDoc>('PUT', `/projects/${encodeURIComponent(projectId)}/e3-layout`, { ...doc, expectedVersion }),
   revisions: () => call<E3SolutionRevision[]>('GET', `${BASE}/revisions`),
   undo: (revisionId: string, expectedVersion: number) => call<Written>('POST', `${BASE}/undo`, { revisionId, expectedVersion }),
   profile: (projectId: string) => call<E3ProfileDoc>('GET', `/projects/${encodeURIComponent(projectId)}/e3-profile`),

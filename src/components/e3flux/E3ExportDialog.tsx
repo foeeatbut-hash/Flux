@@ -8,6 +8,7 @@ import React from 'react';
 import { summaryText } from '../../../e3/exportPlan';
 import type { PlanIssue } from '../../../e3/exportTypes';
 import { Btn, Dialog } from '../ui';
+import E3PlanQuestions from './E3PlanQuestions';
 import type { Prepared } from './useE3Export';
 
 export interface RunView { phase: 'plan' | 'running' | 'done'; done: number; total: number; text: string; state?: 'DONE' | 'INTERRUPTED'; error?: string }
@@ -19,16 +20,17 @@ const Issues = ({ list, tone, title }: { list: PlanIssue[]; tone: string; title:
   </section>
 );
 
-export default function E3ExportDialog({ prepared, view, error, onRun, onClose }: { prepared: Prepared; view: RunView; error: string; onRun: () => void; onClose: () => void }) {
+export default function E3ExportDialog({ prepared, view, error, onRun, onDecide, onClose }: { prepared: Prepared; view: RunView; error: string; onRun: () => void; onDecide: (id: string, value: string) => void; onClose: () => void }) {
   const { plan } = prepared;
   const running = view.phase === 'running';
   return (
-    <Dialog title="Выгрузка в E3.series" onClose={onClose} busy={running} width="max-w-xl" scrollBody label="План выгрузки в E3"
+    <Dialog title="Выгрузка в E3.series" onClose={onClose} busy={running} width="max-w-2xl" scrollBody label="План выгрузки в E3"
       footer={view.phase === 'plan' ? <><Btn onClick={onClose}>Отмена</Btn><Btn tone="primary" disabled={plan.errors.length > 0} title={plan.errors.length ? 'Сначала устраните ошибки' : undefined} onClick={onRun}>Выгрузить</Btn></>
         : <Btn onClick={onClose} disabled={running}>Закрыть</Btn>}>
       {view.phase === 'plan' && <>
         <p className="text-sm tabular-nums">{plan.errors.length ? 'Выгрузка невозможна.' : `Будет сделано: ${summaryText(plan.summary)}`}{plan.summary.skipped ? ` · пропущено ${plan.summary.skipped}` : ''}</p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Шагов в плане: {plan.steps.length}. Связи пишутся последними: оборванная выгрузка продолжается без дублей.</p>
+        <E3PlanQuestions questions={plan.questions} decisions={prepared.decisions} onChange={onDecide} />
         <Issues list={plan.errors} tone="text-rose-700 dark:text-rose-400" title="Ошибки — выгрузку блокируют" />
         <Issues list={plan.warnings} tone="text-amber-700 dark:text-amber-400" title="Предупреждения" />
       </>}

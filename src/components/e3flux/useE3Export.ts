@@ -8,7 +8,7 @@
 import { FakeE3 } from '../../../e3/fakeBridge';
 import { buildPlan } from '../../../e3/exportPlan';
 import { buildBindings, isComplete, planUndo, remainingSteps, runSteps, undoSteps, type JournalEntry } from '../../../e3/exportRun';
-import type { ExportNode, ExportPlan, PlanContext } from '../../../e3/exportTypes';
+import type { Binding, Decisions, ExportNode, ExportPlan, PlanContext } from '../../../e3/exportTypes';
 import type { E3BoundBlock, E3Rect } from '../../../e3/bridgeTypes';
 import { defaultSize } from '../../../e3/layout';
 import { e3ExportService, E3BusyExport, type E3ExportFull, type E3Link } from '../../services/e3ExportService';
@@ -31,10 +31,22 @@ export function fakeBridge(projectId: string, parts: string[]): FakeE3 {
 }
 
 export interface Prepared {
-  plan: ExportPlan; nodes: ExportNode[]; ctx: PlanContext; bound: E3BoundBlock[]; key: string; runId: string; sheet: string;
+  plan: ExportPlan; nodes: ExportNode[]; ctx: PlanContext; bound: E3BoundBlock[]; bindings: Binding[]; decisions: Decisions; key: string; runId: string; sheet: string;
+}
+
+/** Ответ инженера на вопрос плана: план строится заново по тому же снимку (без обращения к E3) */
+export function replan(p: Prepared, decisions: Decisions): Prepared {
+  const ctx: PlanContext = { ...p.ctx, ...(decisions['project|project'] ? { projectChoice: decisions['project|project'] as 'moved' | 'new' } : {}) };
+  return { ...p, decisions, ctx, plan: buildPlan(p.nodes, p.bindings, p.bound, ctx, { decisions }) };
 }
 
 const rectOf = (n: SchemeNode, placed: Record<string, Placed>): E3Rect => placed[n.id]?.rect || { x: 0, y: 0, ...defaultSize(n.cls) };
+
+/** Узел окна → снимок для плана: снятые во Flux и заменённые передаются как есть, чтобы план решил их судьбу (С4, С6) */
+const toExportNode = (placed: Record<string, Placed>, off: Record<string, true>) => (n: SchemeNode): ExportNode => ({
+  elementId: n.id, version: n.version, tag: n.label, designation: n.label, status: n.selection.status, solutionId: n.selection.solution?.id || '', solutionName: n.selection.solution?.name || '',
+  rect: rectOf(n, placed), attrs: n.attrs, checked: !off[n.id], ...(n.removed ? { removed: true } : {}), ...(n.replacedBy ? { replacedBy: n.replacedBy } : {}), ...(n.rulesChanged ? { rulesChanged: true } : {}),
+});
 
 /** Снимок узлов на момент нажатия «Выгрузить» (С17) и план по нему. Ничего не пишет */
 export async function prepare(
@@ -47,17 +59,16 @@ export async function prepare(
   const parts = new Set((await bridge.listParts()).map((p) => p.name));
   const bound = await bridge.readBound();
   const runId = crypto.randomUUID();
-  const snapshot: ExportNode[] = nodes.map((n) => ({
-    elementId: n.id, version: n.version, tag: n.label, designation: n.label, status: n.selection.status, solutionId: n.selection.solution?.id || '', solutionName: n.selection.solution?.name || '',
-    rect: rectOf(n, placed), attrs: n.attrs, checked: !off[n.id],
-  }));
+  const snapshot: ExportNode[] = nodes.map(toExportNode(placed, off));
   const ctx: PlanContext = {
     expectedKey: key, e3Key, sheet: status.sheet || '', expectedSheet: status.sheet || '', ...(status.readOnly ? { readOnly: status.readOnly } : {}),
     partsInBase: parts, occupied: await bridge.sheetOccupancy(), work: info.work, designations: new Map(bound.map((b) => [b.designation, b.positionId])),
     linkAttrsDefined: bridge.options.linkAttrs, exportId: runId, exportNo: exportsDone + 1, classifierVersion,
+    pins: new Map((await bridge.listParts()).flatMap((p) => (p.pins ? [[p.name, p.pins] as [string, string[]]] : []))),
+    e3Path: bridge.options.path, ...(link ? { linkedPath: link.path } : {}),
   };
-  const plan = buildPlan(snapshot, nodes.flatMap((n) => (n.binding ? [n.binding] : [])), bound, ctx);
-  return { plan, nodes: snapshot, ctx, bound, key, runId, sheet: ctx.sheet };
+  const bindings = nodes.flatMap((n) => (n.binding ? [n.binding] : []));
+  return { plan: buildPlan(snapshot, bindings, bound, ctx), nodes: snapshot, ctx, bound, bindings, decisions: {}, key, runId, sheet: ctx.sheet };
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -65,13 +76,23 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Запустить запись: создать выгрузку, дождаться очереди (С18), выполнить шаги, закрыть итогом */
 export async function runExport(
   bridge: FakeE3, projectId: string, link: E3Link | null, p: Prepared, prev: SchemeNode[], onProgress: (done: number, total: number, text: string) => void,
-  classifierVersion: number,
+  classifierVersion: number, profile: unknown,
 ): Promise<{ state: 'DONE' | 'INTERRUPTED'; error?: string; exportId: string }> {
   // Первая выгрузка в проект E3: связываем его с проектом Flux и ставим FLUX_PROJECT
-  const l = link || await e3ExportService.link(projectId, { key: p.key, name: bridge.options.projectName, e3Version: bridge.options.version });
-  if (await bridge.projectKey() !== l.key) await bridge.projectKey(l.key);
-  const created = await e3ExportService.create(projectId, l.id, {
-    sheet: p.sheet, classifierVersion, plan: { runId: p.runId, steps: p.plan.steps, summary: p.plan.summary, actions: p.plan.actions },
+  // С13: «это новый проект» — у копии проекта E3 свой ключ, связи прежнего переносятся; «переехал» — обновляем путь
+  let l = link;
+  if (link && p.ctx.projectChoice === 'new') {
+    const key = crypto.randomUUID();
+    await bridge.projectKey(key);
+    l = await e3ExportService.link(projectId, { key, name: bridge.options.projectName, path: bridge.options.path, e3Version: bridge.options.version, copyFrom: link.id });
+  } else if (link && p.ctx.projectChoice === 'moved') {
+    l = await e3ExportService.link(projectId, { key: link.key, name: bridge.options.projectName, path: bridge.options.path, e3Version: bridge.options.version });
+  } else if (!link) {
+    l = await e3ExportService.link(projectId, { key: p.key, name: bridge.options.projectName, path: bridge.options.path, e3Version: bridge.options.version });
+  }
+  if (await bridge.projectKey() !== l!.key) await bridge.projectKey(l!.key);
+  const created = await e3ExportService.create(projectId, l!.id, {
+    sheet: p.sheet, classifierVersion, profile, plan: { runId: p.runId, steps: p.plan.steps, summary: p.plan.summary, actions: p.plan.actions },
   });
   // Проект E3 занят чужой выгрузкой — ждём (С18)
   for (let i = 0; ; i++) {
@@ -107,10 +128,7 @@ export async function resumeExport(
 ): Promise<{ state: 'DONE' | 'INTERRUPTED'; error?: string; exportId: string }> {
   const got = await e3ExportService.resume(e.id);
   const steps = got.export.plan.steps;
-  const snapshot: ExportNode[] = nodes.map((n) => ({
-    elementId: n.id, version: n.version, tag: n.label, designation: n.label, status: n.selection.status, solutionId: n.selection.solution?.id || '', solutionName: n.selection.solution?.name || '',
-    rect: rectOf(n, placed), attrs: n.attrs, checked: !off[n.id],
-  }));
+  const snapshot: ExportNode[] = nodes.map(toExportNode(placed, off));
   const plan = { steps, actions: (got.export.plan as any).actions } as unknown as ExportPlan;
   return drive(bridge, e.id, got.remaining.length ? got.remaining : remainingSteps(steps, got.export.journal), steps, got.export.journal, { plan, nodes: snapshot, sheet: e.sheet }, nodes, onProgress);
 }
