@@ -61,7 +61,9 @@ export function memoryEquipmentDb(): MemoryDb {
     equipmentSystem: {
       findMany: async ({ where, include }: any) => systems.filter(s => fits(s, where)).map(s => ({
         ...s,
-        ...(include?.monoblocks ? { monoblocks: monoblocks.filter(m => m.systemId === s.id).map(m => ({ id: m.id })) } : {}),
+        ...(include?.monoblocks ? { monoblocks: monoblocks.filter(m => m.systemId === s.id).map(m => (include.monoblocks.include?.components
+          ? { ...m, components: elements.filter(e => e.monoblockId === m.id).map(e => withTags(e, include.monoblocks.include.components.include)) }
+          : { id: m.id })) } : {}),
       })),
       create: async ({ data }: any) => { const r = { id: id('sys'), createdAt: new Date(), ...data }; systems.push(r); return { ...r }; },
       update: async ({ where, data }: any) => ({ ...patch(systems.find(s => s.id === where.id)!, data) }),
@@ -106,5 +108,7 @@ export function memoryEquipmentDb(): MemoryDb {
       update: async ({ where, data }: any) => ({ ...patch(tags.find(t => t.id === where.id)!, data) }),
     },
   };
+  // Транзакция на тех же данных: проверкам важна не откатываемость, а то, что запись идёт одним проходом
+  prisma.$transaction = async (fn: (tx: any) => Promise<any>) => fn(prisma);
   return { prisma, systems, monoblocks, elements, tags, history, tagsOf };
 }

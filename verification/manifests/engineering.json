@@ -201,6 +201,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-e3-attribute-upload",
+      "path": "scripts/test-e3-attribute-upload.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-equipment-identity",
       "path": "scripts/test-equipment-identity.ts",
       "layer": "unit",

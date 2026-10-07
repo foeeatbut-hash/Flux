@@ -19,6 +19,9 @@
 import type { ExportColumn } from '../src/lib/exportSpec';
 import { CLASSES, isClassId } from '../equipment/classes';
 
+/** Группа характеристик позиции, где хранятся данные КИП: у ОВ их нет, их вводит инженер КИП (docs/e3-integration.md, 9.1) */
+export const KIP_GROUP = 'КИП';
+
 /** Поле позиции, которое можно взять в атрибут как есть */
 export type E3FieldKey = 'tag' | 'parentTag' | 'unitTag' | 'name' | 'parentName' | 'model' | 'kind' | 'class' | 'system' | 'monoblock' | 'itemCode';
 
@@ -365,7 +368,9 @@ export function e3Columns(items: E3Attribute[], classIds: string[], opts: { head
   for (const a of picked) {
     if (seen.has(a.name) || (opts?.onlyFromFlux && !a.fromFlux)) continue;
     seen.add(a.name);
-    const source: E3Source = a.fromFlux ? a.source : { kind: 'none' };
+    // «Да» без источника — данные КИП: значение лежит в группе «КИП» позиции под именем
+    // атрибута (книга, загруженная обратно, кладёт его туда) и в следующую выгрузку попадает оттуда
+    const source: E3Source = !a.fromFlux ? { kind: 'none' } : a.source.kind === 'none' ? { kind: 'param', name: `${KIP_GROUP}|${a.name}` } : a.source;
     const col: ExportColumn = { key: `e3:${a.name}`, label: opts?.header === 'title' ? (a.title || a.name) : a.name, source };
     if (source.kind === 'param' && source.unit) col.unit = source.unit;
     out.push(col);
