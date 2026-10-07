@@ -104,8 +104,10 @@ async function main() {
         const reading = await svc.read(R('Занят.txt')).then(() => null, error => error);
         check(reading && ['EBUSY', 'EPERM', 'EACCES'].includes(reading.code), 'Файл, открытый другой программой без общего доступа, не читается молча: понятный отказ', reading);
         const writing = await svc.write(R('Занят.txt'), text('перезапись'), before.sha256).then(() => null, error => error);
-        check(!!writing && await fs.readFile(dir('Занят.txt'), 'utf8') === 'до блокировки', 'Запись в занятый файл отказывает, содержимое цело', writing);
+        check(!!writing, 'Запись в занятый файл отказывает', writing);
       } finally { await release(holder); }
+      // Содержимое сверяется после освобождения: пока держатель открыл файл без общего доступа, его не может прочитать и сама проверка.
+      check(await fs.readFile(dir('Занят.txt'), 'utf8') === 'до блокировки', 'После отказа записи в занятый файл содержимое цело');
       holder = await hold('Read');
       try {
         const writing = await svc.write(R('Занят.txt'), text('перезапись при читателе'), before.sha256).then(() => null, error => error);
@@ -169,7 +171,9 @@ async function main() {
       await fs.writeFile(dir('Корзина/в корзину.txt'), 'удалить и вернуть'); await fs.writeFile(dir('Корзина/навсегда.txt'), 'удалить навсегда');
       await svc.trash(R('Корзина/в корзину.txt')); await svc.trash(R('Корзина/навсегда.txt'));
       const listed = await shell!.recycleBin(1);
-      check(listed.supported, 'Список корзины Windows читается помощником', listed.message);
+      let binWhy: unknown = listed.message;
+      if (!listed.supported) binWhy = await host.call('bin-list').then(rows => `помощник ответил: ${JSON.stringify(rows).slice(0, 300)}`, (error: any) => `${error.code} ${JSON.stringify(error.nativeDiagnostic)}; stderr: ${host.lastStderr.slice(-300)}`);
+      check(listed.supported, 'Список корзины Windows читается помощником', binWhy);
       const binDir = (await fs.realpath(dir('Корзина'))).toLowerCase();
       const mine = (name: string) => listed.items.find(item => item.name.replace(/\.txt$/iu, '') === name && item.location.toLowerCase() === binDir);
       const one = mine('в корзину'), two = mine('навсегда');
@@ -210,9 +214,9 @@ async function main() {
       const pinned = await shell!.pin(R('Закрепить'), true);
       const afterPin = await shell!.quickAccess();
       check(pinned.pinned && afterPin.items.some(item => item.name === 'Закрепить' && item.pinned), 'Закрепление папки через shell-глагол pintohome появляется в списке закреплённых', JSON.stringify(afterPin.items.map(item => [item.name, item.pinned])));
-      await shell!.pin(R('Закрепить'), false);
+      const unpinned = await shell!.pin(R('Закрепить'), false);
       const afterUnpin = await shell!.quickAccess();
-      check(!afterUnpin.items.some(item => item.name === 'Закрепить' && item.pinned), 'Открепление через unpinfromhome убирает папку из закреплённых');
+      check(!afterUnpin.items.some(item => item.name === 'Закрепить' && item.pinned), 'Открепление через unpinfromhome убирает папку из закреплённых', `помощник ответил ${JSON.stringify(unpinned)}; список: ${JSON.stringify(afterUnpin.items.map(item => [item.name, item.pinned]))}`);
       const cloud = await shell!.cloudRoots();
       check(cloud.supported && Array.isArray(cloud.items), `Облачные корни SyncRootManager читаются (${cloud.items.length}: ${cloud.items.map(item => item.name).join(', ') || 'на этой машине нет ни OneDrive, ни Яндекс Диска'})`);
       for (const item of cloud.items) check(item.root.id && item.root.available, `Облачный корень «${item.name}» стал корнем-capability`);
@@ -227,7 +231,8 @@ async function main() {
       const menu = await shell!.shellMenu(1, [R('Для меню.txt')], false);
       const flat = (items: any[]): any[] => items.flatMap(item => [item, ...(item.submenu ? flat(item.submenu) : [])]);
       const verbs = flat(menu.items).map(item => item.verb).filter(Boolean);
-      check(menu.items.length > 0 && verbs.includes('properties'), `Классическое меню Windows построено (${flat(menu.items).length} пунктов; команды: ${verbs.slice(0, 8).join(', ')})`);
+      check(menu.items.length > 0 && verbs.includes('properties'), `Классическое меню Windows построено (${flat(menu.items).length} пунктов; команды: ${verbs.slice(0, 8).join(', ')})`,
+        `все пункты (подпись=команда): ${flat(menu.items).filter(item => !item.separator).map(item => `${item.label}=${item.verb ?? '-'}`).join(' | ')}`);
       await shell!.shellMenuClose(1, menu.token);
       skip('вызов пунктов меню и запуск программы через «Открыть с помощью»: открывают окна Windows, на неинтерактивной сессии CI не проверяются');
       skip('startDrag: требует окно Electron (webContents.startDrag); проверяется отказ для черновика на Linux и приёмкой владельца');

@@ -74,7 +74,8 @@ export class ShellCommands {
     const folder = await this.service.nativePath(ref);
     if (!(await fs.stat(folder)).isDirectory()) throw new WindowsFilesError('NOT_DIRECTORY', 'В Быстром доступе закрепляются папки.');
     const result = await this.host.call('quick-pin', { path: folder, pin: pinned });
-    return { pinned, changed: result?.changed === true };
+    // Состояние сообщает сама Windows после действия: «закреплено», только если Быстрый доступ это подтвердил.
+    return { pinned: typeof result?.pinned === 'boolean' ? result.pinned : pinned, changed: result?.changed === true };
   }
 
   async cloudRoots(): Promise<WindowsCloudRoots> {

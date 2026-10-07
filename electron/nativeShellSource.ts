@@ -157,7 +157,12 @@ public static class FluxShellFiles {
   }
   static string Error(string code, Exception failure) {
     Dictionary<string,object> answer = new Dictionary<string,object> { {"ok", false}, {"code", code}, {"stage", Stage} };
-    if (failure != null) { answer["type"] = failure.GetType().Name; answer["hresult"] = failure.HResult.ToString("X8"); }
+    if (failure != null) {
+      answer["type"] = failure.GetType().Name; answer["hresult"] = failure.HResult.ToString("X8");
+      // Текст нужен журналу диагностики и проверке на CI; пути диска из него вырезаются, человеку он не показывается.
+      string detail = failure.Message ?? ""; detail = System.Text.RegularExpressions.Regex.Replace(detail, @"[A-Za-z]:\\[^\s'""]*|\\\\[^\s'""]+", "<путь>");
+      answer["message"] = detail.Length > 300 ? detail.Substring(0, 300) : detail;
+    }
     return Json(answer);
   }
   static string Json(object value) { JavaScriptSerializer json = new JavaScriptSerializer(); json.MaxJsonLength = 64 * 1024 * 1024; return json.Serialize(value); }
@@ -256,11 +261,14 @@ public static class FluxShellFiles {
   static string Verb(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2);
     try {
-      Marshal.WriteInt16(buffer, 0);
       // GCS_VERBW: каноничное имя команды, не зависящее от языка Windows.
-      if (menu.GetCommandString((UIntPtr)(uint)offset, 4u, IntPtr.Zero, buffer, 512) < 0) return null;
-      string verb = Marshal.PtrToStringUni(buffer); return String.IsNullOrEmpty(verb) ? null : verb;
-    } catch { return null; } finally { Marshal.FreeCoTaskMem(buffer); }
+      Marshal.WriteInt16(buffer, 0);
+      try { if (menu.GetCommandString((UIntPtr)(uint)offset, 4u, IntPtr.Zero, buffer, 512) >= 0) { string wide = Marshal.PtrToStringUni(buffer); if (!String.IsNullOrEmpty(wide)) return wide; } } catch { }
+      // GCS_VERBA: часть обработчиков (в том числе встроенные пункты «Свойства», «Копировать») отвечает только на ANSI-запрос.
+      Marshal.WriteByte(buffer, 0, 0);
+      try { if (menu.GetCommandString((UIntPtr)(uint)offset, 0u, IntPtr.Zero, buffer, 512) >= 0) { string narrow = Marshal.PtrToStringAnsi(buffer); if (!String.IsNullOrEmpty(narrow)) return narrow; } } catch { }
+      return null;
+    } finally { Marshal.FreeCoTaskMem(buffer); }
   }
   static string CleanLabel(string raw) {
     if (raw == null) return "";
@@ -371,13 +379,42 @@ public static class FluxShellFiles {
     }
     return Json(new Dictionary<string,object> { {"ok", true}, {"data", result} });
   }
+  const string QuickHome = "shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}";
+  static string SamePath(string value) { return (value ?? "").TrimEnd('\\').ToLowerInvariant(); }
+  /** Элемент Быстрого доступа с этим путём (или null). Вызывающий отпускает COM-объект. */
+  static IShellItem QuickChild(string path) {
+    string wanted = SamePath(path); IShellItem found = null;
+    foreach (IShellItem child in Children(Item(QuickHome), 500)) {
+      string own = null; try { own = Text(child, 0x80058000u); } catch { }
+      if (found == null && own != null && SamePath(own) == wanted) found = child; else Marshal.ReleaseComObject(child);
+    }
+    return found;
+  }
+  static bool QuickPinned(string path) {
+    IShellItem child = QuickChild(path);
+    if (child == null) return false;
+    try { return VerbsOf(child).Contains("unpinfromhome"); } finally { Marshal.ReleaseComObject(child); }
+  }
   static string QuickPin(Dictionary<string,object> args) {
     Stage = "quick-pin";
-    IShellItem folder = Item(Str(args, "path"));
-    bool pin = Flag(args, "pin");
-    bool done = InvokeVerb(folder, pin ? "pintohome" : "unpinfromhome", true);
+    string path = Str(args, "path"); bool pin = Flag(args, "pin");
+    bool done = false;
+    if (pin) {
+      IShellItem folder = Item(path);
+      try { done = InvokeVerb(folder, "pintohome", true); } finally { Marshal.ReleaseComObject(folder); }
+    } else {
+      // Открепляется тот элемент, который Проводник показывает в самом Быстром доступе: у обычной папки глагола открепления может не быть.
+      Stage = "quick-unpin";
+      IShellItem child = QuickChild(path);
+      if (child != null) { try { done = InvokeVerb(child, "unpinfromhome", true); } finally { Marshal.ReleaseComObject(child); } }
+      if (!done) { IShellItem folder = Item(path); try { done = InvokeVerb(folder, "unpinfromhome", true); } finally { Marshal.ReleaseComObject(folder); } }
+    }
+    // Список закреплённого Windows обновляет не мгновенно: ждётся, пока состояние сменится (до 4 секунд).
+    Stage = "quick-wait";
+    bool state = QuickPinned(path);
+    for (int attempt = 0; attempt < 26 && state != pin; attempt++) { System.Threading.Thread.Sleep(150); state = QuickPinned(path); }
     // Нет команды — уже в нужном состоянии: повторное закрепление не ошибка.
-    return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"changed", done} }} });
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"changed", done}, {"pinned", state} }} });
   }
 
   // ---------------------------------------------------- облачные корни
@@ -467,12 +504,18 @@ public static class FluxShellFiles {
     finally { if (raw != IntPtr.Zero) Marshal.FreeCoTaskMem(raw); }
   }
   static IShellItem Bin() {
-    IShellItem bin; Check(SHGetKnownFolderItem(ref FOLDERID_RecycleBin, 0, IntPtr.Zero, ref IID_IShellItem, out bin)); return bin;
+    Stage = "bin-known-folder";
+    IShellItem bin = null; int hr = SHGetKnownFolderItem(ref FOLDERID_RecycleBin, 0, IntPtr.Zero, ref IID_IShellItem, out bin);
+    if (hr >= 0 && bin != null) return bin;
+    // Запасной путь: та же корзина по имени для разбора, как её называет Проводник.
+    Stage = "bin-parse";
+    return Item("shell:::{645FF040-5081-101B-9F08-00AA002F954E}");
   }
   static string BinList() {
     Stage = "bin-list";
     List<object> result = new List<object>();
-    foreach (IShellItem child in Children(Bin(), 20000)) {
+    IShellItem bin = Bin(); Stage = "bin-enum";
+    foreach (IShellItem child in Children(bin, 20000)) {
       try {
         IShellItem2 item = (IShellItem2)child;
         uint attributes; child.GetAttributes(0x20000000u, out attributes);
