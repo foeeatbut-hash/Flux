@@ -87,6 +87,17 @@
         "src/components/e3flux/E3ProfileForm.tsx",
         "src/components/e3flux/useSolutionBook.ts",
         "src/components/e3flux/e3SolutionText.ts",
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "src/components/e3flux/E3SchemeList.tsx",
+        "src/components/e3flux/E3SchemeCanvas.tsx",
+        "src/components/e3flux/E3SchemeCard.tsx",
+        "src/components/e3flux/E3ClassMapPanel.tsx",
+        "src/components/e3flux/useSchemeData.ts",
+        "src/components/e3flux/useSchemeState.ts",
+        "e3/layout.ts",
+        "e3/nodeState.ts",
+        "e3/bridgeTypes.ts",
+        "e3/sheetFormats.ts",
         "src/components/catalog/E3AttributesPanel.tsx",
         "src/components/catalog/E3AttributeDialog.tsx",
         "src/components/catalog/E3AttributesImport.tsx",
@@ -255,6 +266,15 @@
     {
       "id": "eng-e3-solutions-http",
       "path": "scripts/test-e3-solutions-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-layout",
+      "path": "scripts/test-e3-layout.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -2222,6 +2242,141 @@
         {
           "layer": "browser-live",
           "scenario": "Выбрать способ пуска в профиле, убедиться, что статусы позиций поменялись, сохранить и открыть заново.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-layout",
+      "program": "e3flux",
+      "label": "Разложить узлы установки на листе по ходу воздуха",
+      "sources": [
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "src/components/e3flux/E3SchemeCanvas.tsx",
+        "e3/layout.ts",
+        "e3/sheetFormats.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Узлы встают слева направо по порядку состава, вытяжка идёт обратно, общие узлы стоят между линиями; блоки, поставленные руками, остаются на месте; координаты на сетке."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-layout",
+          "layer": "unit",
+          "claims": [
+            "Порядок, начало и конец, две линии, общие узлы, шаг по габаритам, неподвижные блоки, сетка и переполнение."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux на вкладке «Схема» нажать «Разложить», перетащить блок и нажать «Разложить» ещё раз: перетащенный блок не двигается.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-list",
+      "program": "e3flux",
+      "label": "Выбрать узлы схемы и посмотреть их состояние",
+      "sources": [
+        "src/components/e3flux/E3SchemeList.tsx",
+        "src/components/e3flux/E3SchemeCard.tsx",
+        "e3/nodeState.ts"
+      ],
+      "triggers": [
+        "search field",
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "У каждого узла виден знак состояния и подобранное решение; флажок снимает узел с раскладки; карточка называет решение, признаки с источником и атрибуты с «Да»."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-layout",
+          "layer": "unit",
+          "claims": [
+            "Состояние узла: не в схеме, нужен ответ, нельзя выгрузить, в схеме, изменился, снят, правлен в E3."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Найти узел по тегу, снять флажок, открыть карточку узла.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-export-disabled",
+      "program": "e3flux",
+      "label": "Выгрузка в E3 и демонстрация закрыты без настольной версии",
+      "sources": [
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "e3/bridgeTypes.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В браузере и пока нет моста кнопки «Демонстрация» и «Выгрузить в E3.series» неактивны, а шапка объясняет причину."
+      ],
+      "checks": [
+
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В браузере открыть «Схема»: кнопки неактивны, подсказка называет настольную версию.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-classmap",
+      "program": "e3flux",
+      "label": "Связать типы Flux с классами классификатора",
+      "sources": [
+        "src/components/e3flux/E3ClassMapPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список классов типа сохраняется по версии каталога; тип без классов в схему не входит."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись связи типов с классами идёт по версии каталога и права правки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть тип «Вентилятор», снять класс, сохранить и открыть «Подбор по проекту».",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]
