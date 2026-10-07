@@ -14,6 +14,8 @@ export default defineConfig(() => {
       __APP_VERSION__: JSON.stringify(pkg.version),
       // Flux Play отключён: окно показывает его только при FLUX_PLAY=1 (play/enabled.ts)
       __FLUX_PLAY__: JSON.stringify(process.env.FLUX_PLAY === '1'),
+      // Подставной мост к E3 (dev): выгрузка в «Схеме» идёт в «проект E3» в памяти, чтобы её можно было увидеть без E3.series
+      __FLUX_E3_FAKE__: JSON.stringify(process.env.FLUX_E3_FAKE === '1'),
     },
     plugins: [react(), tailwindcss()],
     resolve: {

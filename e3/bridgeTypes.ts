@@ -44,10 +44,42 @@ export interface E3BoundBlock {
   positionVersion?: string;
   /** Значения атрибутов в E3 отличаются от выгруженных */
   editedInE3?: boolean;
+  /** Значения атрибутов блока и его изделий: ключ `<изделие>|<имя>`, у самого блока изделие пусто */
+  attrs?: Record<string, string>;
+  /** К блоку проведены провода: инженер уже работает с ним, снимать его нельзя */
+  wired?: boolean;
 }
 
-export interface E3PlanStep { kind: 'place' | 'attribute' | 'designation' | 'remove'; positionId: string; detail: string }
+/**
+ * Шаг плана выгрузки (8.2): листы → блоки → обозначения → атрибуты → атрибуты
+ * связи. Шаг самодостаточен: мост не знает ни подбора, ни профиля, а только
+ * что и куда записать. Номер шага в плане стабилен — по нему журнал выгрузки
+ * понимает, что уже сделано, и продолжение не ставит вторых блоков.
+ */
+export interface E3PlanStep {
+  kind: 'place' | 'designation' | 'attribute' | 'link' | 'remove';
+  /** ID узла Flux */
+  positionId: string;
+  /** Словами: что делает шаг (для отчёта) */
+  detail: string;
+  /** Имя блока решения в базе E3 */
+  block?: string;
+  rect?: E3Rect;
+  /** Отметка выгрузки: по ней продолжение находит блок, у которого ещё нет атрибутов связи */
+  mark?: string;
+  designation?: string;
+  owner?: string;
+  name?: string;
+  value?: string;
+  /** Атрибуты связи: версия узла и номер выгрузки */
+  ver?: string;
+}
 export interface E3StepResult { step: E3PlanStep; ok: boolean; message?: string }
+
+/** E3 отвечает «занято»: открыт диалог, идёт пересчёт */
+export class E3BusyError extends Error { constructor(message = 'E3 занят: закройте открытые окна E3') { super(message); this.name = 'E3BusyError'; } }
+/** Связь с E3 пропала посреди работы: E3 закрыли или он упал */
+export class E3LostError extends Error { constructor(message = 'E3 закрыт во время выгрузки') { super(message); this.name = 'E3LostError'; } }
 
 /**
  * Что мост умеет. Каждая команда — один вызов помощника; всё, что можно
@@ -55,6 +87,8 @@ export interface E3StepResult { step: E3PlanStep; ok: boolean; message?: string 
  */
 export interface E3Bridge {
   status(): Promise<E3Status>;
+  /** Прочитать или поставить `FLUX_PROJECT` — ключ связи проекта E3 с проектом Flux */
+  projectKey(set?: string): Promise<string | null>;
   listParts(names?: string[]): Promise<E3PartInfo[]>;
   sheetOccupancy(sheet?: string): Promise<E3Rect[]>;
   readBound(): Promise<E3BoundBlock[]>;
