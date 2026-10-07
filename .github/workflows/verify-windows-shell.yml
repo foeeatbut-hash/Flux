@@ -31,11 +31,19 @@ jobs:
         run: npm ci
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
-          $checks = @('test-windows-files', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      # Проводник «как в Windows 11» на настоящей NTFS: замена и занятый файл,
+      # корзина, кириллица и путь длиннее 260 знаков, перенос между томами,
+      # миниатюры, Быстрый доступ, меню Оболочки. Набор сам собирает и запускает
+      # нативный помощник (C# через Add-Type). Чего на раннере нет (второго тома),
+      # он называет SKIP и считает в итоге, а не засчитывает как успех.
+      - name: Мост Проводника на настоящей NTFS и в Оболочке
+        timeout-minutes: 15
+        run: node --import tsx scripts/test-windows-files-native.ts
       - name: Компиляция компонента уведомлений и проверка MSIX
         shell: powershell
         run: tools/windows-notification-bridge/build.ps1 -OutputDirectory "$env:RUNNER_TEMP\flux-notifications"

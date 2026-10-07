@@ -1,11 +1,22 @@
 import type { WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '../../filesystem/contracts';
 
 export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsVolume, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, ImportedFileBytes } from '../../filesystem/contracts';
+// Команды Проводника Windows 11 (этап A моста): поиск, дерево, миниатюры, меню Windows, корзина, отмена, план публикации.
+export type {
+  WindowsFileChoice, WindowsPublishChoices, WindowsPublishPlan, WindowsPublishPlanItem,
+  WindowsSearchFilters, WindowsSearchLimits, WindowsSearchHit, WindowsSearchEvent, WindowsSearchStop, WindowsFolderNode,
+  WindowsQuickAccessItem, WindowsQuickAccessList, WindowsCloudRoot, WindowsCloudRoots, WindowsThumbnail, WindowsOpenWithHandler,
+  WindowsShellMenu, WindowsShellMenuItem, WindowsRecycleBin, WindowsRecycleItem, WindowsImportResult, WindowsImportCollision,
+  WindowsUndoState, WindowsUndoLabel, WindowsUndoResult, WindowsExplorerRequest,
+} from '../../filesystem/contracts';
 
 type WindowsFilesBridge = {
   getIcon?: (ref: WindowsFileRef) => Promise<string | null>;
   invoke: (request: WindowsFilesRequest) => Promise<WindowsFilesResponse>;
   onChanged: (callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void) => () => void;
+  /** Старые сборки моста этих двух методов не имеют: вызов обязан пережить их отсутствие. */
+  onSearch?: (callback: (event: import('../../filesystem/contracts').WindowsSearchEvent) => void) => () => void;
+  takeDrop?: () => { ticket: string; names: string[] } | null;
 };
 
 function bridge(): WindowsFilesBridge | null {
@@ -22,6 +33,19 @@ export async function windowsFilesRequest<T = unknown>(request: WindowsFilesRequ
 
 export function onWindowsFilesChanged(callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void): () => void {
   return bridge()?.onChanged(callback) || (() => undefined);
+}
+
+/** Страницы поиска приходят событиями, отдельно от ответа на команду search; без моста — пустая подписка. */
+export function onWindowsFilesSearch(callback: (event: import('../../filesystem/contracts').WindowsSearchEvent) => void): () => void {
+  return bridge()?.onSearch?.(callback) || (() => undefined);
+}
+
+/**
+ * Билет последнего настоящего перетаскивания файлов из Проводника Windows.
+ * Пути страница не получает: команда importPaths принимает только билет.
+ */
+export function takeWindowsDrop(): { ticket: string; names: string[] } | null {
+  try { return bridge()?.takeDrop?.() ?? null; } catch { return null; }
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
