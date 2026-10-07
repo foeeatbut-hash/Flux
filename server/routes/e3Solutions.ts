@@ -271,7 +271,15 @@ export function registerE3SolutionRoutes(
     if (projectId) res.json(await catalogSetting(db, profileKey(projectId), emptyProfile()) as ProfileDoc);
   }));
 
+  /** Профиль и раскладку ведёт инженер КИП: право `e3.export` (раздел 11), а не право каталога */
+  const kipOnly = (res: Response, user: any): boolean => {
+    if (can(user, 'e3.export')) return true;
+    res.status(403).json({ error: 'Нет права вести профиль и раскладку E3: нужно право «Выгрузка в E3.series»' });
+    return false;
+  };
+
   app.put('/api/projects/:projectId/e3-profile', handle('read', async (req, res, db, user) => {
+    if (!kipOnly(res, user)) return;
     const projectId = await memberOnly(req, res, user);
     if (!projectId) return;
     const answers = sanitizeProfile(req.body?.answers);
@@ -281,6 +289,39 @@ export function registerE3SolutionRoutes(
     checkVersion(req.body?.expectedVersion, current.version, PROFILE_CONFLICT);
     const doc: ProfileDoc = { version: current.version + 1, answers, updatedAt: new Date().toISOString(), updatedById: user.id };
     await claimCatalogSetting(db, profileKey(projectId), raw, doc, PROFILE_CONFLICT);
+    res.json(doc);
+  }));
+
+  // ── Раскладка схемы за проектом ──────────────────────────────────────────
+  // Где стоят блоки на холсте, формат листа и снятые флажки. Отдельной модели не нужно: это
+  // настройка проекта, как профиль, со своей версией; общая для всех, кто работает над схемой
+  const layoutKey = (projectId: string) => `e3_layout:${projectId}`;
+  const LAYOUT_CONFLICT = 'Раскладка схемы изменена коллегой. Обновите';
+  const emptyLayout = () => ({ version: 0, format: '', placed: {} as Record<string, unknown>, off: {} as Record<string, true>, updatedAt: '' });
+
+  app.get('/api/projects/:projectId/e3-layout', handle('read', async (req, res, db, user) => {
+    const projectId = await memberOnly(req, res, user);
+    if (projectId) res.json(await catalogSetting(db, layoutKey(projectId), emptyLayout()));
+  }));
+
+  app.put('/api/projects/:projectId/e3-layout', handle('read', async (req, res, db, user) => {
+    if (!kipOnly(res, user)) return;
+    const projectId = await memberOnly(req, res, user);
+    if (!projectId) return;
+    const b = req.body || {};
+    const placed = b.placed && typeof b.placed === 'object' && !Array.isArray(b.placed) ? b.placed : null;
+    const off = b.off && typeof b.off === 'object' && !Array.isArray(b.off) ? b.off : null;
+    if (!placed || !off || Object.keys(placed).length > 5000 || Object.keys(off).length > 5000) return catalogFailure(400, 'Раскладка: ожидаются положения блоков и снятые флажки, не больше 5000');
+    for (const [id, p] of Object.entries<any>(placed)) {
+      const r = p?.rect;
+      if (id.length > 120 || !r || ![r.x, r.y, r.w, r.h].every((n: unknown) => typeof n === 'number' && Number.isFinite(n)) || typeof p.manual !== 'boolean') return catalogFailure(400, 'Раскладка: положение блока — числа x, y, w, h и признак «вручную»');
+    }
+    const format = typeof b.format === 'string' && b.format.length <= 10 ? b.format : '';
+    const raw = await catalogSettingRaw(db, layoutKey(projectId));
+    const current: any = raw ? JSON.parse(raw) : emptyLayout();
+    checkVersion(b.expectedVersion, current.version, LAYOUT_CONFLICT);
+    const doc = { version: current.version + 1, format, placed, off, updatedAt: new Date().toISOString(), updatedById: user.id };
+    await claimCatalogSetting(db, layoutKey(projectId), raw, doc, LAYOUT_CONFLICT);
     res.json(doc);
   }));
 }

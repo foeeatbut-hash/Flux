@@ -34,7 +34,8 @@ const str = (v: unknown, max: number): string | null => (typeof v === 'string' &
 
 /** План приходит из окна: форма проверяется как чужой ввод, большое не принимается */
 function checkPlan(raw: any): { steps: any[]; summary: any; actions: Record<string, unknown>[]; runId: string } {
-  if (!raw || !Array.isArray(raw.steps) || !raw.steps.length) fail(400, 'В плане нет шагов');
+  // План только из «отвязать» обходится без шагов: связь меняется сразу, но действие в плане должно быть
+  if (!raw || !Array.isArray(raw.steps) || (!raw.steps.length && !(Array.isArray(raw.actions) && raw.actions.length))) fail(400, 'В плане нет шагов');
   if (raw.steps.length > 5000) fail(400, 'В плане слишком много шагов: не больше 5000');
   const steps = raw.steps.map((s: any, i: number) => {
     if (!s || !STEP_KINDS.includes(s.kind) || !str(s.positionId, 100) || !str(s.detail ?? '', 500)) fail(400, `Шаг ${i + 1} плана не распознан`);
@@ -94,14 +95,14 @@ export function registerE3ExportRoutes(app: Express, can: (user: any, feature: s
     return fail(503, 'Клиент базы собран без моделей E3: выполните prisma generate');
   });
 
-  const handle = (write: boolean, fn: (req: Request, res: Response, store: E3Store, user: any) => Promise<any>) => async (req: Request, res: Response) => {
+  const handle = (write: boolean, fn: (req: Request, res: Response, store: E3Store, user: any, db: any) => Promise<any>) => async (req: Request, res: Response) => {
     try {
       const user = (req as any).authUser;
       if (!user?.id) return res.status(401).json({ error: 'Нужно войти в программу' });
       if (write && !can(user, 'e3.export')) return res.status(403).json({ error: 'Нет права выгружать в E3.series' });
       const db = getPrisma();
       await ensure(db);
-      await fn(req, res, storeOf(db), user);
+      await fn(req, res, storeOf(db), user, db);
     } catch (e: any) {
       if (e instanceof Fail) return res.status(e.status).json({ error: e.message, ...e.extra });
       sendError(res, e, e?.status || (e?.code === 'P2002' ? 409 : 500));
@@ -139,8 +140,26 @@ export function registerE3ExportRoutes(app: Express, can: (user: any, feature: s
   /** Строка списка выгрузок: без плана и журнала целиком — они большие, а окну нужны счётчики */
   const light = (e: E3ExportRow) => {
     const steps = (e.plan?.steps || []) as unknown[];
-    return { id: e.id, e3ProjectId: e.e3ProjectId, sheet: e.sheet, by: e.by, at: e.at, updatedAt: e.updatedAt, state: e.state, classifierVersion: e.classifierVersion,
+    return { id: e.id, e3ProjectId: e.e3ProjectId, sheet: e.sheet, by: e.by, at: e.at, updatedAt: e.updatedAt, state: e.state, classifierVersion: e.classifierVersion, profile: e.profile,
       summary: e.plan?.summary || {}, steps: steps.length, done: steps.filter((_, i) => e.journal.some((j) => j.i === i && j.ok)).length };
+  };
+
+  /**
+   * После выгрузки (8.3): строка в журнале действий и строка в истории каждой
+   * позиции — «Выгружена в E3: проект, лист, обозначение». Выгрузка уже записана,
+   * поэтому сбой журнала её не откатывает: он пишется в консоль сервера.
+   */
+  const afterExport = async (db: any, e: E3ExportRow, bindings: Binding[], user: any): Promise<void> => {
+    const project = await storeOf(db).getProject(e.e3ProjectId);
+    const placed = bindings.filter((b) => b.state === 'PLACED');
+    try {
+      await db.actionLog?.create({ data: { userId: String(user.id), userName: String(user.name || user.symbol || 'Сотрудник'), what: 'Выгрузка в E3', target: `${project?.name || 'проект E3'} · ${e.sheet} · узлов: ${placed.length}`.slice(0, 180), route: '/e3flux' } });
+    } catch (err: any) { console.error('[E3] Журнал действий не записан:', err?.message || err); }
+    for (const b of placed) {
+      try {
+        await db.equipmentHistory?.create({ data: { elementId: b.elementId, version: Number(b.sentVersion) || 1, oldSpecs: null, newSpecs: JSON.stringify({ e3: { project: project?.name || '', sheet: e.sheet, designation: b.designation, exportId: e.id } }), changeType: 'E3_EXPORT', batchId: e.id } });
+      } catch (err: any) { console.error('[E3] История позиции не записана:', err?.message || err); }
+    }
   };
 
   const P = '/api/projects/:projectId/e3';
@@ -152,7 +171,28 @@ export function registerE3ExportRoutes(app: Express, can: (user: any, feature: s
     const b = req.body || {};
     const key = str(b.key, 100);
     if (!key || !/^[\w-]{8,100}$/.test(key)) return fail(400, 'Ключ связи — uuid проекта E3 (FLUX_PROJECT)');
-    res.json(await store.upsertProject({ fluxProjectId: projectId, key, name: str(b.name ?? '', 300) ?? '', path: str(b.path ?? '', 1000) ?? '', e3Version: str(b.e3Version ?? '', 50) ?? '', partsDb: str(b.partsDb ?? '', 300) ?? '' }));
+    const row = { fluxProjectId: projectId, key, name: str(b.name ?? '', 300) ?? '', path: str(b.path ?? '', 1000) ?? '', e3Version: str(b.e3Version ?? '', 50) ?? '', partsDb: str(b.partsDb ?? '', 300) ?? '' };
+    // С13: «это новый проект» — у копии проекта E3 свой ключ, а связи прежнего проекта переносятся в неё как есть
+    const from = b.copyFrom === undefined ? null : await store.getProject(String(b.copyFrom));
+    if (b.copyFrom !== undefined && (!from || from.fluxProjectId !== projectId)) return fail(404, 'Проекта E3, откуда копировать связи, нет среди связей этого проекта');
+    res.json(await store.tx(async (tx) => {
+      const created = await tx.upsertProject(row);
+      if (from && from.id !== created.id) for (const bd of await tx.listBindings(from.id)) await tx.saveBinding(created.id, bd);
+      return created;
+    }));
+  }));
+
+  /** Что из проекта Flux стоит в схемах E3: для строки «В схеме E3» в Оборудовании */
+  app.get(`${P}/summary`, handle(false, async (req, res, store, user) => {
+    const projectId = await member(req, user);
+    const out: Record<string, unknown>[] = [];
+    for (const p of await store.listProjects(projectId)) {
+      for (const b of await store.listBindings(p.id)) {
+        if (b.state === 'DETACHED') continue;
+        out.push({ elementId: b.elementId, project: p.name, e3ProjectId: p.id, sheet: b.sheet, designation: b.designation, sentVersion: b.sentVersion, state: b.state });
+      }
+    }
+    res.json(out);
   }));
 
   app.get(`${P}/projects/:e3ProjectId/bindings`, handle(false, async (req, res, store, user) => { res.json(await store.listBindings((await e3ProjectOf(req, store, user)).id)); }));
@@ -207,7 +247,7 @@ export function registerE3ExportRoutes(app: Express, can: (user: any, feature: s
    * INTERRUPTED связей не пишет: узел без последнего шага (атрибутов связи)
    * для Flux ещё не выгружен.
    */
-  app.post('/api/e3-exports/:id/finish', handle(true, async (req, res, store, user) => {
+  app.post('/api/e3-exports/:id/finish', handle(true, async (req, res, store, user, db) => {
     const e = await exportOf(req, store, user);
     if (e.state !== 'RUNNING') return fail(409, 'Закончить можно только идущую выгрузку');
     const state = req.body?.state;
@@ -217,12 +257,14 @@ export function registerE3ExportRoutes(app: Express, can: (user: any, feature: s
     if (!isComplete(e.plan.steps, e.journal)) return fail(409, 'Не все шаги плана выполнены — выгрузка не может быть закончена');
     const bindings = (Array.isArray(req.body?.bindings) ? req.body.bindings : []).slice(0, 5000).map(checkBinding);
     // Связь пишется только по узлам этого плана: чужие узлы окно записать не может
-    const inPlan = new Set((e.plan.steps as { positionId: string }[]).map((s) => s.positionId));
+    const inPlan = new Set([...(e.plan.steps as { positionId: string }[]).map((s) => s.positionId), ...((e.plan.actions || []) as { elementId: string }[]).map((a) => a.elementId)]);
     if (bindings.some((b: Binding) => !inPlan.has(b.elementId))) return fail(400, 'Связь по узлу, которого нет в плане выгрузки');
-    res.json(await store.tx(async (tx) => {
+    const done = await store.tx(async (tx) => {
       for (const b of bindings) await tx.saveBinding(e.e3ProjectId, { ...b, lastExportId: e.id });
       return tx.saveExport(e.id, { state: 'DONE', report });
-    }));
+    });
+    await afterExport(db, e, bindings, user);
+    res.json(done);
   }));
 
   /**

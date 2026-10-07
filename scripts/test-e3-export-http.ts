@@ -33,7 +33,9 @@ const plan = (...ids: string[]) => ({ steps: steps(...ids), summary: { place: id
 const binding = (id: string, extra: Record<string, unknown> = {}) => ({ elementId: id, solutionId: '08.01.03', designation: id, sheet: 'Лист 12', x: 60, y: 30, rotation: 0, sentVersion: 'v1', sentAttrs: { '|A': '1' }, state: 'PLACED', lastExportId: '', ...extra });
 
 async function main() {
-  setPrisma({} as any);
+  // Журнал действий и история позиций — то, что маршрут пишет после выгрузки (8.3)
+  const logged: any[] = []; const history: any[] = [];
+  setPrisma({ actionLog: { create: async ({ data }: any) => { logged.push(data); } }, equipmentHistory: { create: async ({ data }: any) => { history.push(data); } } } as any);
   let skew = 0; // часы сервера уходят вперёд, не заставляя тест ждать
   const store = memoryStore();
   const app = express();
@@ -107,6 +109,18 @@ async function main() {
   const binds = (await call('GET', `${P}/projects/:e3ProjectId/bindings`, undefined, 'reader', ep)).body;
   check('три связи, у a и b — эта выгрузка', done.state === 'DONE' && binds.length === 3 && binds.find((b: any) => b.elementId === 'a').lastExportId === e1.id);
   await status('продолжить выполненную — 409', call('POST', X('/resume'), {}, 'kip', id1), 409);
+
+  console.log('После выгрузки: журнал, история позиций, сводка, копия проекта');
+  check('журнал действий: одна запись на выгрузку', logged.filter((l) => l.what === 'Выгрузка в E3').length === 2 && logged[0].userId === 'u-kip2' && logged[0].target.includes('Корпус 3 — ВК (копия)'));
+  check('история позиции: «выгружена в E3» с проектом, листом и обозначением', history.some((h) => h.elementId === 'a' && h.changeType === 'E3_EXPORT' && JSON.parse(h.newSpecs).e3.designation === 'a' && JSON.parse(h.newSpecs).e3.sheet === 'Лист 12'));
+  const sum = await status('сводка «в схеме E3» для Оборудования', call('GET', `${P}/summary`, undefined, 'reader', { projectId: 'p1' }), 200);
+  check('в сводке узлы с версией, листом и обозначением', sum.length === 3 && sum.find((s: any) => s.elementId === 'a').sentVersion === 'v1' && sum.find((s: any) => s.elementId === 'a').project.startsWith('Корпус 3'));
+  await status('сводка чужого проекта — 403', call('GET', `${P}/summary`, undefined, 'reader', { projectId: 'p2' }), 403);
+  const copy = await status('С13: новый проект E3 с копией связей', call('PUT', `${P}/link`, { key: '9a8b7c6d-1111-4222-8333-abcdefabcdef', name: 'Корпус 3 — ВК, ред. 2', copyFrom: link.id }, 'kip', { projectId: 'p1' }), 200);
+  const copied = (await call('GET', `${P}/projects/:e3ProjectId/bindings`, undefined, 'kip', { projectId: 'p1', e3ProjectId: copy.id })).body;
+  check('связи скопированы, а не общие', copied.length === 3 && (await call('GET', `${P}/projects/:e3ProjectId/bindings`, undefined, 'kip', ep)).body.length === 3 && copy.id !== link.id);
+  await status('копировать из чужого проекта E3 — 404', call('PUT', `${P}/link`, { key: '1a8b7c6d-1111-4222-8333-abcdefabcdef', copyFrom: 'нет такого' }, 'kip', { projectId: 'p1' }), 404);
+  await status('с шагом-отвязкой план без шагов — 200', call('POST', `${P}/projects/:e3ProjectId/exports`, { plan: { steps: [], actions: [{ elementId: 'a', kind: 'detach' }], runId: 'r' }, sheet: 'Лист 12' }, 'kip', ep), 200);
 
   console.log('Убрать сделанное');
   await status('снять то, что поставила не эта выгрузка — 400', call('POST', X('/undo'), { removed: ['c'] }, 'kip', id1), 400);

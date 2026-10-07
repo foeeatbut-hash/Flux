@@ -60,9 +60,10 @@ const USERS: Record<string, any> = {
   importer: { id: 'u-importer', role: 'ENGINEER_VENT', isActive: true, perms: ['catalog.import'] },
   editor: { id: 'u-editor', role: 'ENGINEER_VENT', isActive: true, perms: ['catalog.edit'] },
   stranger: { id: 'u-stranger', role: 'ENGINEER_VENT', isActive: true, perms: [] },
+  kip: { id: 'u-kip', role: 'ENGINEER_AUTO', isActive: true, perms: ['e3.export'] },
 };
 const can = (u: any, p: string) => !!u?.perms?.includes(p);
-const MEMBERS: Record<string, string[]> = { p1: ['u-reader', 'u-importer', 'u-editor'] };
+const MEMBERS: Record<string, string[]> = { p1: ['u-reader', 'u-importer', 'u-editor', 'u-kip'] };
 
 const R = (id: string, cls: string, name: string): unknown[] => [id, cls, 'Подкласс', 'К', name, `${name} описание`, '', '', '', '', '', '', ''];
 const SHEET = [CLASSIFIER_HEADERS, R('08.01.01', 'Клапаны', 'Клапан_К24'), R('08.01.03', 'Клапаны', 'Клапан_К24_КП2'), R('11.01.01', 'Начало установки', 'Начало_1УР')];
@@ -184,13 +185,31 @@ async function main() {
   check('пустой профиль: версия 0', p0.version === 0 && Object.keys(p0.answers).length === 0);
   const answers = { 'fan.start': { source: { kind: 'child-param', role: 'ДВИГАТЕЛЬ', name: 'Мощность', unit: 'кВт' }, steps: [{ upTo: 7.5, answer: 'ПП' }], above: 'ПЧИ' }, 'valve.limit': 'КП2' };
   await status('запись профиля чужим — 403', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'stranger', { projectId: 'p1' }), 403);
-  await status('негодный профиль — 400', call('PUT', PROFILE, { answers: { a: { source: { kind: 'sql' }, steps: [], above: '' } }, expectedVersion: 0 }, 'reader', { projectId: 'p1' }), 400);
-  await status('профиль по чужой версии — 409', call('PUT', PROFILE, { answers, expectedVersion: 3 }, 'reader', { projectId: 'p1' }), 409);
-  const pw = await status('профиль: запись участником проекта', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'reader', { projectId: 'p1' }), 200);
-  check('профиль записан с порогом, версия 1, автор', pw.version === 1 && pw.answers['fan.start'].steps[0].upTo === 7.5 && pw.updatedById === 'u-reader');
+  await status('негодный профиль — 400', call('PUT', PROFILE, { answers: { a: { source: { kind: 'sql' }, steps: [], above: '' } }, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 400);
+  await status('профиль без права e3.export — 403, хотя участник проекта', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'reader', { projectId: 'p1' }), 403);
+  await status('права каталога профиль не открывают — 403', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'editor', { projectId: 'p1' }), 403);
+  await status('профиль по чужой версии — 409', call('PUT', PROFILE, { answers, expectedVersion: 3 }, 'kip', { projectId: 'p1' }), 409);
+  const pw = await status('профиль: запись инженером КИП', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 200);
+  check('профиль записан с порогом, версия 1, автор', pw.version === 1 && pw.answers['fan.start'].steps[0].upTo === 7.5 && pw.updatedById === 'u-kip');
   const pr = await status('профиль читается', call('GET', PROFILE, undefined, 'editor', { projectId: 'p1' }), 200);
   check('другой участник видит тот же профиль', pr.answers['valve.limit'] === 'КП2');
-  await status('профиль: повторная запись по старой версии — 409', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'editor', { projectId: 'p1' }), 409);
+  await status('профиль: повторная запись по старой версии — 409', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 409);
+
+  // Раскладка схемы за проектом
+  const LAYOUT = '/api/projects/:projectId/e3-layout';
+  const l0 = await status('раскладка: пустая', call('GET', LAYOUT, undefined, 'reader', { projectId: 'p1' }), 200);
+  check('пустая раскладка: версия 0', l0.version === 0 && Object.keys(l0.placed).length === 0);
+  const layout = { format: 'А3', placed: { a: { rect: { x: 60, y: 30, w: 40, h: 30 }, manual: true } }, off: { b: true } };
+  await status('раскладка без входа — 401', call('GET', LAYOUT, undefined, undefined, { projectId: 'p1' }), 401);
+  await status('раскладка чужого проекта — 403', call('GET', LAYOUT, undefined, 'stranger', { projectId: 'p1' }), 403);
+  await status('запись раскладки без права e3.export — 403', call('PUT', LAYOUT, { ...layout, expectedVersion: 0 }, 'reader', { projectId: 'p1' }), 403);
+  await status('негодное положение блока — 400', call('PUT', LAYOUT, { ...layout, placed: { a: { rect: { x: 'x' }, manual: true } }, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 400);
+  await status('раскладка по чужой версии — 409', call('PUT', LAYOUT, { ...layout, expectedVersion: 5 }, 'kip', { projectId: 'p1' }), 409);
+  const lw = await status('раскладка: запись инженером КИП', call('PUT', LAYOUT, { ...layout, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 200);
+  check('раскладка записана: версия 1, положение и флажки на месте', lw.version === 1 && lw.placed.a.rect.x === 60 && lw.off.b === true && lw.format === 'А3');
+  const lr = await status('раскладку видит любой участник', call('GET', LAYOUT, undefined, 'editor', { projectId: 'p1' }), 200);
+  check('участник читает ту же раскладку', lr.placed.a.manual === true);
+  await status('повторная запись по старой версии — 409', call('PUT', LAYOUT, { ...layout, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 409);
   check('профиль не записывается в снимки каталога', mock.state().revisions.every((r: any) => r.entity === 'e3solutions'));
 
   const server = readFileSync('server.ts', 'utf8');

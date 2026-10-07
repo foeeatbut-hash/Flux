@@ -15,6 +15,7 @@ import { parseRuNumber } from './normalize.js';
 
 // Составной ключ блока живёт в specUtils — им пользуется и запись импорта
 export { blockKey } from './specUtils.js';
+import { inSchemeOf } from './e3Impact.js';
 
 export interface PlanParam {
   group: string; key: string; value: string; unit: string;
@@ -102,6 +103,11 @@ export interface ImportPlan {
    * вид к роли прямо здесь.
    */
   unknownKinds?: string[];
+  /**
+   * Сколько затрагиваемых позиций уже стоит в схеме КИП (E3Flux, 9.4): не запрет,
+   * а предупреждение, что переподбор заденет чужую работу. Нет схем — поля нет.
+   */
+  inScheme?: { count: number; bySystem: Record<string, number> };
   totals: { removed: number; restored: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
 }
 
@@ -328,6 +334,15 @@ export async function planEquipmentImport(
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
     plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;
   }
+
+  // Позиции, которые этот ввоз меняет, заменяет или снимает, и которые уже стоят в схеме E3
+  const touched = [
+    ...plan.blocks.filter((b) => b.action === 'update' && b.elementId).map((b) => ({ elementId: b.elementId, systemName: b.systemName })),
+    ...plan.blocks.filter((b) => b.replacesId).map((b) => ({ elementId: b.replacesId, systemName: b.systemName })),
+    ...plan.missing.filter((m) => m.remove).map((m) => ({ elementId: m.id, systemName: m.systemName })),
+  ];
+  const inScheme = await inSchemeOf(prisma, projectId, touched);
+  if (inScheme.count > 0) plan.inScheme = inScheme;
 
   return plan;
 }

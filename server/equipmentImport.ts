@@ -6,6 +6,7 @@ import { markRemoved, restoreRemoved, recordMove, transferTags } from './equipme
 import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
+import { notifyExporters } from './e3Impact.js';
 import { TAG_SOURCE, recordChangeSets, updateSet, type TagChangeSet } from './tagHistory.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
@@ -39,6 +40,8 @@ function diffSpecs(oldGroups: SpecGroup[], newGroups: SpecGroup[]): ParamConflic
 
 export interface ImportSummary {
   conflictsCount: number; newBlocks: number; updatedBlocks: number; systems: number;
+  /** Сколько уведомлений ушло тем, чьи выгруженные в E3 позиции задел ввоз */
+  e3Notified?: number;
   /** Партия импорта — по ней ввоз отменяется целиком (см. importUndo) */
   batchId: string;
   /** Теги: сколько привязано, сколько заведено, что не удалось и почему */
@@ -329,6 +332,10 @@ export async function importEquipmentToDB(
     summary.tagParents = built.made;
     summary.tagParentsKept = built.kept;
   }
+
+  // Позиции, стоящие в схеме E3, изменились: тому, кто выгружал, — одно уведомление на ввоз (9.4)
+  try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
+  catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
 
   return summary;
 }
