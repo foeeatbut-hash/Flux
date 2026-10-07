@@ -171,6 +171,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-equipment-identity",
+      "path": "scripts/test-equipment-identity.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-export-builder",
       "path": "scripts/test-export-builder.ts",
       "layer": "unit",
