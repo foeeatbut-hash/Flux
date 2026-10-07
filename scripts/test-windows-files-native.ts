@@ -30,8 +30,9 @@ const bad = (message: string, detail?: unknown) => { failed++; console.error(`�
 const skip = (message: string) => { skipped++; console.log(`SKIP ${message}`); };
 const limit = (message: string) => { limits++; console.log(`LIMIT ${message}`); };
 const check = (condition: unknown, message: string, detail?: unknown) => condition ? ok(message) : bad(message, detail);
+let helperHost: NativeShellHost | undefined;
 async function section(name: string, work: () => Promise<void>) {
-  try { await work(); } catch (error) { bad(`${name}: набор прерван непредвиденной ошибкой`, error); }
+  try { await work(); } catch (error) { bad(`${name}: набор прерван непредвиденной ошибкой`, error); if (helperHost?.lastStderr) console.error(`   stderr помощника: ${helperHost.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`); }
 }
 /** Поиск до конца: страницы собираются, пока не придёт done. */
 const searchEverything = (service: WindowsFilesService, ref: WindowsFileRef, query: string) => new Promise<WindowsSearchHit[]>((resolve, reject) => {
@@ -58,7 +59,7 @@ async function main() {
   const base = await fs.mkdtemp(path.join(os.homedir(), 'flux-native-'));
   // Трассировка помощника: если он упадёт, шаги в stderr покажут, где именно.
   process.env.FLUX_SHELL_TRACE = '1';
-  const host = new NativeShellHost();
+  const host = new NativeShellHost(); helperHost = host;
   let service: WindowsFilesService | undefined; let shell: ShellCommands | undefined;
   try {
     const desktop = path.join(base, 'Рабочий стол'); const userData = path.join(base, 'данные Flux');

@@ -258,6 +258,7 @@ public static class FluxShellFiles {
       try { return (IContextMenu)Marshal.GetObjectForIUnknown(raw); } finally { Marshal.Release(raw); }
     } finally { foreach (IntPtr pidl in pidls) if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl); }
   }
+  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string Verb(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2);
     try {
@@ -268,6 +269,7 @@ public static class FluxShellFiles {
     } catch { return null; } finally { Marshal.FreeCoTaskMem(buffer); }
   }
   /** Что ответил GetCommandString на запрос (W — GCS_VERBW, A — GCS_VERBA): для журнала диагностики, не для интерфейса. */
+  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string VerbProbe(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2); string report = "";
     try {
@@ -312,6 +314,7 @@ public static class FluxShellFiles {
       if (label.Length == 0 && !hasSub) continue; // пункты с собственной отрисовкой без текста показать нечем
       int offset = hasSub ? -1 : (int)info.wID - (int)first;
       Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
+      if (TraceOn) Trace("menu: probe " + offset);
       if (TraceOn) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " sub=" + hasSub + " " + VerbProbe(menu, offset);
       if (!hasSub) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
       else if (depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
@@ -336,7 +339,7 @@ public static class FluxShellFiles {
       List<object> tree = ReadMenu(session.Handle, session.Menu, 1, session, 0);
       Session = session;
       Dictionary<string,object> data = new Dictionary<string,object> { {"token", session.Token}, {"items", tree} };
-      if (TraceOn) { string scan = "top=" + (hr & 0xFFFF) + " "; for (int offset = 0; offset < (hr & 0xFFFF) + 4 && offset < 400; offset++) scan += offset + "=" + (Verb(session.Menu, offset) ?? "-") + " "; data["scan"] = scan; }
+      if (TraceOn) { string scan = "top=" + (hr & 0xFFFF) + " "; for (int offset = 0; offset < (hr & 0xFFFF) && offset < 400; offset++) { Trace("menu: scan " + offset); scan += offset + "=" + (Verb(session.Menu, offset) ?? "-") + " "; } data["scan"] = scan; }
       return Json(new Dictionary<string,object> { {"ok", true}, {"data", data} });
     } catch { session.Dispose(); throw; }
   }
@@ -507,16 +510,28 @@ public static class FluxShellFiles {
   }
 
   // ------------------------------------------------------------ корзина
+  [DllImport("ole32.dll")] static extern int PropVariantClear(IntPtr value);
+  /** Значение свойства как PROPVARIANT: IShellItem2.GetFileTime на элементах корзины обрушивал процесс (AccessViolation в журнале CI), поэтому все свойства читаются одним общим GetProperty. Возвращает vt и 64-битное значение или указатель. */
+  static bool BinProperty(IShellItem2 item, PROPERTYKEY key, out ushort vt, out long value, out string text) {
+    vt = 0; value = 0; text = null;
+    IntPtr variant = Marshal.AllocCoTaskMem(32);
+    try {
+      for (int index = 0; index < 32; index++) Marshal.WriteByte(variant, index, 0);
+      if (item.GetProperty(ref key, variant) < 0) return false;
+      vt = (ushort)Marshal.ReadInt16(variant);
+      if (vt == 31 || vt == 8) text = Marshal.PtrToStringUni(Marshal.ReadIntPtr(variant, 8)); // VT_LPWSTR, VT_BSTR
+      else value = Marshal.ReadInt64(variant, 8); // VT_FILETIME, VT_UI8, VT_I8
+      return true;
+    } finally { PropVariantClear(variant); Marshal.FreeCoTaskMem(variant); }
+  }
   static DateTime? Deleted(IShellItem2 item) {
-    System.Runtime.InteropServices.ComTypes.FILETIME stamp;
-    if (item.GetFileTime(ref KEY_DateDeleted, out stamp) < 0) return null;
-    long ticks = ((long)(uint)stamp.dwHighDateTime << 32) | (uint)stamp.dwLowDateTime;
-    return ticks <= 0 ? (DateTime?)null : DateTime.FromFileTimeUtc(ticks);
+    ushort vt; long ticks; string unused;
+    if (!BinProperty(item, KEY_DateDeleted, out vt, out ticks, out unused) || vt != 64 || ticks <= 0) return null;
+    return DateTime.FromFileTimeUtc(ticks);
   }
   static string BinString(IShellItem2 item, PROPERTYKEY key) {
-    IntPtr raw = IntPtr.Zero;
-    try { if (item.GetString(ref key, out raw) < 0 || raw == IntPtr.Zero) return null; return Marshal.PtrToStringUni(raw); }
-    finally { if (raw != IntPtr.Zero) Marshal.FreeCoTaskMem(raw); }
+    ushort vt; long unused; string text;
+    return BinProperty(item, key, out vt, out unused, out text) ? text : null;
   }
   static IShellItem Bin() {
     Stage = "bin-known-folder"; Trace("bin: SHGetKnownFolderItem");
@@ -529,26 +544,27 @@ public static class FluxShellFiles {
   static string BinList() {
     Stage = "bin-list";
     List<object> result = new List<object>();
-    Trace("bin: открываю папку корзины");
-    IShellItem bin = Bin(); Stage = "bin-enum"; Trace("bin: папка получена, перечисляю");
+    Trace("bin: open folder");
+    IShellItem bin = Bin(); Stage = "bin-enum"; Trace("bin: enumerate");
     int number = 0;
     foreach (IShellItem child in Children(bin, 20000)) {
       try {
-        number++; Trace("bin: элемент " + number + " имя");
-        string name = Text(child, 0u); Trace("bin: элемент " + number + " ключ");
-        string key = Text(child, 0x80028000u); Trace("bin: элемент " + number + " cast IShellItem2");
+        number++; Trace("bin: item " + number + " name");
+        string name = Text(child, 0u); Trace("bin: item " + number + " key");
+        string key = Text(child, 0x80028000u); Trace("bin: item " + number + " cast");
         IShellItem2 item = (IShellItem2)child;
-        uint attributes; child.GetAttributes(0x20000000u, out attributes); Trace("bin: элемент " + number + " размер");
-        ulong size; bool hasSize = item.GetUInt64(ref KEY_Size, out size) >= 0; Trace("bin: элемент " + number + " дата");
-        DateTime? when = Deleted(item); Trace("bin: элемент " + number + " откуда");
-        string from = BinString(item, KEY_DeletedFrom); Trace("bin: элемент " + number + " готов");
+        uint attributes; child.GetAttributes(0x20000000u, out attributes); Trace("bin: item " + number + " size");
+        ushort sizeType; long size; string unusedText;
+        bool hasSize = BinProperty(item, KEY_Size, out sizeType, out size, out unusedText) && (sizeType == 21 || sizeType == 20) && size >= 0; Trace("bin: item " + number + " date");
+        DateTime? when = Deleted(item); Trace("bin: item " + number + " from");
+        string from = BinString(item, KEY_DeletedFrom); Trace("bin: item " + number + " done");
         result.Add(new Dictionary<string,object> {
           {"key", key}, {"name", name}, {"location", from},
           {"deletedAt", when.HasValue ? when.Value.ToString("o") : null}, {"size", hasSize ? (object)size : null}, {"directory", (attributes & 0x20000000u) != 0}
         });
-      } catch (Exception failure) { Trace("bin: элемент " + number + " сбой " + failure.GetType().Name + " " + failure.Message); } finally { Marshal.ReleaseComObject(child); }
+      } catch (Exception failure) { Trace("bin: item " + number + " failed " + failure.GetType().Name + " " + failure.Message); } finally { Marshal.ReleaseComObject(child); }
     }
-    Trace("bin: элементов " + result.Count);
+    Trace("bin: items " + result.Count);
     return Json(new Dictionary<string,object> { {"ok", true}, {"data", result} });
   }
   /** Команды корзины идут по разбираемым именам из последнего списка; NO_UI — без окон подтверждения. Действие над найденными. */
@@ -597,6 +613,7 @@ public static class FluxShellFiles {
 
   // ------------------------------------------------------------ вход
   /** Одна строка JSON -> одна строка JSON. Пути не попадают в сообщения об ошибках. */
+  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   public static string Handle(string line) {
     object id = null;
     try {
