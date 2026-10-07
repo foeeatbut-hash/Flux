@@ -597,6 +597,34 @@ public static class FluxShellFiles {
     }
     return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"done", done}, {"failed", failed} }} });
   }
+  /**
+   * «Удалить навсегда» — не командой оболочки: delete у элемента корзины показывает окно
+   * подтверждения и при NO_UI (на CI оно висело до таймаута, у человека всплыло бы второе
+   * подтверждение после своего во Flux). Элемент корзины на диске — пара файлов в $Recycle.Bin:
+   * $R… (содержимое) и $I… (имя, место, дата). Так удаляет и сама Windows. Удаляется только
+   * то, что лежит внутри $Recycle.Bin и называется $R…, — иначе отказ по объекту.
+   */
+  static string BinPurge(Dictionary<string,object> args) {
+    Stage = "bin-purge";
+    HashSet<string> wanted = new HashSet<string>(Strings(args, "keys"), StringComparer.OrdinalIgnoreCase);
+    int done = 0, failed = 0;
+    foreach (IShellItem child in Children(Bin(), 20000)) {
+      try {
+        string key = Text(child, 0x80028000u);
+        if (!wanted.Contains(key)) continue;
+        try {
+          string full = Path.GetFullPath(key), name = Path.GetFileName(full), folder = Path.GetDirectoryName(full);
+          bool inBin = folder != null && full.IndexOf("\\$Recycle.Bin\\", StringComparison.OrdinalIgnoreCase) >= 0;
+          if (!inBin || !name.StartsWith("$R", StringComparison.OrdinalIgnoreCase)) { failed++; continue; }
+          string info = Path.Combine(folder, "$I" + name.Substring(2));
+          if (Directory.Exists(full)) Directory.Delete(full, true); else if (File.Exists(full)) File.Delete(full); else { failed++; continue; }
+          if (File.Exists(info)) File.Delete(info);
+          done++;
+        } catch { failed++; }
+      } finally { Marshal.ReleaseComObject(child); }
+    }
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"done", done}, {"failed", failed} }} });
+  }
   /** Возврат по исходному пути — для отмены удаления: корзина не выдаёт идентификатор при удалении, поэтому ищется по месту и времени. */
   static string BinRestoreOriginal(Dictionary<string,object> args) {
     Stage = "bin-restore-original";
@@ -655,7 +683,7 @@ public static class FluxShellFiles {
         case "menu-close": CloseSession(); answer = Json(new Dictionary<string,object> { {"ok", true}, {"data", true} }); break;
         case "bin-list": answer = BinList(); break;
         case "bin-restore": answer = BinAct(args, "undelete"); break;
-        case "bin-purge": answer = BinAct(args, "delete"); break;
+        case "bin-purge": answer = BinPurge(args); break;
         case "bin-restore-original": answer = BinRestoreOriginal(args); break;
         case "bin-empty": answer = BinEmpty(); break;
         default: answer = Error("UNKNOWN_COMMAND", null); break;
