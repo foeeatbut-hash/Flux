@@ -78,7 +78,10 @@ export async function replaceWindowsFile(temporary: string, original: string, ba
   try {
     await runFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', ENCODED_REPLACE], {
       env: { ...process.env, FLUX_REPLACE_ORIGINAL: original, FLUX_REPLACE_TEMPORARY: temporary, FLUX_REPLACE_BASE_SHA256: baseSha256 },
-      windowsHide: true, timeout: 15_000, maxBuffer: 8 * 1024,
+      // Каждое сохранение запускает PowerShell и компилирует замену заново (Add-Type):
+      // на холодной машине это занимает 15 секунд и больше — прежний предел обрывал
+      // первое сохранение на CI. Обрыв здесь — отказ в сохранении, поэтому предел с запасом
+      windowsHide: true, timeout: 60_000, maxBuffer: 8 * 1024,
     });
   } catch (error: any) {
     if (String(error.stderr || '').includes('FLUX_REPLACE_CONFLICT')) throw replacementFailure('CONFLICT', 'Файл изменился перед записью Windows. Откройте свежую версию или сохраните копию.', error);

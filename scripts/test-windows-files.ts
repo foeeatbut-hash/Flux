@@ -53,7 +53,9 @@ try {
   check((await service.list({ rootId, relativePath: '' })).entries.some(item => item.kind === 'link' && item.name === 'link'), 'Ссылка показана без обхода содержимого');
   const update = Buffer.from('новая версия').toString('base64');
   const concurrent = await Promise.allSettled([service.write(original, update, read.sha256), service.write(original, Buffer.from('параллельная версия').toString('base64'), read.sha256)]);
-  if (concurrent.filter(item => item.status === 'fulfilled').length !== 1) console.error('CAS outcomes:', JSON.stringify(concurrent.map(item => item.status === 'fulfilled' ? { status: item.status, sha256: item.value.sha256 } : { status: item.status, code: item.reason?.code, message: item.reason?.message, nativeDiagnostic: item.reason?.nativeDiagnostic })));
+  // Исход печатается и тогда, когда второе сохранение отказало не конфликтом: так на CI видно,
+  // что на самом деле случилось с первым (обрыв по времени, занятый файл), а не только «не CONFLICT»
+  if (concurrent.filter(item => item.status === 'fulfilled').length !== 1 || !concurrent.some(item => item.status === 'rejected' && item.reason?.code === 'CONFLICT')) console.error('CAS outcomes:', JSON.stringify(concurrent.map(item => item.status === 'fulfilled' ? { status: item.status, sha256: item.value.sha256 } : { status: item.status, code: item.reason?.code, message: item.reason?.message, nativeDiagnostic: item.reason?.nativeDiagnostic })));
   check(concurrent.filter(item => item.status === 'fulfilled').length === 1, 'При двух CAS-сохранениях одной версии записывает только один');
   check(concurrent.some(item => item.status === 'rejected' && item.reason.code === 'CONFLICT'), 'Второе CAS-сохранение получает конфликт');
   const fresh = await service.read(original); check(fresh.fileId === read.fileId, 'Атомарное сохранение сохраняет стабильный идентификатор');
