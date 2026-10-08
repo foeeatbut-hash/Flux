@@ -22,7 +22,8 @@ export default function E3SelectionDialog({ label, cls, selection, features, rec
   return (
     <Dialog title={<><span className="font-mono">{label || '—'}</span> <span className="font-normal text-slate-500 dark:text-slate-400">· {classTitle(cls)}</span></>}
       onClose={onClose} width="max-w-xl" scrollBody label={`Подбор решения: ${label}`} footer={<Btn onClick={onClose}>Закрыть</Btn>}>
-      {status === 'one' && solution && <p className="text-sm">Подобрано: <span className="font-mono">{solutionLine(solution)}</span></p>}
+      {status === 'one' && solution && <p className="text-sm">Блок E3: <span className="font-mono">{recipe?.block || solution.name}</span></p>}
+      {status === 'one' && solution && <p className="mt-1 text-sm">Подобрано: <span className="font-mono">{solutionLine(solution)}</span></p>}
       {status === 'many' && <p className="text-sm">Подходят {candidates.length} решений.{missingFeature ? <> Чтобы выбрать одно, нужен ответ на признак «<b className="font-semibold">{title(missingFeature)}</b>».</> : ''}</p>}
       {status === 'none' && <p className="text-sm">{nearest.length ? 'Ни одно решение не подходит под ответы. Ближайшие — ниже.' : 'Для этого типа в каталоге нет решений: проверьте связь типов с классами.'}</p>}
 
@@ -39,15 +40,14 @@ export default function E3SelectionDialog({ label, cls, selection, features, rec
         <div className="fx-label">Состав блока · {recipe.items.length}</div>
         {recipe.items.length > 0 && (
           <table className="fx-table mt-1 text-left">
-            <thead><tr><th>Изделие</th><th>Роль</th>{IO_KEYS.map((k) => <th key={k} className="text-right">{IO_TITLES[k]}</th>)}</tr></thead>
+            <thead><tr><th>Роль</th>{IO_KEYS.map((k) => <th key={k} className="text-right">{IO_TITLES[k]}</th>)}</tr></thead>
             <tbody>{recipe.items.map((it, i) => (
               <tr key={i} title={it.why}>
-                <td className={`max-w-[220px] truncate font-mono ${it.component ? '' : 'text-slate-500 dark:text-slate-400'}`}>{it.component || 'имя не задано'}</td>
                 <td className="whitespace-nowrap">{it.role}{it.fromPosition ? <span className="text-slate-500 dark:text-slate-400"> · {it.fromPosition.role} {it.fromPosition.index + 1}</span> : null}</td>
                 {IO_KEYS.map((k) => <td key={k} className={`text-right tabular-nums ${it.signals[k] ? '' : 'text-slate-500 dark:text-slate-400'}`}>{it.signals[k] || '—'}</td>)}
               </tr>
             ))}
-            <tr className="font-medium"><td colSpan={2}>Итого</td>{IO_KEYS.map((k) => <td key={k} className="text-right tabular-nums">{recipe.total[k]}</td>)}</tr>
+            <tr className="font-medium"><td>Итого</td>{IO_KEYS.map((k) => <td key={k} className="text-right tabular-nums">{recipe.total[k]}</td>)}</tr>
             </tbody>
           </table>
         )}

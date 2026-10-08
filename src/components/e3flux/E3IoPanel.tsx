@@ -12,7 +12,7 @@ import { Plus } from 'lucide-react';
 import { IO_KEYS } from '../../../e3/ioTable';
 import type { E3IoRow, E3IoRule } from '../../../e3/solutionTypes';
 import { e3SolutionsService as svc } from '../../services/e3SolutionsService';
-import { Btn, Empty, FilterSeg, Input, SectionHead, Tabs, Toolbar } from '../ui';
+import { Btn, Empty, Input, SectionHead, Tabs, Toolbar } from '../ui';
 import { confirmAsk } from '../catalog/ui';
 import E3IoRowDialog from './E3IoRowDialog';
 import E3IoRuleDialog from './E3IoRuleDialog';
@@ -21,19 +21,17 @@ import type { SolutionBookState } from './useSolutionBook';
 
 const muted = 'text-slate-500 dark:text-slate-400';
 type Tab = 'rows' | 'rules';
-type View = 'all' | 'open';
 
 export default function E3IoPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean }; jump?: JumpProps }) {
   const { book, error, busy, run } = state;
   const [tab, setTab] = useState<Tab>('rows');
   const [q, setQ] = useState('');
-  const [view, setView] = useState<View>('all');
   const [editRow, setEditRow] = useState<string | null>(null); // id строки; '' — новая
   const [editRule, setEditRule] = useState<string | null>(null); // id правила; '' — новое
   const [dialogError, setDialogError] = useState('');
   // Правило состава — вторая вкладка раздела, строка — первая; без записи (таблица пуста) просто открывается нужная вкладка
   useJump(jump, ['io', 'io-rules'], (j) => {
-    setDialogError(''); setQ(''); setView('all');
+    setDialogError(''); setQ('');
     if (j.section === 'io-rules') { setTab('rules'); if (j.id) setEditRule(j.id); } else { setTab('rows'); if (j.id) setEditRow(j.id); }
   }, !!state.book);
 
@@ -43,11 +41,10 @@ export default function E3IoPanel({ state, rights, jump }: { state: SolutionBook
   const title = (id: string) => features.find((f) => f.id === id)?.title || id;
   const groups = useMemo(() => [...new Set(rows.map((r) => r.group).filter(Boolean))], [rows]);
   const classes = useMemo(() => [...new Set([...features.map((f) => f.mainClass), ...rules.map((r) => r.mainClass)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [features, rules]);
-  const noName = rows.filter((r) => !r.component?.trim()).length;
   const shown = useMemo(() => {
     const low = q.trim().toLocaleLowerCase('ru');
-    return rows.filter((r) => (view === 'all' || !r.component?.trim()) && (!low || `${r.group} ${r.name} ${r.code} ${r.component || ''}`.toLocaleLowerCase('ru').includes(low)));
-  }, [rows, q, view]);
+    return rows.filter((r) => (!low || `${r.group} ${r.name} ${r.code} ${r.component || ''}`.toLocaleLowerCase('ru').includes(low)));
+  }, [rows, q]);
   const shownRules = useMemo(() => {
     const low = q.trim().toLocaleLowerCase('ru');
     return rules.filter((r) => !low || `${r.title} ${r.mainClass} ${r.role} ${r.row.name || ''} ${r.row.code || ''}`.toLocaleLowerCase('ru').includes(low));
@@ -77,16 +74,12 @@ export default function E3IoPanel({ state, rights, jump }: { state: SolutionBook
       <SectionHead title="Таблица IO"
         actions={rights.edit && <Btn tone="primary" disabled={busy || !book} onClick={() => (tab === 'rows' ? open(setEditRow, '') : open(setEditRule, ''))}>
           <Plus className="w-3.5 h-3.5" /> {tab === 'rows' ? 'Добавить строку' : 'Добавить правило'}</Btn>}>
-        <Tabs label="Что показать" value={tab} onChange={(t) => { setTab(t); setQ(''); }} tabs={[{ value: 'rows', label: 'Строки', count: rows.length, title: 'Сигналы по видам устройств и изделия E3' }, { value: 'rules', label: 'Правила состава', count: rules.length, title: 'Как решение и его признаки превращаются в строки таблицы' }]} />
+        <Tabs label="Что показать" value={tab} onChange={(t) => { setTab(t); setQ(''); }} tabs={[{ value: 'rows', label: 'Строки', count: rows.length, title: 'Сигналы по видам устройств' }, { value: 'rules', label: 'Правила состава', count: rules.length, title: 'Как решение и его признаки превращаются в строки таблицы' }]} />
       </SectionHead>
       {error && editRow === null && editRule === null && <p role="alert" className="fx-error px-4 py-1">{error}</p>}
       {!book ? <p className={`p-4 text-sm ${muted}`}>{error ? '' : 'Загружаю каталог…'}</p> : <>
         <Toolbar>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tab === 'rows' ? 'Группа, наименование или изделие' : 'Название, класс или строка'} aria-label="Поиск" className="max-w-[360px] flex-1" />
-          {tab === 'rows' && <FilterSeg label="Какие строки показать" value={view} onChange={setView} options={[
-            { value: 'all', label: 'Все', count: rows.length },
-            { value: 'open', label: 'Без изделия E3', count: noName, hint: 'Для этих строк рецепт не знает, какой компонент ставить' },
-          ]} />}
         </Toolbar>
         <div className="fx-page-body">
           {tab === 'rows' ? (!rows.length ? <div className="p-4"><Empty title="Таблица IO пуста" text="Она читается вместе с классификатором: загрузите файл на вкладке «Решения» — лист «Таблица IO» прочитается по имени. Строки можно и добавить вручную." /></div>

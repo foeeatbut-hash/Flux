@@ -40,6 +40,8 @@ const systems = [{
       page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
       const attrs = { version: 1, updatedAt: '', items: [attr('MOTOR_POWER', {}), attr('MOTOR_VOLT', { source: { kind: 'param', name: 'Напряжение питания' } })] };
       let book = ioBook();
+      // Решение без названия схемы: оно же имя блока в E3, вставлять нечего
+      book = { ...book, solutions: [...book.solutions, { ...book.solutions[0], id: '99.99.99', mainClass: 'Воздуховод', name: '', features: {} }] };
       let solutionReads = 0;
       await page.route('**/api/catalog/workspace', (r) => r.fulfill({ json: { rights: { edit: true, import: true } } }));
       await page.route('**/api/catalog/e3-attributes', (r) => r.fulfill({ json: attrs }));
@@ -47,6 +49,11 @@ const systems = [{
       await page.route('**/api/catalog/e3-solutions/io-row', (r) => {
         const body = r.request().postDataJSON();
         book = { ...book, version: book.version + 1, ioTable: book.ioTable.map((x) => (x.id === body.row.id ? { ...x, ...body.row } : x)) };
+        return r.fulfill({ json: { book, revisionId: 'r' } });
+      });
+      await page.route('**/api/catalog/e3-solutions/solution', (r) => {
+        const body = r.request().postDataJSON();
+        book = { ...book, version: book.version + 1, solutions: book.solutions.map((x) => (x.id === body.id ? { ...x, ...body.patch } : x)) };
         return r.fulfill({ json: { book, revisionId: 'r' } });
       });
       await page.route('**/api/projects/p1/systems', (r) => r.fulfill({ json: { systems } }));
@@ -116,28 +123,25 @@ const systems = [{
       if (SHOTS) await page.screenshot({ path: `/tmp/e3-gaps/shots/${theme}-link-attr.png` });
       await page.keyboard.press('Escape');
 
-      // Ссылка: строка таблицы IO, имя изделия; правка → список пересчитывается без перезагрузки
+      // Ссылка: решение без названия схемы; правка → список пересчитывается без перезагрузки
       await page.getByRole('tab', { name: /Нет данных/ }).click();
       await page.getByLabel('Поиск по пробелам').fill('');
       await page.getByRole('button', { name: /^Каталог/ }).click();
-      await page.getByLabel('Вид пробела').selectOption({ label: /Строка IO без изделия E3/ as any }).catch(() => undefined);
-      const ioBefore = await page.locator('table.fx-table tbody tr', { hasText: 'Строка IO без изделия' }).count();
-      ok(`${t} в каталоге есть строка IO без имени изделия, нужная правилам состава`, ioBefore >= 1 || (await page.locator('table.fx-table tbody tr').filter({ hasText: 'Не задано имя изделия E3' }).count()) >= 1, ioBefore);
-      const ioRow = page.locator('table.fx-table tbody tr').filter({ hasText: 'Не задано имя изделия E3' }).first();
-      const ioTitle = ((await ioRow.locator('td').nth(1).textContent()) || '').trim();
-      await ioRow.getByRole('button', { name: /Открыть/ }).click();
-      const dlg = page.getByRole('dialog', { name: /Строка таблицы IO/ });
+      const noNameRows = page.locator('table.fx-table tbody tr').filter({ hasText: 'Не задано название схемы' });
+      ok(`${t} в каталоге есть решение без названия схемы`, (await noNameRows.count()) === 1);
+      ok(`${t} пробела «строка IO без изделия» больше нет`, (await page.locator('table.fx-table tbody tr').filter({ hasText: /имя изделия|без изделия/ }).count()) === 0);
+      await noNameRows.first().getByRole('button', { name: /Открыть/ }).click();
+      const dlg = page.getByRole('dialog', { name: /99\.99\.99/ });
       await dlg.waitFor();
-      ok(`${t} ссылка на строку IO: «Типовые решения», «Таблица IO», открыта нужная строка`,
-        (await page.getByRole('tab', { name: 'Типовые решения' }).getAttribute('aria-selected')) === 'true' && ((await dlg.textContent()) || '').includes(ioTitle), ioTitle);
-      if (SHOTS) await page.screenshot({ path: `/tmp/e3-gaps/shots/${theme}-link-io.png` });
+      ok(`${t} ссылка на решение: «Типовые решения», открыта карточка решения`, (await page.getByRole('tab', { name: 'Типовые решения' }).getAttribute('aria-selected')) === 'true');
+      if (SHOTS) await page.screenshot({ path: `/tmp/e3-gaps/shots/${theme}-link-solution.png` });
       const reads = solutionReads;
-      await dlg.getByLabel('Изделие E3').fill('изделие_тест');
+      await dlg.getByLabel('Название схемы').fill('Воздуховод_тест');
       await dlg.getByRole('button', { name: 'Сохранить' }).click();
       await dlg.waitFor({ state: 'detached' });
       await page.getByRole('tab', { name: /Нет данных/ }).click();
       await page.getByRole('button', { name: /^Каталог/ }).click();
-      await page.waitForFunction((title) => ![...document.querySelectorAll('table.fx-table tbody tr')].some((r) => r.textContent?.includes(title) && r.textContent.includes('Не задано имя изделия E3')), ioTitle);
+      await page.waitForFunction(() => ![...document.querySelectorAll('table.fx-table tbody tr')].some((r) => r.textContent?.includes('Не задано название схемы')));
       ok(`${t} после правки в каталоге запись исчезла из списка без перезагрузки страницы`, true);
       const newLabel = ((await page.getByRole('tab', { name: /Нет данных/ }).textContent()) || '');
       ok(`${t} счётчик во вкладке уменьшился`, Number(newLabel.replace(/\D/g, '')) < total, [label, newLabel]);

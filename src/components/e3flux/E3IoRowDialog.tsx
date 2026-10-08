@@ -62,7 +62,7 @@ export default function E3IoRowDialog({ row, existing, groups, canEdit, busy, er
           </div>
         </div>
 
-        <Field label="Изделие E3" hint="Имя компонента в базе E3, которое ставится для этой строки. В файле классификатора его нет" className="col-span-2">
+        <Field label="Изделие E3" hint="Необязательная справка. Блок в E3 называется по названию схемы решения, а не по строке IO" className="col-span-2">
           <Input value={component} disabled={off} onChange={(e) => setComponent(e.target.value)} placeholder="клапан_DIx2_DOx1" aria-label="Изделие E3" className="font-mono" />
         </Field>
       </div>

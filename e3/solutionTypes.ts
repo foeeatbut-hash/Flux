@@ -100,8 +100,8 @@ export interface E3IoSignals { di: number; do: number; ai: number; ao: number }
 /**
  * Строка листа «Таблица IO»: вид устройства и сколько сигналов он даёт БПУ.
  * Поля из файла (группа, наименование, обозначение, числа, описания) обновляет
- * загрузка; `component` — имя изделия E3 для этой строки — настройка Flux:
- * в файле его нет, его задаёт каталог, и файл его не трогает.
+ * загрузка; `component` — необязательная справка (имя изделия E3), настройка Flux:
+ * в файле её нет, и файл её не трогает. Таблица нужна для счёта сигналов.
  */
 export interface E3IoRow extends E3IoSignals {
   /** Стабильный ключ из группы и наименования (`ioRowId`): по нему строка находится при повторной загрузке */
@@ -111,7 +111,7 @@ export interface E3IoRow extends E3IoSignals {
   /** «Обозначение»: PT, TS… — у части строк пусто */
   code: string;
   notes: { di: string; do: string; ai: string; ao: string };
-  /** Имя изделия E3 (компонента базы), которое ставится для этой строки */
+  /** Необязательная справка: имя изделия E3. Блок в E3 называется по решению, а не по строке IO */
   component?: string;
   /** Поля из файла правили руками: загрузка файла их не перезапишет */
   edited?: boolean;
@@ -163,7 +163,7 @@ export interface E3RecipeLine { role: string; row: E3IoRowRef; count: number; fr
 export interface E3RecipeItem {
   role: string;
   ioRowId?: string;
-  /** Имя изделия E3; пусто, если у строки IO оно ещё не задано (тогда в замечаниях) */
+  /** Необязательная справка из строки IO: имя изделия E3. Что вставлять, она не решает — это имя решения */
   component?: string;
   fromPosition?: { role: string; index: number };
   signals: E3IoSignals;
@@ -173,6 +173,8 @@ export interface E3RecipeItem {
 
 export interface E3Recipe {
   solutionId: string;
+  /** Имя блока в базе E3: название схемы решения — оно и есть единица вставки (решение владельца) */
+  block: string;
   items: E3RecipeItem[];
   total: E3IoSignals;
   issues: string[];

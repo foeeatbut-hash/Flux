@@ -70,16 +70,15 @@ const rule = (id: string, o: Partial<E3IoRule> = {}): E3IoRule => ({ id, title: 
     ],
     solutions: [
       sol('1', 'Клапаны', { featuresConfirmed: false, recipeOverride: [{ role: 'Привод', row: { name: 'призрак' }, count: 1 }] }),
-      sol('2', 'Клапаны'), sol('3', 'Воздуховод'), sol('4', 'Странный класс'), sol('5', 'Клапаны', { removed: true, featuresConfirmed: false }),
+      sol('2', 'Клапаны'), sol('3', 'Воздуховод'), sol('4', 'Странный класс'), sol('6', 'Воздуховод', { name: '  ' }), sol('5', 'Клапаны', { removed: true, featuresConfirmed: false }),
     ],
     classMap: { КЛАПАН: ['Клапаны'] },
   });
   const gaps = collectGaps({ solutionBook: book });
 
-  const rows = of(gaps, 'io-row-no-component');
-  ok('строка IO без изделия, нужная правилу, — ошибка со ссылкой на строку', rows.length === 1 && rows[0].severity === 'error' && (rows[0].where as any).id === 'r2', rows.map((x) => x.where));
-  ok('строка IO, которую правила не берут, пробелом не считается', !rows.some((x) => (x.where as any).id === 'r3'));
-  ok('строка IO с изделием не попадает', !rows.some((x) => (x.where as any).id === 'r1'));
+  const rows = of(gaps, 'solution-no-name');
+  ok('решение без названия схемы — ошибка со ссылкой на решение', rows.length === 1 && rows[0].severity === 'error' && (rows[0].where as any).id === '6', rows.map((x) => x.where));
+  ok('строка IO без изделия E3 пробелом больше не считается', !gaps.some((x) => (x.kind as string) === 'io-row-no-component') && !gaps.some((x) => x.detail.includes('имя изделия')));
 
   const unconfirmed = of(gaps, 'solution-unconfirmed');
   ok('неподтверждённое решение — одно, снятое не считается', unconfirmed.length === 1 && (unconfirmed[0].where as any).id === '1', unconfirmed.map((x) => x.where));
@@ -133,8 +132,8 @@ const rule = (id: string, o: Partial<E3IoRule> = {}): E3IoRule => ({ id, title: 
 
   const one = collectGaps({ solutionBook: book, positions: [gp('K-3', 'КЛАПАН')], profile: { 'valve.drive': 'а' } });
   const recipe = of(one, 'position-recipe');
-  ok('решение подобрано, изделие без имени — замечание состава', recipe.length === 1 && recipe[0].detail.includes('не задано имя изделия E3'), one);
-  ok('подобранная позиция без замечаний пробела не даёт', collectGaps({ solutionBook: { ...book, ioTable: [{ ...book.ioTable[0], component: 'клапан' }] }, positions: [gp('K-4', 'КЛАПАН')], profile: { 'valve.drive': 'а' } }).filter((g) => g.kind.startsWith('position')).length === 0);
+  ok('решение подобрано, имя блока — название схемы: замечаний об имени изделия нет', recipe.every((g) => !g.detail.includes('имя изделия')), one);
+  ok('подобранная позиция без замечаний пробела не даёт', collectGaps({ solutionBook: book, positions: [gp('K-4', 'КЛАПАН')], profile: { 'valve.drive': 'а' } }).filter((g) => g.kind.startsWith('position')).length === 0);
 
   const skipped = collectGaps({ solutionBook: book, positions: [gp('S-1', 'ШУМОГЛУШИТЕЛЬ')] }).filter((g) => g.kind.startsWith('position'));
   ok('тип без решений по природе пробелов подбора не даёт', skipped.length === 0, skipped);
