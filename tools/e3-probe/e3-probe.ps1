@@ -135,8 +135,10 @@ try {
                 Write-Human ('Путь: ' + $script:ProjectPath) 'Yellow'
                 Write-Human 'Скрипт создаст на нём временный лист, вставит и удалит решение, временно запишет и вернёт атрибуты. Проект не сохраняется.' 'Yellow'
                 Write-Human 'Это тестовый проект или его копия?' 'Yellow'
-                $answer = Read-Host 'Введите Y и нажмите Enter, чтобы продолжить (любой другой ответ — выход)'
-                if ($answer -ne 'Y' -and $answer -ne 'y') { $proceed = $false }
+                $answer = Read-Host 'Введите Y (или Д) и нажмите Enter, чтобы продолжить (любой другой ответ — выход)'
+                # русская раскладка: клавиша Y даёт «Н»
+                $a = ([string]$answer).Trim()
+                if (@('Y','y','Н','н','Д','д','да','Да','ДА','yes','Yes') -notcontains $a) { $proceed = $false }
             }
             if (-not $proceed) {
                 Write-Human 'Отменено: ничего не изменено.' 'Yellow'
