@@ -14,10 +14,10 @@
 - [x] 4. Сервер (PUT io-row, io-rule, defaults/plan|apply), сервис клиента
 - [x] 5. Интерфейс: раздел «Таблица IO» (E3IoPanel, E3IoRowDialog, E3IoRuleDialog), «Состав блока» в E3SelectionDialog, ручной состав в E3SolutionDialog, «Добавить недостающее» в Признаках, чтение листа в E3SolutionsImport
 - [x] 6. Проверки: test-e3-io-table, test-e3-recipe, test-e3-solutions(-http) дополнены, tsc 0, test-architecture проходит
-- [ ] 7. Сухой прогон b.xlsx, снимки, документация (e3flux.md, e3-integration.md)
+- [x] 7. Сухой прогон b.xlsx (скрипт в scratchpad/dry), снимки (/tmp/e3-io), test-e3-io-ui, документация
 
 ## Список признаков без источника во Flux
-(заполняется по ходу)
+18 признаков «ov» без правила: valve.heat_drive; fan.brno, fanec.brno; heater.supply, heater.thermo; recup.bypass, recup.sensor, recup.pump; humid.pump, humid.solenoid, humid.level, humid.me, humid.me_link; cooler.drive; box.purpose, box.drive, box.limit; duct.kind. Подробности — docs/e3-integration.md, §13.
 
 ## Решения по ходу
 - Правило IO ссылается на строку не по id, а по {группа, часть наименования, обозначение}; рецепт: e3/recipe.ts, правила: book.ioRules.
@@ -27,4 +27,4 @@
 - Наборы: test-e3-io-table, test-e3-recipe, test-e3-solutions проходят.
 
 ## На чём остановился
-Шаги 1–6 сделаны. Дальше шаг 7: сухой прогон b.xlsx (скрипт в scratchpad), снимки Playwright (раздел «Таблица IO», «Состав блока»), документация e3flux.md и e3-integration.md, список признаков без источника.
+Всё сделано; ждёт полный прогон run-checks, затем финальный коммит (git rm этого файла) и отчёт.

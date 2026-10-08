@@ -11,7 +11,6 @@ import { Plus } from 'lucide-react';
 import { IO_KEYS } from '../../../e3/ioTable';
 import type { E3IoRow, E3IoRule } from '../../../e3/solutionTypes';
 import { e3SolutionsService as svc } from '../../services/e3SolutionsService';
-import { count } from '../../lib/plural';
 import { Btn, Empty, FilterSeg, Input, SectionHead, Tabs, Toolbar } from '../ui';
 import { confirmAsk } from '../catalog/ui';
 import E3IoRowDialog from './E3IoRowDialog';
@@ -69,7 +68,7 @@ export default function E3IoPanel({ state, rights }: { state: SolutionBookState;
 
   return (
     <div className="fx-page min-w-0">
-      <SectionHead title="Таблица IO" count={book ? (tab === 'rows' ? count(rows.length, 'строка', 'строки', 'строк') : count(rules.length, 'правило', 'правила', 'правил')) : ''}
+      <SectionHead title="Таблица IO"
         actions={rights.edit && <Btn tone="primary" disabled={busy || !book} onClick={() => (tab === 'rows' ? open(setEditRow, '') : open(setEditRule, ''))}>
           <Plus className="w-3.5 h-3.5" /> {tab === 'rows' ? 'Добавить строку' : 'Добавить правило'}</Btn>}>
         <Tabs label="Что показать" value={tab} onChange={(t) => { setTab(t); setQ(''); }} tabs={[{ value: 'rows', label: 'Строки', count: rows.length, title: 'Сигналы по видам устройств и изделия E3' }, { value: 'rules', label: 'Правила состава', count: rules.length, title: 'Как решение и его признаки превращаются в строки таблицы' }]} />
