@@ -135,10 +135,23 @@ try {
                 Write-Human ('Путь: ' + $script:ProjectPath) 'Yellow'
                 Write-Human 'Скрипт создаст на нём временный лист, вставит и удалит решение, временно запишет и вернёт атрибуты. Проект не сохраняется.' 'Yellow'
                 Write-Human 'Это тестовый проект или его копия?' 'Yellow'
-                $answer = Read-Host 'Введите Y (или Д) и нажмите Enter, чтобы продолжить (любой другой ответ — выход)'
-                # русская раскладка: клавиша Y даёт «Н»
-                $a = ([string]$answer).Trim()
-                if (@('Y','y','Н','н','Д','д','да','Да','ДА','yes','Yes') -notcontains $a) { $proceed = $false }
+                # Почему клавиша, а не Read-Host: ConsoleKey.Y — физическая клавиша и
+                # не зависит от раскладки («Н» в русской даёт ту же клавишу). Read-Host
+                # при chcp 65001 в Windows PowerShell 5.1 портит кириллицу, и ответ
+                # «Н» приходит как «?» или пустой строкой, поэтому список букв не спасал.
+                Write-Human 'Нажмите клавишу Y (в любой раскладке), чтобы продолжить; любая другая клавиша — выход' 'Yellow'
+                try {
+                    $k = [Console]::ReadKey($true)
+                    $ok = ($k.Key -eq [ConsoleKey]::Y) -or (@('Y','y','Н','н','Д','д') -contains [string]$k.KeyChar)
+                    $got = ('клавиша ' + $k.Key + ', символ ' + [int][char]$k.KeyChar)
+                } catch {
+                    # Перенаправленный ввод (без консоли): ответ строкой
+                    $a = ([string](Read-Host 'Введите Y и Enter')).Trim()
+                    $ok = @('Y','y','Н','н','Д','д','да','Да','yes') -contains $a
+                    $got = ('строка «' + $a + '»')
+                }
+                Add-Finding 'note' ('Ответ на подтверждение: ' + $got)
+                if (-not $ok) { $proceed = $false }
             }
             if (-not $proceed) {
                 Write-Human 'Отменено: ничего не изменено.' 'Yellow'
