@@ -119,8 +119,20 @@ function New-FakeSheet {
             return 3
         }
         Display = { param($a) return 1 }
-        ExportDXF = { param($a) Set-Content -Path ([string]$a[0]) -Value '0 SECTION' -Encoding ASCII; return 1 }
-        ExportPNG = { param($a) Throw-FakeCom 'Не поддерживается в этой версии' }
+        # Sheet.Export(format, version, file [, flags]): формат в верхнем регистре, как у E3; файл пишет только DXF
+        Export = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 4) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -ceq 'DXF') { Set-Content -Path ([string]$a[2]) -Value '0 SECTION' -Encoding ASCII; return 1 }
+            return 0
+        }
+        # Sheet.ExportImage(format, version, file [, dpi, compressionmode]): картинки, PNG пишется
+        ExportImage = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 5) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -ceq 'PNG') { Set-Content -Path ([string]$a[2]) -Value 'PNG' -Encoding ASCII; return 1 }
+            return 0
+        }
     })
 }
 
