@@ -33,6 +33,11 @@ export interface E3Solution {
   edited?: boolean;
   /** Снято загрузкой («нет в файле → снять»); физически не удаляется */
   removed?: boolean;
+  /**
+   * Ручной состав блока: если задан, он сильнее правил IO (`ioRules`). Настройка
+   * Flux — загрузка файла её не трогает, как и признаки.
+   */
+  recipeOverride?: E3RecipeLine[];
 }
 
 /** Откуда берётся ответ: подбор ОВ, решение КИП по проекту, раскладка листа */
@@ -87,12 +92,113 @@ export interface E3ProfileThreshold {
 /** Профиль автоматизации проекта: id признака → ответ или порог */
 export type E3Profile = Record<string, string | E3ProfileThreshold>;
 
+// ── Таблица IO и рецепт блока (docs/e3-integration.md, 5.4 и 5.9) ───────────
+
+/** Число сигналов по видам: дискретные и аналоговые, входы и выходы */
+export interface E3IoSignals { di: number; do: number; ai: number; ao: number }
+
+/**
+ * Строка листа «Таблица IO»: вид устройства и сколько сигналов он даёт БПУ.
+ * Поля из файла (группа, наименование, обозначение, числа, описания) обновляет
+ * загрузка; `component` — имя изделия E3 для этой строки — настройка Flux:
+ * в файле его нет, его задаёт каталог, и файл его не трогает.
+ */
+export interface E3IoRow extends E3IoSignals {
+  /** Стабильный ключ из группы и наименования (`ioRowId`): по нему строка находится при повторной загрузке */
+  id: string;
+  group: string;
+  name: string;
+  /** «Обозначение»: PT, TS… — у части строк пусто */
+  code: string;
+  notes: { di: string; do: string; ai: string; ao: string };
+  /** Имя изделия E3 (компонента базы), которое ставится для этой строки */
+  component?: string;
+  /** Поля из файла правили руками: загрузка файла их не перезапишет */
+  edited?: boolean;
+}
+
+/** Как правило находит строку IO: пустые поля не проверяются, остальные должны совпасть */
+export interface E3IoRowRef {
+  /** Группа целиком («Приводы») */
+  group?: string;
+  /** Часть наименования («пружинный, с бк») */
+  name?: string;
+  /** Обозначение: сначала совпадение всего набора кодов, потом вхождение кода */
+  code?: string;
+}
+
+/** Сколько изделий даёт правило */
+export type E3IoCount =
+  | { kind: 'one' }
+  /** Число из признака решения («Число приводов», «Число ступеней»): n = min(cap, max(0, значение + offset)) */
+  | { kind: 'feature'; feature: string; offset?: number; cap?: number }
+  /** Число подпозиций роли у позиции Flux */
+  | { kind: 'children'; role: string };
+
+/** Условие правила: признак решения принимает одно из значений (или не принимает — `not`) */
+export interface E3IoCond { feature: string; values: string[]; not?: boolean }
+
+/**
+ * Правило связи: «если решение класса X отвечает на признаки так, в блоке стоит
+ * изделие по этой строке IO столько раз». Правила — данные книги: правятся в
+ * каталоге, стартовый набор — `e3/ioDefaults.ts`.
+ */
+export interface E3IoRule {
+  /** Ключ правила (латиницей через точку), по нему правило правится и ищется при «Добавить недостающее» */
+  id: string;
+  title: string;
+  mainClass: string;
+  when: E3IoCond[];
+  /** Роль изделия в блоке («Привод», «Двигатель») */
+  role: string;
+  row: E3IoRowRef;
+  count: E3IoCount;
+  /** Подпозиция Flux, которой отвечает каждое изделие: у клапана с двумя приводами — ПРИВОД № 1 и № 2 */
+  fromRole?: string;
+}
+
+/** Строка ручного состава: изделие по строке IO, столько-то штук */
+export interface E3RecipeLine { role: string; row: E3IoRowRef; count: number; fromRole?: string }
+
+export interface E3RecipeItem {
+  role: string;
+  ioRowId?: string;
+  /** Имя изделия E3; пусто, если у строки IO оно ещё не задано (тогда в замечаниях) */
+  component?: string;
+  fromPosition?: { role: string; index: number };
+  signals: E3IoSignals;
+  /** Почему изделие в блоке: какое правило и какие ответы его вызвали */
+  why: string;
+}
+
+export interface E3Recipe {
+  solutionId: string;
+  items: E3RecipeItem[];
+  total: E3IoSignals;
+  issues: string[];
+}
+
+export interface E3IoPlan {
+  added: number;
+  changed: { id: string; fields: string[] }[];
+  same: number;
+  /** Есть в каталоге, нет в файле: остаются */
+  missing: string[];
+  /** Поля правили руками, файл их поменял бы — оставлены */
+  editedKept: string[];
+  /** Замечания к самому листу уходят в `issues` плана, здесь только счёт */
+}
+
 export interface E3SolutionBook {
   version: number;
   solutions: E3Solution[];
   features: E3Feature[];
   dictionary: E3Dictionary;
   rules: E3FeatureRule[];
+  /** Лист «Таблица IO»: сигналы по видам устройств */
+  ioTable: E3IoRow[];
+  /** Правила «решение и признаки → строки IO» */
+  ioRules: E3IoRule[];
   /** Тип Flux (equipment/classes) → основные классы файла */
   classMap: Record<string, string[]>;
   updatedAt: string;
@@ -110,6 +216,8 @@ export interface E3SolutionPlan {
   /** Словарь: новые коды, и коды, у которых описание в файле другое (в каталоге оставлено своё) */
   dictionaryAdded: string[];
   dictionaryDiffers: string[];
+  /** Лист «Таблица IO»: есть только если файл его принёс */
+  io?: E3IoPlan;
   issues: string[];
 }
 

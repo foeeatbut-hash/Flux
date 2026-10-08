@@ -17,20 +17,26 @@
 import { isClassId } from '../equipment/classes';
 import { E3_FIELD_KEYS } from './attributes';
 import { DEFAULT_CLASS_MAP, DEFAULT_FEATURES, DEFAULT_RULES, normText, suggestFeatures } from './solutionDefaults';
+import { DEFAULT_IO_RULES } from './ioDefaults';
+import { planIoTable, sanitizeRecipeLines } from './ioTable';
 import type {
-  E3Dictionary, E3Feature, E3FeatureRule, E3Profile, E3RuleSource, E3Solution, E3SolutionBook, E3SolutionPlan,
+  E3Dictionary, E3Feature, E3FeatureRule, E3IoRow, E3Profile, E3RuleSource, E3Solution, E3SolutionBook, E3SolutionPlan,
 } from './solutionTypes';
 
 export * from './solutionTypes';
 export { DEFAULT_CLASS_MAP, DEFAULT_FEATURES, DEFAULT_RULES, suggestFeatures, cyrillicToken } from './solutionDefaults';
 export { selectSolution } from './solutionSelect';
+export * from './ioTable';
+export { DEFAULT_IO_RULES } from './ioDefaults';
+export { buildRecipe, buildRecipeFor, parseRecipeLines, recipeLinesText } from './recipe';
+export { planMissingDefaults, applyMissingDefaults, type E3MissingDefaults } from './solutionMissing';
 
 const text = (v: unknown): string => (v === null || v === undefined ? '' : String(v).trim());
 const yes = (v: unknown): boolean => normText(v) === 'да';
 
 export const emptySolutionBook = (): E3SolutionBook => ({
   version: 0, solutions: [], features: structuredClone(DEFAULT_FEATURES), dictionary: {}, rules: structuredClone(DEFAULT_RULES),
-  classMap: structuredClone(DEFAULT_CLASS_MAP), updatedAt: '',
+  ioTable: [], ioRules: structuredClone(DEFAULT_IO_RULES), classMap: structuredClone(DEFAULT_CLASS_MAP), updatedAt: '',
 });
 
 /** Поля, которые приходят из файла: только их сравнивает и обновляет загрузка */
@@ -176,7 +182,9 @@ const firstById = (list: E3Solution[]): Map<string, E3Solution> => {
 const fileDiff = (cur: E3Solution, inc: E3Solution): string[] => SOLUTION_FILE_FIELDS.filter((f) => cur[f] !== inc[f]);
 
 /** Что сделает загрузка. Ничего не пишет. Признаки у существующих решений не сравниваются: файл их не ведёт */
-export function planSolutions(current: E3Solution[], incoming: E3Solution[], dictionary?: { current: E3Dictionary; incoming: E3Dictionary }): E3SolutionPlan {
+export function planSolutions(
+  current: E3Solution[], incoming: E3Solution[], dictionary?: { current: E3Dictionary; incoming: E3Dictionary }, io?: { current: E3IoRow[]; incoming: E3IoRow[] },
+): E3SolutionPlan {
   const plan: E3SolutionPlan = { added: [], changed: [], same: 0, missing: [], editedKept: [], dictionaryAdded: [], dictionaryDiffers: [], issues: [] };
   const cur = firstById(current || []);
   const seen = new Set<string>();
@@ -203,6 +211,7 @@ export function planSolutions(current: E3Solution[], incoming: E3Solution[], dic
       else if (dictionary.current[code] !== d) plan.dictionaryDiffers.push(code);
     }
   }
+  if (io && io.incoming.length) plan.io = planIoTable(io.current, io.incoming);
   return plan;
 }
 
@@ -274,10 +283,12 @@ export function validateSolutions(raw: unknown): { items: E3Solution[] } | { err
     if (typeof r.twoLevel !== 'boolean' || typeof r.inCad !== 'boolean' || typeof r.featuresConfirmed !== 'boolean') return { error: `${id}: «twoLevel», «inCad» и «featuresConfirmed» должны быть true или false` };
     const features = sanitizeFeatureAnswers(r.features ?? {});
     if (!features) return { error: `${id}: признаки — набор «id → значение»` };
+    const recipeOverride = r.recipeOverride === undefined ? [] : sanitizeRecipeLines(r.recipeOverride);
+    if (!recipeOverride) return { error: `${id}: ручной состав — до 40 строк «роль, строка IO, число»` };
     items.push({
       id, mainClass: r.mainClass.trim(), subclass: r.subclass.trim(), short: r.short.trim(), name: r.name.trim(), description: r.description,
       pdf: r.pdf, e3p: r.e3p, twoLevel: r.twoLevel, inCad: r.inCad, items: r.items, symbols: r.symbols, note: r.note, features, featuresConfirmed: r.featuresConfirmed,
-      ...(r.edited ? { edited: true } : {}), ...(r.removed ? { removed: true } : {}),
+      ...(r.edited ? { edited: true } : {}), ...(r.removed ? { removed: true } : {}), ...(recipeOverride.length ? { recipeOverride } : {}),
     });
   }
   return { items };

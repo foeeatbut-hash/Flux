@@ -1,6 +1,6 @@
 /**
  * Выгрузка каталога типовых решений в Excel — того же вида, что файл владельца
- * («Классификатор типовых решений» и «Обозначения»), плюс по столбцу на каждый
+ * («Классификатор типовых решений», «Обозначения» и «Таблица IO»), плюс по столбцу на каждый
  * признак и столбец «Признаки подтверждены». Таблицу можно отдать ВЕЗА или
  * открыть без Flux; загруженная обратно, она не нуждается в разборе названий:
  * заголовок признака кончается его id в квадратных скобках.
@@ -9,6 +9,7 @@
  * без файла.
  */
 import * as XLSX from 'xlsx';
+import { IO_SHEET, ioSheetRows } from './ioTable';
 import type { E3Feature, E3SolutionBook } from './solutionTypes';
 
 export const CLASSIFIER_SHEET = 'Классификатор типовых решений';
@@ -51,6 +52,12 @@ export function solutionWorkbook(book: E3SolutionBook): XLSX.WorkBook {
   const dict = XLSX.utils.aoa_to_sheet(dictionaryRows(book.dictionary));
   dict['!cols'] = [{ wch: 16 }, { wch: 60 }];
   XLSX.utils.book_append_sheet(wb, dict, DICTIONARY_SHEET);
+  // Таблица IO — того же вида, что у владельца; имя изделия E3 в файл не идёт: его ведёт только каталог
+  if ((book.ioTable || []).length) {
+    const io = XLSX.utils.aoa_to_sheet(ioSheetRows(book.ioTable));
+    io['!cols'] = [{ wch: 2 }, { wch: 22 }, { wch: 52 }, { wch: 14 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 2 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }];
+    XLSX.utils.book_append_sheet(wb, io, IO_SHEET);
+  }
   return wb;
 }
 

@@ -1,5 +1,6 @@
 import { ENV_CONFIG } from '../config/env';
-import type { E3Dictionary, E3Feature, E3FeatureRule, E3Profile, E3Solution, E3SolutionBook, E3SolutionPlan } from '../../e3/solutionTypes';
+import type { E3Dictionary, E3Feature, E3FeatureRule, E3IoRow, E3IoRule, E3Profile, E3Solution, E3SolutionBook, E3SolutionPlan } from '../../e3/solutionTypes';
+import type { E3MissingDefaults } from '../../e3/solutionMissing';
 
 /** Запись истории каталога: по ней откатывают загрузку */
 export interface E3SolutionRevision { id: string; action: 'import' | 'update' | 'restore'; createdAt: string; userId: string; count: number }
@@ -24,15 +25,23 @@ type Written = { book: E3SolutionBook };
 
 export const e3SolutionsService = {
   load: () => call<E3SolutionBook>('GET', BASE),
-  plan: (items: E3Solution[], dictionary: E3Dictionary) => call<E3SolutionPlan>('POST', `${BASE}/plan`, { items, dictionary }),
-  apply: (items: E3Solution[], dictionary: E3Dictionary, expectedVersion: number, missing: 'keep' | 'remove') =>
-    call<Written & { revisionId: string }>('POST', `${BASE}/apply`, { items, dictionary, expectedVersion, missing }),
+  plan: (items: E3Solution[], dictionary: E3Dictionary, ioTable: E3IoRow[] = []) => call<E3SolutionPlan>('POST', `${BASE}/plan`, { items, dictionary, ioTable }),
+  apply: (items: E3Solution[], dictionary: E3Dictionary, expectedVersion: number, missing: 'keep' | 'remove', ioTable: E3IoRow[] = []) =>
+    call<Written & { revisionId: string }>('POST', `${BASE}/apply`, { items, dictionary, ioTable, expectedVersion, missing }),
   updateSolution: (id: string, patch: E3SolutionPatch, expectedVersion: number) => call<Written>('PUT', `${BASE}/solution`, { id, patch, expectedVersion }),
   createSolution: (id: string, patch: E3SolutionPatch, expectedVersion: number) => call<Written>('PUT', `${BASE}/solution`, { id, patch, create: true, expectedVersion }),
   saveFeature: (feature: E3Feature, expectedVersion: number) => call<Written>('PUT', `${BASE}/feature`, { feature, expectedVersion }),
   deleteFeature: (id: string, expectedVersion: number) => call<Written>('PUT', `${BASE}/feature`, { id, delete: true, expectedVersion }),
   saveRule: (rule: E3FeatureRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/rule`, { rule, expectedVersion }),
   deleteRule: (rule: E3FeatureRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/rule`, { rule, delete: true, expectedVersion }),
+  saveIoRow: (row: E3IoRow, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-row`, { row, expectedVersion }),
+  createIoRow: (row: E3IoRow, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-row`, { row, create: true, expectedVersion }),
+  deleteIoRow: (id: string, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-row`, { id, delete: true, expectedVersion }),
+  saveIoRule: (rule: E3IoRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-rule`, { rule, expectedVersion }),
+  createIoRule: (rule: E3IoRule, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-rule`, { rule, create: true, expectedVersion }),
+  deleteIoRule: (id: string, expectedVersion: number) => call<Written>('PUT', `${BASE}/io-rule`, { id, delete: true, expectedVersion }),
+  missingDefaults: () => call<E3MissingDefaults>('POST', `${BASE}/defaults/plan`, {}),
+  applyMissingDefaults: (expectedVersion: number) => call<Written>('POST', `${BASE}/defaults/apply`, { expectedVersion }),
   saveDictionary: (dictionary: E3Dictionary, expectedVersion: number) => call<Written>('PUT', `${BASE}/dictionary`, { dictionary, expectedVersion }),
   saveClassMap: (classMap: Record<string, string[]>, expectedVersion: number) => call<Written>('PUT', `${BASE}/classmap`, { classMap, expectedVersion }),
   layout: (projectId: string) => call<E3LayoutDoc>('GET', `/projects/${encodeURIComponent(projectId)}/e3-layout`),

@@ -14,25 +14,32 @@ import { normText } from './solutionDefaults';
 const num = (s: string): number => Number(String(s).replace(/\s+/g, '').replace(',', '.'));
 const isNum = (s: string): boolean => String(s).trim() !== '' && Number.isFinite(num(s));
 const same = (a: string, b: string): boolean => (isNum(a) && isNum(b) ? num(a) === num(b) : normText(a) === normText(b));
+/** Ответ решения «любой» подходит к любому вопросу: решение для всех типоразмеров не должно проигрывать узкому */
+const ANY = 'любой';
 
 /** `~часть` — содержит; иначе значение целиком (числа как числа) */
 const matches = (raw: string, when: string): boolean => (when.startsWith('~') ? normText(raw).includes(normText(when.slice(1))) : same(raw, when));
 
-/** Значение по источнику: подпозиции ищутся среди соседей по тегу владельца */
-function resolve(source: E3RuleSource, position: E3Position, siblings: E3Position[]): string {
-  if (source.kind === 'field' || source.kind === 'param') return position.read(source);
+/**
+ * Значения по источнику: подпозиции ищутся среди соседей по тегу владельца.
+ * У подпозиций роли значений может быть несколько (датчиков у блока два —
+ * реле и термостат), поэтому возвращаются все непустые, а правило берёт первую
+ * строку таблицы, подошедшую хоть к одному из них.
+ */
+function resolveAll(source: E3RuleSource, position: E3Position, siblings: E3Position[]): string[] {
+  if (source.kind === 'field' || source.kind === 'param') return [position.read(source)];
   const children = position.tag ? siblings.filter((s) => s.id !== position.id && s.parentTag === position.tag && s.role === source.role) : [];
-  if (source.kind === 'count') return String(children.length);
+  if (source.kind === 'count') return [String(children.length)];
   const probe: E3RuleSource = source.kind === 'child-param' ? { kind: 'param', name: source.name, ...(source.unit ? { unit: source.unit } : {}) } : { kind: 'field', key: source.key };
-  for (const c of children) { const v = c.read(probe); if (String(v).trim()) return v; }
-  return '';
+  return children.map((c) => c.read(probe)).filter((v) => String(v).trim());
 }
+const resolve = (source: E3RuleSource, position: E3Position, siblings: E3Position[]): string => resolveAll(source, position, siblings).find((v) => String(v).trim()) || '';
 
 function byRule(rule: E3FeatureRule, position: E3Position, siblings: E3Position[]): string | undefined {
-  const raw = resolve(rule.source, position, siblings);
+  const values = resolveAll(rule.source, position, siblings).filter((v) => String(v).trim());
   // Нет данных: ответ даёт только «иначе» (двойной фильтр — «нет», вентилятор — обычный)
-  if (!String(raw).trim()) return rule.otherwise;
-  return rule.table.find((r) => matches(raw, r.when))?.answer ?? rule.otherwise;
+  if (!values.length) return rule.otherwise;
+  return rule.table.find((r) => values.some((v) => matches(v, r.when)))?.answer ?? rule.otherwise;
 }
 
 function byProfile(entry: string | E3ProfileThreshold | undefined, position: E3Position, siblings: E3Position[]): string | undefined {
@@ -80,7 +87,7 @@ export function selectSolution(
     if (a) { answers.push({ feature: f.id, value: a.value, from: a.from }); asked.set(f.id, a.value); }
   }
   const diffOf = (s: E3Solution) => feats
-    .filter((f) => f.mainClass === s.mainClass && asked.has(f.id) && !same(s.features?.[f.id] ?? '', asked.get(f.id)!))
+    .filter((f) => f.mainClass === s.mainClass && asked.has(f.id) && normText(s.features?.[f.id]) !== ANY && !same(s.features?.[f.id] ?? '', asked.get(f.id)!))
     .map((f) => ({ feature: f.id, want: asked.get(f.id)!, have: s.features?.[f.id] ?? '' }));
 
   const candidates = pool.filter((s) => diffOf(s).length === 0);
