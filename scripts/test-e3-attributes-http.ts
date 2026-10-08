@@ -37,6 +37,21 @@ function mockPrisma() {
         return { count: rows.length };
       },
     },
+    // Позиции «Оборудования»: тип задан вручную (equipClass), чтобы не зависеть от угадывания по названию
+    equipmentSystem: { findMany: async () => [{ id: 's1' }, { id: 's2' }] },
+    componentElement: {
+      findMany: async ({ where }: any) => {
+        const spec = (groups: any[]) => JSON.stringify({ groups });
+        const el = (id: string, equipClass: string, status: string, systemId: string, groups: any[]) => ({ id, itemCode: id, name: id, equipType: 'ПРОЧЕЕ', role: 'БЛОК', sourceKind: null, specs: spec(groups), parentElementId: null, equipClass, equipKind: '', status, systemId, tags: [] });
+        const all = [
+          el('a', 'КЛАПАН', 'OK', 's1', [{ title: 'Привод', params: [{ key: 'Тип привода', value: 'SF', unit: '' }, { key: 'Момент', value: '10', unit: 'Н·м' }] }, { title: 'КИП', params: [{ key: 'GLOBAL_X', value: 'k' }] }]),
+          el('b', 'КЛАПАН', 'OK', 's2', [{ title: 'Привод', params: [{ key: 'Тип привода', value: 'SM' }, { key: 'Момент', value: '', unit: 'Н·м' }, { key: 'Момент', value: '5', unit: 'кгс·м' }] }]),
+          el('c', 'КЛАПАН', 'REMOVED', 's1', [{ title: 'Снятое', params: [{ key: 'Старое', value: '1' }] }]),
+          el('d', 'ФИЛЬТР', 'OK', 's1', [{ title: 'Фильтр', params: [{ key: 'Класс', value: 'G4' }] }]),
+        ];
+        return all.filter((e) => (where.status.not ? e.status !== where.status.not : true) && e.systemId === where.monoblock.systemId);
+      },
+    },
     catalogRevision: {
       create: async ({ data }: any) => {
         const row = { id: `rev-${read().revisions.length + 1}`, createdAt: new Date(++clock * 1000), ...clone(data) };
@@ -72,11 +87,11 @@ async function main() {
   const mock = mockPrisma(); setPrisma(mock.prisma);
   const app = express();
   registerE3AttributeRoutes(app as any, can, { ensure: async () => undefined });
-  const call = async (method: string, path: string, body?: unknown, who?: string) => {
+  const call = async (method: string, path: string, body?: unknown, who?: string, query: Record<string, string> = {}) => {
     const layer = (app as any)._router.stack.find((l: any) => l.route?.path === path && l.route.methods[method.toLowerCase()]);
     assert.ok(layer, `маршрут зарегистрирован: ${method} ${path}`);
     const res: any = { statusCode: 200, status(c: number) { this.statusCode = c; return this; }, json(v: any) { this.body = v; return this; } };
-    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params: {}, query: {} }, res);
+    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params: {}, query }, res);
     return { status: res.statusCode, body: res.body };
   };
   const BASE = '/api/catalog/e3-attributes';
@@ -155,6 +170,28 @@ async function main() {
   check('версия растёт и при откате', undone.book.version === 5);
   const after = (await call('GET', `${BASE}/revisions`, undefined, 'reader')).body;
   check('откат сам оставил снимок, его тоже можно откатить', after[0].action === 'restore' && after.length === 5);
+
+  // Характеристики типа: только чтение, по позициям всех проектов, без снятых
+  const prm = await status('характеристики типа — чтение доступно читателю', call('GET', `${BASE}/params`, undefined, 'reader', { class: 'КЛАПАН' }), 200);
+  check('список: уникальные «группа|имя», счётчики и единицы', prm.positions === 2 && JSON.stringify(prm.params.map((p: any) => [p.key, p.count])) === '[["КИП|GLOBAL_X",1],["Привод|Момент",2],["Привод|Тип привода",2]]'
+    && JSON.stringify(prm.params.find((p: any) => p.key === 'Привод|Момент').units) === '[{"unit":"Н·м","count":1},{"unit":"кгс·м","count":1}]');
+  check('снятые и чужой тип не попадают', !prm.params.some((p: any) => /Старое|Класс/.test(p.key)));
+  await status('характеристики: неизвестный тип — 400', call('GET', `${BASE}/params`, undefined, 'reader', { class: 'НЕТ' }), 400);
+
+  // Источник по типу: отдельная правка, как и остальные, идёт по версии и оставляет снимок «до»
+  const byClass = (v: unknown, over: any = {}) => call('PUT', `${BASE}/item`, { name: 'MOTOR_POWER', patch: { sourceByClass: v }, expectedVersion: 5, ...over }, 'editor');
+  await status('источник по типу без права — 403', call('PUT', `${BASE}/item`, { name: 'MOTOR_POWER', patch: { sourceByClass: {} }, expectedVersion: 5 }, 'importer'), 403);
+  await status('источник по типу: чужая версия — 409', byClass({}, { expectedVersion: 4 }), 409);
+  await status('источник по типу: не объект — 400', byClass('x'), 400);
+  await status('источник по типу: негодный источник — 400', byClass({ 'КЛАПАН': { kind: 'sql' } }), 400);
+  const bc = await status('источник по типу — 200', byClass({ 'КЛАПАН': { kind: 'param', name: 'Тип привода' }, 'НЕТ': { kind: 'none' } }), 200);
+  const mp = bc.book.items.find((a: any) => a.name === 'MOTOR_POWER');
+  check('карта записана, неизвестный тип отброшен, файловые поля не «правлены»', JSON.stringify(mp.sourceByClass) === '{"КЛАПАН":{"kind":"param","name":"Тип привода"}}' && mp.edited === undefined && bc.book.version === 6);
+  check('снимок «до» правки не содержит карты', !JSON.parse(mock.state().revisions[mock.state().revisions.length - 1].snapshotJson).items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass);
+  const reload = await status('повторная загрузка файла', call('POST', `${BASE}/apply`, { items: FILE, expectedVersion: 6, missing: 'keep' }, 'importer'), 200);
+  check('загрузка файла карту не затирает', !!reload.book.items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass?.['КЛАПАН']);
+  const cleared = await status('очистка карты — 200', byClass(null, { expectedVersion: 7 }), 200);
+  check('null возвращает общий источник', cleared.book.items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass === undefined);
 
   // Заявка по старому значению: запись по устаревшему чтению не проходит
   const raw = await catalogSettingRaw(mock.prisma, 'e3_attributes');

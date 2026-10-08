@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import express from 'express';
 import { registerE3SolutionRoutes } from '../server/routes/e3Solutions';
 import { setPrisma } from '../server/context';
-import { parseSolutionSheet, DEFAULT_FEATURES } from '../e3/solutions';
+import { parseSolutionSheet, parseIoSheet, DEFAULT_FEATURES, DEFAULT_IO_RULES } from '../e3/solutions';
 import { CLASSIFIER_HEADERS } from '../e3/solutionWorkbook';
 
 type State = { settings: any[]; revisions: any[] };
@@ -68,6 +68,10 @@ const MEMBERS: Record<string, string[]> = { p1: ['u-reader', 'u-importer', 'u-ed
 const R = (id: string, cls: string, name: string): unknown[] => [id, cls, 'Подкласс', 'К', name, `${name} описание`, '', '', '', '', '', '', ''];
 const SHEET = [CLASSIFIER_HEADERS, R('08.01.01', 'Клапаны', 'Клапан_К24'), R('08.01.03', 'Клапаны', 'Клапан_К24_КП2'), R('11.01.01', 'Начало установки', 'Начало_1УР')];
 const FILE = parseSolutionSheet(SHEET, { features: DEFAULT_FEATURES, dictionary: {} }).items;
+// Лист «Таблица IO» той же формы, что у владельца: двухстрочная шапка, группа в первой строке блока
+const IO_SHEET = [[], [], ['', 'Полевые приборы', 'Наименование', 'Обозначение', 'DI', 'DO', 'AI', 'AO'],
+  ['', 'Датчики', 'Капиллярный термостат', 'TS', 1, '', '', ''], ['', 'Приводы', 'Клапан по воздуху пружинный, с бк', '', 2, 1, '', ''], ['', '', 'Клапан по воде', '', '', '', 1, 1]];
+const IO_FILE = parseIoSheet(IO_SHEET).rows;
 
 async function main() {
   const mock = mockPrisma(); setPrisma(mock.prisma);
@@ -177,6 +181,87 @@ async function main() {
   const gone = mock.state().revisions.find((r: any) => r.action === 'restore');
   check('откат сам оставил снимок «до»', !!gone && JSON.parse(gone.snapshotJson).solutions.length === 4);
 
+  // Таблица IO, правила состава, ручной состав, «Добавить недостающее»
+  check('книга после отката: таблица IO пуста, стартовые правила состава на месте', undone.book.ioTable.length === 0 && undone.book.ioRules.length === DEFAULT_IO_RULES.length);
+  const revBeforePlan = mock.state().revisions.length;
+  const ioPlan = await status('план с таблицей IO', call('POST', `${BASE}/plan`, { items: [], ioTable: IO_FILE }, 'importer'), 200);
+  check('план: три новые строки IO, ничего не записано', ioPlan.io.added === 3 && mock.state().revisions.length === revBeforePlan);
+  await status('негодная строка IO в плане — 400', call('POST', `${BASE}/plan`, { items: [], ioTable: [{ ...IO_FILE[0], di: 1.5 }] }, 'importer'), 400);
+  await status('больше 500 строк IO — 400', call('POST', `${BASE}/plan`, { items: [], ioTable: Array.from({ length: 501 }, () => IO_FILE[0]) }, 'importer'), 400);
+  const revBeforeIo = mock.state().revisions.length;
+  const ioApplied = await status('загрузка одной таблицы IO (без решений)', call('POST', `${BASE}/apply`, { items: [], ioTable: [{ ...IO_FILE[0], component: 'чужое', edited: true }, ...IO_FILE.slice(1)], expectedVersion: 14, missing: 'keep' }, 'importer'), 200);
+  check('таблица IO записана, имя изделия и пометка из файла отброшены', ioApplied.book.ioTable.length === 3 && ioApplied.book.ioTable[0].component === undefined && ioApplied.book.ioTable[0].edited === undefined);
+  check('загрузка оставила снимок «до» с видом «import»', mock.state().revisions.length === revBeforeIo + 1 && mock.state().revisions.at(-1).action === 'import');
+
+  const rowOf = (name: string) => ioApplied.book.ioTable.find((r: any) => r.name === name);
+  const springRow = rowOf('Клапан по воздуху пружинный, с бк');
+  const putRow = (row: unknown, v: number, who = 'editor', over: any = {}) => call('PUT', `${BASE}/io-row`, { row, expectedVersion: v, ...over }, who);
+  await status('правка строки IO без права — 403', putRow(springRow, 15, 'importer'), 403);
+  await status('правка строки IO по чужой версии — 409', putRow(springRow, 3), 409);
+  await status('негодная строка IO — 400', putRow({ ...springRow, ao: -1 }, 15), 400);
+  await status('несуществующая строка IO — 404', putRow({ ...springRow, id: 'нет::такой' }, 15), 404);
+  const named = await status('имя изделия E3 у строки', putRow({ ...springRow, component: 'клапан_DIx2_DOx1' }, 15), 200);
+  const springNamed = named.book.ioTable.find((r: any) => r.id === springRow.id);
+  check('имя изделия записано и не помечает строку правленой (его файл не ведёт)', springNamed.component === 'клапан_DIx2_DOx1' && springNamed.edited === undefined);
+  const counted = await status('правка числа сигналов', putRow({ ...springNamed, do: 2 }, 16), 200);
+  const springEdited = counted.book.ioTable.find((r: any) => r.id === springRow.id);
+  check('число сигналов поправлено, строка помечена правленой, имя изделия на месте', springEdited.do === 2 && springEdited.edited === true && springEdited.component === 'клапан_DIx2_DOx1');
+  const reload = await status('повторная загрузка того же файла', call('POST', `${BASE}/apply`, { items: [], ioTable: IO_FILE, expectedVersion: 17, missing: 'keep' }, 'importer'), 200);
+  const springAfter = reload.book.ioTable.find((r: any) => r.id === springRow.id);
+  check('файл не перезаписал ни правленое, ни имя изделия', springAfter.do === 2 && springAfter.component === 'клапан_DIx2_DOx1' && reload.book.ioTable.length === 3);
+  await status('добавление строки IO: уже есть — 409', putRow(springRow, 18, 'editor', { create: true }), 409);
+  const added = await status('добавление строки IO', putRow({ id: 'датчики::реле-давления', group: 'Датчики', name: 'Реле давления', code: 'PS', di: 1, do: 0, ai: 0, ao: 0, notes: { di: '', do: '', ai: '', ao: '' } }, 18, 'editor', { create: true }), 200);
+  check('новая строка IO помечена правленой, порядок файла сохранён', added.book.ioTable.length === 4 && added.book.ioTable[3].edited === true && added.book.ioTable[0].id === IO_FILE[0].id);
+  await status('удаление строки IO без права — 403', call('PUT', `${BASE}/io-row`, { id: 'датчики::реле-давления', delete: true, expectedVersion: 19 }, 'importer'), 403);
+  await status('удаление несуществующей строки IO — 404', call('PUT', `${BASE}/io-row`, { id: 'нет', delete: true, expectedVersion: 19 }, 'editor'), 404);
+  const dropped = await status('удаление строки IO', call('PUT', `${BASE}/io-row`, { id: 'датчики::реле-давления', delete: true, expectedVersion: 19 }, 'editor'), 200);
+  check('строка IO удалена', dropped.book.ioTable.length === 3);
+
+  const ioRule = clone(DEFAULT_IO_RULES[0]);
+  await status('правило состава без права — 403', call('PUT', `${BASE}/io-rule`, { rule: ioRule, expectedVersion: 20 }, 'importer'), 403);
+  await status('негодное правило состава — 400', call('PUT', `${BASE}/io-rule`, { rule: { ...ioRule, row: {} }, expectedVersion: 20 }, 'editor'), 400);
+  await status('правило состава по чужой версии — 409', call('PUT', `${BASE}/io-rule`, { rule: ioRule, expectedVersion: 2 }, 'editor'), 409);
+  await status('правило состава: ключ уже есть при добавлении — 409', call('PUT', `${BASE}/io-rule`, { rule: ioRule, create: true, expectedVersion: 20 }, 'editor'), 409);
+  const ruled = await status('правило состава: правка', call('PUT', `${BASE}/io-rule`, { rule: { ...ioRule, role: 'Привод клапана' }, expectedVersion: 20 }, 'editor'), 200);
+  check('правило заменено, а не продублировано', ruled.book.ioRules.length === DEFAULT_IO_RULES.length && ruled.book.ioRules[0].role === 'Привод клапана');
+  const fresh = await status('правило состава: новое', call('PUT', `${BASE}/io-rule`, { rule: { ...ioRule, id: 'valve.custom', title: 'Своё' }, create: true, expectedVersion: 21 }, 'editor'), 200);
+  check('новое правило добавлено', fresh.book.ioRules.length === DEFAULT_IO_RULES.length + 1);
+  await status('удаление несуществующего правила состава — 404', call('PUT', `${BASE}/io-rule`, { id: 'нет', delete: true, expectedVersion: 22 }, 'editor'), 404);
+  const gone2 = await status('правило состава: удаление', call('PUT', `${BASE}/io-rule`, { id: 'valve.custom', delete: true, expectedVersion: 22 }, 'editor'), 200);
+  check('правило удалено', gone2.book.ioRules.length === DEFAULT_IO_RULES.length);
+
+  // Ручной состав у решения
+  const mk = await status('решение для ручного состава', call('PUT', `${BASE}/solution`, { id: '99.99.02', create: true, patch: { mainClass: 'Клапаны', name: 'Клапан_К24' }, expectedVersion: 23 }, 'editor'), 200);
+  const line = { role: 'Привод', row: { name: 'пружинный' }, count: 2 };
+  await status('ручной состав: негодная строка — 400', call('PUT', `${BASE}/solution`, { id: '99.99.02', patch: { recipeOverride: [{ ...line, count: 0 }] }, expectedVersion: mk.book.version }, 'editor'), 400);
+  await status('ручной состав: не список — 400', call('PUT', `${BASE}/solution`, { id: '99.99.02', patch: { recipeOverride: 'x' }, expectedVersion: mk.book.version }, 'editor'), 400);
+  const withLines = await status('ручной состав записан', call('PUT', `${BASE}/solution`, { id: '99.99.02', patch: { recipeOverride: [line] }, expectedVersion: mk.book.version }, 'editor'), 200);
+  const sol2 = withLines.book.solutions.find((s: any) => s.id === '99.99.02');
+  check('ручной состав у решения; поле не из файла — «правлено» не прибавилось', sol2.recipeOverride[0].count === 2 && sol2.edited === true);
+  const viaFile = await status('файл ручной состав не приносит и не стирает', call('POST', `${BASE}/apply`, { items: [{ ...sol2, recipeOverride: [{ role: 'x', row: { name: 'y' }, count: 1 }] }], expectedVersion: withLines.book.version, missing: 'keep' }, 'importer'), 200);
+  check('ручной состав из файла отброшен, прежний остался', viaFile.book.solutions.find((s: any) => s.id === '99.99.02').recipeOverride[0].role === 'Привод');
+  const cleared = await status('ручной состав очищен пустым списком', call('PUT', `${BASE}/solution`, { id: '99.99.02', patch: { recipeOverride: [] }, expectedVersion: viaFile.book.version }, 'editor'), 200);
+  check('пустой список не хранится', cleared.book.solutions.find((s: any) => s.id === '99.99.02').recipeOverride === undefined);
+
+  // «Добавить недостающее»
+  const noDefaults = await status('недостающего нет: план пуст', call('POST', `${BASE}/defaults/plan`, {}, 'editor'), 200);
+  check('у свежей книги всё стартовое есть', noDefaults.features.length === 0 && noDefaults.rules.length === 0 && noDefaults.ioRules.length === 0 && noDefaults.classMap.length === 0);
+  const trimmed = await status('убрать признак датчика и правило состава', call('PUT', `${BASE}/feature`, { id: 'sensor.temp', delete: true, expectedVersion: cleared.book.version }, 'editor'), 200);
+  const trimmed2 = await status('убрать правило состава датчика', call('PUT', `${BASE}/io-rule`, { id: 'sensor.temp', delete: true, expectedVersion: trimmed.book.version }, 'editor'), 200);
+  const own = await status('своё правило признака сохраняется', call('PUT', `${BASE}/rule`, { rule: { mainClass: 'Нагреватель', featureId: 'heater.stages', source: { kind: 'param', name: 'Моя характеристика' }, table: [{ when: '1', answer: '1' }] }, expectedVersion: trimmed2.book.version }, 'editor'), 200);
+  await status('недостающее без права — 403', call('POST', `${BASE}/defaults/plan`, {}, 'reader'), 403);
+  const dp = await status('недостающее: план', call('POST', `${BASE}/defaults/plan`, {}, 'editor'), 200);
+  check('в плане признак и правило состава датчика; правленое правило нагревателя не трогается', dp.features.map((f: any) => f.id).join() === 'sensor.temp' && dp.ioRules.map((r: any) => r.id).join() === 'sensor.temp'
+    && dp.rules.map((r: any) => r.featureId).join() === 'sensor.temp');
+  const before2 = mock.state().revisions.length;
+  await status('недостающее: запись по чужой версии — 409', call('POST', `${BASE}/defaults/apply`, { expectedVersion: 2 }, 'editor'), 409);
+  await status('недостающее: запись без права — 403', call('POST', `${BASE}/defaults/apply`, { expectedVersion: own.book.version }, 'importer'), 403);
+  check('план и отказы ничего не записали', mock.state().revisions.length === before2);
+  const dw = await status('недостающее: запись', call('POST', `${BASE}/defaults/apply`, { expectedVersion: own.book.version }, 'editor'), 200);
+  check('дописано недостающее, свои настройки на месте', dw.book.features.some((f: any) => f.id === 'sensor.temp') && dw.book.ioRules.some((r: any) => r.id === 'sensor.temp')
+    && dw.book.rules.find((r: any) => r.featureId === 'heater.stages').source.name === 'Моя характеристика' && mock.state().revisions.length === before2 + 1);
+  const again = await status('недостающее: повторный план пуст', call('POST', `${BASE}/defaults/plan`, {}, 'editor'), 200);
+  check('повтор ничего не находит', again.features.length === 0 && again.ioRules.length === 0);
   // Профиль проекта
   const PROFILE = '/api/projects/:projectId/e3-profile';
   await status('профиль без входа — 401', call('GET', PROFILE, undefined, undefined, { projectId: 'p1' }), 401);

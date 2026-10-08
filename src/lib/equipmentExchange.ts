@@ -124,6 +124,8 @@ export interface ParamColumn extends Column {
   param: string;
   /** Только у столбцов атрибутов E3 (`e3:<имя>`): откуда брать значение */
   source?: E3Source;
+  /** Источник по типу позиции (classId): у типа, которого здесь нет, берётся `source` */
+  sourceByClass?: Record<string, E3Source>;
 }
 
 /** Столбец числовой, если его единица известна онтологии. */
@@ -264,7 +266,8 @@ function paramByName(it: ExchangeComponent, name: string): { value: string; unit
  * одно правило на выгрузку и на E3, иначе в Excel стоял бы один тег
  * родителя, а в схеме другой.
  */
-function e3Cell(it: ExchangeComponent, source: E3Source | undefined, columnUnit: string): { text: string; raw?: { value: string; unit: string }; unit?: string; problem?: string } {
+function e3Cell(it: ExchangeComponent, source: E3Source | undefined, columnUnit: string, byClass?: Record<string, E3Source>): { text: string; raw?: { value: string; unit: string }; unit?: string; problem?: string } {
+  source = (byClass && byClass[String(it.cls || 'ПРОЧЕЕ')]) || source;
   if (!source) return { text: '' };
   switch (source.kind) {
     case 'field': return { text: equipmentCell(it, source.key) };
@@ -279,8 +282,8 @@ function e3Cell(it: ExchangeComponent, source: E3Source | undefined, columnUnit:
 }
 
 /** Значение одной ячейки. Пустое поле — пустая строка, а не «undefined» */
-export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '', source?: E3Source): string {
-  if (key.startsWith('e3:')) return e3Cell(it, source, columnUnit).text;
+export function equipmentCell(it: ExchangeComponent, key: string, columnUnit = '', source?: E3Source, byClass?: Record<string, E3Source>): string {
+  if (key.startsWith('e3:')) return e3Cell(it, source, columnUnit, byClass).text;
   if (key.startsWith('param:')) {
     const rest = key.slice('param:'.length);
     const bar = rest.indexOf('|');
@@ -384,7 +387,7 @@ export function buildEquipmentExchange(items: ExchangeComponent[], cols: Column[
         }
         row.push(cell.text);
       } else if (c.key.startsWith('e3:')) {
-        const cell = e3Cell(it, (c as ParamColumn).source, unit);
+        const cell = e3Cell(it, (c as ParamColumn).source, unit, (c as ParamColumn).sourceByClass);
         if (cell.problem && cell.raw) {
           problems.push({
             tag: (it.tags || [])[0]?.identifier || it.itemCode || it.name || '',

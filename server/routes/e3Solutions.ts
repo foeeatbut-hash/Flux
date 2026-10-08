@@ -5,9 +5,12 @@
  * — одна настройка (`e3_solutions`) с версией; запись идёт «по старому
  * значению», чтобы одновременная правка не стёрла чужую; каждая запись
  * оставляет в CatalogRevision снимок «до», по нему откат возвращает книгу
- * целиком. Решения, признаки, правила, словарь и связь типов с классами лежат в
- * одной книге: они меняются вместе (признак без решений бессмыслен), а откат
- * загрузки должен вернуть всё сразу.
+ * целиком. Решения, признаки, правила, словарь, связь типов с классами, таблица
+ * IO и правила состава блока лежат в одной книге: они меняются вместе (признак
+ * без решений бессмыслен), а откат загрузки должен вернуть всё сразу. Строка
+ * таблицы IO и правило состава правятся по образцу правила признака
+ * (`/io-row`, `/io-rule`), а «Добавить недостающее» (`/defaults/plan`,
+ * `/defaults/apply`) дописывает стартовые настройки, не меняя существующего.
  *
  * Профиль автоматизации проекта (5.6) — отдельная настройка на проект
  * (`e3_profile:<проект>`): его правит участник проекта, а не администратор
@@ -24,9 +27,10 @@ import { catalogAllowed, catalogFailure, catalogSetting, catalogSettingRaw, clai
 import { ensureCatalog } from './catalog.js';
 import { canSeeProject } from './members.js';
 import {
-  applySolutionPlan, emptySolutionBook, mergeDictionary, planSolutions, sanitizeClassMap, sanitizeDictionary, sanitizeFeature, sanitizeFeatureAnswers,
-  sanitizeProfile, sanitizeRule, suggestFeatures, validateSolutions, SOLUTION_FILE_FIELDS,
-  type E3Profile, type E3Solution, type E3SolutionBook,
+  applyMissingDefaults, applySolutionPlan, emptySolutionBook, mergeDictionary, mergeIoTable, planMissingDefaults, planSolutions, sanitizeClassMap, sanitizeDictionary,
+  sanitizeFeature, sanitizeFeatureAnswers, sanitizeIoRow, sanitizeIoRule, sanitizeProfile, sanitizeRecipeLines, sanitizeRule, suggestFeatures, validateIoRows,
+  validateSolutions, IO_FILE_FIELDS, SOLUTION_FILE_FIELDS,
+  type E3IoRow, type E3Profile, type E3Solution, type E3SolutionBook,
 } from '../../e3/solutions.js';
 
 const KEY = 'e3_solutions';
@@ -62,11 +66,17 @@ async function write(db: any, user: any, before: Loaded, next: Partial<E3Solutio
   return { book, revisionId };
 }
 
-/** Входные решения из файла: проверенные, без пометок «правлено» и «снято» — их знает только каталог */
+/** Входные решения из файла: проверенные, без пометок «правлено» и «снято» и без ручного состава — их знает только каталог */
 function incoming(raw: unknown): E3Solution[] {
   const checked = validateSolutions(raw);
   if ('error' in checked) return catalogFailure(400, checked.error);
-  return checked.items.map(({ edited: _e, removed: _r, ...s }) => s);
+  return checked.items.map(({ edited: _e, removed: _r, recipeOverride: _o, ...s }) => s);
+}
+/** Строки «Таблицы IO» из файла: без имени изделия E3 и пометки «правлено» */
+function incomingIo(raw: unknown): E3IoRow[] {
+  const checked = validateIoRows(raw);
+  if ('error' in checked) return catalogFailure(400, checked.error);
+  return checked.rows;
 }
 function incomingDictionary(raw: unknown) {
   if (raw === undefined) return {};
@@ -75,7 +85,7 @@ function incomingDictionary(raw: unknown) {
 }
 
 const PATCH_TEXT = ['mainClass', 'subclass', 'short', 'name', 'description', 'pdf', 'e3p', 'items', 'symbols', 'note'];
-const PATCH_KEYS = [...SOLUTION_FILE_FIELDS, 'features', 'featuresConfirmed', 'removed'];
+const PATCH_KEYS = [...SOLUTION_FILE_FIELDS, 'features', 'featuresConfirmed', 'removed', 'recipeOverride'];
 
 function checkPatch(raw: any): Partial<E3Solution> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return catalogFailure(400, 'Не указано, что менять');
@@ -92,6 +102,10 @@ function checkPatch(raw: any): Partial<E3Solution> {
       const f = sanitizeFeatureAnswers(raw.features);
       if (!f) catalogFailure(400, 'Признаки — набор «id → значение»');
       patch.features = f;
+    } else if (k === 'recipeOverride') {
+      const lines = sanitizeRecipeLines(raw.recipeOverride);
+      if (!lines) catalogFailure(400, 'Ручной состав — до 40 строк «роль, строка IO, число от 1 до 50»');
+      patch.recipeOverride = lines;
     } else {
       if (typeof raw[k] !== 'boolean') catalogFailure(400, `Поле «${k}» — да или нет`);
       patch[k] = raw[k];
@@ -130,7 +144,8 @@ export function registerE3SolutionRoutes(
 
   app.post(`${BASE}/plan`, handle('import', async (req, res, db) => {
     const { book } = await load(db);
-    res.json(planSolutions(book.solutions, incoming(req.body?.items), { current: book.dictionary, incoming: incomingDictionary(req.body?.dictionary) }));
+    res.json(planSolutions(book.solutions, incoming(req.body?.items), { current: book.dictionary, incoming: incomingDictionary(req.body?.dictionary) },
+      { current: book.ioTable || [], incoming: incomingIo(req.body?.ioTable) }));
   }));
 
   app.post(`${BASE}/apply`, handle('import', async (req, res, db, user) => {
@@ -138,9 +153,14 @@ export function registerE3SolutionRoutes(
     if (missing !== 'keep' && missing !== 'remove') catalogFailure(400, 'Для решений, которых нет в файле, выберите «оставить» или «снять»');
     const items = incoming(req.body?.items);
     const dictionary = incomingDictionary(req.body?.dictionary);
+    const io = incomingIo(req.body?.ioTable);
     const before = await load(db);
     checkVersion(req.body?.expectedVersion, before.book.version);
-    res.json(await write(db, user, before, { solutions: applySolutionPlan(before.book.solutions, items, { missing }), dictionary: mergeDictionary(before.book.dictionary, dictionary) }, 'import'));
+    res.json(await write(db, user, before, {
+      solutions: applySolutionPlan(before.book.solutions, items, { missing }), dictionary: mergeDictionary(before.book.dictionary, dictionary),
+      // Лист «Таблица IO» есть не в каждом файле: без него таблица каталога остаётся как есть
+      ...(io.length ? { ioTable: mergeIoTable(before.book.ioTable || [], io) } : {}),
+    }, 'import'));
   }));
 
   /** Одно решение: правка или (create) добавление вручную */
@@ -160,6 +180,7 @@ export function registerE3SolutionRoutes(
       }]);
       const sol = made[0];
       if (!sol.name || !sol.mainClass) catalogFailure(400, 'У нового решения нужны основной класс и название схемы');
+      if (patch.recipeOverride?.length) sol.recipeOverride = patch.recipeOverride;
       // Признаки из названия — предложение: подтверждает человек
       if (!patch.features) {
         const s = suggestFeatures(sol, { features: before.book.features, dictionary: before.book.dictionary });
@@ -178,6 +199,8 @@ export function registerE3SolutionRoutes(
         ? { ...cur, ...rest, ...(features ? { features: { ...cur.features, ...features } } : {}), ...(touchesFile ? { edited: true } : {}) }
         : s));
       if (patch.removed === false) delete solutions[at].removed;
+      // Пустой ручной состав — «состав по правилам»: пустой список не храним
+      if (patch.recipeOverride && !patch.recipeOverride.length) delete solutions[at].recipeOverride;
     }
     res.json(await write(db, user, before, { solutions }, 'update'));
   }));
@@ -213,6 +236,60 @@ export function registerE3SolutionRoutes(
     }
     const rules = at >= 0 ? before.book.rules.map((r, i) => (i === at ? rule : r)) : [...before.book.rules, rule];
     res.json(await write(db, user, before, { rules }, 'update'));
+  }));
+
+  /** Строка «Таблицы IO»: правка, добавление (create) или удаление. Поля файла после правки закрыты от перезаписи, имя изделия E3 файл не трогает вовсе */
+  app.put(`${BASE}/io-row`, handle('edit', async (req, res, db, user) => {
+    const before = await load(db);
+    checkVersion(req.body?.expectedVersion, before.book.version);
+    const table = before.book.ioTable || [];
+    if (req.body?.delete === true) {
+      const id = typeof req.body?.id === 'string' ? req.body.id : '';
+      if (!table.some((r) => r.id === id)) catalogFailure(404, 'Такой строки в таблице IO нет');
+      res.json(await write(db, user, before, { ioTable: table.filter((r) => r.id !== id) }, 'update'));
+      return;
+    }
+    const row = sanitizeIoRow(req.body?.row);
+    if (!row) return catalogFailure(400, 'Строка IO не распознана: нужны ключ, наименование и целые числа DI, DO, AI, AO');
+    const at = table.findIndex((r) => r.id === row.id);
+    if (req.body?.create === true) {
+      if (at >= 0) catalogFailure(409, 'Такая строка (группа и наименование) в таблице IO уже есть');
+      res.json(await write(db, user, before, { ioTable: [...table, { ...row, edited: true }] }, 'update'));
+      return;
+    }
+    if (at < 0) catalogFailure(404, 'Такой строки в таблице IO нет');
+    const cur = table[at];
+    const touchesFile = IO_FILE_FIELDS.some((f) => JSON.stringify((row as any)[f]) !== JSON.stringify((cur as any)[f]));
+    const { component, ...fileFields } = row;
+    const next: E3IoRow = { ...cur, ...fileFields, ...(touchesFile || cur.edited ? { edited: true } : {}) };
+    if (component) next.component = component; else delete next.component;
+    res.json(await write(db, user, before, { ioTable: table.map((r, i) => (i === at ? next : r)) }, 'update'));
+  }));
+
+  /** Правило связи «решение и признаки → строка IO» — по образцу правил признаков */
+  app.put(`${BASE}/io-rule`, handle('edit', async (req, res, db, user) => {
+    const before = await load(db);
+    checkVersion(req.body?.expectedVersion, before.book.version);
+    const rules = before.book.ioRules || [];
+    if (req.body?.delete === true) {
+      const id = typeof req.body?.id === 'string' ? req.body.id : '';
+      if (!rules.some((r) => r.id === id)) catalogFailure(404, 'Такого правила состава нет');
+      res.json(await write(db, user, before, { ioRules: rules.filter((r) => r.id !== id) }, 'update'));
+      return;
+    }
+    const rule = sanitizeIoRule(req.body?.rule);
+    if (!rule) return catalogFailure(400, 'Правило состава не распознано: нужны название, класс, роль изделия, строка IO и число изделий');
+    const at = rules.findIndex((r) => r.id === rule.id);
+    if (req.body?.create === true && at >= 0) catalogFailure(409, `Правило с ключом «${rule.id}» уже есть`);
+    res.json(await write(db, user, before, { ioRules: at >= 0 ? rules.map((r, i) => (i === at ? rule : r)) : [...rules, rule] }, 'update'));
+  }));
+
+  /** «Добавить недостающее»: что дописалось бы в книгу (ничего не пишет) и сама запись */
+  app.post(`${BASE}/defaults/plan`, handle('edit', async (_req, res, db) => { res.json(planMissingDefaults((await load(db)).book)); }));
+  app.post(`${BASE}/defaults/apply`, handle('edit', async (req, res, db, user) => {
+    const before = await load(db);
+    checkVersion(req.body?.expectedVersion, before.book.version);
+    res.json(await write(db, user, before, applyMissingDefaults(before.book), 'update'));
   }));
 
   app.put(`${BASE}/dictionary`, handle('edit', async (req, res, db, user) => {

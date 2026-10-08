@@ -5,6 +5,7 @@
  * совпадение выигрывает, поэтому порядок строк важен.
  */
 import React, { useState } from 'react';
+import { useJump, type JumpProps } from './e3Jump';
 import { Plus } from 'lucide-react';
 import { E3_FIELD_KEYS, E3_FIELD_TITLES } from '../../../e3/attributes';
 import type { E3FeatureRule, E3RuleSource } from '../../../e3/solutionTypes';
@@ -90,10 +91,11 @@ function RuleDialog({ rule, classes, featuresOf, canEdit, busy, error, onSave, o
   );
 }
 
-export default function E3RulesPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean } }) {
+export default function E3RulesPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean }; jump?: JumpProps }) {
   const { book, error, busy, run } = state;
   const [editing, setEditing] = useState<string | null>(null); // 'класс|признак'; '' — новое
   const [dialogError, setDialogError] = useState('');
+  useJump(jump, ['rules'], (j) => { setDialogError(''); setEditing(j.id ?? null); }, !!state.book);
   const rules = book?.rules || [];
   const idOf = (r: E3FeatureRule) => `${r.mainClass}|${r.featureId}`;
   const editingRule = editing ? rules.find((r) => idOf(r) === editing) || null : null;

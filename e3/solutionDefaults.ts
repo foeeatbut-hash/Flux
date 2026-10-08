@@ -8,6 +8,7 @@
  * приговор: неоднозначное и непонятное уходит человеку на подтверждение.
  */
 import type { E3Dictionary, E3Feature, E3FeatureRule, E3Solution } from './solutionTypes';
+import { ADDED_RULES } from './solutionRules';
 
 /** Без регистра, без пробелов по краям и лишних внутри, ё = е */
 export const normText = (s: unknown): string => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/ё/g, 'е');
@@ -25,6 +26,8 @@ export const DEFAULT_CLASS_MAP: Record<string, string[]> = {
   ОБВЯЗКА: ['Узел регулирующий'],
   ДАТЧИК: ['Датчики'],
   УСТАНОВКА: ['Начало установки', 'Конец установки'],
+  КОРОБКА: ['Коробка'],
+  // «Воздуховод» намеренно без типа Flux (решение владельца 8 октября 2026): блок воздуховода ставят вручную
 };
 
 // ── Признаки по классам ─────────────────────────────────────────────────────
@@ -85,6 +88,23 @@ export const DEFAULT_FEATURES: E3Feature[] = [
   F('humid.me_link', 'Увлажнители', 'Подключение МЕ', ['нет', 'ШСАУ', 'интегрирован'], 'ov', 'В — к ШСАУ, И — в блок управления', 'нет'),
   F('cooler.model', 'Охладитель', 'Модель', ['КРАБ/ВКИ', 'МАКК', 'МАРК'], 'ov'),
   F('cooler.drive', 'Охладитель', 'Привод клапана', ['нет', 'КПР24', 'КПР230'], 'ov', '', 'нет'),
+  // «Д_Т_1_шт_Д_В_1_шт»: датчик температуры (Т), давления (Д), влажности (В) и сколько штук
+  F('sensor.temp', 'Датчики', 'Датчик температуры', ['нет', '1', '2'], 'ov', 'Д_Т_n_шт — n датчиков температуры', 'нет'),
+  F('sensor.press', 'Датчики', 'Датчик давления', ['нет', '1', '2'], 'ov', 'Д_Д_n_шт', 'нет'),
+  F('sensor.humid', 'Датчики', 'Датчик влажности', ['нет', '1', '2'], 'ov', 'Д_В_n_шт', 'нет'),
+  F('wss.scheme', 'Узел регулирующий', 'Схема обвязки', ['4', '5', '6'], 'ov', 'Номер схемы узла ВЕКТОР'),
+  F('wss.size', 'Узел регулирующий', 'Типоразмер узла', ['1-5', '6-11', 'любой'], 'ov', 'Диапазон типоразмеров; «любой» — решение подходит всем', 'любой'),
+  F('begin.levels', 'Начало установки', 'Уровней', ['1УР', '2УР'], 'layout', 'Одноуровневая или двухуровневая установка'),
+  F('begin.flow', 'Начало установки', 'Воздух', ['П', 'ПВ', 'не указан'], 'profile', 'П — приточная, ПВ — приточно-вытяжная', 'не указан'),
+  F('begin.inlet', 'Начало установки', 'Вход', ['ОВ', 'РВ', 'нет'], 'profile', 'ОВ — общий вход, РВ — раздельный', 'нет'),
+  F('begin.recup', 'Начало установки', 'Рекуперация', ['Р', 'БР', 'нет'], 'profile', 'Р — с рекуперацией, БР — без рекуперации', 'нет'),
+  F('end.levels', 'Конец установки', 'Уровней', ['1УР', '2УР'], 'layout', 'Одноуровневая или двухуровневая установка'),
+  F('end.flow', 'Конец установки', 'Воздух', ['П', 'ПВ', 'не указан'], 'profile', 'П — приточная, ПВ — приточно-вытяжная', 'не указан'),
+  F('end.outlet', 'Конец установки', 'Выход', ['ОВ', 'РВ', 'нет'], 'profile', 'ОВ — общий выход, РВ — раздельные выходы', 'нет'),
+  F('box.purpose', 'Коробка', 'Назначение', ['привод', 'двигатель', 'обогрев', 'светильник', 'КИП'], 'ov', 'Что подключается через коробку; берётся из класса решения'),
+  F('box.drive', 'Коробка', 'Привод в коробке', ['нет', 'пружинный', 'реверсивный'], 'ov', 'Для коробки привода: пружинный или реверсивный', 'нет'),
+  F('box.limit', 'Коробка', 'Концевые выключатели', ['нет', '2ПК'], 'ov', '2ПК — два переключающих контакта', 'нет'),
+  F('duct.kind', 'Воздуховод', 'Исполнение блока', ['проходной', 'пустой'], 'ov', 'Проходной блок или пустой'),
 ];
 
 // ── Правила: признак из подбора ОВ (5.3) ────────────────────────────────────
@@ -117,6 +137,7 @@ export const DEFAULT_RULES: E3FeatureRule[] = [
   motorVoltage('Вентилятор', 'fan.phases'), motorVoltage('Вентилятор ЕС', 'fanec.phases'),
   motorProt('Вентилятор', 'fan.motor_prot'), motorProt('Вентилятор ЕС', 'fanec.motor_prot'),
   { mainClass: 'Фильтры', featureId: 'filter.double', source: { kind: 'param', name: 'Число ступеней фильтрации' }, table: [{ when: '2', answer: 'да' }], otherwise: 'нет' },
+  ...ADDED_RULES,
 ];
 
 // ── Разбор названия схемы ───────────────────────────────────────────────────
@@ -148,6 +169,23 @@ const FAN_RULES: Rule[] = [
   [/^ОСВ$/, (_m, c) => [[`${c.p}.light`, 'да']]],
   [/^влево$/i, (_m, c) => [[`${c.p}.turn`, 'да']]],
   [/^К$/, (_m, c) => [[`${c.p}.box`, 'К']]],
+];
+
+const NUM = /^\d{1,2}$/;
+
+/**
+ * Начало и конец установки читаются одинаково: «2УР» — уровней, «П» / «ПВ» —
+ * приточная или приточно-вытяжная, «ОВ» / «РВ» — общий или раздельный вход (у
+ * конца — выход), «Р» / «БР» — с рекуперацией или без. «ПР» в одном названии
+ * похоже на опечатку вместо «П» — принято как «П» и отдано на подтверждение.
+ */
+const UNIT_END = (p: 'begin' | 'end', gate: 'inlet' | 'outlet'): Rule[] => [
+  [/^([12])УР$/, (m) => [[`${p}.levels`, `${m[1]}УР`]]],
+  [/^ПВ$/, () => [[`${p}.flow`, 'ПВ']]],
+  [/^П$/, () => [[`${p}.flow`, 'П']]],
+  [/^ПР$/, () => [[`${p}.flow`, 'П', '«ПР» — вероятно, опечатка вместо «П» (приточная): проверьте название схемы']]],
+  [/^(ОВ|РВ)$/, (m) => [[`${p}.${gate}`, m[1]]]],
+  ...(p === 'begin' ? [[/^(Р|БР)$/, (m: RegExpMatchArray) => [['begin.recup', m[1]] as Set3]] as Rule] : []),
 ];
 
 const GRAMMAR: Record<string, Rule[]> = {
@@ -205,10 +243,55 @@ const GRAMMAR: Record<string, Rule[]> = {
     [/^(ФО|ХО)$/, () => []],
     [/^(КПР24|КПР230)$/, (m) => [['cooler.drive', m[1]]]],
   ],
+  // УР_ВЕКТОР_4ПГ/ПУ_6_11: схема — цифра перед «ПГ»/«ПУ», типоразмер — пара чисел в конце; «ПГ/ПУ» в словаре нет, различий между решениями не даёт
+  'Узел регулирующий': [
+    [/^ВЕКТОР$/, () => []],
+    [/^(\d)(?:ПГ(?:\/ПУ)?|ПУ)$/, (m) => [['wss.scheme', m[1]]]],
+    [/^\d{1,2}$/, (m, c) => (NUM.test(c.next) ? [['wss.size', `${m[0]}-${c.next}`]] : NUM.test(c.prev) ? [] : null)],
+  ],
+  'Начало установки': UNIT_END('begin', 'inlet'),
+  'Конец установки': UNIT_END('end', 'outlet'),
+  // КОРВ-88 тип 6.1_пружина-2ПК: номер коробки не признак, а «пружина / реверсивный» и «2ПК» — признаки
+  'Коробка': [
+    [/^КОРВ-\d+ тип [\d.]+$/, () => []],
+    [/^(?:пружин[а-яё]*|Пруж)(?:-(2ПК))?$/i, (m) => [['box.drive', 'пружинный'], ...(m[1] ? [['box.limit', '2ПК'] as Set3] : [])]],
+    [/^реверсивн[а-яё]*(?:-(2ПК))?$/i, (m) => [['box.drive', 'реверсивный'], ...(m[1] ? [['box.limit', '2ПК'] as Set3] : [])]],
+  ],
 };
 
 /** Слово перед первым «_», которое называет класс, а не признак */
-const PREFIXES = new Set(['клапан', 'вентилятор', 'фильтр', 'нагреватель', 'теплоутилизатор', 'увлажнитель']);
+const PREFIXES = new Set(['клапан', 'вентилятор', 'фильтр', 'нагреватель', 'теплоутилизатор', 'увлажнитель', 'ур', 'начало', 'конец']);
+
+/** Токен — артикул или название линейки, а не код обозначения: в словаре «Обозначения» его искать нечего */
+const NOT_A_CODE = /^(КОРВ-|ВЕКТОР$)/;
+
+interface Pre { sets: Set3[]; unknown: string[]; tokens: boolean }
+/**
+ * Классы, чьи признаки читаются не по токенам названия: у датчиков число стоит
+ * после буквы вида («Д_Т_1_шт»), у коробки назначение — в подклассе, у
+ * воздуховода всего два названия.
+ */
+const PRE: Record<string, (sol: Pick<E3Solution, 'name'> & { subclass?: string }) => Pre> = {
+  'Датчики': (sol) => {
+    const kinds: Record<string, string> = { 'Т': 'sensor.temp', 'Д': 'sensor.press', 'В': 'sensor.humid' };
+    const sets: Set3[] = [];
+    const rest = String(sol.name || '').replace(/Д_([ТДВ])_(\d+)_шт/g, (_all, k: string, n: string) => { sets.push([kinds[k], n]); return ''; });
+    const unknown = rest.split('_').map((t) => t.trim()).filter(Boolean);
+    return { sets, unknown, tokens: false };
+  },
+  'Воздуховод': (sol) => {
+    const n = normText(sol.name);
+    if (n === 'проходной') return { sets: [['duct.kind', 'проходной']], unknown: [], tokens: false };
+    if (n === 'блок пусто') return { sets: [['duct.kind', 'пустой']], unknown: [], tokens: false };
+    return { sets: [], unknown: [String(sol.name || '')], tokens: false };
+  },
+  'Коробка': (sol) => {
+    const sub = normText(sol.subclass);
+    const purpose = /подключения\s+привод/.test(sub) ? 'привод' : /подключения\s+двигател/.test(sub) ? 'двигатель' : /подключения\s+обогрев/.test(sub) ? 'обогрев'
+      : /подключения\s+светильник/.test(sub) ? 'светильник' : /коробка\s+кип/.test(sub) ? 'КИП' : '';
+    return { sets: purpose ? [['box.purpose', purpose]] : [], unknown: purpose ? [] : [`назначение коробки не распознано по классу «${sol.subclass || ''}»`], tokens: true };
+  },
+};
 
 export interface E3Suggestion {
   features: Record<string, string>;
@@ -227,7 +310,7 @@ export interface E3Suggestion {
  * затем по вариантам самих признаков: администратор добавил значение
  * признаку — токен с этим значением узнаётся без правки программы.
  */
-export function suggestFeatures(sol: Pick<E3Solution, 'mainClass' | 'name'>, ctx: { features: E3Feature[]; dictionary: E3Dictionary }): E3Suggestion {
+export function suggestFeatures(sol: Pick<E3Solution, 'mainClass' | 'name'> & { subclass?: string }, ctx: { features: E3Feature[]; dictionary: E3Dictionary }): E3Suggestion {
   const out: E3Suggestion = { features: {}, confirmed: true, ambiguous: [], unknown: [], latin: [], notInDictionary: [] };
   const feats = ctx.features.filter((f) => f.mainClass === sol.mainClass);
   if (!feats.length) return out;
@@ -238,8 +321,14 @@ export function suggestFeatures(sol: Pick<E3Solution, 'mainClass' | 'name'>, ctx
   const dictionary = ctx.dictionary || {};
   const prefix = sol.mainClass === 'Вентилятор' ? 'fan' : 'fanec';
 
+  const pre = PRE[sol.mainClass]?.(sol);
+  if (pre) {
+    for (const [id, value] of pre.sets) if (ids.has(id)) out.features[id] = value;
+    out.unknown.push(...pre.unknown);
+  }
+
   tokens.forEach((orig, i) => {
-    if (!orig) return;
+    if (!orig || (pre && !pre.tokens)) return;
     const token = cyrillicToken(orig, dictionary);
     if (token !== orig) out.latin.push([orig, token]);
     const c: Ctx = { p: prefix, prev: tokens[i - 1] ? cyrillicToken(tokens[i - 1], dictionary) : '', next: tokens[i + 1] ? cyrillicToken(tokens[i + 1], dictionary) : '' };
@@ -258,7 +347,7 @@ export function suggestFeatures(sol: Pick<E3Solution, 'mainClass' | 'name'>, ctx
       if (reason && !out.ambiguous.some((a) => a.token === orig)) out.ambiguous.push({ token: orig, reason });
     }
     const code = token.replace(/^\d+/, '');
-    if (Object.keys(dictionary).length && /\p{L}/u.test(code) && !(token in dictionary) && !(code in dictionary) && !out.notInDictionary.includes(code)) out.notInDictionary.push(code);
+    if (Object.keys(dictionary).length && !NOT_A_CODE.test(token) && /\p{L}/u.test(code) && !(token in dictionary) && !(code in dictionary) && !out.notInDictionary.includes(code)) out.notInDictionary.push(code);
   });
 
   // Признак, которого в названии нет: «нет» / «без» там, где это названо настройкой

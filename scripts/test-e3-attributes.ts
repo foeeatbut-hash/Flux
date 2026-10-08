@@ -12,7 +12,7 @@
  */
 import {
   parseAttributeSheet, defaultClassesOf, defaultSource, planAttributes, applyAttributePlan, attributesForClass,
-  e3Columns, validateAttributes, E3_FIELD_TITLES, type E3Attribute,
+  e3Columns, validateAttributes, sourceFor, sanitizeSourceByClass, E3_FIELD_TITLES, type E3Attribute,
 } from '../e3/attributes';
 import { specOf, exportTable, defaultSpec } from '../src/lib/exportSpec';
 import { buildEquipmentExchange, equipmentCell, type ExchangeComponent, type ParamColumn } from '../src/lib/equipmentExchange';
@@ -368,6 +368,44 @@ console.log('Книга атрибутов проекта');
   eq('имя листа: запрещённые знаки и длина', safeSheetName('Узлы/обвязки: [секция]?*' + 'я'.repeat(40), taken).length <= 31, true);
   eq('имя листа: пустое', safeSheetName('  ', new Set()), 'Лист');
   eq('имя листа: повтор без учёта регистра', [safeSheetName('Насосы', taken), safeSheetName('НАСОСЫ', taken)], ['Насосы', 'НАСОСЫ 2']);
+}
+
+// ── Источник по типу оборудования ───────────────────────────────────────────
+{
+  const base = { source: { kind: 'param', name: 'Мощность' } } as const;
+  const A = { ...base, sourceByClass: { 'ДВИГАТЕЛЬ': { kind: 'param', name: 'P2' }, 'НАГРЕВАТЕЛЬ': { kind: 'none' } } } as any;
+  eq('sourceFor: тип задан', sourceFor(A, 'ДВИГАТЕЛЬ'), { kind: 'param', name: 'P2' });
+  eq('sourceFor: тип не задан — общий', sourceFor(A, 'КЛАПАН'), { kind: 'param', name: 'Мощность' });
+  eq('sourceFor: явное «нет» сильнее общего', sourceFor(A, 'НАГРЕВАТЕЛЬ'), { kind: 'none' });
+  eq('sourceFor: карты нет', sourceFor(base as any, 'ДВИГАТЕЛЬ'), base.source);
+
+  eq('sanitize: неизвестный тип и негодный источник отброшены', sanitizeSourceByClass({ 'НЕТ': { kind: 'none' }, 'КЛАПАН': { kind: 'sql' }, 'ПРИВОД': { kind: 'field', key: 'model' } }), { 'ПРИВОД': { kind: 'field', key: 'model' } });
+  eq('sanitize: пусто — undefined', [sanitizeSourceByClass({}), sanitizeSourceByClass(null), sanitizeSourceByClass([1])], [undefined, undefined, undefined]);
+
+  const mk = (extra: any) => ({ name: 'X', title: 't', carrier: 'Изделие', attrClass: 'Общий', service: false, fromFlux: true, script: '', comment: '', source: { kind: 'none' }, classes: [], conflict: 'flux', ...extra });
+  const v = validateAttributes([mk({ sourceByClass: { 'КЛАПАН': { kind: 'param', name: 'Тип привода' }, 'НЕТ': { kind: 'none' } } }), mk({ name: 'Y' })]) as { items: E3Attribute[] };
+  eq('validate: карта почищена', v.items[0].sourceByClass, { 'КЛАПАН': { kind: 'param', name: 'Тип привода' } });
+  eq('validate: без карты поля нет', 'sourceByClass' in v.items[1], false);
+
+  // Загрузка файла настройки Flux не затирает: ни у существующего, ни при «снять»
+  const cur = [mk({ sourceByClass: { 'КЛАПАН': { kind: 'const', value: 'k' } } }) as E3Attribute];
+  const inc = [mk({ title: 'новое' }) as E3Attribute];
+  eq('apply: карта на месте, подпись обновлена', [applyAttributePlan(cur, inc, { missing: 'keep' })[0].sourceByClass, applyAttributePlan(cur, inc, { missing: 'keep' })[0].title], [{ 'КЛАПАН': { kind: 'const', value: 'k' } }, 'новое']);
+  eq('apply: снятый атрибут карту хранит', applyAttributePlan(cur, [], { missing: 'remove' })[0].sourceByClass, { 'КЛАПАН': { kind: 'const', value: 'k' } });
+  eq('plan: карта не считается изменением файла', planAttributes(cur, inc).changed.map((c) => c.fields), [['title']]);
+
+  // Столбцы и ячейки: источник выбирается по типу строки; «Да» без источника у типа — группа КИП
+  const books = [mk({ name: 'GLOBAL_DEVICE_TYPE', source: { kind: 'field', key: 'model' }, sourceByClass: { 'КЛАПАН': { kind: 'param', name: 'Тип привода' }, 'ПРИВОД': { kind: 'none' } } }) as E3Attribute];
+  const col = e3Columns(books, [], { header: 'name' })[0];
+  eq('столбец несёт карту, none → КИП', col.sourceByClass, { 'КЛАПАН': { kind: 'param', name: 'Тип привода' }, 'ПРИВОД': { kind: 'param', name: 'КИП|GLOBAL_DEVICE_TYPE' } });
+  const item = (cls: string): ExchangeComponent => ({ id: cls, name: 'n', model: 'M-1', cls, tags: [{ identifier: 'T1' }], groups: [{ title: 'Общее', params: [{ key: 'Тип привода', value: 'SF' }] }, { title: 'КИП', params: [{ key: 'GLOBAL_DEVICE_TYPE', value: 'kip' }] }] } as any);
+  const cell = (cls: string) => buildEquipmentExchange([item(cls)], [{ key: col.key, label: col.label, unit: '', group: '', param: '', source: col.source, sourceByClass: col.sourceByClass } as ParamColumn], { keepOrder: true }).rows[0][0];
+  eq('ячейка: клапан — по своей характеристике', cell('КЛАПАН'), 'SF');
+  eq('ячейка: двигатель — общий источник (поле «Модель»)', cell('ДВИГАТЕЛЬ'), 'M-1');
+  eq('ячейка: привод — «нет» → группа КИП', cell('ПРИВОД'), 'kip');
+  // Шаблон выгрузки хранит карту и читает её обратно
+  const back = specOf(JSON.parse(JSON.stringify({ ...defaultSpec(), columns: [col] })));
+  eq('шаблон выгрузки сохраняет карту', back.columns[0].sourceByClass, col.sourceByClass);
 }
 
 if (failed) {

@@ -8,7 +8,7 @@ import React from 'react';
 import { attributesForClass, type E3AttributeBook } from '../../../e3/attributes';
 import { NODE_STATES } from '../../../e3/nodeState';
 import type { E3AnswerFrom, E3Feature } from '../../../e3/solutionTypes';
-import { equipmentCell } from '../../lib/equipmentExchange';
+import { e3AttrValue } from '../../lib/e3Table';
 import { classById } from '../../../equipment/classes';
 import { solutionLine } from './e3SolutionText';
 import type { SchemeNode } from './useSchemeData';
@@ -21,7 +21,7 @@ export default function E3SchemeCard({ node, features, attrs, problem }: { node:
   const title = (id: string) => (id === '@class' ? 'Основной класс' : features.find((f) => f.id === id)?.title || id);
   const { selection: sel, state } = node;
   const rows = attributesForClass(attrs.items, node.cls).filter((a) => a.fromFlux).map((a) => ({
-    a, value: a.source.kind === 'none' ? '' : equipmentCell(node.item, `e3:${a.name}`, a.source.kind === 'param' ? a.source.unit || '' : '', a.source),
+    a, value: e3AttrValue(node.item, a, node.cls),
   }));
   return (
     <aside className="w-64 shrink-0 overflow-auto border-l border-slate-200 p-3 text-sm dark:border-slate-800" aria-label="Свойства выбранного">

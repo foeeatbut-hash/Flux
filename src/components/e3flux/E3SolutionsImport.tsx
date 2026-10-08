@@ -7,28 +7,34 @@
  * нет. По умолчанию они остаются: файл могли прислать неполным.
  */
 import React, { useState } from 'react';
-import { parseDictionarySheet, parseSolutionSheet } from '../../../e3/solutions';
+import { parseDictionarySheet, parseIoSheet, parseSolutionSheet, IO_SHEET } from '../../../e3/solutions';
 import { CLASSIFIER_SHEET, DICTIONARY_SHEET } from '../../../e3/solutionWorkbook';
-import type { E3Dictionary, E3Solution, E3SolutionBook, E3SolutionPlan } from '../../../e3/solutionTypes';
+import type { E3Dictionary, E3IoRow, E3Solution, E3SolutionBook, E3SolutionPlan } from '../../../e3/solutionTypes';
 import { Btn, Dialog } from '../ui';
 import { SOLUTION_FIELD_TITLES, fieldText } from './e3SolutionText';
 
-export interface ParsedFile { items: E3Solution[]; dictionary: E3Dictionary; issues: string[] }
+export interface ParsedFile { items: E3Solution[]; dictionary: E3Dictionary; ioTable: E3IoRow[]; issues: string[] }
 
-/** Лист классификатора по имени или первый: владелец может его переименовать. Лист «Обозначения» необязателен */
+/**
+ * Лист классификатора по имени или первый: владелец может его переименовать.
+ * Листы «Обозначения» и «Таблица IO» необязательны и читаются по имени.
+ */
 export async function readSolutionFile(file: File, book: Pick<E3SolutionBook, 'features' | 'dictionary'>): Promise<ParsedFile> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const rowsOf = (name: string) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: '', blankrows: true });
   const find = (title: string) => wb.SheetNames.find((n) => n.trim().toLowerCase() === title.toLowerCase());
-  const main = find(CLASSIFIER_SHEET) || wb.SheetNames[0];
-  if (!main) return { items: [], dictionary: {}, issues: ['В файле нет листов'] };
   const dictSheet = find(DICTIONARY_SHEET);
+  const ioSheet = find(IO_SHEET);
+  // Без листа классификатора первым берётся не служебный лист: «Таблица IO» не должна читаться как классификатор
+  const main = find(CLASSIFIER_SHEET) || wb.SheetNames.find((n) => n !== dictSheet && n !== ioSheet) || (ioSheet ? undefined : wb.SheetNames[0]);
+  if (!main && !ioSheet) return { items: [], dictionary: {}, ioTable: [], issues: ['В файле нет листов'] };
   const dict = dictSheet ? parseDictionarySheet(rowsOf(dictSheet)) : { dictionary: {}, issues: [] as string[] };
+  const io = ioSheet ? parseIoSheet(rowsOf(ioSheet)) : { rows: [] as E3IoRow[], issues: [] as string[] };
   // Словарь файла нужен и разбору названий: новые коды в нём помогают понять признаки
-  const parsed = parseSolutionSheet(rowsOf(main), { features: book.features, dictionary: { ...dict.dictionary, ...book.dictionary } });
-  const note = main !== find(CLASSIFIER_SHEET) ? [`Листа «${CLASSIFIER_SHEET}» нет — прочитан лист «${main}»`] : [];
-  return { items: parsed.items, dictionary: dict.dictionary, issues: [...note, ...parsed.issues, ...(dictSheet ? dict.issues : [])] };
+  const parsed = main ? parseSolutionSheet(rowsOf(main), { features: book.features, dictionary: { ...dict.dictionary, ...book.dictionary } }) : { items: [] as E3Solution[], issues: [] as string[] };
+  const note = main && main !== find(CLASSIFIER_SHEET) ? [`Листа «${CLASSIFIER_SHEET}» нет — прочитан лист «${main}»`] : [];
+  return { items: parsed.items, dictionary: dict.dictionary, ioTable: io.rows, issues: [...note, ...parsed.issues, ...(dictSheet ? dict.issues : []), ...io.issues] };
 }
 
 const Names = ({ names, label }: { names: string[]; label: string }) => (
@@ -38,20 +44,28 @@ const Names = ({ names, label }: { names: string[]; label: string }) => (
   </details>
 );
 
-export default function E3SolutionsImport({ plan, parseIssues, busy, error, onApply, onClose }: {
-  plan: E3SolutionPlan; parseIssues: string[]; busy: boolean; error: string; onApply: (missing: 'keep' | 'remove') => void; onClose: () => void;
+export default function E3SolutionsImport({ plan, parseIssues, solutionsInFile, busy, error, onApply, onClose }: {
+  plan: E3SolutionPlan; parseIssues: string[]; solutionsInFile: boolean; busy: boolean; error: string; onApply: (missing: 'keep' | 'remove') => void; onClose: () => void;
 }) {
   const [missing, setMissing] = useState<'keep' | 'remove'>('keep');
   const issues = [...parseIssues, ...plan.issues];
   const dictChanges = plan.dictionaryAdded.length;
-  const nothing = plan.added.length + plan.changed.length + dictChanges === 0 && (missing === 'keep' || plan.missing.length === 0);
+  const io = plan.io;
+  // В файле без классификатора (только «Таблица IO») решений «нет в файле» не бывает: файл о них молчит
+  const missingSolutions = solutionsInFile ? plan.missing : [];
+  const nothing = plan.added.length + plan.changed.length + dictChanges + (io ? io.added + io.changed.length : 0) === 0 && (missing === 'keep' || missingSolutions.length === 0);
 
   return (
     <Dialog title="Загрузка классификатора типовых решений" onClose={onClose} busy={busy} width="max-w-2xl" scrollBody label="План загрузки типовых решений E3"
       footer={<><Btn onClick={onClose} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || nothing} onClick={() => onApply(missing)} title={nothing ? 'Файл ничего не меняет' : undefined}>Записать</Btn></>}>
-      <p className="text-sm tabular-nums">
+      {solutionsInFile && <p className="text-sm tabular-nums">
         Новых: <b className="font-semibold">{plan.added.length}</b> · изменённых: <b className="font-semibold">{plan.changed.length}</b> · без изменений: <b className="font-semibold">{plan.same}</b>
-      </p>
+      </p>}
+      {io && <p className="mt-1 text-sm tabular-nums">
+        Таблица IO: новых <b className="font-semibold">{io.added}</b> · изменённых <b className="font-semibold">{io.changed.length}</b> · без изменений <b className="font-semibold">{io.same}</b>
+        {io.editedKept.length > 0 && <span className="text-slate-500 dark:text-slate-400"> · правлено в каталоге, файл не применён: {io.editedKept.length}</span>}
+        {io.missing.length > 0 && <span className="text-slate-500 dark:text-slate-400"> · нет в файле, остаются: {io.missing.length}</span>}
+      </p>}
       {plan.added.length > 0 && <Names names={plan.added.map((s) => s.id)} label="Новые решения" />}
       {(dictChanges > 0 || plan.dictionaryDiffers.length > 0) && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         Обозначения: новых кодов {dictChanges}{plan.dictionaryDiffers.length > 0 && `, с другим описанием в файле ${plan.dictionaryDiffers.length} — в каталоге оставлено своё`}.
@@ -82,13 +96,13 @@ export default function E3SolutionsImport({ plan, parseIssues, busy, error, onAp
         <Names names={plan.editedKept} label="Какие решения" />
       </section>}
 
-      {plan.missing.length > 0 && <section className="mt-3">
-        <div className="fx-label">Нет в файле · {plan.missing.length}</div>
+      {missingSolutions.length > 0 && <section className="mt-3">
+        <div className="fx-label">Нет в файле · {missingSolutions.length}</div>
         <div className="mt-1 flex flex-col gap-1 text-sm">
           <label className="flex items-center gap-2"><input type="radio" name="e3s-missing" className="accent-emerald-600" checked={missing === 'keep'} onChange={() => setMissing('keep')} />Оставить в каталоге</label>
           <label className="flex items-center gap-2"><input type="radio" name="e3s-missing" className="accent-emerald-600" checked={missing === 'remove'} onChange={() => setMissing('remove')} />Снять — подбор их больше не предлагает</label>
         </div>
-        <Names names={plan.missing} label="Какие решения" />
+        <Names names={missingSolutions} label="Какие решения" />
       </section>}
       {error && <p role="alert" className="fx-error mt-3">{error}</p>}
     </Dialog>

@@ -17,6 +17,7 @@ import { Btn, Chip, Empty, FilterSeg, Input, SectionHead, Select, Toolbar } from
 import { confirmAsk } from '../catalog/ui';
 import E3SolutionDialog from './E3SolutionDialog';
 import E3SolutionsImport, { readSolutionFile, type ParsedFile } from './E3SolutionsImport';
+import { useJump, type JumpProps } from './e3Jump';
 import { STALE, type SolutionBookState } from './useSolutionBook';
 
 const sols = (n: number) => count(n, 'решение', 'решения', 'решений');
@@ -24,7 +25,7 @@ const muted = 'text-slate-500 dark:text-slate-400';
 const cell = 'truncate max-w-[180px]';
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export default function E3SolutionsPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean; import: boolean } }) {
+export default function E3SolutionsPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean; import: boolean }; jump?: JumpProps }) {
   const { book, error, setError, busy, setBusy, reload, run, setBook } = state;
   const addToast = useToastStore((s) => s.addToast);
   const [q, setQ] = useState('');
@@ -35,6 +36,7 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
   const [imp, setImp] = useState<{ file: ParsedFile; plan: E3SolutionPlan } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useJump(jump, ['solutions'], (j) => { setDialogError(''); setEditing(j.id ?? null); }, !!state.book);
   const items = book?.solutions || [];
   const live = items.filter((s) => !s.removed);
   const removedCount = items.length - live.length;
@@ -58,9 +60,9 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
     setBusy(true); setError('');
     try {
       const parsed = await readSolutionFile(file, book);
-      if (!parsed.items.length) { setError(parsed.issues[0] || 'В файле нет типовых решений'); return; }
+      if (!parsed.items.length && !parsed.ioTable.length) { setError(parsed.issues[0] || 'В файле нет типовых решений и таблицы IO'); return; }
       setDialogError('');
-      setImp({ file: parsed, plan: await svc.plan(parsed.items, parsed.dictionary) });
+      setImp({ file: parsed, plan: await svc.plan(parsed.items, parsed.dictionary, parsed.ioTable) });
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
@@ -68,13 +70,13 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
     if (!imp || !book) return;
     setBusy(true); setDialogError('');
     try {
-      const r = await svc.apply(imp.file.items, imp.file.dictionary, book.version, missing);
+      const r = await svc.apply(imp.file.items, imp.file.dictionary, book.version, missing, imp.file.ioTable);
       setBook(r.book); setImp(null);
       addToast(`Каталог обновлён: ${sols(r.book.solutions.filter((s) => !s.removed).length)}. Загрузку можно отменить.`, 'success');
     } catch (e: any) {
       if (e instanceof E3SolutionVersionError) {
         // Пока читали файл, коллега записал своё: показываем план заново на свежей книге
-        try { await reload(); setImp({ ...imp, plan: await svc.plan(imp.file.items, imp.file.dictionary) }); } catch (_) { /* план останется прежним */ }
+        try { await reload(); setImp({ ...imp, plan: await svc.plan(imp.file.items, imp.file.dictionary, imp.file.ioTable) }); } catch (_) { /* план останется прежним */ }
         setDialogError('Каталог изменён коллегой. План пересчитан по свежему каталогу — проверьте и запишите ещё раз.');
       } else setDialogError(e.message);
     } finally { setBusy(false); }
@@ -160,7 +162,7 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
         </>}
       {editing !== null && book && (editing === '' || editingSolution) && <E3SolutionDialog key={`${editing}:${book.version}`} solution={editingSolution} classes={classes}
         features={book.features} canEdit={rights.edit} busy={busy} error={dialogError} onSave={(p, id) => void save(p, id)} onClose={() => { setEditing(null); setDialogError(''); }} />}
-      {imp && <E3SolutionsImport plan={imp.plan} parseIssues={imp.file.issues} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); }} />}
+      {imp && <E3SolutionsImport plan={imp.plan} parseIssues={imp.file.issues} solutionsInFile={imp.file.items.length > 0} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); }} />}
     </div>
   );
 }

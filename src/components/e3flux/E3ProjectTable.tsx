@@ -16,6 +16,7 @@ import { e3Rows } from '../../lib/e3Table';
 import { fileName } from '../../lib/exchange';
 import { count } from '../../lib/plural';
 import { Btn, Empty, Field, Seg, Select, Toolbar } from '../ui';
+import { useJump, type JumpProps } from './e3Jump';
 import E3UploadDialog, { applyUploadRequest, forgetUpload, lastUpload, planUploadRequest, rememberUpload, undoUpload, type UploadPreview } from './E3AttributeUpload';
 
 /** Больше строк в окне не рисуем: таблица для просмотра, полный список — в книге */
@@ -29,8 +30,8 @@ const download = (blob: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 };
 
-export default function E3ProjectTable({ projectId, projectName, onOpenBook, say }: {
-  projectId: string; projectName: string; onOpenBook: () => void; say: (text: string, kind?: 'success' | 'error' | 'info') => void;
+export default function E3ProjectTable({ projectId, projectName, onOpenBook, say, jump }: {
+  projectId: string; projectName: string; onOpenBook: () => void; say: (text: string, kind?: 'success' | 'error' | 'info') => void; jump?: JumpProps;
 }) {
   const [systems, setSystems] = React.useState<ExportSystem[] | null>(null);
   const [book, setBook] = React.useState<E3AttributeBook | null>(null);
@@ -47,6 +48,10 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
   const [uploadError, setUploadError] = React.useState('');
   const [undoable, setUndoable] = React.useState(() => lastUpload(projectId));
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // Позиция, на которую привёл переход из «Нет данных»: строка выделена и прокручена в видимое
+  const [hot, setHot] = React.useState('');
+  const hotRef = React.useRef<HTMLTableRowElement>(null);
+  useJump(jump, ['project'], (j) => { setScope('all'); setClasses([]); setTaggedOnly(false); setHot(j.positionId || ''); }, !!systems && !!book);
 
   React.useEffect(() => {
     let alive = true;
@@ -73,6 +78,8 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
   const columns = React.useMemo(() => e3Columns(live, classes.length ? classes : classCounts.map(([c]) => c), { header }), [live, classes, classCounts, header]);
   const table = React.useMemo(() => e3Rows(inScope, live, columns, { classes, taggedOnly }), [inScope, live, columns, classes, taggedOnly]);
   const missing = table.rows.reduce((n, r) => n + r.cells.filter((v, j) => isMissingCell(columns[j], v, r.na[j])).length, 0);
+
+  React.useEffect(() => { if (hot) hotRef.current?.scrollIntoView?.({ block: 'center' }); }, [hot, table]);
 
   if (error) return <Empty title="E3Flux недоступен" text={error} />;
   if (!systems || !book) return <div role="status" className="p-4 text-sm text-slate-500 dark:text-slate-400">Подготовка данных проекта…</div>;
@@ -111,6 +118,9 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
     } catch (e: any) { if (e.message) say(e.message, 'error'); }
     finally { setBusy(false); }
   };
+  // Выделенная позиция видна, даже если она дальше предела строк
+  const hotAt = hot ? table.rows.findIndex((r) => r.id === hot) : -1;
+  const shownRows = hotAt >= SHOWN ? [...table.rows.slice(0, SHOWN), table.rows[hotAt]] : table.rows.slice(0, SHOWN);
   const toggle = (id: string) => setClasses((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const muted = 'text-slate-500 dark:text-slate-400';
 
@@ -157,8 +167,8 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
                   <th>Позиция</th><th>Тип</th>
                   {columns.map((c) => <th key={c.key} title={isFluxColumn(c) ? c.key.slice(3) : 'Без «Да»: столбец пустой, его заполняют в Excel'} className={isFluxColumn(c) ? '' : '!text-slate-400 dark:!text-slate-500'}>{c.label}</th>)}
                 </tr></thead>
-                <tbody>{table.rows.slice(0, SHOWN).map((r, i) => (
-                  <tr key={`${r.id}:${i}`}>
+                <tbody>{shownRows.map((r, i) => (
+                  <tr key={`${r.id}:${i}`} ref={r.id === hot ? hotRef : undefined} className={r.id === hot ? 'is-sel' : undefined} aria-current={r.id === hot ? 'true' : undefined}>
                     <td className="whitespace-nowrap font-mono">{r.label || '—'}</td>
                     <td className="whitespace-nowrap">{classById(r.cls).title}</td>
                     {columns.map((c, j) => {

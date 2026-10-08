@@ -17,8 +17,10 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { catalogAllowed, catalogFailure, catalogSetting, catalogSettingRaw, claimCatalogSetting } from '../catalogWorkspace.js';
 import { ensureCatalog } from './catalog.js';
+import { classParams } from '../e3ClassParams.js';
+import { isClassId } from '../../equipment/classes.js';
 import {
-  applyAttributePlan, planAttributes, sanitizeClasses, sanitizeSource, validateAttributes, E3_CONFLICTS,
+  applyAttributePlan, planAttributes, sanitizeClasses, sanitizeSource, sanitizeSourceByClass, validateAttributes, E3_CONFLICTS,
   type E3Attribute, type E3AttributeBook,
 } from '../../e3/attributes.js';
 
@@ -30,7 +32,7 @@ const emptyBook = (): E3AttributeBook => ({ version: 0, items: [], updatedAt: ''
 const actor = (req: Request) => (req as any).authUser;
 
 /** Что можно поправить в одном атрибуте руками (остальное приходит из файла) */
-const PATCH_KEYS = ['fromFlux', 'source', 'classes', 'conflict', 'title'];
+const PATCH_KEYS = ['fromFlux', 'source', 'sourceByClass', 'classes', 'conflict', 'title'];
 
 type Loaded = { book: E3AttributeBook; raw: string | null };
 type Action = 'import' | 'update' | 'restore';
@@ -87,6 +89,13 @@ function checkPatch(raw: any): Partial<E3Attribute> {
     if (!source) catalogFailure(400, 'Источник значения не распознан');
     patch.source = source!;
   }
+  if ('sourceByClass' in raw) {
+    // null или {} — вернуть всех к общему источнику
+    const v = raw.sourceByClass;
+    if (v !== null && (typeof v !== 'object' || Array.isArray(v))) catalogFailure(400, 'Источники по типам — объект «тип → источник»');
+    for (const [id, one] of Object.entries(v || {})) if (!sanitizeSource(one)) catalogFailure(400, `Источник для типа «${id}» не распознан`);
+    patch.sourceByClass = sanitizeSourceByClass(v);
+  }
   if ('classes' in raw) {
     const classes = sanitizeClasses(raw.classes);
     if (!classes) catalogFailure(400, 'Неизвестный тип оборудования');
@@ -114,6 +123,13 @@ export function registerE3AttributeRoutes(app: Express, can: (user: any, feature
       await fn(req, res, db, user);
     } catch (e: any) { sendError(res, e, e?.status || (e?.code === 'P2002' ? 409 : 500)); }
   };
+
+  // Характеристики позиций типа — только чтение, право как у чтения справочника; стоит раньше '/:что-то'
+  app.get('/api/catalog/e3-attributes/params', handle('read', async (req, res, db) => {
+    const cls = String(req.query.class || '');
+    if (!isClassId(cls)) catalogFailure(400, 'Неизвестный тип оборудования');
+    res.json(await classParams(db, cls));
+  }));
 
   app.get('/api/catalog/e3-attributes', handle('read', async (_req, res, db) => {
     res.json(await catalogSetting(db, KEY, emptyBook()) as E3AttributeBook);

@@ -54,6 +54,12 @@ export interface E3Attribute {
   script: string;
   comment: string;
   source: E3Source;
+  /**
+   * Источник по типу оборудования (classId из equipment/classes): у типа, которого
+   * здесь нет, действует `source`. Нужен, потому что один атрибут у двигателя
+   * берётся из «Мощности», а у нагревателя — из другой характеристики.
+   */
+  sourceByClass?: Record<string, E3Source>;
   /** Типы оборудования; пусто — по `defaultClassesOf(attrClass)` */
   classes: string[];
   conflict: E3Conflict;
@@ -339,6 +345,22 @@ export function applyAttributePlan(current: E3Attribute[], incoming: E3Attribute
   return out;
 }
 
+/** Итоговый источник атрибута для типа: заданный по типу, иначе общий */
+export function sourceFor(attr: Pick<E3Attribute, 'source' | 'sourceByClass'>, classId: string): E3Source {
+  const own = attr.sourceByClass?.[classId];
+  return own ?? attr.source;
+}
+
+/**
+ * «Да» без источника — данные КИП: значение лежит в группе «КИП» позиции под именем
+ * атрибута (книга, загруженная обратно, кладёт его туда) и в следующую выгрузку попадает оттуда.
+ * Правило применяется к итоговому источнику типа, а не к общему.
+ */
+export function effectiveSource(name: string, fromFlux: boolean, source: E3Source): E3Source {
+  if (!fromFlux) return { kind: 'none' };
+  return source.kind === 'none' ? { kind: 'param', name: `${KIP_GROUP}|${name}` } : source;
+}
+
 // ── Какие атрибуты у какого типа и что идёт в выгрузку ──────────────────────
 
 /** Атрибуты типа оборудования: заданные вручную типы сильнее класса из файла */
@@ -368,11 +390,13 @@ export function e3Columns(items: E3Attribute[], classIds: string[], opts: { head
   for (const a of picked) {
     if (seen.has(a.name) || (opts?.onlyFromFlux && !a.fromFlux)) continue;
     seen.add(a.name);
-    // «Да» без источника — данные КИП: значение лежит в группе «КИП» позиции под именем
-    // атрибута (книга, загруженная обратно, кладёт его туда) и в следующую выгрузку попадает оттуда
-    const source: E3Source = !a.fromFlux ? { kind: 'none' } : a.source.kind === 'none' ? { kind: 'param', name: `${KIP_GROUP}|${a.name}` } : a.source;
+    const source = effectiveSource(a.name, a.fromFlux, a.source);
     const col: ExportColumn = { key: `e3:${a.name}`, label: opts?.header === 'title' ? (a.title || a.name) : a.name, source };
     if (source.kind === 'param' && source.unit) col.unit = source.unit;
+    if (a.fromFlux && a.sourceByClass && Object.keys(a.sourceByClass).length) {
+      // Единица столбца одна на весь столбец; у типа с другой единицей значение приводится к ней
+      col.sourceByClass = Object.fromEntries(Object.entries(a.sourceByClass).map(([id, src]) => [id, effectiveSource(a.name, true, src)]));
+    }
     out.push(col);
   }
   return out;
@@ -399,6 +423,18 @@ export function sanitizeSource(raw: any): E3Source | null {
     case 'const': { const value = str(raw.value); return value === null ? null : { kind: 'const', value }; }
     default: return null;
   }
+}
+
+/** Источники по типам: неизвестные типы и нераспознанные источники отбрасываются, пусто — undefined */
+export function sanitizeSourceByClass(raw: unknown): Record<string, E3Source> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, E3Source> = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isClassId(id)) continue;
+    const src = sanitizeSource(v);
+    if (src) out[id] = src;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** Типы оборудования: только известные Flux, без повторов */
@@ -433,12 +469,13 @@ export function validateAttributes(raw: unknown): { items: E3Attribute[] } | { e
     if (typeof r.service !== 'boolean' || typeof r.fromFlux !== 'boolean') return { error: `${name}: «service» и «fromFlux» должны быть true или false` };
     const source = sanitizeSource(r.source);
     if (!source) return { error: `${name}: источник значения не распознан` };
+    const sourceByClass = sanitizeSourceByClass(r.sourceByClass);
     const classes = sanitizeClasses(r.classes ?? []);
     if (!classes) return { error: `${name}: неизвестный тип оборудования` };
     if (!E3_CONFLICTS.includes(r.conflict)) return { error: `${name}: неизвестное правило спора со скриптом` };
     items.push({
       name, title: r.title, carrier: r.carrier, attrClass: r.attrClass, service: r.service, fromFlux: r.fromFlux,
-      script: r.script, comment: r.comment, source, classes, conflict: r.conflict,
+      script: r.script, comment: r.comment, source, ...(sourceByClass ? { sourceByClass } : {}), classes, conflict: r.conflict,
       ...(r.edited ? { edited: true } : {}), ...(r.removed ? { removed: true } : {}),
     });
   }

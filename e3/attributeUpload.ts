@@ -21,7 +21,7 @@
  *
  * Модуль чистый: ни базы, ни React.
  */
-import { attributesForClass, KIP_GROUP, type E3Attribute } from './attributes';
+import { attributesForClass, KIP_GROUP, sourceFor, type E3Attribute } from './attributes';
 import { E3_ID_HEADER } from './attributeWorkbook';
 
 export { KIP_GROUP };
@@ -114,8 +114,11 @@ export function planUpload(read: BookRead, attrs: E3Attribute[], positions: Uplo
   const done = new Set<string>();
 
   // Столбцы с тегом позиции: по ним проверяется, что строка принадлежит своей позиции
-  const tagCols = read.columns.filter(n => { const a = byName.get(n); return a?.fromFlux && a.source.kind === 'field' && a.source.key === 'tag'; });
-  if (!tagCols.length) plan.notes.push({ code: 'no-tag', text: 'В книге нет столбца с тегом позиции: строки проверены только по ID', names: [], cells: 0 });
+  // Источник — по типу позиции, поэтому «столбец с тегом» зависит от строки
+  const isTag = (a: E3Attribute | undefined, cls: string) => { const s = a && a.fromFlux ? sourceFor(a, cls) : null; return !!s && s.kind === 'field' && s.key === 'tag'; };
+  const tagColsOf = (cls: string) => read.columns.filter(n => isTag(byName.get(n), cls));
+  const hasTagCol = read.columns.some(n => { const a = byName.get(n); return !!a && a.fromFlux && [a.source, ...Object.values(a.sourceByClass || {})].some(s => s.kind === 'field' && s.key === 'tag'); });
+  if (!hasTagCol) plan.notes.push({ code: 'no-tag', text: 'В книге нет столбца с тегом позиции: строки проверены только по ID', names: [], cells: 0 });
 
   const counts = { flux: new Map<string, number>(), noYes: new Map<string, number>(), unknown: new Map<string, number>(), na: new Map<string, number>() };
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) || 0) + 1);
@@ -127,7 +130,7 @@ export function planUpload(read: BookRead, attrs: E3Attribute[], positions: Uplo
     if (!pos) { fail('Такой позиции нет в этом проекте: книга от другого проекта или позицию удалили'); continue; }
     if (pos.removed) { fail(`Позиция «${pos.label}» снята — данные в неё не пишутся`); continue; }
     if (done.has(row.id)) { fail(`ID уже встречался в книге выше — вторая строка позиции «${pos.label}» не записывается`); continue; }
-    const alien = tagCols.map(n => ({ n, v: row.cells[n] })).find(x => x.v && !pos.tags.includes(x.v));
+    const alien = tagColsOf(pos.cls).map(n => ({ n, v: row.cells[n] })).find(x => x.v && !pos.tags.includes(x.v));
     if (alien) {
       fail(pos.tags.length
         ? `Чужой тег: в книге «${alien.v}», у позиции «${pos.tags.join(', ')}» — строку подставили не к своей позиции или тег сменили после выгрузки`
@@ -143,7 +146,7 @@ export function planUpload(read: BookRead, attrs: E3Attribute[], positions: Uplo
       if (!a) { bump(counts.unknown, name); continue; }
       if (!attributesForClass([a], pos.cls).length) { bump(counts.na, name); continue; }
       if (!a.fromFlux) { bump(counts.noYes, name); continue; }
-      if (a.source.kind !== 'none') { bump(counts.flux, name); continue; }
+      if (sourceFor(a, pos.cls).kind !== 'none') { bump(counts.flux, name); continue; }
       if (value.length > MAX_VALUE) { fail(`Значение «${name}» длиннее ${MAX_VALUE} знаков`); bad = true; break; }
       const before = pos.kip[name] ?? '';
       if (before !== value) changes.push({ attr: name, title: a.title || name, before, after: value });
