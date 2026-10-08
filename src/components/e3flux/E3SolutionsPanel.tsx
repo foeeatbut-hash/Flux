@@ -6,8 +6,8 @@
  * правка не затирает соседние строки.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Plus, Undo2, Upload } from 'lucide-react';
-import { solutionWorkbookBytes } from '../../../e3/solutionWorkbook';
+import { Download, FileText, Plus, Undo2, Upload } from 'lucide-react';
+import { solutionNames, solutionNamesFile, solutionWorkbookBytes } from '../../../e3/solutionWorkbook';
 import type { E3Solution, E3SolutionPlan } from '../../../e3/solutionTypes';
 import { e3SolutionsService as svc, E3SolutionVersionError, type E3SolutionPatch } from '../../services/e3SolutionsService';
 import { useToastStore } from '../../store/toastStore';
@@ -111,10 +111,22 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
     addToast(`Каталог выгружен в Excel: ${sols(live.length)}`, 'success');
   };
 
+  // Список названий для пробы E3 (tools/e3-probe, -NamesFile): имя блока в базе E3 = «Название схемы»
+  const downloadNames = () => {
+    if (!book) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([solutionNamesFile(book.solutions)], { type: 'text/plain;charset=utf-8' }));
+    a.download = 'e3-names.txt';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    addToast(`Названия для пробы выгружены: ${solutionNames(book.solutions).length}`, 'success');
+  };
+
   const editingSolution: E3Solution | null = editing ? items.find((s) => s.id === editing) || null : null;
   const actions = <>
     <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls" hidden aria-label="Файл классификатора типовых решений" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
     <Btn tone="ghost" onClick={download} disabled={!live.length} title="Каталог в Excel того же вида, что файл классификатора, плюс столбцы признаков"><Download className="w-3.5 h-3.5" /> Скачать Excel</Btn>
+    <Btn tone="ghost" onClick={downloadNames} disabled={!live.length} title="Названия схем по одному в строке (e3-names.txt) для пробы E3: tools/e3-probe, run.cmd -NamesFile"><FileText className="w-3.5 h-3.5" /> Скачать названия для пробы</Btn>
     {rights.edit && <Btn tone="ghost" onClick={() => { setDialogError(''); setEditing(''); }} disabled={busy || !book} title="Добавить типовое решение вручную"><Plus className="w-3.5 h-3.5" /> Добавить</Btn>}
     {rights.import && <>
       <Btn tone="ghost" onClick={() => void undoImport()} disabled={busy || !items.length} title="Вернуть каталог к состоянию до последней загрузки файла"><Undo2 className="w-3.5 h-3.5" /> Отменить загрузку</Btn>

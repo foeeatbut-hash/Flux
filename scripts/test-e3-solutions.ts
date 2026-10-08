@@ -15,7 +15,7 @@ import {
   sanitizeFeature, sanitizeRule, sanitizeProfile, sanitizeDictionary, sanitizeClassMap, validateSolutions, planMissingDefaults, applyMissingDefaults,
   DEFAULT_FEATURES, DEFAULT_RULES, DEFAULT_IO_RULES, DEFAULT_CLASS_MAP, type E3Position, type E3Solution, type E3SolutionBook, type E3Profile,
 } from '../e3/solutions';
-import { solutionRows, solutionWorkbookBytes, CLASSIFIER_HEADERS, CLASSIFIER_SHEET } from '../e3/solutionWorkbook';
+import { solutionRows, solutionWorkbookBytes, solutionNames, solutionNamesFile, CLASSIFIER_HEADERS, CLASSIFIER_SHEET } from '../e3/solutionWorkbook';
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -392,6 +392,22 @@ console.log('Выгрузка в Excel');
   eq('круг: подтверждённые признаки и ответ человека сохранились', [again2.items.find((s) => s.id === '08.01.07')!.features['valve.box'], again2.items.find((s) => s.id === '08.01.07')!.featuresConfirmed], ['К2', true]);
   eq('круг: словарь читается обратно', Object.keys(parseDictionarySheet(aoa('Обозначения')).dictionary), Object.keys(book.dictionary));
   eq('круг: правки полей (twoLevel, inCad) сохранились', [again.items.find((s) => s.id === '11.02.05')!.inCad, again.items.find((s) => s.id === '08.01.01')!.twoLevel], [true, false]);
+}
+
+console.log('Названия для пробы E3');
+{
+  const mk = (name: string, removed = false) => ({ ...book.solutions[0], name, removed });
+  eq('названия: порядок книги, края обрезаны, пустые, снятые и повторы (без учёта регистра) убраны',
+    solutionNames([mk(' Клапан_К24 '), mk(''), mk('   '), mk('Клапан_К24'), mk('клапан_к24'), mk('Снятое', true), mk('Вентилятор_ПП'), mk('Клапан_К24_КП2')]),
+    ['Клапан_К24', 'Вентилятор_ПП', 'Клапан_К24_КП2']);
+  const live = book.solutions.filter((s) => !s.removed);
+  const names = solutionNames(book.solutions);
+  eq('названия: из книги — без повторов и пустых', [names.length === new Set(names.map((n) => n.toLocaleLowerCase('ru'))).size, names.every((n) => n === n.trim() && n !== ''), names.length <= live.length], [true, true, true]);
+  eq('названия: два решения с одним названием схемы дают одну строку', [live.length, names.length < live.length], [24, true]);
+  const file = solutionNamesFile([mk('Клапан_К24'), mk('Вентилятор_ПП')]);
+  eq('файл: BOM в начале, строки через CRLF, без пустой строки в конце', [file.charCodeAt(0), file.slice(1)], [0xfeff, 'Клапан_К24\r\nВентилятор_ПП\r\n']);
+  eq('файл: BOM в UTF-8 — EF BB BF, кириллица двухбайтная', [...Buffer.from(file, 'utf8').subarray(0, 5)], [0xef, 0xbb, 0xbf, 0xd0, 0x9a]);
+  eq('файл: пустая книга — пустой файл с BOM', solutionNamesFile([]), '\uFEFF');
 }
 
 console.log('Проверка входных данных');
