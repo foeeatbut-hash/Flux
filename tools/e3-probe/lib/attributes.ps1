@@ -33,11 +33,13 @@ function Read-AttrValue {
 
 function Test-AttributeRW {
     # Читает, пишет, читает обратно и возвращает как было. Prepare ставит id объекта в обёртку.
-    param($Target, [string]$TL, [string]$Prefix, [string]$Name, [string]$Carrier, [scriptblock]$Prepare, [switch]$Silent)
+    param($Target, [string]$TL, [string]$Prefix, [string]$Name, [string]$Carrier, [scriptblock]$Prepare, [switch]$Silent, [switch]$NoWrite)
     $out = [ordered]@{ name = $Name; carrier = $Carrier; read = $false; before = $null; write = $false; readback = $false; restored = $false; error = '' }
     & $Prepare
     $b = Read-AttrValue $Target $TL ($Prefix + '.read') $Name -Silent:$Silent
     $out.read = $b.Ok; $out.before = $b.Value
+    # Только чтение: на настоящем проекте чужие атрибуты из списка владельца не трогаем даже «с возвратом».
+    if ($NoWrite) { return $out }
     $w = Try-Calls -Op ($Prefix + '.write') -Target $Target -TL $TL -Cands (Get-AttrWriteCands $Name $script:ProbeValue) -First -Silent:$Silent
     $out.write = $w.Ok
     if ($w.Ok) {
@@ -125,7 +127,7 @@ function Step-OwnerAttributes {
         $row = [ordered]@{ name = $name; inDefinitions = $(if ($null -eq $defNames) { 'неизвестно' } elseif ($defNames -contains $name) { 'да' } else { 'нет' }) }
         $summary = @()
         foreach ($c in $Carriers) {
-            $res = Test-AttributeRW $c.Target $c.TL ('attrdef.' + $c.Id) $name $c.Label $c.Prepare -Silent
+            $res = Test-AttributeRW $c.Target $c.TL ('attrdef.' + $c.Id) $name $c.Label $c.Prepare -Silent -NoWrite:$c.ReadOnly
             if ($c.ReadOnly) {
                 $row[$c.Id] = $(if ($res.read) { 'чтение' } else { '—' })
             } else {
