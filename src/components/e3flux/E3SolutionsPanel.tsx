@@ -17,6 +17,7 @@ import { Btn, Chip, Empty, FilterSeg, Input, SectionHead, Select, Toolbar } from
 import { confirmAsk } from '../catalog/ui';
 import E3SolutionDialog from './E3SolutionDialog';
 import E3SolutionsImport, { readSolutionFile, type ParsedFile } from './E3SolutionsImport';
+import { useJump, type JumpProps } from './e3Jump';
 import { STALE, type SolutionBookState } from './useSolutionBook';
 
 const sols = (n: number) => count(n, 'решение', 'решения', 'решений');
@@ -24,7 +25,7 @@ const muted = 'text-slate-500 dark:text-slate-400';
 const cell = 'truncate max-w-[180px]';
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export default function E3SolutionsPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean; import: boolean } }) {
+export default function E3SolutionsPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean; import: boolean }; jump?: JumpProps }) {
   const { book, error, setError, busy, setBusy, reload, run, setBook } = state;
   const addToast = useToastStore((s) => s.addToast);
   const [q, setQ] = useState('');
@@ -35,6 +36,7 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
   const [imp, setImp] = useState<{ file: ParsedFile; plan: E3SolutionPlan } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useJump(jump, ['solutions'], (j) => { setDialogError(''); setEditing(j.id ?? null); }, !!state.book);
   const items = book?.solutions || [];
   const live = items.filter((s) => !s.removed);
   const removedCount = items.length - live.length;

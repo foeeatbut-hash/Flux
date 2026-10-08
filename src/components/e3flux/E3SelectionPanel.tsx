@@ -19,6 +19,7 @@ import { useStore } from '../../store/store';
 import { Empty, FilterSeg, Input, SectionHead, Select, Status, Toolbar } from '../ui';
 import E3ProfileForm from './E3ProfileForm';
 import E3SelectionDialog from './E3SelectionDialog';
+import { useJump, type JumpProps } from './e3Jump';
 import { solutionLine } from './e3SolutionText';
 
 const muted = 'text-slate-500 dark:text-slate-400';
@@ -30,7 +31,7 @@ const STATE = {
   one: { tone: 'emerald', text: 'Подобрано' }, many: { tone: 'amber', text: 'Нужен ответ' }, none: { tone: 'rose', text: 'Решения нет' },
 } as const;
 
-export default function E3SelectionPanel({ book, projectId }: { book: E3SolutionBook | null; projectId: string }) {
+export default function E3SelectionPanel({ book, projectId, jump }: { book: E3SolutionBook | null; projectId: string; jump?: JumpProps }) {
   const [systems, setSystems] = useState<ExportSystem[] | null>(null);
   const [profile, setProfile] = useState<E3ProfileDoc | null>(null);
   const [draft, setDraft] = useState<E3Profile>({});
@@ -79,6 +80,12 @@ export default function E3SelectionPanel({ book, projectId }: { book: E3Solution
     return { list, skipped };
   }, [book, systems, sources, scope, draft]);
 
+  // Переход из «Нет данных»: окно подбора нужной позиции; позицию ищем по id, строка списка — `${id}:${i}`
+  useJump(jump, ['selection'], (j) => {
+    const hit = rows.list.find((r) => r.position.id === j.positionId);
+    setScope('all'); setView('all'); setQ('');
+    if (hit) setOpen(hit.id);
+  }, !!book && !!systems && !!profile && !!rows.list.length);
   const counts = { one: 0, many: 0, none: 0 };
   for (const r of rows.list) counts[r.selection.status]++;
   const low = q.trim().toLocaleLowerCase('ru');

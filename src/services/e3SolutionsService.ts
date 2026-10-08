@@ -1,4 +1,5 @@
 import { ENV_CONFIG } from '../config/env';
+import { notifyE3Changed } from '../lib/e3Changed';
 import type { E3Dictionary, E3Feature, E3FeatureRule, E3IoRow, E3IoRule, E3Profile, E3Solution, E3SolutionBook, E3SolutionPlan } from '../../e3/solutionTypes';
 import type { E3MissingDefaults } from '../../e3/solutionMissing';
 
@@ -17,6 +18,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const res = await fetch(`${ENV_CONFIG.apiUrl}${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new (res.status === 409 ? E3SolutionVersionError : Error)(data.error || `Ошибка ${res.status}`);
+  // Запись — не чтение и не пересчёт плана: только она меняет то, что видит «Нет данных»
+  if (method !== 'GET' && !path.endsWith('/plan') && !path.endsWith('/defaults/plan')) notifyE3Changed();
   return data;
 }
 

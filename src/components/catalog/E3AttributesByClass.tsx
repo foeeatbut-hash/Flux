@@ -8,7 +8,7 @@
  * править — по правам справочника; правка идёт через ту же одиночную запись
  * атрибута, что и в списке, поэтому устаревшая версия ничего не затирает.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { attributesForClass, sourceFor, type E3Attribute } from '../../../e3/attributes';
 import { CLASSES, classTitle } from '../../../equipment/classes';
 import type { E3ItemPatch } from '../../services/e3AttributesService';
@@ -22,12 +22,22 @@ const cell = 'truncate max-w-[260px]';
 /** «Да» у атрибута типа: именно их значение должен дать Flux */
 const fluxAttrs = (items: E3Attribute[], cls: string) => attributesForClass(items, cls).filter((a) => a.fromFlux);
 
-export default function E3AttributesByClass({ items, canEdit, busy, error, onSave, onDialogClose }: {
+export default function E3AttributesByClass({ items, canEdit, busy, error, onSave, onDialogClose, focus }: {
   items: E3Attribute[]; canEdit: boolean; busy: boolean; error: string;
   onSave: (name: string, patch: E3ItemPatch) => Promise<boolean>; onDialogClose: () => void;
+  /** Переход из «Нет данных»: тип и атрибут, который надо открыть; принятый переход панель гасит */
+  focus?: { cls?: string; id?: string; accept: () => void } | null;
 }) {
   const [cls, setCls] = useState('ДВИГАТЕЛЬ');
   const [editing, setEditing] = useState('');
+  useEffect(() => {
+    if (!focus) return;
+    if (focus.cls) setCls(focus.cls);
+    if (focus.id) setEditing(focus.id);
+    focus.accept();
+    // accept гасит переход у владельца; зависим только от самого перехода
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.cls, focus?.id]);
 
   // «Задано» — у атрибута для типа есть итоговый источник, «нужно задать» — его нет
   const stats = useMemo(() => CLASSES.map((c) => {

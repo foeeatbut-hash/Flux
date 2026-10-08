@@ -7,6 +7,7 @@
  * в диалоге, как «Правила» признаков.
  */
 import React, { useMemo, useState } from 'react';
+import { useJump, type JumpProps } from './e3Jump';
 import { Plus } from 'lucide-react';
 import { IO_KEYS } from '../../../e3/ioTable';
 import type { E3IoRow, E3IoRule } from '../../../e3/solutionTypes';
@@ -22,7 +23,7 @@ const muted = 'text-slate-500 dark:text-slate-400';
 type Tab = 'rows' | 'rules';
 type View = 'all' | 'open';
 
-export default function E3IoPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean } }) {
+export default function E3IoPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean }; jump?: JumpProps }) {
   const { book, error, busy, run } = state;
   const [tab, setTab] = useState<Tab>('rows');
   const [q, setQ] = useState('');
@@ -30,6 +31,11 @@ export default function E3IoPanel({ state, rights }: { state: SolutionBookState;
   const [editRow, setEditRow] = useState<string | null>(null); // id строки; '' — новая
   const [editRule, setEditRule] = useState<string | null>(null); // id правила; '' — новое
   const [dialogError, setDialogError] = useState('');
+  // Правило состава — вторая вкладка раздела, строка — первая; без записи (таблица пуста) просто открывается нужная вкладка
+  useJump(jump, ['io', 'io-rules'], (j) => {
+    setDialogError(''); setQ(''); setView('all');
+    if (j.section === 'io-rules') { setTab('rules'); if (j.id) setEditRule(j.id); } else { setTab('rows'); if (j.id) setEditRow(j.id); }
+  }, !!state.book);
 
   const rows = book?.ioTable || [];
   const rules = book?.ioRules || [];

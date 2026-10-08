@@ -26,7 +26,10 @@ const muted = 'text-slate-500 dark:text-slate-400';
 const cell = 'truncate max-w-[200px]';
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export default function E3AttributesPanel({ rights }: { rights: { edit: boolean; import: boolean } }) {
+/** Переход из E3Flux «Нет данных»: структурно совпадает с E3Jump, но каталог от E3Flux не зависит */
+export interface AttributesJump { jump: { section?: string; id?: string; cls?: string } | null; done: () => void }
+
+export default function E3AttributesPanel({ rights, jump }: { rights: { edit: boolean; import: boolean }; jump?: AttributesJump }) {
   const addToast = useToastStore((s) => s.addToast);
   const [book, setBook] = useState<E3AttributeBook | null>(null);
   const [error, setError] = useState('');
@@ -39,6 +42,9 @@ export default function E3AttributesPanel({ rights }: { rights: { edit: boolean;
   const [mode, setMode] = useState<'list' | 'byClass'>('list');
   const [imp, setImp] = useState<{ items: E3Attribute[]; issues: string[]; plan: E3Plan } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Переход ведёт в «По типам»: вид переключаем здесь, а тип и атрибут открывает сам вид
+  const byClassJump = jump?.jump?.section === 'byClass' ? jump.jump : null;
+  useEffect(() => { if (byClassJump) setMode('byClass'); }, [byClassJump]);
 
   const reload = useCallback(async () => {
     try { setBook(await svc.load()); setError(''); } catch (e: any) { setError(e.message); }
@@ -148,6 +154,7 @@ export default function E3AttributesPanel({ rights }: { rights: { edit: boolean;
           <div className="p-4"><Empty title="Справочник пуст — загрузите «Список атрибутов» из Excel" text={rights.import ? 'Значения заполняет Flux у атрибутов с «Да» в первом столбце; остальные столбцы выгрузки остаются пустыми.' : 'Загрузить справочник может сотрудник с правом на загрузку справочников каталога.'} /></div>
         ) : mode === 'byClass' ? (
           <E3AttributesByClass items={items} canEdit={rights.edit} busy={busy} error={dialogError} onDialogClose={() => setDialogError('')}
+            focus={byClassJump && jump ? { cls: byClassJump.cls, id: byClassJump.id, accept: jump.done } : null}
             onSave={async (name, patch) => { setBusy(true); const ok = await mutate(name, patch, true); setBusy(false); return ok; }} />
         ) : <>
           <Toolbar>

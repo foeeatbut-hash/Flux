@@ -12,13 +12,17 @@ import { Dialog, Btn } from '../ui';
 import { useModalStore } from '../../store/modalStore';
 import type { UploadPlan } from '../../../e3/attributeUpload';
 import { count } from '../../lib/plural';
+import { notifyE3Changed } from '../../lib/e3Changed';
 
 export interface UploadPreview { plan: UploadPlan; issues: string[]; sheets: { name: string; aoa: unknown[][] }[] }
 
 const post = async (url: string, body: unknown) => {
+  // Запись значений КИП меняет то, что видит «Нет данных»; план ничего не пишет
+  const writes = !url.endsWith('/plan');
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+  if (writes) notifyE3Changed();
   return data;
 };
 

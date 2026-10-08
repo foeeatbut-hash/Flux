@@ -5,6 +5,7 @@
  * они остались бы без вопроса.
  */
 import React, { useMemo, useState } from 'react';
+import { useJump, type JumpProps } from './e3Jump';
 import { Plus } from 'lucide-react';
 import type { E3Feature, E3FeatureKind } from '../../../e3/solutionTypes';
 import { missingCount } from '../../../e3/solutionMissing';
@@ -61,12 +62,13 @@ function FeatureDialog({ feature, classes, canEdit, busy, error, onSave, onDelet
   );
 }
 
-export default function E3FeaturesPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean } }) {
+export default function E3FeaturesPanel({ state, rights, jump }: { state: SolutionBookState; rights: { edit: boolean }; jump?: JumpProps }) {
   const { book, error, busy, run, setError } = state;
   const addToast = useToastStore((s) => s.addToast);
   const [cls, setCls] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // '' — новый
   const [dialogError, setDialogError] = useState('');
+  useJump(jump, ['features'], (j) => { setDialogError(''); setEditing(j.id ?? null); }, !!state.book);
   const features = book?.features || [];
   const classes = useMemo(() => [...new Set([...features.map((f) => f.mainClass), ...(book?.solutions || []).map((s) => s.mainClass)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [features, book]);
   const shown = features.filter((f) => !cls || f.mainClass === cls);
