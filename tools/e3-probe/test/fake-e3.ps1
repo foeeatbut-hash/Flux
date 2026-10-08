@@ -5,8 +5,11 @@
 $global:F = @{
     Next = 1000
     Sheets = @{ 101 = @{ Name = 'Лист 1'; Format = 'A3'; Attrs = @{} } }
-    Devices = @{ 501 = @{ Name = '-M1'; Attrs = @{ 'GLOBAL_ID_IN_PROJECT' = 'ID-1' }; Sym = @() } }
-    Symbols = @{}
+    Devices = @{ 501 = @{ Name = '-M1'; Attrs = @{ 'GLOBAL_ID_IN_PROJECT' = 'ID-1' }; Sym = @(900); Comp = 'клапан_DIx2_DOx2' } }
+    Symbols = @{ 900 = @{ Sheet = 101; X = 10; Y = 10; Pins = @(); Dev = 501; Name = 'SYM_VALVE'; Ver = '1' } }
+    SymbolNames = @('SYM_VALVE')
+    CurDev = 0
+    Loaded = ''
     Pins = @{}
     Conns = @()
     ProjectAttrs = @{ 'Sheet number' = '1' }
@@ -57,6 +60,19 @@ $global:FakeAttrSet = {
 function New-FakeDevice {
     return (New-FakeObject @{
         SetId = { param($a) return (Set-FakeId $this $a[0]) }
+        GetComponentName = { param($a) return $global:F.Devices[[int]$this.Id].Comp }
+        GetComponentVersion = { param($a) return '1' }
+        # Device.Create(name, assignment, location, comp, vers, after): ровно 6 аргументов; 0 — неудача без исключения, как в E3
+        Create = {
+            param($a)
+            if ($a.Length -ne 6) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[3] -notin $global:F.Components) { return 0 }
+            $global:F.Next++; $id = $global:F.Next
+            $global:F.Devices[$id] = @{ Name = $(if ([string]$a[0] -eq '') { '-A' + $id } else { [string]$a[0] }); Attrs = @{}; Sym = @(); Comp = [string]$a[3] }
+            $this.Id = $id; $global:F.CurDev = $id
+            return $id
+        }
+        LoadAndCreate = { param($a) if ($a.Length -ne 3) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; return 0 }
         GetName = { param($a) return $global:F.Devices[[int]$this.Id].Name }
         SetName = { param($a) $global:F.Devices[[int]$this.Id].Name = [string]$a[0]; return 1 }
         GetAttributeValue = { param($a) & $global:FakeAttrGet $global:F.Devices[[int]$this.Id].Attrs $a }
@@ -96,15 +112,13 @@ function New-FakeSheet {
             $ids = @($global:F.Symbols.Keys | Where-Object { $global:F.Symbols[$_].Sheet -eq [int]$this.Id })
             $a[0] = [object[]]$ids; return $ids.Count
         }
+        # как в журнале владельца: PlacePart(name, version, x, y, rot) отвечает 3, но на листе ничего не появляется
         PlacePart = {
             param($a)
-            if ([string]$a[0] -notin $global:F.Components) { Throw-FakeCom 'Компонент не найден' }
-            $global:F.Next++; $dev = $global:F.Next; $global:F.Next++; $sym = $global:F.Next; $global:F.Next++; $p1 = $global:F.Next; $global:F.Next++; $p2 = $global:F.Next
-            $global:F.Pins[$p1] = @{ Name = '1' }; $global:F.Pins[$p2] = @{ Name = '2' }
-            $global:F.Symbols[$sym] = @{ Sheet = [int]$this.Id; X = $a[2]; Y = $a[3]; Pins = @($p1, $p2); Dev = $dev }
-            $global:F.Devices[$dev] = @{ Name = '-V1'; Attrs = @{}; Sym = @($sym) }
-            return $dev
+            if ($a.Length -ne 5) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            return 3
         }
+        Display = { param($a) return 1 }
         ExportDXF = { param($a) Set-Content -Path ([string]$a[0]) -Value '0 SECTION' -Encoding ASCII; return 1 }
         ExportPNG = { param($a) Throw-FakeCom 'Не поддерживается в этой версии' }
     })
@@ -113,6 +127,27 @@ function New-FakeSheet {
 function New-FakeSymbol {
     return (New-FakeObject @{
         SetId = { param($a) return (Set-FakeId $this $a[0]) }
+        GetName = { param($a) return $global:F.Symbols[[int]$this.Id].Name }
+        GetVersion = { param($a) return $global:F.Symbols[[int]$this.Id].Ver }
+        # Symbol.Load(name, version): ровно 2 аргумента; 0 — символа нет в базе
+        Load = {
+            param($a)
+            if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -notin $global:F.SymbolNames) { return 0 }
+            $global:F.Loaded = [string]$a[0]; return 1
+        }
+        # Symbol.Place(shti, x, y [, rot, scale, maintaintextsize]): 3-6 аргументов; символ достаётся последнему созданному устройству
+        Place = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 6) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ($global:F.Loaded -eq '' -or -not $global:F.Sheets.ContainsKey([int]$a[0])) { return 0 }
+            $global:F.Next++; $sym = $global:F.Next; $global:F.Next++; $p1 = $global:F.Next; $global:F.Next++; $p2 = $global:F.Next
+            $global:F.Pins[$p1] = @{ Name = '1' }; $global:F.Pins[$p2] = @{ Name = '2' }
+            $global:F.Symbols[$sym] = @{ Sheet = [int]$a[0]; X = $a[1]; Y = $a[2]; Pins = @($p1, $p2); Dev = $global:F.CurDev; Name = $global:F.Loaded; Ver = '1' }
+            if ($global:F.CurDev -ne 0) { $global:F.Devices[$global:F.CurDev].Sym += $sym }
+            $global:F.Loaded = ''
+            return $sym
+        }
         GetSchemaLocation = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = $s.X; $a[1] = $s.Y; if ($a.Length -gt 2) { $a[2] = 5 }; return $s.Sheet }
         GetPinIds = { param($a) $ids = @($global:F.Symbols[[int]$this.Id].Pins); $a[0] = [object[]]$ids; return $ids.Count }
         GetGraphIds = { param($a) $a[0] = [object[]]@(9001, 9002); return 2 }
@@ -138,7 +173,14 @@ function New-FakeJob {
         CreateDeviceObject = { param($a) return (New-FakeDevice) }
         CreateSymbolObject = { param($a) return (New-FakeSymbol) }
         CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
-        CreateComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 1 }; GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }; Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
+        CreateComponentObject = { param($a) return (New-FakeObject @{
+            SetId = { param($a) return (Set-FakeId $this $a[0]) }
+            GetName = { param($a) return $global:F.Components[[int]$this.Id - 240000] }
+            GetVersion = { param($a) return '1' }
+            GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }
+            Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
+        GetComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
+        LoadPart = { param($a) if ($a.Length -ne 3) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; return 0 }
         CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetType = { param($a) return 'Line' } }) }
         Undo = { param($a) return 1 }
         Save = { param($a) throw 'Save не должен вызываться пробой' }

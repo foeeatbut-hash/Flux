@@ -308,8 +308,10 @@ function Select-Id {
     # перед любым Delete проверяем, что вернулся именно этот id.
     param($Target, $Id)
     $r = Invoke-Quiet $Target 'SetId' @($Id)
-    if ($null -eq $r -or $null -eq $r.Ret -or $r.Ret -is [bool]) { return $false }
-    try { return ([long]$r.Ret -eq [long]$Id) } catch { return $false }
+    if ($null -eq $r -or $null -eq $r.Ret -or $r.Ret -is [bool]) { Write-Trace ('SetId(' + $Id + ') не подтверждён: ' + $(if ($null -eq $r) { 'вызов упал' } else { 'вернул ' + (Format-Value $r.Ret 30) })); return $false }
+    try { $same = ([long]$r.Ret -eq [long]$Id) } catch { $same = $false }
+    if (-not $same) { Write-Trace ('SetId(' + $Id + ' ' + (Get-ClrType $Id).Name + ') не подтверждён: вернул ' + (Format-Value $r.Ret 30) + ' ' + (Get-ClrType $r.Ret).Name) }
+    return $same
 }
 
 function Get-QuietValue {

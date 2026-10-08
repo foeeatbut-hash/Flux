@@ -120,7 +120,7 @@ exit $bad
       check(log.attempts.some((a: any) => !a.ok && a.hresult), 'ошибки COM записаны с HRESULT');
       check(!log.attempts.some((a: any) => /Save/.test(a.candidate) && a.op !== 'capability.save'), 'вызовов Save нет');
       const winners = new Map<string, string>(log.summary.filter((s: any) => s.tries > 0 && s.ok > 0).map((s: any) => [s.op, s.variant]));
-      for (const op of ['connect.application', 'sheets.create', 'place.sheet.PlacePart.v.effect', 'design.setname', 'wires.connect', 'export.dxf']) check(winners.has(op), `итоговая таблица: ${op} → ${winners.get(op) ?? 'нет'}`);
+      for (const op of ['connect.application', 'sheets.create', 'place.device.Create+Load+Place.s1.n0.effect', 'design.setname', 'wires.connect', 'export.dxf']) check(winners.has(op), `итоговая таблица: ${op} → ${winners.get(op) ?? 'нет'}`);
     }
     for (const line of read('log.ndjson').split(/\r?\n/).filter(Boolean)) { try { JSON.parse(line); } catch (e) { bad('log.ndjson: строка не JSON', line.slice(0, 200)); break; } }
     ok('log.ndjson: все строки — JSON');

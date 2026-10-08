@@ -16,7 +16,7 @@ Sheet.ExportImage(format,version,file,dpi,compression), Job.ExportPDF(file,shtid
 
 Шаги:
 - [x] 1 Cand/Invoke-Attempt: успех по ненулевому id (-Pos), ложное "найдено" убрать
-- [ ] 2 вставка: правильные сигнатуры (LoadPart/PlacePart, Device.Create 6 арг., Symbol.Load/Place, ImportDrawing), эффект по новым id
+- [x] 2 вставка: правильные сигнатуры (LoadPart/PlacePart, Device.Create 6 арг., Symbol.Load/Place, ImportDrawing), эффект по новым id
 - [ ] 3 экспорт: Sheet.Export/ExportImage, Job.ExportPDF
 - [ ] 4 база через OLEDB (только чтение): таблицы, имена, поиск решения; id компонентов проекта -> имена
 - [ ] 5 фейк и самопроверка, README, zip, git rm файла хода
