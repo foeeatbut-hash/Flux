@@ -124,6 +124,15 @@ exit $bad
     check(/GLOBAL_ID_IN_PROJECT;да/.test(read('attribute-check.csv')), 'подставная база: GLOBAL_ID_IN_PROJECT найден в определениях');
   }
 
+  // SetId вернул 0 (E3 не выбрал объект, исключения нет): Delete вызываться не должен, иначе удалится объект, выбранный раньше
+  {
+    const { out, r } = runFake('setid0', { E3_FAKE_SETID_ZERO: '1' });
+    check(r.status === 0, 'SetId=0: прогон завершился без ошибки', (r.stdout + r.stderr).slice(-800));
+    const nd = fs.existsSync(path.join(out, 'log.ndjson')) ? fs.readFileSync(path.join(out, 'log.ndjson'), 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l)) : [];
+    const deletes = nd.filter((a: any) => /\.(Delete|Remove)$/.test(a.candidate) || /^(job\.)?(Delete|Remove)(Sheet|Device)$/.test(a.candidate));
+    check(nd.length > 50 && deletes.length === 0, `SetId=0: ни одного вызова Delete/Remove (журнал ${nd.length} записей)`, deletes.map((a: any) => a.candidate).join(', '));
+  }
+
   // проект не открыт: скрипт не падает и не пытается ничего менять
   {
     const { out, r } = runFake('noproject', { E3_FAKE_NOPROJECT: '1' });

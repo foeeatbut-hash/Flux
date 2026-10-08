@@ -24,6 +24,15 @@ function New-FakeObject {
     return $o
 }
 
+function Set-FakeId {
+    # Как E3: при успехе SetId возвращает сам id, при неудаче 0 и прежний объект остаётся выбранным.
+    # E3_FAKE_SETID_ZERO=1 — выбор всегда неудачен: проверка, что после этого ничего не удаляется.
+    param($Object, $Id)
+    if ($env:E3_FAKE_SETID_ZERO) { return 0 }
+    $Object.Id = $Id
+    return $Id
+}
+
 function Throw-FakeCom {
     param([string]$Message, [int]$Hr = -2147352567)
     throw (New-Object System.Runtime.InteropServices.COMException($Message, $Hr))
@@ -44,7 +53,7 @@ $global:FakeAttrSet = {
 
 function New-FakeDevice {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
         GetName = { param($a) return $global:F.Devices[[int]$this.Id].Name }
         SetName = { param($a) $global:F.Devices[[int]$this.Id].Name = [string]$a[0]; return 1 }
         GetAttributeValue = { param($a) & $global:FakeAttrGet $global:F.Devices[[int]$this.Id].Attrs $a }
@@ -66,7 +75,7 @@ function New-FakeDevice {
 
 function New-FakeSheet {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
         GetName = { param($a) return $global:F.Sheets[[int]$this.Id].Name }
         GetFormat = { param($a) return $global:F.Sheets[[int]$this.Id].Format }
         GetDrawingArea = { param($a) $a[0] = 10.0; $a[1] = 10.0; $a[2] = 410.0; $a[3] = 287.0; return 1 }
@@ -100,7 +109,7 @@ function New-FakeSheet {
 
 function New-FakeSymbol {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
         GetSchemaLocation = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = $s.X; $a[1] = $s.Y; if ($a.Length -gt 2) { $a[2] = 5 }; return $s.Sheet }
         GetPinIds = { param($a) $ids = @($global:F.Symbols[[int]$this.Id].Pins); $a[0] = [object[]]$ids; return $ids.Count }
         GetGraphIds = { param($a) $a[0] = [object[]]@(9001, 9002); return 2 }
@@ -125,9 +134,9 @@ function New-FakeJob {
         CreateSheetObject = { param($a) return (New-FakeSheet) }
         CreateDeviceObject = { param($a) return (New-FakeDevice) }
         CreateSymbolObject = { param($a) return (New-FakeSymbol) }
-        CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) $this.Id = $a[0]; return 1 }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
+        CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
         CreateComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 1 }; GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }; Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
-        CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) $this.Id = $a[0]; return 1 }; GetType = { param($a) return 'Line' } }) }
+        CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetType = { param($a) return 'Line' } }) }
         Undo = { param($a) return 1 }
         Save = { param($a) throw 'Save не должен вызываться пробой' }
     })

@@ -260,6 +260,16 @@ function Invoke-Quiet {
     try { return (Invoke-Com -Target $Target -Name $Name -CallArgs $CallArgs -RefIdx $Refs) } catch { return $null }
 }
 
+function Select-Id {
+    # Ставит id в обёртку объекта и подтверждает выбор. E3 на неверный id исключения не бросает: при успехе SetId
+    # возвращает сам id, при неудаче 0, а в обёртке остаётся прежний объект. Поэтому «вызов прошёл» ещё не значит «выбран»;
+    # перед любым Delete проверяем, что вернулся именно этот id.
+    param($Target, $Id)
+    $r = Invoke-Quiet $Target 'SetId' @($Id)
+    if ($null -eq $r -or $null -eq $r.Ret -or $r.Ret -is [bool]) { return $false }
+    try { return ([long]$r.Ret -eq [long]$Id) } catch { return $false }
+}
+
 function Get-QuietValue {
     param($Target, [string]$Name, [object[]]$CallArgs = @())
     $r = Invoke-Quiet $Target $Name $CallArgs

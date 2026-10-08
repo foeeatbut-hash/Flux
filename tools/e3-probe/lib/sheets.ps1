@@ -180,7 +180,7 @@ function Remove-Sheet {
     param($Id, [string]$Op = 'sheets.delete')
     $sh = $script:Objects['Sheet']
     # Если id не встал в обёртку, Delete ударил бы по листу, выбранному раньше (возможно, настоящему).
-    if ($null -eq (Use-Sheet $Id)) { Write-Human ('! Лист ' + $Id + ' выбрать не удалось — не удаляем, чтобы не задеть чужой.') 'Yellow'; return $false }
+    if (-not (Select-Id $sh $Id)) { Write-Human ('! Лист ' + $Id + ' выбрать не удалось — не удаляем, чтобы не задеть чужой.') 'Yellow'; return $false }
     $r = Try-Calls -Op $Op -Target $sh -TL 'sheet' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
     if (-not $r.Ok) { $r = Try-Calls -Op $Op -Target $script:Job -TL 'job' -Cands @((Cand 'DeleteSheet' @($Id)), (Cand 'RemoveSheet' @($Id))) -First }
     return $r.Ok
