@@ -75,13 +75,57 @@
       "sources": [
         "src/screens/E3FluxScreen.tsx",
         "src/components/e3flux/E3ProjectTable.tsx",
+        "src/components/e3flux/E3SolutionsTab.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "src/components/e3flux/E3SolutionDialog.tsx",
+        "src/components/e3flux/E3SolutionsImport.tsx",
+        "src/components/e3flux/E3FeaturesPanel.tsx",
+        "src/components/e3flux/E3RulesPanel.tsx",
+        "src/components/e3flux/E3DictionaryPanel.tsx",
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "src/components/e3flux/E3SelectionDialog.tsx",
+        "src/components/e3flux/E3ProfileForm.tsx",
+        "src/components/e3flux/useSolutionBook.ts",
+        "src/components/e3flux/e3SolutionText.ts",
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "src/components/e3flux/E3SchemeList.tsx",
+        "src/components/e3flux/E3SchemeCanvas.tsx",
+        "src/components/e3flux/E3SchemeCard.tsx",
+        "src/components/e3flux/E3ClassMapPanel.tsx",
+        "src/components/e3flux/useSchemeData.ts",
+        "src/components/e3flux/useSchemeState.ts",
+        "src/components/e3flux/E3PlanQuestions.tsx",
+        "src/components/equipment/E3SchemeLine.tsx",
+        "server/e3Impact.ts",
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "src/components/e3flux/E3ExportBar.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportPlan.ts",
+        "e3/exportCompare.ts",
+        "e3/exportRun.ts",
+        "e3/exportTypes.ts",
+        "e3/fakeBridge.ts",
+        "src/services/e3ExportService.ts",
+        "server/routes/e3Exports.ts",
+        "server/e3ExportStore.ts",
+        "e3/layout.ts",
+        "e3/nodeState.ts",
+        "e3/bridgeTypes.ts",
+        "e3/sheetFormats.ts",
         "src/components/catalog/E3AttributesPanel.tsx",
         "src/components/catalog/E3AttributeDialog.tsx",
         "src/components/catalog/E3AttributesImport.tsx",
         "e3/attributes.ts",
         "e3/attributeWorkbook.ts",
+        "e3/solutions.ts",
+        "e3/solutionSelect.ts",
+        "e3/solutionWorkbook.ts",
+        "e3/solutionTypes.ts",
         "src/lib/e3Table.ts",
-        "server/routes/e3Attributes.ts"
+        "src/lib/e3Positions.ts",
+        "src/services/e3SolutionsService.ts",
+        "server/routes/e3Attributes.ts",
+        "server/routes/e3Solutions.ts"
       ]
     },
     {
@@ -171,6 +215,24 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-e3-attribute-upload",
+      "path": "scripts/test-e3-attribute-upload.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-identity",
+      "path": "scripts/test-equipment-identity.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-export-builder",
       "path": "scripts/test-export-builder.ts",
       "layer": "unit",
@@ -218,6 +280,69 @@
     {
       "id": "eng-e3-attributes-http",
       "path": "scripts/test-e3-attributes-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-solutions",
+      "path": "scripts/test-e3-solutions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-solutions-http",
+      "path": "scripts/test-e3-solutions-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-layout",
+      "path": "scripts/test-e3-layout.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export",
+      "path": "scripts/test-e3-export.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export-http",
+      "path": "scripts/test-e3-export-http.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-export-cases",
+      "path": "scripts/test-e3-export-cases.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-e3-impact",
+      "path": "scripts/test-e3-impact.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -1953,6 +2078,635 @@
         {
           "layer": "browser-live",
           "scenario": "В E3Flux на проекте с оборудованием скачать Excel и открыть книгу.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.import-solutions",
+      "program": "e3flux",
+      "label": "Загрузить классификатор типовых решений из Excel",
+      "sources": [
+        "src/components/e3flux/E3SolutionsImport.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "server/routes/e3Solutions.ts",
+        "e3/solutions.ts"
+      ],
+      "triggers": [
+        "header button",
+        "file picker"
+      ],
+      "risk": "normal",
+      "expected": [
+        "План показывает новые, изменённые, правленые вручную и отсутствующие решения до записи; запись и отмена загрузки целиком."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Разбор листов владельца, план и применение загрузки сохраняют правленое в каталоге."
+          ]
+        },
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись каталога проверяет версию и права, снимает состояние до записи и откатывает его."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux на вкладке «Типовые решения» загрузить классификатор из Excel, проверить план, записать и отменить загрузку.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-solution",
+      "program": "e3flux",
+      "label": "Править или добавить типовое решение",
+      "sources": [
+        "src/components/e3flux/E3SolutionDialog.tsx",
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click",
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Поля, ответы на признаки и «подтверждено» сохраняются у одного решения; правка полей файла закрывает решение от перезаписи загрузкой."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Правка одного решения отклоняется при устаревшей версии и при отсутствии права."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть решение, сменить ответ на признак, сохранить, открыть снова; добавить решение вручную.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.download-solutions",
+      "program": "e3flux",
+      "label": "Скачать каталог типовых решений в Excel",
+      "sources": [
+        "src/components/e3flux/E3SolutionsPanel.tsx",
+        "e3/solutionWorkbook.ts"
+      ],
+      "triggers": [
+        "header button",
+        "download"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Книга того же вида, что файл классификатора, плюс столбец на каждый признак и лист «Обозначения»; загруженная обратно, даёт те же решения."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Круг «выгрузил → загрузил»: решения, ответы на признаки и словарь сохраняются."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux скачать каталог и загрузить скачанный файл обратно: план должен показать «без изменений».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-features",
+      "program": "e3flux",
+      "label": "Править признаки, правила и обозначения каталога",
+      "sources": [
+        "src/components/e3flux/E3FeaturesPanel.tsx",
+        "src/components/e3flux/E3RulesPanel.tsx",
+        "src/components/e3flux/E3DictionaryPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click",
+        "header button",
+        "confirm dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Признак, правило или обозначение сохраняются отдельной записью по версии каталога; удаление признака убирает его правила."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Проверка входных данных признаков, правил и словаря отсекает негодное."
+          ]
+        },
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись признака, правила и словаря идёт по версии каталога."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Изменить варианты ответа признака, добавить правило и обозначение, удалить правило.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.select-by-project",
+      "program": "e3flux",
+      "label": "Подобрать типовые решения по позициям проекта",
+      "sources": [
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "src/components/e3flux/E3SelectionDialog.tsx",
+        "e3/solutionSelect.ts",
+        "src/lib/e3Positions.ts"
+      ],
+      "triggers": [
+        "filter control",
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Каждой позиции показано подобранное решение, «нужен ответ» или «решения нет»; карточка называет признак, на который нет ответа."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions",
+          "layer": "unit",
+          "claims": [
+            "Подбор по ответам ОВ, профилю и раскладке: одно решение, несколько кандидатов, ближайшие при отсутствии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть «Подбор по проекту» на проекте с оборудованием, найти позицию со статусом «нужен ответ» и открыть её карточку.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-profile",
+      "program": "e3flux",
+      "label": "Задать профиль автоматизации проекта",
+      "sources": [
+        "src/components/e3flux/E3ProfileForm.tsx",
+        "src/components/e3flux/E3SelectionPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "save button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Ответы профиля сразу пересчитывают подбор и записываются по версии профиля, отдельной от версии каталога."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Профиль проекта доступен только участнику проекта и пишется по своей версии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выбрать способ пуска в профиле, убедиться, что статусы позиций поменялись, сохранить и открыть заново.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-layout",
+      "program": "e3flux",
+      "label": "Разложить узлы установки на листе по ходу воздуха",
+      "sources": [
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "src/components/e3flux/E3SchemeCanvas.tsx",
+        "e3/layout.ts",
+        "e3/sheetFormats.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Узлы встают слева направо по порядку состава, вытяжка идёт обратно, общие узлы стоят между линиями; блоки, поставленные руками, остаются на месте; координаты на сетке."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-layout",
+          "layer": "unit",
+          "claims": [
+            "Порядок, начало и конец, две линии, общие узлы, шаг по габаритам, неподвижные блоки, сетка и переполнение."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В E3Flux на вкладке «Схема» нажать «Разложить», перетащить блок и нажать «Разложить» ещё раз: перетащенный блок не двигается.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-list",
+      "program": "e3flux",
+      "label": "Выбрать узлы схемы и посмотреть их состояние",
+      "sources": [
+        "src/components/e3flux/E3SchemeList.tsx",
+        "src/components/e3flux/E3SchemeCard.tsx",
+        "e3/nodeState.ts"
+      ],
+      "triggers": [
+        "search field",
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "У каждого узла виден знак состояния и подобранное решение; флажок снимает узел с раскладки; карточка называет решение, признаки с источником и атрибуты с «Да»."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-layout",
+          "layer": "unit",
+          "claims": [
+            "Состояние узла: не в схеме, нужен ответ, нельзя выгрузить, в схеме, изменился, снят, правлен в E3."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Найти узел по тегу, снять флажок, открыть карточку узла.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-export-disabled",
+      "program": "e3flux",
+      "label": "Выгрузка в E3 и демонстрация закрыты без настольной версии",
+      "sources": [
+        "src/components/e3flux/E3SchemeTab.tsx",
+        "e3/bridgeTypes.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В браузере и пока нет моста кнопки «Демонстрация» и «Выгрузить в E3.series» неактивны, а шапка объясняет причину."
+      ],
+      "checks": [
+
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В браузере открыть «Схема»: кнопки неактивны, подсказка называет настольную версию.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.edit-classmap",
+      "program": "e3flux",
+      "label": "Связать типы Flux с классами классификатора",
+      "sources": [
+        "src/components/e3flux/E3ClassMapPanel.tsx",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "row click"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Список классов типа сохраняется по версии каталога; тип без классов в схему не входит."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Запись связи типов с классами идёт по версии каталога и права правки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть тип «Вентилятор», снять класс, сохранить и открыть «Подбор по проекту».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export",
+      "program": "e3flux",
+      "label": "Выгрузить узлы схемы в проект E3 по плану",
+      "sources": [
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportPlan.ts",
+        "e3/exportCompare.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "header button",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Сначала план: ошибки блокируют, предупреждения нет, сводка «поставить / обновить / заменить / удалить»; запись по шагам с журналом; связи пишутся вместе с итогом."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export",
+          "layer": "unit",
+          "claims": [
+            "Проверки плана, порядок шагов, сравнение трёх сторон (С1, С2, С5, С7, С10, С16), выгрузка на подставном мосте."
+          ]
+        },
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Состояния выгрузки идут вперёд, DONE принимается только при всех шагах, связи пишутся с итогом."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме с подставным мостом (FLUX_E3_FAKE=1) открыть «Схема», нажать «Выгрузить в E3.series», проверить план, выгрузить: узлы получают знак ●.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export-resume",
+      "program": "e3flux",
+      "label": "Продолжить или убрать прерванную выгрузку",
+      "sources": [
+        "src/components/e3flux/E3ExportBar.tsx",
+        "src/components/e3flux/useE3Export.ts",
+        "e3/exportRun.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "toolbar button",
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Прерванная выгрузка показывает «сделано N из M»; продолжение выполняет только оставшиеся шаги без дублей; «убрать сделанное» снимает блоки этой выгрузки, которых не трогали, и называет тронутые."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export",
+          "layer": "unit",
+          "claims": [
+            "Обрыв и продолжение без дублей; «убрать сделанное» оставляет блоки с проводами, сдвинутые и правленые."
+          ]
+        },
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Продолжение отдаёт невыполненные шаги; отмена снимает связи только этой выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме выбрать «обрыв на шаге 3», выгрузить, затем «Продолжить»: в подставном E3 нет дублей блоков.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.export-queue",
+      "program": "e3flux",
+      "label": "Подождать, пока в проект E3 идёт другая выгрузка",
+      "sources": [
+        "src/components/e3flux/useE3Export.ts",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "header button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Вторая выгрузка в тот же проект E3 получает «занято» и ждёт; брошенная выгрузка не держит проект дольше десяти минут."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "С18: вторая выгрузка ждёт первую; брошенная RUNNING освобождает проект."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запустить выгрузку в одном окне и вторую в другом: вторая сообщает, что идёт другая выгрузка, и ждёт.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.resolve-reexport",
+      "program": "e3flux",
+      "label": "Решить спорные случаи повторной выгрузки в окне плана",
+      "sources": [
+        "src/components/e3flux/E3PlanQuestions.tsx",
+        "src/components/e3flux/E3ExportDialog.tsx",
+        "e3/exportCompare.ts",
+        "e3/exportPlan.ts"
+      ],
+      "triggers": [
+        "confirm dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Спорное (правка в E3, снятая позиция, удалённый блок, копия блока, копия проекта, подбор по новым правилам) показано вопросом с умолчанием из таблицы 9.3; ответ пересчитывает план."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-cases",
+          "layer": "unit",
+          "claims": [
+            "Случаи С3, С4, С6, С8, С9, С11–С15, С17, С19, С20 на подставном мосте: умолчание и ответ инженера."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В dev-режиме выгрузить узел, удалить блок в подставном E3 и открыть план: появляется вопрос «удалён в E3» с вариантами.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "e3flux.scheme-saved",
+      "program": "e3flux",
+      "label": "Раскладка схемы хранится за проектом",
+      "sources": [
+        "src/components/e3flux/useSchemeState.ts",
+        "server/routes/e3Solutions.ts"
+      ],
+      "triggers": [
+        "toolbar button"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Положение блоков, формат листа и снятые флажки записываются на сервер по версии; без права e3.export запись закрыта."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-solutions-http",
+          "layer": "unit",
+          "claims": [
+            "Раскладка и профиль проекта пишутся только с правом e3.export и по версии."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Передвинуть блок, закрыть и открыть E3Flux на другом компьютере: блок стоит там же.",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.in-scheme-e3",
+      "program": "e3flux",
+      "label": "Строка «В схеме E3» в карточке позиции",
+      "sources": [
+        "src/components/equipment/E3SchemeLine.tsx",
+        "server/routes/e3Exports.ts"
+      ],
+      "triggers": [
+        "row action"
+      ],
+      "risk": "normal",
+      "expected": [
+        "У выгруженной позиции видны проект E3, лист и обозначение; «изменилась после выгрузки» — по версии позиции; строка открывает E3Flux на этой позиции; в истории — «Выгружена в E3»."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-export-http",
+          "layer": "unit",
+          "claims": [
+            "Сводка связей и записи журнала и истории после выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Выгрузить узел, открыть позицию в Оборудовании, нажать строку «В схеме E3».",
+          "expected": [
+            "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.import-in-scheme-warning",
+      "program": "e3flux",
+      "label": "Предупреждение и уведомление о позициях, уже стоящих в схеме КИП",
+      "sources": [
+        "server/e3Impact.ts",
+        "server/equipmentPlan.ts",
+        "server/equipmentImport.ts"
+      ],
+      "triggers": [
+        "file picker"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр импорта говорит «N позиций уже в схеме КИП»; после записи тому, кто выгружал, уходит одно уведомление на ввоз."
+      ],
+      "checks": [
+        {
+          "suite": "eng-e3-impact",
+          "layer": "unit",
+          "claims": [
+            "Подсчёт позиций в схеме и одно уведомление на ввоз автору выгрузки."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Загрузить расчёт, меняющий выгруженную позицию: в предпросмотре предупреждение, после записи у КИП уведомление.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
           ]

@@ -7,6 +7,8 @@ import {
 import { rememberImport } from '../lib/lastImport';
 import TagLinksPanel, { type TagLink, writtenAs } from './import/TagLinksPanel';
 import UnknownKinds from './import/UnknownKinds';
+import InSchemeNotice from './import/InSchemeNotice';
+import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -36,16 +38,26 @@ interface PlanBlock {
   sourceOrder?: number; tagNotes?: TagEvidence[];
   /** `note` — позиции нет в расчёте, её завело примечание */
   sourceKind?: string;
+  /** Запись проекта, в которую лягут данные; пусто — позиция получит новый ID */
+  elementId?: string;
+  matchedBy?: 'tag' | 'address' | 'moved';
+  replacesId?: string;
 }
 interface PlanSystem {
   name: string; title: string; action: 'create' | 'match'; matchedName?: string;
   /** Обозначение исправлено при разборе: опечатка раскладки */
   nameFix?: { from: string; what: string };
+  /** Установка переименована: прежнее имя; ID остаётся прежним */
+  renamedFrom?: string;
 }
 interface ImportPlan {
   systems: PlanSystem[]; blocks: PlanBlock[]; tagLinks?: TagLink[];
+  /** Спорные позиции и установки: строки с вариантами, решает инженер */
+  matches?: MatchRow[]; systemRows?: SystemRow[]; missing?: MissingRow[];
+  /** Сколько затрагиваемых позиций уже стоит в схеме КИП (предупреждение, не запрет) */
+  inScheme?: { count: number; bySystem: Record<string, number> };
   unknownKinds?: string[];
-  totals: { systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
+  totals: { removed?: number; restored?: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
 type Edits = Record<string, Record<string, string>>; // blockKey → "группа‖ключ" → значение
@@ -88,39 +100,50 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   // Второй шаг предпросмотра: что сделать с технологическими позициями бланка
   const [tagLinks, setTagLinks] = useState<TagLink[]>([]);
   const [showTags, setShowTags] = useState(false);
+  // Спорные позиции: переехавшие, переподобранные, переименованные установки
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [showMatches, setShowMatches] = useState(false);
 
   const fileId = fileIds[idx];
   const queueLength = draft ? 1 : fileIds.length;
 
-  const loadPlan = async (currentEdits: Edits) => {
+  /** `keep` — перестроить план после выбора варианта, не сбрасывая решения по тегам и выбранный блок */
+  const loadPlan = async (currentEdits: Edits, currentChoices: Record<string, string> = {}, keep = false) => {
     setLoading(true); setError('');
     try {
       const r = draft
         ? await fetch('/api/equipment/import-draft-plan', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ units: draft.units, category, projectId, edits: currentEdits }),
+            body: JSON.stringify({ units: draft.units, fileName: draft.fileName, category, projectId, edits: currentEdits, choices: currentChoices }),
           })
         : await fetch('/api/equipment/import-plan', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileId, category, projectId, edits: currentEdits }),
+            body: JSON.stringify({ fileId, category, projectId, edits: currentEdits, choices: currentChoices }),
           });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Не удалось построить план'); setPlan(null); }
       else {
         setPlan(d.plan); setFileName(draft ? draft.fileName : d.fileName);
-        setActiveBlock(d.plan.blocks[0]?.key || null);
-        setTagLinks(d.plan.tagLinks || []);
+        if (!keep) {
+          setActiveBlock(d.plan.blocks[0]?.key || null);
+          setTagLinks(d.plan.tagLinks || []);
+        }
       }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { setExcluded(new Set()); setEdits({}); setShowTags(false); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
+  useEffect(() => { setExcluded(new Set()); setEdits({}); setChoices({}); setShowTags(false); setShowMatches(false); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
 
   const titleOfBlock = (key: string) => {
     const b = plan?.blocks.find(x => x.key === key);
     if (!b) return key;
     return b.itemCode === '__unit__' ? 'параметры установки' : (b.title || b.itemCode);
+  };
+  const pickMatch = (key: string, value: string) => {
+    const next = { ...choices, [key]: value };
+    setChoices(next);
+    loadPlan(edits, next, true);
   };
   const setTagAction = (i: number, action: TagLink['action']) =>
     setTagLinks(list => list.map((l, j) => (j === i ? { ...l, action } : l)));
@@ -225,12 +248,12 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               units: draft.units, fileName: draft.fileName,
-              category, projectId, edits, selection, tagLinks: chosenTags,
+              category, projectId, edits, selection, tagLinks: chosenTags, choices,
             }),
           })
         : await fetch('/api/equipment/import-to-category', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags }),
+            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags, choices }),
           });
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
@@ -277,6 +300,11 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   };
 
   const t = plan?.totals;
+  // «Будет снято» — только по установкам, где выбран хотя бы один блок: у целиком снятой с выбора записи не меняется
+  const liveSystems = new Set((plan?.blocks || []).filter(b => !excluded.has(b.key)).map(b => b.systemName));
+  const missingShown = (plan?.missing || []).filter(m => liveSystems.has(m.systemName));
+  const removing = missingShown.filter(m => (choices[m.key] ?? (m.remove ? 'remove' : 'keep')) === 'remove').length;
+  const matchCount = (plan?.matches?.length || 0) + (plan?.systemRows?.length || 0) + missingShown.length;
 
   return (
     <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
@@ -310,14 +338,26 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               <Chip color="emerald" label={`+${t!.newBlocks} новых`} />
               <Chip color="amber" label={`${t!.updatedBlocks} изменится`} />
               <Chip color="slate" label={`${t!.unchangedBlocks} без изменений`} />
+              {removing > 0 && <Chip color="amber" label={`будет снято: ${removing}`} />}
+              {(t!.restored || 0) > 0 && <Chip color="emerald" label={`вернётся в расчёт: ${t!.restored}`} />}
               {t!.conflicts > 0 && <Chip color="amber" label={`${t!.conflicts} расхождений значений`} />}
               {t!.overrides > 0 && <Chip color="rose" label={`затронет ручных правок: ${t!.overrides}`} />}
               {t!.warnings > 0 && <Chip color="rose" label={`⚠ проверьте: ${t!.warnings}`} />}
               <span className="flex-1" />
+              {matchCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setShowMatches(v => !v); setShowTags(false); }}
+                  title="Позиции, которые переехали, переподобраны или стали другим изделием: решите, чья это запись"
+                  className="fx-btn fx-btn-sm"
+                >
+                  {showMatches ? '← к параметрам' : `Спорные позиции: ${matchCount}`}
+                </button>
+              )}
               {tagLinks.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setShowTags(v => !v)}
+                  onClick={() => { setShowTags(v => !v); setShowMatches(false); }}
                   title="Технологические позиции бланка: привязать к существующим тегам или завести новые"
                   className="fx-btn fx-btn-sm"
                 >
@@ -326,11 +366,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
               )}
             </div>
 
+            {plan.inScheme && plan.inScheme.count > 0 && <InSchemeNotice inScheme={plan.inScheme} />}
+
             {(plan.unknownKinds || []).length > 0 && (
               <UnknownKinds kinds={plan.unknownKinds || []} onSaved={() => loadPlan(edits)} />
             )}
 
-            <div className={`flex-1 min-h-0 flex ${showTags ? 'hidden' : ''}`}>
+            <div className={`flex-1 min-h-0 flex ${showTags || showMatches ? 'hidden' : ''}`}>
               {/* Дерево */}
               <div className="w-80 xl:w-96 shrink-0 border-r border-slate-200 dark:border-slate-800 overflow-auto p-2">
                 {[...grouped.entries()].map(([sys, rows]) => {
@@ -356,7 +398,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                         )}
                         {s?.action === 'create'
                           ? <span className="text-xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-medium whitespace-nowrap shrink-0">новая</span>
-                          : <span className="text-xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-medium whitespace-nowrap shrink-0" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
+                          : <span className="text-xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-medium whitespace-nowrap shrink-0" title={s?.renamedFrom ? `переименована, прежнее имя «${s.renamedFrom}», ID прежний` : s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>{s?.renamedFrom ? 'переименована' : 'есть'}</span>}
                       </div>
                       {!collapsed[sys] && rows.map(({ b, depth }) => {
                         const ba = actionBadge(b.action);
@@ -484,6 +526,13 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                 ) : <div className="text-sm text-slate-400 text-center py-12">Выберите блок в дереве слева</div>}
               </div>
             </div>
+
+            {/* Спорные позиции: чья это запись в проекте */}
+            {showMatches && (
+              <div className="flex-1 min-h-0 flex">
+                <MatchPanel matches={plan.matches || []} missing={missingShown} systemRows={plan.systemRows || []} choices={choices} onChange={pickMatch} />
+              </div>
+            )}
 
             {/* Второй шаг: технологические позиции бланка */}
             {showTags && (

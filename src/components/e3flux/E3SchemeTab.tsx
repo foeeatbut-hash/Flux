@@ -1,0 +1,187 @@
+/**
+ * Вкладка «Схема» (docs/e3-integration.md, раздел 6): слева что выгружать,
+ * в середине холст листа, справа свойства выбранного. Шапка (6.1) показывает
+ * связь с E3: в браузере и без моста выгрузка и демонстрация закрыты с
+ * объяснением, а подбор и раскладка работают. Положение блоков хранится на
+ * сервере за проектом (см. useSchemeState). Выгрузка идёт через план: спорное
+ * (9.3) инженер решает в окне плана, остальное действует по умолчанию.
+ */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { LayoutGrid } from 'lucide-react';
+import { LINK_TEXT, type E3LinkState } from '../../../e3/bridgeTypes';
+import { checkPlacements, layoutUnits, type LayoutUnit } from '../../../e3/layout';
+import { SHEET_SIZES, defaultOccupied, sheetFor } from '../../../e3/sheetFormats';
+import { Btn, Empty, Select, Seg, Status, Toolbar } from '../ui';
+import E3ExportBar from './E3ExportBar';
+import E3ExportDialog, { type RunView } from './E3ExportDialog';
+import { useStore } from '../../store/store';
+import { can } from '../../lib/permissions';
+import E3SchemeCanvas from './E3SchemeCanvas';
+import E3SchemeCard from './E3SchemeCard';
+import E3SchemeList, { profileLine } from './E3SchemeList';
+import { useSchemeData } from './useSchemeData';
+import { E3_FAKE, fakeBridge, prepare, replan, resumeExport, runExport, undoExport, type Prepared } from './useE3Export';
+import { e3ExportService } from '../../services/e3ExportService';
+import { useToastStore } from '../../store/toastStore';
+import { useSchemeState, type Placed } from './useSchemeState';
+
+const muted = 'text-slate-500 dark:text-slate-400';
+const linkState = (): E3LinkState => (typeof window !== 'undefined' && (window as any).electron ? 'no-bridge' : 'browser');
+
+export default function E3SchemeTab({ projectId, onOpenProfile, focusId = '' }: { projectId: string; onOpenProfile: () => void; focusId?: string }) {
+  // Знак ⇄: правили ли значения в E3 после выгрузки — это известно только мосту, поэтому набор приходит отдельно
+  const [edited, setEdited] = useState<ReadonlySet<string>>(new Set());
+  const data = useSchemeData(projectId, edited);
+  const user = useStore((s) => s.user);
+  const mayEdit = can(user as any, 'e3.export');
+  const { saved, update, ready } = useSchemeState(projectId, mayEdit);
+  const [selected, setSelected] = useState(focusId);
+  const [zoom, setZoom] = useState<'fit' | 'big'>('fit');
+  const link = linkState();
+  const say = useToastStore((s) => s.addToast);
+  const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const [runView, setRunView] = useState<RunView>({ phase: 'plan', done: 0, total: 0, text: '' });
+  const [exportError, setExportError] = useState('');
+  const [working, setWorking] = useState(false);
+  useEffect(() => { if (focusId) setSelected(focusId); }, [focusId]);
+  const fake = E3_FAKE && data.book ? fakeBridge(projectId, data.book.solutions.filter((s) => !s.removed).map((s) => s.name)) : null;
+  const interrupted = data.exports[0]?.state === 'INTERRUPTED' ? data.exports[0] : null;
+  // «Вписать»: масштаб по ширине области холста, а не фиксированный — окно программы двигают и растягивают
+  const box = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBoxW(el.clientWidth));
+    ro.observe(el); setBoxW(el.clientWidth);
+    return () => ro.disconnect();
+  }, [data.loading]);
+  const sheet = useMemo(() => sheetFor(saved?.format || ''), [saved?.format]);
+  const occupied = useMemo(() => defaultOccupied(sheet), [sheet]);
+  const off = saved?.off || {};
+  const units = useMemo(() => data.units, [data.units]);
+  const nodes = useMemo(() => units.flatMap((u) => u.nodes), [units]);
+  const placed = saved?.placed || {};
+
+  /** Раскладка по ходу воздуха: отмеченные узлы; поставленное руками остаётся на месте */
+  const arrange = React.useCallback((keep: Record<string, Placed>, format: string) => {
+    const sh = sheetFor(format);
+    const input: LayoutUnit[] = units.filter((u) => u.id !== '__removed').map((u) => ({
+      id: u.id, name: u.name,
+      nodes: u.nodes.filter((n) => !off[n.id]).map((n) => ({ id: n.id, cls: n.cls, name: n.name, order: n.order, twoLevel: n.twoLevel, hasLeft: n.hasLeft, ...(keep[n.id]?.manual ? { manual: keep[n.id].rect } : {}) })),
+    })).filter((u) => u.nodes.length);
+    const res = layoutUnits(input, { sheet: sh, occupied: defaultOccupied(sh) });
+    const next: Record<string, Placed> = {};
+    for (const u of res.units) for (const p of u.placements) next[p.id] = { rect: p.rect, manual: !!p.manual };
+    return next;
+  }, [units, off]);
+
+  // Первое открытие проекта: сразу раскладываем, чтобы холст не был пустым
+  React.useEffect(() => {
+    if (ready && !data.loading && nodes.length && !Object.keys(placed).length) update((s) => ({ ...s, placed: arrange({}, s.format) }));
+  }, [ready, data.loading, nodes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ⇄: сравнить значения в подставном E3 с отправленными (настоящий мост даст то же через readBound)
+  useEffect(() => {
+    if (!fake || !data.bindings.length) { setEdited(new Set()); return; }
+    let alive = true;
+    fake.readBound().then((bound) => {
+      const by = new Map(bound.map((b) => [b.positionId, b]));
+      const ids = data.bindings.filter((b) => b.state === 'PLACED' && by.get(b.elementId)?.attrs && Object.entries(b.sentAttrs).some(([k, v]) => by.get(b.elementId)!.attrs![k] !== undefined && by.get(b.elementId)!.attrs![k] !== v)).map((b) => b.elementId);
+      if (alive) setEdited(new Set(ids));
+    });
+    return () => { alive = false; };
+  }, [fake, data.bindings, data.exports]);
+
+  // Снятые с выгрузки узлы на холсте не показываются и проблемой не считаются
+  const problems = useMemo(() => new Set(checkPlacements(Object.entries(placed).filter(([id]) => !off[id]).map(([id, p]) => ({ id, rect: p.rect })), sheet, occupied)), [placed, sheet, occupied, off]);
+  const shown = units.map((u) => ({ ...u, nodes: u.nodes.filter((n) => !off[n.id]) }));
+  const node = nodes.find((n) => n.id === selected) || null;
+
+  const move = (ids: string[], dx: number, dy: number, group: boolean) => update((s) => {
+    const p = { ...s.placed };
+    for (const id of ids) if (p[id]) p[id] = { rect: { ...p[id].rect, x: p[id].rect.x + dx, y: p[id].rect.y + dy }, manual: group ? p[id].manual : true };
+    return { ...s, placed: p };
+  });
+
+  const failure = (e: any) => { setExportError(e?.message || 'Не удалось выполнить'); say(e?.message || 'Не удалось выполнить', 'error'); };
+  const progress = (done: number, total: number, text: string) => setRunView({ phase: 'running', done, total, text });
+  const finish = (r: { state: 'DONE' | 'INTERRUPTED'; error?: string }, total: number) => {
+    setRunView((v) => ({ phase: 'done', done: r.state === 'DONE' ? total : v.done, total, text: '', state: r.state, ...(r.error ? { error: r.error } : {}) }));
+    data.reloadBindings();
+  };
+  const nodesNow = () => nodes;
+
+  /** Кнопка «Выгрузить»: сначала план, а не запись */
+  const openPlan = async () => {
+    if (!fake) return;
+    setExportError(''); setWorking(true);
+    try {
+      setPrepared(await prepare(fake, projectId, nodesNow(), off, placed, data.e3, data.exports.length, data.book!.version));
+      setRunView({ phase: 'plan', done: 0, total: 0, text: '' });
+    } catch (e) { failure(e); } finally { setWorking(false); }
+  };
+  const doRun = async () => {
+    if (!fake || !prepared) return;
+    setExportError(''); progress(0, prepared.plan.steps.length, '');
+    try { finish(await runExport(fake, projectId, data.e3, prepared, nodes, progress, data.book!.version, data.profile), prepared.plan.steps.length); }
+    catch (e) { failure(e); setRunView({ phase: 'plan', done: 0, total: 0, text: '' }); data.reloadBindings(); }
+  };
+  const doResume = async () => {
+    if (!fake || !interrupted) return;
+    setWorking(true); setExportError('');
+    try {
+      const full = await e3ExportService.get(interrupted.id);
+      setPrepared({ decisions: {}, bindings: [], plan: { questions: [], errors: [], warnings: [], actions: [], steps: full.plan.steps, summary: (full.plan as any).summary || { place: 0, update: 0, replace: 0, remove: 0, skipped: 0 } }, nodes: [], ctx: null as any, bound: [], key: '', runId: '', sheet: full.sheet });
+      progress(interrupted.done, interrupted.steps, '');
+      finish(await resumeExport(fake, full, nodes, off, placed, progress), interrupted.steps);
+    } catch (e) { failure(e); } finally { setWorking(false); }
+  };
+  const doUndo = async () => {
+    if (!fake || !interrupted) return;
+    setWorking(true);
+    try {
+      const r = await undoExport(fake, await e3ExportService.get(interrupted.id), nodes);
+      say(`Убрано из E3: ${r.removed.length}${r.kept.length ? `, оставлено: ${r.kept.length} (${r.kept.map((k) => `${k.positionId} — ${k.reason}`).join('; ')})` : ''}`, 'success');
+      data.reloadBindings();
+    } catch (e) { failure(e); } finally { setWorking(false); }
+  };
+
+  if (data.error) return <div className="p-4"><Empty title="Схема недоступна" text={data.error} /></div>;
+  if (data.loading) return <div role="status" className={`p-4 text-sm ${muted}`}>Подготовка данных проекта…</div>;
+  if (!data.book!.solutions.some((s) => !s.removed)) return <div className="p-4"><Empty title="Каталог типовых решений пуст" text="Сначала загрузите «Классификатор типовых решений» из Excel на вкладке «Типовые решения»." /></div>;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <Toolbar>
+        {fake ? <Status tone="emerald" title="Подставной мост: проект E3 живёт в памяти страницы (dev-режим)">Подставной E3 · {fake.options.projectName} · {fake.options.sheet}</Status>
+          : <Status tone="slate" title="Связь с E3.series">{LINK_TEXT[link]}</Status>}
+        <div className="ml-auto flex items-center gap-2">
+          <Btn tone="ghost" disabled title={fake ? 'Демонстрация — следующий этап' : 'Нужна настольная версия Flux на компьютере с E3.series'}>Демонстрация</Btn>
+          <Btn tone="primary" disabled={!fake || working || !nodes.length || !mayEdit} onClick={() => void openPlan()} title={!fake ? 'Нужна настольная версия Flux на компьютере с E3.series' : !mayEdit ? 'Нужно право «Выгрузка в E3.series»' : 'Показать план выгрузки в подставной E3'}>Выгрузить в E3.series</Btn>
+        </div>
+      </Toolbar>
+      <E3ExportBar interrupted={interrupted} fake={fake} busy={working} onResume={() => void doResume()} onUndo={() => void doUndo()} />
+      <div className="flex min-h-0 flex-1">
+        <E3SchemeList units={units} skipped={data.skipped} off={off} selected={selected} onSelect={setSelected} onOpenProfile={onOpenProfile}
+          profile={data.book ? profileLine(data.book, data.profile) : ''}
+          onToggle={(ids, on) => update((s) => { const o = { ...s.off }; for (const id of ids) { if (on) delete o[id]; else o[id] = true; } return { ...s, off: o }; })} />
+        <div className="flex min-w-0 flex-1 flex-col border-l border-slate-200 dark:border-slate-800">
+          <Toolbar>
+            <Btn tone="ghost" onClick={() => update((s) => ({ ...s, placed: arrange(s.placed, s.format) }))} title="Расставить по ходу воздуха; блоки, поставленные руками, не двигаются"><LayoutGrid className="w-3.5 h-3.5" /> Разложить</Btn>
+            <Select value={sheet.format} onChange={(v) => update((s) => ({ ...s, format: v, placed: arrange(s.placed, v) }))} aria-label="Формат листа" className="w-auto" options={Object.keys(SHEET_SIZES).map((f) => ({ value: f, label: `Лист ${f}` }))} />
+            <Seg label="Масштаб" value={zoom} onChange={setZoom} options={[{ value: 'fit', label: 'вписать' }, { value: 'big', label: 'крупно' }]} />
+            <span className={`ml-auto text-xs ${problems.size ? 'text-rose-600 dark:text-rose-400' : muted}`}>{problems.size ? `Не помещается: ${problems.size} — сдвиньте блоки или смените формат` : 'Всё помещается'}</span>
+          </Toolbar>
+          <div ref={box} className="min-h-0 flex-1 overflow-auto p-3">
+            {!nodes.length ? <Empty title="Узлов нет" text="В проекте нет оборудования, для которого есть типовые решения." /> : (
+              <E3SchemeCanvas sheet={sheet} occupied={occupied} placed={placed} units={shown} selected={selected} problems={problems} scale={zoom === 'big' ? 3 : Math.max(0.5, (boxW - 26) / sheet.size.w || 1.3)} onSelect={setSelected} onMove={move} />
+            )}
+          </div>
+        </div>
+        {prepared && <E3ExportDialog prepared={prepared} view={runView} error={exportError} onDecide={(id, v) => setPrepared((p) => (p ? replan(p, { ...p.decisions, [id]: v }) : p))} onRun={() => void doRun()} onClose={() => { setPrepared(null); setExportError(''); }} />}
+        <E3SchemeCard node={node} features={data.book!.features} attrs={data.attrs!} problem={!!node && problems.has(node.id)} />
+      </div>
+    </div>
+  );
+}

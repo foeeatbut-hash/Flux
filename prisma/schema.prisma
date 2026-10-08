@@ -2092,3 +2092,72 @@ model OfficeHolder {
   version   Int       @default(0)
   updatedAt DateTime  @default(now())
 }
+
+/// Проект E3.series, связанный с проектом Flux (docs/e3-integration.md, 9.1).
+/// Ключ — атрибут `FLUX_PROJECT` в самом проекте E3: путь к файлу меняется при
+/// копировании и переносе, а атрибут переезжает вместе с проектом
+model E3Project {
+  id           String   @id @default(uuid())
+  fluxProjectId String
+  /// Значение FLUX_PROJECT (uuid связи)
+  key          String
+  name         String   @default("")
+  path         String   @default("")
+  e3Version    String   @default("")
+  partsDb      String   @default("")
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([fluxProjectId, key])
+  @@index([fluxProjectId])
+}
+
+/// Одна выгрузка в проект E3: план, журнал шагов и итог. Состояния:
+/// PLANNED, RUNNING, DONE, INTERRUPTED, UNDONE. Две выгрузки в один проект E3
+/// одновременно не идут: вторая ждёт, пока у первой RUNNING (случай С18)
+model E3Export {
+  id                String   @id @default(uuid())
+  e3ProjectId       String
+  sheet             String   @default("")
+  by                String?
+  at                DateTime @default(now())
+  /// Последняя запись о ходе: по ней зависшую RUNNING отличают от идущей
+  updatedAt         DateTime @default(now())
+  state             String   @default("PLANNED")
+  classifierVersion Int      @default(0)
+  profileJson       String   @default("{}")
+  planJson          String   @default("{}")
+  /// Журнал шагов: `[{i, ok, message}]`, по нему продолжают и откатывают
+  journalJson       String   @default("[]")
+  reportJson        String   @default("{}")
+
+  @@index([e3ProjectId])
+}
+
+/// Что Flux отправил в E3 по одному узлу: «отправлено» из трёх сторон сравнения
+/// (9.2). Уникально по узлу в проекте E3: одна позиция может стоять в нескольких
+/// проектах E3, и у каждого своя связь
+model E3Binding {
+  id            String   @id @default(uuid())
+  e3ProjectId   String
+  /// ID узла Flux
+  elementId     String
+  solutionId    String   @default("")
+  answersJson   String   @default("{}")
+  manualSolution Boolean @default(false)
+  designation   String   @default("")
+  sheet         String   @default("")
+  x             Float    @default(0)
+  y             Float    @default(0)
+  rotation      Float    @default(0)
+  sentVersion   String   @default("")
+  sentAttrsJson String   @default("{}")
+  overridesJson String   @default("{}")
+  /// PLACED | REMOVED_IN_FLUX | DELETED_IN_E3 | DETACHED
+  state         String   @default("PLACED")
+  lastExportId  String   @default("")
+  updatedAt     DateTime @default(now())
+
+  @@unique([e3ProjectId, elementId])
+  @@index([e3ProjectId])
+}

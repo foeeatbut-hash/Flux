@@ -125,10 +125,22 @@ function normCode(s: string): string {
  * появлялась новая.
  */
 export function matchSystem<T extends { name: string }>(existing: T[], name: string): { system: T | null; how: 'exact' | 'similar' | 'none' } {
-  const exact = existing.find(s => s.name === name);
-  if (exact) return { system: exact, how: 'exact' };
+  const { hits, how } = matchSystems(existing, name);
+  return { system: hits[0] || null, how };
+}
+
+/**
+ * Все установки, подходящие под имя, а не первая.
+ *
+ * В одной категории бывает две с одинаковым именем (разные файлы, Д5), и
+ * «первая найденная» сливала их в одну. Порядок и состав те же, что у
+ * `matchSystem`: точные, а если их нет — те же без опечаток раскладки.
+ */
+export function matchSystems<T extends { name: string }>(existing: T[], name: string): { hits: T[]; how: 'exact' | 'similar' | 'none' } {
+  const exact = existing.filter(s => s.name === name);
+  if (exact.length) return { hits: exact, how: 'exact' };
   const key = similarityKeyOf(name);
-  const similar = existing.find(s => similarityKeyOf(s.name) === key)
-    || existing.find(s => normCode(s.name) === normCode(name));
-  return similar ? { system: similar, how: 'similar' } : { system: null, how: 'none' };
+  const byKey = existing.filter(s => similarityKeyOf(s.name) === key);
+  const similar = byKey.length ? byKey : existing.filter(s => normCode(s.name) === normCode(name));
+  return similar.length ? { hits: similar, how: 'similar' } : { hits: [], how: 'none' };
 }

@@ -14,6 +14,9 @@ import { testCredentials } from './testCredentials';
  * Запуск (нужен поднятый сервер):  npx tsx scripts/test-design-live.ts
  * SHOTS=1 — снимки окон в /tmp/flux-design; THEME=dark — тёмная тема;
  * ONLY=/logs,/users — только эти разделы.
+ * CLICK="Типовые решения,Подбор по проекту" — после перехода нажать эти вкладки и
+ * пункты левого списка по порядку: у раздела с вложенными вкладками меряется
+ * не первая из них (снимок получает суффикс по последнему нажатому).
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
@@ -21,6 +24,7 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome
 const THEME = process.env.THEME === 'dark' ? 'dark' : 'light';
 const SHOTS = process.env.SHOTS === '1' ? `/tmp/flux-design/${THEME}` : '';
 const ONLY = (process.env.ONLY || '').split(',').filter(Boolean);
+const CLICK = (process.env.CLICK || '').split(',').map((t) => t.trim()).filter(Boolean);
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -117,8 +121,14 @@ const PROBE = String.raw`(() => {
         await page.evaluate((p: string) => { window.location.hash = '#' + p; }, path);
       }
       await page.waitForTimeout(3500);
+      if (ONLY.length) {
+        for (const label of CLICK) {
+          await page.click(`[role="tab"]:has-text("${label}"), nav button:has-text("${label}")`);
+          await page.waitForTimeout(2500);
+        }
+      }
       const p: any = await page.evaluate(PROBE);
-      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}.png` });
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${path.replace(/\W/g, '') || 'home'}${CLICK.length ? '-' + CLICK[CLICK.length - 1].replace(/\s+/g, '_') : ''}.png` });
       ok(`${name}: текста весом 700 нет`, p.bold.length === 0, p.bold.slice(0, 4));
       ok(`${name}: мельче 12 px текста нет`, p.small.length === 0, p.small.slice(0, 4));
       ok(`${name}: заглавных нет`, p.upper.length === 0, p.upper.slice(0, 4));

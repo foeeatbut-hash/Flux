@@ -54,6 +54,11 @@ import ImportOperations, { type OperationBatch } from '../components/equipment/I
 import { useShallow } from 'zustand/react/shallow';
 const api = (p: string) => `/api${p}`;
 
+/** Строка истории «Выгружена в E3: проект, лист, обозначение» (docs/e3-integration.md, 8.3) */
+function e3ExportWords(raw: unknown): string {
+  try { const e = JSON.parse(String(raw || '{}')).e3 || {}; return `Выгружена в E3: ${[e.project, e.sheet, e.designation].filter(Boolean).join(', ')}`; } catch (_) { return 'Выгружена в E3'; }
+}
+
 export default function Equipment() {
   const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
@@ -99,7 +104,7 @@ export default function Equipment() {
     if (!pid) { setSystems([]); return; }
     setLoading(true);
     try {
-      const r = await fetch(api(`/projects/${pid}/systems`)); const d = await r.json();
+      const r = await fetch(api(`/projects/${pid}/systems?removed=1`)); const d = await r.json();
       setSystems(d.systems || []);
     } catch (_) { setSystems([]); }
     finally { setLoading(false); }
@@ -145,8 +150,20 @@ export default function Equipment() {
   // ── Производные данные ──
   // Установки категории — по алфавиту тега, естественно: B01 раньше B05, а
   // «001B» после «001A». Раньше шли в порядке ввоза, и найти нужную было нельзя
-  const catSystems = useMemo(() => systems.filter(s => s.category === activeCat)
-    .sort((a, b) => compareTags(a.name, b.name)), [systems, activeCat]);
+  // Снятые позиции (пропали из расчёта или заменены) скрыты, пока не включён
+  // переключатель: действующее оборудование не должно тонуть в снятом
+  const [showRemoved, setShowRemoved] = useState(() => {
+    try { return localStorage.getItem('flux_equip_removed') === '1'; } catch (_) { return false; }
+  });
+  const chooseShowRemoved = (v: boolean) => {
+    setShowRemoved(v);
+    try { localStorage.setItem('flux_equip_removed', v ? '1' : '0'); } catch (_) { /* приватный режим */ }
+  };
+  const inCat = useMemo(() => systems.filter(s => s.category === activeCat), [systems, activeCat]);
+  const removedCount = useMemo(() => inCat.reduce((n, s) => n + s.monoblocks.reduce((m, mb) => m + mb.components.filter(c => c.status === 'REMOVED').length, 0), 0), [inCat]);
+  const catSystems = useMemo(() => inCat
+    .map(s => (showRemoved ? s : { ...s, monoblocks: s.monoblocks.map(mb => ({ ...mb, components: mb.components.filter(c => c.status !== 'REMOVED') })) }))
+    .sort((a, b) => compareTags(a.name, b.name)), [inCat, showRemoved]);
 
   const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
@@ -577,6 +594,9 @@ export default function Equipment() {
         onAddPosition={(c) => addInside(c as any)}
         onAddToMonoblock={(mb, u) => setAddTo({ monoblockId: mb.id, name: mb.name, parentTag: compositionOf(u.monoblocks.flatMap(m => m.components) as any, u.name).unitTag })}
         types={types}
+        removedCount={removedCount}
+        showRemoved={showRemoved}
+        onShowRemoved={chooseShowRemoved}
         mode={treeMode}
         onMode={chooseTreeMode}
         onOpenList={() => setListMode(true)}
@@ -658,7 +678,7 @@ export default function Equipment() {
               {historyData.map((h: any) => (
                 <div key={h.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
                   <div className="font-medium text-slate-500">v{h.version} · {new Date(h.changedAt).toLocaleString('ru-RU')}</div>
-                  <div className="text-slate-400 mt-0.5">{h.changeType}</div>
+                  <div className="text-slate-400 mt-0.5">{h.changeType === 'E3_EXPORT' ? e3ExportWords(h.newSpecs) : h.changeType}</div>
                 </div>
               ))}
             </div>

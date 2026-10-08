@@ -85,6 +85,7 @@ export function registerImportJobRoutes(app: Express): void {
           tagLinks: cleanTagLinks(f?.tagLinks),
           selection: Array.isArray(f?.selection) ? f.selection.map(String).slice(0, DRAFT_LIMITS.blocks * 10) : null,
           edits: f?.edits && typeof f.edits === 'object' ? f.edits : undefined,
+          choices: f?.choices,
         };
         const fileId = String(f?.fileId || '').trim();
         if (fileId) return { ...common, fileId: fileId.slice(0, 64) };

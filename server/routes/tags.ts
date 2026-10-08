@@ -10,6 +10,7 @@ import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
+import { withBump, bumpElementsOfTags } from '../equipmentVersion.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure } from '../tagWrite.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted,
@@ -53,7 +54,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         equipment: true,
         componentElements: {
           select: {
-            id: true, name: true, itemCode: true, equipType: true,
+            id: true, name: true, itemCode: true, equipType: true, status: true,
             monoblock: { select: { system: { select: { id: true, name: true, category: true } } } },
           },
         },
@@ -345,6 +346,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         // Коды читаем до удаления: после него записать в историю, что именно
         // удалено, было бы нечем
         const going = await prisma.tag.findMany({ where: { id: { in: ids }, projectId }, select: { id: true, identifier: true } });
+        await bumpElementsOfTags(prisma, going.map((g: any) => g.id));
         const r = await prisma.tag.deleteMany({ where: { id: { in: ids }, projectId } });
         deleted = r.count;
         for (const g of going) history.push(deletedSet(g));
@@ -531,12 +533,17 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         projectId = firstProject.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
+      // Снятые позиции (`REMOVED`) отдаются только тому, кто просит: у остальных
+      // потребителей установка — это действующее оборудование. Дерево
+      // «Оборудования» просит их за переключателем «показать снятые»
+      const withRemoved = req.query.removed === '1';
       const systems = await prisma.equipmentSystem.findMany({
         where: { projectId },
         include: {
           monoblocks: {
             include: {
               components: {
+                ...(withRemoved ? {} : { where: { status: { not: 'REMOVED' } } }),
                 include: {
                   tags: true
                 }
@@ -586,11 +593,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       }
       const component = await prisma.componentElement.update({
         where: { id: componentId },
-        data: {
+        data: withBump({
           tags: {
             connect: { id: tagId }
           }
-        },
+        }),
         include: { tags: true }
       });
       res.json({ component });
@@ -606,11 +613,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     try {
       const component = await prisma.componentElement.update({
         where: { id: componentId },
-        data: {
+        data: withBump({
           tags: {
             disconnect: { id: tagId }
           }
-        },
+        }),
         include: { tags: true }
       });
       res.json({ component });
@@ -625,6 +632,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     try {
       const gone = await prisma.tag.findUnique({ where: { id: req.params.id } });
       if (!gone) return res.status(404).json({ error: 'Тег не найден' });
+      await bumpElementsOfTags(prisma, [gone.id]);
       await prisma.tag.delete({ where: { id: req.params.id } });
       // История удалённого тега остаётся: таблица с тегом не связана
       await recordTagDeleted(prisma, tagChangeContext(req, gone.projectId, TAG_SOURCE.tags), gone);

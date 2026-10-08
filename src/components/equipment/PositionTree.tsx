@@ -3,6 +3,7 @@ import {
   AlertTriangle, Boxes, ChevronDown, ChevronRight, Eye, Layers, List, Plus, RefreshCw, Trash2,
 } from 'lucide-react';
 import { canDelete } from '../../lib/equipmentDelete';
+import { Switch } from '../ui';
 import { compareTags } from '../../../equipment/notes';
 import { roleTitle } from '../../../equipment/roles';
 import { classById, classOrder, classTitle, type Classified } from '../../../equipment/classes';
@@ -44,6 +45,8 @@ export interface TreeComponent {
   manual?: boolean;
   sourceOrder?: number | null;
   sourceKind?: string | null;
+  /** REMOVED — позиция снята: пропала из расчёта или заменена другой */
+  status?: string;
 }
 export interface TreeMonoblock { id: string; name: string; components: TreeComponent[] }
 export interface TreeUnit { id: string; name: string; category: string; monoblocks: TreeMonoblock[] }
@@ -70,6 +73,10 @@ interface Props {
   onOpenList?: () => void;
   onOpenView?: () => void;
   onPickTag?: (c: TreeComponent) => void;
+  /** Снятые позиции: сколько их и показывать ли (по умолчанию скрыты) */
+  removedCount?: number;
+  showRemoved?: boolean;
+  onShowRemoved?: (v: boolean) => void;
   /** Завести позицию верхнего уровня в моноблоке */
   onAddToMonoblock?: (mb: TreeMonoblock, unit: TreeUnit) => void;
 }
@@ -145,6 +152,7 @@ export default function PositionTree({
   title, units, loading, conflicts, expanded, selectedUnitId, selectedBlockId,
   onToggle, onPickUnit, onPickBlock, onReload, onDeleteUnit, onDeleteComponent, onAddPosition,
   types, mode = 'composition', onMode, onOpenList, onOpenView, onPickTag, onAddToMonoblock,
+  removedCount = 0, showRemoved = false, onShowRemoved,
 }: Props) {
   // Меню правой кнопки: у курсора, закрывается щелчком мимо и Esc
   const [menu, setMenu] = React.useState<{ x: number; y: number; c: TreeComponent } | null>(null);
@@ -194,12 +202,17 @@ export default function PositionTree({
             нужны оба */}
         <span className="min-w-0 flex-1 flex flex-col">
           {/* Две строки, а не многоточие: марка — это и есть то, что отличает позиции */}
-          <span className="text-xs break-words line-clamp-2" title={label || blockLabel(c)}>{label || blockLabel(c)}</span>
-          {(firstTag(c) || sub) && (
+          <span className={`text-xs break-words line-clamp-2 ${c.status === 'REMOVED' ? 'text-slate-400 dark:text-slate-500' : ''}`} title={label || blockLabel(c)}>{label || blockLabel(c)}</span>
+          {(firstTag(c) || sub || c.status === 'REMOVED') && (
             <span className="text-2xs truncate">
-              {firstTag(c) && <span className="font-mono text-emerald-700 dark:text-emerald-400 u-sel">{firstTag(c)}</span>}
+              {firstTag(c) && <span className={`font-mono u-sel ${c.status === 'REMOVED' ? 'text-slate-400 dark:text-slate-500' : 'text-emerald-700 dark:text-emerald-400'}`}>{firstTag(c)}</span>}
               {firstTag(c) && sub ? <span className="text-slate-400"> · </span> : null}
               {sub && <span className="text-slate-400">{sub}</span>}
+              {c.status === 'REMOVED' && (
+                <span className="text-slate-400" title="Позиции нет в расчёте или её заменили; запись, тег и история сохранены">
+                  {firstTag(c) || sub ? ' · ' : ''}снята
+                </span>
+              )}
             </span>
           )}
         </span>
@@ -262,6 +275,12 @@ export default function PositionTree({
             <button type="button" aria-pressed={mode === 'composition'} onClick={() => onMode('composition')}>по составу</button>
             <button type="button" aria-pressed={mode === 'type'} onClick={() => onMode('type')}>по типу</button>
           </div>
+        </div>
+      )}
+      {onShowRemoved && (removedCount > 0 || showRemoved) && (
+        <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400">Показать снятые <span className="tabular-nums">· {removedCount}</span></span>
+          <Switch checked={showRemoved} onChange={onShowRemoved} label="Показать снятые позиции" />
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">

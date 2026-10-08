@@ -29,6 +29,7 @@ import { getPrisma, onDatabaseSwapped } from './context.js';
 import { ensureTables, type TableSpec } from './ddl.js';
 import { importEquipmentToDB } from './equipmentImport.js';
 import { applyEdits, filterBySelection, planEquipmentImport, type EditMap } from './equipmentPlan.js';
+import { cleanChoices } from './equipmentResolve.js';
 import { readEquipmentFile } from './equipmentFile.js';
 import type { TagLink } from './equipmentTags.js';
 
@@ -114,6 +115,8 @@ export interface QueuedFile {
   tagLinks?: TagLink[];
   selection?: string[] | null;
   edits?: EditMap;
+  /** Решения инженера по спорным строкам плана (переехавшие, переименованные установки) */
+  choices?: Record<string, string>;
 }
 
 export interface QueueResult {
@@ -156,6 +159,7 @@ export async function queueImport(
             tagLinks: file.tagLinks || [],
             selection: file.selection ?? null,
             edits: file.edits || {},
+            choices: cleanChoices(file.choices),
           }),
           idemKey,
           createdById: createdById || null,
@@ -244,7 +248,7 @@ export async function drainImportJobs(): Promise<number> {
           // Решения по тегам берутся из плана как есть: человека у экрана нет,
           // и спросить его некого. Занятый тег план не перевешивает — это его
           // же правило, и здесь оно работает ровно так же
-          const plan = await planEquipmentImport(prisma, job.projectId, job.category, { units });
+          const plan = await planEquipmentImport(prisma, job.projectId, job.category, { units }, { fileName: job.fileName });
           tagLinks = plan.tagLinks;
         }
 
@@ -256,6 +260,7 @@ export async function drainImportJobs(): Promise<number> {
         const summary = await importEquipmentToDB(
           prisma, job.projectId, job.category, job.fileName,
           result, 'wait', tagLinks, { userId: job.createdById },
+          { choices: cleanChoices(payload.choices), full: edited, removeMissing: !!payload.fileId },
         );
         await prisma.importJob.update({
           where: { id: job.id },

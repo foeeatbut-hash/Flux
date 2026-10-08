@@ -63,6 +63,7 @@ export const TAG_FIELD_LABEL: Record<string, string> = {
   wbs: 'WBS',
   fluid: 'Среда',
   equipmentId: 'Оборудование',
+  equipmentElement: 'Позиция оборудования',
   mainName: 'Наименование',
   actuality: 'Актуальность',
   descriptions: 'Комментарии',
