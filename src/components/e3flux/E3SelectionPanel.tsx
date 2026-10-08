@@ -6,8 +6,9 @@
  * видны одной строкой внизу.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { buildRecipe } from '../../../e3/recipe';
 import { selectSolution } from '../../../e3/solutionSelect';
-import type { E3Profile, E3Selection, E3SolutionBook } from '../../../e3/solutionTypes';
+import type { E3Position, E3Profile, E3Selection, E3SolutionBook } from '../../../e3/solutionTypes';
 import { classById, classOrder } from '../../../equipment/classes';
 import { e3SolutionsService as svc, E3SolutionVersionError, type E3ProfileDoc } from '../../services/e3SolutionsService';
 import { buildExportSources, type ExportSystem } from '../../lib/exportWorkspace';
@@ -22,6 +23,8 @@ import { solutionLine } from './e3SolutionText';
 
 const muted = 'text-slate-500 dark:text-slate-400';
 const SHOWN = 500;
+/** Позиция подбора; соседи нужны составу блока: подпозиции ищутся по тегу владельца */
+interface Row { id: string; label: string; cls: string; selection: E3Selection; position: E3Position; siblings: E3Position[] }
 type View = 'all' | 'one' | 'many' | 'none';
 const STATE = {
   one: { tone: 'emerald', text: 'Подобрано' }, many: { tone: 'amber', text: 'Нужен ответ' }, none: { tone: 'rose', text: 'Решения нет' },
@@ -58,18 +61,18 @@ export default function E3SelectionPanel({ book, projectId }: { book: E3Solution
 
   // Подпозиции ищутся среди соседей по тегу владельца: берём позиции одной установки, а не всего проекта
   const rows = useMemo(() => {
-    if (!book || !systems) return { list: [] as { id: string; label: string; cls: string; selection: E3Selection }[], skipped: 0 };
+    if (!book || !systems) return { list: [] as Row[], skipped: 0 };
     const items = sources.rows(scope);
     const bySystem = new Map<string, typeof items>();
     for (const it of items) bySystem.set(it.systemName, [...(bySystem.get(it.systemName) || []), it]);
-    const list: { id: string; label: string; cls: string; selection: E3Selection }[] = [];
+    const list: Row[] = [];
     let skipped = 0;
     for (const group of bySystem.values()) {
       const positions = toPositions(group);
       group.forEach((it, i) => {
         const p = positions[i];
         if (!(book.classMap[p.cls] || []).length) { skipped++; return; }
-        list.push({ id: `${it.id}:${i}`, label: (it.tags || [])[0]?.identifier || String(it.name || ''), cls: p.cls, selection: selectSolution(p, positions, book, draft) });
+        list.push({ id: `${it.id}:${i}`, label: (it.tags || [])[0]?.identifier || String(it.name || ''), cls: p.cls, selection: selectSolution(p, positions, book, draft), position: p, siblings: positions });
       });
     }
     list.sort((a, b) => classOrder(a.cls) - classOrder(b.cls) || a.label.localeCompare(b.label, 'ru', { numeric: true }));
@@ -142,7 +145,8 @@ export default function E3SelectionPanel({ book, projectId }: { book: E3Solution
           </div>}
         </div>
       </div>
-      {opened && <E3SelectionDialog label={opened.label} cls={opened.cls} selection={opened.selection} features={book.features} onClose={() => setOpen('')} />}
+      {opened && <E3SelectionDialog label={opened.label} cls={opened.cls} selection={opened.selection} features={book.features}
+        recipe={opened.selection.status === 'one' ? buildRecipe(opened.selection, opened.position, opened.siblings, book) : undefined} onClose={() => setOpen('')} />}
     </div>
   );
 }

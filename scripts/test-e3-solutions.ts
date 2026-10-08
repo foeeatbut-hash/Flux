@@ -12,8 +12,8 @@
 import * as XLSX from 'xlsx';
 import {
   parseSolutionSheet, parseDictionarySheet, suggestFeatures, planSolutions, applySolutionPlan, mergeDictionary, selectSolution, emptySolutionBook,
-  sanitizeFeature, sanitizeRule, sanitizeProfile, sanitizeDictionary, sanitizeClassMap, validateSolutions,
-  DEFAULT_FEATURES, DEFAULT_RULES, type E3Position, type E3Solution, type E3SolutionBook, type E3Profile,
+  sanitizeFeature, sanitizeRule, sanitizeProfile, sanitizeDictionary, sanitizeClassMap, validateSolutions, planMissingDefaults, applyMissingDefaults,
+  DEFAULT_FEATURES, DEFAULT_RULES, DEFAULT_IO_RULES, DEFAULT_CLASS_MAP, type E3Position, type E3Solution, type E3SolutionBook, type E3Profile,
 } from '../e3/solutions';
 import { solutionRows, solutionWorkbookBytes, CLASSIFIER_HEADERS, CLASSIFIER_SHEET } from '../e3/solutionWorkbook';
 
@@ -226,6 +226,149 @@ console.log('Подбор решения для позиции');
   eq('обычный двигатель: класс «Вентилятор»', plain.answers[0], { feature: '@class', value: 'Вентилятор', from: 'ov' });
 }
 
+console.log('Новые классы: признаки из названий');
+{
+  const ctx = { features: DEFAULT_FEATURES, dictionary: {} };
+  const f = (mainClass: string, name: string, subclass = '') => suggestFeatures({ mainClass, name, subclass }, ctx);
+  const ONE = { 'sensor.temp': '1', 'sensor.press': 'нет', 'sensor.humid': 'нет' };
+  eq('датчик: один температуры', f('Датчики', 'Д_Т_1_шт').features, ONE);
+  eq('датчики: два вида по одному', f('Датчики', 'Д_Т_1_шт_Д_В_1_шт').features, { 'sensor.temp': '1', 'sensor.humid': '1', 'sensor.press': 'нет' });
+  eq('датчики: давление и влажность', f('Датчики', 'Д_Д_1_шт_Д_В_1_шт').features, { 'sensor.press': '1', 'sensor.humid': '1', 'sensor.temp': 'нет' });
+  eq('датчики: разобрано уверенно', [f('Датчики', 'Д_Т_1_шт_Д_Д_1_шт').confirmed, f('Датчики', 'Д_Т_1_шт_Д_Д_1_шт').unknown], [true, []]);
+  eq('датчики: незнакомый хвост — «не разобрано»', f('Датчики', 'Д_Т_1_шт_Д_Х_1_шт').unknown.length > 0, true);
+
+  eq('узел регулирующий: схема и типоразмер', f('Узел регулирующий', 'УР_ВЕКТОР_4ПГ_4ПУ_1_5').features, { 'wss.scheme': '4', 'wss.size': '1-5' });
+  eq('узел регулирующий: «ПГ/ПУ» и диапазон 6–11', f('Узел регулирующий', 'УР_ВЕКТОР_5ПГ/ПУ_6_11').features, { 'wss.scheme': '5', 'wss.size': '6-11' });
+  eq('узел регулирующий: без диапазона — «любой»', f('Узел регулирующий', 'УР_ВЕКТОР_6ПГ/ПУ').features, { 'wss.scheme': '6', 'wss.size': 'любой' });
+  eq('узел регулирующий: разобрано уверенно', f('Узел регулирующий', 'УР_ВЕКТОР_4ПГ/ПУ_6_11').confirmed, true);
+
+  eq('начало: двухуровневое приточно-вытяжное с рекуперацией', f('Начало установки', 'Начало_2УР_ПВ_Р').features, { 'begin.levels': '2УР', 'begin.flow': 'ПВ', 'begin.recup': 'Р', 'begin.inlet': 'нет' });
+  eq('начало: без рекуперации', f('Начало установки', 'Начало_2УР_ПВ_БР').features['begin.recup'], 'БР');
+  eq('начало: раздельный вход', f('Начало установки', 'Начало_2УР_П_РВ').features, { 'begin.levels': '2УР', 'begin.flow': 'П', 'begin.inlet': 'РВ', 'begin.recup': 'нет' });
+  const typo = f('Начало установки', 'Начало_2УР_ПР_ОВ');
+  eq('начало: «ПР» принято за «П» и отдано на подтверждение', [typo.features['begin.flow'], typo.features['begin.inlet'], typo.confirmed, typo.ambiguous[0]?.token], ['П', 'ОВ', false, 'ПР']);
+  eq('начало: одноуровневое — остальное «не указан» / «нет»', f('Начало установки', 'Начало_1УР').features, { 'begin.levels': '1УР', 'begin.flow': 'не указан', 'begin.inlet': 'нет', 'begin.recup': 'нет' });
+  eq('конец: общий выход', f('Конец установки', 'Конец_2УР_П_ОВ').features, { 'end.levels': '2УР', 'end.flow': 'П', 'end.outlet': 'ОВ' });
+  eq('конец: приточно-вытяжной', f('Конец установки', 'Конец_2УР_ПВ').features['end.flow'], 'ПВ');
+  eq('конец: признаки начала сюда не попадают', Object.keys(f('Конец установки', 'Конец_1УР').features).some((k) => k.startsWith('begin.')), false);
+
+  const drive = f('Коробка', 'КОРВ-88 тип 6.1_пружина-2ПК', 'Коробка для подключения привода');
+  eq('коробка привода: назначение из подкласса, пружина и 2ПК из названия', drive.features, { 'box.purpose': 'привод', 'box.drive': 'пружинный', 'box.limit': '2ПК' });
+  eq('коробка привода разобрана без догадок', [drive.confirmed, drive.notInDictionary], [true, []]);
+  eq('коробка: реверсивный', f('Коробка', 'КОРВ-88 тип 6.1_реверсивный-2ПК', 'Коробка для подключения привода').features['box.drive'], 'реверсивный');
+  eq('коробка обогрева и КИП', [f('Коробка', 'КОРВ-74 тип 2.1', 'Силовая коробка для подключения обогрева').features['box.purpose'], f('Коробка', 'КОРВ-85 тип 4.1', 'Коробка КИП').features['box.purpose']], ['обогрев', 'КИП']);
+  eq('коробка: подкласс непонятен — на подтверждение', f('Коробка', 'КОРВ-1', 'Что-то иное').confirmed, false);
+  eq('воздуховод: проходной и пустой', [f('Воздуховод', 'Проходной').features, f('Воздуховод', 'Блок пусто').features], [{ 'duct.kind': 'проходной' }, { 'duct.kind': 'пустой' }]);
+  eq('воздуховод: незнакомое название — на подтверждение', f('Воздуховод', 'Другой').confirmed, false);
+}
+
+console.log('Новые классы: подбор по данным позиции');
+{
+  const sheet: unknown[][] = [HEAD,
+    row('13.01.01', 'Датчики', '1 штука', 'Д_Т', 'Д_Т_1_шт'), row('13.01.03', 'Датчики', '1 штука', 'Д_В', 'Д_В_1_шт'), row('13.01.02', 'Датчики', '1 штука', 'Д_Д', 'Д_Д_1_шт'),
+    row('09.01.01', 'Узел регулирующий', 'Узел', 'УР', 'УР_ВЕКТОР_4ПГ_4ПУ_1_5'), row('09.01.02', 'Узел регулирующий', 'Узел', 'УР', 'УР_ВЕКТОР_4ПГ/ПУ_6_11'), row('09.02.01', 'Узел регулирующий', 'Узел', 'УР', 'УР_ВЕКТОР_6ПГ/ПУ'),
+    row('04.02.01', 'Нагреватель', 'Э', 'Э', 'Нагреватель_Э_3'), row('04.01.01', 'Нагреватель', 'ТО', 'ТО', 'Нагреватель_ТО'),
+    row('05.01.01', 'Теплоутилизатор', 'ТР', 'ТР', 'Теплоутилизатор_ТР_Д'), row('05.01.02', 'Теплоутилизатор', 'ТП', 'ТП', 'Теплоутилизатор_ТП'),
+    row('06.01.01', 'Увлажнители', 'ПУ', 'ПУ', 'Увлажнитель_ПУ_МЕ_В'), row('06.01.02', 'Увлажнители', 'СУ', 'СУ', 'Увлажнитель_СУ'),
+  ];
+  const b2: E3SolutionBook = { ...emptySolutionBook(), solutions: parseSolutionSheet(sheet, { features: DEFAULT_FEATURES, dictionary: {} }).items };
+  const P = (id: string, cls: string, o: { tag?: string; role?: string; parentTag?: string; params?: Record<string, string>; fields?: Record<string, string> } = {}): E3Position => ({
+    id, cls, role: o.role, tag: o.tag, parentTag: o.parentTag, read: (s) => (s.kind === 'param' ? o.params?.[s.name] ?? '' : s.kind === 'field' ? o.fields?.[s.key] ?? '' : ''),
+  });
+  const pick = (pos: E3Position, sib: E3Position[] = [pos], profile: E3Profile = {}, manual?: Record<string, string>) => selectSolution(pos, sib, b2, profile, manual);
+
+  // Датчик — одна позиция Flux, вид говорит, какой он
+  eq('датчик температуры → Д_Т_1_шт', pick(P('s', 'ДАТЧИК', { fields: { kind: 'Температуры' } })).solution?.name, 'Д_Т_1_шт');
+  eq('датчик давления → Д_Д_1_шт', pick(P('s', 'ДАТЧИК', { fields: { kind: 'Давления' } })).solution?.name, 'Д_Д_1_шт');
+  eq('реле перепада — не датчик давления: решения нет', pick(P('s', 'ДАТЧИК', { fields: { kind: 'Реле перепада давления' } })).status, 'none');
+  eq('датчик вида «Влажности», вписанного руками → Д_В_1_шт', pick(P('s', 'ДАТЧИК', { fields: { kind: 'Влажности' } })).solution?.name, 'Д_В_1_шт');
+  const unknown = pick(P('s', 'ДАТЧИК'));
+  eq('вид датчика неизвестен — ни трёх «нет», ни выдумки: подбор просит ответ', [unknown.status, unknown.answers.length], ['many', 0]);
+
+  // Узел регулирующий: «любой» подходит всем типоразмерам
+  const wss = (scheme: string, size: string) => pick(P('w', 'ОБВЯЗКА', { params: { 'Схема обвязки': scheme, 'Типоразмер узла': size } }));
+  eq('схема 4, типоразмер 3 → диапазон 1–5', wss('4', '3').solution?.name, 'УР_ВЕКТОР_4ПГ_4ПУ_1_5');
+  eq('схема 4, типоразмер 8 → диапазон 6–11', wss('4', '8').solution?.name, 'УР_ВЕКТОР_4ПГ/ПУ_6_11');
+  eq('схема 6 подходит любому типоразмеру («любой»)', [wss('6', '3').solution?.name, wss('6', '10').solution?.name], ['УР_ВЕКТОР_6ПГ/ПУ', 'УР_ВЕКТОР_6ПГ/ПУ']);
+
+  // Нагреватель, теплоутилизатор, увлажнитель
+  const heater = (kind: string, groups = '') => pick(P('h', 'НАГРЕВАТЕЛЬ', { fields: { kind }, params: groups ? { 'Группы нагрева': groups } : {} }), undefined, {}, { 'heater.freeze': 'нет', 'heater.thermo': 'нет' });
+  eq('электрический нагреватель, три группы нагрева → Э_3', [heater('Электрический', '3').answers.filter((a) => a.feature === 'heater.type' || a.feature === 'heater.stages').map((a) => a.value), heater('Электрический', '3').solution?.name], [['Э', '3'], 'Нагреватель_Э_3']);
+  eq('жидкостный нагреватель → ТО', heater('Жидкостный').answers.find((a) => a.feature === 'heater.type')?.value, 'ТО');
+  const unit = P('r', 'РЕКУПЕРАТОР', { fields: { kind: 'Роторный' } });
+  eq('роторный рекуператор → ТР', pick(unit, [unit], { 'recup.start': 'нет', 'recup.bypass': 'нет', 'recup.sensor': 'нет', 'recup.pump': 'нет' }, { 'recup.control': 'Д', 'recup.motor_prot': 'нет' }).answers.find((a) => a.feature === 'recup.type')?.value, 'ТР');
+  eq('виды увлажнителя → ПУ, СУ', ['Паровой', 'Сотовый'].map((k) => pick(P('u', 'УВЛАЖНИТЕЛЬ', { fields: { kind: k } })).answers.find((a) => a.feature === 'humid.type')?.value), ['ПУ', 'СУ']);
+
+  // Подпозиции: коробка, оснащение, датчики, модель привода
+  const valve = P('v', 'КЛАПАН', { tag: 'K-1', role: 'БЛОК', fields: { kind: 'С подогревом' } });
+  const box = P('b', 'КОРОБКА', { role: 'КОРОБКА', parentTag: 'K-1' });
+  const epv = P('e', 'ПРИВОД', { role: 'ПРИВОД', parentTag: 'K-1', fields: { model: 'Электропривод ЭПВ24' } });
+  const v1 = pick(valve, [valve, box, epv]);
+  const ans = (r: typeof v1, id: string) => r.answers.find((a) => a.feature === id);
+  eq('клапан: коробка — по подпозиции, обогрев — по виду «С подогревом», ЭПВ — по модели привода', [ans(v1, 'valve.box')?.value, ans(v1, 'valve.heat_valve')?.value, ans(v1, 'valve.epv')?.value], ['К', 'да', 'да']);
+  eq('клапан: две коробки → К2', ans(pick(valve, [valve, box, { ...box, id: 'b2' }]), 'valve.box')?.value, 'К2');
+  const plain = P('v', 'КЛАПАН', { tag: 'K-1', role: 'БЛОК', fields: { kind: 'Воздушный' } });
+  eq('клапан без коробки во Flux: коробки в ответе нет — решит профиль, а не «нет»', [ans(pick(plain), 'valve.box'), ans(pick(plain), 'valve.heat_valve')?.value], [undefined, 'нет']);
+  eq('клапан неизвестного вида: об обогреве не отвечаем', ans(pick(P('v', 'КЛАПАН', { tag: 'K-1', role: 'БЛОК' })), 'valve.heat_valve'), undefined);
+  eq('профиль отвечает про коробку, когда подпозиции нет', ans(pick(plain, [plain], { 'valve.box': 'К' }), 'valve.box'), { feature: 'valve.box', value: 'К', from: 'profile' });
+
+  // Несколько подпозиций одной роли: правило берёт ту, что подошла, а не только первую
+  const fan = P('f', 'ВЕНТИЛЯТОР', { tag: 'F-1', role: 'БЛОК' });
+  const light = P('o1', 'ОСНАЩЕНИЕ', { role: 'ОСНАЩЕНИЕ', parentTag: 'F-1', fields: { kind: 'Светильник с выключателем' } });
+  const service = P('o2', 'ОСНАЩЕНИЕ', { role: 'ОСНАЩЕНИЕ', parentTag: 'F-1', fields: { kind: 'Сервисный выключатель' } });
+  const relay = P('s1', 'ДАТЧИК', { role: 'ДАТЧИК', parentTag: 'F-1', fields: { kind: 'Реле перепада давления' } });
+  const fr = pick(fan, [fan, light, service, relay]);
+  eq('вентилятор: светильник и сервисный выключатель — оба найдены среди оснащения, реле — контроль «Р»', [ans(fr, 'fan.light')?.value, ans(fr, 'fan.service')?.value, ans(fr, 'fan.control')?.value], ['да', 'да', 'Р']);
+  eq('вентилятор без оснащения: ответ даёт профиль', ans(pick(fan, [fan], { 'fan.light': 'нет' }), 'fan.light')?.from, 'profile');
+}
+
+console.log('«Добавить недостающее»');
+{
+  // Книга, собранная до появления новых классов: нет их признаков, правил и правил состава, нет типа КОРОБКА
+  const old = emptySolutionBook();
+  const oldFeatures = DEFAULT_FEATURES.filter((x) => !['Датчики', 'Узел регулирующий', 'Начало установки', 'Конец установки', 'Коробка', 'Воздуховод'].includes(x.mainClass));
+  const sol = (id: string, mainClass: string, name: string, subclass = ''): E3Solution => ({ id, mainClass, subclass, short: '', name, description: '', pdf: '', e3p: '', twoLevel: false, inCad: false, items: '', symbols: '', note: '', features: {}, featuresConfirmed: true });
+  const keepRule = { mainClass: 'Нагреватель', featureId: 'heater.stages', source: { kind: 'param' as const, name: 'Моя характеристика' }, table: [{ when: '1', answer: '1' }] };
+  const book0: E3SolutionBook = {
+    ...old, features: oldFeatures, rules: [keepRule, ...DEFAULT_RULES.filter((r) => r.featureId === 'valve.drive')], ioRules: DEFAULT_IO_RULES.filter((r) => r.mainClass === 'Клапаны'),
+    classMap: { КЛАПАН: ['Клапаны'] },
+    solutions: [sol('13.01.01', 'Датчики', 'Д_Т_1_шт'), sol('11.01.01', 'Начало установки', 'Начало_2УР_ПВ_Р'), { ...sol('10.06.05', 'Коробка', 'КОРВ-88 тип 6.1_Пруж', 'Коробка для подключения привода'), featuresConfirmed: false },
+      { ...sol('08.01.01', 'Клапаны', 'Клапан_К24'), features: { 'valve.drive': 'К' } }],
+  };
+  const plan = planMissingDefaults(book0);
+  eq('в плане признаки шести классов и не больше', [...new Set(plan.features.map((x) => x.mainClass))].sort(), ['Воздуховод', 'Датчики', 'Конец установки', 'Коробка', 'Начало установки', 'Узел регулирующий']);
+  eq('в плане правила состава, кроме клапанных (они есть)', [plan.ioRules.length > 0, plan.ioRules.some((r) => r.mainClass === 'Клапаны')], [true, false]);
+  eq('в плане правила признаков, кроме уже заведённых', [plan.rules.some((r) => r.featureId === 'valve.drive'), plan.rules.some((r) => r.featureId === 'heater.stages')], [false, false]);
+  eq('в плане связь типов, которой не хватает', plan.classMap.sort(), Object.keys(DEFAULT_CLASS_MAP).filter((k) => k !== 'КЛАПАН').sort());
+  eq('решениям новых классов предложены ответы, клапану — нет', plan.filled.map((x) => x.id).sort(), ['10.06.05', '11.01.01', '13.01.01']);
+  const next = { ...book0, ...applyMissingDefaults(book0) };
+  eq('после записи недостающего нет', (({ features, rules, ioRules, classMap, filled }) => [features.length, rules.length, ioRules.length, classMap.length, filled.length])(planMissingDefaults(next)), [0, 0, 0, 0, 0]);
+  eq('своё правило нагревателя не тронуто и не продублировано', next.rules.filter((r) => r.featureId === 'heater.stages' && r.mainClass === 'Нагреватель').map((r) => (r.source as any).name), ['Моя характеристика']);
+  eq('ответы дописаны решению датчиков', next.solutions.find((x) => x.id === '13.01.01')!.features, { 'sensor.temp': '1', 'sensor.press': 'нет', 'sensor.humid': 'нет' });
+  eq('однозначно разобранное подтверждено, неподтверждённое осталось таким', [next.solutions.find((x) => x.id === '13.01.01')!.featuresConfirmed, next.solutions.find((x) => x.id === '10.06.05')!.featuresConfirmed], [true, false]);
+  eq('начало с рекуперацией подтверждено, чужих ответов не затёрто', [next.solutions.find((x) => x.id === '11.01.01')!.features['begin.recup'], next.solutions.find((x) => x.id === '08.01.01')!.features], ['Р', { 'valve.drive': 'К' }]);
+  eq('связь КЛАПАН осталась как была', next.classMap.КЛАПАН, ['Клапаны']);
+  eq('воздуховод без типа Flux', ['КОРОБКА' in next.classMap, Object.values(next.classMap).flat().includes('Воздуховод'), Object.values(DEFAULT_CLASS_MAP).flat().includes('Воздуховод')], [true, false, false]);
+  const edited = { ...book0, solutions: book0.solutions.map((x) => (x.id === '13.01.01' ? { ...x, features: { 'sensor.temp': '2' }, featuresConfirmed: true } : x)) };
+  const keepAnswer = applyMissingDefaults(edited).solutions!.find((x) => x.id === '13.01.01')!;
+  eq('ответ, который человек уже дал, не перезаписывается; дописывается только недостающее', [keepAnswer.features['sensor.temp'], keepAnswer.features['sensor.press']], ['2', 'нет']);
+  eq('снятое решение не трогается', planMissingDefaults({ ...book0, solutions: book0.solutions.map((x) => ({ ...x, removed: true })) }).filled, []);
+  eq('книга уже полная — плана нет', ((m) => m.features.length + m.rules.length + m.ioRules.length + m.classMap.length + m.filled.length)(planMissingDefaults(emptySolutionBook())), 0);
+}
+
+console.log('Правила и признаки согласованы');
+{
+  const ids = new Set(DEFAULT_FEATURES.map((x) => x.id));
+  eq('у каждого стартового правила есть свой признак (кроме выбора класса)', DEFAULT_RULES.filter((r) => r.featureId !== '@class' && !ids.has(r.featureId)).map((r) => r.featureId), []);
+  eq('правило признака — только для класса своего признака', DEFAULT_RULES.filter((r) => r.featureId !== '@class' && DEFAULT_FEATURES.find((x) => x.id === r.featureId)?.mainClass !== r.mainClass).map((r) => r.featureId), []);
+  eq('ответы правил — варианты признака (или «иначе»)', DEFAULT_RULES.flatMap((r) => { const f = DEFAULT_FEATURES.find((x) => x.id === r.featureId); return f ? [...r.table.map((t) => t.answer), ...(r.otherwise ? [r.otherwise] : [])].filter((a) => !f.values.includes(a)).map((a) => `${r.featureId}=${a}`) : []; }), []);
+  eq('у каждого признака один и тот же ключ правила не повторяется', new Set(DEFAULT_RULES.map((r) => `${r.mainClass}|${r.featureId}`)).size, DEFAULT_RULES.length);
+  eq('условия правил состава ссылаются на настоящие признаки своего класса', DEFAULT_IO_RULES.flatMap((r) => r.when.concat(r.count.kind === 'feature' ? [{ feature: r.count.feature, values: [] }] : []).filter((c) => DEFAULT_FEATURES.find((x) => x.id === c.feature)?.mainClass !== r.mainClass).map((c) => `${r.id}:${c.feature}`)), []);
+  eq('значения условий правил состава — варианты признака', DEFAULT_IO_RULES.flatMap((r) => r.when.flatMap((c) => c.values.filter((v) => !DEFAULT_FEATURES.find((x) => x.id === c.feature)?.values.includes(v)).map((v) => `${r.id}:${c.feature}=${v}`))), []);
+  eq('ключи правил состава не повторяются', new Set(DEFAULT_IO_RULES.map((r) => r.id)).size, DEFAULT_IO_RULES.length);
+  eq('связь типов: коробка есть, у воздуховода типа нет', [DEFAULT_CLASS_MAP.КОРОБКА, Object.keys(DEFAULT_CLASS_MAP).includes('ВОЗДУХОВОД')], [['Коробка'], false]);
+}
+
 console.log('Выгрузка в Excel');
 {
   const rows = solutionRows(book);
@@ -271,6 +414,8 @@ console.log('Проверка входных данных');
   eq('решения: длинное поле', 'error' in validateSolutions([{ ...book.solutions[0], note: 'я'.repeat(1001) }]), true);
   eq('решения: признаки не строкой', 'error' in validateSolutions([{ ...book.solutions[0], features: { a: 1 } }]), true);
   eq('решения: хорошие проходят', 'items' in validateSolutions(book.solutions), true);
+  eq('решения: ручной состав проходит и сохраняется', (validateSolutions([{ ...book.solutions[0], recipeOverride: [{ role: 'Привод', row: { name: 'x' }, count: 2 }] }]) as any).items[0].recipeOverride[0].count, 2);
+  eq('решения: негодный ручной состав', 'error' in validateSolutions([{ ...book.solutions[0], recipeOverride: [{ role: '', row: {}, count: 0 }] }]), true);
 }
 
 if (failed) {

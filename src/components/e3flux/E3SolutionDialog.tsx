@@ -3,9 +3,11 @@
  * «подтверждено». Поля из файла после правки здесь помечают решение как
  * правленое — повторная загрузка файла их не перезапишет. Читатель каталога
  * видит те же поля без права менять. Без `solution` — добавление вручную:
- * признаки сервер предложит по названию, подтверждает человек.
+ * признаки сервер предложит по названию, подтверждает человек. Ручной состав
+ * блока (изделия по строкам таблицы IO) сильнее правил состава.
  */
 import React, { useState } from 'react';
+import { parseRecipeLines, recipeLinesText } from '../../../e3/recipe';
 import type { E3Feature, E3Solution } from '../../../e3/solutionTypes';
 import type { E3SolutionPatch } from '../../services/e3SolutionsService';
 import { Area, Btn, Dialog, Field, Input, Select } from '../ui';
@@ -27,6 +29,8 @@ export default function E3SolutionDialog({ solution, classes, features, canEdit,
     items: '', symbols: '', note: '', features: {}, featuresConfirmed: false,
   });
   const set = (p: Partial<E3Solution>) => setDraft((d) => ({ ...d, ...p }));
+  const [recipeText, setRecipeText] = useState(recipeLinesText(solution?.recipeOverride));
+  const recipe = parseRecipeLines(recipeText);
   const mine = features.filter((f) => f.mainClass === draft.mainClass);
   const off = !canEdit || busy;
 
@@ -37,8 +41,9 @@ export default function E3SolutionDialog({ solution, classes, features, canEdit,
     }
     const changed = Object.fromEntries(Object.entries(draft.features).filter(([k, v]) => (solution.features[k] ?? '') !== v));
     if (Object.keys(changed).length) patch.features = changed;
+    if (JSON.stringify(recipe.lines) !== JSON.stringify(solution.recipeOverride || [])) patch.recipeOverride = recipe.lines;
   }
-  const problem = creating && (!id.trim() ? 'Укажите ID решения, например 08.01.39' : !draft.mainClass.trim() ? 'Укажите основной класс' : !draft.name.trim() ? 'Укажите название схемы' : '');
+  const problem = recipe.errors[0] || creating && (!id.trim() ? 'Укажите ID решения, например 08.01.39' : !draft.mainClass.trim() ? 'Укажите основной класс' : !draft.name.trim() ? 'Укажите название схемы' : '');
   const dirty = creating || Object.keys(patch).length > 0;
   // При добавлении уходят только поля файла: признаки предложит сервер, а «правлено» ставит он же
   const { mainClass, subclass, short, name, description, pdf, e3p, twoLevel, inCad, items, symbols, note } = draft;
@@ -91,6 +96,14 @@ export default function E3SolutionDialog({ solution, classes, features, canEdit,
         )}
         <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" className="accent-emerald-600" checked={draft.featuresConfirmed} disabled={off} onChange={(e) => set({ featuresConfirmed: e.target.checked })} />Признаки просмотрены и подтверждены</label>
       </section>}
+      {!creating && <details className="mt-4" open={!!solution?.recipeOverride?.length}>
+        <summary className="cursor-pointer text-xs text-slate-500 dark:text-slate-400">Состав блока вручную{solution?.recipeOverride?.length ? ` · ${solution.recipeOverride.length}` : ''}</summary>
+        <Field label="По строке на изделие: роль | наименование или код:TS | число"
+          hint="Пусто — состав считают правила таблицы IO. Заполнено — берётся только то, что записано здесь. Необязательно: | группа | подпозиция Flux">
+          <Area rows={4} value={recipeText} disabled={off} aria-label="Состав блока вручную" className="font-mono" placeholder="Привод | пружинный, с бк | 2"
+            onChange={(e) => setRecipeText(e.target.value)} />
+        </Field>
+      </details>}
       {creating && <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Признаки Flux предложит по названию схемы — их можно будет просмотреть и подтвердить в карточке.</p>}
       {problem && <p className="fx-hint mt-3">{problem}</p>}
       {error && <p role="alert" className="fx-error mt-3">{error}</p>}

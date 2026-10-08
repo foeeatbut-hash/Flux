@@ -12,8 +12,8 @@
 - [x] 2. e3/recipe.ts (buildRecipe), ioRules/recipeOverride, стартовые правила IO (e3/ioDefaults.ts)
 - [x] 3. Признаки и правила новых классов (solutionDefaults + solutionRules), classMap КОРОБКА, «Добавить недостающее» (e3/solutionMissing.ts)
 - [x] 4. Сервер (PUT io-row, io-rule, defaults/plan|apply), сервис клиента
-- [ ] 5. Интерфейс: раздел «Таблица IO», «Состав блока», ручной состав
-- [ ] 6. Проверки: test-e3-io-table, test-e3-recipe, дополнить test-e3-solutions(-http), tsc, храповик
+- [x] 5. Интерфейс: раздел «Таблица IO» (E3IoPanel, E3IoRowDialog, E3IoRuleDialog), «Состав блока» в E3SelectionDialog, ручной состав в E3SolutionDialog, «Добавить недостающее» в Признаках, чтение листа в E3SolutionsImport
+- [x] 6. Проверки: test-e3-io-table, test-e3-recipe, test-e3-solutions(-http) дополнены, tsc 0, test-architecture проходит
 - [ ] 7. Сухой прогон b.xlsx, снимки, документация (e3flux.md, e3-integration.md)
 
 ## Список признаков без источника во Flux
@@ -27,4 +27,4 @@
 - Наборы: test-e3-io-table, test-e3-recipe, test-e3-solutions проходят.
 
 ## На чём остановился
-Шаги 1–4 закоммичены. Дальше шаг 5 (интерфейс), затем тесты http и сухой прогон.
+Шаги 1–6 сделаны. Дальше шаг 7: сухой прогон b.xlsx (скрипт в scratchpad), снимки Playwright (раздел «Таблица IO», «Состав блока»), документация e3flux.md и e3-integration.md, список признаков без источника.

@@ -58,9 +58,9 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
     setBusy(true); setError('');
     try {
       const parsed = await readSolutionFile(file, book);
-      if (!parsed.items.length) { setError(parsed.issues[0] || 'В файле нет типовых решений'); return; }
+      if (!parsed.items.length && !parsed.ioTable.length) { setError(parsed.issues[0] || 'В файле нет типовых решений и таблицы IO'); return; }
       setDialogError('');
-      setImp({ file: parsed, plan: await svc.plan(parsed.items, parsed.dictionary) });
+      setImp({ file: parsed, plan: await svc.plan(parsed.items, parsed.dictionary, parsed.ioTable) });
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
@@ -68,13 +68,13 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
     if (!imp || !book) return;
     setBusy(true); setDialogError('');
     try {
-      const r = await svc.apply(imp.file.items, imp.file.dictionary, book.version, missing);
+      const r = await svc.apply(imp.file.items, imp.file.dictionary, book.version, missing, imp.file.ioTable);
       setBook(r.book); setImp(null);
       addToast(`Каталог обновлён: ${sols(r.book.solutions.filter((s) => !s.removed).length)}. Загрузку можно отменить.`, 'success');
     } catch (e: any) {
       if (e instanceof E3SolutionVersionError) {
         // Пока читали файл, коллега записал своё: показываем план заново на свежей книге
-        try { await reload(); setImp({ ...imp, plan: await svc.plan(imp.file.items, imp.file.dictionary) }); } catch (_) { /* план останется прежним */ }
+        try { await reload(); setImp({ ...imp, plan: await svc.plan(imp.file.items, imp.file.dictionary, imp.file.ioTable) }); } catch (_) { /* план останется прежним */ }
         setDialogError('Каталог изменён коллегой. План пересчитан по свежему каталогу — проверьте и запишите ещё раз.');
       } else setDialogError(e.message);
     } finally { setBusy(false); }
@@ -160,7 +160,7 @@ export default function E3SolutionsPanel({ state, rights }: { state: SolutionBoo
         </>}
       {editing !== null && book && (editing === '' || editingSolution) && <E3SolutionDialog key={`${editing}:${book.version}`} solution={editingSolution} classes={classes}
         features={book.features} canEdit={rights.edit} busy={busy} error={dialogError} onSave={(p, id) => void save(p, id)} onClose={() => { setEditing(null); setDialogError(''); }} />}
-      {imp && <E3SolutionsImport plan={imp.plan} parseIssues={imp.file.issues} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); }} />}
+      {imp && <E3SolutionsImport plan={imp.plan} parseIssues={imp.file.issues} solutionsInFile={imp.file.items.length > 0} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); }} />}
     </div>
   );
 }

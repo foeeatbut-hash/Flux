@@ -5,17 +5,18 @@
  * карточке решения и в подборе.
  */
 import React, { useState } from 'react';
-import { BookA, Crosshair, Layers, Link2, ListChecks, Workflow, type LucideIcon } from 'lucide-react';
+import { BookA, Cable, Crosshair, Layers, Link2, ListChecks, Workflow, type LucideIcon } from 'lucide-react';
 import NoProject from '../NoProject';
 import E3ClassMapPanel from './E3ClassMapPanel';
 import E3DictionaryPanel from './E3DictionaryPanel';
 import E3FeaturesPanel from './E3FeaturesPanel';
+import E3IoPanel from './E3IoPanel';
 import E3RulesPanel from './E3RulesPanel';
 import E3SelectionPanel from './E3SelectionPanel';
 import E3SolutionsPanel from './E3SolutionsPanel';
 import { useSolutionBook } from './useSolutionBook';
 
-type Part = 'solutions' | 'features' | 'rules' | 'dictionary' | 'classmap' | 'selection';
+type Part = 'solutions' | 'features' | 'rules' | 'io' | 'dictionary' | 'classmap' | 'selection';
 
 export default function E3SolutionsTab({ rights, projectId }: { rights: { edit: boolean; import: boolean }; projectId: string }) {
   const state = useSolutionBook();
@@ -25,6 +26,7 @@ export default function E3SolutionsTab({ rights, projectId }: { rights: { edit: 
     ['solutions', 'Решения', Layers, book?.solutions.filter((s) => !s.removed).length],
     ['features', 'Признаки', ListChecks, book?.features.length],
     ['rules', 'Правила', Workflow, book?.rules.length],
+    ['io', 'Таблица IO', Cable, book?.ioTable?.length],
     ['dictionary', 'Обозначения', BookA, book ? Object.keys(book.dictionary).length : undefined],
     ['classmap', 'Типы и классы', Link2, book ? Object.keys(book.classMap).length : undefined],
     ['selection', 'Подбор по проекту', Crosshair, undefined],
@@ -42,6 +44,7 @@ export default function E3SolutionsTab({ rights, projectId }: { rights: { edit: 
         {part === 'solutions' ? <E3SolutionsPanel state={state} rights={rights} />
           : part === 'features' ? <E3FeaturesPanel state={state} rights={rights} />
           : part === 'rules' ? <E3RulesPanel state={state} rights={rights} />
+          : part === 'io' ? <E3IoPanel state={state} rights={rights} />
           : part === 'dictionary' ? <E3DictionaryPanel state={state} rights={rights} />
           : part === 'classmap' ? <E3ClassMapPanel state={state} rights={rights} />
           : projectId ? <E3SelectionPanel key={projectId} book={book} projectId={projectId} /> : <NoProject what="подбора решений" />}

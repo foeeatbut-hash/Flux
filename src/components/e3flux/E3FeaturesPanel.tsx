@@ -7,7 +7,9 @@
 import React, { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { E3Feature, E3FeatureKind } from '../../../e3/solutionTypes';
+import { missingCount } from '../../../e3/solutionMissing';
 import { e3SolutionsService as svc } from '../../services/e3SolutionsService';
+import { useToastStore } from '../../store/toastStore';
 import { count } from '../../lib/plural';
 import { Area, Btn, Dialog, Empty, Field, Input, SectionHead, Select, Toolbar } from '../ui';
 import { confirmAsk } from '../catalog/ui';
@@ -60,7 +62,8 @@ function FeatureDialog({ feature, classes, canEdit, busy, error, onSave, onDelet
 }
 
 export default function E3FeaturesPanel({ state, rights }: { state: SolutionBookState; rights: { edit: boolean } }) {
-  const { book, error, busy, run } = state;
+  const { book, error, busy, run, setError } = state;
+  const addToast = useToastStore((s) => s.addToast);
   const [cls, setCls] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // '' — новый
   const [dialogError, setDialogError] = useState('');
@@ -72,6 +75,19 @@ export default function E3FeaturesPanel({ state, rights }: { state: SolutionBook
   const close = () => { setEditing(null); setDialogError(''); };
 
   const save = async (f: E3Feature) => { if (await run((v) => svc.saveFeature(f, v), setDialogError)) close(); };
+  /** Стартовые признаки, правила и правила состава, которых в книге нет: сначала план, потом запись; существующее не меняется */
+  const addMissing = async () => {
+    try {
+      const m = await svc.missingDefaults();
+      if (!missingCount(m)) { addToast('Всё стартовое уже есть в каталоге', 'info'); return; }
+      const lines = [
+        m.features.length && `признаков — ${m.features.length}`, m.rules.length && `правил признаков — ${m.rules.length}`, m.ioRules.length && `правил состава блока — ${m.ioRules.length}`,
+        m.classMap.length && `типов в связи с классами — ${m.classMap.length}`, m.filled.length && `решениям будут дописаны ответы на новые признаки — ${m.filled.length}`,
+      ].filter(Boolean).join('; ');
+      if (!(await confirmAsk('Добавить недостающее?', `Будет добавлено: ${lines}. Что в каталоге уже есть и что правили вручную, не меняется.`, { confirmLabel: 'Добавить' }))) return;
+      if (await run((v) => svc.applyMissingDefaults(v))) addToast('Недостающее добавлено в каталог', 'success');
+    } catch (e: any) { setError(e.message); }
+  };
   const remove = async () => {
     if (!editingFeature) return;
     const n = rulesOf(editingFeature.id);
@@ -82,7 +98,10 @@ export default function E3FeaturesPanel({ state, rights }: { state: SolutionBook
   return (
     <div className="fx-page min-w-0">
       <SectionHead title="Признаки" count={features.length ? count(features.length, 'признак', 'признака', 'признаков') : ''}
-        actions={rights.edit && <Btn tone="primary" disabled={busy || !book} onClick={() => { setDialogError(''); setEditing(''); }}><Plus className="w-3.5 h-3.5" /> Добавить признак</Btn>} />
+        actions={rights.edit && <>
+          <Btn tone="ghost" disabled={busy || !book} onClick={() => void addMissing()} title="Дописать стартовые признаки, правила признаков и правила состава блока, которых в каталоге ещё нет">Добавить недостающее</Btn>
+          <Btn tone="primary" disabled={busy || !book} onClick={() => { setDialogError(''); setEditing(''); }}><Plus className="w-3.5 h-3.5" /> Добавить признак</Btn>
+        </>} />
       {error && editing === null && <p role="alert" className="fx-error px-4 py-1">{error}</p>}
       {!book ? <p className={`p-4 text-sm ${muted}`}>{error ? '' : 'Загружаю каталог…'}</p> : !features.length ? <div className="p-4"><Empty title="Признаков нет" text="Признаки задают, чем отличаются решения одного класса." /></div> : <>
         <Toolbar>
