@@ -15,7 +15,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data;
 }
 
+export interface E3ClassParam { key: string; group: string; name: string; units: { unit: string; count: number }[]; count: number }
+
 export const e3AttributesService = {
+  classParams: (cls: string) => call<{ params: E3ClassParam[]; positions: number }>('GET', `/params?class=${encodeURIComponent(cls)}`),
   load: () => call<E3AttributeBook>('GET', ''),
   plan: (items: E3Attribute[]) => call<E3Plan>('POST', '/plan', { items }),
   apply: (items: E3Attribute[], expectedVersion: number, missing: 'keep' | 'remove') =>

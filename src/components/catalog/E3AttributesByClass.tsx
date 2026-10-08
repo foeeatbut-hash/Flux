@@ -75,7 +75,7 @@ export default function E3AttributesByClass({ items, canEdit, busy, error, onSav
           </table>
         )}
       </div>
-      {attr && <E3ClassSourceDialog key={`${attr.name}:${cls}`} attr={attr} cls={cls} items={items} canEdit={canEdit} busy={busy} error={error}
+      {attr && <E3ClassSourceDialog key={`${attr.name}:${cls}`} attr={attr} cls={cls} canEdit={canEdit} busy={busy} error={error}
         onSave={async (patch) => { if (await onSave(attr.name, patch)) close(); }} onClose={close} />}
     </div>
   );

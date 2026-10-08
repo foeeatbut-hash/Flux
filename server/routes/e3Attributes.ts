@@ -17,6 +17,8 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { catalogAllowed, catalogFailure, catalogSetting, catalogSettingRaw, claimCatalogSetting } from '../catalogWorkspace.js';
 import { ensureCatalog } from './catalog.js';
+import { classParams } from '../e3ClassParams.js';
+import { isClassId } from '../../equipment/classes.js';
 import {
   applyAttributePlan, planAttributes, sanitizeClasses, sanitizeSource, sanitizeSourceByClass, validateAttributes, E3_CONFLICTS,
   type E3Attribute, type E3AttributeBook,
@@ -121,6 +123,13 @@ export function registerE3AttributeRoutes(app: Express, can: (user: any, feature
       await fn(req, res, db, user);
     } catch (e: any) { sendError(res, e, e?.status || (e?.code === 'P2002' ? 409 : 500)); }
   };
+
+  // Характеристики позиций типа — только чтение, право как у чтения справочника; стоит раньше '/:что-то'
+  app.get('/api/catalog/e3-attributes/params', handle('read', async (req, res, db) => {
+    const cls = String(req.query.class || '');
+    if (!isClassId(cls)) catalogFailure(400, 'Неизвестный тип оборудования');
+    res.json(await classParams(db, cls));
+  }));
 
   app.get('/api/catalog/e3-attributes', handle('read', async (_req, res, db) => {
     res.json(await catalogSetting(db, KEY, emptyBook()) as E3AttributeBook);
