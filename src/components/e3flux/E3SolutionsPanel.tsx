@@ -126,7 +126,6 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
   const actions = <>
     <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls" hidden aria-label="Файл классификатора типовых решений" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
     <Btn tone="ghost" onClick={download} disabled={!live.length} title="Каталог в Excel того же вида, что файл классификатора, плюс столбцы признаков"><Download className="w-3.5 h-3.5" /> Скачать Excel</Btn>
-    <Btn tone="ghost" onClick={downloadNames} disabled={!live.length} title="Названия схем по одному в строке (e3-names.txt) для пробы E3: tools/e3-probe, run.cmd -NamesFile"><FileText className="w-3.5 h-3.5" /> Скачать названия для пробы</Btn>
     {rights.edit && <Btn tone="ghost" onClick={() => { setDialogError(''); setEditing(''); }} disabled={busy || !book} title="Добавить типовое решение вручную"><Plus className="w-3.5 h-3.5" /> Добавить</Btn>}
     {rights.import && <>
       <Btn tone="ghost" onClick={() => void undoImport()} disabled={busy || !items.length} title="Вернуть каталог к состоянию до последней загрузки файла"><Undo2 className="w-3.5 h-3.5" /> Отменить загрузку</Btn>
@@ -151,6 +150,7 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
               ...(removedCount ? [{ value: 'removed' as const, label: 'Снятые', count: removedCount, hint: 'Сняты загрузкой: подбор их не предлагает' }] : []),
             ]} />
             <span className={`ml-auto text-xs ${muted}`}>{shown.length === (view === 'removed' ? removedCount : view === 'open' ? openCount : live.length) ? '' : `Показано ${shown.length}`}</span>
+            <Btn tone="ghost" onClick={downloadNames} disabled={!live.length} title="Названия схем по одному в строке (e3-names.txt) для пробы E3: tools/e3-probe, run.cmd -NamesFile"><FileText className="w-3.5 h-3.5" /> Скачать названия для пробы</Btn>
           </Toolbar>
           <div className="fx-page-body">
             {!shown.length ? <div className="p-4"><Empty title="Решения не найдены" text="Измените поиск или отбор." /></div> : (
