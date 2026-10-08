@@ -161,6 +161,7 @@ function New-FakeSymbol {
             return $sym
         }
         GetSchemaLocation = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = $s.X; $a[1] = $s.Y; if ($a.Length -gt 2) { $a[2] = 5 }; return $s.Sheet }
+        GetPlacedArea = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = [double]$s.X; $a[1] = [double]$s.Y; $a[2] = [double]$s.X + 20; $a[3] = [double]$s.Y + 20; return 1 }
         GetPinIds = { param($a) $ids = @($global:F.Symbols[[int]$this.Id].Pins); $a[0] = [object[]]$ids; return $ids.Count }
         GetGraphIds = { param($a) $a[0] = [object[]]@(9001, 9002); return 2 }
         GetTextIds = { param($a) $a[0] = [object[]]@(); return 0 }

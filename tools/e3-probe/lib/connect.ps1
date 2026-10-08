@@ -172,6 +172,7 @@ function Step-ProjectCheck {
     if ($null -ne $job) {
         foreach ($n in @('GetName', 'GetProjectName', 'GetFullName')) { $v = Get-QuietValue $job $n; if ($null -ne $v -and "$v" -ne '') { $name = [string]$v; break } }
     }
+    $script:ProjectNameEarly = $name
     $title = Get-TitleProjectFile
     if ($name -eq '' -and $title -ne '') {
         # Заголовок окна называет файл проекта, а проба имени не прочитала: врать «откройте проект» нельзя.

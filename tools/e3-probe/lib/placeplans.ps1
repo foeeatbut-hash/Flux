@@ -77,7 +77,21 @@ function Resolve-Component {
     $samples = Get-DeviceSamples
     if ($samples.ContainsKey($key)) { return $samples[$key] }
     foreach ($c in @(Get-ProjectComponents)) {
-        if ($c.Name.ToLower() -eq $key) { return @{ Name = $c.Name; Version = $c.Version; Symbols = @() } }
+        if ($c.Name.ToLower() -eq $key) {
+            # Ни одно устройство проекта этот компонент не использует: имена символов пробуем взять из видов компонента
+            # (Component.GetViewDefinitions); что именно вернётся, в описи не сказано — значение пишется в журнал.
+            $symbols = @()
+            $comp = $script:Objects['Component']
+            if ($null -ne $comp -and (Select-Id $comp $c.Id)) {
+                $r = Invoke-Quiet $comp 'GetViewDefinitions' @($null) @(0)
+                if ($null -ne $r) {
+                    $items = Convert-ToItems $r.Ret $r.Args @(0)
+                    Write-Trace ('GetViewDefinitions(' + $c.Name + '): ' + (Format-Value $items 300))
+                    foreach ($it in $items) { if ($it -is [string] -and $it -ne '' -and $symbols.Count -lt 3) { $symbols += , @{ Name = $it; Version = '' } } }
+                }
+            }
+            return @{ Name = $c.Name; Version = $c.Version; Symbols = $symbols }
+        }
     }
     return $null
 }
@@ -96,7 +110,7 @@ function New-PlanStep {
 
 function Get-PlaceVariants {
     # Все способы вставить изделие по компоненту $Name в точку (X, Y) листа $SheetId, самые вероятные — первыми.
-    param([string]$Name, $X, $Y, $SheetId = $script:ProbeSheetId)
+    param([string]$Name, $X, $Y, $SheetId = $script:ProbeSheetId, [switch]$PlaceOnly)
     $info = Resolve-Component $Name
     $comp = $Name; $ver = ''
     if ($null -ne $info) { $comp = $info.Name; $ver = $info.Version }
@@ -140,6 +154,13 @@ function Get-PlaceVariants {
             & $add 'job.ImportDrawing' 'job.ImportDrawing' @((New-PlanStep sheet Display -Soft), (New-PlanStep job ImportDrawing @($f, 1, $X, $Y) -Pos))
             break
         }
+    }
+    if ($PlaceOnly) {
+        # Режим «только разместить»: ничего лишнего. Остаются планы, которые кончаются символом на листе; устройство без
+        # символа, блок, голый символ и смена вида листа (Display) не нужны.
+        $keep = @($v | Where-Object { $_.Id -like 'device.Create+Load+Place*' -or $_.Id -like 'sheet.PlacePart*' -or $_.Id -eq 'job.ImportDrawing' })
+        foreach ($p in $keep) { $p.Steps = @($p.Steps | Where-Object { -not ($_.T -eq 'sheet' -and $_.M -eq 'Display') }) }
+        return $keep
     }
     return @($v)
 }

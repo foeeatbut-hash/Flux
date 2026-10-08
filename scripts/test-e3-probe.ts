@@ -172,6 +172,45 @@ exit $bad
     check(/ПРОТИВОРЕЧИЕ/.test(summary) && !/НЕ ОТКРЫТ ПРОЕКТ/.test(logTxt), 'противоречие: сводка называет противоречие, «откройте проект» не пишется', summary.slice(0, 600));
   }
 
+  // режим «только разместить»: имя кириллицей, активный лист, из записывающих вызовов — только создание устройства, загрузка и постановка символа
+  {
+    const name = 'клапан_DIx2_DOx2';
+    const { out, r } = runFake('placeonly', {}, ['-PlaceOnly', name]);
+    check(r.status === 0, 'только разместить: прогон завершился без ошибки', (r.stdout + r.stderr).slice(-600));
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(logTxt.includes('ГОТОВО: изделие размещено') && logTxt.includes(`Компонент: «${name}»`) && /лист «Лист 1» \(id 101\)/.test(logTxt), 'только разместить: изделие размещено на активном листе (id 101), имя кириллицей сохранено', logTxt.slice(-800));
+    check(/Ctrl\+Z/.test(logTxt) && /Проект не сохранялся/.test(logTxt), 'только разместить: сказано, как отменить, и что проект не сохранялся');
+    const calls = trace.split(/\r?\n/).map(l => l.replace(/^\uFEFF/, '').match(/^[\d:.]+ COM (\w+)\((.*)\)$/)).filter(Boolean).map(m => ({ name: m[1], args: m[2] }));
+    const forbidden = calls.filter(c => /^(Delete|DeleteInstance|Remove|SetAttributeValue|AddAttributeValue|DeleteAttribute|Save\w*|SetName|SetFormat|Display|CreateConnection|PutInfo|SetActiveSheetId|ExportDXF|Export\w*|LoadPart|PlacePart\w*)$/.test(c.name) || (c.name === 'Create' && /^0,/.test(c.args)));
+    check(forbidden.length === 0, 'только разместить: в журнале вызовов нет удаления, записи атрибутов, сохранения, временного листа и смены вида', forbidden.map(c => c.name + '(' + c.args + ')').join('; '));
+    const writes = calls.filter(c => ['Create', 'Load', 'Place'].includes(c.name)).map(c => c.name);
+    check(writes.join(',') === 'Create,Load,Place', 'только разместить: из изменяющих вызовов выполнены ровно Create, Load, Place', writes.join(','));
+    check(calls.some(c => c.name === 'GetActiveSheetId'), 'только разместить: активный лист получен через Job.GetActiveSheetId');
+    const summaryTxt = fs.readFileSync(path.join(out, 'summary.txt'), 'utf8');
+    check(!/Окончательная уборка|Z\. Уборка/.test(logTxt) && !logTxt.includes('=== T.') && /Размещено изделие/.test(summaryTxt), 'только разместить: полной проверки, уборки и описи библиотеки нет, итог в сводке');
+  }
+
+  // «только разместить»: компонента нет — ничего не создано, ничего не удалено
+  {
+    const { out, r } = runFake('placeonly-none', {}, ['-PlaceOnly', 'нет_такого_компонента']);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const calls = fs.readFileSync(path.join(out, 'trace.log'), 'utf8').split(/\r?\n/);
+    check(r.status === 0 && logTxt.includes('разместить не удалось') && logTxt.includes('Ничего не создано'), 'только разместить: нет компонента — понятное сообщение, ничего не создано', logTxt.slice(-600));
+    check(!calls.some(l => /COM (Delete|Remove|SetAttributeValue)\(/.test(l)), 'только разместить: при неудаче тоже ничего не удаляется');
+  }
+
+  // вопрос про имя перед подтверждением Y (на Windows CI вход по stdin зависит от кодовой страницы консоли, поэтому там только параметр)
+  if (process.platform !== 'win32') {
+    const out = path.join(tmp, 'placeonly-ask');
+    const r = spawnSync(shell.command, ['-NoProfile', '-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-OutDir', out], { encoding: 'utf8', input: 'клапан_DIx2_DOx2\nY\n', timeout: 300_000, env: process.env });
+    const logTxt = fs.existsSync(path.join(out, 'log.txt')) ? fs.readFileSync(path.join(out, 'log.txt'), 'utf8') : '';
+    check(r.status === 0 && logTxt.includes('ГОТОВО: изделие размещено'), 'вопрос про имя: введённое имя и один Y приводят к размещению', (r.stdout + r.stderr).slice(-600));
+    check(logTxt.includes('Введено: «клапан_DIx2_DOx2»') && logTxt.includes('U+043A U+043B U+0430 U+043F U+0430 U+043D'), 'вопрос про имя: введённая строка и коды символов записаны в журнал');
+    const skip = spawnSync(shell.command, ['-NoProfile', '-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-OutDir', path.join(tmp, 'placeonly-skip')], { encoding: 'utf8', input: '\nY\n', timeout: 300_000, env: process.env });
+    check(skip.status === 0 && !/ГОТОВО: изделие размещено/.test(skip.stdout) && /Лист/.test(skip.stdout), 'вопрос про имя: Enter без имени ведёт к полной проверке');
+  } else console.log('SKIP вопрос про имя через stdin — только не на Windows (кодовая страница консоли CI не UTF-8); имя через -PlaceOnly проверено выше.');
+
   // обрыв процесса посреди работы (как первый настоящий прогон): в журнале должна остаться метка виновника
   {
     const { out, r } = runFake('die', { E3_FAKE_DIE_AT_VERSION: '1' });
