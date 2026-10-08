@@ -135,9 +135,35 @@ function Remove-DeviceAndSymbols {
     return $ok
 }
 
+# Решение по умолчанию есть не в каждой базе. Если заданного нет (или оно не вставилось), берём первое работающее из запасных
+# и пишем в сводке, какое взято. Имена — компоненты, которые у владельца точно есть в проекте.
+$script:FallbackSolutions = @('клапан_DIx2_DOx2', 'датчик_DI_условный_ДГП_2')
+$script:RequestedSolution = ''
+$script:SolutionNote = ''
+
 function Step-Place {
     Write-Section '5' ('Вставка решения «' + $script:SolutionName + '» на временный лист в точку (' + $script:PlaceX + ',' + $script:PlaceY + ')')
     if ($null -eq $script:ProbeSheetId) { Write-Human 'Нет временного листа — пропущено.'; return }
+    $script:RequestedSolution = $script:SolutionName
+    $names = @($script:SolutionName) + @($script:FallbackSolutions | Where-Object { $_ -ne $script:SolutionName })
+    foreach ($candidate in $names) {
+        $script:SolutionName = $candidate
+        if ($candidate -ne $script:RequestedSolution) { Write-Human ('Заданное «' + $script:RequestedSolution + '» вставить не удалось, пробую запасное «' + $candidate + '».') 'Yellow' }
+        Invoke-PlaceSolution
+        if ($null -ne $script:Kept) { break }
+    }
+    if ($null -ne $script:Kept -and $script:SolutionName -ne $script:RequestedSolution) {
+        $script:SolutionNote = 'Заданное решение «' + $script:RequestedSolution + '» не нашлось или не вставилось; для проверки вставки взято запасное «' + $script:SolutionName + '».'
+        Add-Finding 'note' $script:SolutionNote
+        Write-Human ('→ ' + $script:SolutionNote) 'Yellow'
+    }
+    if ($null -eq $script:Kept) {
+        Add-Finding 'bad' ('Вставить решение не удалось ни одним способом; пробовали: ' + ($names -join ', ') + '. Проверьте имена (-SolutionName) и журнал log.txt, раздел 5.')
+    }
+}
+
+function Invoke-PlaceSolution {
+    # Все способы вставки одного решения (имя в $script:SolutionName); удачный результат остаётся в $script:Kept.
     $variants = Get-PlaceVariants $script:SolutionName $script:PlaceX $script:PlaceY
     foreach ($v in $variants) {
         $op = 'place.' + $v.Id
@@ -171,9 +197,6 @@ function Step-Place {
             if (-not $removed) { Write-Human '! Убрать вставленное не удалось: останется на временном листе и уйдёт вместе с ним.' 'Yellow' }
             $script:Failed.Remove($op + '.cleanup') | Out-Null
         }
-    }
-    if ($null -eq $script:Kept) {
-        Add-Finding 'bad' ('Вставить решение «' + $script:SolutionName + '» на лист не удалось ни одним способом: проверьте имя решения (-SolutionName) и журнал log.txt, раздел 5.')
     }
 }
 

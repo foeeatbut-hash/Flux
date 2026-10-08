@@ -94,9 +94,9 @@ exit $bad
     check(r.status === 0, `синтаксис всех ${scripts.length} файлов .ps1 разбирается (${shell.label})`, r.stdout + r.stderr);
   }
 
-  const runFake = (name: string, env: Record<string, string>) => {
+  const runFake = (name: string, env: Record<string, string>, extra: string[] = []) => {
     const out = path.join(tmp, name);
-    const r = run(['-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-NoConfirm', '-OutDir', out], env);
+    const r = run(['-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-NoConfirm', '-OutDir', out, ...extra], env);
     return { out, r };
   };
 
@@ -148,6 +148,15 @@ exit $bad
     const nd = fs.existsSync(path.join(out, 'log.ndjson')) ? fs.readFileSync(path.join(out, 'log.ndjson'), 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l)) : [];
     const deletes = nd.filter((a: any) => /\.(Delete|Remove)$/.test(a.candidate) || /^(job\.)?(Delete|Remove)(Sheet|Device)$/.test(a.candidate));
     check(nd.length > 50 && deletes.length === 0, `SetId=0: ни одного вызова Delete/Remove (журнал ${nd.length} записей)`, deletes.map((a: any) => a.candidate).join(', '));
+  }
+
+  // заданного решения в базе нет: берётся первое найденное из запасных, и сводка говорит, какое
+  {
+    const { out, r } = runFake('fallback', {}, ['-SolutionName', 'Нет_такого_решения']);
+    check(r.status === 0, 'запасное решение: прогон завершился без ошибки', (r.stdout + r.stderr).slice(-500));
+    const summary = fs.readFileSync(path.join(out, 'summary.txt'), 'utf8');
+    check(summary.includes('взято запасное «клапан_DIx2_DOx2»') && summary.includes('Решение для проверки вставки: клапан_DIx2_DOx2'), 'запасное решение: в сводке названо, какое взято', summary.slice(0, 500));
+    check(fs.readFileSync(path.join(out, 'log.txt'), 'utf8').includes('Вставка на лист работает') || /Вставка на лист работает/.test(summary), 'запасное решение: вставка прошла');
   }
 
   // проект «не открыт», но в заголовке окна E3 есть файл проекта: в сводке должно быть противоречие, а не «откройте проект»

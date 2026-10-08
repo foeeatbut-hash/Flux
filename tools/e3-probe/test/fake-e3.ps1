@@ -11,7 +11,7 @@ $global:F = @{
     Conns = @()
     ProjectAttrs = @{ 'Sheet number' = '1' }
     Defined = @('GLOBAL_ID_IN_PROJECT', 'FLUX_ID', 'FLUX_BLOCK', 'FLUX_VER', 'Sheet number', 'Device Designation', 'GLOBAL_BLOCK_ID', 'GLOBAL_BLOCK_NAME', 'dip_Fnumber', '!Pin_OpisaniePR_tip_signala')
-    Components = @('Клапан_К24_КП2', 'Двигатель_М1')
+    Components = @('Клапан_К24_КП2', 'Двигатель_М1', 'клапан_DIx2_DOx2')
     Active = 101
     Log = @()
 }
