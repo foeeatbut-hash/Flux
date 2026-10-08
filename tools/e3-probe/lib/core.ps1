@@ -188,7 +188,7 @@ function Invoke-Com {
 
 function Invoke-Attempt {
     # Выполняет одно действие, замеряет время и пишет запись в журнал. Ничего не бросает наружу.
-    param([string]$Op, [string]$Label, [scriptblock]$Action, [string]$ArgsText = '', [int[]]$Refs = @(), [switch]$Silent)
+    param([string]$Op, [string]$Label, [scriptblock]$Action, [string]$ArgsText = '', [int[]]$Refs = @(), [switch]$Silent, [switch]$Pos)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $rec = [ordered]@{ seq = 0; step = $script:Step; op = $Op; candidate = $Label; args = $ArgsText; ok = $false; type = $null; result = $null; error = $null; hresult = $null; busy = $false; ms = 0 }
     $outValue = $null
@@ -197,6 +197,11 @@ function Invoke-Attempt {
         $outValue = $null
         if ($raw.Count -eq 1) { $outValue = $raw[0] } elseif ($raw.Count -gt 1) { $outValue = $raw }
         $rec.ok = $true
+        if ($Pos -and -not (Test-Positive $outValue)) {
+            # Метод, который возвращает номер объекта: 0 в E3 — это неудача без исключения, а не успех.
+            $rec.ok = $false
+            $rec.error = 'вернул ' + (Format-Value $(if ($null -ne $outValue -and $outValue.PSObject.Properties['IsCom']) { $outValue.Ret } else { $outValue }) 40) + ' — в E3 это неудача, ожидался номер больше нуля'
+        }
         if ($null -ne $outValue -and $outValue.PSObject.Properties['IsCom'] -and $outValue.IsCom) {
             $text = Format-Value $outValue.Ret
             foreach ($i in $Refs) { $text += ' ; ref' + $i + '=' + (Format-Value $outValue.Args[$i] 200) }
@@ -235,9 +240,19 @@ function Invoke-Attempt {
 }
 
 function Cand {
-    # Вариант вызова: имя метода, аргументы, номера ref-параметров
-    param([string]$M, [object[]]$A = @(), [int[]]$R = @())
-    return @{ M = $M; A = $A; R = $R }
+    # Вариант вызова: имя метода, аргументы, номера ref-параметров. -Pos: метод возвращает номер объекта, 0 = неудача.
+    param([string]$M, [object[]]$A = @(), [int[]]$R = @(), [switch]$Pos)
+    return @{ M = $M; A = $A; R = $R; P = [bool]$Pos }
+}
+
+function Test-Positive {
+    # Результат вызова (обёртка Invoke-Com или значение): число больше нуля или true.
+    param($Result)
+    $v = $Result
+    if ($null -ne $Result -and $Result.PSObject.Properties['IsCom']) { $v = $Result.Ret }
+    if ($null -eq $v) { return $false }
+    if ($v -is [bool]) { return $v }
+    try { return ([double]$v -gt 0) } catch { return $false }
 }
 
 function Convert-ToItems {
@@ -268,7 +283,7 @@ function Try-Calls {
         $label = $TL + '.' + $cand.M
         $argText = Format-Args $cand.A $cand.R
         $action = { Invoke-Com -Target $Target -Name $cand.M -CallArgs $callArgs -RefIdx $cand.R }
-        $r = Invoke-Attempt -Op $Op -Label $label -ArgsText $argText -Refs $cand.R -Action $action -Silent:$Silent
+        $r = Invoke-Attempt -Op $Op -Label $label -ArgsText $argText -Refs $cand.R -Action $action -Silent:$Silent -Pos:([bool]$cand.P)
         if (-not $r.Ok) { continue }
         $outs = @(); foreach ($i in $cand.R) { $outs += , $callArgs[$i] }
         $items = Convert-ToItems $r.Value.Ret $callArgs $cand.R

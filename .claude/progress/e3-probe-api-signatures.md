@@ -15,8 +15,12 @@ Device.Create(name,assignment,location,comp,vers,after) - 6 аргументов
 Sheet.ExportImage(format,version,file,dpi,compression), Job.ExportPDF(file,shtids,options,password), у пробы были ExportDXF/ExportPNG (нет в API).
 
 Шаги:
-- [ ] 1 Cand/Invoke-Attempt: успех по ненулевому id (-Pos), ложное "найдено" убрать
+- [x] 1 Cand/Invoke-Attempt: успех по ненулевому id (-Pos), ложное "найдено" убрать
 - [ ] 2 вставка: правильные сигнатуры (LoadPart/PlacePart, Device.Create 6 арг., Symbol.Load/Place, ImportDrawing), эффект по новым id
 - [ ] 3 экспорт: Sheet.Export/ExportImage, Job.ExportPDF
 - [ ] 4 база через OLEDB (только чтение): таблицы, имена, поиск решения; id компонентов проекта -> имена
 - [ ] 5 фейк и самопроверка, README, zip, git rm файла хода
+- [ ] 6 (дополнение владельца, отдельный коммит) режим «только разместить»: вопрос имени компонента перед Y (кириллица в Read-Host при PS 5.1:
+      InputEncoding UTF8 + лог кодов символов), параметр -PlaceOnly "<имя>", размещение на АКТИВНОМ листе (Job.GetActiveSheetId) правильными
+      вызовами, без удаления/атрибутов/сохранения/временного листа, один Y, итог (id, имя, лист, координаты, вызов; Ctrl+Z/Delete), выход.
+      README раздел; самопроверка на фейке: кириллица, активный лист, в журнале вызовов только Place-вызовы (+чтение).

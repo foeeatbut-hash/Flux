@@ -109,7 +109,7 @@ function Step-Database {
     # --- поиск решения по имени через объекты базы (без вставки на лист)
     Write-Human ('-- Поиск «' + $name + '» вызовами базы')
     if ($null -ne $comp) {
-        $s1 = Try-Calls -Op 'db.find.component' -Target $comp -TL 'component' -Cands @((Cand 'Search' @($name)), (Cand 'Find' @($name)), (Cand 'FindComponent' @($name)), (Cand 'GetId' @($name)), (Cand 'SetName' @($name)), (Cand 'Load' @($name)), (Cand 'Load' @($name, '')), (Cand 'SetName' @($name, ''))) -Silent
+        $s1 = Try-Calls -Op 'db.find.component' -Target $comp -TL 'component' -Cands @((Cand 'Search' @($name, '') -Pos), (Cand 'Search' @($name, '1') -Pos)) -Silent
         foreach ($w in $s1.Wins) { [void]$script:SolutionFound.Add('компонент: ' + $w.Label + ' -> ' + (Format-Value $w.Value 80)) }
         if ($s1.Ok) {
             Write-Human ('✓ компонент: ' + $s1.Winner + ' -> ' + (Format-Value $s1.Value 120)) 'Green'
@@ -122,18 +122,18 @@ function Step-Database {
         }
     }
     if ($null -ne $sym) {
-        $s2 = Try-Calls -Op 'db.find.symbol' -Target $sym -TL 'symbol' -Cands @((Cand 'Load' @($name, '')), (Cand 'Load' @($name)), (Cand 'Load' @($name, '', 0)), (Cand 'Search' @($name)), (Cand 'Find' @($name))) -Silent
+        $s2 = Try-Calls -Op 'db.find.symbol' -Target $sym -TL 'symbol' -Cands @((Cand 'Load' @($name, '') -Pos), (Cand 'Load' @($name, '1') -Pos)) -Silent
         foreach ($w in $s2.Wins) { [void]$script:SolutionFound.Add('символ: ' + $w.Label + ' -> ' + (Format-Value $w.Value 80)) }
         if ($s2.Ok) { Write-Human ('✓ символ: ' + $s2.Winner + ' -> ' + (Format-Value $s2.Value 120)) 'Green' }
     }
     if ($null -ne $blk) {
-        $s3 = Try-Calls -Op 'db.find.block' -Target $blk -TL 'block' -Cands @((Cand 'Load' @($name, '')), (Cand 'Load' @($name)), (Cand 'Search' @($name)), (Cand 'SetName' @($name)), (Cand 'Find' @($name))) -Silent
+        $s3 = Try-Calls -Op 'db.find.block' -Target $blk -TL 'block' -Cands @((Cand 'Load' @($name, '') -Pos)) -Silent
         foreach ($w in $s3.Wins) { [void]$script:SolutionFound.Add('блок: ' + $w.Label + ' -> ' + (Format-Value $w.Value 80)) }
         if ($s3.Ok) { Write-Human ('✓ блок: ' + $s3.Winner + ' -> ' + (Format-Value $s3.Value 120)) 'Green' }
     }
     foreach ($tgt in @(@($job, 'job'), @($app, 'app'))) {
-        $s4 = Try-Calls -Op ('db.find.' + $tgt[1]) -Target $tgt[0] -TL $tgt[1] -Cands @((Cand 'FindComponent' @($name)), (Cand 'GetComponentId' @($name)), (Cand 'GetSymbolId' @($name)), (Cand 'FindBlock' @($name)), (Cand 'GetBlockId' @($name)), (Cand 'FindPart' @($name)), (Cand 'ExistsComponent' @($name))) -Silent
-        foreach ($w in $s4.Wins) { [void]$script:SolutionFound.Add($tgt[1] + ': ' + $w.Label + ' -> ' + (Format-Value $w.Value 80)) }
+        $s4 = Try-Calls -Op ('db.find.' + $tgt[1]) -Target $tgt[0] -TL $tgt[1] -Cands @((Cand 'GetSymbolIds' @($null, $name) @(0))) -Silent
+        foreach ($w in $s4.Wins) { if (@($w.Items).Count -gt 0) { [void]$script:SolutionFound.Add($tgt[1] + ': ' + $w.Label + ' -> ' + @($w.Items).Count + ' символов в проекте') } }
     }
 
     # --- файлы на диске (.e3p, .e3d и любые с таким именем)
