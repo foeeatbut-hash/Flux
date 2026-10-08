@@ -47,18 +47,20 @@ export function createMenuItem(pick: (place: CreatePlace, kind: CreateKind) => v
   };
 }
 
-type Creating = { place: CreatePlace; kind: CreateKind };
+type Creating = { place: CreatePlace; kind: CreateKind; parent: WindowsFileRef };
 
 /**
  * Состояние панели: какой объект создаётся и под каким именем, само создание и
  * разметка (окно имени, меню по сочетанию клавиш). Экран отдаёт папку-родителя и
  * решает, что делать после — обновить список, открыть файл, выделить новое.
  */
-export function useCreatePanel({ parent, windows = true, where, onCreated, request = windowsFilesRequest }: {
+export function useCreatePanel({ parent, windows = true, where, onCreated, inline = false, request = windowsFilesRequest }: {
   /** Папка, в которой создаём; null — пока папка не открыта */
   parent: WindowsFileRef | null;
   /** Есть ли у родителя настоящая папка Windows (у папки-черновика нет) */
   windows?: boolean;
+  /** В Проводнике имя вводят в строке папки; рабочий стол сохраняет своё окно. */
+  inline?: boolean;
   /** Как назвать место в сообщении об удаче: «на рабочем столе Windows», «в Windows» */
   where?: string;
   /** Вызывается после создания и после неудачной публикации (draftKept) — когда список надо перечитать */
@@ -73,19 +75,21 @@ export function useCreatePanel({ parent, windows = true, where, onCreated, reque
   const nameRef = React.useRef<HTMLInputElement>(null);
 
   const pick = React.useCallback((place: CreatePlace, kind: CreateKind) => {
+    if (!parent) return;
     setKeyMenu(null);
     setName(DEFAULT_NAME[kind]);
-    setCreating({ place, kind });
-  }, []);
-  React.useEffect(() => { if (creating) nameRef.current?.focus(); }, [creating]);
+    setCreating({ place, kind, parent: { ...parent } });
+  }, [parent]);
+  React.useEffect(() => { if (creating) { nameRef.current?.focus(); const end = name.lastIndexOf('.'); nameRef.current?.setSelectionRange(0, end > 0 ? end : name.length); } }, [creating]);
 
+  React.useEffect(() => { setCreating(null); setKeyMenu(null); }, [parent?.rootId, parent?.relativePath, parent?.draftId]);
   const submit = async () => {
     if (!parent || !creating || busy) return;
     const problem = validateName(name);
     if (problem) { addToast(problem, 'error'); return; }
     setBusy(true);
     try {
-      const outcome = await createEntry(request, { ...creating, parent, name });
+      const outcome = await createEntry(request, { ...creating, parent: creating.parent, name });
       if (isCreated(outcome)) {
         setCreating(null);
         addToast(createdMessage(outcome, where), 'success');
@@ -99,12 +103,16 @@ export function useCreatePanel({ parent, windows = true, where, onCreated, reque
   };
 
   const element = <>
-    {creating && <NameDialog place={creating.place} kind={creating.kind} name={name} setName={setName} inputRef={nameRef} busy={busy} onSubmit={() => void submit()} onCancel={() => setCreating(null)} />}
+    {creating && !inline && <NameDialog place={creating.place} kind={creating.kind} name={name} setName={setName} inputRef={nameRef} busy={busy} onSubmit={() => void submit()} onCancel={() => setCreating(null)} />}
     {keyMenu && <ContextMenu x={keyMenu.x} y={keyMenu.y} onClose={() => setKeyMenu(null)} items={[createMenuItem(pick, windows, true)]} />}
   </>;
 
   return {
     pick, element, busy,
+    nameElement: inline && creating ? <div className="flex h-9 shrink-0 items-center gap-3 px-4 text-xs" role="group" aria-label={createTitle(creating.place, creating.kind)}>
+      <FolderPlus size={20} /><input ref={nameRef} aria-label="Имя" value={name} disabled={busy} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') void submit(); if (e.key === 'Escape') setCreating(null); }} className="h-7 w-72 border border-[#0067c0] bg-white px-1 text-[#1b1b1b] outline-none dark:border-[#4cc2ff] dark:bg-[#383838] dark:text-white" />
+      <button type="button" disabled={busy} onClick={() => void submit()}>Создать</button><button type="button" disabled={busy} onClick={() => setCreating(null)}>Отмена</button>
+    </div> : null,
     /** Окно имени или меню по клавише открыты: список позади не должен ловить клавиши */
     open: !!creating || !!keyMenu,
     sections: () => createSections(pick, windows),

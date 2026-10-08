@@ -221,7 +221,7 @@ async function main() {
       const afterUnpin = await shell!.quickAccess();
       check(!afterUnpin.items.some(item => item.name === 'Закрепить' && item.pinned), 'Открепление через unpinfromhome убирает папку из закреплённых', `помощник ответил ${JSON.stringify(unpinned)}; список: ${JSON.stringify(afterUnpin.items.map(item => [item.name, item.pinned]))}`);
       const cloud = await shell!.cloudRoots();
-      check(cloud.supported && Array.isArray(cloud.items), `Облачные корни SyncRootManager читаются (${cloud.items.length}: ${cloud.items.map(item => item.name).join(', ') || 'на этой машине нет ни OneDrive, ни Яндекс Диска'})`);
+      check(cloud.supported && Array.isArray(cloud.items) && cloud.items.every(item => (item.provider as string) !== 'onedrive'), `Облачные места SyncRootManager читаются без OneDrive (${cloud.items.length}: ${cloud.items.map(item => item.name).join(', ') || 'кроме исключённого OneDrive, облачных папок нет'})`);
       for (const item of cloud.items) check(item.root.id && item.root.available, `Облачный корень «${item.name}» стал корнем-capability`);
     });
 

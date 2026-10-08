@@ -78,16 +78,26 @@ export class ShellCommands {
     return { pinned: typeof result?.pinned === 'boolean' ? result.pinned : pinned, changed: result?.changed === true };
   }
 
+  async fileProperties(ref: WindowsFileRef): Promise<{ author: string; createdAt: string; hidden: boolean }> {
+    const filename = await this.service.filename(ref);
+    if (!this.windows) { const entry = await this.service.entry(ref); return { author: '', createdAt: entry.createdAt || '', hidden: !!entry.hidden }; }
+    const raw = await this.host.call('file-properties', { path: filename }) as any;
+    return { author: text(raw?.author, 2000) || '', createdAt: text(raw?.createdAt, 50) || '', hidden: raw?.hidden === true };
+  }
+
   async cloudRoots(): Promise<WindowsCloudRoots> {
     if (!this.windows) return { supported: false, items: [], message: NOT_WINDOWS };
     const rows = await this.host.call('cloud-roots');
     const items: WindowsCloudRoots['items'] = [];
     for (const row of Array.isArray(rows) ? rows.slice(0, 50) : []) {
+      if (row?.provider === 'onedrive'
+        || (typeof row?.id === 'string' && /^OneDrive(?:!|$)/iu.test(row.id))
+        || (typeof row?.name === 'string' && /^OneDrive(?:\b|\s-)/iu.test(row.name))) continue;
       const folder = this.accept(row?.path), name = text(row?.name, 255), id = text(row?.id, 200);
       if (!folder || !name || !id) continue;
       try {
         const root = await this.service.addRoot(folder, name);
-        items.push({ id, name, provider: row.provider === 'onedrive' || row.provider === 'yandex' ? row.provider : 'other', icon: pngUrl(row.icon), root });
+        items.push({ id, name, provider: row.provider === 'yandex' ? 'yandex' : 'other', icon: pngUrl(row.icon), root });
       } catch { /* папка исчезла или недоступна: корнем не становится */ }
     }
     return { supported: true, items };

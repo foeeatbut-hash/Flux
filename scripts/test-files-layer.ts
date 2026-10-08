@@ -118,7 +118,7 @@ eq('тексты об удаче: стол и Проводник говорят 
 
 // --- Буфер, вставка, корзина
 eq('копия получает свободное имя, как в Windows', [copyName('Отчёт.docx', new Set()), copyName('Отчёт.docx', new Set(['Отчёт - копия.docx'])), copyName('Без расширения', new Set())], ['Отчёт - копия.docx', 'Отчёт - копия (2).docx', 'Без расширения - копия']);
-rig = bridge((r) => r.action === 'read' ? good({ sha256: 'h-' + (r as any).ref.relativePath }) : good({}));
+rig = bridge((r) => r.action === 'fileHash' ? good({ sha256: 'h-' + (r as any).ref.relativePath }) : good({}));
 const cutClip = await makeClip(rig.request, [file('a'), file('Папка1', 'f', { kind: 'directory' })], 'r', true);
 eq('при вырезании у файла запоминается хеш, у папки нет', cutClip.items.map((item) => item.sha256), ['h-a', undefined]);
 eq('при копировании хеш не читается', (await makeClip(rig.request, [file('a')], 'r', false)).items[0].sha256, undefined);
@@ -134,7 +134,7 @@ rig = bridge(() => good({}));
 pasted = await pasteClip(rig.request, { cut: true, items: [{ ref: { rootId: 'r', relativePath: 'Папка/a' }, name: 'a', kind: 'file' }] }, { rootId: 'r', relativePath: 'Папка' }, ['a']);
 eq('вырезать и вставить в ту же папку — не действие, мост не зовётся', [rig.calls.length, pasted.done], [0, 1]);
 
-rig = bridge((r) => r.action === 'read' ? good({ sha256: 'h' }) : good({}));
+rig = bridge((r) => r.action === 'fileHash' ? good({ sha256: 'h' }) : good({}));
 const trashed = await trashEntries(rig.request, 'r', [file('a'), file('Папка1', 'f', { kind: 'directory' }), file('Черновик.docx', 'd', { draftId: 'dr1', storage: 'flux' })]);
 eq('в корзину — trash на каждый объект; файл идёт с хешем, папка без', rig.calls.filter((call) => call.action === 'trash').map((call) => (call as any).baseSha256), ['h', undefined, 'h']);
 eq('черновик уходит тем же trash с draftId в ссылке', (rig.calls.filter((call) => call.action === 'trash')[2] as any).ref.draftId, 'dr1');

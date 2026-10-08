@@ -15,6 +15,7 @@ export interface WindowsVolume {
 export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;
+  rootId?: string; createdAt?: string; hidden?: boolean; author?: string; metadata?: WindowsFileMetadata;
 }
 export interface WindowsFileContent extends WindowsFileEntry { base64: string; sha256: string }
 export interface WindowsFileMetadata {
@@ -31,7 +32,8 @@ export type WindowsFilesRequest =
   | { action: 'restoreDraft'; ref: WindowsFileRef }
   | { action: 'addRoot' }
   | { action: 'list'; ref: WindowsFileRef; offset?: number; limit?: number }
-  | { action: 'read'; ref: WindowsFileRef }
+  | { action: 'fileHash'; ref: WindowsFileRef }
+  | { action: 'read' | 'stat'; ref: WindowsFileRef }
   | { action: 'icon'; ref: WindowsFileRef }
   | { action: 'write'; ref: WindowsFileRef; base64: string; baseSha256: string }
   | { action: 'publish'; parent: WindowsFileRef; name: string; base64: string; draftId: string }
@@ -43,6 +45,12 @@ export type WindowsFilesRequest =
   | { action: 'move'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string; group?: string }
   | { action: 'copy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string; carryMeta?: boolean; group?: string }
   | { action: 'trash'; ref: WindowsFileRef; baseSha256?: string; group?: string }
+  | { action: 'replaceCopy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; targetSha256: string; baseSha256?: string; move?: boolean; carryMeta?: boolean; group?: string }
+  | { action: 'archive'; refs: WindowsFileRef[]; parent: WindowsFileRef; name: string; group?: string }
+  | { action: 'purgeDraft'; ref: WindowsFileRef }
+  | { action: 'systemProperties'; ref: WindowsFileRef }
+  | { action: 'permanentDelete'; ref: WindowsFileRef; baseSha256?: string }
+  | { action: 'copyPath'; refs: WindowsFileRef[] }
   | { action: 'reveal' | 'open'; ref: WindowsFileRef }
   | { action: 'metadata'; ref: WindowsFileRef }
   | { action: 'setMetadata'; ref: WindowsFileRef; metadata: Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'> }
@@ -86,7 +94,7 @@ export interface WindowsFolderNode { name: string; relativePath: string; storage
 
 export interface WindowsQuickAccessItem { name: string; pinned: boolean; ref: WindowsFileRef }
 export interface WindowsQuickAccessList { supported: boolean; items: WindowsQuickAccessItem[]; message?: string }
-export interface WindowsCloudRoot { id: string; name: string; provider: 'onedrive' | 'yandex' | 'other'; icon: string | null; root: WindowsRoot }
+export interface WindowsCloudRoot { id: string; name: string; provider: 'yandex' | 'other'; icon: string | null; root: WindowsRoot }
 export interface WindowsCloudRoots { supported: boolean; items: WindowsCloudRoot[]; message?: string }
 export interface WindowsThumbnail { dataUrl: string; width: number; height: number; /** false — Windows дала значок типа, а не содержимое файла. */ thumbnail: boolean }
 export interface WindowsOpenWithHandler { id: string; name: string; recommended: boolean; icon: string | null }

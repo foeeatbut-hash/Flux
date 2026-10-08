@@ -70,7 +70,13 @@ export default function AddressInput({ place, catalog, onOpen, onCancel, onConne
   };
 
   const submit = async (value: string) => {
-    const parsed = parseTypedPath(value, catalog);
+    let parsed = parseTypedPath(value, catalog);
+    const relative = value.trim().replace(/^"(.*)"$/, '$1').replace(/\//g, '\\');
+    // Относительный адрес считается от открытой папки, сохраняя проверку подключённых корней.
+    if (place.ref && relative && !/^(?:[a-zа-я]:|\\)|%[^%]+%/i.test(relative)
+      && (parsed.kind === 'empty' || (parsed.kind === 'outside' && parsed.reason === 'unknown'))) {
+      parsed = parseTypedPath(`${pathText(place)}\\${relative}`, catalog);
+    }
     if (parsed.kind === 'empty') { onCancel(); return; }
     if (parsed.kind === 'outside') { setNotice({ kind: 'outside', reason: parsed.reason }); return; }
     const walked = await walkPlace(parsed.place, parsed.rest, catalog, (ref) => listFolders(ref));

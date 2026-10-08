@@ -16,7 +16,7 @@ export interface OpFailure { name: string; message: string }
 export interface OpResult { done: number; failed: OpFailure[] }
 
 export const entryRef = (entry: WindowsFileEntry, rootId: string): WindowsFileRef =>
-  ({ rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) });
+  ({ rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) });
 
 // Буфер один на все окна Проводника: вырезать в одном окне и вставить в другом —
 // обычное дело, и состояние компонента для этого не годится
@@ -28,7 +28,7 @@ export function setClip(next: Clip | null) { current = next; listeners.forEach((
 
 /** Хеш содержимого файла: перенос и удаление откажут, если файл успели изменить. */
 async function hashOf(request: BridgeRequest, ref: WindowsFileRef): Promise<string | undefined> {
-  const response = await request<{ sha256?: string }>({ action: 'read', ref }).catch(() => null);
+  const response = await request<{ sha256?: string }>({ action: 'fileHash', ref }).catch(() => null);
   return response && 'data' in response ? response.data?.sha256 : undefined;
 }
 

@@ -23,7 +23,7 @@ export const EXPLORER_WRITE_ACTIONS: ReadonlySet<string> = new Set([
   'startDrag', 'importPaths', 'undo', 'redo',
 ]);
 const READ_ACTIONS = new Set(['search', 'searchCancel', 'children', 'quickAccess', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuClose',
-  'recycleBin', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
+  'recycleBin', 'systemProperties', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
 export const isExplorerAction = (action: string) => READ_ACTIONS.has(action) || EXPLORER_WRITE_ACTIONS.has(action);
 
 export interface ExplorerBridgeDeps {
@@ -68,6 +68,7 @@ export class ExplorerBridge {
       case 'quickAccess': return shell.quickAccess();
       case 'quickAccessPin': return shell.pin(ref(r.ref), r.pinned);
       case 'cloudRoots': return shell.cloudRoots();
+      case 'systemProperties': return shell.fileProperties(ref(r.ref));
       case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true);
       case 'openWithList': return shell.openWithList(owner, ref(r.ref));
       case 'openWith': return shell.openWith(owner, ref(r.ref), r.handlerId);

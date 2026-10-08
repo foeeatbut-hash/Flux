@@ -463,6 +463,7 @@ public static class FluxShellFiles {
         try {
           using (RegistryKey key = root.OpenSubKey(name)) {
             if (key == null) continue;
+            if (name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase)) continue;
             string folder = null;
             using (RegistryKey users = key.OpenSubKey("UserSyncRoots")) {
               if (users != null) { folder = users.GetValue(sid) as string; if (folder == null) foreach (string other in users.GetValueNames()) { folder = users.GetValue(other) as string; if (folder != null) break; } }
@@ -471,9 +472,8 @@ public static class FluxShellFiles {
             string title = key.GetValue("DisplayNameResource") as string;
             if (title != null && title.StartsWith("@")) { StringBuilder buffer = new StringBuilder(260); title = SHLoadIndirectString(title, buffer, 260, IntPtr.Zero) == 0 ? buffer.ToString() : null; }
             string folderName = Path.GetFileName(folder.TrimEnd('\\'));
-            // У OneDrive для работы папка называется «OneDrive - Компания», а ресурс — просто «OneDrive»: Проводник показывает папку.
-            if (String.IsNullOrWhiteSpace(title) || (name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase) && folderName.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase))) title = folderName;
-            string provider = name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase) ? "onedrive" : name.IndexOf("Yandex", StringComparison.OrdinalIgnoreCase) >= 0 ? "yandex" : "other";
+            if (String.IsNullOrWhiteSpace(title)) title = folderName;
+            string provider = name.IndexOf("Yandex", StringComparison.OrdinalIgnoreCase) >= 0 ? "yandex" : "other";
             string icon = null;
             try {
               IShellItem folderItem = Item(folder); IntPtr bitmap = IntPtr.Zero;
@@ -663,6 +663,36 @@ public static class FluxShellFiles {
   // ------------------------------------------------------------ вход
   /** Одна строка JSON -> одна строка JSON. Пути не попадают в сообщения об ошибках. */
   [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
+  [DllImport("propsys.dll", CharSet=CharSet.Unicode)] static extern int PropVariantToStringAlloc(IntPtr value, out IntPtr text);
+  [DllImport("ole32.dll")] static extern int PropVariantClear(IntPtr value);
+  static string FileProperties(Dictionary<string,object> args) {
+    string path = Str(args, "path");
+    FileAttributes attributes = File.GetAttributes(path);
+    string author = "";
+    IShellItem item = null; IntPtr value = Marshal.AllocHGlobal(24); IntPtr text = IntPtr.Zero;
+    try {
+      Marshal.Copy(new byte[24], 0, value, 24);
+      item = Item(path);
+      PROPERTYKEY key = new PROPERTYKEY { fmtid = new Guid("F29F85E0-4FF9-1068-AB91-08002B27B3D9"), pid = 4 };
+      if (((IShellItem2)item).GetProperty(ref key, value) >= 0 && PropVariantToStringAlloc(value, out text) >= 0 && text != IntPtr.Zero) author = Marshal.PtrToStringUni(text) ?? "";
+    } finally {
+      if (text != IntPtr.Zero) Marshal.FreeCoTaskMem(text);
+      PropVariantClear(value); Marshal.FreeHGlobal(value);
+      if (item != null) Marshal.ReleaseComObject(item);
+    }
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"author", author}, {"createdAt", File.GetCreationTimeUtc(path).ToString("o")}, {"hidden", (attributes & FileAttributes.Hidden) != 0} }} });
+  }
+  // Атрибут Hidden не выводится из имени: в Windows скрытой может быть любая папка.
+  static string FileInfoBatch(Dictionary<string,object> args) {
+    List<string> paths = Strings(args, "paths");
+    if (paths.Count > 500) return Error("BAD_REQUEST", null);
+    List<object> rows = new List<object>();
+    foreach (string path in paths) {
+      try { rows.Add(new Dictionary<string,object> { {"hidden", (File.GetAttributes(path) & FileAttributes.Hidden) != 0} }); }
+      catch { rows.Add(null); }
+    }
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", rows} });
+  }
   public static string Handle(string line) {
     object id = null;
     try {
@@ -675,6 +705,8 @@ public static class FluxShellFiles {
       Dictionary<string,object> args = raw as Dictionary<string,object> ?? new Dictionary<string,object>();
       string answer;
       switch (command) {
+        case "file-properties": answer = FileProperties(args); break;
+        case "file-info": answer = FileInfoBatch(args); break;
         case "ping": answer = Json(new Dictionary<string,object> { {"ok", true}, {"data", "pong"} }); break;
         case "thumbnail": answer = Thumbnail(args); break;
         case "quick-access": answer = QuickAccess(); break;
