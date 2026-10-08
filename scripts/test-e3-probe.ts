@@ -205,6 +205,27 @@ exit $bad
     check(/типы Place: Int32, Double, Double, String/.test(trace), 'в trace записаны типы аргументов перед вызовом', trace.split(/\r?\n/).filter(l => /типы/.test(l)).slice(0, 4).join(' | '));
   }
 
+  // «только разместить» блок из файла .e3p (путь в кавычках, как при перетаскивании): Job.ImportDrawing на активный лист
+  {
+    const file = path.join(tmp, 'блок тест.e3p');
+    fs.writeFileSync(file, 'fake');
+    const { out, r } = runFake('placeonly-block', {}, ['-PlaceOnly', `"${file}"`]);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && logTxt.includes('ГОТОВО: вставлен блок из файла') && /устройств 2, блоков 0, символов на листе 3/.test(logTxt), 'блок из файла: добавилось 2 устройства и 3 символа, об этом сказано', logTxt.slice(-900));
+    check(/Устройство: id \d+, имя «-B\d+»/.test(logTxt) && /Символ: id \d+/.test(logTxt) && /Вызов: job\.ImportDrawing/.test(logTxt), 'блок из файла: в отчёте id и имена устройств, id символов и вызов');
+    check(/типы ImportDrawing: String, Int32, Double, Double/.test(trace), 'ImportDrawing вызван с типами String, Int32, Double, Double', trace.split(/\r?\n/).filter(l => /ImportDrawing/.test(l)).join(' | '));
+    const calls = trace.split(/\r?\n/).map(l => l.replace(/^\uFEFF/, '').match(/^[\d:.]+ COM (\w+)\((.*)\)$/)).filter(Boolean).map(m => m[1]);
+    const other = calls.filter(n => !/^(Get\w+|SetId|Create\w+|ImportDrawing|Count|Item)$/.test(n));
+    check(other.length === 0 && calls.filter(n => n === 'ImportDrawing').length === 1 && !calls.includes('ImportDrawingEx'), 'блок из файла: кроме чтения и одного ImportDrawing ничего не вызвано', other.join(','));
+  }
+  {
+    const { out, r } = runFake('placeonly-block-missing', {}, ['-PlaceOnly', path.join(tmp, 'нет-такого.e3p')]);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && logTxt.includes('не найден') && !/COM (ImportDrawing|Load|Place)\(/.test(trace), 'блок из файла: файла нет — понятное сообщение, ничего не вызвано');
+  }
+
   // символа нет, компонент без символов в проекте: запасные планы PlacePart* не получают PSObject (фейк отвечает type mismatch),
   // план Б создаёт устройство без символа и ничего не удаляет
   {

@@ -53,7 +53,7 @@ $script:KeepSheet = [bool]$KeepSheet
 $script:ProcessId = $ProcessId
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'place', 'graphics', 'project', 'report')) {
+foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'placeblock', 'place', 'graphics', 'project', 'report')) {
     . (Join-Path $script:ProbeRoot ('lib\' + $module + '.ps1'))
 }
 

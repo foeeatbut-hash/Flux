@@ -24,7 +24,7 @@ $global:F = @{
 # Сигнатуры — из библиотеки типов E3 (журнал владельца): S = BSTR, D = число с плавающей точкой, I = целое.
 Add-Type -TypeDefinition 'public static class FakeWrap { public static bool Is(object[] a, int i) { return a[i] is System.Management.Automation.PSObject; } }'
 $global:FakeSigs = @{
-    'LoadPart' = 'SSI'; 'PlacePart' = 'SSDDD'; 'PlacePartEx' = 'SSIDDD'; 'Load' = 'SS'; 'Place' = 'IDDSDI'
+    'LoadPart' = 'SSI'; 'PlacePart' = 'SSDDD'; 'PlacePartEx' = 'SSIDDD'; 'Load' = 'SS'; 'Place' = 'IDDSDI'; 'ImportDrawing' = 'SIDD'; 'ImportDrawingEx' = 'SIIDD'
 }
 $global:FakeArgCheck = {
     param([string]$Name, [object[]]$CallArgs)
@@ -196,6 +196,25 @@ function New-FakeJob {
         GetSheetIds = { param($a) if ($env:E3_FAKE_NOPROJECT) { Throw-FakeCom 'Нет открытого проекта' -2147220992 }; $ids = @($global:F.Sheets.Keys); $a[0] = [object[]]$ids; return $ids.Count }
         GetActiveSheetId = { param($a) return $global:F.Active }
         SetActiveSheetId = { param($a) $global:F.Active = [int]$a[0]; return 1 }
+        # Job.ImportDrawing(name, unique, [x, y]): файл должен существовать; блок = 2 устройства и 3 символа на активном листе
+        ImportDrawing = {
+            param($a)
+            if ($a.Length -lt 2 -or $a.Length -gt 4) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if (-not (Test-Path -LiteralPath ([string]$a[0]))) { return 0 }
+            for ($k = 0; $k -lt 2; $k++) {
+                $global:F.Next++; $d = $global:F.Next
+                $global:F.Devices[$d] = @{ Name = '-B' + $d; Attrs = @{}; Sym = @(); Comp = 'блок' }
+            }
+            $devs = @($global:F.Devices.Keys | Sort-Object | Select-Object -Last 2)
+            for ($k = 0; $k -lt 3; $k++) {
+                $global:F.Next++; $s = $global:F.Next
+                $dv = [int]$devs[[math]::Min($k, 1)]
+                $global:F.Symbols[$s] = @{ Sheet = [int]$global:F.Active; X = 50 + $k; Y = 50; Pins = @(); Dev = $dv; Name = 'BLK_SYM' + $k; Ver = '1' }
+                $global:F.Devices[$dv].Sym += $s
+            }
+            return 1
+        }
+        GetBlockIds = { param($a) $a[0] = [object[]]@(); return 0 }
         GetAllDeviceIds = { param($a) $ids = @($global:F.Devices.Keys); $a[0] = [object[]]$ids; return $ids.Count }
         GetAllConnectionIds = { param($a) $a[0] = [object[]]@($global:F.Conns); return @($global:F.Conns).Count }
         CreateConnection = { param($a) $global:F.Next++; $global:F.Conns += $global:F.Next; return $global:F.Next }

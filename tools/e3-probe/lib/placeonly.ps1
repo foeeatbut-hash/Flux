@@ -8,9 +8,11 @@ function Read-PlaceName {
     # (знаки «?» или U+FFFD вместо букв) заменяется содержимым файла place-name.txt (UTF-8) рядом со скриптом, если он есть.
     try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     Write-Human ''
-    $raw = Read-Host 'Разместить один символ на открытом листе? Введите имя символа (как в базе символов E3, поле «Имя символа»; Enter — пропустить и идти к полной проверке)'
+    $raw = Read-Host 'Введите имя символа, имя подсхемы из базы E3 или путь к файлу блока .e3p (можно перетащить файл в окно). Enter — пропустить и идти к полной проверке'
     if ($null -eq $raw) { $raw = '' }
     $raw = $raw.Trim()
+    # при перетаскивании файла в окно путь приходит в кавычках
+    if ($raw.Length -ge 2 -and $raw.StartsWith('"') -and $raw.EndsWith('"')) { $raw = $raw.Substring(1, $raw.Length - 2).Trim() }
     $codes = (($raw.ToCharArray() | ForEach-Object { 'U+' + ([int]$_).ToString('X4') }) -join ' ')
     Write-Human ('Введено: «' + $raw + '» (знаков ' + $raw.Length + '; коды: ' + $codes + ')')
     if ($raw -match '[\?�\x00-\x1F]') {
@@ -70,13 +72,16 @@ function Write-PlaceSuccess {
     param([string]$Name, $v, $newDev, $newSym, $sheetName, $sid, $point)
     $devName = ''; if ($newDev.Count -gt 0) { $dev = $script:Objects['Device']; if (Select-Id $dev $newDev[0]) { $devName = [string](Get-QuietValue $dev 'GetName') } }
     Write-Human ''
+    $isSymbol = ($v.Label -like 'symbol.Load+Place*')
+    $isPart = ($v.Label -like '*PlacePart*')
     Write-Human 'ГОТОВО: изделие размещено.' 'Green'
+    Write-Human ('  Что вставлено: ' + $(if ($isSymbol) { 'вставлен символ' } elseif ($isPart) { 'вставлена подсхема/блок из базы' } else { 'создано устройство и поставлен его символ' }))
     Write-Human ('  Устройство: id ' + (@($newDev) -join ', ') + $(if ($devName) { ', обозначение «' + $devName + '»' } else { '' }))
     Write-Human ('  Символы на листе: id ' + ($newSym -join ', '))
     Write-Human ('  Имя: «' + $Name + '»; лист «' + $sheetName + '» (id ' + $sid + '); координаты (' + $point[0] + ', ' + $point[1] + ')')
     Write-Human ('  Вызов: ' + $v.Label + ' — ' + (($v.Steps | ForEach-Object { $_.T + '.' + $_.M + '(' + (Format-Args $_.A @()) + ')' }) -join ' → '))
     Write-Human '  Отменить: выделите изделие в E3 и нажмите Delete (или Ctrl+Z). Проект не сохранялся.' 'Yellow'
-    Add-Finding 'ok' ('Размещено изделие «' + $Name + '» на листе «' + $sheetName + '» (id ' + $sid + ') в (' + $point[0] + ', ' + $point[1] + '): устройство ' + (@($newDev) -join ', ') + ', символы ' + ($newSym -join ', ') + ', вызов ' + $v.Label + '.')
+    Add-Finding 'ok' ($(if ($isSymbol) { 'Вставлен символ «' } elseif ($isPart) { 'Вставлена подсхема/блок из базы «' } else { 'Размещено изделие «' }) + $Name + '» на листе «' + $sheetName + '» (id ' + $sid + ') в (' + $point[0] + ', ' + $point[1] + '): устройство ' + (@($newDev) -join ', ') + ', символы ' + ($newSym -join ', ') + ', вызов ' + $v.Label + '.')
 }
 
 function Get-NewOnSheet {
@@ -152,7 +157,13 @@ function Step-PlaceDevicePlanB {
 
 function Step-PlaceOnly {
     param([string]$Name)
-    Write-Section 'P' ('Только разместить: символ «' + $Name + '» на активном листе')
+    $Name = $Name.Trim().Trim('"').Trim()
+    Write-Section 'P' ('Только разместить: «' + $Name + '» на активном листе')
+    $blockFile = Resolve-BlockFile $Name
+    if ($script:BlockMissing) {
+        Write-Human ('✕ файл блока «' + $Name + '» не найден (ни по этому пути, ни рядом со скриптом).') 'Red'
+        Add-Finding 'bad' ('Размещение: файл блока «' + $Name + '» не найден; ничего не размещено.'); return
+    }
     # объекты нужны только для размещения и чтения
     $script:Job = Get-QuietValue $script:App 'CreateJobObject'
     if ($null -eq $script:Job) { Write-Human '✕ объект проекта не создан.' 'Red'; Add-Finding 'bad' 'Размещение: объект проекта не создан.'; return }
@@ -167,6 +178,16 @@ function Step-PlaceOnly {
     $sheetName = Get-QuietValue $sheet 'GetName'
     $point = Find-FreePoint $sheet $sid
     Write-Human ('Активный лист: «' + $sheetName + '» (id ' + $sid + '); точка вставки: (' + $point[0] + ', ' + $point[1] + ')')
+    if ($blockFile -ne '') {
+        if (-not $script:NoConfirm) {
+            Write-Human ('Будет вставлен БЛОК из файла ' + $blockFile + ' на этом листе (несколько устройств, проводов, символов). Больше ничего: не удаляется, проект не сохраняется.') 'Yellow'
+            $answer = Read-Host 'Введите Y и нажмите Enter, чтобы вставить (любой другой ответ — выход)'
+            if ($answer -ne 'Y' -and $answer -ne 'y') { Write-Human 'Отменено: ничего не изменено.' 'Yellow'; Add-Finding 'note' 'Вставка блока отменена пользователем до изменений.'; return }
+        }
+        $script:PlaceX = $point[0]; $script:PlaceY = $point[1]; $script:ProbeSheetId = $sid
+        [void](Step-PlaceBlockFile $blockFile $sid $point $sheetName)
+        return
+    }
     if (-not $script:NoConfirm) {
         Write-Human ('Будет размещён ОДИН символ «' + $Name + '» на этом листе. Больше ничего: не удаляется, атрибуты не пишутся, проект не сохраняется.') 'Yellow'
         $answer = Read-Host 'Введите Y и нажмите Enter, чтобы разместить (любой другой ответ — выход)'
