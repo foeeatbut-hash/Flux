@@ -133,10 +133,14 @@ function Probe-Kind {
             if ($null -eq $target) { continue }
             $cr = Try-Calls -Op ('objects.' + $Kind.ToLower() + '.create') -Target $target -TL $(if ($c.On) { $c.On } else { $Kind.ToLower() }) -Cands @((Cand $c.M $c.A.Clone() $c.R)) -First
             if (-not $cr.Ok) { continue }
-            $newId = $null; if ($cr.Value -is [ValueType] -and [long]$cr.Value -gt 0) { $newId = $cr.Value }
+            # Номер нового объекта — число, которого не было в списке до создания; признак успеха (True, 1) за номер не считаем:
+            # иначе Delete ударил бы по существующему объекту.
+            $newId = $null; if ($cr.Value -is [ValueType] -and $cr.Value -isnot [bool] -and [long]$cr.Value -gt 0 -and $before -notcontains $cr.Value) { $newId = $cr.Value }
             Write-Human ('  создано ' + $Kind + ': ' + (Format-Value $cr.Value 40))
             if ($null -ne $newId) {
-                [void](Invoke-Quiet $obj 'SetId' @($newId))
+                $selected = Invoke-Quiet $obj 'SetId' @($newId)
+                # Не выбрался — в обёртке остался первый существующий объект вида, его удалять нельзя.
+                if ($null -eq $selected) { Write-Human ('  ! ' + $Kind + ' ' + $newId + ' выбрать не удалось — не удаляем') 'Yellow'; break }
                 $d = Try-Calls -Op ('objects.' + $Kind.ToLower() + '.delete') -Target $obj -TL $Kind.ToLower() -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
                 if (-not $d.Ok) { Write-Human ('  ! ' + $Kind + ' ' + $newId + ' удалить не удалось — уйдёт вместе с временным листом') 'Yellow' }
             }

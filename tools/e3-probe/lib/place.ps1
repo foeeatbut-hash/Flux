@@ -119,14 +119,15 @@ function Remove-DeviceAndSymbols {
     $dev = Get-DevObj; $sym = $script:Objects['Symbol']
     $ok = $true
     foreach ($id in @($DeviceIds)) {
-        [void](Invoke-Quiet $dev 'SetId' @($id))
+        # Не выбрался id — Delete ударил бы по устройству, выбранному раньше, а оно может быть настоящим.
+        if ($null -eq (Invoke-Quiet $dev 'SetId' @($id))) { $ok = $false; continue }
         $r = Try-Calls -Op $Op -Target $dev -TL 'device' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
         if (-not $r.Ok) { $r = Try-Calls -Op $Op -Target $script:Job -TL 'job' -Cands @((Cand 'DeleteDevice' @($id)), (Cand 'RemoveDevice' @($id))) -First }
         if (-not $r.Ok) { $ok = $false }
     }
     if (@($DeviceIds).Count -eq 0) {
         foreach ($id in @($SymbolIds)) {
-            [void](Invoke-Quiet $sym 'SetId' @($id))
+            if ($null -eq (Invoke-Quiet $sym 'SetId' @($id))) { $ok = $false; continue }
             $r = Try-Calls -Op $Op -Target $sym -TL 'symbol' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
             if (-not $r.Ok) { $ok = $false }
         }
