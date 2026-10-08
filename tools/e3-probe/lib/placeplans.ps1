@@ -29,7 +29,7 @@ function Get-ProjectComponents {
             $name = Get-QuietValue $comp 'GetName'
             if ($null -eq $name -or "$name" -eq '') { continue }
             $ver = Get-QuietValue $comp 'GetVersion'
-            [void]$list.Add(@{ Id = $id; Name = [string]$name; Version = $(if ($null -eq $ver) { '' } else { [string]$ver }) })
+            [void]$list.Add(@{ Id = $id; Name = [string]$name; Version = $(if ($null -eq $ver) { '' } else { ([string]$ver).Trim() }); VersionRaw = $(if ($null -eq $ver) { '' } else { [string]$ver }) })
         }
     }
     $script:ProjectComponents = @($list)
@@ -52,7 +52,7 @@ function Get-DeviceSamples {
             $key = ([string]$cn).ToLower()
             if ($samples.ContainsKey($key) -and @($samples[$key].Symbols).Count -ge 2) { continue }
             $cv = Get-QuietValue $dev 'GetComponentVersion'
-            if (-not $samples.ContainsKey($key)) { $samples[$key] = @{ Name = [string]$cn; Version = $(if ($null -eq $cv) { '' } else { [string]$cv }); Symbols = @() } }
+            if (-not $samples.ContainsKey($key)) { $samples[$key] = @{ Name = [string]$cn; Version = $(if ($null -eq $cv) { '' } else { ([string]$cv).Trim() }); VersionRaw = $(if ($null -eq $cv) { '' } else { [string]$cv }); Symbols = @() } }
             $r = Invoke-Quiet $dev 'GetSymbolIds' @($null) @(0)
             if ($null -eq $r) { continue }
             $symIds = Convert-ToItems $r.Ret $r.Args @(0)   # без @(): функция возвращает массив одним объектом
@@ -90,7 +90,7 @@ function Resolve-Component {
                     foreach ($it in $items) { if ($it -is [string] -and $it -ne '' -and $symbols.Count -lt 3) { $symbols += , @{ Name = $it; Version = '' } } }
                 }
             }
-            return @{ Name = $c.Name; Version = $c.Version; Symbols = $symbols }
+            return @{ Name = $c.Name; Version = $c.Version; VersionRaw = $c.VersionRaw; Symbols = $symbols }
         }
     }
     return $null
@@ -112,8 +112,8 @@ function Get-PlaceVariants {
     # Все способы вставить изделие по компоненту $Name в точку (X, Y) листа $SheetId, самые вероятные — первыми.
     param([string]$Name, $X, $Y, $SheetId = $script:ProbeSheetId, [switch]$PlaceOnly)
     $info = Resolve-Component $Name
-    $comp = $Name; $ver = ''
-    if ($null -ne $info) { $comp = $info.Name; $ver = $info.Version }
+    $comp = [string]$Name; $ver = ''; $verRaw = ''
+    if ($null -ne $info) { $comp = [string]$info.Name; $ver = [string]$info.Version; $verRaw = [string]$info.VersionRaw }
     $v = New-Object System.Collections.ArrayList
     $add = {
         param([string]$Id, [string]$Label, $Steps)
@@ -125,30 +125,31 @@ function Get-PlaceVariants {
             $k++
             foreach ($devName in @('', '-FLUXPLACE')) {
                 & $add ('device.Create+Load+Place.s' + $k + '.n' + $devName.Length) 'device.Create+symbol.Load+Place' @(
-                    (New-PlanStep device Create @($devName, '', '', $comp, $ver, 0) -Pos -Save dev),
-                    (New-PlanStep symbol Load @($s.Name, $s.Version) -Pos),
-                    (New-PlanStep symbol Place @($SheetId, $X, $Y) -Pos))
+                    (New-PlanStep device Create @([string]$devName, '', '', $comp, $ver, [int]0) -Pos -Save dev),
+                    (New-PlanStep symbol Load @([string]$s.Name, [string]$s.Version) -Pos),
+                    (New-PlanStep symbol Place @([int]$SheetId, [double]$X, [double]$Y) -Pos))
             }
         }
     }
     foreach ($devName in @('', '-FLUXPLACE')) {
-        & $add ('device.Create.n' + $devName.Length) 'device.Create' @((New-PlanStep device Create @($devName, '', '', $comp, $ver, 0) -Pos -Save dev))
+        & $add ('device.Create.n' + $devName.Length) 'device.Create' @((New-PlanStep device Create @([string]$devName, '', '', $comp, $ver, [int]0) -Pos -Save dev))
     }
     & $add 'device.LoadAndCreate' 'device.LoadAndCreate' @((New-PlanStep device LoadAndCreate @($comp, $ver, 0) -Pos -Save dev))
-    $versions = @(@('', '1', $ver) | Select-Object -Unique)
+    # Версии без Select-Object: он оборачивает строки в PSObject. Последней идёт версия с пробельным хвостом, как в базе.
+    $versions = @(); foreach ($cand in @($ver, '', '1', $verRaw)) { if ($versions -notcontains [string]$cand) { $versions += [string]$cand } }
     foreach ($pv in $versions) {
         & $add ('sheet.PlacePart.v' + $pv) 'job.LoadPart+sheet.PlacePart' @(
             (New-PlanStep sheet Display -Soft),
-            (New-PlanStep job LoadPart @($comp, $pv, 0) -Soft),
-            (New-PlanStep sheet PlacePart @($comp, $pv, $X, $Y, 0)))
+            (New-PlanStep job LoadPart @($comp, [string]$pv, [int]0) -Soft),
+            (New-PlanStep sheet PlacePart @($comp, [string]$pv, [double]$X, [double]$Y, [double]0)))
         & $add ('sheet.PlacePartEx.v' + $pv) 'sheet.PlacePartEx' @(
             (New-PlanStep sheet Display -Soft),
-            (New-PlanStep sheet PlacePartEx @($comp, $pv, 0, $X, $Y, 0)))
+            (New-PlanStep sheet PlacePartEx @($comp, [string]$pv, [int]0, [double]$X, [double]$Y, [double]0)))
     }
     & $add 'device.CreateBlock' 'device.CreateBlock' @((New-PlanStep device CreateBlock @('', '', '', $comp, '', '') -Pos -Save dev))
     & $add 'symbol.Load+Place.name' 'symbol.Load+Place' @(
         (New-PlanStep symbol Load @($comp, '') -Pos),
-        (New-PlanStep symbol Place @($SheetId, $X, $Y) -Pos))
+        (New-PlanStep symbol Place @([int]$SheetId, [double]$X, [double]$Y) -Pos))
     foreach ($f in @($script:SolutionFiles)) {
         if ($f -match '\.(e3p|e3d|e3s|e3t)$') {
             & $add 'job.ImportDrawing' 'job.ImportDrawing' @((New-PlanStep sheet Display -Soft), (New-PlanStep job ImportDrawing @($f, 1, $X, $Y) -Pos))

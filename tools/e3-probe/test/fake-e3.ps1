@@ -19,6 +19,26 @@ $global:F = @{
     Log = @()
 }
 
+# Как настоящий IDispatch: аргумент, обёрнутый в PSObject, приходит в COM как VT_DISPATCH, и E3 отвечает
+# DISP_E_TYPEMISMATCH (0x80020005). То же для строки там, где ждут число, и наоборот. Целое вместо double COM приводит сам.
+# Сигнатуры — из библиотеки типов E3 (журнал владельца): S = BSTR, D = число с плавающей точкой, I = целое.
+Add-Type -TypeDefinition 'public static class FakeWrap { public static bool Is(object[] a, int i) { return a[i] is System.Management.Automation.PSObject; } }'
+$global:FakeSigs = @{
+    'LoadPart' = 'SSI'; 'PlacePart' = 'SSDDD'; 'PlacePartEx' = 'SSIDDD'; 'Load' = 'SS'; 'Place' = 'IDDSDI'
+}
+$global:FakeArgCheck = {
+    param([string]$Name, [object[]]$CallArgs)
+    $sig = $global:FakeSigs[$Name]
+    if ($Name -eq 'Create' -and $CallArgs.Length -eq 6) { $sig = 'SSSSSI' }
+    for ($i = 0; $i -lt $CallArgs.Length; $i++) {
+        if ([FakeWrap]::Is($CallArgs, $i)) { Throw-FakeCom ('Type mismatch (аргумент ' + $i + ' пришёл как PSObject, т.е. VT_DISPATCH).') -2147352571 }
+        if ($null -eq $sig -or $i -ge $sig.Length) { continue }
+        $v = $CallArgs[$i]; $isStr = $v -is [string]; $isNum = ($v -is [int] -or $v -is [double] -or $v -is [long])
+        $ok = switch ($sig[$i]) { 'S' { $isStr } 'D' { $isNum } 'I' { $v -is [int] -or $v -is [long] -or ($v -is [double] -and $v -eq [math]::Floor($v)) } }
+        if (-not $ok) { Throw-FakeCom ('Type mismatch (аргумент ' + $i + ' типа ' + $(if ($null -eq $v) { 'null' } else { $v.GetType().Name }) + ').') -2147352571 }
+    }
+}
+
 function New-FakeObject {
     param([hashtable]$Methods)
     $o = New-Object PSObject

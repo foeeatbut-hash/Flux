@@ -164,8 +164,21 @@ function Invoke-Com {
     # Один вызов члена COM-объекта поздним связыванием. RefIdx — номера параметров, которые E3 заполняет сам (ref/out).
     param($Target, [string]$Name, [object[]]$CallArgs, [int[]]$RefIdx)
     if ($null -eq $CallArgs) { $CallArgs = @() }
+    # Значения, прошедшие через конвейер (Select-Object, ForEach-Object и т.п.), приходят обёрнутыми в PSObject: InvokeMember
+    # передаёт их в COM как VT_DISPATCH, и E3 отвечает DISP_E_TYPEMISMATCH на BSTR/double. Разворачиваем на месте; элементы
+    # ref-параметров не трогаем (там $null или массив, который заполнит E3), массив остаётся тем же объектом для ParameterModifier.
+    for ($i = 0; $i -lt $CallArgs.Length; $i++) {
+        if ($RefIdx -contains $i) { continue }
+        if ($CallArgs[$i] -is [System.Management.Automation.PSObject]) { $CallArgs[$i] = $CallArgs[$i].PSObject.BaseObject }
+    }
     Write-Trace ('COM ' + $Name + '(' + (Format-Args $CallArgs $RefIdx) + ')')
+    # Типы аргументов, как их увидит COM (String -> BSTR, Double -> R8, Int32 -> I4); ref-места помечены
+    if ($CallArgs.Length -gt 0) {
+        $kinds = @(); for ($i = 0; $i -lt $CallArgs.Length; $i++) { if ($RefIdx -contains $i) { $kinds += 'ref' } elseif ($null -eq $CallArgs[$i]) { $kinds += 'null' } else { try { $kinds += [System.Object].GetMethod('GetType').Invoke($CallArgs[$i], @()).Name } catch { $kinds += '?' } } }
+        Write-Trace ('  типы ' + $Name + ': ' + ($kinds -join ', '))
+    }
     if ($script:Fake) {
+        if ($null -ne $global:FakeArgCheck) { & $global:FakeArgCheck $Name $CallArgs }
         $method = $Target.PSObject.Methods[$Name]
         if ($null -eq $method) { throw (New-Object System.MissingMethodException('Нет члена ' + $Name)) }
         $wrapped = [object[]]@(,$CallArgs)

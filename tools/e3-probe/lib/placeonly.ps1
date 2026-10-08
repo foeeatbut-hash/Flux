@@ -1,4 +1,4 @@
-﻿# Режим «только разместить»: одно изделие по имени компонента на АКТИВНОМ листе открытого проекта — и выход.
+﻿# Режим «только разместить»: один символ по имени символа (запасные планы — по компоненту с тем же именем) на АКТИВНОМ листе открытого проекта — и выход.
 # Не создаётся временный лист, не пишутся атрибуты, ничего не удаляется, база и сохранение не затрагиваются.
 # Отмена — обычными Ctrl+Z или Delete в E3.
 
@@ -8,7 +8,7 @@ function Read-PlaceName {
     # (знаки «?» или U+FFFD вместо букв) заменяется содержимым файла place-name.txt (UTF-8) рядом со скриптом, если он есть.
     try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     Write-Human ''
-    $raw = Read-Host 'Разместить одно изделие на открытом листе? Введите имя компонента (Enter — пропустить и идти к полной проверке)'
+    $raw = Read-Host 'Разместить один символ на открытом листе? Введите имя символа (как в базе символов E3, поле «Имя символа»; Enter — пропустить и идти к полной проверке)'
     if ($null -eq $raw) { $raw = '' }
     $raw = $raw.Trim()
     $codes = (($raw.ToCharArray() | ForEach-Object { 'U+' + ([int]$_).ToString('X4') }) -join ' ')
@@ -20,7 +20,7 @@ function Read-PlaceName {
             Write-Human ('! Ввод с клавиатуры испорчен (кодовая страница консоли). Беру имя из ' + $file + ': «' + $fromFile + '»') 'Yellow'
             return $fromFile
         }
-        Write-Human '! Ввод с клавиатуры испорчен (кодовая страница консоли). Создайте рядом со скриптом файл place-name.txt (UTF-8) с именем компонента и запустите снова либо запустите с параметром -PlaceOnly "имя".' 'Yellow'
+        Write-Human '! Ввод с клавиатуры испорчен (кодовая страница консоли). Создайте рядом со скриптом файл place-name.txt (UTF-8) с именем символа и запустите снова либо запустите с параметром -PlaceOnly "имя".' 'Yellow'
         return ''
     }
     return $raw
@@ -66,9 +66,93 @@ function Find-FreePoint {
     return @([math]::Round($xMin + 0.08 * $w, 1), [math]::Round($yMax - 0.12 * $h, 1))
 }
 
+function Write-PlaceSuccess {
+    param([string]$Name, $v, $newDev, $newSym, $sheetName, $sid, $point)
+    $devName = ''; if ($newDev.Count -gt 0) { $dev = $script:Objects['Device']; if (Select-Id $dev $newDev[0]) { $devName = [string](Get-QuietValue $dev 'GetName') } }
+    Write-Human ''
+    Write-Human 'ГОТОВО: изделие размещено.' 'Green'
+    Write-Human ('  Устройство: id ' + (@($newDev) -join ', ') + $(if ($devName) { ', обозначение «' + $devName + '»' } else { '' }))
+    Write-Human ('  Символы на листе: id ' + ($newSym -join ', '))
+    Write-Human ('  Имя: «' + $Name + '»; лист «' + $sheetName + '» (id ' + $sid + '); координаты (' + $point[0] + ', ' + $point[1] + ')')
+    Write-Human ('  Вызов: ' + $v.Label + ' — ' + (($v.Steps | ForEach-Object { $_.T + '.' + $_.M + '(' + (Format-Args $_.A @()) + ')' }) -join ' → '))
+    Write-Human '  Отменить: выделите изделие в E3 и нажмите Delete (или Ctrl+Z). Проект не сохранялся.' 'Yellow'
+    Add-Finding 'ok' ('Размещено изделие «' + $Name + '» на листе «' + $sheetName + '» (id ' + $sid + ') в (' + $point[0] + ', ' + $point[1] + '): устройство ' + (@($newDev) -join ', ') + ', символы ' + ($newSym -join ', ') + ', вызов ' + $v.Label + '.')
+}
+
+function Get-NewOnSheet {
+    param($DevBefore, $SymBefore)
+    return @{
+        Sym = @(@(Get-SheetSymbols) | Where-Object { $SymBefore -notcontains $_ })
+        Dev = @(@(Get-AllDevices) | Where-Object { $DevBefore -notcontains $_ })
+    }
+}
+
+function Step-PlaceBySymbol {
+    # Главный план: Symbol.Load(имя символа, версия) -> Symbol.Place(лист, x, y, "0"). Успех — только если на листе появился
+    # новый символ. Возвращает 'placed', 'notfound' (Load везде вернул 0) или 'failed' (Load прошёл, символ не встал).
+    param([string]$Name, $Sid, $Point, $SheetName)
+    $result = 'notfound'
+    foreach ($ver in @('1', '')) {
+        $v = @{ Id = 'symbol.Load+Place.v' + $ver; Label = 'symbol.Load+Place'; SheetId = $Sid; Steps = @(
+            (New-PlanStep symbol Load @([string]$Name, [string]$ver) -Pos),
+            (New-PlanStep symbol Place @([int]$Sid, [double]$Point[0], [double]$Point[1], [string]'0') -Pos)) }
+        $v.A = @($v.Steps)[-1].A
+        $devBefore = @(Get-AllDevices); $symBefore = @(Get-SheetSymbols)
+        $r = Invoke-PlaceVariant $v ('place.only.symbol.v' + $ver)
+        if ($script:PlanCtx.StepsDone -ge 1) { $result = 'failed' }
+        if ($r.Ok) {
+            $new = Get-NewOnSheet $devBefore $symBefore
+            if ($new.Sym.Count -gt 0) { Write-PlaceSuccess $Name $v $new.Dev $new.Sym $SheetName $Sid $Point; return 'placed' }
+        }
+    }
+    return $result
+}
+
+function Step-PlaceDevicePlanB {
+    # План Б после неудачи символа и PlacePart*: Device.Create(уникальное имя, "", "", компонент, версия, 0) и, если символ
+    # компонента известен по устройствам проекта, Symbol.Load + Symbol.Place. Ничего не удаляется: созданное остаётся владельцу.
+    param([string]$Name, $Sid, $Point, $SheetName)
+    $info = Resolve-Component $Name
+    $comp = [string]$Name; $verList = @()
+    if ($null -ne $info) { $comp = [string]$info.Name; foreach ($c in @($info.Version, '1', '', $info.VersionRaw)) { if ($verList -notcontains [string]$c) { $verList += [string]$c } } }
+    else { $verList = @('1', '') }
+    $devName = 'FLUXPLACE_' + (Get-Date -Format 'HHmmss')
+    $created = $false
+    foreach ($ver in $verList) {
+        $v = @{ Id = 'planB.device.Create.v' + $ver; Label = 'device.Create (план Б)'; SheetId = $Sid; Steps = @((New-PlanStep device Create @($devName, '', '', $comp, [string]$ver, [int]0) -Pos -Save dev)) }
+        $v.A = @($v.Steps)[-1].A
+        $devBefore = @(Get-AllDevices); $symBefore = @(Get-SheetSymbols)
+        $r = Invoke-PlaceVariant $v ('place.only.planB.create.v' + $ver)
+        if (-not $r.Ok) { continue }
+        $created = $true
+        if ($null -ne $info -and @($info.Symbols).Count -gt 0) {
+            foreach ($sym in @($info.Symbols)) {
+                foreach ($sv in @('1', '', [string]$sym.Version)) {
+                    $vs = @{ Id = 'planB.symbol.Load+Place'; Label = 'symbol.Load+Place (план Б)'; SheetId = $Sid; Steps = @(
+                        (New-PlanStep symbol Load @([string]$sym.Name, [string]$sv) -Pos),
+                        (New-PlanStep symbol Place @([int]$Sid, [double]$Point[0], [double]$Point[1], [string]'0') -Pos)) }
+                    $vs.A = @($vs.Steps)[-1].A
+                    $rs = Invoke-PlaceVariant $vs 'place.only.planB.symbol'
+                    if ($rs.Ok) {
+                        $new = Get-NewOnSheet $devBefore $symBefore
+                        if ($new.Sym.Count -gt 0) { Write-PlaceSuccess $Name $vs $new.Dev $new.Sym $SheetName $Sid $Point; return 'placed' }
+                    }
+                }
+            }
+        }
+        break
+    }
+    if ($created) {
+        Write-Human ('! Устройство создано без символа, символ не найден (обозначение «' + $devName + '», компонент «' + $comp + '»). Режим ничего не удаляет: уберите устройство в E3 сами (Delete или Ctrl+Z).') 'Yellow'
+        Add-Finding 'bad' ('План Б: устройство «' + $devName + '» создано без символа, символ не найден; не удалено — уберите вручную.')
+        return 'device'
+    }
+    return 'none'
+}
+
 function Step-PlaceOnly {
     param([string]$Name)
-    Write-Section 'P' ('Только разместить: «' + $Name + '» на активном листе')
+    Write-Section 'P' ('Только разместить: символ «' + $Name + '» на активном листе')
     # объекты нужны только для размещения и чтения
     $script:Job = Get-QuietValue $script:App 'CreateJobObject'
     if ($null -eq $script:Job) { Write-Human '✕ объект проекта не создан.' 'Red'; Add-Finding 'bad' 'Размещение: объект проекта не создан.'; return }
@@ -84,15 +168,24 @@ function Step-PlaceOnly {
     $point = Find-FreePoint $sheet $sid
     Write-Human ('Активный лист: «' + $sheetName + '» (id ' + $sid + '); точка вставки: (' + $point[0] + ', ' + $point[1] + ')')
     if (-not $script:NoConfirm) {
-        Write-Human ('Будет создано ОДНО изделие по компоненту «' + $Name + '» на этом листе. Больше ничего: не удаляется, атрибуты не пишутся, проект не сохраняется.') 'Yellow'
+        Write-Human ('Будет размещён ОДИН символ «' + $Name + '» на этом листе. Больше ничего: не удаляется, атрибуты не пишутся, проект не сохраняется.') 'Yellow'
         $answer = Read-Host 'Введите Y и нажмите Enter, чтобы разместить (любой другой ответ — выход)'
         if ($answer -ne 'Y' -and $answer -ne 'y') { Write-Human 'Отменено: ничего не изменено.' 'Yellow'; Add-Finding 'note' 'Размещение отменено пользователем до изменений.'; return }
     }
     $script:PlaceX = $point[0]; $script:PlaceY = $point[1]
+    $script:ProbeSheetId = $sid      # Get-SheetSymbols и Invoke-PlaceVariant работают с этим номером; временного листа здесь нет
+    $bySymbol = @(Step-PlaceBySymbol $Name $sid $point $sheetName)[-1]
+    if ($bySymbol -eq 'placed') { return }
+    if ($bySymbol -eq 'notfound') {
+        Write-Human ('! Символ «' + $Name + '» не найден в базе символов (Symbol.Load вернул 0 для версий «1» и «»). Пробую запасные планы по компоненту с тем же именем.') 'Yellow'
+        Add-Finding 'note' ('Символ «' + $Name + '» не найден в базе символов: Symbol.Load вернул 0.')
+    } else {
+        Write-Human ('! Символ «' + $Name + '» загружен, но на листе не появился. Пробую запасные планы.') 'Yellow'
+        Add-Finding 'note' ('Символ «' + $Name + '»: Symbol.Load прошёл, Symbol.Place не поставил символ на лист.')
+    }
     $variants = @(Get-PlaceVariants $Name $point[0] $point[1] $sid -PlaceOnly)
     Write-Human ('Способов размещения к проверке: ' + $variants.Count)
     $tried = @()
-    $script:ProbeSheetId = $sid      # Get-SheetSymbols и Invoke-PlaceVariant работают с этим номером; временного листа здесь нет
     foreach ($v in $variants) {
         $devBefore = @(Get-AllDevices)
         $symBefore = @(Get-SheetSymbols)
@@ -103,21 +196,18 @@ function Step-PlaceOnly {
             $newSym = @(@(Get-SheetSymbols) | Where-Object { $symBefore -notcontains $_ })
             $newDev = @(@(Get-AllDevices) | Where-Object { $devBefore -notcontains $_ })
             if ($newSym.Count -gt 0) {
-                $devName = ''; if ($newDev.Count -gt 0) { $dev = $script:Objects['Device']; if (Select-Id $dev $newDev[0]) { $devName = [string](Get-QuietValue $dev 'GetName') } }
-                Write-Human ''
-                Write-Human 'ГОТОВО: изделие размещено.' 'Green'
-                Write-Human ('  Устройство: id ' + (@($newDev) -join ', ') + $(if ($devName) { ', обозначение «' + $devName + '»' } else { '' }))
-                Write-Human ('  Символы на листе: id ' + ($newSym -join ', '))
-                Write-Human ('  Компонент: «' + $Name + '»; лист «' + $sheetName + '» (id ' + $sid + '); координаты (' + $point[0] + ', ' + $point[1] + ')')
-                Write-Human ('  Вызов: ' + $v.Label + ' — ' + (($v.Steps | ForEach-Object { $_.T + '.' + $_.M + '(' + (Format-Args $_.A @()) + ')' }) -join ' → '))
-                Write-Human '  Отменить: выделите изделие в E3 и нажмите Delete (или Ctrl+Z). Проект не сохранялся.' 'Yellow'
-                Add-Finding 'ok' ('Размещено изделие «' + $Name + '» на листе «' + $sheetName + '» (id ' + $sid + ') в (' + $point[0] + ', ' + $point[1] + '): устройство ' + (@($newDev) -join ', ') + ', символы ' + ($newSym -join ', ') + ', вызов ' + $v.Label + '.')
+                Write-PlaceSuccess $Name $v $newDev $newSym $sheetName $sid $point
                 return
             }
             if ($newDev.Count -gt 0 -or $created.Count -gt 0) { break }   # что-то создалось без символа: дальше не пробуем, чтобы не плодить
             continue
         }
         if ($created.Count -gt 0) { break }                              # устройство создалось, а символ не встал: не плодим новых
+    }
+    if (@($script:PlanCtx.Created).Count -eq 0) {
+        $planB = @(Step-PlaceDevicePlanB $Name $sid $point $sheetName)[-1]
+        if ($planB -eq 'placed') { return }
+        if ($planB -eq 'device') { $tried += 'device.Create (план Б)'; Write-Human ''; Write-Human ('✕ символ «' + $Name + '» на листе не размещён.') 'Red'; return }
     }
     $left = @($script:PlanCtx.Created)
     Write-Human ''

@@ -179,16 +179,44 @@ exit $bad
     check(r.status === 0, 'только разместить: прогон завершился без ошибки', (r.stdout + r.stderr).slice(-600));
     const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
     const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
-    check(logTxt.includes('ГОТОВО: изделие размещено') && logTxt.includes(`Компонент: «${name}»`) && /лист «Лист 1» \(id 101\)/.test(logTxt), 'только разместить: изделие размещено на активном листе (id 101), имя кириллицей сохранено', logTxt.slice(-800));
+    check(logTxt.includes('ГОТОВО: изделие размещено') && logTxt.includes(`Имя: «${name}»`) && /лист «Лист 1» \(id 101\)/.test(logTxt), 'только разместить: изделие размещено на активном листе (id 101), имя кириллицей сохранено', logTxt.slice(-800));
     check(/Ctrl\+Z/.test(logTxt) && /Проект не сохранялся/.test(logTxt), 'только разместить: сказано, как отменить, и что проект не сохранялся');
     const calls = trace.split(/\r?\n/).map(l => l.replace(/^\uFEFF/, '').match(/^[\d:.]+ COM (\w+)\((.*)\)$/)).filter(Boolean).map(m => ({ name: m[1], args: m[2] }));
     const forbidden = calls.filter(c => /^(Delete|DeleteInstance|Remove|SetAttributeValue|AddAttributeValue|DeleteAttribute|Save\w*|SetName|SetFormat|Display|CreateConnection|PutInfo|SetActiveSheetId|ExportDXF|Export\w*|LoadPart|PlacePart\w*)$/.test(c.name) || (c.name === 'Create' && /^0,/.test(c.args)));
     check(forbidden.length === 0, 'только разместить: в журнале вызовов нет удаления, записи атрибутов, сохранения, временного листа и смены вида', forbidden.map(c => c.name + '(' + c.args + ')').join('; '));
     const writes = calls.filter(c => ['Create', 'Load', 'Place'].includes(c.name)).map(c => c.name);
-    check(writes.join(',') === 'Create,Load,Place', 'только разместить: из изменяющих вызовов выполнены ровно Create, Load, Place', writes.join(','));
+    check(writes.join(',') === 'Load,Load,Create,Load,Place', 'только разместить: имя компонента — не символ: Load («1» и «») вернул 0, дальше запасной план Create, Load, Place', writes.join(','));
     check(calls.some(c => c.name === 'GetActiveSheetId'), 'только разместить: активный лист получен через Job.GetActiveSheetId');
     const summaryTxt = fs.readFileSync(path.join(out, 'summary.txt'), 'utf8');
     check(!/Окончательная уборка|Z\. Уборка/.test(logTxt) && !logTxt.includes('=== T.') && /Размещено изделие/.test(summaryTxt), 'только разместить: полной проверки, уборки и описи библиотеки нет, итог в сводке');
+  }
+
+  // «только разместить» по имени СИМВОЛА: главный план Symbol.Load -> Symbol.Place(лист, x, y, "0"), без запасных планов
+  {
+    const { out, r } = runFake('placeonly-symbol', {}, ['-PlaceOnly', 'SYM_VALVE']);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && logTxt.includes('ГОТОВО: изделие размещено') && /вызов symbol\.Load\+Place|Вызов: symbol\.Load\+Place/.test(logTxt), 'только разместить по символу: символ поставлен главным планом Symbol.Load + Symbol.Place', logTxt.slice(-700));
+    const calls = trace.split(/\r?\n/).map(l => l.replace(/^\uFEFF/, '').match(/^[\d:.]+ COM (\w+)\((.*)\)$/)).filter(Boolean).map(m => ({ name: m[1], args: m[2] }));
+    const writes = calls.filter(c => ['Create', 'Load', 'Place', 'LoadPart', 'PlacePart', 'PlacePartEx'].includes(c.name)).map(c => c.name);
+    check(writes.join(',') === 'Load,Place', 'только разместить по символу: изменяющих вызовов ровно Load, Place', writes.join(','));
+    const place = calls.find(c => c.name === 'Place');
+    check(!!place && /^101, [\d.]+, [\d.]+, "0"$/.test(place.args), 'только разместить по символу: Place(лист 101, x, y, "0") — поворот строкой', place && place.args);
+    check(/типы Place: Int32, Double, Double, String/.test(trace), 'в trace записаны типы аргументов перед вызовом', trace.split(/\r?\n/).filter(l => /типы/.test(l)).slice(0, 4).join(' | '));
+  }
+
+  // символа нет, компонент без символов в проекте: запасные планы PlacePart* не получают PSObject (фейк отвечает type mismatch),
+  // план Б создаёт устройство без символа и ничего не удаляет
+  {
+    const { out, r } = runFake('placeonly-planb', {}, ['-PlaceOnly', 'Двигатель_М1']);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const ndjson = fs.readFileSync(path.join(out, 'log.ndjson'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && logTxt.includes('не найден в базе символов'), 'только разместить: символ не найден — так и сказано в журнале', logTxt.slice(-700));
+    check(!/Type mismatch|80020005/i.test(ndjson), 'только разместить: ни один вызов не получил type mismatch (PSObject развёрнуты, типы приведены)', (ndjson.match(/.{80}Type mismatch.{80}/i) || [''])[0]);
+    check(/COM PlacePart\("Двигатель_М1", "1", 50\.4|COM PlacePart\("Двигатель_М1", "1", [\d.]+, [\d.]+, 0\)/.test(trace) && /типы PlacePart: String, String, Double, Double, Double/.test(trace), 'PlacePart вызван со строками и double', trace.split(/\r?\n/).filter(l => /PlacePart/.test(l)).slice(0, 3).join(' | '));
+    check(/COM Create\("FLUXPLACE_\d+", "", "", "Двигатель_М1"/.test(trace) && /Устройство создано без символа/.test(logTxt), 'план Б: устройство создано без символа, об этом сказано', logTxt.slice(-500));
+    check(!/COM (Delete|Remove)\(/.test(trace), 'план Б ничего не удаляет');
   }
 
   // «только разместить»: компонента нет — ничего не создано, ничего не удалено
