@@ -74,9 +74,9 @@ export default function E3GapsTab({ gaps, ready, error, hasProject, loadedAt, on
                   return (
                     <tr key={g.key}>
                       <td className="whitespace-nowrap"><Status tone={s.tone}>{s.text}</Status></td>
-                      <td className="max-w-[240px] truncate font-mono" title={g.title}>{g.title}</td>
-                      <td className="max-w-[260px] truncate" title={g.place}>{g.place}</td>
-                      <td className={`max-w-[420px] truncate ${muted}`} title={g.detail}>{g.detail}</td>
+                      <td className="max-w-[200px] truncate font-mono" title={g.title}>{g.title}</td>
+                      <td className="max-w-[220px] truncate" title={g.place}>{g.place}</td>
+                      <td className={`max-w-[300px] truncate ${muted}`} title={g.detail}>{g.detail}</td>
                       <td className="whitespace-nowrap text-right"><Btn tone="ghost" size="sm" onClick={() => onOpen(g.where)} aria-label={`Открыть: ${g.title}`} title={`Открыть: ${g.place}`}>Открыть</Btn></td>
                     </tr>
                   );

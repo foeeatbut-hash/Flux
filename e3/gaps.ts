@@ -78,6 +78,9 @@ export interface GapInput {
 /** Класс файла, у которого типа Flux нет по решению владельца: показывается справкой */
 const NO_TYPE_BY_DESIGN = new Set(['воздуховод']);
 
+/** «1 отличие», «2 отличия», «5 отличий» */
+const diffs = (n: number): string => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'отличие' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'отличия' : 'отличий'}`;
+
 const SEVERITY_ORDER: Record<GapSeverity, number> = { error: 0, warn: 1, info: 2 };
 
 export function collectGaps(input: GapInput): Gap[] {
@@ -223,7 +226,7 @@ function projectGaps(positions: GapPosition[], book: E3SolutionBook | null, prof
         out.push({
           kind: 'position-no-solution', severity: 'error', key: `pos-none:${gp.id}`, where: { positionId: gp.id, view: 'selection' },
           title: label, place: `Подбор по проекту · ${type}`,
-          detail: sel.nearest.length ? `Типового решения нет; ближайшее — ${sel.nearest[0].solution.id} (${sel.nearest[0].diff.length} отличий)` : 'Типового решения нет: в каталоге нет решений для этих ответов',
+          detail: sel.nearest.length ? `Типового решения нет; ближайшее — ${sel.nearest[0].solution.id} (${diffs(sel.nearest[0].diff.length)})` : 'Типового решения нет: в каталоге нет решений для этих ответов',
         });
       } else if (sel.status === 'many') {
         const f = (book.features || []).find((x) => x.id === sel.missingFeature);
