@@ -108,7 +108,7 @@ function Step-Connect {
         $listCands = @((Cand 'GetE3Applications' @($null) @(0)), (Cand 'GetApplications' @($null) @(0)), (Cand 'GetE3ApplicationIds' @($null) @(0)))
         $listRes = Try-Calls -Op 'connect.dispatcher.list' -Target $disp -TL 'dispatcher' -Cands $listCands
         $getRes = Try-Calls -Op 'connect.dispatcher.get' -Target $disp -TL 'dispatcher' -Cands $gc
-        foreach ($w in $getRes.Wins) { if ($null -ne $w.Value -and $w.Value.GetType().FullName -eq 'System.__ComObject' -or ($script:Fake -and $null -ne $w.Value)) { [void]$apps.Add(@{ Source = $w.Label; App = $w.Value }) } }
+        foreach ($w in $getRes.Wins) { if ($null -ne $w.Value -and (Test-ComObject $w.Value)) { [void]$apps.Add(@{ Source = $w.Label; App = $w.Value }) } }
         $script:Env['dispatcherCount'] = $count
     }
 
@@ -155,6 +155,14 @@ function Step-Connect {
     return $true
 }
 
+function Get-TitleProjectFile {
+    # Заголовок окна E3 с именем файла проекта (.e3s/.e3d/.e3p…) означает, что проект открыт. Возвращает заголовок или ''.
+    foreach ($p in @($script:Env['processes'])) {
+        if ($p.title -and ([string]$p.title) -match '(?i)\.e3[a-z]\b') { return [string]$p.title }
+    }
+    return ''
+}
+
 function Step-ProjectCheck {
     # Сразу после подключения, до долгой описи API: открыт ли проект. Если нет — говорим об этом громко и в самом начале,
     # а не в конце длинного журнала; дальше снимется только опись API и будет итог.
@@ -164,7 +172,13 @@ function Step-ProjectCheck {
     if ($null -ne $job) {
         foreach ($n in @('GetName', 'GetProjectName', 'GetFullName')) { $v = Get-QuietValue $job $n; if ($null -ne $v -and "$v" -ne '') { $name = [string]$v; break } }
     }
-    if ($name -eq '') {
+    $title = Get-TitleProjectFile
+    if ($name -eq '' -and $title -ne '') {
+        # Заголовок окна называет файл проекта, а проба имени не прочитала: врать «откройте проект» нельзя.
+        Write-Human ('!!! ПРОТИВОРЕЧИЕ: в заголовке окна E3 есть файл проекта («' + $title + '»), а проба имя проекта прочитать не смогла.') 'Yellow'
+        Write-Human '    Скорее всего, проект открыт, а ошибка в самой пробе или в ответе E3. Прогон пойдёт дальше как без проекта; пришлите журнал целиком.' 'Yellow'
+        Add-Finding 'bad' ('ПРОТИВОРЕЧИЕ: заголовок окна E3 «' + $title + '» называет файл проекта, но проба не прочитала имя проекта (Job.GetName и аналоги). Это ошибка пробы или ответа E3, а не закрытый проект.')
+    } elseif ($name -eq '') {
         Write-Human '!!! В E3 НЕ ОТКРЫТ ПРОЕКТ. Откройте КОПИЮ тестового проекта и запустите проверку снова.' 'Yellow'
         Write-Human '    Сейчас будет снята только опись API (она полезна и так), затем проверка завершится с итогом.' 'Yellow'
         Add-Finding 'bad' 'В E3 не был открыт проект: откройте копию тестового проекта и запустите проверку снова. Снята только опись API.'
@@ -219,7 +233,8 @@ function Step-AppInfo {
     $script:Env['project'] = [ordered]@{ name = $name; path = $path; open = ($name -ne '') }
     Save-Environment
     if ($name -eq '') {
-        Add-Finding 'note' 'Проект в E3 не открыт: проверены только подключение и поведение без проекта.'
+        if ((Get-TitleProjectFile) -ne '') { Add-Finding 'bad' 'ПРОТИВОРЕЧИЕ: проба решила, что проект не открыт, но в заголовке окна E3 есть файл проекта. Проверены только подключение и опись API.' }
+        else { Add-Finding 'note' 'Проект в E3 не открыт: проверены только подключение и поведение без проекта.' }
         return $false
     }
     Add-Finding 'ok' ('Проект «' + $name + '» прочитан, путь: ' + $path)

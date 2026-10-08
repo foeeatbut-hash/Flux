@@ -38,6 +38,17 @@ const scripts = [path.join(root, 'e3-probe.ps1'), ...fs.readdirSync(path.join(ro
     });
     check(hits.length === 0, `${path.relative(root, file)}: нет конструкций PowerShell 7`, hits.join('; '));
   }
+  // У объектов E3 (Job, Symbol, Device…) есть собственный метод GetType(): $x.GetType() вызывает его и возвращает данные E3,
+  // а не тип .NET. Так проба в первом прогоне на настоящем проекте решила, что проект не открыт. Типы — только через Get-ClrType.
+  for (const file of scripts) {
+    const hits: string[] = [];
+    fs.readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
+      const code = line.replace(/'[^']*'/g, "''").replace(/#.*$/, '');
+      for (const m of code.matchAll(/(\$[\w.]+|\))\.GetType\(\)/g)) if (!/^\$(inner|Ex|e|failure)$/.test(m[1])) hits.push(`${i + 1}: ${m[0]}`);
+      if (/\.GetType\(\)\.InvokeMember/.test(code)) hits.push(`${i + 1}: GetType().InvokeMember`);
+    });
+    if (!file.includes('fake-e3')) check(hits.length === 0, `${path.relative(root, file)}: нет $x.GetType() на значениях E3`, hits.join('; '));
+  }
   const attrs = fs.readFileSync(path.join(root, 'attributes.txt'), 'utf8').split(/\r?\n/).filter(Boolean);
   check(attrs.length >= 150 && new Set(attrs).size === attrs.length, `attributes.txt: ${attrs.length} уникальных имён`);
   check(attrs.every(a => !/\t|⏎/.test(a)), 'attributes.txt: только имена, без описаний');
@@ -102,6 +113,9 @@ exit $bad
       check(Array.isArray(log.attempts) && log.attempts.length > 200, `log.json: попыток ${log.attempts?.length}`);
       const first = log.attempts[0] ?? {};
       for (const key of ['op', 'candidate', 'args', 'ok', 'result', 'error', 'hresult', 'ms']) check(key in first, `запись журнала содержит «${key}»`);
+      const jobRec = log.attempts.find((a: any) => a.op === 'app.job');
+      check(jobRec?.ok && jobRec.result === 'COM-объект', 'app.job: объект проекта распознан как COM-объект (а не строка из его GetType)', JSON.stringify(jobRec));
+      check(log.attempts.some((a: any) => a.op === 'job.info' && a.ok), 'job.info: вызовы у объекта проекта проходят');
       check(!log.attempts.some((a: any) => a.op === 'script.error'), 'ни один раздел не прерван ошибкой скрипта', log.attempts.filter((a: any) => a.op === 'script.error').map((a: any) => `${a.candidate}: ${a.error}`).join('; '));
       check(log.attempts.some((a: any) => !a.ok && a.hresult), 'ошибки COM записаны с HRESULT');
       check(!log.attempts.some((a: any) => /Save/.test(a.candidate) && a.op !== 'capability.save'), 'вызовов Save нет');
@@ -134,6 +148,15 @@ exit $bad
     const nd = fs.existsSync(path.join(out, 'log.ndjson')) ? fs.readFileSync(path.join(out, 'log.ndjson'), 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l)) : [];
     const deletes = nd.filter((a: any) => /\.(Delete|Remove)$/.test(a.candidate) || /^(job\.)?(Delete|Remove)(Sheet|Device)$/.test(a.candidate));
     check(nd.length > 50 && deletes.length === 0, `SetId=0: ни одного вызова Delete/Remove (журнал ${nd.length} записей)`, deletes.map((a: any) => a.candidate).join(', '));
+  }
+
+  // проект «не открыт», но в заголовке окна E3 есть файл проекта: в сводке должно быть противоречие, а не «откройте проект»
+  {
+    const { out, r } = runFake('contradiction', { E3_FAKE_NOPROJECT: '1', E3_FAKE_TITLE: 'PDH2.e3d - E³.cable - Лист 1' });
+    check(r.status === 0, 'противоречие: прогон завершился без ошибки', (r.stdout + r.stderr).slice(-500));
+    const summary = fs.readFileSync(path.join(out, 'summary.txt'), 'utf8');
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    check(/ПРОТИВОРЕЧИЕ/.test(summary) && !/НЕ ОТКРЫТ ПРОЕКТ/.test(logTxt), 'противоречие: сводка называет противоречие, «откройте проект» не пишется', summary.slice(0, 600));
   }
 
   // обрыв процесса посреди работы (как первый настоящий прогон): в журнале должна остаться метка виновника

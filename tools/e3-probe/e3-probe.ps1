@@ -125,7 +125,8 @@ try {
         }
         if (-not $script:ProjectOpen) {
             Invoke-Step 'Без проекта' { Step-NoProject }
-            Write-Human 'Проект в E3 не открыт — дальнейшие проверки невозможны. Откройте ТЕСТОВЫЙ проект и запустите снова.' 'Yellow'
+            if ((Get-TitleProjectFile) -ne '') { Write-Human 'Проект определён как не открытый, но заголовок окна E3 называет файл проекта — это противоречие, смотрите сводку и trace.log. Пришлите журнал целиком.' 'Yellow' }
+            else { Write-Human 'Проект в E3 не открыт — дальнейшие проверки невозможны. Откройте ТЕСТОВЫЙ проект и запустите снова.' 'Yellow' }
         } else {
             $proceed = $true
             if (-not $script:NoConfirm) {

@@ -21,6 +21,9 @@ function New-FakeObject {
     $o = New-Object PSObject
     Add-Member -InputObject $o -MemberType NoteProperty -Name Id -Value 0
     foreach ($name in $Methods.Keys) { Add-Member -InputObject $o -MemberType ScriptMethod -Name $name -Value $Methods[$name] }
+    # Как у настоящих объектов E3 (Job, Symbol, Device…): собственный метод GetType() возвращает данные E3, а не тип .NET.
+    # Код пробы, который зовёт $x.GetType() у такого объекта, ломается так же, как у владельца.
+    if (-not $Methods.ContainsKey('GetType')) { Add-Member -InputObject $o -MemberType ScriptMethod -Name GetType -Value { return 'тип-из-E3' } -Force }
     return $o
 }
 
@@ -153,3 +156,10 @@ function New-FakeApp {
 
 $script:FakeApps = @((New-FakeApp)); $global:FakeApps = $script:FakeApps
 $script:FakeDispatcher = New-FakeObject @{ GetCount = { param($a) return 1 }; GetApplication = { param($a) return $global:FakeApps[0] } }
+
+# Процессы E3: на машине проверки их нет; заголовок окна задаётся переменной, чтобы проверить сверку «проект открыт»
+# по имени файла в заголовке.
+function Get-E3Processes {
+    $title = $(if ($env:E3_FAKE_TITLE) { $env:E3_FAKE_TITLE } else { 'Без имени - E³.cable' })
+    return @([ordered]@{ pid = 4242; name = 'E3.series'; title = $title; path = 'C:\fake\E3.series.exe'; fileVersion = '23, 20, 0, 0' })
+}

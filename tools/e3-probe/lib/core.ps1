@@ -66,6 +66,21 @@ function Write-Section {
     Write-Human ('=== ' + $Id + '. ' + $Title + ' ===') 'Cyan'
 }
 
+function Get-ClrType {
+    # Настоящий тип .NET значения. Писать $x.GetType() для объектов E3 нельзя: у многих из них (Job, Symbol, Device…) есть
+    # собственный метод GetType(), PowerShell вызывает его, и вместо типа приходит строка или число из E3.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    return [System.Object].GetMethod('GetType').Invoke($Value, $null)
+}
+
+function Test-ComObject {
+    param($Value)
+    if ($null -eq $Value) { return $false }
+    if ($script:Fake) { return ($Value -is [System.Management.Automation.PSCustomObject]) }
+    return ($Value -is [System.__ComObject])
+}
+
 function Format-Value {
     param($Value, [int]$Max = 300)
     if ($null -eq $Value) { return '(null)' }
@@ -76,9 +91,9 @@ function Format-Value {
         foreach ($x in $Value) { if ($n -ge 12) { $parts += '...'; break }; $parts += (Format-Value $x 80); $n++ }
         $text = '[' + $Value.Length + '] ' + ($parts -join ', ')
     }
-    elseif ($Value -is [ValueType]) { $text = [string]$Value + ' <' + $Value.GetType().Name + '>' }
-    elseif ($Value.GetType().FullName -eq 'System.__ComObject') { $text = 'COM-объект' }
-    else { $text = [string]$Value + ' <' + $Value.GetType().Name + '>' }
+    elseif ($Value -is [ValueType]) { $text = [string]$Value + ' <' + (Get-ClrType $Value).Name + '>' }
+    elseif (Test-ComObject $Value) { $text = 'COM-объект' }
+    else { $text = [string]$Value + ' <' + (Get-ClrType $Value).Name + '>' }
     if ($text.Length -gt $Max) { $text = $text.Substring(0, $Max) + '…' }
     return ($text -replace "[\r\n]+", ' | ')
 }
@@ -166,7 +181,8 @@ function Invoke-Com {
         foreach ($i in $RefIdx) { $modifier[$i] = $true }
         $mods = [System.Reflection.ParameterModifier[]]@($modifier)
     }
-    $ret = $Target.GetType().InvokeMember($Name, $flags, $null, $Target, $CallArgs, $mods, $null, $null)
+    # Тип берём как [System.__ComObject], а не $Target.GetType(): у Job и других объектов E3 есть свой метод GetType().
+    $ret = [System.__ComObject].InvokeMember($Name, $flags, $null, $Target, $CallArgs, $mods, $null, $null)
     return [pscustomobject]@{ Ret = $ret; Args = $CallArgs; IsCom = $true }
 }
 
@@ -185,10 +201,10 @@ function Invoke-Attempt {
             $text = Format-Value $outValue.Ret
             foreach ($i in $Refs) { $text += ' ; ref' + $i + '=' + (Format-Value $outValue.Args[$i] 200) }
             $rec.result = $text
-            if ($null -ne $outValue.Ret) { $rec.type = $outValue.Ret.GetType().Name }
+            if ($null -ne $outValue.Ret) { $rec.type = (Get-ClrType $outValue.Ret).Name }
         } else {
             $rec.result = Format-Value $outValue
-            if ($null -ne $outValue) { $rec.type = $outValue.GetType().Name }
+            if ($null -ne $outValue) { $rec.type = (Get-ClrType $outValue).Name }
         }
     } catch {
         $inner = Get-InnerException $_.Exception
