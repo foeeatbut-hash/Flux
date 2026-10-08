@@ -7,26 +7,15 @@ $script:DbeClsid = '{fc37390f-d65e-4c31-a24a-7536f40ffd93}'
 $script:CatalogSymbolName = 'Вентилятор_ЗТД_К'
 
 function Get-DbeApplication {
-    # Редактор базы: через приложение (методы CreateDbe*), затем по ProgID-кандидатам, затем по CLSID coclass e3DbeApplication.
+    # Редактор базы: только подключение к УЖЕ открытому окну инженера (Marshal.GetActiveObject). New-Object / CLSID не используются:
+    # они поднимают скрытый новый экземпляр с пустым выделением, а он ничего не показывает (журнал 8 октября: оба вызова вернули 0).
     param($App)
     if ($script:Fake) { return $script:FakeDbe }
-    if (-not $script:Fake) {
-        try {
-            $progs = @(Get-ChildItem 'Registry::HKEY_CLASSES_ROOT' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^CT\.' } | ForEach-Object { $_.PSChildName })
-            Write-Human ('ProgID семейства CT.* в реестре: ' + $(if ($progs.Count) { $progs -join ', ' } else { 'нет' }))
-            Add-Finding 'note' ('Каталог по API: ProgID CT.* в реестре: ' + ($progs -join ', '))
-        } catch { }
-    }
-    $names = @(); if ($script:ApiNames.ContainsKey('Application')) { $names = @($script:ApiNames['Application']) }
-    foreach ($n in @($names | Where-Object { $_ -match '^CreateDbe|^GetDbe' })) {
-        $r = Invoke-Attempt -Op 'catalog.dbe.fromapp' -Label ('application.' + $n) -ArgsText '' -Action { Invoke-Com -Target $App -Name $n -CallArgs @() -RefIdx @() }
-        if ($r.Ok -and $null -ne $r.Value -and $null -ne $r.Value.Ret -and (Test-ComObject $r.Value.Ret)) { return $r.Value.Ret }
-    }
-    foreach ($prog in @('CT.DbeApplication', 'CT.DbeJob', 'CT.Dbe')) {
-        $r = Invoke-Attempt -Op 'catalog.dbe.progid' -Label 'New-Object -ComObject' -ArgsText ('"' + $prog + '"') -Action { New-Object -ComObject $prog }
-        if ($r.Ok -and $null -ne $r.Value) { return $r.Value }
-    }
-    $r = Invoke-Attempt -Op 'catalog.dbe.clsid' -Label 'Activator.CreateInstance' -ArgsText $script:DbeClsid -Action { [Activator]::CreateInstance([Type]::GetTypeFromCLSID([Guid]$script:DbeClsid)) }
+    try {
+        $progs = @(Get-ChildItem 'Registry::HKEY_CLASSES_ROOT' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^CT\.' } | ForEach-Object { $_.PSChildName })
+        Add-Finding 'note' ('Каталог по API: ProgID CT.* в реестре: ' + ($progs -join ', '))
+    } catch { }
+    $r = Invoke-Attempt -Op 'catalog.dbe.active' -Label 'Marshal.GetActiveObject' -ArgsText '"CT.DbeApplication"' -Silent -Action { [System.Runtime.InteropServices.Marshal]::GetActiveObject('CT.DbeApplication') }
     if ($r.Ok -and $null -ne $r.Value) { return $r.Value }
     return $null
 }
@@ -39,21 +28,81 @@ function Get-RefItems {
     return @($items)
 }
 
-function Get-SelectedNames {
-    # Выделенное в базе: два ref-массива (имена, версии). Возвращает список пар; $Target — приложение или редактор базы.
-    param($Target, [string]$Method, [string]$Tag)
-    $res = Try-Calls -Op ('catalog.selected.' + $Tag + '.' + $Method) -Target $Target -TL $Tag -Cands @((Cand $Method @($null, $null) @(0, 1))) -First
-    $pairs = @()
-    if ($res.Ok -and @($res.Out).Count -ge 2) {
-        $names = @($res.Out[0]); $vers = @($res.Out[1])
-        for ($i = 0; $i -lt $names.Count; $i++) {
-            if ($names[$i] -isnot [string] -or $names[$i] -eq '') { continue }
-            $v = ''; if ($i -lt $vers.Count) { $v = [string]$vers[$i] }
-            $pairs += , @($names[$i], $v)
+$script:CatalogPollSec = 20
+$script:SelVariants = @('ref=$null', 'ref=[object[]]@()', 'ref=[string[]]@()', '[ref] адаптер PowerShell')
+
+function Invoke-SelCall {
+    # Один вызов «выделение» (два [out] VARIANT*: имена и версии) одним из вариантов передачи out-параметров.
+    # Первые три — InvokeMember с ParameterModifier (Invoke-Com), четвёртый — родной [ref] адаптера PowerShell.
+    param($Target, [string]$Method, [string]$Variant)
+    $res = @{ Names = @(); Vers = @(); Ret = $null; Err = '' }
+    try {
+        if ($Variant -eq '[ref] адаптер PowerShell') {
+            if ($script:Fake) { $res.Err = 'пропущен в подставном COM'; return $res }
+            Write-Trace ('COM ' + $Method + '([ref] $null, [ref] $null)')
+            $r1 = $null; $r2 = $null
+            $res.Ret = $Target.$Method([ref]$r1, [ref]$r2)
+            $o0 = $r1; $o1 = $r2
+        } else {
+            [object[]]$ca = New-Object object[] 2
+            if ($Variant -eq 'ref=[object[]]@()') { $ca[0] = [object[]]@(); $ca[1] = [object[]]@() }
+            elseif ($Variant -eq 'ref=[string[]]@()') { $ca[0] = [string[]]@(); $ca[1] = [string[]]@() }
+            $r = Invoke-Com -Target $Target -Name $Method -CallArgs $ca -RefIdx @(0, 1)
+            $res.Ret = $r.Ret; $o0 = $ca[0]; $o1 = $ca[1]
         }
+        $res.Names = @(@($o0) | Where-Object { $_ -is [string] -and $_ -ne '' })
+        $res.Vers = @(@($o1) | ForEach-Object { [string]$_ })
+    } catch {
+        $inner = Get-InnerException $_.Exception
+        $res.Err = ($inner.Message -replace "[\r\n]+", ' | ')
     }
-    Write-Human ('  ' + $Tag + '.' + $Method + ': имён ' + $pairs.Count)
-    return , $pairs
+    return $res
+}
+
+function Poll-DatabaseSelection {
+    # Опрос без участия пользователя: раз в секунду все варианты чтения выделения во всех источниках. Фокус остаётся в E3,
+    # поэтому выделение не сбрасывается уходом в консоль. Как только имена появились — конец. Возвращает пары по видам.
+    param([int]$Seconds)
+    $methods = @('GetDatabaseTreeSelectedComponents', 'GetDatabaseTreeSelectedSymbols', 'GetDatabaseTableSelectedComponents')
+    $kind = @{ GetDatabaseTreeSelectedComponents = 'Comps'; GetDatabaseTreeSelectedSymbols = 'Syms'; GetDatabaseTableSelectedComponents = 'Table' }
+    $out = @{ Comps = @(); Syms = @(); Table = @(); Hits = @(); Found = $false; Sec = 0; Errors = @{}; Sources = @() }
+    $dbe = $null
+    for ($sec = 1; $sec -le $Seconds; $sec++) {
+        $global:CatalogPollTick = $sec
+        # окно редактора базы инженер мог открыть уже во время опроса: повторная попытка подключиться раз в 5 секунд
+        if ($null -eq $dbe -and ($sec -eq 1 -or $sec % 5 -eq 1)) { $dbe = Get-DbeApplication $script:App; if ($null -ne $dbe -and $out.Sources -notcontains 'dbe') { $out.Sources += 'dbe' } }
+        $srcs = @(@{ Tag = 'app'; Target = $script:App }); if ($null -ne $dbe) { $srcs += @{ Tag = 'dbe'; Target = $dbe } }
+        $line = @(); $hits = @()
+        foreach ($src in $srcs) {
+            foreach ($m in $methods) {
+                $best = 0; $perVar = @(); $win = $null
+                foreach ($v in $script:SelVariants) {
+                    $r = Invoke-SelCall $src.Target $m $v
+                    $key = $src.Tag + '.' + $m + ' [' + $v + ']'
+                    if ($r.Err -ne '' -and -not $out.Errors.ContainsKey($key)) { $out.Errors[$key] = $r.Err; Write-Trace ('  вариант не прошёл: ' + $key + ' — ' + $r.Err) }
+                    $n = @($r.Names).Count
+                    $perVar += ($v + '=' + $n)
+                    if ($n -gt $best) { $best = $n }
+                    if ($n -gt 0 -and $null -eq $win) { $win = @{ Tag = $src.Tag; Method = $m; Variant = $v; Names = $r.Names; Vers = $r.Vers } }
+                }
+                $line += ($src.Tag + '.' + ($m -replace '^GetDatabase', '') + ' ' + $best)
+                if ($null -ne $win) { $win.PerVariant = ($perVar -join '; '); $hits += , $win }
+            }
+        }
+        $msg = 'сек ' + $sec + ': ' + ($line -join ', ')
+        Write-Trace ('опрос ' + $msg); Write-Human ('  ' + $msg)
+        if ($hits.Count -gt 0) {
+            $out.Found = $true; $out.Sec = $sec; $out.Hits = $hits
+            foreach ($h in $hits) {
+                $pairs = @(); for ($i = 0; $i -lt @($h.Names).Count; $i++) { $ver = ''; if ($i -lt @($h.Vers).Count) { $ver = [string]$h.Vers[$i] }; $pairs += , @($h.Names[$i], $ver) }
+                foreach ($p in $pairs) { $out[$kind[$h.Method]] += , $p }
+                Write-Human ('  поймано: ' + $h.Tag + '.' + $h.Method + ', вариант [' + $h.Variant + '], имён ' + @($h.Names).Count + ' (по вариантам: ' + $h.PerVariant + ')') 'Green'
+            }
+            break
+        }
+        if ($sec -lt $Seconds) { Start-Sleep -Milliseconds 1000 }
+    }
+    return $out
 }
 
 function Read-SymbolSize {
@@ -66,29 +115,6 @@ function Read-SymbolSize {
     $ar = Try-Calls -Op 'catalog.symbol.area' -Target $Sym -TL 'symbol' -Cands $areaCands -Silent
     foreach ($w in $ar.Wins) { try { $o = $w.Out; $dx = [math]::Abs([double]$o[2] - [double]$o[0]); $dy = [math]::Abs([double]$o[3] - [double]$o[1]); if ($dx -gt 0 -or $dy -gt 0) { return @($w.Label, $dx, $dy) } } catch { } }
     return @('нет', 0, 0)
-}
-
-function Wait-CatalogKey {
-    # Пауза до Enter: ReadKey, а без консоли (перенаправленный ввод) — Read-Host. В режиме без вопросов пауз нет.
-    param([string]$Text)
-    Write-Human ''
-    Write-Human $Text 'Yellow'
-    if ($script:NoConfirm) { return }
-    try { while ($true) { $k = [Console]::ReadKey($true); if ($k.Key -eq [ConsoleKey]::Enter) { break } } }
-    catch { [void](Read-Host 'Enter') }
-}
-
-function Read-CatalogSelection {
-    # Один тест выделения: имена из дерева (изделия, символы) и таблицы основного приложения; затем таблица редактора базы.
-    param([string]$Title, $Dbe)
-    Write-Human ($Title + ':')
-    $c = Get-SelectedNames $script:App 'GetDatabaseTreeSelectedComponents' 'app'
-    $y = Get-SelectedNames $script:App 'GetDatabaseTreeSelectedSymbols' 'app'
-    $t = Get-SelectedNames $script:App 'GetDatabaseTableSelectedComponents' 'app'
-    if ($null -ne $Dbe) { $d = Get-SelectedNames $Dbe 'GetDatabaseTableSelectedComponents' 'dbe'; foreach ($p in $d) { $t += , $p } }
-    $first = @(@($y) + @($c) + @($t) | Select-Object -First 20 | ForEach-Object { $_[0] })
-    Write-Human ('  первые 20: ' + ($first -join ', '))
-    return @{ Comps = @($c); Syms = @($y); Table = @($t) }
 }
 
 function Read-ComponentCard {
@@ -122,7 +148,8 @@ function Read-ComponentCard {
 
 function Step-Catalog {
     Write-Section 'K' 'Каталог по API (только чтение)'
-    Write-Human 'Панель «База данных» E3 должна быть открыта: ниже два теста с выделением (только чтение).' 'Yellow'
+    Write-Human 'Переключитесь в E3, выделите символы в дереве базы и НИЧЕГО не нажимайте — скрипт сам опрашивает 20 секунд.' 'Yellow'
+    Write-Human 'Где выделять: панель «База данных» в окне проекта E3 (дерево Символы/Изделия) ИЛИ окно редактора базы E3 — скрипт проверит оба.' 'Yellow'
     $cards = New-Object System.Collections.ArrayList
     $dbe = Get-DbeApplication $script:App
     $job = Get-QuietValue $script:App 'CreateJobObject'
@@ -131,28 +158,24 @@ function Step-Catalog {
         $comp = Get-QuietValue $job 'CreateComponentObject'; $sym = Get-QuietValue $job 'CreateSymbolObject'
         $script:CatAttr = Get-QuietValue $job 'CreateAttributeObject'
     }
-    # 1. два теста выделения. Источник — основное приложение (дерево и таблица), затем редактор базы
-    $dbePairs = @()
     if ($null -eq $dbe) {
-        Write-Human '— API редактора базы не подключился (ни приложение, ни ProgID, ни CLSID).' 'Yellow'
-        Add-Finding 'note' 'Каталог по API: редактор базы (e3DbeApplication) не подключился.'
+        Write-Human '— окно редактора базы не открыто (Marshal.GetActiveObject "CT.DbeApplication" не нашёл); новый экземпляр не создаётся.' 'Yellow'
+        Add-Finding 'note' 'Каталог по API: открытого окна редактора базы (CT.DbeApplication) нет.'
     } else {
         [void](Export-ApiObject $dbe 'DbeApplication')
-        $ids = Invoke-Quiet $dbe 'GetComponentIds' @($null) @(0)
-        if ($null -ne $ids) { $n = @(Get-RefItems $ids).Count; Write-Human ('  Dbe.GetComponentIds: идентификаторов ' + $n); Add-Finding 'note' ('Каталог по API: Dbe.GetComponentIds вернул ' + $n + ' шт. (полный список базы или только выбор — смотрите число).') }
     }
-    Wait-CatalogKey 'Тест 1: выделите в дереве базы E3 одну ПАПКУ с символами и нажмите Enter'
-    $t1 = Read-CatalogSelection 'Тест 1 (папка)' $dbe
-    Wait-CatalogKey 'Тест 2: теперь выделите несколько СИМВОЛОВ (Ctrl/Shift) и нажмите Enter'
-    $t2 = Read-CatalogSelection 'Тест 2 (несколько символов)' $dbe
-    $t1Count = $t1.Comps.Count + $t1.Syms.Count
-    $verdict = 'ничего не выделено'
-    if ($t1Count -gt 1) { $verdict = 'папка отдаёт содержимое (имён больше одного)' } elseif ($t1Count -eq 1) { $verdict = 'вернулось одно имя — вероятно, только сама папка' }
-    Add-Finding 'note' ('КАТАЛОГ ПО API, тест 1 (папка): изделий ' + $t1.Comps.Count + ', символов ' + $t1.Syms.Count + ', таблица ' + $t1.Table.Count + ' — ' + $verdict + '. Первые 20: ' + ((@($t1.Syms) + @($t1.Comps) | Select-Object -First 20 | ForEach-Object { $_[0] }) -join ', '))
-    Add-Finding 'note' ('КАТАЛОГ ПО API, тест 2 (символы): символов ' + $t2.Syms.Count + ', изделий ' + $t2.Comps.Count + ', таблица ' + $t2.Table.Count + '. Первые 20: ' + ((@($t2.Syms) | Select-Object -First 20 | ForEach-Object { $_[0] }) -join ', '))
+    $sel = Poll-DatabaseSelection $script:CatalogPollSec
+    foreach ($k in @($sel.Errors.Keys)) { Add-Finding 'note' ('Каталог по API: вариант не прошёл — ' + $k + ': ' + $sel.Errors[$k]) }
+    $allNames = @(@($sel.Syms) + @($sel.Comps) + @($sel.Table) | ForEach-Object { $_[0] })
+    if ($sel.Found) {
+        $hitText = (@($sel.Hits | ForEach-Object { $_.Tag + '.' + $_.Method + ' [' + $_.Variant + '] = ' + @($_.Names).Count }) -join '; ')
+        Add-Finding 'ok' ('КАТАЛОГ ПО API: выделение поймано на ' + $sel.Sec + '-й секунде опроса. Источник и вариант: ' + $hitText + '. Имён всего ' + $allNames.Count + ', изделий ' + @($sel.Comps).Count + ', символов ' + @($sel.Syms).Count + ', таблица ' + @($sel.Table).Count + '. Первые 20: ' + (($allNames | Select-Object -First 20) -join ', '))
+    } else {
+        Add-Finding 'need' ('КАТАЛОГ ПО API: за ' + $script:CatalogPollSec + ' с ни один источник (приложение, редактор базы' + $(if ($sel.Sources -contains 'dbe') { '' } else { ' — не открыт' }) + ') и ни один вариант out-параметров не вернул имён.')
+    }
     $seen = @{}; $selNames = @(); $selVers = @()
-    foreach ($pair in (@($t1.Comps) + @($t1.Table) + @($t2.Comps) + @($t2.Table))) { if ($null -eq $pair -or $seen.ContainsKey($pair[0])) { continue }; $seen[$pair[0]] = $true; $selNames += $pair[0]; $selVers += $pair[1] }
-    $treeSyms = @($t2.Syms)
+    foreach ($pair in (@($sel.Comps) + @($sel.Table))) { if ($null -eq $pair -or $seen.ContainsKey($pair[0])) { continue }; $seen[$pair[0]] = $true; $selNames += $pair[0]; $selVers += $pair[1] }
+    $treeSyms = @($sel.Syms)
     Write-Human ('Для чтения карточек уникальных изделий: ' + $selNames.Count)
     # 2. по каждому выделенному имени (первые 5) — через объект-компонент проекта (Search по базе)
     $k = 0
@@ -182,6 +205,7 @@ function Step-Catalog {
             $sizes += [ordered]@{ name = $pair[0]; version = $pair[1]; loaded = $true; method = $size[0]; width = $size[1]; height = $size[2] }
         }
         $okSizes = @($sizes | Where-Object { $_.loaded -and $_.method -ne 'нет' }).Count
+        Add-Finding 'note' ('КАТАЛОГ ПО API, габариты (Symbol.Load + GetArea, без размещения): ' + ((@($sizes | Select-Object -First 3) | ForEach-Object { $_.name + ' ' + $(if ($_.loaded -and $_.method -ne 'нет') { [string]$_.width + 'x' + [string]$_.height } else { 'не прочитан' }) }) -join '; '))
         Add-Finding $(if ($okSizes -gt 0) { 'ok' } else { 'note' }) ('Каталог по API: символов проверено ' + @($sizes).Count + ', габарит без размещения прочитан у ' + $okSizes + '.')
         $script:CatalogSizes = $sizes
     }

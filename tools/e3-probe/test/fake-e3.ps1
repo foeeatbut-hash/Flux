@@ -258,9 +258,9 @@ function New-FakeApp {
         CreateJobObject = { param($a) return (New-FakeJob) }
         # выделение в базе: папка дерева отдаёт все изделия внутри (3), символы — 2, таблица — 2
         # Первое чтение (тест 1) — выделена папка: она отдаёт содержимое (3 изделия, 2 символа). Второе (тест 2) — 4 символа-листа.
-        GetDatabaseTreeSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; $global:F.SelRead++; if ($global:F.SelRead -le 1) { $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2', 'клапан_DIx2_DOx2'); $a[1] = [object[]]@('1', '1', '1'); return 3 }; $a[0] = [object[]]@(); $a[1] = [object[]]@(); return 0 }
-        GetDatabaseTreeSelectedSymbols = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($global:F.SelRead -le 1) { $a[0] = [object[]]@('SYM_VALVE', 'нет_символа'); $a[1] = [object[]]@('1', '1'); return 2 }; $a[0] = [object[]]@('SYM_VALVE', 'Вентилятор_ЗТД_К', 'нет_символа', 'SYM_VALVE'); $a[1] = [object[]]@('1', '1', '1', '1'); return 4 }
-        GetDatabaseTableSelectedComponents = { param($a) $a[0] = [object[]]@('Двигатель_М1'); $a[1] = [object[]]@('1'); return 1 }
+        GetDatabaseTreeSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2', 'клапан_DIx2_DOx2'); $a[1] = [object[]]@('1', '1', '1'); return 3 }
+        GetDatabaseTreeSelectedSymbols = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('SYM_VALVE', 'Вентилятор_ЗТД_К', 'нет_символа'); $a[1] = [object[]]@('1', '1', '1'); return 3 }
+        GetDatabaseTableSelectedComponents = { param($a) if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('Двигатель_М1'); $a[1] = [object[]]@('1'); return 1 }
         PutInfo = { param($a) return 1 }
     })
 }
@@ -268,7 +268,8 @@ function New-FakeApp {
 $script:FakeApps = @((New-FakeApp)); $global:FakeApps = $script:FakeApps
 $script:FakeDbe = New-FakeObject @{
     # API редактора базы: выделенные инженером строки таблицы (2 шт.), полного списка базы нет
-    GetDatabaseTableSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2'); $a[1] = [object[]]@('1', '1'); return 2 }
+    # редактор базы инженера: выделение появляется позже, чем в основном приложении (5-я секунда опроса)
+    GetDatabaseTableSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 5) { return 0 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2'); $a[1] = [object[]]@('1', '1'); return 2 }
     GetComponentIds = { param($a) $a[0] = [object[]]@(); return 0 }
     CreateDbeComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 0 } }) }
 }
