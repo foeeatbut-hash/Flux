@@ -156,6 +156,21 @@ async function main() {
   const after = (await call('GET', `${BASE}/revisions`, undefined, 'reader')).body;
   check('откат сам оставил снимок, его тоже можно откатить', after[0].action === 'restore' && after.length === 5);
 
+  // Источник по типу: отдельная правка, как и остальные, идёт по версии и оставляет снимок «до»
+  const byClass = (v: unknown, over: any = {}) => call('PUT', `${BASE}/item`, { name: 'MOTOR_POWER', patch: { sourceByClass: v }, expectedVersion: 5, ...over }, 'editor');
+  await status('источник по типу без права — 403', call('PUT', `${BASE}/item`, { name: 'MOTOR_POWER', patch: { sourceByClass: {} }, expectedVersion: 5 }, 'importer'), 403);
+  await status('источник по типу: чужая версия — 409', byClass({}, { expectedVersion: 4 }), 409);
+  await status('источник по типу: не объект — 400', byClass('x'), 400);
+  await status('источник по типу: негодный источник — 400', byClass({ 'КЛАПАН': { kind: 'sql' } }), 400);
+  const bc = await status('источник по типу — 200', byClass({ 'КЛАПАН': { kind: 'param', name: 'Тип привода' }, 'НЕТ': { kind: 'none' } }), 200);
+  const mp = bc.book.items.find((a: any) => a.name === 'MOTOR_POWER');
+  check('карта записана, неизвестный тип отброшен, файловые поля не «правлены»', JSON.stringify(mp.sourceByClass) === '{"КЛАПАН":{"kind":"param","name":"Тип привода"}}' && mp.edited === undefined && bc.book.version === 6);
+  check('снимок «до» правки не содержит карты', !JSON.parse(mock.state().revisions[mock.state().revisions.length - 1].snapshotJson).items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass);
+  const reload = await status('повторная загрузка файла', call('POST', `${BASE}/apply`, { items: FILE, expectedVersion: 6, missing: 'keep' }, 'importer'), 200);
+  check('загрузка файла карту не затирает', !!reload.book.items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass?.['КЛАПАН']);
+  const cleared = await status('очистка карты — 200', byClass(null, { expectedVersion: 7 }), 200);
+  check('null возвращает общий источник', cleared.book.items.find((a: any) => a.name === 'MOTOR_POWER').sourceByClass === undefined);
+
   // Заявка по старому значению: запись по устаревшему чтению не проходит
   const raw = await catalogSettingRaw(mock.prisma, 'e3_attributes');
   await claimCatalogSetting(mock.prisma, 'e3_attributes', raw, { version: 99, items: [], updatedAt: '' }, 'конфликт');

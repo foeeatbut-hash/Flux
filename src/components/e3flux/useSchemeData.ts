@@ -14,7 +14,8 @@ import { e3AttributesService } from '../../services/e3AttributesService';
 import { e3SolutionsService } from '../../services/e3SolutionsService';
 import { e3ExportService, type E3ExportInfo, type E3Link } from '../../services/e3ExportService';
 import { buildExportSources, type ExportSystem } from '../../lib/exportWorkspace';
-import { equipmentCell, type ExchangeComponent } from '../../lib/equipmentExchange';
+import type { ExchangeComponent } from '../../lib/equipmentExchange';
+import { e3AttrValue } from '../../lib/e3Table';
 import { toPositions } from '../../lib/e3Positions';
 
 export interface SchemeNode {
@@ -113,7 +114,7 @@ export function useSchemeData(projectId: string, edited: ReadonlySet<string> = N
         const sol = selection.solution;
         const rows: ExportAttr[] = attrs ? attributesForClass(attrs.items, p.cls).filter((a) => a.fromFlux).map((a) => ({
           name: a.name, owner: '', service: a.service, allowService: a.conflict === 'flux', conflict: a.conflict, script: !!a.script,
-          value: a.source.kind === 'none' ? '' : equipmentCell(it, `e3:${a.name}`, a.source.kind === 'param' ? a.source.unit || '' : '', a.source),
+          value: e3AttrValue(it, a, p.cls),
         })) : [];
         const label = (it.tags || [])[0]?.identifier || '';
         // Ключ узла — ID позиции: по нему связь переживает и перестановку, и новую загрузку расчёта

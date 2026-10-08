@@ -5,16 +5,16 @@
  * orderItems), а значения считает та же buildEquipmentExchange: одно правило на
  * выгрузку и на E3, иначе в Excel и в схеме стояли бы разные числа.
  */
-import { attributesForClass, type E3Attribute } from '../../e3/attributes';
+import { attributesForClass, sourceFor, type E3Attribute } from '../../e3/attributes';
 import type { E3Row } from '../../e3/attributeWorkbook';
-import { buildEquipmentExchange, type ExchangeComponent, type ParamColumn } from './equipmentExchange';
+import { buildEquipmentExchange, equipmentCell, type ExchangeComponent, type ParamColumn } from './equipmentExchange';
 import { defaultSpec, orderItems, selectItems, type ExportColumn } from './exportSpec';
 
 export function e3Rows(
   items: ExchangeComponent[], attributes: E3Attribute[], columns: ExportColumn[], filter: { classes: string[]; taggedOnly: boolean },
 ): { rows: E3Row[]; problems: ReturnType<typeof buildEquipmentExchange>['problems'] } {
   const picked = orderItems(selectItems(items, { ...defaultSpec(), classes: filter.classes, taggedOnly: filter.taggedOnly, columns: [] }), 'class-tag');
-  const cols: ParamColumn[] = columns.map((c) => ({ key: c.key, label: c.label, unit: c.unit || '', group: '', param: '', ...(c.source ? { source: c.source } : {}) }));
+  const cols: ParamColumn[] = columns.map((c) => ({ key: c.key, label: c.label, unit: c.unit || '', group: '', param: '', ...(c.source ? { source: c.source } : {}), ...(c.sourceByClass ? { sourceByClass: c.sourceByClass } : {}) }));
   const built = buildEquipmentExchange(picked, cols, { keepOrder: true });
   const byName = new Map<string, E3Attribute>();
   for (const a of attributes || []) if (!byName.has(a.name)) byName.set(a.name, a);
@@ -25,4 +25,13 @@ export function e3Rows(
     return { id: String(it.id || ''), cls, label: (it.tags || [])[0]?.identifier || String(it.name || ''), cells: built.rows[i].map((v, j) => (na[j] ? '' : v)), na };
   });
   return { rows, problems: built.problems };
+}
+
+/**
+ * Значение атрибута у позиции для схемы: источник — по типу позиции. Атрибут,
+ * у которого для типа источника нет, пуст (КИП-значение в схеме не показывается).
+ */
+export function e3AttrValue(item: ExchangeComponent, a: E3Attribute, cls: string): string {
+  const src = sourceFor(a, cls);
+  return src.kind === 'none' ? '' : equipmentCell(item, `e3:${a.name}`, src.kind === 'param' ? src.unit || '' : '', src);
 }

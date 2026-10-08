@@ -3,7 +3,7 @@ import type { E3Attribute, E3AttributeBook, E3Plan } from '../../e3/attributes';
 
 /** Запись истории справочника: по ней откатывают загрузку */
 export interface E3Revision { id: string; action: 'import' | 'update' | 'restore'; createdAt: string; userId: string; count: number }
-export type E3ItemPatch = Partial<Pick<E3Attribute, 'fromFlux' | 'source' | 'classes' | 'conflict' | 'title'>>;
+export type E3ItemPatch = Partial<Pick<E3Attribute, 'fromFlux' | 'source' | 'sourceByClass' | 'classes' | 'conflict' | 'title'>>;
 
 /** Устаревшую версию (409) окно отличает по типу ошибки: ему нужно перечитать книгу, а не просто показать текст */
 export class E3VersionError extends Error {}

@@ -208,6 +208,21 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
     ok('нет справочника и позиций — все строки в ошибках, а не в тишине', p.errors.length === 2 && p.writes.length === 0);
   }
 
+  console.log('7. Источник по типу позиции');
+  {
+    // GLOBAL_DEVICE_TYPE: у клапана значение считает Flux (характеристика), у привода — «нет» (его вводит инженер КИП)
+    const byType = attr('GLOBAL_DEVICE_TYPE', { source: { kind: 'none' }, sourceByClass: { 'КЛАПАН': { kind: 'param', name: 'Тип привода' } }, classes: ['КЛАПАН', 'ПРИВОД'] });
+    const tagAttr = attr('TAG_X', { source: { kind: 'none' }, sourceByClass: { 'КЛАПАН': { kind: 'field', key: 'tag' } }, classes: ['КЛАПАН', 'ПРИВОД'] });
+    const pos = (id: string, cls: string, tag: string) => ({ id, cls, tags: [tag], label: tag, kip: {} as Record<string, string> });
+    const r = readBook([{ name: 'Л', aoa: [['ID позиции Flux', 'GLOBAL_DEVICE_TYPE', 'TAG_X'], ['Служебный', 'a', 'b'], ['v1', 'SF', 'V-1'], ['p1', 'SM', 'чужой']] }]);
+    const p = planUpload(r, [byType, tagAttr], [pos('v1', 'КЛАПАН', 'V-1'), pos('p1', 'ПРИВОД', 'P-1')]);
+    ok('клапан: значение считает Flux — не пишется; привод — «нет», пишется в КИП', p.writes.length === 1 && p.writes[0].id === 'p1' && p.writes[0].changes.some(c => c.attr === 'GLOBAL_DEVICE_TYPE' && c.after === 'SM'), p);
+    ok('тег проверяется только у типа, где источник — тег (у привода «чужой» не ошибка)', p.errors.length === 0 && !p.notes.some(n => n.code === 'no-tag'), p);
+    ok('замечание «считает Flux» названо', p.notes.some(n => n.code === 'flux' && n.names.includes('GLOBAL_DEVICE_TYPE')), p.notes);
+    const bad = planUpload(readBook([{ name: 'Л', aoa: [['ID позиции Flux', 'TAG_X'], ['Служебный', 'b'], ['v1', 'V-9']] }]), [tagAttr], [pos('v1', 'КЛАПАН', 'V-1')]);
+    ok('у типа с тегом чужой тег — ошибка', bad.errors.length === 1 && /Чужой тег/.test(bad.errors[0].message), bad);
+  }
+
   console.log(failed === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);
 })();
