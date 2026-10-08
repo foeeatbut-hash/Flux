@@ -107,6 +107,17 @@ exit $bad
     const read = (name: string) => fs.existsSync(path.join(out, name)) ? fs.readFileSync(path.join(out, name), 'utf8').replace(/^\uFEFF/, '') : '';
     for (const file of ['log.txt', 'log.json', 'log.ndjson', 'environment.json', 'api.json', 'summary.txt', 'attribute-check.csv', 'database-lists.txt']) check(fs.existsSync(path.join(out, file)), `создан ${file}`);
     check(fs.existsSync(`${out}.zip`), 'журнал заархивирован в .zip');
+    {
+      const t = read('log.txt');
+      check(/Каталог по API/.test(t) && /Панель «База данных» E3 должна быть открыта/.test(t), 'каталог по API: раздел есть, подсказка про выделение в дереве базы показана');
+      check(/Тест 1: выделите в дереве базы E3 одну ПАПКУ/.test(t) && /Тест 2: теперь выделите несколько СИМВОЛОВ/.test(t) && /Для чтения карточек уникальных изделий: 3/.test(t), 'каталог по API: два теста с паузами, имена из выделения (приложение, затем редактор базы)', t.slice(-1500));
+      check(/символ «Вентилятор_ЗТД_К»: габарит 24 x 16/.test(t) && /символ «нет_символа»: Load не прошёл/.test(t), 'каталог по API: габарит символа читается после Load без размещения; нет символа — Load не прошёл', t.slice(-900));
+      const sm = read('summary.txt');
+      check(/КАТАЛОГ ПО API, тест 1 \(папка\): изделий 3, символов 2.*папка отдаёт содержимое/.test(sm) && /КАТАЛОГ ПО API, тест 2 \(символы\): символов 4/.test(sm), 'каталог по API: в сводке блок с числом имён для папки и для символов', sm.slice(0, 900));
+      let cat: any = {};
+      try { cat = JSON.parse(read('catalog-api.json')); } catch (e) { bad('catalog-api.json разбирается как JSON', e); }
+      check(cat.cards?.some((c: any) => c.GetName && c.attributes && Object.keys(c.attributes).length > 0 && c.GetPinIds?.length === 3) && cat.symbols?.length >= 3, 'каталог по API: карточка изделия с именем, атрибутами и выводами; габариты символов', JSON.stringify(cat).slice(0, 500));
+    }
     let log: any = null;
     try { log = JSON.parse(read('log.json')); } catch (e) { bad('log.json разбирается как JSON', e); }
     if (log) {
@@ -203,6 +214,15 @@ exit $bad
     const place = calls.find(c => c.name === 'Place');
     check(!!place && /^101, [\d.]+, [\d.]+, "0"$/.test(place.args), 'только разместить по символу: Place(лист 101, x, y, "0") — поворот строкой', place && place.args);
     check(/типы Place: Int32, Double, Double, String/.test(trace), 'в trace записаны типы аргументов перед вызовом', trace.split(/\r?\n/).filter(l => /типы/.test(l)).slice(0, 4).join(' | '));
+  }
+
+  // -CatalogOnly: только два теста выделения, без Y, без проекта, без размещения
+  {
+    const { out, r } = runFake('catalog-only', {}, ['-CatalogOnly']);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && /Тест 1/.test(logTxt) && /Тест 2/.test(logTxt) && !/Окончательная уборка|=== T\./.test(logTxt), '-CatalogOnly: только два теста каталога', logTxt.slice(-600));
+    check(!/COM (Create|Place|Load|Delete|SetAttributeValue|Save\w*|ImportDrawing\w*)\(/.test(trace.replace(/COM Load\(/g, 'COM LoadSym(')), '-CatalogOnly: ничего не создаётся, не размещается и не удаляется (Symbol.Load — чтение базы)');
   }
 
   // «только разместить» блок из файла .e3p (путь в кавычках, как при перетаскивании): Job.ImportDrawing на активный лист

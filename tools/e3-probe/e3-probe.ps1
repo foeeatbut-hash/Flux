@@ -23,6 +23,8 @@
   Номер процесса E3, если запущено несколько.
 .PARAMETER OutDir
   Куда писать журналы (по умолчанию — рядом со скриптом).
+.PARAMETER CatalogOnly
+    Только проверка каталога по API: подключение и два теста выделения в базе E3, без подтверждения Y (только чтение).
 .PARAMETER PlaceOnly
   Режим «только разместить»: ИМЯ СИМВОЛА (как в базе символов E3), один такой символ ставится на АКТИВНЫЙ лист открытого проекта
   (Symbol.Load + Symbol.Place; если символа нет в базе — запасные планы по компоненту с тем же именем). Ничего больше:
@@ -40,6 +42,7 @@ param(
     [int]$ProcessId = 0,
     [string]$OutDir = '',
     [string]$PlaceOnly = '',
+    [switch]$CatalogOnly,
     [switch]$SelfCheck,
     [string]$FakeCom = ''
 )
@@ -53,7 +56,7 @@ $script:KeepSheet = [bool]$KeepSheet
 $script:ProcessId = $ProcessId
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'placeblock', 'place', 'graphics', 'project', 'report')) {
+foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'placeblock', 'catalog', 'place', 'graphics', 'project', 'report')) {
     . (Join-Path $script:ProbeRoot ('lib\' + $module + '.ps1'))
 }
 
@@ -116,6 +119,7 @@ Write-Human 'Проверка API E3.series для Flux' 'Cyan'
 Write-Human ('Журналы: ' + $script:LogDir)
 Write-Human 'Скрипт работает только на временном листе, проект не сохраняет, всё созданное удаляет.'
 Write-Human 'ПЕРЕД ЗАПУСКОМ: откройте в E3 КОПИЮ тестового проекта (не рабочий). Без открытого проекта будет снята только опись API.' 'Yellow'
+Write-Human 'Перед запуском выделите в дереве базы данных E3 символы и изделия, которые нужно прочитать (раздел «Каталог по API»).' 'Yellow'
 Write-Human 'Если окно долго ничего не пишет, подождите 5 минут; потом закройте его и пришлите папку журналов целиком: последняя строка trace.log покажет, где встало.'
 
 $exitCode = 0
@@ -124,11 +128,15 @@ try {
     Invoke-Step 'Подключение' { $r = @(Step-Connect); $script:Connected = ($r.Count -gt 0 -and $r[-1] -eq $true) }
     if ($script:Connected) {
         Invoke-Step 'Проект открыт?' { Step-ProjectCheck }
+        # Режим «только каталог»: чтение выделенного в базе E3, без подтверждения Y; проект не нужен
+        if ($CatalogOnly) { Invoke-Step 'Каталог по API' { Step-Catalog }; $script:PlaceOnlyDone = $true; $script:CatalogDone = $true }
         # Режим «только разместить»: имя из параметра или из вопроса (только при открытом проекте); после него — выход.
         $placeName = $PlaceOnly
-        if ($script:ProjectNameEarly) {
+        if ($script:CatalogDone) { }
+        elseif ($script:ProjectNameEarly) {
             if ($placeName -eq '' -and -not $script:NoConfirm) { $placeName = Read-PlaceName }
-            if ($placeName -ne '') { Invoke-Step 'Только разместить' { Step-PlaceOnly $placeName }; $script:PlaceOnlyDone = $true }
+            if ($placeName -eq '::catalog') { Invoke-Step 'Каталог по API' { Step-Catalog }; $script:PlaceOnlyDone = $true; $script:CatalogDone = $true }
+            elseif ($placeName -ne '') { Invoke-Step 'Только разместить' { Step-PlaceOnly $placeName }; $script:PlaceOnlyDone = $true }
         } elseif ($placeName -ne '') {
             Write-Human 'Режим «только разместить» требует открытого проекта: откройте проект и запустите снова.' 'Yellow'
             Add-Finding 'bad' 'Режим «только разместить»: в E3 не открыт проект, ничего не размещено.'
@@ -219,6 +227,7 @@ try {
     }
     # Опись всей библиотеки типов — последней: читает файл на диске и, даже если что-то пойдёт не так, всё остальное уже записано.
     # В режиме «только разместить» её нет: он ничего не делает, кроме размещения.
+    if (-not $script:PlaceOnlyDone -and -not $script:CatalogDone -and $script:Connected) { Invoke-Step 'Каталог по API' { Step-Catalog } }
     if (-not $script:PlaceOnlyDone) { Invoke-Step 'Библиотека типов' { Step-TypeLibrary } }
 } catch {
     Write-Human ('✕ непредвиденная ошибка: ' + $_.Exception.Message) 'Red'

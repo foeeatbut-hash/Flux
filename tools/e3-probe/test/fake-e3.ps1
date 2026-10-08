@@ -7,7 +7,7 @@ $global:F = @{
     Sheets = @{ 101 = @{ Name = 'Лист 1'; Format = 'A3'; Attrs = @{} } }
     Devices = @{ 501 = @{ Name = '-M1'; Attrs = @{ 'GLOBAL_ID_IN_PROJECT' = 'ID-1' }; Sym = @(900); Comp = 'клапан_DIx2_DOx2' } }
     Symbols = @{ 900 = @{ Sheet = 101; X = 10; Y = 10; Pins = @(); Dev = 501; Name = 'SYM_VALVE'; Ver = '1' } }
-    SymbolNames = @('SYM_VALVE')
+    SymbolNames = @('SYM_VALVE', 'Вентилятор_ЗТД_К')
     CurDev = 0
     Loaded = ''
     Pins = @{}
@@ -16,6 +16,7 @@ $global:F = @{
     Defined = @('GLOBAL_ID_IN_PROJECT', 'FLUX_ID', 'FLUX_BLOCK', 'FLUX_VER', 'Sheet number', 'Device Designation', 'GLOBAL_BLOCK_ID', 'GLOBAL_BLOCK_NAME', 'dip_Fnumber', '!Pin_OpisaniePR_tip_signala')
     Components = @('Клапан_К24_КП2', 'Двигатель_М1', 'клапан_DIx2_DOx2')
     Active = 101
+    SelRead = 0
     Log = @()
 }
 
@@ -183,6 +184,8 @@ function New-FakeSymbol {
         GetSchemaLocation = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = $s.X; $a[1] = $s.Y; if ($a.Length -gt 2) { $a[2] = 5 }; return $s.Sheet }
         GetPlacedArea = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = [double]$s.X; $a[1] = [double]$s.Y; $a[2] = [double]$s.X + 20; $a[3] = [double]$s.Y + 20; return 1 }
         GetPinIds = { param($a) $ids = @($global:F.Symbols[[int]$this.Id].Pins); $a[0] = [object[]]$ids; return $ids.Count }
+        # габарит читается сразу после Load, без размещения (как надеемся увидеть у E3)
+        GetArea = { param($a) if ($global:F.Loaded -eq '') { return 0 }; $a[0] = 0.0; $a[1] = 0.0; $a[2] = 24.0; $a[3] = 16.0; return 1 }
         GetGraphIds = { param($a) $a[0] = [object[]]@(9001, 9002); return 2 }
         GetTextIds = { param($a) $a[0] = [object[]]@(); return 0 }
     })
@@ -225,10 +228,17 @@ function New-FakeJob {
         CreateDeviceObject = { param($a) return (New-FakeDevice) }
         CreateSymbolObject = { param($a) return (New-FakeSymbol) }
         CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
+        CreateAttributeObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return 'dip_Fnumber' }; GetFormattedValue = { param($a) return '42' } }) }
+        GetAllComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
         CreateComponentObject = { param($a) return (New-FakeObject @{
             SetId = { param($a) return (Set-FakeId $this $a[0]) }
             GetName = { param($a) return $global:F.Components[[int]$this.Id - 240000] }
             GetVersion = { param($a) return '1' }
+            GetComponentType = { param($a) return 7 }
+            GetSubType = { param($a) return 2 }
+            GetAttributeCount = { param($a) return 1 }
+            GetAttributeIds = { param($a) $a[0] = [object[]]@(7001); return 1 }
+            GetPinIds = { param($a) $a[0] = [object[]]@(8001, 8002, 8003); return 3 }
             GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }
             Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
         GetComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
@@ -246,11 +256,22 @@ function New-FakeApp {
         GetComponentDatabase = { param($a) return 'Provider=Fake;Data Source=components.mdb' }
         GetSymbolDatabase = { param($a) return 'Provider=Fake;Data Source=symbols.mdb' }
         CreateJobObject = { param($a) return (New-FakeJob) }
+        # выделение в базе: папка дерева отдаёт все изделия внутри (3), символы — 2, таблица — 2
+        # Первое чтение (тест 1) — выделена папка: она отдаёт содержимое (3 изделия, 2 символа). Второе (тест 2) — 4 символа-листа.
+        GetDatabaseTreeSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; $global:F.SelRead++; if ($global:F.SelRead -le 1) { $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2', 'клапан_DIx2_DOx2'); $a[1] = [object[]]@('1', '1', '1'); return 3 }; $a[0] = [object[]]@(); $a[1] = [object[]]@(); return 0 }
+        GetDatabaseTreeSelectedSymbols = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($global:F.SelRead -le 1) { $a[0] = [object[]]@('SYM_VALVE', 'нет_символа'); $a[1] = [object[]]@('1', '1'); return 2 }; $a[0] = [object[]]@('SYM_VALVE', 'Вентилятор_ЗТД_К', 'нет_символа', 'SYM_VALVE'); $a[1] = [object[]]@('1', '1', '1', '1'); return 4 }
+        GetDatabaseTableSelectedComponents = { param($a) $a[0] = [object[]]@('Двигатель_М1'); $a[1] = [object[]]@('1'); return 1 }
         PutInfo = { param($a) return 1 }
     })
 }
 
 $script:FakeApps = @((New-FakeApp)); $global:FakeApps = $script:FakeApps
+$script:FakeDbe = New-FakeObject @{
+    # API редактора базы: выделенные инженером строки таблицы (2 шт.), полного списка базы нет
+    GetDatabaseTableSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2'); $a[1] = [object[]]@('1', '1'); return 2 }
+    GetComponentIds = { param($a) $a[0] = [object[]]@(); return 0 }
+    CreateDbeComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 0 } }) }
+}
 $script:FakeDispatcher = New-FakeObject @{ GetCount = { param($a) return 1 }; GetApplication = { param($a) return $global:FakeApps[0] } }
 
 # Процессы E3: на машине проверки их нет; заголовок окна задаётся переменной, чтобы проверить сверку «проект открыт»

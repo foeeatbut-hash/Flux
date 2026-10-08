@@ -8,11 +8,12 @@ function Read-PlaceName {
     # (знаки «?» или U+FFFD вместо букв) заменяется содержимым файла place-name.txt (UTF-8) рядом со скриптом, если он есть.
     try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     Write-Human ''
-    $raw = Read-Host 'Введите имя символа, имя подсхемы из базы E3 или путь к файлу блока .e3p (можно перетащить файл в окно). Enter — пропустить и идти к полной проверке'
+    $raw = Read-Host 'Введите имя символа, имя подсхемы из базы E3 или путь к файлу блока .e3p (можно перетащить файл в окно). К — только проверка каталога. Enter — пропустить и идти к полной проверке'
     if ($null -eq $raw) { $raw = '' }
     $raw = $raw.Trim()
     # при перетаскивании файла в окно путь приходит в кавычках
     if ($raw.Length -ge 2 -and $raw.StartsWith('"') -and $raw.EndsWith('"')) { $raw = $raw.Substring(1, $raw.Length - 2).Trim() }
+    if ($raw -eq 'К' -or $raw -eq 'к' -or $raw -eq 'K' -or $raw -eq 'k') { Write-Human 'Выбрано: только проверка каталога.'; return '::catalog' }
     $codes = (($raw.ToCharArray() | ForEach-Object { 'U+' + ([int]$_).ToString('X4') }) -join ' ')
     Write-Human ('Введено: «' + $raw + '» (знаков ' + $raw.Length + '; коды: ' + $codes + ')')
     if ($raw -match '[\?�\x00-\x1F]') {
