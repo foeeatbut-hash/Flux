@@ -110,12 +110,15 @@ if ($FakeCom) { $script:Fake = $true; . $FakeCom }
 Write-Human 'Проверка API E3.series для Flux' 'Cyan'
 Write-Human ('Журналы: ' + $script:LogDir)
 Write-Human 'Скрипт работает только на временном листе, проект не сохраняет, всё созданное удаляет.'
+Write-Human 'ПЕРЕД ЗАПУСКОМ: откройте в E3 КОПИЮ тестового проекта (не рабочий). Без открытого проекта будет снята только опись API.' 'Yellow'
+Write-Human 'Если окно долго ничего не пишет, подождите 5 минут; потом закройте его и пришлите папку журналов целиком: последняя строка trace.log покажет, где встало.'
 
 $exitCode = 0
 try {
     Invoke-Step 'Окружение' { Step-Environment }
     Invoke-Step 'Подключение' { $r = @(Step-Connect); $script:Connected = ($r.Count -gt 0 -and $r[-1] -eq $true) }
     if ($script:Connected) {
+        Invoke-Step 'Проект открыт?' { Step-ProjectCheck }
         Invoke-Step 'Версия и проект' { $r = @(Step-AppInfo); $script:ProjectOpen = ($r.Count -gt 0 -and $r[-1] -eq $true) }
         if ($script:Job) {
             Invoke-Step 'Объекты проекта' { Step-CreateJobObjects }

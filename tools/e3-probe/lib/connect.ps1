@@ -60,10 +60,12 @@ function Get-ActiveApplication {
 function Get-AppIdentity {
     # Кратко про экземпляр: процесс и проект. Всё тихо — это подготовка выбора.
     param($App)
-    $identity = [ordered]@{ pid = $null; version = $null; project = $null }
+    $identity = [ordered]@{ pid = $null; version = $null; project = $null; appId = $null; fileVersion = $null }
     foreach ($name in @('GetProcessId', 'GetProcessID', 'GetPID', 'ProcessId')) {
         $v = Get-QuietValue $App $name; if ($null -ne $v) { $identity.pid = $v; break }
     }
+    # В E3.series 2022 вызова с номером процесса нет, есть GetId (что он значит, выясняется по журналу — это не обязательно pid).
+    $v = Get-QuietValue $App 'GetId'; if ($null -ne $v) { $identity.appId = $v }
     foreach ($name in @('GetVersion', 'GetBuild', 'Version')) {
         $v = Get-QuietValue $App $name; if ($null -ne $v -and "$v" -ne '') { $identity.version = [string]$v; break }
     }
@@ -121,6 +123,12 @@ function Step-Connect {
         $seenPids[$key] = $true
         [void]$unique.Add($a)
     }
+    # Номер процесса: если E3 сам его не назвал, а процесс на машине один, берём его (так же версия файла для сверки с GetVersion).
+    $procs = @($script:Env.processes)
+    foreach ($a in $unique) {
+        if ($null -eq $a.Identity.pid -and $unique.Count -eq 1 -and $procs.Count -eq 1) { $a.Identity.pid = $procs[0].pid; $a.Identity.pidSource = 'единственный процесс E3' }
+        foreach ($p in $procs) { if ("$($p.pid)" -eq "$($a.Identity.pid)") { $a.Identity.fileVersion = $p.fileVersion } }
+    }
     $script:Env['instances'] = @($unique | ForEach-Object { [ordered]@{ source = $_.Source; pid = $_.Identity.pid; version = $_.Identity.version; project = $_.Identity.project } })
     Write-Human ('Найдено экземпляров E3 с рабочим COM: ' + $unique.Count)
     if ($unique.Count -eq 0) {
@@ -143,8 +151,24 @@ function Step-Connect {
     }
     $script:App = $chosen.App
     $script:Env['chosenInstance'] = $chosen.Identity
-    Write-Human ('Выбран экземпляр: pid ' + $chosen.Identity.pid + ', версия ' + $chosen.Identity.version)
+    Write-Human ('Выбран экземпляр: pid ' + $chosen.Identity.pid + ', версия по GetVersion «' + $chosen.Identity.version + '», версия файла exe «' + $chosen.Identity.fileVersion + '», GetId ' + $chosen.Identity.appId)
     return $true
+}
+
+function Step-ProjectCheck {
+    # Сразу после подключения, до долгой описи API: открыт ли проект. Если нет — говорим об этом громко и в самом начале,
+    # а не в конце длинного журнала; дальше снимется только опись API и будет итог.
+    Write-Section '1a' 'Открыт ли проект'
+    $job = Get-QuietValue $script:App 'CreateJobObject'
+    $name = ''
+    if ($null -ne $job) {
+        foreach ($n in @('GetName', 'GetProjectName', 'GetFullName')) { $v = Get-QuietValue $job $n; if ($null -ne $v -and "$v" -ne '') { $name = [string]$v; break } }
+    }
+    if ($name -eq '') {
+        Write-Human '!!! В E3 НЕ ОТКРЫТ ПРОЕКТ. Откройте КОПИЮ тестового проекта и запустите проверку снова.' 'Yellow'
+        Write-Human '    Сейчас будет снята только опись API (она полезна и так), затем проверка завершится с итогом.' 'Yellow'
+        Add-Finding 'bad' 'В E3 не был открыт проект: откройте копию тестового проекта и запустите проверку снова. Снята только опись API.'
+    } else { Write-Human ('Проект открыт: «' + $name + '»') }
 }
 
 function Step-AppInfo {

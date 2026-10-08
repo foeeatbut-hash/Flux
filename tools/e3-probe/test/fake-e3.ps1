@@ -144,7 +144,7 @@ function New-FakeJob {
 
 function New-FakeApp {
     return (New-FakeObject @{
-        GetVersion = { param($a) return '2099.0 (fake)' }
+        GetVersion = { param($a) if ($env:E3_FAKE_DIE_AT_VERSION) { [Environment]::Exit(9) }; return '2099.0 (fake)' }
         GetProcessId = { param($a) return 4242 }
         CreateJobObject = { param($a) return (New-FakeJob) }
         PutInfo = { param($a) return 1 }

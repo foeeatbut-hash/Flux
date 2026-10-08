@@ -115,6 +115,9 @@ exit $bad
     if (api) check(Object.keys(api.objects).length >= 5, `api.json: объектов ${Object.keys(api.objects).length}`);
     const txt = read('log.txt');
     check(txt.includes('Проект НЕ сохранялся'), 'в журнале сказано, что проект не сохранялся');
+    const traceFull = read('trace.log');
+    check(/COM GetSheetIds/.test(traceFull) && /=== раздел 1\b/.test(traceFull), 'trace.log: метки «начинаю» для вызовов COM и разделов');
+    check(/pid \d+/.test(txt.split('Выбран экземпляр')[1]?.split('\n')[0] ?? ''), 'в строке выбранного экземпляра есть pid');
     check(/Число устройств в проекте то же/.test(txt), 'после уборки число устройств в проекте то же');
     check(txt.includes('Временный лист удалён'), 'временный лист удалён');
     const summary = read('summary.txt');
@@ -133,12 +136,25 @@ exit $bad
     check(nd.length > 50 && deletes.length === 0, `SetId=0: ни одного вызова Delete/Remove (журнал ${nd.length} записей)`, deletes.map((a: any) => a.candidate).join(', '));
   }
 
+  // обрыв процесса посреди работы (как первый настоящий прогон): в журнале должна остаться метка виновника
+  {
+    const { out, r } = runFake('die', { E3_FAKE_DIE_AT_VERSION: '1' });
+    const trace = fs.existsSync(path.join(out, 'trace.log')) ? fs.readFileSync(path.join(out, 'trace.log'), 'utf8').trim().split(/\r?\n/) : [];
+    check(r.status === 9, 'обрыв: процесс завершился кодом 9 (подставной обрыв)', `${r.status} ${(r.stdout + r.stderr).slice(-300)}`);
+    check(/COM GetVersion/.test(trace[trace.length - 1] ?? ''), 'обрыв: последняя строка trace.log называет вызов, на котором всё оборвалось', trace.slice(-3).join(' | '));
+    const logTxt = fs.existsSync(path.join(out, 'log.txt')) ? fs.readFileSync(path.join(out, 'log.txt'), 'utf8') : '';
+    check(logTxt.includes('=== 1. Подключение к E3 ==='), 'обрыв: log.txt сохранил всё до места обрыва');
+  }
+
   // проект не открыт: скрипт не падает и не пытается ничего менять
   {
     const { out, r } = runFake('noproject', { E3_FAKE_NOPROJECT: '1' });
     check(r.status === 0, 'без открытого проекта скрипт завершается без ошибки', (r.stdout + r.stderr).slice(-800));
     const summary = fs.existsSync(path.join(out, 'summary.txt')) ? fs.readFileSync(path.join(out, 'summary.txt'), 'utf8') : '';
     check(/Проект в E3 не открыт/.test(summary), 'summary.txt сообщает, что проект не открыт');
+    const earlyOut = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    check(earlyOut.includes('НЕ ОТКРЫТ ПРОЕКТ') && earlyOut.indexOf('НЕ ОТКРЫТ ПРОЕКТ') < earlyOut.indexOf('=== 1b'), 'без проекта: «откройте копию проекта» сказано сразу после подключения, до описи API');
+    check(earlyOut.includes('=== T.') && earlyOut.includes('=== R.'), 'без проекта: прогон дошёл до описи библиотеки типов и итогов');
     const log = JSON.parse(fs.readFileSync(path.join(out, 'log.json'), 'utf8').replace(/^\uFEFF/, ''));
     check(!log.attempts.some((a: any) => /^(place|sheets\.create|attr\.)/.test(a.op)), 'без проекта ничего не создавалось и не писалось');
   }
