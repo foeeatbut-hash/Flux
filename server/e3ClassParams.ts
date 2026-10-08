@@ -9,7 +9,6 @@
  * тип нельзя взять из столбца equipType.
  */
 import { classifyAll } from '../equipment/classes.js';
-import { KIP_GROUP } from '../e3/attributes.js';
 
 export interface ClassParam {
   /** «Группа|Название» — так хранится источник характеристики, он указывает её точно */
@@ -40,7 +39,8 @@ export async function classParams(db: any, cls: string): Promise<{ params: Class
       const seen = new Set<string>();
       for (const g of groups) {
         const group = String(g?.title ?? '').trim();
-        if (!group || group === KIP_GROUP) continue;
+        // Группа «КИП» тоже в списке: решение владельца — источником может быть и она
+        if (!group) continue;
         for (const p of Array.isArray(g.params) ? g.params : []) {
           const name = String(p?.key ?? '').trim();
           if (!name || !String(p?.value ?? '').trim()) continue;

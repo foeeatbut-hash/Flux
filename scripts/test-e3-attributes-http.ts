@@ -173,9 +173,9 @@ async function main() {
 
   // Характеристики типа: только чтение, по позициям всех проектов, без снятых
   const prm = await status('характеристики типа — чтение доступно читателю', call('GET', `${BASE}/params`, undefined, 'reader', { class: 'КЛАПАН' }), 200);
-  check('список: уникальные «группа|имя», счётчики и единицы', prm.positions === 2 && JSON.stringify(prm.params.map((p: any) => [p.key, p.count])) === '[["Привод|Момент",2],["Привод|Тип привода",2]]'
-    && JSON.stringify(prm.params[0].units) === '[{"unit":"Н·м","count":1},{"unit":"кгс·м","count":1}]');
-  check('снятые, группа КИП и чужой тип не попадают', !prm.params.some((p: any) => /Старое|GLOBAL_X|Класс/.test(p.key)));
+  check('список: уникальные «группа|имя», счётчики и единицы', prm.positions === 2 && JSON.stringify(prm.params.map((p: any) => [p.key, p.count])) === '[["КИП|GLOBAL_X",1],["Привод|Момент",2],["Привод|Тип привода",2]]'
+    && JSON.stringify(prm.params.find((p: any) => p.key === 'Привод|Момент').units) === '[{"unit":"Н·м","count":1},{"unit":"кгс·м","count":1}]');
+  check('снятые и чужой тип не попадают', !prm.params.some((p: any) => /Старое|Класс/.test(p.key)));
   await status('характеристики: неизвестный тип — 400', call('GET', `${BASE}/params`, undefined, 'reader', { class: 'НЕТ' }), 400);
 
   // Источник по типу: отдельная правка, как и остальные, идёт по версии и оставляет снимок «до»
