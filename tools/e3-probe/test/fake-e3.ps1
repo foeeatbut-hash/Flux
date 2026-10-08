@@ -203,6 +203,8 @@ function New-FakeApp {
     return (New-FakeObject @{
         GetVersion = { param($a) if ($env:E3_FAKE_DIE_AT_VERSION) { [Environment]::Exit(9) }; return '2099.0 (fake)' }
         GetProcessId = { param($a) return 4242 }
+        GetComponentDatabase = { param($a) return 'Provider=Fake;Data Source=components.mdb' }
+        GetSymbolDatabase = { param($a) return 'Provider=Fake;Data Source=symbols.mdb' }
         CreateJobObject = { param($a) return (New-FakeJob) }
         PutInfo = { param($a) return 1 }
     })
@@ -216,4 +218,32 @@ $script:FakeDispatcher = New-FakeObject @{ GetCount = { param($a) return 1 }; Ge
 function Get-E3Processes {
     $title = $(if ($env:E3_FAKE_TITLE) { $env:E3_FAKE_TITLE } else { 'Без имени - E³.cable' })
     return @([ordered]@{ pid = 4242; name = 'E3.series'; title = $title; path = 'C:\fake\E3.series.exe'; fileVersion = '23, 20, 0, 0' })
+}
+
+# База E3 «напрямую» (ADO): вместо Access — таблицы в памяти. Подменяют низкоуровневые функции lib\dbread.ps1.
+$global:FakeDb = @{
+    'Provider=Fake;Data Source=components.mdb' = [ordered]@{
+        Components = @{ Cols = @('Name', 'Version', 'Class'); Rows = @(@('клапан_DIx2_DOx2', '1', 'Клапаны'), @('датчик_DI_условный_ДГП_2', '1', 'Датчики'), @('Двигатель_М1', '1', 'Двигатели')) }
+    }
+    'Provider=Fake;Data Source=symbols.mdb' = [ordered]@{
+        Symbols = @{ Cols = @('SymbolName', 'Version'); Rows = @(@('SYM_VALVE', '1')) }
+    }
+}
+function Open-Ado { param([string]$Connection) if ($global:FakeDb.ContainsKey($Connection)) { return $Connection }; return $null }
+function Close-Ado { param($Cn) }
+function Get-AdoTableNames { param($Cn) return @($global:FakeDb[$Cn].Keys) }
+function Get-AdoColumns { param($Cn, [string]$Table) return @($global:FakeDb[$Cn][$Table].Cols | ForEach-Object { @{ Name = $_; Text = $true } }) }
+function Get-AdoCount { param($Cn, [string]$Table) return @($global:FakeDb[$Cn][$Table].Rows).Count }
+function Get-AdoSample {
+    param($Cn, [string]$Table, [int]$N = 2)
+    $t = $global:FakeDb[$Cn][$Table]; $out = @()
+    foreach ($r in @($t.Rows | Select-Object -First $N)) { $o = [ordered]@{}; for ($i = 0; $i -lt $t.Cols.Count; $i++) { $o[$t.Cols[$i]] = $r[$i] }; $out += , $o }
+    return $out
+}
+function Get-AdoDistinct { param($Cn, [string]$Table, [string]$Column, [int]$Max = 3000) $t = $global:FakeDb[$Cn][$Table]; $i = [array]::IndexOf($t.Cols, $Column); return @($t.Rows | ForEach-Object { $_[$i] } | Select-Object -Unique) }
+function Find-AdoValue {
+    param($Cn, [string]$Table, [string[]]$Columns, [string]$Value)
+    $t = $global:FakeDb[$Cn][$Table]; $out = @()
+    foreach ($r in $t.Rows) { if (@($r | Where-Object { $_ -eq $Value }).Count -gt 0) { $o = [ordered]@{}; for ($i = 0; $i -lt $t.Cols.Count; $i++) { $o[$t.Cols[$i]] = $r[$i] }; $out += , $o } }
+    return $out
 }

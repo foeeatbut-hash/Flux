@@ -99,6 +99,11 @@ function Step-Database {
             if ($null -ne $r.Items -and $r.Items.Count -gt 0) { $got = $r.Items; Write-Human ('«' + $l.Title + '»: ' + $r.Items.Count + ' (' + $r.Winner + ')'); break }
         }
         if ($null -ne $got) {
+            # Job.GetComponentIds отдаёт номера, а не имена: для поиска решения по имени переводим их в имена компонентов проекта.
+            if ($l.Title -eq 'Компоненты' -and @($got).Count -gt 0 -and @($got)[0] -is [ValueType]) {
+                $named = @(Get-ProjectComponents | ForEach-Object { $_.Name })
+                if ($named.Count -gt 0) { $got = $named; Write-Human ('  имена компонентов проекта прочитаны: ' + $named.Count) }
+            }
             Add-DbList $l.Title $got
             Find-InList $l.Title $got $name
             Add-Finding 'ok' ($l.Title + ' читаются: ' + @($got).Count + '.')

@@ -128,6 +128,10 @@ exit $bad
     try { api = JSON.parse(read('api.json')); } catch (e) { bad('api.json разбирается как JSON', e); }
     if (api) check(Object.keys(api.objects).length >= 5, `api.json: объектов ${Object.keys(api.objects).length}`);
     const txt = read('log.txt');
+    const schemaTxt = read('database-schema.txt');
+    check(/Компоненты \/ Components \(3 строк\)/.test(schemaTxt) && /колонки: Name, Version, Class/.test(schemaTxt), 'база напрямую: database-schema.txt содержит таблицы, колонки и число строк');
+    check(read('database-names.txt').includes('клапан_DIx2_DOx2'), 'база напрямую: database-names.txt содержит имена компонентов');
+    check(/найдено в базе «Компоненты», таблица Components/.test(txt), 'база напрямую: запасное решение найдено точным совпадением в базе');
     check(txt.includes('Проект НЕ сохранялся'), 'в журнале сказано, что проект не сохранялся');
     const traceFull = read('trace.log');
     check(/COM GetSheetIds/.test(traceFull) && /=== раздел 1\b/.test(traceFull), 'trace.log: метки «начинаю» для вызовов COM и разделов');

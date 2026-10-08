@@ -18,7 +18,7 @@ Sheet.ExportImage(format,version,file,dpi,compression), Job.ExportPDF(file,shtid
 - [x] 1 Cand/Invoke-Attempt: успех по ненулевому id (-Pos), ложное "найдено" убрать
 - [x] 2 вставка: правильные сигнатуры (LoadPart/PlacePart, Device.Create 6 арг., Symbol.Load/Place, ImportDrawing), эффект по новым id
 - [x] 3 экспорт: Sheet.Export/ExportImage, Job.ExportPDF
-- [ ] 4 база через OLEDB (только чтение): таблицы, имена, поиск решения; id компонентов проекта -> имена
+- [x] 4 база через OLEDB (только чтение): таблицы, имена, поиск решения; id компонентов проекта -> имена
 - [ ] 5 фейк и самопроверка, README, zip, git rm файла хода
 - [ ] 6 (дополнение владельца, отдельный коммит) режим «только разместить»: вопрос имени компонента перед Y (кириллица в Read-Host при PS 5.1:
       InputEncoding UTF8 + лог кодов символов), параметр -PlaceOnly "<имя>", размещение на АКТИВНОМ листе (Job.GetActiveSheetId) правильными
