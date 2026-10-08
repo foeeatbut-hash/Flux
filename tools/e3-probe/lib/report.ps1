@@ -53,6 +53,7 @@ function Write-SummaryFile {
     Add-Line ('Версия E3: ' + $script:Env['e3Version'] + '   Проект: ' + $script:ProjectName)
     Add-Line ('Windows: ' + $script:Env['os'] + '   PowerShell: ' + $script:Env['powershell'] + ' (64 бита: ' + $script:Env['powershell64bit'] + ')')
     Add-Line ('Решение для проверки вставки: ' + $script:SolutionName)
+    if ($script:SolutionNote) { Add-Line ('  ' + $script:SolutionNote) }
     Add-Line ''
     $ok = @($script:Findings | Where-Object { $_.Kind -eq 'ok' })
     $bad = @($script:Findings | Where-Object { $_.Kind -eq 'bad' })

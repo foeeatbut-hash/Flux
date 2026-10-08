@@ -18,64 +18,6 @@ function Get-AllDevices {
     return @(Get-Ids 'devices' 'project.devices' $script:Job 'job' (Get-DeviceIdCands))
 }
 
-function Get-PlaceVariants {
-    param([string]$Name, $X, $Y)
-    $id = $script:ProbeSheetId
-    $v = New-Object System.Collections.ArrayList
-    foreach ($ver in @('', '1')) {
-        [void]$v.Add(@{ Id = ('sheet.PlacePart.v' + $ver); Kind = 'sheet'; M = 'PlacePart'; A = @($Name, $ver, $X, $Y, 0); Label = 'sheet.PlacePart' })
-    }
-    [void]$v.Add(@{ Id = 'sheet.PlacePart.4'; Kind = 'sheet'; M = 'PlacePart'; A = @($Name, '', $X, $Y); Label = 'sheet.PlacePart' })
-    [void]$v.Add(@{ Id = 'sheet.PlacePart.id'; Kind = 'sheet'; M = 'PlacePart'; A = @($Name, '', $X, $Y, 0, 0); Label = 'sheet.PlacePart' })
-    $file = ''
-    foreach ($f in $script:SolutionFiles) { if ($f -match '\.(e3p|e3d|e3s|e3t)$') { $file = $f; break } }
-    if ($file -ne '') {
-        [void]$v.Add(@{ Id = 'job.ImportDrawing.1'; Kind = 'job'; M = 'ImportDrawing'; A = @($file); Label = 'job.ImportDrawing' })
-        [void]$v.Add(@{ Id = 'job.ImportDrawing.sheet'; Kind = 'job'; M = 'ImportDrawing'; A = @($file, $id, $X, $Y); Label = 'job.ImportDrawing' })
-        [void]$v.Add(@{ Id = 'job.ImportDrawing.xy'; Kind = 'job'; M = 'ImportDrawing'; A = @($file, $X, $Y); Label = 'job.ImportDrawing' })
-        [void]$v.Add(@{ Id = 'job.ImportDrawingEx.1'; Kind = 'job'; M = 'ImportDrawingEx'; A = @($file, $id, $X, $Y); Label = 'job.ImportDrawingEx' })
-        [void]$v.Add(@{ Id = 'job.ImportDrawingEx.2'; Kind = 'job'; M = 'ImportDrawingEx'; A = @($file, $X, $Y, $id); Label = 'job.ImportDrawingEx' })
-    }
-    foreach ($ver in @('', '1')) {
-        [void]$v.Add(@{ Id = ('symbol.Load+Place.v' + $ver); Kind = 'symbol'; PreM = 'Load'; PreA = @($Name, $ver); M = 'Place'; A = @($id, $X, $Y, 0); Label = 'symbol.Load+Place' })
-    }
-    [void]$v.Add(@{ Id = 'symbol.Load+Place.3'; Kind = 'symbol'; PreM = 'Load'; PreA = @($Name, ''); M = 'Place'; A = @($id, $X, $Y); Label = 'symbol.Load+Place' })
-    [void]$v.Add(@{ Id = 'component.Place'; Kind = 'component'; PreM = 'SetName'; PreA = @($Name); M = 'Place'; A = @($id, $X, $Y, 0); Label = 'component.SetName+Place' })
-    [void]$v.Add(@{ Id = 'component.Place2'; Kind = 'component'; PreM = 'Search'; PreA = @($Name); M = 'Place'; A = @($id, $X, $Y, 0); Label = 'component.Search+Place' })
-    [void]$v.Add(@{ Id = 'device.Create'; Kind = 'device'; M = 'Create'; A = @(0, $Name); Label = 'device.Create' })
-    [void]$v.Add(@{ Id = 'device.Create4'; Kind = 'device'; M = 'Create'; A = @(0, $Name, '', ''); Label = 'device.Create' })
-    return @($v)
-}
-
-function Invoke-PlaceVariant {
-    param($Variant, [string]$Op)
-    $argText = (Format-Args $Variant.A @()) + $(if ($Variant.Kind -eq 'symbol' -or $Variant.Kind -eq 'component') { '   [до этого ' + $Variant.PreM + '(' + (Format-Args $Variant.PreA @()) + ')]' } else { '' })
-    $action = {
-        switch ($Variant.Kind) {
-            'sheet' { [void](Use-Sheet $script:ProbeSheetId); Invoke-Com -Target $script:Objects['Sheet'] -Name $Variant.M -CallArgs $Variant.A.Clone() -RefIdx @() }
-            'job' { Invoke-Com -Target $script:Job -Name $Variant.M -CallArgs $Variant.A.Clone() -RefIdx @() }
-            'symbol' {
-                $o = $script:Objects['Symbol']
-                if ($null -eq $o) { throw 'Объект символа не создан' }
-                [void](Invoke-Com -Target $o -Name $Variant.PreM -CallArgs $Variant.PreA.Clone() -RefIdx @())
-                Invoke-Com -Target $o -Name $Variant.M -CallArgs $Variant.A.Clone() -RefIdx @()
-            }
-            'component' {
-                $o = $script:Objects['Component']
-                if ($null -eq $o) { throw 'Объект компонента не создан' }
-                [void](Invoke-Com -Target $o -Name $Variant.PreM -CallArgs $Variant.PreA.Clone() -RefIdx @())
-                Invoke-Com -Target $o -Name $Variant.M -CallArgs $Variant.A.Clone() -RefIdx @()
-            }
-            'device' {
-                $o = $script:Objects['Device']
-                if ($null -eq $o) { throw 'Объект устройства не создан' }
-                Invoke-Com -Target $o -Name $Variant.M -CallArgs $Variant.A.Clone() -RefIdx @()
-            }
-        }
-    }
-    return (Invoke-Attempt -Op $Op -Label $Variant.Label -ArgsText $argText -Action $action)
-}
-
 function Get-DeviceDetails {
     param($Id, [string]$Title)
     $dev = Get-DevObj
@@ -119,14 +61,15 @@ function Remove-DeviceAndSymbols {
     $dev = Get-DevObj; $sym = $script:Objects['Symbol']
     $ok = $true
     foreach ($id in @($DeviceIds)) {
-        [void](Invoke-Quiet $dev 'SetId' @($id))
+        # Не выбрался id — Delete ударил бы по устройству, выбранному раньше, а оно может быть настоящим.
+        if (-not (Select-Id $dev $id)) { $ok = $false; continue }
         $r = Try-Calls -Op $Op -Target $dev -TL 'device' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
         if (-not $r.Ok) { $r = Try-Calls -Op $Op -Target $script:Job -TL 'job' -Cands @((Cand 'DeleteDevice' @($id)), (Cand 'RemoveDevice' @($id))) -First }
         if (-not $r.Ok) { $ok = $false }
     }
     if (@($DeviceIds).Count -eq 0) {
         foreach ($id in @($SymbolIds)) {
-            [void](Invoke-Quiet $sym 'SetId' @($id))
+            if (-not (Select-Id $sym $id)) { $ok = $false; continue }
             $r = Try-Calls -Op $Op -Target $sym -TL 'symbol' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
             if (-not $r.Ok) { $ok = $false }
         }
@@ -134,23 +77,71 @@ function Remove-DeviceAndSymbols {
     return $ok
 }
 
+# Решение по умолчанию есть не в каждой базе. Если заданного нет (или оно не вставилось), берём первое работающее из запасных
+# и пишем в сводке, какое взято. Имена — компоненты, которые у владельца точно есть в проекте.
+$script:FallbackSolutions = @('клапан_DIx2_DOx2', 'датчик_DI_условный_ДГП_2')
+$script:RequestedSolution = ''
+$script:SolutionNote = ''
+
 function Step-Place {
     Write-Section '5' ('Вставка решения «' + $script:SolutionName + '» на временный лист в точку (' + $script:PlaceX + ',' + $script:PlaceY + ')')
     if ($null -eq $script:ProbeSheetId) { Write-Human 'Нет временного листа — пропущено.'; return }
+    $script:RequestedSolution = $script:SolutionName
+    $names = @($script:SolutionName) + @($script:FallbackSolutions | Where-Object { $_ -ne $script:SolutionName })
+    # Последним — любой компонент проекта с известным символом: так проверяются сами вызовы вставки, даже если ни одного
+    # из названных решений в проекте нет.
+    $sample = Get-SampleComponent
+    if ($null -ne $sample -and $names -notcontains $sample.Name) { $names += $sample.Name }
+    foreach ($candidate in $names) {
+        $script:SolutionName = $candidate
+        if ($candidate -ne $script:RequestedSolution) { Write-Human ('Заданное «' + $script:RequestedSolution + '» вставить не удалось, пробую запасное «' + $candidate + '».') 'Yellow' }
+        Invoke-PlaceSolution
+        if ($null -ne $script:Kept) { break }
+    }
+    if ($null -ne $script:Kept -and $script:SolutionName -ne $script:RequestedSolution) {
+        $script:SolutionNote = 'Заданное решение «' + $script:RequestedSolution + '» не нашлось или не вставилось; для проверки вставки взято запасное «' + $script:SolutionName + '».'
+        Add-Finding 'note' $script:SolutionNote
+        Write-Human ('→ ' + $script:SolutionNote) 'Yellow'
+    }
+    if ($null -eq $script:Kept) {
+        Add-Finding 'bad' ('Вставить решение не удалось ни одним способом; пробовали: ' + ($names -join ', ') + '. Проверьте имена (-SolutionName) и журнал log.txt, раздел 5.')
+    }
+}
+
+function Invoke-PlaceSolution {
+    # Все способы вставки одного решения (имя в $script:SolutionName); удачный результат остаётся в $script:Kept.
     $variants = Get-PlaceVariants $script:SolutionName $script:PlaceX $script:PlaceY
     foreach ($v in $variants) {
         $op = 'place.' + $v.Id
         # снимок «до» — перед каждым способом: прошлый способ мог оставить своё
         $devBefore = @(Get-AllDevices); $symBefore = @(Get-SheetSymbols)
         $r = Invoke-PlaceVariant $v $op
-        if (-not $r.Ok) { continue }
+        if (-not $r.Ok) {
+            # План мог дойти до создания устройства и упасть позже: убираем только то, что появилось в этой попытке.
+            $orphans = @(@(Get-AllDevices) | Where-Object { $devBefore -notcontains $_ })
+            if ($orphans.Count -gt 0) {
+                $gone = Remove-DeviceAndSymbols $orphans @() ($op + '.orphan')
+                Write-Human ('  · неудачная попытка оставила устройств: ' + $orphans.Count + ', убраны: ' + $gone) 'DarkGray'
+                $script:Failed.Remove($op + '.orphan') | Out-Null
+            }
+            continue
+        }
         $devAfter = @(Get-AllDevices); $symAfter = @(Get-SheetSymbols)
         $newDev = @($devAfter | Where-Object { $devBefore -notcontains $_ })
         $newSym = @($symAfter | Where-Object { $symBefore -notcontains $_ })
         $ret = $r.Value.Ret
         $text = 'вернул ' + (Format-Value $ret 60) + '; новых устройств ' + $newDev.Count + ', новых символов ' + $newSym.Count
-        $effect = ($newDev.Count -gt 0 -or $newSym.Count -gt 0)
-        $rec = [ordered]@{ seq = 0; step = $script:Step; op = $op + '.effect'; candidate = $v.Label; args = ''; ok = $effect; type = $null; result = $text; error = $(if ($effect) { $null } else { 'вызов прошёл, но на листе ничего не появилось' }); hresult = $null; busy = $false; ms = $r.Record.ms }
+        # Вставка состоялась, только если на листе появился символ. Устройство без символа (Device.Create сам по себе) — это
+        # полуфабрикат: записываем его отдельной заметкой и убираем.
+        $effect = ($newSym.Count -gt 0)
+        $partial = (-not $effect -and $newDev.Count -gt 0)
+        if ($partial) {
+            Add-Finding 'note' ('Вызов ' + $v.Label + ' создаёт устройство без символа на листе (устройств ' + $newDev.Count + '): чтобы устройство появилось на схеме, нужен ещё Symbol.Load + Symbol.Place.')
+            $gone = Remove-DeviceAndSymbols $newDev @() ($op + '.partial')
+            $script:Failed.Remove($op + '.partial') | Out-Null
+            if (-not $gone) { Write-Human '! Устройство без символа убрать не удалось: останется в проекте до закрытия без сохранения.' 'Yellow' }
+        }
+        $rec = [ordered]@{ seq = 0; step = $script:Step; op = $op + '.effect'; candidate = $v.Label; args = ''; ok = $effect; type = $null; result = $text; error = $(if ($effect) { $null } elseif ($partial) { 'создано устройство без символа, на листе ничего не появилось' } else { 'вызов прошёл, но на листе ничего не появилось' }); hresult = $null; busy = $false; ms = $r.Record.ms }
         $script:Seq++; $rec.seq = $script:Seq; Add-Record $rec
         if ($effect) {
             if (-not $script:Winners.Contains($op + '.effect')) { $script:Winners[$op + '.effect'] = New-Object System.Collections.ArrayList }
@@ -170,9 +161,6 @@ function Step-Place {
             if (-not $removed) { Write-Human '! Убрать вставленное не удалось: останется на временном листе и уйдёт вместе с ним.' 'Yellow' }
             $script:Failed.Remove($op + '.cleanup') | Out-Null
         }
-    }
-    if ($null -eq $script:Kept) {
-        Add-Finding 'bad' ('Вставить решение «' + $script:SolutionName + '» на лист не удалось ни одним способом: проверьте имя решения (-SolutionName) и журнал log.txt, раздел 5.')
     }
 }
 

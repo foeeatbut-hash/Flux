@@ -55,7 +55,8 @@ function Step-Graphics {
     if ($null -eq $script:ProbeSheetId) { return }
     $job = $script:Job; $app = $script:App; $sh = $script:Objects['Sheet']
     [void](Use-Sheet $script:ProbeSheetId)
-    [void](Try-Calls -Op 'export.activate' -Target $job -TL 'job' -Cands @((Cand 'SetActiveSheetId' @($script:ProbeSheetId)), (Cand 'ActivateSheet' @($script:ProbeSheetId))) -First -Silent)
+    # Экспортируется открытый лист: Sheet.Display делает проверочный лист видимым и текущим (проверено в журнале: работает).
+    [void](Try-Calls -Op 'export.activate' -Target $sh -TL 'sheet' -Cands @((Cand 'Display')) -First -Silent)
     foreach ($label in @('Sheet', 'Job', 'Application')) {
         $m = Test-ApiMember $label 'Export|Print|Plot|Save|Image|Bitmap|Picture|Render|Snapshot'
         if ($null -ne $m) { Write-Human ('Члены ' + $label + ' про экспорт (из описи): ' + ($m -join ', ')) }
@@ -66,16 +67,8 @@ function Step-Graphics {
     foreach ($ext in @('emf', 'svg', 'dxf', 'pdf', 'png', 'bmp', 'jpg', 'wmf', 'dwg', 'tif')) {
         $path = Join-Path $dir ('probe.' + $ext)
         $up = $ext.ToUpper()
-        $cands = New-Object System.Collections.ArrayList
-        foreach ($tgt in @(@('sheet', $sh), @('job', $job), @('app', $app))) {
-            if ($null -eq $tgt[1]) { continue }
-            foreach ($m in @(('Export' + $up), ('Export' + $ext.Substring(0, 1).ToUpper() + $ext.Substring(1)), 'ExportImage', 'ExportBitmap', 'ExportPicture', 'ExportDrawing', 'Export', 'ExportSheet')) {
-                foreach ($a in @(@($path), @($path, $ext), @($path, $up), @($script:ProbeSheetId, $path), @($path, $script:ProbeSheetId))) {
-                    [void]$cands.Add(@{ L = $tgt[0]; T = $tgt[1]; M = $m; A = $a })
-                }
-            }
-        }
-        $done = $false; $tried = 0
+        $cands = Get-ExportCandidates $ext $path $sh $job
+        $done = $false; $tried = 0; $lastError = ''
         $seen = @{}
         foreach ($c in $cands) {
             $key = $c.L + '.' + $c.M + '(' + (($c.A | ForEach-Object { [string]$_ }) -join ',') + ')'
@@ -84,12 +77,13 @@ function Step-Graphics {
             if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
             $callArgs = $c.A.Clone()
             $action = {
-                $r = Invoke-Com -Target $c.T -Name $c.M -CallArgs $callArgs -RefIdx @()
+                $r = Invoke-Com -Target $c.T -Name $c.M -CallArgs $callArgs -RefIdx $c.R
                 if (-not (Test-Path $path) -or (Get-Item $path).Length -eq 0) { throw 'вызов прошёл, но файл не появился' }
                 $r
             }
             $tried++
             $r = Invoke-Attempt -Op ('export.' + $ext) -Label ($c.L + '.' + $c.M) -ArgsText (Format-Args $c.A @()) -Action $action -Silent
+            if (-not $r.Ok) { $lastError = $c.L + '.' + $c.M + ': ' + $r.Record.error }
             if ($r.Ok) {
                 $size = (Get-Item $path).Length
                 Write-Human ('✓ export.' + $ext + '  ' + $c.L + '.' + $c.M + '(' + (Format-Args $c.A @()) + ')  ' + $r.Record.ms + ' мс  файл ' + $size + ' байт') 'Green'
@@ -98,9 +92,34 @@ function Step-Graphics {
                 $done = $true; break
             }
         }
-        if (-not $done) { Write-Human ('✕ export.' + $ext + ': перебрано вариантов ' + $tried + ', файл не получен') 'DarkGray' }
+        if (-not $done) { Write-Human ('✕ export.' + $ext + ': перебрано вариантов ' + $tried + ', файл не получен; последняя ошибка — ' + $lastError) 'DarkGray' }
     }
     if ($script:ExportResults.Count -eq 0) { Add-Finding 'need' 'Экспорт временного листа ни в один формат не удался: нужны имена методов из api-Sheet.txt / api-Job.txt.' }
+}
+
+function Get-ExportCandidates {
+    # Экспорт листа по настоящей описи E3 (api-Sheet.txt, api-Job.txt):
+    #   Sheet.Export(format BSTR, version int, file BSTR [, flags int])
+    #   Sheet.ExportImage(format, version, file [, dpi, compressionmode])
+    #   Job.ExportPDF(file, shtids [in,out], options [, password])
+    # Допустимые строки format в описи не названы, поэтому пробуем ВЕРХНИЙ и нижний регистр и несколько версий.
+    param([string]$Ext, [string]$Path, $Sheet, $Job)
+    $sid = $script:ProbeSheetId
+    $cands = New-Object System.Collections.ArrayList
+    $add = { param($L, $T, $M, $A, $R) if ($null -ne $T) { [void]$cands.Add(@{ L = $L; T = $T; M = $M; A = $A; R = $R }) } }
+    $formats = @($Ext.ToUpper(), $Ext)
+    foreach ($f in $formats) { foreach ($ver in @(0, 1, 2)) { & $add 'sheet' $Sheet 'Export' @($f, $ver, $Path, 0) @() } }
+    foreach ($f in $formats) { & $add 'sheet' $Sheet 'Export' @($f, 0, $Path) @() }
+    foreach ($f in $formats) {
+        & $add 'sheet' $Sheet 'ExportImage' @($f, 0, $Path) @()
+        & $add 'sheet' $Sheet 'ExportImage' @($f, 0, $Path, 96) @()
+    }
+    if ($Ext -eq 'pdf') {
+        # номера листов E3 принимает массивом по ссылке; индекс 0 в массивах E3 не используется
+        & $add 'job' $Job 'ExportPDF' @($Path, [object[]]@($sid), 0) @(1)
+        & $add 'job' $Job 'ExportPDF' @($Path, [object[]]@(0, $sid), 0) @(1)
+    }
+    return @($cands)
 }
 
 function Probe-Kind {
@@ -133,10 +152,13 @@ function Probe-Kind {
             if ($null -eq $target) { continue }
             $cr = Try-Calls -Op ('objects.' + $Kind.ToLower() + '.create') -Target $target -TL $(if ($c.On) { $c.On } else { $Kind.ToLower() }) -Cands @((Cand $c.M $c.A.Clone() $c.R)) -First
             if (-not $cr.Ok) { continue }
-            $newId = $null; if ($cr.Value -is [ValueType] -and [long]$cr.Value -gt 0) { $newId = $cr.Value }
+            # Номер нового объекта — число, которого не было в списке до создания; признак успеха (True, 1) за номер не считаем:
+            # иначе Delete ударил бы по существующему объекту.
+            $newId = $null; if ($cr.Value -is [ValueType] -and $cr.Value -isnot [bool] -and [long]$cr.Value -gt 0 -and $before -notcontains $cr.Value) { $newId = $cr.Value }
             Write-Human ('  создано ' + $Kind + ': ' + (Format-Value $cr.Value 40))
             if ($null -ne $newId) {
-                [void](Invoke-Quiet $obj 'SetId' @($newId))
+                # Не выбрался — в обёртке остался первый существующий объект вида, его удалять нельзя.
+                if (-not (Select-Id $obj $newId)) { Write-Human ('  ! ' + $Kind + ' ' + $newId + ' выбрать не удалось — не удаляем') 'Yellow'; break }
                 $d = Try-Calls -Op ('objects.' + $Kind.ToLower() + '.delete') -Target $obj -TL $Kind.ToLower() -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
                 if (-not $d.Ok) { Write-Human ('  ! ' + $Kind + ' ' + $newId + ' удалить не удалось — уйдёт вместе с временным листом') 'Yellow' }
             }

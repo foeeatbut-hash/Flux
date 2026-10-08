@@ -5,15 +5,39 @@
 $global:F = @{
     Next = 1000
     Sheets = @{ 101 = @{ Name = 'Лист 1'; Format = 'A3'; Attrs = @{} } }
-    Devices = @{ 501 = @{ Name = '-M1'; Attrs = @{ 'GLOBAL_ID_IN_PROJECT' = 'ID-1' }; Sym = @() } }
-    Symbols = @{}
+    Devices = @{ 501 = @{ Name = '-M1'; Attrs = @{ 'GLOBAL_ID_IN_PROJECT' = 'ID-1' }; Sym = @(900); Comp = 'клапан_DIx2_DOx2' } }
+    Symbols = @{ 900 = @{ Sheet = 101; X = 10; Y = 10; Pins = @(); Dev = 501; Name = 'SYM_VALVE'; Ver = '1' } }
+    SymbolNames = @('SYM_VALVE', 'Вентилятор_ЗТД_К')
+    CurDev = 0
+    Loaded = ''
     Pins = @{}
     Conns = @()
     ProjectAttrs = @{ 'Sheet number' = '1' }
     Defined = @('GLOBAL_ID_IN_PROJECT', 'FLUX_ID', 'FLUX_BLOCK', 'FLUX_VER', 'Sheet number', 'Device Designation', 'GLOBAL_BLOCK_ID', 'GLOBAL_BLOCK_NAME', 'dip_Fnumber', '!Pin_OpisaniePR_tip_signala')
-    Components = @('Клапан_К24_КП2', 'Двигатель_М1')
+    Components = @('Клапан_К24_КП2', 'Двигатель_М1', 'клапан_DIx2_DOx2')
     Active = 101
+    SelRead = 0
     Log = @()
+}
+
+# Как настоящий IDispatch: аргумент, обёрнутый в PSObject, приходит в COM как VT_DISPATCH, и E3 отвечает
+# DISP_E_TYPEMISMATCH (0x80020005). То же для строки там, где ждут число, и наоборот. Целое вместо double COM приводит сам.
+# Сигнатуры — из библиотеки типов E3 (журнал владельца): S = BSTR, D = число с плавающей точкой, I = целое.
+Add-Type -TypeDefinition 'public static class FakeWrap { public static bool Is(object[] a, int i) { return a[i] is System.Management.Automation.PSObject; } }'
+$global:FakeSigs = @{
+    'LoadPart' = 'SSI'; 'PlacePart' = 'SSDDD'; 'PlacePartEx' = 'SSIDDD'; 'Load' = 'SS'; 'Place' = 'IDDSDI'; 'ImportDrawing' = 'SIDD'; 'ImportDrawingEx' = 'SIIDD'
+}
+$global:FakeArgCheck = {
+    param([string]$Name, [object[]]$CallArgs)
+    $sig = $global:FakeSigs[$Name]
+    if ($Name -eq 'Create' -and $CallArgs.Length -eq 6) { $sig = 'SSSSSI' }
+    for ($i = 0; $i -lt $CallArgs.Length; $i++) {
+        if ([FakeWrap]::Is($CallArgs, $i)) { Throw-FakeCom ('Type mismatch (аргумент ' + $i + ' пришёл как PSObject, т.е. VT_DISPATCH).') -2147352571 }
+        if ($null -eq $sig -or $i -ge $sig.Length) { continue }
+        $v = $CallArgs[$i]; $isStr = $v -is [string]; $isNum = ($v -is [int] -or $v -is [double] -or $v -is [long])
+        $ok = switch ($sig[$i]) { 'S' { $isStr } 'D' { $isNum } 'I' { $v -is [int] -or $v -is [long] -or ($v -is [double] -and $v -eq [math]::Floor($v)) } }
+        if (-not $ok) { Throw-FakeCom ('Type mismatch (аргумент ' + $i + ' типа ' + $(if ($null -eq $v) { 'null' } else { $v.GetType().Name }) + ').') -2147352571 }
+    }
 }
 
 function New-FakeObject {
@@ -21,7 +45,19 @@ function New-FakeObject {
     $o = New-Object PSObject
     Add-Member -InputObject $o -MemberType NoteProperty -Name Id -Value 0
     foreach ($name in $Methods.Keys) { Add-Member -InputObject $o -MemberType ScriptMethod -Name $name -Value $Methods[$name] }
+    # Как у настоящих объектов E3 (Job, Symbol, Device…): собственный метод GetType() возвращает данные E3, а не тип .NET.
+    # Код пробы, который зовёт $x.GetType() у такого объекта, ломается так же, как у владельца.
+    if (-not $Methods.ContainsKey('GetType')) { Add-Member -InputObject $o -MemberType ScriptMethod -Name GetType -Value { return 'тип-из-E3' } -Force }
     return $o
+}
+
+function Set-FakeId {
+    # Как E3: при успехе SetId возвращает сам id, при неудаче 0 и прежний объект остаётся выбранным.
+    # E3_FAKE_SETID_ZERO=1 — выбор всегда неудачен: проверка, что после этого ничего не удаляется.
+    param($Object, $Id)
+    if ($env:E3_FAKE_SETID_ZERO) { return 0 }
+    $Object.Id = $Id
+    return $Id
 }
 
 function Throw-FakeCom {
@@ -44,7 +80,20 @@ $global:FakeAttrSet = {
 
 function New-FakeDevice {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
+        GetComponentName = { param($a) return $global:F.Devices[[int]$this.Id].Comp }
+        GetComponentVersion = { param($a) return '1' }
+        # Device.Create(name, assignment, location, comp, vers, after): ровно 6 аргументов; 0 — неудача без исключения, как в E3
+        Create = {
+            param($a)
+            if ($a.Length -ne 6) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[3] -notin $global:F.Components) { return 0 }
+            $global:F.Next++; $id = $global:F.Next
+            $global:F.Devices[$id] = @{ Name = $(if ([string]$a[0] -eq '') { '-A' + $id } else { [string]$a[0] }); Attrs = @{}; Sym = @(); Comp = [string]$a[3] }
+            $this.Id = $id; $global:F.CurDev = $id
+            return $id
+        }
+        LoadAndCreate = { param($a) if ($a.Length -ne 3) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; return 0 }
         GetName = { param($a) return $global:F.Devices[[int]$this.Id].Name }
         SetName = { param($a) $global:F.Devices[[int]$this.Id].Name = [string]$a[0]; return 1 }
         GetAttributeValue = { param($a) & $global:FakeAttrGet $global:F.Devices[[int]$this.Id].Attrs $a }
@@ -66,7 +115,7 @@ function New-FakeDevice {
 
 function New-FakeSheet {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
         GetName = { param($a) return $global:F.Sheets[[int]$this.Id].Name }
         GetFormat = { param($a) return $global:F.Sheets[[int]$this.Id].Format }
         GetDrawingArea = { param($a) $a[0] = 10.0; $a[1] = 10.0; $a[2] = 410.0; $a[3] = 287.0; return 1 }
@@ -84,25 +133,59 @@ function New-FakeSheet {
             $ids = @($global:F.Symbols.Keys | Where-Object { $global:F.Symbols[$_].Sheet -eq [int]$this.Id })
             $a[0] = [object[]]$ids; return $ids.Count
         }
+        # как в журнале владельца: PlacePart(name, version, x, y, rot) отвечает 3, но на листе ничего не появляется
         PlacePart = {
             param($a)
-            if ([string]$a[0] -notin $global:F.Components) { Throw-FakeCom 'Компонент не найден' }
-            $global:F.Next++; $dev = $global:F.Next; $global:F.Next++; $sym = $global:F.Next; $global:F.Next++; $p1 = $global:F.Next; $global:F.Next++; $p2 = $global:F.Next
-            $global:F.Pins[$p1] = @{ Name = '1' }; $global:F.Pins[$p2] = @{ Name = '2' }
-            $global:F.Symbols[$sym] = @{ Sheet = [int]$this.Id; X = $a[2]; Y = $a[3]; Pins = @($p1, $p2); Dev = $dev }
-            $global:F.Devices[$dev] = @{ Name = '-V1'; Attrs = @{}; Sym = @($sym) }
-            return $dev
+            if ($a.Length -ne 5) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            return 3
         }
-        ExportDXF = { param($a) Set-Content -Path ([string]$a[0]) -Value '0 SECTION' -Encoding ASCII; return 1 }
-        ExportPNG = { param($a) Throw-FakeCom 'Не поддерживается в этой версии' }
+        Display = { param($a) return 1 }
+        # Sheet.Export(format, version, file [, flags]): формат в верхнем регистре, как у E3; файл пишет только DXF
+        Export = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 4) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -ceq 'DXF') { Set-Content -Path ([string]$a[2]) -Value '0 SECTION' -Encoding ASCII; return 1 }
+            return 0
+        }
+        # Sheet.ExportImage(format, version, file [, dpi, compressionmode]): картинки, PNG пишется
+        ExportImage = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 5) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -ceq 'PNG') { Set-Content -Path ([string]$a[2]) -Value 'PNG' -Encoding ASCII; return 1 }
+            return 0
+        }
     })
 }
 
 function New-FakeSymbol {
     return (New-FakeObject @{
-        SetId = { param($a) $this.Id = $a[0]; return 1 }
+        SetId = { param($a) return (Set-FakeId $this $a[0]) }
+        GetName = { param($a) return $global:F.Symbols[[int]$this.Id].Name }
+        GetVersion = { param($a) return $global:F.Symbols[[int]$this.Id].Ver }
+        # Symbol.Load(name, version): ровно 2 аргумента; 0 — символа нет в базе
+        Load = {
+            param($a)
+            if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ([string]$a[0] -notin $global:F.SymbolNames) { return 0 }
+            $global:F.Loaded = [string]$a[0]; return 1
+        }
+        # Symbol.Place(shti, x, y [, rot, scale, maintaintextsize]): 3-6 аргументов; символ достаётся последнему созданному устройству
+        Place = {
+            param($a)
+            if ($a.Length -lt 3 -or $a.Length -gt 6) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if ($global:F.Loaded -eq '' -or -not $global:F.Sheets.ContainsKey([int]$a[0])) { return 0 }
+            $global:F.Next++; $sym = $global:F.Next; $global:F.Next++; $p1 = $global:F.Next; $global:F.Next++; $p2 = $global:F.Next
+            $global:F.Pins[$p1] = @{ Name = '1' }; $global:F.Pins[$p2] = @{ Name = '2' }
+            $global:F.Symbols[$sym] = @{ Sheet = [int]$a[0]; X = $a[1]; Y = $a[2]; Pins = @($p1, $p2); Dev = $global:F.CurDev; Name = $global:F.Loaded; Ver = '1' }
+            if ($global:F.CurDev -ne 0) { $global:F.Devices[$global:F.CurDev].Sym += $sym }
+            $global:F.Loaded = ''
+            return $sym
+        }
         GetSchemaLocation = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = $s.X; $a[1] = $s.Y; if ($a.Length -gt 2) { $a[2] = 5 }; return $s.Sheet }
+        GetPlacedArea = { param($a) $s = $global:F.Symbols[[int]$this.Id]; $a[0] = [double]$s.X; $a[1] = [double]$s.Y; $a[2] = [double]$s.X + 20; $a[3] = [double]$s.Y + 20; return 1 }
         GetPinIds = { param($a) $ids = @($global:F.Symbols[[int]$this.Id].Pins); $a[0] = [object[]]$ids; return $ids.Count }
+        # габарит читается сразу после Load, без размещения (как надеемся увидеть у E3)
+        GetArea = { param($a) if ($global:F.Loaded -eq '') { return 0 }; $a[0] = 0.0; $a[1] = 0.0; $a[2] = 24.0; $a[3] = 16.0; return 1 }
         GetGraphIds = { param($a) $a[0] = [object[]]@(9001, 9002); return 2 }
         GetTextIds = { param($a) $a[0] = [object[]]@(); return 0 }
     })
@@ -116,6 +199,25 @@ function New-FakeJob {
         GetSheetIds = { param($a) if ($env:E3_FAKE_NOPROJECT) { Throw-FakeCom 'Нет открытого проекта' -2147220992 }; $ids = @($global:F.Sheets.Keys); $a[0] = [object[]]$ids; return $ids.Count }
         GetActiveSheetId = { param($a) return $global:F.Active }
         SetActiveSheetId = { param($a) $global:F.Active = [int]$a[0]; return 1 }
+        # Job.ImportDrawing(name, unique, [x, y]): файл должен существовать; блок = 2 устройства и 3 символа на активном листе
+        ImportDrawing = {
+            param($a)
+            if ($a.Length -lt 2 -or $a.Length -gt 4) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+            if (-not (Test-Path -LiteralPath ([string]$a[0]))) { return 0 }
+            for ($k = 0; $k -lt 2; $k++) {
+                $global:F.Next++; $d = $global:F.Next
+                $global:F.Devices[$d] = @{ Name = '-B' + $d; Attrs = @{}; Sym = @(); Comp = 'блок' }
+            }
+            $devs = @($global:F.Devices.Keys | Sort-Object | Select-Object -Last 2)
+            for ($k = 0; $k -lt 3; $k++) {
+                $global:F.Next++; $s = $global:F.Next
+                $dv = [int]$devs[[math]::Min($k, 1)]
+                $global:F.Symbols[$s] = @{ Sheet = [int]$global:F.Active; X = 50 + $k; Y = 50; Pins = @(); Dev = $dv; Name = 'BLK_SYM' + $k; Ver = '1' }
+                $global:F.Devices[$dv].Sym += $s
+            }
+            return 1
+        }
+        GetBlockIds = { param($a) $a[0] = [object[]]@(); return 0 }
         GetAllDeviceIds = { param($a) $ids = @($global:F.Devices.Keys); $a[0] = [object[]]$ids; return $ids.Count }
         GetAllConnectionIds = { param($a) $a[0] = [object[]]@($global:F.Conns); return @($global:F.Conns).Count }
         CreateConnection = { param($a) $global:F.Next++; $global:F.Conns += $global:F.Next; return $global:F.Next }
@@ -125,9 +227,23 @@ function New-FakeJob {
         CreateSheetObject = { param($a) return (New-FakeSheet) }
         CreateDeviceObject = { param($a) return (New-FakeDevice) }
         CreateSymbolObject = { param($a) return (New-FakeSymbol) }
-        CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) $this.Id = $a[0]; return 1 }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
-        CreateComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 1 }; GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }; Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
-        CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) $this.Id = $a[0]; return 1 }; GetType = { param($a) return 'Line' } }) }
+        CreatePinObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return $global:F.Pins[[int]$this.Id].Name } }) }
+        CreateAttributeObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetName = { param($a) return 'dip_Fnumber' }; GetFormattedValue = { param($a) return '42' } }) }
+        GetAllComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
+        CreateComponentObject = { param($a) return (New-FakeObject @{
+            SetId = { param($a) return (Set-FakeId $this $a[0]) }
+            GetName = { param($a) return $global:F.Components[[int]$this.Id - 240000] }
+            GetVersion = { param($a) return '1' }
+            GetComponentType = { param($a) return 7 }
+            GetSubType = { param($a) return 2 }
+            GetAttributeCount = { param($a) return 1 }
+            GetAttributeIds = { param($a) $a[0] = [object[]]@(7001); return 1 }
+            GetPinIds = { param($a) $a[0] = [object[]]@(8001, 8002, 8003); return 3 }
+            GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }
+            Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
+        GetComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
+        LoadPart = { param($a) if ($a.Length -ne 3) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; return 0 }
+        CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetType = { param($a) return 'Line' } }) }
         Undo = { param($a) return 1 }
         Save = { param($a) throw 'Save не должен вызываться пробой' }
     })
@@ -135,12 +251,61 @@ function New-FakeJob {
 
 function New-FakeApp {
     return (New-FakeObject @{
-        GetVersion = { param($a) return '2099.0 (fake)' }
+        GetVersion = { param($a) if ($env:E3_FAKE_DIE_AT_VERSION) { [Environment]::Exit(9) }; return '2099.0 (fake)' }
         GetProcessId = { param($a) return 4242 }
+        GetComponentDatabase = { param($a) return 'Provider=Fake;Data Source=components.mdb' }
+        GetSymbolDatabase = { param($a) return 'Provider=Fake;Data Source=symbols.mdb' }
         CreateJobObject = { param($a) return (New-FakeJob) }
+        # выделение в базе: папка дерева отдаёт все изделия внутри (3), символы — 2, таблица — 2
+        # Первое чтение (тест 1) — выделена папка: она отдаёт содержимое (3 изделия, 2 символа). Второе (тест 2) — 4 символа-листа.
+        GetDatabaseTreeSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2', 'клапан_DIx2_DOx2'); $a[1] = [object[]]@('1', '1', '1'); return 3 }
+        GetDatabaseTreeSelectedSymbols = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('SYM_VALVE', 'Вентилятор_ЗТД_К', 'нет_символа'); $a[1] = [object[]]@('1', '1', '1'); return 3 }
+        GetDatabaseTableSelectedComponents = { param($a) if ($null -eq $a[0] -or $global:CatalogPollTick -lt 3) { return 0 }; $a[0] = [object[]]@('Двигатель_М1'); $a[1] = [object[]]@('1'); return 1 }
         PutInfo = { param($a) return 1 }
     })
 }
 
 $script:FakeApps = @((New-FakeApp)); $global:FakeApps = $script:FakeApps
+$script:FakeDbe = New-FakeObject @{
+    # API редактора базы: выделенные инженером строки таблицы (2 шт.), полного списка базы нет
+    # редактор базы инженера: выделение появляется позже, чем в основном приложении (5-я секунда опроса)
+    GetDatabaseTableSelectedComponents = { param($a) if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; if ($null -eq $a[0] -or $global:CatalogPollTick -lt 5) { return 0 }; $a[0] = [object[]]@('Двигатель_М1', 'Клапан_К24_КП2'); $a[1] = [object[]]@('1', '1'); return 2 }
+    GetComponentIds = { param($a) $a[0] = [object[]]@(); return 0 }
+    CreateDbeComponentObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return 0 } }) }
+}
 $script:FakeDispatcher = New-FakeObject @{ GetCount = { param($a) return 1 }; GetApplication = { param($a) return $global:FakeApps[0] } }
+
+# Процессы E3: на машине проверки их нет; заголовок окна задаётся переменной, чтобы проверить сверку «проект открыт»
+# по имени файла в заголовке.
+function Get-E3Processes {
+    $title = $(if ($env:E3_FAKE_TITLE) { $env:E3_FAKE_TITLE } else { 'Без имени - E³.cable' })
+    return @([ordered]@{ pid = 4242; name = 'E3.series'; title = $title; path = 'C:\fake\E3.series.exe'; fileVersion = '23, 20, 0, 0' })
+}
+
+# База E3 «напрямую» (ADO): вместо Access — таблицы в памяти. Подменяют низкоуровневые функции lib\dbread.ps1.
+$global:FakeDb = @{
+    'Provider=Fake;Data Source=components.mdb' = [ordered]@{
+        Components = @{ Cols = @('Name', 'Version', 'Class'); Rows = @(@('клапан_DIx2_DOx2', '1', 'Клапаны'), @('датчик_DI_условный_ДГП_2', '1', 'Датчики'), @('Двигатель_М1', '1', 'Двигатели')) }
+    }
+    'Provider=Fake;Data Source=symbols.mdb' = [ordered]@{
+        Symbols = @{ Cols = @('SymbolName', 'Version'); Rows = @(@('SYM_VALVE', '1')) }
+    }
+}
+function Open-Ado { param([string]$Connection) if ($global:FakeDb.ContainsKey($Connection)) { return $Connection }; return $null }
+function Close-Ado { param($Cn) }
+function Get-AdoTableNames { param($Cn) return @($global:FakeDb[$Cn].Keys) }
+function Get-AdoColumns { param($Cn, [string]$Table) return @($global:FakeDb[$Cn][$Table].Cols | ForEach-Object { @{ Name = $_; Text = $true } }) }
+function Get-AdoCount { param($Cn, [string]$Table) return @($global:FakeDb[$Cn][$Table].Rows).Count }
+function Get-AdoSample {
+    param($Cn, [string]$Table, [int]$N = 2)
+    $t = $global:FakeDb[$Cn][$Table]; $out = @()
+    foreach ($r in @($t.Rows | Select-Object -First $N)) { $o = [ordered]@{}; for ($i = 0; $i -lt $t.Cols.Count; $i++) { $o[$t.Cols[$i]] = $r[$i] }; $out += , $o }
+    return $out
+}
+function Get-AdoDistinct { param($Cn, [string]$Table, [string]$Column, [int]$Max = 3000) $t = $global:FakeDb[$Cn][$Table]; $i = [array]::IndexOf($t.Cols, $Column); return @($t.Rows | ForEach-Object { $_[$i] } | Select-Object -Unique) }
+function Find-AdoValue {
+    param($Cn, [string]$Table, [string[]]$Columns, [string]$Value)
+    $t = $global:FakeDb[$Cn][$Table]; $out = @()
+    foreach ($r in $t.Rows) { if (@($r | Where-Object { $_ -eq $Value }).Count -gt 0) { $o = [ordered]@{}; for ($i = 0; $i -lt $t.Cols.Count; $i++) { $o[$t.Cols[$i]] = $r[$i] }; $out += , $o } }
+    return $out
+}

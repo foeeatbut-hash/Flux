@@ -131,7 +131,9 @@ function Step-Sheets {
         $c = Try-Calls -Op 'sheets.create' -Target $job -TL 'job' -Cands @((Cand 'CreateSheet' @($script:ProbeSheetName, $format)), (Cand 'AddSheet' @($script:ProbeSheetName, $format)), (Cand 'CreateSheet' @(0, $script:ProbeSheetName, $format))) -First
     }
     $newId = $null
-    if ($c.Ok -and $c.Value -is [ValueType] -and [long]$c.Value -gt 0) { $newId = $c.Value }
+    # Результат вызова считаем номером нового листа, только если это число, а не признак успеха, и такого листа раньше не было:
+    # иначе уборка в конце удалила бы настоящий лист с номером 1.
+    if ($c.Ok -and $c.Value -is [ValueType] -and $c.Value -isnot [bool] -and [long]$c.Value -gt 0 -and $before -notcontains $c.Value) { $newId = $c.Value }
     if ($null -eq $newId -and $c.Ok) {
         $after = @(Get-Ids 'sheets' 'sheets.list' $job 'job' (Get-SheetIdCands))
         $diff = @($after | Where-Object { $before -notcontains $_ })
@@ -177,7 +179,8 @@ function Step-Sheets {
 function Remove-Sheet {
     param($Id, [string]$Op = 'sheets.delete')
     $sh = $script:Objects['Sheet']
-    [void](Use-Sheet $Id)
+    # Если id не встал в обёртку, Delete ударил бы по листу, выбранному раньше (возможно, настоящему).
+    if (-not (Select-Id $sh $Id)) { Write-Human ('! Лист ' + $Id + ' выбрать не удалось — не удаляем, чтобы не задеть чужой.') 'Yellow'; return $false }
     $r = Try-Calls -Op $Op -Target $sh -TL 'sheet' -Cands @((Cand 'Delete'), (Cand 'Delete' @(0)), (Cand 'Remove')) -First
     if (-not $r.Ok) { $r = Try-Calls -Op $Op -Target $script:Job -TL 'job' -Cands @((Cand 'DeleteSheet' @($Id)), (Cand 'RemoveSheet' @($Id))) -First }
     return $r.Ok

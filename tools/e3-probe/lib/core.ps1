@@ -16,11 +16,34 @@ $script:LogDir = ''
 
 function Initialize-Log {
     param([string]$Directory)
+    # Папка рядом со скриптом может быть закрыта на запись (Program Files, архив, сетевой диск): тогда журналы молча
+    # пропали бы, а владелец прислал бы пустоту. Проверяем запись заранее и при отказе уходим во временную папку.
+    $writable = $false
+    try {
+        New-Item -ItemType Directory -Force -Path $Directory -ErrorAction Stop | Out-Null
+        $check = Join-Path $Directory '.write-check'
+        [System.IO.File]::WriteAllText($check, 'x')
+        Remove-Item $check -Force -ErrorAction Stop
+        $writable = $true
+    } catch { }
+    if (-not $writable) {
+        $Directory = Join-Path ([System.IO.Path]::GetTempPath()) ('e3-probe-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory -Force -Path $Directory | Out-Null
+        Write-Host ('! В папку рядом со скриптом писать нельзя, журналы пойдут сюда: ' + $Directory) -ForegroundColor Yellow
+    }
     $script:LogDir = $Directory
-    New-Item -ItemType Directory -Force -Path $Directory | Out-Null
     $script:TxtPath = Join-Path $Directory 'log.txt'
     $script:NdPath = Join-Path $Directory 'log.ndjson'
     $script:JsonPath = Join-Path $Directory 'log.json'
+    $script:TracePath = Join-Path $Directory 'trace.log'
+}
+
+function Write-Trace {
+    # Запись «начинаю X» ДО действия, которое может зависнуть или уронить процесс. Файл дописывается и закрывается
+    # на каждой строке, поэтому последняя строка trace.log при обрыве называет виновника. Пишется для каждого COM-вызова.
+    param([string]$Text)
+    if (-not $script:TracePath) { return }
+    Append-File $script:TracePath ((Get-Date -Format 'HH:mm:ss.fff') + ' ' + $Text + "`r`n")
 }
 
 function Append-File {
@@ -38,8 +61,24 @@ function Write-Human {
 function Write-Section {
     param([string]$Id, [string]$Title)
     $script:Step = $Id
+    Write-Trace ('=== раздел ' + $Id + ': ' + $Title)
     Write-Human ''
     Write-Human ('=== ' + $Id + '. ' + $Title + ' ===') 'Cyan'
+}
+
+function Get-ClrType {
+    # Настоящий тип .NET значения. Писать $x.GetType() для объектов E3 нельзя: у многих из них (Job, Symbol, Device…) есть
+    # собственный метод GetType(), PowerShell вызывает его, и вместо типа приходит строка или число из E3.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    return [System.Object].GetMethod('GetType').Invoke($Value, $null)
+}
+
+function Test-ComObject {
+    param($Value)
+    if ($null -eq $Value) { return $false }
+    if ($script:Fake) { return ($Value -is [System.Management.Automation.PSCustomObject]) }
+    return ($Value -is [System.__ComObject])
 }
 
 function Format-Value {
@@ -52,9 +91,9 @@ function Format-Value {
         foreach ($x in $Value) { if ($n -ge 12) { $parts += '...'; break }; $parts += (Format-Value $x 80); $n++ }
         $text = '[' + $Value.Length + '] ' + ($parts -join ', ')
     }
-    elseif ($Value -is [ValueType]) { $text = [string]$Value + ' <' + $Value.GetType().Name + '>' }
-    elseif ($Value.GetType().FullName -eq 'System.__ComObject') { $text = 'COM-объект' }
-    else { $text = [string]$Value + ' <' + $Value.GetType().Name + '>' }
+    elseif ($Value -is [ValueType]) { $text = [string]$Value + ' <' + (Get-ClrType $Value).Name + '>' }
+    elseif (Test-ComObject $Value) { $text = 'COM-объект' }
+    else { $text = [string]$Value + ' <' + (Get-ClrType $Value).Name + '>' }
     if ($text.Length -gt $Max) { $text = $text.Substring(0, $Max) + '…' }
     return ($text -replace "[\r\n]+", ' | ')
 }
@@ -125,7 +164,21 @@ function Invoke-Com {
     # Один вызов члена COM-объекта поздним связыванием. RefIdx — номера параметров, которые E3 заполняет сам (ref/out).
     param($Target, [string]$Name, [object[]]$CallArgs, [int[]]$RefIdx)
     if ($null -eq $CallArgs) { $CallArgs = @() }
+    # Значения, прошедшие через конвейер (Select-Object, ForEach-Object и т.п.), приходят обёрнутыми в PSObject: InvokeMember
+    # передаёт их в COM как VT_DISPATCH, и E3 отвечает DISP_E_TYPEMISMATCH на BSTR/double. Разворачиваем на месте; элементы
+    # ref-параметров не трогаем (там $null или массив, который заполнит E3), массив остаётся тем же объектом для ParameterModifier.
+    for ($i = 0; $i -lt $CallArgs.Length; $i++) {
+        if ($RefIdx -contains $i) { continue }
+        if ($CallArgs[$i] -is [System.Management.Automation.PSObject]) { $CallArgs[$i] = $CallArgs[$i].PSObject.BaseObject }
+    }
+    Write-Trace ('COM ' + $Name + '(' + (Format-Args $CallArgs $RefIdx) + ')')
+    # Типы аргументов, как их увидит COM (String -> BSTR, Double -> R8, Int32 -> I4); ref-места помечены
+    if ($CallArgs.Length -gt 0) {
+        $kinds = @(); for ($i = 0; $i -lt $CallArgs.Length; $i++) { if ($RefIdx -contains $i) { $kinds += 'ref' } elseif ($null -eq $CallArgs[$i]) { $kinds += 'null' } else { try { $kinds += [System.Object].GetMethod('GetType').Invoke($CallArgs[$i], @()).Name } catch { $kinds += '?' } } }
+        Write-Trace ('  типы ' + $Name + ': ' + ($kinds -join ', '))
+    }
     if ($script:Fake) {
+        if ($null -ne $global:FakeArgCheck) { & $global:FakeArgCheck $Name $CallArgs }
         $method = $Target.PSObject.Methods[$Name]
         if ($null -eq $method) { throw (New-Object System.MissingMethodException('Нет члена ' + $Name)) }
         $wrapped = [object[]]@(,$CallArgs)
@@ -141,13 +194,14 @@ function Invoke-Com {
         foreach ($i in $RefIdx) { $modifier[$i] = $true }
         $mods = [System.Reflection.ParameterModifier[]]@($modifier)
     }
-    $ret = $Target.GetType().InvokeMember($Name, $flags, $null, $Target, $CallArgs, $mods, $null, $null)
+    # Тип берём как [System.__ComObject], а не $Target.GetType(): у Job и других объектов E3 есть свой метод GetType().
+    $ret = [System.__ComObject].InvokeMember($Name, $flags, $null, $Target, $CallArgs, $mods, $null, $null)
     return [pscustomobject]@{ Ret = $ret; Args = $CallArgs; IsCom = $true }
 }
 
 function Invoke-Attempt {
     # Выполняет одно действие, замеряет время и пишет запись в журнал. Ничего не бросает наружу.
-    param([string]$Op, [string]$Label, [scriptblock]$Action, [string]$ArgsText = '', [int[]]$Refs = @(), [switch]$Silent)
+    param([string]$Op, [string]$Label, [scriptblock]$Action, [string]$ArgsText = '', [int[]]$Refs = @(), [switch]$Silent, [switch]$Pos)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $rec = [ordered]@{ seq = 0; step = $script:Step; op = $Op; candidate = $Label; args = $ArgsText; ok = $false; type = $null; result = $null; error = $null; hresult = $null; busy = $false; ms = 0 }
     $outValue = $null
@@ -156,14 +210,19 @@ function Invoke-Attempt {
         $outValue = $null
         if ($raw.Count -eq 1) { $outValue = $raw[0] } elseif ($raw.Count -gt 1) { $outValue = $raw }
         $rec.ok = $true
+        if ($Pos -and -not (Test-Positive $outValue)) {
+            # Метод, который возвращает номер объекта: 0 в E3 — это неудача без исключения, а не успех.
+            $rec.ok = $false
+            $rec.error = 'вернул ' + (Format-Value $(if ($null -ne $outValue -and $outValue.PSObject.Properties['IsCom']) { $outValue.Ret } else { $outValue }) 40) + ' — в E3 это неудача, ожидался номер больше нуля'
+        }
         if ($null -ne $outValue -and $outValue.PSObject.Properties['IsCom'] -and $outValue.IsCom) {
             $text = Format-Value $outValue.Ret
             foreach ($i in $Refs) { $text += ' ; ref' + $i + '=' + (Format-Value $outValue.Args[$i] 200) }
             $rec.result = $text
-            if ($null -ne $outValue.Ret) { $rec.type = $outValue.Ret.GetType().Name }
+            if ($null -ne $outValue.Ret) { $rec.type = (Get-ClrType $outValue.Ret).Name }
         } else {
             $rec.result = Format-Value $outValue
-            if ($null -ne $outValue) { $rec.type = $outValue.GetType().Name }
+            if ($null -ne $outValue) { $rec.type = (Get-ClrType $outValue).Name }
         }
     } catch {
         $inner = Get-InnerException $_.Exception
@@ -194,9 +253,19 @@ function Invoke-Attempt {
 }
 
 function Cand {
-    # Вариант вызова: имя метода, аргументы, номера ref-параметров
-    param([string]$M, [object[]]$A = @(), [int[]]$R = @())
-    return @{ M = $M; A = $A; R = $R }
+    # Вариант вызова: имя метода, аргументы, номера ref-параметров. -Pos: метод возвращает номер объекта, 0 = неудача.
+    param([string]$M, [object[]]$A = @(), [int[]]$R = @(), [switch]$Pos)
+    return @{ M = $M; A = $A; R = $R; P = [bool]$Pos }
+}
+
+function Test-Positive {
+    # Результат вызова (обёртка Invoke-Com или значение): число больше нуля или true.
+    param($Result)
+    $v = $Result
+    if ($null -ne $Result -and $Result.PSObject.Properties['IsCom']) { $v = $Result.Ret }
+    if ($null -eq $v) { return $false }
+    if ($v -is [bool]) { return $v }
+    try { return ([double]$v -gt 0) } catch { return $false }
 }
 
 function Convert-ToItems {
@@ -227,7 +296,7 @@ function Try-Calls {
         $label = $TL + '.' + $cand.M
         $argText = Format-Args $cand.A $cand.R
         $action = { Invoke-Com -Target $Target -Name $cand.M -CallArgs $callArgs -RefIdx $cand.R }
-        $r = Invoke-Attempt -Op $Op -Label $label -ArgsText $argText -Refs $cand.R -Action $action -Silent:$Silent
+        $r = Invoke-Attempt -Op $Op -Label $label -ArgsText $argText -Refs $cand.R -Action $action -Silent:$Silent -Pos:([bool]$cand.P)
         if (-not $r.Ok) { continue }
         $outs = @(); foreach ($i in $cand.R) { $outs += , $callArgs[$i] }
         $items = Convert-ToItems $r.Value.Ret $callArgs $cand.R
@@ -244,6 +313,18 @@ function Invoke-Quiet {
     param($Target, [string]$Name, [object[]]$CallArgs = @(), [int[]]$Refs = @())
     if ($null -eq $Target) { return $null }
     try { return (Invoke-Com -Target $Target -Name $Name -CallArgs $CallArgs -RefIdx $Refs) } catch { return $null }
+}
+
+function Select-Id {
+    # Ставит id в обёртку объекта и подтверждает выбор. E3 на неверный id исключения не бросает: при успехе SetId
+    # возвращает сам id, при неудаче 0, а в обёртке остаётся прежний объект. Поэтому «вызов прошёл» ещё не значит «выбран»;
+    # перед любым Delete проверяем, что вернулся именно этот id.
+    param($Target, $Id)
+    $r = Invoke-Quiet $Target 'SetId' @($Id)
+    if ($null -eq $r -or $null -eq $r.Ret -or $r.Ret -is [bool]) { Write-Trace ('SetId(' + $Id + ') не подтверждён: ' + $(if ($null -eq $r) { 'вызов упал' } else { 'вернул ' + (Format-Value $r.Ret 30) })); return $false }
+    try { $same = ([long]$r.Ret -eq [long]$Id) } catch { $same = $false }
+    if (-not $same) { Write-Trace ('SetId(' + $Id + ' ' + (Get-ClrType $Id).Name + ') не подтверждён: вернул ' + (Format-Value $r.Ret 30) + ' ' + (Get-ClrType $r.Ret).Name) }
+    return $same
 }
 
 function Get-QuietValue {

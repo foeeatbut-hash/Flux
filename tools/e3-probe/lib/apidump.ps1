@@ -9,7 +9,10 @@ $script:TypeInfoLoaded = $false
 function Initialize-TypeInfo {
     if ($script:TypeInfoLoaded) { return $true }
     try {
+        Write-Trace 'Add-Type: компилирую lib\TypeInfoDump.cs'
         Add-Type -Path (Join-Path $script:ProbeRoot 'lib\TypeInfoDump.cs') -ReferencedAssemblies 'System.Web.Extensions' -ErrorAction Stop
+        [FluxTypeInfo]::TracePath = $script:TracePath
+        Write-Trace 'Add-Type: готово'
         $script:TypeInfoLoaded = $true
         return $true
     } catch {
@@ -38,6 +41,7 @@ function Export-ApiObject {
     $source = 'none'
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $note = ''
+    Write-Trace ('опись ' + $Label + ': начинаю')
     if (-not $script:Fake -and (Initialize-TypeInfo)) {
         try {
             $parts = [FluxTypeInfo]::OfObject($Object, $Label)
@@ -45,19 +49,8 @@ function Export-ApiObject {
             Save-ApiText $Label $parts[1]
             $names = @($parts[2] -split "`n" | Where-Object { $_ -ne '' })
             $source = 'typeinfo'
-            if (-not $script:ApiLibDone) { $script:ApiLibDone = @{} }
-            try {
-                $lib = [FluxTypeInfo]::Library($Object, $Label)
-                $libDoc = $lib[0]
-                $guid = ''
-                if ($libDoc -match '"guid":"(\{[0-9A-Fa-f-]+\})"') { $guid = $Matches[1] }
-                if ($guid -ne '' -and -not $script:ApiLibDone.ContainsKey($guid)) {
-                    $script:ApiLibDone[$guid] = $true
-                    $script:ApiLibJson[$guid] = $libDoc
-                    [System.IO.File]::WriteAllText((Join-Path $script:LogDir ('api-typelib-' + (Get-SafeLabel $guid) + '.txt')), $lib[1], $script:Utf8Bom)
-                    $note = ' + вся библиотека типов ' + $guid
-                }
-            } catch { $note = ' (библиотека целиком недоступна: ' + (Get-InnerException $_.Exception).Message + ')' }
+            # Библиотека целиком снимается отдельным шагом в конце (Step-TypeLibrary), из файла на диске.
+            Write-Trace ('опись ' + $Label + ': готово, членов ' + $names.Count)
         } catch {
             $note = ' typeinfo: ' + (Get-InnerException $_.Exception).Message
         }
@@ -87,6 +80,49 @@ function Export-ApiObject {
     } elseif (-not $script:Winners.Contains('api.dump')) { $script:Failed['api.dump'] = 1 }
     Write-Human ('{0} опись {1}: {2}, членов {3}{4}' -f $(if ($names.Count -gt 0) { '✓' } else { '✕' }), $Label, $source, $names.Count, $note)
     return $names
+}
+
+function Save-ApiLibrary {
+    # Библиотека типов целиком: текст в api-typelib-<GUID>.txt, JSON — в api.json (раздел libraries).
+    param([string[]]$Doc, [string]$Label)
+    $guid = ''
+    if ($Doc[0] -match '"guid":"(\{[0-9A-Fa-f-]+\})"') { $guid = $Matches[1] }
+    if ($guid -eq '') { return '' }
+    if (-not $script:ApiLibDone) { $script:ApiLibDone = @{} }
+    if ($script:ApiLibDone.ContainsKey($guid)) { return $guid }
+    $script:ApiLibDone[$guid] = $true
+    $script:ApiLibJson[$guid] = $Doc[0]
+    [System.IO.File]::WriteAllText((Join-Path $script:LogDir ('api-typelib-' + (Get-SafeLabel $guid) + '.txt')), $Doc[1], $script:Utf8Bom)
+    return $guid
+}
+
+function Step-TypeLibrary {
+    # Раздел T: опись всей библиотеки типов. Идёт ПОСЛЕДНИМ и читает файл .tlb с диска, а не живой объект: через ITypeInfo
+    # запущенного E3 каждое обращение — вызов в другой процесс, их тысячи, и в первом реальном прогоне проба на этом встала.
+    Write-Section 'T' 'Библиотека типов целиком (из файла на диске)'
+    if ($script:Fake) { Write-Human '— в подставном COM библиотеки типов нет.'; return }
+    if (-not (Initialize-TypeInfo)) { return }
+    $path = ''
+    foreach ($reg in @($script:Env['progIds'])) { if ($reg.progId -eq 'CT.Application' -and $reg.typeLibPath) { $path = [string]$reg.typeLibPath } }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        if ($path -ne '' -and (Test-Path -LiteralPath $path)) {
+            Write-Trace ('библиотека: читаю файл ' + $path)
+            Write-Human ('Читаю библиотеку типов из файла: ' + $path)
+            $doc = [FluxTypeInfo]::LibraryFile($path, 'CT.Application')
+        } elseif ($null -ne $script:App) {
+            Write-Trace 'библиотека: файла нет, читаю через живой объект E3 (долго)'
+            Write-Human 'Файл библиотеки типов не найден, читаю через живой E3 (может занять несколько минут).' 'Yellow'
+            $doc = [FluxTypeInfo]::Library($script:App, 'Application')
+        } else { Write-Human 'Библиотека типов: файл не найден и E3 недоступен.'; return }
+        $guid = Save-ApiLibrary $doc 'Application'
+        Write-Human ('✓ библиотека типов ' + $guid + ' записана (api-typelib-*.txt), ' + [math]::Round($sw.Elapsed.TotalSeconds, 1) + ' с')
+        Add-Finding 'ok' ('Полная опись API записана: api-typelib-' + (Get-SafeLabel $guid) + '.txt.')
+    } catch {
+        $inner = Get-InnerException $_.Exception
+        Write-Human ('✕ библиотека типов не снята: ' + $inner.Message) 'Yellow'
+        Add-Finding 'need' ('Библиотека типов целиком не снята: ' + $inner.Message)
+    }
 }
 
 function Save-ApiJson {
