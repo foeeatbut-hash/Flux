@@ -86,6 +86,12 @@ if ($SelfCheck) {
         Write-Human '✓ api.json разбирается как JSON'
         $reg = Get-ProgIdRegistration 'Scripting.FileSystemObject'
         if ($reg.clsid) { Write-Human ('✓ реестр: ' + $reg.clsid + ' -> ' + $reg.server) } else { Write-Human ('✕ реестр: ' + $reg.error) 'Red'; $selfFails++ }
+        # опись библиотеки типов из файла на диске — тот путь, которым пользуется Step-TypeLibrary
+        if ($reg.typeLibPath) {
+            $doc = [FluxTypeInfo]::LibraryFile([string]$reg.typeLibPath, 'FileSystemObject')
+            if ($doc[1] -match 'FileSystemObject' -and $doc[0] -match '"guid"') { Write-Human ('✓ библиотека типов из файла ' + $reg.typeLibPath + ': ' + $doc[1].Length + ' знаков') }
+            else { Write-Human '✕ библиотека типов из файла не содержит FileSystemObject' 'Red'; $selfFails++ }
+        } else { Write-Human '— путь к библиотеке типов FileSystemObject в реестре не найден, опись из файла не проверена.' 'Yellow' }
         $r = Invoke-Attempt -Op 'self.fso.FileExists' -Label 'fso.FileExists' -ArgsText 'C:\Windows\notepad.exe' -Action { Invoke-Com -Target $fso -Name 'FileExists' -CallArgs @('C:\Windows\notepad.exe') -RefIdx @() }
         if (-not $r.Ok -or $r.Value.Ret -ne $true) { $selfFails++ }
         $r = Invoke-Attempt -Op 'self.fso.nomethod' -Label 'fso.NoSuchMethod' -ArgsText '' -Action { Invoke-Com -Target $fso -Name 'NoSuchMethod' -CallArgs @() -RefIdx @() }
@@ -174,6 +180,8 @@ try {
             }
         }
     }
+    # Опись всей библиотеки типов — последней: читает файл на диске и, даже если что-то пойдёт не так, всё остальное уже записано.
+    Invoke-Step 'Библиотека типов' { Step-TypeLibrary }
 } catch {
     Write-Human ('✕ непредвиденная ошибка: ' + $_.Exception.Message) 'Red'
     $exitCode = 1

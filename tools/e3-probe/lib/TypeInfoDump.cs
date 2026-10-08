@@ -30,6 +30,17 @@ public static class FluxTypeInfo {
     [PreserveSig] int Invoke(int dispIdMember, ref Guid riid, uint lcid, ushort wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr);
   }
 
+  [DllImport("oleaut32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  static extern void LoadTypeLibEx(string fileName, int regKind, out ITypeLib typeLib);
+
+  /// <summary>Файл, куда пишутся метки хода: при зависании последняя строка называет тип или объект, на котором встали.</summary>
+  public static string TracePath;
+
+  static void Trace(string text) {
+    if (string.IsNullOrEmpty(TracePath)) return;
+    try { System.IO.File.AppendAllText(TracePath, DateTime.Now.ToString("HH:mm:ss.fff") + " [типы] " + text + "\r\n", new UTF8Encoding(true)); } catch (Exception) { }
+  }
+
   static readonly string[] Skip = new string[] { "QueryInterface", "AddRef", "Release", "GetTypeInfoCount", "GetTypeInfo", "GetIDsOfNames", "Invoke" };
 
   static ITypeInfo TypeInfoOf(object com) {
@@ -127,6 +138,7 @@ public static class FluxTypeInfo {
     Dictionary<string, object> t = new Dictionary<string, object>();
     string name, doc, file; int ctx;
     info.GetDocumentation(-1, out name, out doc, out ctx, out file);
+    Trace("тип " + name);
     IntPtr attrPtr; info.GetTypeAttr(out attrPtr);
     List<object> members = new List<object>();
     List<object> values = new List<object>();
@@ -164,6 +176,10 @@ public static class FluxTypeInfo {
   static Dictionary<string, object> LibraryOf(ITypeInfo info, bool whole, out List<string> kinds) {
     kinds = new List<string>();
     ITypeLib lib; int index; info.GetContainingTypeLib(out lib, out index);
+    return LibraryOfLib(lib, whole);
+  }
+
+  static Dictionary<string, object> LibraryOfLib(ITypeLib lib, bool whole) {
     string name, doc, file; int ctx; lib.GetDocumentation(-1, out name, out doc, out ctx, out file);
     Dictionary<string, object> result = new Dictionary<string, object>();
     result["name"] = name; result["doc"] = doc ?? ""; result["helpFile"] = file ?? "";
@@ -177,6 +193,7 @@ public static class FluxTypeInfo {
     List<object> types = new List<object>();
     if (whole) {
       for (int i = 0; i < count; i++) {
+        Trace("библиотека: тип " + (i + 1) + " из " + count);
         try { ITypeInfo each; lib.GetTypeInfo(i, out each); types.Add(Describe(each)); }
         catch (Exception failure) { types.Add(new Dictionary<string, object> { { "name", "#" + i }, { "error", failure.Message } }); }
       }
@@ -221,6 +238,7 @@ public static class FluxTypeInfo {
 
   /// <summary>Описание типа самого объекта. Возврат: [0] — JSON, [1] — текст, [2] — имена членов через перевод строки.</summary>
   public static string[] OfObject(object com, string label) {
+    Trace("опись объекта " + label + ": запрашиваю ITypeInfo у живого объекта");
     ITypeInfo info = TypeInfoOf(com);
     Dictionary<string, object> type = Describe(info);
     List<string> unused; Dictionary<string, object> lib = LibraryOf(info, false, out unused);
@@ -239,6 +257,18 @@ public static class FluxTypeInfo {
   public static string[] Library(object com, string label) {
     ITypeInfo info = TypeInfoOf(com);
     List<string> unused; Dictionary<string, object> lib = LibraryOf(info, true, out unused);
+    return LibraryDocument(lib, label);
+  }
+
+  /// <summary>Та же библиотека, но из файла на диске (.tlb, .dll): без единого вызова в запущенную программу. Через ITypeInfo
+  /// живого объекта каждое обращение уходит в процесс E3, и опись всей библиотеки — тысячи таких вызовов.</summary>
+  public static string[] LibraryFile(string path, string label) {
+    ITypeLib typeLib; LoadTypeLibEx(path, 2, out typeLib); // 2 = REGKIND_NONE: реестр не трогаем
+    Dictionary<string, object> lib = LibraryOfLib(typeLib, true);
+    return LibraryDocument(lib, label);
+  }
+
+  static string[] LibraryDocument(Dictionary<string, object> lib, string label) {
     StringBuilder text = new StringBuilder();
     text.Append("Библиотека типов: ").Append(lib["name"]).Append(' ').Append(lib["guid"]).Append(" v").Append((string)lib["version"]).Append(" (получена через ").Append(label).AppendLine(")");
     foreach (object o in (List<object>)lib["types"]) {

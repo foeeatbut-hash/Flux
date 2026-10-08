@@ -35,6 +35,15 @@ function Initialize-Log {
     $script:TxtPath = Join-Path $Directory 'log.txt'
     $script:NdPath = Join-Path $Directory 'log.ndjson'
     $script:JsonPath = Join-Path $Directory 'log.json'
+    $script:TracePath = Join-Path $Directory 'trace.log'
+}
+
+function Write-Trace {
+    # Запись «начинаю X» ДО действия, которое может зависнуть или уронить процесс. Файл дописывается и закрывается
+    # на каждой строке, поэтому последняя строка trace.log при обрыве называет виновника. Пишется для каждого COM-вызова.
+    param([string]$Text)
+    if (-not $script:TracePath) { return }
+    Append-File $script:TracePath ((Get-Date -Format 'HH:mm:ss.fff') + ' ' + $Text + "`r`n")
 }
 
 function Append-File {
@@ -52,6 +61,7 @@ function Write-Human {
 function Write-Section {
     param([string]$Id, [string]$Title)
     $script:Step = $Id
+    Write-Trace ('=== раздел ' + $Id + ': ' + $Title)
     Write-Human ''
     Write-Human ('=== ' + $Id + '. ' + $Title + ' ===') 'Cyan'
 }
@@ -139,6 +149,7 @@ function Invoke-Com {
     # Один вызов члена COM-объекта поздним связыванием. RefIdx — номера параметров, которые E3 заполняет сам (ref/out).
     param($Target, [string]$Name, [object[]]$CallArgs, [int[]]$RefIdx)
     if ($null -eq $CallArgs) { $CallArgs = @() }
+    Write-Trace ('COM ' + $Name + '(' + (Format-Args $CallArgs $RefIdx) + ')')
     if ($script:Fake) {
         $method = $Target.PSObject.Methods[$Name]
         if ($null -eq $method) { throw (New-Object System.MissingMethodException('Нет члена ' + $Name)) }
