@@ -29,6 +29,13 @@
   Режим «только разместить»: ИМЯ СИМВОЛА (как в базе символов E3), один такой символ ставится на АКТИВНЫЙ лист открытого проекта
   (Symbol.Load + Symbol.Place; если символа нет в базе — запасные планы по компоненту с тем же именем). Ничего больше:
   без временного листа, без записи атрибутов, без удаления, без сохранения. Без параметра имя можно ввести в начале работы.
+.PARAMETER NamesFile
+  Проверка «по списку названий», ТОЛЬКО ЧТЕНИЕ, без подтверждения Y: файл (UTF-8, одно название в строке; во Flux — «Типовые решения»,
+  «Скачать названия для пробы» -> e3-names.txt). Для каждого названия: Symbol.Load (символ и габарит без размещения), иначе
+  Component.Search и таблицы базы. Итог — names-report.json, names-notfound.txt и строка «символ N · компонент/подсхема M · не найдено K».
+.PARAMETER PlaceSample
+  Вместе с -NamesFile: поставить первые N найденных названий на ВРЕМЕННЫЙ лист (с подтверждением Y), снять картинку листа и удалить
+  временный лист и всё созданное пробой. Проект не сохраняется.
 .PARAMETER SelfCheck
   Проверка самого скрипта без E3: собирает разборщик библиотек типов и снимает опись у Scripting.FileSystemObject.
 .PARAMETER FakeCom
@@ -43,6 +50,8 @@ param(
     [string]$OutDir = '',
     [string]$PlaceOnly = '',
     [switch]$CatalogOnly,
+    [string]$NamesFile = '',
+    [int]$PlaceSample = 0,
     [switch]$SelfCheck,
     [string]$FakeCom = ''
 )
@@ -56,7 +65,7 @@ $script:KeepSheet = [bool]$KeepSheet
 $script:ProcessId = $ProcessId
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'placeblock', 'catalog', 'place', 'graphics', 'project', 'report')) {
+foreach ($module in @('core', 'apidump', 'connect', 'sheets', 'attributes', 'database', 'dbread', 'placeplans', 'placeonly', 'placeblock', 'catalog', 'place', 'graphics', 'project', 'names', 'namesplace', 'report')) {
     . (Join-Path $script:ProbeRoot ('lib\' + $module + '.ps1'))
 }
 
@@ -122,6 +131,8 @@ Write-Human 'ПЕРЕД ЗАПУСКОМ: откройте в E3 КОПИЮ те
 Write-Human 'Перед запуском выделите в дереве базы данных E3 символы и изделия, которые нужно прочитать (раздел «Каталог по API»).' 'Yellow'
 Write-Human 'Если окно долго ничего не пишет, подождите 5 минут; потом закройте его и пришлите папку журналов целиком: последняя строка trace.log покажет, где встало.'
 
+if ($PlaceSample -gt 0 -and $NamesFile -eq '') { Write-Human '! -PlaceSample работает только вместе с -NamesFile: образцы берутся из найденных по списку названий. Параметр проигнорирован.' 'Yellow' }
+
 $exitCode = 0
 try {
     Invoke-Step 'Окружение' { Step-Environment }
@@ -129,7 +140,9 @@ try {
     if ($script:Connected) {
         Invoke-Step 'Проект открыт?' { Step-ProjectCheck }
         # Режим «только каталог»: чтение выделенного в базе E3, без подтверждения Y; проект не нужен
-        if ($CatalogOnly) { Invoke-Step 'Каталог по API' { Step-Catalog }; $script:PlaceOnlyDone = $true; $script:CatalogDone = $true }
+        # Режим «по списку названий»: чтение без Y; размещение образцов (-PlaceSample) спрашивает Y само. Проект для чтения не нужен.
+        if ($NamesFile -ne '') { Invoke-Step 'Проверка по списку названий' { Step-Names $NamesFile $PlaceSample }; $script:PlaceOnlyDone = $true; $script:CatalogDone = $true }
+        elseif ($CatalogOnly) { Invoke-Step 'Каталог по API' { Step-Catalog }; $script:PlaceOnlyDone = $true; $script:CatalogDone = $true }
         # Режим «только разместить»: имя из параметра или из вопроса (только при открытом проекте); после него — выход.
         $placeName = $PlaceOnly
         if ($script:CatalogDone) { }
