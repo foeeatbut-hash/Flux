@@ -16,8 +16,22 @@ $script:LogDir = ''
 
 function Initialize-Log {
     param([string]$Directory)
+    # Папка рядом со скриптом может быть закрыта на запись (Program Files, архив, сетевой диск): тогда журналы молча
+    # пропали бы, а владелец прислал бы пустоту. Проверяем запись заранее и при отказе уходим во временную папку.
+    $writable = $false
+    try {
+        New-Item -ItemType Directory -Force -Path $Directory -ErrorAction Stop | Out-Null
+        $check = Join-Path $Directory '.write-check'
+        [System.IO.File]::WriteAllText($check, 'x')
+        Remove-Item $check -Force -ErrorAction Stop
+        $writable = $true
+    } catch { }
+    if (-not $writable) {
+        $Directory = Join-Path ([System.IO.Path]::GetTempPath()) ('e3-probe-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory -Force -Path $Directory | Out-Null
+        Write-Host ('! В папку рядом со скриптом писать нельзя, журналы пойдут сюда: ' + $Directory) -ForegroundColor Yellow
+    }
     $script:LogDir = $Directory
-    New-Item -ItemType Directory -Force -Path $Directory | Out-Null
     $script:TxtPath = Join-Path $Directory 'log.txt'
     $script:NdPath = Join-Path $Directory 'log.ndjson'
     $script:JsonPath = Join-Path $Directory 'log.json'

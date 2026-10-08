@@ -81,7 +81,7 @@ if ($SelfCheck) {
         if ($names.Count -gt 20 -and ($names -contains 'FileExists')) { Write-Human ('✓ опись FileSystemObject: членов ' + $names.Count) }
         else { Write-Human ('✕ опись FileSystemObject неполная: ' + $names.Count) 'Red'; $selfFails++ }
         Save-ApiJson
-        $json = Get-Content (Join-Path $base 'api.json') -Raw -Encoding UTF8
+        $json = Get-Content (Join-Path $script:LogDir 'api.json') -Raw -Encoding UTF8
         $null = ConvertFrom-Json $json
         Write-Human '✓ api.json разбирается как JSON'
         $reg = Get-ProgIdRegistration 'Scripting.FileSystemObject'
@@ -102,7 +102,7 @@ if ($OutDir) { $base = $OutDir } else { $base = Join-Path $script:ProbeRoot ('e3
 Initialize-Log $base
 if ($FakeCom) { $script:Fake = $true; . $FakeCom }
 Write-Human 'Проверка API E3.series для Flux' 'Cyan'
-Write-Human ('Журналы: ' + $base)
+Write-Human ('Журналы: ' + $script:LogDir)
 Write-Human 'Скрипт работает только на временном листе, проект не сохраняет, всё созданное удаляет.'
 
 $exitCode = 0
