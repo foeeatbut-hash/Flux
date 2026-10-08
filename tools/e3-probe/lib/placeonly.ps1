@@ -81,7 +81,8 @@ function Write-PlaceSuccess {
     Write-Human ('  Символы на листе: id ' + ($newSym -join ', '))
     Write-Human ('  Имя: «' + $Name + '»; лист «' + $sheetName + '» (id ' + $sid + '); координаты (' + $point[0] + ', ' + $point[1] + ')')
     Write-Human ('  Вызов: ' + $v.Label + ' — ' + (($v.Steps | ForEach-Object { $_.T + '.' + $_.M + '(' + (Format-Args $_.A @()) + ')' }) -join ' → '))
-    Write-Human '  Отменить: выделите изделие в E3 и нажмите Delete (или Ctrl+Z). Проект не сохранялся.' 'Yellow'
+    $script:LastPlaceLabel = $v.Label     # какой вызов сработал: его берёт отчёт режима -PlaceSample
+    if (-not $script:TempSheetMode) { Write-Human '  Отменить: выделите изделие в E3 и нажмите Delete (или Ctrl+Z). Проект не сохранялся.' 'Yellow' }
     Add-Finding 'ok' ($(if ($isSymbol) { 'Вставлен символ «' } elseif ($isPart) { 'Вставлена подсхема/блок из базы «' } else { 'Размещено изделие «' }) + $Name + '» на листе «' + $sheetName + '» (id ' + $sid + ') в (' + $point[0] + ', ' + $point[1] + '): устройство ' + (@($newDev) -join ', ') + ', символы ' + ($newSym -join ', ') + ', вызов ' + $v.Label + '.')
 }
 
@@ -149,8 +150,14 @@ function Step-PlaceDevicePlanB {
         break
     }
     if ($created) {
-        Write-Human ('! Устройство создано без символа, символ не найден (обозначение «' + $devName + '», компонент «' + $comp + '»). Режим ничего не удаляет: уберите устройство в E3 сами (Delete или Ctrl+Z).') 'Yellow'
-        Add-Finding 'bad' ('План Б: устройство «' + $devName + '» создано без символа, символ не найден; не удалено — уберите вручную.')
+        if ($script:TempSheetMode) {
+            # Режим -PlaceSample: устройство потом удаляется по разнице с исходным списком (lib\namesplace.ps1)
+            Write-Human ('! Устройство создано без символа, символ не найден (обозначение «' + $devName + '», компонент «' + $comp + '»). В конце оно будет удалено.') 'Yellow'
+            Add-Finding 'note' ('План Б: устройство «' + $devName + '» создано без символа, символ не найден; удаляется в конце размещения образцов.')
+        } else {
+            Write-Human ('! Устройство создано без символа, символ не найден (обозначение «' + $devName + '», компонент «' + $comp + '»). Режим ничего не удаляет: уберите устройство в E3 сами (Delete или Ctrl+Z).') 'Yellow'
+            Add-Finding 'bad' ('План Б: устройство «' + $devName + '» создано без символа, символ не найден; не удалено — уберите вручную.')
+        }
         return 'device'
     }
     return 'none'

@@ -10,7 +10,7 @@
  */
 import * as XLSX from 'xlsx';
 import { IO_SHEET, ioSheetRows } from './ioTable';
-import type { E3Feature, E3SolutionBook } from './solutionTypes';
+import type { E3Feature, E3Solution, E3SolutionBook } from './solutionTypes';
 
 export const CLASSIFIER_SHEET = 'Классификатор типовых решений';
 export const DICTIONARY_SHEET = 'Обозначения';
@@ -62,3 +62,27 @@ export function solutionWorkbook(book: E3SolutionBook): XLSX.WorkBook {
 }
 
 export const solutionWorkbookBytes = (book: E3SolutionBook): ArrayBuffer => XLSX.write(solutionWorkbook(book), { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+
+/**
+ * Названия схем для пробы E3 (tools/e3-probe, режим -NamesFile): имя блока в базе E3 — это «Название схемы»
+ * решения, поэтому проба спрашивает E3 по именам, ничего не выделяя в базе. Снятые решения не нужны, пустые
+ * названия и повторы тоже; повтор считается без учёта регистра и краёв — база E3 (Access) регистр не различает,
+ * и двух строк с одним блоком проба проверяла бы дважды.
+ */
+export function solutionNames(solutions: ReadonlyArray<Pick<E3Solution, 'name' | 'removed'>>): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const s of solutions || []) {
+    if (s.removed) continue;
+    const name = String(s.name || '').trim();
+    const key = name.toLocaleLowerCase('ru');
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+/** Файл e3-names.txt: UTF-8 с BOM (без него PowerShell 5.1 читает кириллицу в кодовой странице системы), строки через CRLF */
+export const solutionNamesFile = (solutions: ReadonlyArray<Pick<E3Solution, 'name' | 'removed'>>): string =>
+  `﻿${solutionNames(solutions).map((n) => `${n}\r\n`).join('')}`;

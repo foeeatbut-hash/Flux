@@ -4,8 +4,9 @@
  *
  * Готовых блоков (.e3p) по классификатору нет, поэтому блок Flux собирает сам:
  * правила связи (`book.ioRules`) переводят ответы решения на признаки в строки
- * таблицы IO, а строка называет изделие E3 (`component`). Ничего не
- * выдумывается: нет подходящей строки, нет имени изделия, не задан признак —
+ * таблицы IO, а те дают счёт сигналов. Вставляется один блок: его имя в базе
+ * E3 — название схемы решения (`E3Solution.name`), отдельного имени изделия
+ * нет. Ничего не выдумывается: нет подходящей строки, не задан признак —
  * это замечание в `issues`, а не молчаливая догадка. Ручной состав у решения
  * (`recipeOverride`) сильнее правил.
  *
@@ -20,7 +21,7 @@ import type {
 const isNum = (s: string): boolean => String(s).trim() !== '' && Number.isFinite(Number(String(s).replace(',', '.')));
 const sameValue = (a: string, b: string): boolean => (isNum(a) && isNum(b) ? Number(String(a).replace(',', '.')) === Number(String(b).replace(',', '.')) : normText(a) === normText(b));
 
-const noRecipe = (solutionId: string, issues: string[]): E3Recipe => ({ solutionId, items: [], total: emptySignals(), issues });
+const noRecipe = (solutionId: string, issues: string[], block = ''): E3Recipe => ({ solutionId, block, items: [], total: emptySignals(), issues });
 const signalsOf = (r: E3IoRow): E3IoSignals => ({ di: r.di, do: r.do, ai: r.ai, ao: r.ao });
 
 /** Подпозиции роли у позиции: те же, что видит подбор решения (по тегу владельца) */
@@ -41,19 +42,19 @@ export function buildRecipeFor(solution: E3Solution, position: E3Position, sibli
   const table = book.ioTable || [];
   const title = (id: string) => (book.features || []).find((f) => f.id === id)?.title || id;
   const out: E3RecipeItem[] = [];
-  const noName = new Set<string>();
 
   const override = solution.recipeOverride?.length ? solution.recipeOverride : null;
+  const block = solution.name.trim();
+  if (!block) issues.push('У решения нет названия схемы: оно служит именем блока в E3, вставлять нечего');
   const rules = (book.ioRules || []).filter((r) => r.mainClass === solution.mainClass);
-  if (!table.length) return noRecipe(solution.id, ['Таблица IO не загружена: сигналов блока не посчитать. Загрузите лист «Таблица IO» в разделе «Таблица IO»']);
-  if (!override && !rules.length) return noRecipe(solution.id, [`Правил состава для класса «${solution.mainClass}» нет: добавьте правило в разделе «Таблица IO» или задайте состав вручную в карточке решения`]);
+  if (!table.length) return noRecipe(solution.id, ['Таблица IO не загружена: сигналов блока не посчитать. Загрузите лист «Таблица IO» в разделе «Таблица IO»'].concat(issues), block);
+  if (!override && !rules.length) return noRecipe(solution.id, [`Правил состава для класса «${solution.mainClass}» нет: добавьте правило в разделе «Таблица IO» или задайте состав вручную в карточке решения`].concat(issues), block);
 
   const put = (role: string, ref: E3IoRowRef, n: number, fromRole: string | undefined, why: (i: number) => string) => {
     const found = findIoRow(table, ref);
     if (found.issue) issues.push(`${role}: ${found.issue}`);
     const row = found.row;
     if (!row) return;
-    if (!row.component?.trim() && !noName.has(row.id)) { noName.add(row.id); issues.push(`Для строки IO «${row.name}» не задано имя изделия E3 — задайте его в разделе «Таблица IO»`); }
     const kids = fromRole ? childrenOf(position, siblings, fromRole) : [];
     if (fromRole && kids.length && kids.length !== n) issues.push(`${role}: в Flux у позиции подпозиций «${fromRole}» — ${kids.length}, а блоку нужно ${n}`);
     for (let i = 0; i < n; i++) {
@@ -84,7 +85,7 @@ export function buildRecipeFor(solution: E3Solution, position: E3Position, sibli
 
   let total = emptySignals();
   for (const it of out) total = addSignals(total, it.signals);
-  return { solutionId: solution.id, items: out, total, issues: [...new Set(issues)] };
+  return { solutionId: solution.id, block, items: out, total, issues: [...new Set(issues)] };
 }
 
 /** Все условия выполнены? Признак решения не задан — условие не проверить, и это замечание, а не «нет» */

@@ -55,6 +55,11 @@ function Write-SummaryFile {
     Add-Line ('Решение для проверки вставки: ' + $script:SolutionName)
     if ($script:SolutionNote) { Add-Line ('  ' + $script:SolutionNote) }
     Add-Line ''
+    if ($script:NamesSummary.Count -gt 0) {
+        Add-Line 'ПРОВЕРКА ПО СПИСКУ НАЗВАНИЙ (names-report.json, names-notfound.txt)'
+        foreach ($l in $script:NamesSummary) { Add-Line ('  ' + $l) }
+        Add-Line ''
+    }
     $ok = @($script:Findings | Where-Object { $_.Kind -eq 'ok' })
     $bad = @($script:Findings | Where-Object { $_.Kind -eq 'bad' })
     $need = @($script:Findings | Where-Object { $_.Kind -eq 'need' })

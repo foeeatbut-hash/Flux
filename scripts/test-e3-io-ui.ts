@@ -60,12 +60,9 @@ const ok = (name: string, value: boolean, detail?: unknown) => { if (value) { pa
       ok(`${t} без горизонтальной прокрутки, текст не мельче 12 px, жирного нет`, !geometry.hscroll && geometry.font >= 12 && geometry.heavy === 0, geometry);
       if (SHOTS) await page.screenshot({ path: `/tmp/e3-io/${theme}-rows.png` });
 
-      await page.getByRole('button', { name: 'Без изделия E3' }).click();
-      const noName = await page.locator('table.fx-table tbody tr').count();
-      ok(`${t} фильтр «Без изделия E3» оставляет строки без имени`, noName > 0 && noName < rows, noName);
-      await page.getByRole('button', { name: /^Все/ }).click();
+      ok(`${t} отбора «Без изделия E3» нет: имя изделия — необязательная справка`, (await page.getByRole('button', { name: /Без изделия E3/ }).count()) === 0);
 
-      // Правка имени изделия
+      // Правка справки об изделии
       await spring.click();
       const dlg = page.getByRole('dialog', { name: /Строка таблицы IO/ });
       await dlg.waitFor();
@@ -99,10 +96,11 @@ const ok = (name: string, value: boolean, detail?: unknown) => { if (value) { pa
       const section = sel.getByRole('region', { name: 'Состав блока' });
       await section.waitFor();
       const composition = await section.locator('tbody tr').allTextContents();
-      ok(`${t} состав блока: два привода и статус обогрева, затем итог`, composition.length === 4 && composition[0].includes('клапан_DIx2_DOx1') && composition[0].includes('ПРИВОД 1') && composition[1].includes('ПРИВОД 2') && composition[2].includes('Обогрев клапана'), composition);
+      ok(`${t} состав блока: два привода и статус обогрева, затем итог`, composition.length === 4 && composition[0].includes('ПРИВОД 1') && composition[1].includes('ПРИВОД 2') && composition[2].includes('Обогрев клапана'), composition);
       const totals = (await section.locator('tbody tr').last().locator('td').allTextContents()).join('|');
       ok(`${t} итог: DI 6 · DO 2 · AI 0 · AO 0`, totals === 'Итого|6|2|0|0', totals);
-      ok(`${t} замечание: у строки обогрева не задано имя изделия`, (await section.getByRole('list', { name: 'Замечания к составу' }).textContent())?.includes('не задано имя изделия E3') === true);
+      ok(`${t} сверху «Блок E3: <название схемы>», серого «имя не задано» нет`, ((await sel.textContent()) || '').includes('Блок E3:') && !((await sel.textContent()) || '').includes('имя не задано'));
+      ok(`${t} замечаний об имени изделия в составе нет`, !((await section.textContent()) || '').includes('имя изделия'));
       const dim = await page.evaluate(() => { const d = document.querySelector<HTMLElement>('[role=dialog] .fx-dialog')!.getBoundingClientRect(); return { right: d.right, w: window.innerWidth, hs: document.documentElement.scrollWidth > window.innerWidth }; });
       ok(`${t} окно подбора помещается по ширине`, dim.right <= dim.w && !dim.hs, dim);
       if (SHOTS) await page.screenshot({ path: `/tmp/e3-io/${theme}-composition.png` });

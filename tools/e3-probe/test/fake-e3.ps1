@@ -240,7 +240,14 @@ function New-FakeJob {
             GetAttributeIds = { param($a) $a[0] = [object[]]@(7001); return 1 }
             GetPinIds = { param($a) $a[0] = [object[]]@(8001, 8002, 8003); return 3 }
             GetNames = { param($a) $a[0] = [object[]]$global:F.Components; return $global:F.Components.Count }
-            Search = { param($a) return $(if ([string]$a[0] -in $global:F.Components) { 1 } else { 0 }) } }) }
+            # Component.Search(name, version): номер найденного компонента и он же выбран в объекте; 0 — нет такого
+            Search = {
+                param($a)
+                if ($a.Length -ne 2) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }
+                $at = [array]::IndexOf(@($global:F.Components | ForEach-Object { $_.ToLowerInvariant() }), ([string]$a[0]).ToLowerInvariant())
+                if ($at -lt 0) { return 0 }
+                $this.Id = 240000 + $at; return $this.Id
+            } }) }
         GetComponentIds = { param($a) $ids = @(0..($global:F.Components.Count - 1) | ForEach-Object { 240000 + $_ }); $a[0] = [object[]]$ids; return $ids.Count }
         LoadPart = { param($a) if ($a.Length -ne 3) { Throw-FakeCom 'Number of parameters specified does not match the expected number.' -2147352562 }; return 0 }
         CreateGraphObject = { param($a) return (New-FakeObject @{ SetId = { param($a) return (Set-FakeId $this $a[0]) }; GetType = { param($a) return 'Line' } }) }
@@ -286,9 +293,10 @@ function Get-E3Processes {
 $global:FakeDb = @{
     'Provider=Fake;Data Source=components.mdb' = [ordered]@{
         Components = @{ Cols = @('Name', 'Version', 'Class'); Rows = @(@('клапан_DIx2_DOx2', '1', 'Клапаны'), @('датчик_DI_условный_ДГП_2', '1', 'Датчики'), @('Двигатель_М1', '1', 'Двигатели')) }
+        Blocks = @{ Cols = @('BlockName', 'Version'); Rows = @(,@('Подсхема_Тест', '1')) }
     }
     'Provider=Fake;Data Source=symbols.mdb' = [ordered]@{
-        Symbols = @{ Cols = @('SymbolName', 'Version'); Rows = @(@('SYM_VALVE', '1')) }
+        Symbols = @{ Cols = @('SymbolName', 'Version'); Rows = @(,@('SYM_VALVE', '1')) }
     }
 }
 function Open-Ado { param([string]$Connection) if ($global:FakeDb.ContainsKey($Connection)) { return $Connection }; return $null }

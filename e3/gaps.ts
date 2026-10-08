@@ -22,16 +22,16 @@ export type GapSeverity = 'error' | 'warn' | 'info';
 export type GapGroup = 'attributes' | 'catalog' | 'project';
 export type GapKind =
   | 'attr-no-source'
-  | 'io-row-no-component' | 'solution-unconfirmed' | 'feature-no-rule' | 'class-no-type' | 'class-info' | 'rule-dangling'
+  | 'solution-no-name' | 'solution-unconfirmed' | 'feature-no-rule' | 'class-no-type' | 'class-info' | 'rule-dangling'
   | 'position-no-solution' | 'position-unanswered' | 'position-recipe' | 'position-attr-missing';
 
 export const GAP_GROUP: Record<GapKind, GapGroup> = {
   'attr-no-source': 'attributes',
-  'io-row-no-component': 'catalog', 'solution-unconfirmed': 'catalog', 'feature-no-rule': 'catalog', 'class-no-type': 'catalog', 'class-info': 'catalog', 'rule-dangling': 'catalog',
+  'solution-no-name': 'catalog', 'solution-unconfirmed': 'catalog', 'feature-no-rule': 'catalog', 'class-no-type': 'catalog', 'class-info': 'catalog', 'rule-dangling': 'catalog',
   'position-no-solution': 'project', 'position-unanswered': 'project', 'position-recipe': 'project', 'position-attr-missing': 'project',
 };
 export const GAP_KIND_TITLES: Record<GapKind, string> = {
-  'attr-no-source': 'Нет источника значения', 'io-row-no-component': 'Строка IO без изделия E3', 'solution-unconfirmed': 'Признаки не подтверждены',
+  'attr-no-source': 'Нет источника значения', 'solution-no-name': 'Решение без названия схемы', 'solution-unconfirmed': 'Признаки не подтверждены',
   'feature-no-rule': 'Признак без правила', 'class-no-type': 'Класс без типа Flux', 'class-info': 'Справка: класс без типа', 'rule-dangling': 'Правило ссылается на несуществующее',
   'position-no-solution': 'Нет решения', 'position-unanswered': 'Нужен ответ на признак', 'position-recipe': 'Замечания к составу блока', 'position-attr-missing': 'Нет значений атрибутов',
 };
@@ -122,10 +122,6 @@ function catalogGaps(book: E3SolutionBook, out: Gap[]): void {
   const hasFeature = (mainClass: string, id: string) => features.some((f) => f.mainClass === mainClass && f.id === id);
   const featureTitle = (id: string) => features.find((f) => f.id === id)?.title || id;
 
-  // Строки IO, которые берут правила состава и ручной состав, и кто именно их берёт
-  const usedBy = new Map<string, Set<string>>();
-  const use = (rowId: string, who: string) => { if (!usedBy.has(rowId)) usedBy.set(rowId, new Set()); usedBy.get(rowId)!.add(who); };
-
   if ((book.ioRules || []).length && !table.length) {
     out.push({
       kind: 'rule-dangling', severity: 'error', key: 'io-table-empty', where: { tab: 'solutions', section: 'io' },
@@ -135,8 +131,7 @@ function catalogGaps(book: E3SolutionBook, out: Gap[]): void {
   } else {
     for (const r of book.ioRules || []) {
       const found = findIoRow(table, r.row);
-      if (found.row) use(found.row.id, r.title);
-      else out.push({
+      if (!found.row) out.push({
         kind: 'rule-dangling', severity: 'error', key: `io-rule-row:${r.id}`, where: { tab: 'solutions', section: 'io-rules', id: r.id },
         title: r.title, place: 'Типовые решения · Таблица IO · Правила состава', detail: found.issue || 'Строка таблицы IO не найдена',
       });
@@ -153,8 +148,7 @@ function catalogGaps(book: E3SolutionBook, out: Gap[]): void {
   for (const s of live) {
     for (const l of s.recipeOverride || []) {
       const found = findIoRow(table, l.row);
-      if (found.row) use(found.row.id, `ручной состав ${s.id}`);
-      else out.push({
+      if (!found.row) out.push({
         kind: 'rule-dangling', severity: 'error', key: `override:${s.id}:${l.role}`, where: { tab: 'solutions', section: 'solutions', id: s.id },
         title: `${s.id} · ${s.name}`, place: 'Типовые решения · Решения · Состав блока вручную', detail: `${l.role}: ${found.issue || 'строка таблицы IO не найдена'}`,
       });
@@ -170,13 +164,13 @@ function catalogGaps(book: E3SolutionBook, out: Gap[]): void {
     }
   }
 
-  for (const row of table) {
-    const who = usedBy.get(row.id);
-    if (who && !row.component?.trim()) {
+  // Название схемы — имя блока в E3: без него нечего вставлять
+  for (const s of live) {
+    if (!s.name?.trim()) {
       out.push({
-        kind: 'io-row-no-component', severity: 'error', key: `io-row:${row.id}`, where: { tab: 'solutions', section: 'io', id: row.id },
-        title: row.name, place: `Типовые решения · Таблица IO · ${row.group || 'Строки'}`,
-        detail: `Не задано имя изделия E3, а строку берёт состав блока (${[...who].slice(0, 3).join('; ')}${who.size > 3 ? `; ещё ${who.size - 3}` : ''}): блок соберётся без изделия`,
+        kind: 'solution-no-name', severity: 'error', key: `sol-name:${s.id}`, where: { tab: 'solutions', section: 'solutions', id: s.id },
+        title: s.id, place: `Типовые решения · Решения · ${s.mainClass}`,
+        detail: 'Не задано название схемы: оно служит именем блока в базе E3, вставлять нечего',
       });
     }
   }

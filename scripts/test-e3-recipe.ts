@@ -142,9 +142,13 @@ console.log('Чего нет — замечание, а не выдумка');
 {
   const f = pos('f', 'ВЕНТИЛЯТОР', { tag: 'F-1' });
   const s = sol('f', 'Вентилятор', { 'fan.start': 'ПЧИ', 'fan.control': 'без' });
+  // Имя блока — название схемы решения; имени изделия у строки IO больше не требуется
   const noName = book([], { ioTable: io.map((r) => ({ ...r, component: undefined })) });
   const r1 = buildRecipeFor(s, f, [], noName);
-  eq('нет имени изделия: сигналы посчитаны, изделие без имени, замечание', [sig(r1), r1.items[0].component, r1.issues.some((t) => t.includes('не задано имя изделия E3'))], ['2/1/1/1', undefined, true]);
+  eq('нет справки об изделии: сигналы посчитаны, замечаний об имени нет', [sig(r1), r1.issues.some((t) => t.includes('имя изделия'))], ['2/1/1/1', false]);
+  eq('блок рецепта — название схемы решения', r1.block, s.name);
+  const r0 = buildRecipeFor({ ...s, name: ' ' }, f, [], noName);
+  eq('нет названия схемы: замечание, вставлять нечего', r0.issues.some((t) => t.includes('нет названия схемы')), true);
   const noRow = book([], { ioTable: io.filter((r) => !r.name.includes('с ЧРП')) });
   const r2 = buildRecipeFor(s, f, [], noRow);
   eq('нет строки IO: изделий нет, замечание называет строку', [r2.items.length, r2.issues.some((t) => t.includes('нет строки') && t.includes('ЭД с ЧРП'))], [0, true]);
@@ -153,7 +157,7 @@ console.log('Чего нет — замечание, а не выдумка');
   const r4 = buildRecipeFor(sol('x', 'Выдуманный класс', {}), f, [], book([]));
   eq('у класса нет правил — подсказка про ручной состав', r4.issues[0].includes('вручную'), true);
   const twice = buildRecipeFor(sol('ec', 'Вентилятор ЕС', { 'fanec.start': 'ПП', 'fanec.fans': '2', 'fanec.control': 'без' }), f, [], noName);
-  eq('одно замечание про строку, сколько бы изделий ни было', twice.issues.filter((t) => t.includes('не задано имя')).length, 1);
+  eq('несколько изделий без справки: замечаний об имени нет', [twice.items.length > 1, twice.issues.filter((t) => t.includes('имя изделия')).length], [true, 0]);
 }
 
 console.log('Ручной состав сильнее правил');

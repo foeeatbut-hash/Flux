@@ -270,6 +270,104 @@ exit $bad
     check(!calls.some(l => /COM (Delete|Remove|SetAttributeValue)\(/.test(l)), 'только разместить: при неудаче тоже ничего не удаляется');
   }
 
+  // «по списку названий»: -NamesFile читает названия из файла (UTF-8 с BOM, CRLF, кириллица, повторы, пустые строки) и ТОЛЬКО спрашивает E3
+  {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    const namesFile = path.join(tmp, 'e3-names.txt');
+    fs.writeFileSync(namesFile, Buffer.concat([bom, Buffer.from('SYM_VALVE\r\n  Вентилятор_ЗТД_К \r\nКлапан_К24_КП2\r\nДвигатель_М1\r\n\r\nsym_valve\r\nдатчик_DI_условный_ДГП_2\r\nПодсхема_Тест\r\nнет_такого_имени\r\n', 'utf8')]));
+    // без -NoConfirm и без ввода: режим чтения не просит Y
+    const out = path.join(tmp, 'names');
+    const r = spawnSync(shell.command, ['-NoProfile', '-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-OutDir', out, '-NamesFile', namesFile], { encoding: 'utf8', input: '', timeout: 300_000, env: process.env });
+    const read = (name: string) => fs.existsSync(path.join(out, name)) ? fs.readFileSync(path.join(out, name), 'utf8').replace(/^﻿/, '') : '';
+    const logTxt = read('log.txt'), trace = read('trace.log');
+    check(r.status === 0, '-NamesFile: завершился без ошибки', (r.stdout + r.stderr).slice(-800));
+    check(/Названий: 7 \(строк в файле 10, пустых 2, повторов 1\)/.test(logTxt), '-NamesFile: пустые строки и повтор (без учёта регистра) отброшены, краевые пробелы обрезаны', logTxt.match(/Названий:.*/)?.[0]);
+    check(logTxt.includes('ИТОГ: символ 2 · компонент/подсхема 4 · не найдено 1'), '-NamesFile: сводка «символ N · компонент/подсхема M · не найдено K»', logTxt.match(/ИТОГ:.*/)?.[0]);
+    check(!/Нажмите клавишу Y|Введите Y/.test(logTxt) && !/COM (Create|CreateSheet|Place|PlacePart\w*|LoadPart|LoadAndCreate|CreateBlock|Delete|Remove|SetAttributeValue|Save\w*|ImportDrawing\w*)\(/.test(trace), '-NamesFile: без подтверждения Y и без единого пишущего вызова (вставка, лист, LoadPart, атрибуты, Save)');
+    check(/Проект до и после: компонентов 3 -> 3, устройств 1 -> 1 \(не изменился\)/.test(logTxt), '-NamesFile: число компонентов и устройств проекта до и после одно и то же');
+    let rep: any = {};
+    try { rep = JSON.parse(read('names-report.json')); } catch (e) { bad('names-report.json разбирается как JSON', e); }
+    const item = (n: string) => (rep.items ?? []).find((i: any) => i.name === n) ?? {};
+    check(rep.items?.length === 7 && rep.counts?.symbol === 2 && rep.counts?.component === 3 && rep.counts?.subcircuit === 1 && rep.counts?.notfound === 1, 'names-report.json: 7 имён, счётчики символ 2 / компонент 3 / подсхема 1 / не найдено 1', JSON.stringify(rep.counts));
+    check(item('SYM_VALVE').kind === 'symbol' && item('SYM_VALVE').width === 24 && item('SYM_VALVE').height === 16 && /Symbol\.Load\("SYM_VALVE", "1"\)/.test(item('SYM_VALVE').call) && /GetArea/.test(item('SYM_VALVE').call), 'символ: Symbol.Load с версией "1" и габарит 24 x 16 из GetArea без размещения', JSON.stringify(item('SYM_VALVE')));
+    check(item('Вентилятор_ЗТД_К').kind === 'symbol' && item('Вентилятор_ЗТД_К').error === '', 'кириллица в файле дошла до E3 без искажений (имя с пробелами по краям найдено как символ)');
+    check(item('Клапан_К24_КП2').kind === 'component' && item('Клапан_К24_КП2').via === 'api' && /Component\.Search\("Клапан_К24_КП2"/.test(item('Клапан_К24_КП2').call) && item('Клапан_К24_КП2').details?.GetName === 'Клапан_К24_КП2' && item('Клапан_К24_КП2').details?.pins === 3, 'компонент: Component.Search, прочитаны имя, версия, тип, число выводов', JSON.stringify(item('Клапан_К24_КП2')));
+    check(item('датчик_DI_условный_ДГП_2').kind === 'component' && item('датчик_DI_условный_ДГП_2').via === 'db' && item('датчик_DI_условный_ДГП_2').details?.table === 'Components', 'компонент, найденный только в таблице базы: вид, таблица, via=db');
+    check(item('Подсхема_Тест').kind === 'subcircuit' && item('Подсхема_Тест').details?.table === 'Blocks', 'подсхема: таблица базы с названием блока даёт вид «подсхема»');
+    check(item('нет_такого_имени').kind === 'notfound' && /Symbol\.Load/.test(item('нет_такого_имени').error) && /Component\.Search/.test(item('нет_такого_имени').error), 'не найдено: в ошибке названы все проверенные вызовы');
+    check(typeof item('SYM_VALVE').ms === 'number' && rep.info?.avgMsPerName > 0 && /в среднем .* мс на имя/.test(logTxt), 'время на имя записано в отчёт и журнал');
+    check(read('names-notfound.txt').trim() === 'нет_такого_имени' && /Не найдены \(1\):\s+нет_такого_имени/.test(logTxt), 'список не найденных: в журнале и в names-notfound.txt');
+    const summary = read('summary.txt');
+    check(/ПРОВЕРКА ПО СПИСКУ НАЗВАНИЙ[\s\S]*символ 2 · компонент\/подсхема 4 · не найдено 1[\s\S]*нет_такого_имени/.test(summary), 'summary.txt: раздел «Проверка по списку названий» со сводкой и не найденными');
+    check(!/Размещение образцов/.test(summary) && !fs.existsSync(path.join(out, 'export')), 'без -PlaceSample листа и картинок нет');
+    const log = JSON.parse(read('log.json'));
+    check(!log.attempts.some((a: any) => a.op === 'script.error') && !log.attempts.some((a: any) => /Type mismatch|80020005/i.test(String(a.error))), '-NamesFile: ни один раздел не прерван, type mismatch нет');
+  }
+
+  // имя файла неверное, файл не в UTF-8 — понятные сообщения, чтение не рушится
+  {
+    const { out, r } = runFake('names-missing', {}, ['-NamesFile', path.join(tmp, 'нет-такого-файла.txt')]);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    check(r.status === 0 && logTxt.includes('файл со списком названий не найден') && logTxt.includes('Скачать названия для пробы'), '-NamesFile: файла нет — сказано, где его взять', logTxt.slice(-500));
+    const cp = path.join(tmp, 'cp1251.txt');
+    fs.writeFileSync(cp, Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2, 0x0d, 0x0a]));   // «Привет» в кодовой странице 1251, не UTF-8
+    const r2 = runFake('names-cp1251', {}, ['-NamesFile', cp]);
+    const log2 = fs.readFileSync(path.join(r2.out, 'log.txt'), 'utf8');
+    check(r2.r.status === 0 && log2.includes('не в UTF-8'), '-NamesFile: файл не в UTF-8 — предупреждение, а не тихо искажённые результаты', log2.slice(-500));
+    const empty = path.join(tmp, 'empty.txt');
+    fs.writeFileSync(empty, Buffer.from([0xef, 0xbb, 0xbf, 0x0d, 0x0a]));
+    const r3 = runFake('names-empty', {}, ['-NamesFile', empty]);
+    check(r3.r.status === 0 && fs.readFileSync(path.join(r3.out, 'log.txt'), 'utf8').includes('нет ни одного названия'), '-NamesFile: пустой файл — понятное сообщение');
+  }
+
+  // -PlaceSample: первые N найденных на временный лист, картинка листа, уборка
+  {
+    const file = path.join(tmp, 'e3-names-sample.txt');
+    fs.writeFileSync(file, '﻿SYM_VALVE\r\nнет_такого\r\nклапан_DIx2_DOx2\r\nДвигатель_М1\r\nВентилятор_ЗТД_К\r\n', 'utf8');
+    const { out, r } = runFake('names-place', {}, ['-NamesFile', file, '-PlaceSample', '3']);
+    const read = (name: string) => fs.existsSync(path.join(out, name)) ? fs.readFileSync(path.join(out, name), 'utf8').replace(/^﻿/, '') : '';
+    const logTxt = read('log.txt'), trace = read('trace.log');
+    check(r.status === 0 && logTxt.includes('ИТОГ размещения: поставлено 2 из 3; картинок листа: 1'), '-PlaceSample 3: первые три найденных (не считая ненайденного), два встали, картинка снята', logTxt.slice(-1200));
+    check(/Размещаю «SYM_VALVE» \(символ\)/.test(logTxt) && /Размещаю «клапан_DIx2_DOx2» \(компонент\)/.test(logTxt) && /Размещаю «Двигатель_М1» \(компонент\)/.test(logTxt) && !/Размещаю «Вентилятор_ЗТД_К»/.test(logTxt) && !/Размещаю «нет_такого»/.test(logTxt), '-PlaceSample 3: берутся первые найденные по порядку файла');
+    check(/Symbol\.Place|COM Place\(/.test(trace) && /COM Create\("", "", "", "клапан_DIx2_DOx2"/.test(trace), 'символ ставится Symbol.Place, компонент — запасным планом (Device.Create + символ)');
+    check(/COM Create\(0, "__flux_names__"/.test(trace) && logTxt.includes('Временный лист удалён.') && /Число устройств в проекте то же: 1/.test(logTxt), 'временный лист создан и удалён, устройства прежние');
+    check(/Удаляю созданные пробой устройства: 2/.test(logTxt) && !/COM Delete\(\)?.*501/.test(trace), 'созданные пробой устройства удалены, чужое (501) не тронуто');
+    check(/COM ExportImage\("PNG", 0, /.test(trace) && fs.existsSync(path.join(out, 'export', 'names-sheet.png')) && /картинка листа \.png: sheet\.ExportImage/.test(logTxt) && /картинка листа \.emf: перебрано вариантов/.test(logTxt), 'картинка листа: сработавший вызов (ExportImage PNG) назван в журнале, остальные форматы честно не вышли');
+    check(!/COM Save\w*\(/.test(trace) && logTxt.includes('Проект НЕ сохранялся.'), '-PlaceSample: проект не сохраняется');
+    let rep: any = {};
+    try { rep = JSON.parse(read('names-report.json')); } catch (e) { bad('names-report.json (PlaceSample) разбирается', e); }
+    const ps = rep.info?.placeSample ?? {};
+    check(ps.requested === 3 && ps.placed === 2 && ps.devicesRemoved === 2 && ps.devicesBefore === 1 && ps.devicesAfter === 1 && ps.exports?.[0]?.ext === 'png', 'names-report.json: итог размещения (запрошено, поставлено, удалено устройств, картинка)', JSON.stringify(ps));
+    const sym = (rep.items ?? []).find((i: any) => i.name === 'SYM_VALVE')?.placed;
+    check(sym?.ok === true && sym.symbols?.length === 1 && sym.area?.length === 4 && /symbol\.Load\+Place/.test(sym.call), 'names-report.json: у образца вызов, символы и рамка на листе (для обрезки картинки)', JSON.stringify(sym));
+    check(/Размещение образцов на временном листе: поставлено 2 из 3/.test(read('summary.txt')) && /ЭКСПОРТ ЛИСТА\s+png: sheet\.ExportImage/.test(read('summary.txt')), 'summary.txt: размещение и экспорт листа');
+  }
+
+  // -PlaceSample требует Y (на Windows CI вход по stdin зависит от кодовой страницы консоли, поэтому там только -NoConfirm)
+  if (process.platform !== 'win32') {
+    const file = path.join(tmp, 'e3-names-y.txt');
+    fs.writeFileSync(file, '﻿SYM_VALVE\r\n', 'utf8');
+    const ask = (name: string, input: string) => {
+      const out = path.join(tmp, name);
+      const r = spawnSync(shell.command, ['-NoProfile', '-File', path.join(root, 'e3-probe.ps1'), '-FakeCom', path.join(root, 'test', 'fake-e3.ps1'), '-OutDir', out, '-NamesFile', file, '-PlaceSample', '1'], { encoding: 'utf8', input, timeout: 300_000, env: process.env });
+      return { out, r, trace: fs.existsSync(path.join(out, 'trace.log')) ? fs.readFileSync(path.join(out, 'trace.log'), 'utf8') : '', log: fs.existsSync(path.join(out, 'log.txt')) ? fs.readFileSync(path.join(out, 'log.txt'), 'utf8') : '' };
+    };
+    const no = ask('names-place-no', 'n\n');
+    check(no.r.status === 0 && no.log.includes('ИТОГ: символ 1') && no.log.includes('Отменено: ничего не изменено.') && !/COM Create\(0, "__flux_names__"/.test(no.trace), '-PlaceSample без Y: чтение выполнено, лист не создан, ничего не изменено', no.log.slice(-500));
+    const yes = ask('names-place-yes', 'Y\n');
+    check(yes.r.status === 0 && yes.log.includes('Временный лист удалён.') && /ИТОГ размещения: поставлено 1 из 1/.test(yes.log), '-PlaceSample с Y: образец поставлен, лист удалён', yes.log.slice(-500));
+  } else console.log('SKIP -PlaceSample с вводом Y через stdin — только не на Windows; путь -NoConfirm проверен выше.');
+
+  // -PlaceSample без открытого проекта: чтение выполнено, размещение отказано
+  {
+    const file = path.join(tmp, 'e3-names-np.txt');
+    fs.writeFileSync(file, '﻿SYM_VALVE\r\n', 'utf8');
+    const { out, r } = runFake('names-place-noproject', { E3_FAKE_NOPROJECT: '1' }, ['-NamesFile', file, '-PlaceSample', '1']);
+    const logTxt = fs.readFileSync(path.join(out, 'log.txt'), 'utf8');
+    const trace = fs.readFileSync(path.join(out, 'trace.log'), 'utf8');
+    check(r.status === 0 && logTxt.includes('ИТОГ: символ 1') && logTxt.includes('Размещение требует открытого проекта') && !/COM Create\(0, "__flux_names__"/.test(trace), '-PlaceSample без проекта: чтение есть, размещения нет', logTxt.slice(-600));
+  }
+
   // вопрос про имя перед подтверждением Y (на Windows CI вход по stdin зависит от кодовой страницы консоли, поэтому там только параметр)
   if (process.platform !== 'win32') {
     const out = path.join(tmp, 'placeonly-ask');
