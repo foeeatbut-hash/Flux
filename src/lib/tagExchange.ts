@@ -139,7 +139,7 @@ export interface SegmentColumns {
   department?: boolean; fluid?: boolean; chain?: boolean; descriptions?: boolean;
 }
 
-export interface SegmentHelpers extends TagExchangeHelpers {
+export interface SegmentHelpers extends Omit<TagExchangeHelpers, 'status'> {
   /** Сколько сегментов в самом длинном коде и в самой длинной марке */
   segments: number;
   brandSegments: number;
