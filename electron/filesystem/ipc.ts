@@ -12,6 +12,7 @@ import { NativeShellHost } from '../nativeShellHost';
 import { ShellCommands } from './shellCommands';
 import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction, undoGroup } from './explorerBridge';
 import { ViewStateStore } from './viewState';
+import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from './equipmentSourcePicker';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
@@ -21,7 +22,7 @@ export interface WindowsFilesIpcOptions {
 const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
-  EPERM: 'Файл занят другой программой или Windows запретила действие.',
+  EPERM: 'Windows запретила доступ к файлу или папке. Проверьте права доступа.',
   EBUSY: 'Файл открыт другой программой. Закройте его и повторите действие.',
   ENOSPC: 'На диске недостаточно свободного места. Черновик в Flux сохранён.',
   ENOENT: 'Файл или папка недоступны. Обновите список или проверьте подключение диска.',
@@ -134,6 +135,24 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
             } finally { await handle.close(); }
           }
           data = { canceled: false, files };
+          break;
+        }
+        case 'pickEquipmentSource': {
+          const window = BrowserWindow.fromWebContents(event.sender);
+          const config = { title: 'Выберите XML-источник оборудования', buttonLabel: 'Выбрать', properties: ['openFile'] as ('openFile')[], filters: [{ name: 'XML', extensions: ['xml'] }] };
+          const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
+          if (result.canceled || !result.filePaths[0]) { data = { canceled: true }; break; }
+          const selected = await resolveEquipmentSourceSelection(service, result.filePaths[0]);
+          data = { canceled: false, ...selected };
+          break;
+        }
+        case 'pickEquipmentSourceFolder': {
+          const window = BrowserWindow.fromWebContents(event.sender);
+          const config = { title: 'Выберите папку источника оборудования', buttonLabel: 'Выбрать', properties: ['openDirectory'] as ('openDirectory')[] };
+          const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
+          if (result.canceled || !result.filePaths[0]) { data = { canceled: true }; break; }
+          const folder = await resolveEquipmentSourceFolder(service, result.filePaths[0]);
+          data = { canceled: false, folder };
           break;
         }
         case 'restoreDraft': data = await service.restoreDraft(request.ref); break;
