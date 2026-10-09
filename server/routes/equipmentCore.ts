@@ -7,6 +7,7 @@ import { planEquipmentImport, applyEdits, filterBySelection } from '../equipment
 import { cleanChoices } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
 import { cleanTagLinks } from './equipmentDraft.js';
+import { assertEquipmentParamEditable, writeEditableEquipmentParam } from '../equipmentParamAccess.js';
 
 // Оборудование, ядро: план и запись импорта расчёта в категорию, категории,
 // разрешение конфликтов параметров и ручная правка полей.
@@ -144,6 +145,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const { group, key, action, value } = req.body;
       const comp = await prisma.componentElement.findUnique({ where: { id } });
       if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+      const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
 
       const conflicts = comp.paramConflicts ? JSON.parse(comp.paramConflicts) : [];
       const conflict = conflicts.find((c: any) => c.group === group && c.key === key);
@@ -161,8 +163,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       }
 
       const remaining = conflicts.filter((c: any) => !(c.group === group && c.key === key));
-      const updated = await prisma.componentElement.update({
-        where: { id },
+      const updated = await writeEditableEquipmentParam(prisma, comp, catalogState, {
+        where: { id, version: Number(comp.version || 1) },
         data: withBump({
           specs: JSON.stringify(specsObj),
           overrides: JSON.stringify(overrides),
@@ -173,7 +175,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       });
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { res.status(err.status || (err.code === 'P2025' ? 409 : 500)).json({ error: err.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : err.message }); }
   });
 
   // Ручное изменение любого параметра
@@ -184,6 +186,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const { group, key, value } = req.body;
       const comp = await prisma.componentElement.findUnique({ where: { id } });
       if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+      const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
       const specsObj = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
       const overrides = comp.overrides ? JSON.parse(comp.overrides) : {};
       let grp = (specsObj.groups || []).find((g: any) => g.title === group);
@@ -192,12 +195,12 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       if (!p) { p = { key, value: '', unit: '' }; grp.params.push(p); }
       p.value = String(value ?? '');
       overrides[`${group}||${key}`] = p.value;
-      const updated = await prisma.componentElement.update({
-        where: { id }, data: withBump({ specs: JSON.stringify(specsObj), overrides: JSON.stringify(overrides) }),
+      const updated = await writeEditableEquipmentParam(prisma, comp, catalogState, {
+        where: { id, version: Number(comp.version || 1) }, data: withBump({ specs: JSON.stringify(specsObj), overrides: JSON.stringify(overrides) }),
       });
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { res.status(err.status || (err.code === 'P2025' ? 409 : 500)).json({ error: err.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : err.message }); }
   });
 
   // 2. Accept a field discrepancy from conflict
@@ -217,6 +220,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
         return res.status(404).json({ error: 'Элемент не найден' });
       }
 
+      const catalogState = await assertEquipmentParamEditable(component, String(fieldName));
       const specsObj = component.specs ? JSON.parse(component.specs) : {};
       const conflictLogObj = component.conflictLog ? JSON.parse(component.conflictLog) : {};
 
@@ -230,8 +234,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
 
       const hasRemainingConflicts = Object.keys(conflictLogObj).length > 0;
 
-      const updated = await prisma.componentElement.update({
-        where: { id },
+      const updated = await writeEditableEquipmentParam(prisma, component, catalogState, {
+        where: { id, version: Number(component.version || 1) },
         data: withBump({
           specs: JSON.stringify(specsObj),
           conflictLog: hasRemainingConflicts ? JSON.stringify(conflictLogObj) : null,
@@ -243,7 +247,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || (error.code === 'P2025' ? 409 : 500)).json({ error: error.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : error.message });
     }
   });
 
@@ -264,6 +268,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
         return res.status(404).json({ error: 'Элемент не найден' });
       }
 
+      const catalogState = await assertEquipmentParamEditable(component, String(fieldName));
       const specsObj = component.specs ? JSON.parse(component.specs) : {};
       const conflictLogObj = component.conflictLog ? JSON.parse(component.conflictLog) : {};
 
@@ -274,8 +279,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
 
       const hasRemainingConflicts = Object.keys(conflictLogObj).length > 0;
 
-      const updated = await prisma.componentElement.update({
-        where: { id },
+      const updated = await writeEditableEquipmentParam(prisma, component, catalogState, {
+        where: { id, version: Number(component.version || 1) },
         data: withBump({
           specs: JSON.stringify(specsObj),
           conflictLog: hasRemainingConflicts ? JSON.stringify(conflictLogObj) : null,
@@ -287,7 +292,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || (error.code === 'P2025' ? 409 : 500)).json({ error: error.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : error.message });
     }
   });
 }
