@@ -141,7 +141,8 @@ export default function AddressBar({
                 return (
                   <span key={`${index}-${step.name}`} data-crumb-group className="flex shrink-0 items-center">
                     <button type="button" data-crumb={index} aria-current={last ? 'page' : undefined}
-                      onClick={(e) => { e.stopPropagation(); if (!last) onOpen(stepPlace(index)); else onRefresh(); }}
+                      onClick={(e) => { e.stopPropagation(); if (e.detail > 1) return; if (!last) onOpen(stepPlace(index)); else onRefresh(); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
                       className={`h-7 shrink-0 rounded px-2 ${T.iconButton}`}>{step.name}</button>
                     {step.kind !== 'home' && (
                       <button type="button" aria-label={`Подпапки: ${step.name}`} aria-expanded={menu?.kind === 'crumb' && menu.index === index}

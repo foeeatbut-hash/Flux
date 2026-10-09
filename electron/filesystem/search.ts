@@ -149,8 +149,9 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
   let scanned = 0, found = 0, depthSkipped = 0, unreadable = 0;
   let stop: WindowsSearchStop | null = null;
   let page: WindowsSearchHit[] = []; let flushed = Date.now();
-  const flush = () => {
+  const flush = async () => {
     if (!page.length) return;
+    await service.hydrateSystemAttributes(page);
     emit(owner, { requestId, hits: page, done: false, scanned, elapsedMs: Date.now() - began }); page = []; flushed = Date.now();
   };
   const halted = (): boolean => {
@@ -164,9 +165,11 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
     let entry;
     try { entry = await service.entry(ref, true); } catch { return; } // файл исчез между списком и запросом — не ошибка поиска
     if (!filter.full(entry, service.state)) return;
-    page.push({ ...entry, parentPath });
+    const metadata = service.state.data.metadata[entry.fileId];
+    if (metadata) entry.metadata = { ...metadata, history: [] };
+    page.push({ ...entry, rootId: ref.rootId, parentPath });
     if (++found >= limits.hits) stop = 'limit-hits';
-    if (page.length >= PAGE_SIZE || Date.now() - flushed >= PAGE_MS) flush();
+    if (page.length >= PAGE_SIZE || Date.now() - flushed >= PAGE_MS) await flush();
   };
 
   // Корень поиска: настоящая папка или папка-черновик. Неопубликованный черновик на диске не существует.
@@ -231,6 +234,6 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
       } catch { unreadable++; } finally { await directory.close().catch(() => undefined); }
     }
   }
-  flush();
+  await flush();
   return { requestId, hits: [], done: true, scanned, elapsedMs: Date.now() - began, reason: stop ?? 'complete', ...(depthSkipped ? { depthSkipped } : {}), ...(unreadable ? { unreadable } : {}) };
 }

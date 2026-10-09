@@ -1,7 +1,9 @@
-import { app, dialog, ipcMain, shell, BrowserWindow, nativeImage, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, dialog, ipcMain, shell, clipboard, BrowserWindow, nativeImage, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, WINDOWS_FILES_DROP, WINDOWS_FILES_SEARCH, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
+import { createArchive } from './archives';
+import { replaceCopy } from './replacementCopy';
 import { WindowsFilesService } from './service';
 import { WindowsFilesError } from './paths';
 import { windowsPublicDesktopFolder } from '../desktopShell';
@@ -16,7 +18,7 @@ export interface WindowsFilesIpcOptions {
   mayRead: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
   mayWrite: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
 }
-const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
+const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
   EPERM: 'Файл занят другой программой или Windows запретила действие.',
@@ -45,6 +47,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   let shellCommands: ShellCommands;
   const service = await WindowsFilesService.create({
     userData: app.getPath('userData'),
+    fileDetails: process.platform === 'win32' ? async paths => await nativeHost.call('file-info', { paths }) as { hidden: boolean }[] : undefined,
     knownFolders: { desktop: app.getPath('desktop'), documents: app.getPath('documents'), downloads: app.getPath('downloads') },
     trashItem: filename => shell.trashItem(filename),
     showItemInFolder: filename => shell.showItemInFolder(filename),
@@ -155,6 +158,17 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           data = await cached.value;
           break;
         }
+        case 'fileHash': data = await service.fileHash(request.ref); break;
+        case 'stat': data = await service.entry(request.ref); break;
+        case 'copyPath': {
+          if (!Array.isArray(request.refs) || !request.refs.length || request.refs.length > 100) throw new WindowsFilesError('INVALID_REQUEST', 'Выберите от 1 до 100 объектов.');
+          const paths = await Promise.all(request.refs.map(ref => service.filename(ref)));
+          clipboard.writeText(paths.map(filename => `"${filename}"`).join('\r\n')); data = { copied: true }; break;
+        }
+        case 'archive': data = await createArchive(service, request, app.isPackaged && process.platform === 'win32' ? path.join(process.resourcesPath, 'archive', '7z.exe') : undefined); break;
+        case 'purgeDraft': data = await service.purgeDraft(request.ref); break;
+        case 'replaceCopy': data = await replaceCopy(service, request, undoGroup(request.group)); break;
+        case 'permanentDelete': data = await service.permanentDelete(request.ref, request.baseSha256); break;
         case 'write': data = await service.write(request.ref, request.base64, request.baseSha256); break;
         case 'publish': data = await service.publish(request.parent, request.name, request.base64, request.draftId); break;
         // group — номер пакета для отмены: вставка нескольких файлов отменяется одним Ctrl+Z.

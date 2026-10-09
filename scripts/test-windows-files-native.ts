@@ -32,7 +32,11 @@ const limit = (message: string) => { limits++; console.log(`LIMIT ${message}`); 
 const check = (condition: unknown, message: string, detail?: unknown) => condition ? ok(message) : bad(message, detail);
 let helperHost: NativeShellHost | undefined;
 async function section(name: string, work: () => Promise<void>) {
-  try { await work(); } catch (error) { bad(`${name}: набор прерван непредвиденной ошибкой`, error); if (helperHost?.lastStderr) console.error(`   stderr помощника: ${helperHost.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`); }
+  try { await work(); } catch (error) {
+    bad(`${name}: набор прерван непредвиденной ошибкой`, error);
+    if ((error as any)?.nativeDiagnostic) console.error(`   диагностика помощника: ${JSON.stringify((error as any).nativeDiagnostic)}`);
+    if (helperHost?.lastStderr) console.error(`   stderr помощника: ${helperHost.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`);
+  }
 }
 /** Поиск до конца: страницы собираются, пока не придёт done. */
 const searchEverything = (service: WindowsFilesService, ref: WindowsFileRef, query: string) => new Promise<WindowsSearchHit[]>((resolve, reject) => {
@@ -67,6 +71,7 @@ async function main() {
     shell = new ShellCommands({} as WindowsFilesService, host); // подменяется ниже, когда служба создана
     service = await WindowsFilesService.create({
       userData, knownFolders: { desktop }, trashItem: recycle, showItemInFolder: () => undefined, openPath: async () => '',
+      fileDetails: async paths => host.call('file-info', { paths }),
       restoreFromTrash: info => shell!.restoreFromTrash(info),
     });
     shell = new ShellCommands(service, host);
@@ -207,6 +212,21 @@ async function main() {
       check(again === picture, 'Повторный запрос приходит из кэша');
       for (let i = 0; i < 20; i++) await shell!.thumbnail(R('Заметка.txt'), 20 + i * 10, false);
       check(host.running, 'Двадцать подряд запросов обслуживает один запущенный помощник');
+      const computer = await shell!.placeIcon('computer', 32);
+      check(!!computer?.dataUrl.startsWith('data:image/png;base64,'), 'Значок «Этот компьютер» поступает из виртуального места Windows');
+      const invalidPlace = await shell!.placeIcon('произвольное место', 32).then(() => null, error => error.code);
+      check(invalidPlace === 'INVALID_REQUEST', 'Команда значка виртуального места принимает только фиксированные места');
+    });
+
+    await section('Системные свойства и скрытые объекты', async () => {
+      await fs.writeFile(dir('Скрытый.txt'), 'тест системного атрибута');
+      await run('attrib.exe', ['+H', dir('Скрытый.txt')]);
+      const rows = await host.call('file-info', { paths: [dir('Скрытый.txt'), dir('Заметка.txt')] });
+      check(rows[0]?.hidden === true && rows[1]?.hidden === false, 'Hidden читается из атрибута Windows, а не из имени файла');
+      const properties = await shell!.fileProperties(R('Скрытый.txt'));
+      check(properties.hidden && Number.isFinite(Date.parse(properties.createdAt)) && typeof properties.author === 'string', 'Системные свойства возвращают дату создания, скрытость и строку автора');
+      const hits = await searchEverything(svc, R(''), 'Скрытый.txt');
+      check(hits.length === 1 && hits[0].hidden === true, 'Результат поиска сохраняет атрибут Hidden настоящего файла Windows');
     });
 
     await section('Быстрый доступ и облачные корни', async () => {
@@ -221,7 +241,7 @@ async function main() {
       const afterUnpin = await shell!.quickAccess();
       check(!afterUnpin.items.some(item => item.name === 'Закрепить' && item.pinned), 'Открепление через unpinfromhome убирает папку из закреплённых', `помощник ответил ${JSON.stringify(unpinned)}; список: ${JSON.stringify(afterUnpin.items.map(item => [item.name, item.pinned]))}`);
       const cloud = await shell!.cloudRoots();
-      check(cloud.supported && Array.isArray(cloud.items), `Облачные корни SyncRootManager читаются (${cloud.items.length}: ${cloud.items.map(item => item.name).join(', ') || 'на этой машине нет ни OneDrive, ни Яндекс Диска'})`);
+      check(cloud.supported && Array.isArray(cloud.items) && cloud.items.every(item => (item.provider as string) !== 'onedrive'), `Облачные места SyncRootManager читаются без OneDrive (${cloud.items.length}: ${cloud.items.map(item => item.name).join(', ') || 'кроме исключённого OneDrive, облачных папок нет'})`);
       for (const item of cloud.items) check(item.root.id && item.root.available, `Облачный корень «${item.name}» стал корнем-capability`);
     });
 

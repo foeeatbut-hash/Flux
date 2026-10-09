@@ -32,6 +32,7 @@ export function useExplorerTabs({ startAt = null, onLastClosed, storageKey = TAB
   const stateRef = useRef(state); stateRef.current = state;
   const lastClosed = useRef(onLastClosed); lastClosed.current = onLastClosed;
   const startRef = useRef(startAt); startRef.current = startAt;
+  const readyRef = useRef(ready); readyRef.current = ready;
 
   // Чтение сохранённого: один раз, до первого показа
   useEffect(() => {
@@ -53,6 +54,10 @@ export function useExplorerTabs({ startAt = null, onLastClosed, storageKey = TAB
     const timer = setTimeout(() => { void windowsFilesRequest({ action: 'viewStateSet', entries: { [storageKey]: writeTabs(state) } }); }, SAVE_DELAY);
     return () => clearTimeout(timer);
   }, [state, ready, storageKey]);
+  // Переход в редактор или общий доступ не должен потерять последние 400 мс навигации.
+  useEffect(() => () => {
+    if (readyRef.current) void windowsFilesRequest({ action: 'viewStateSet', entries: { [storageKey]: writeTabs(stateRef.current) } });
+  }, [storageKey]);
 
   const active = activeTab(state);
   const place = placeOf(active);

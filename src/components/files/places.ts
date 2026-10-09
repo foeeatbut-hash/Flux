@@ -133,7 +133,7 @@ const norm = (value: string) => value.toLocaleLowerCase('ru');
 /**
  * Разбор строки, которую набрал человек. Принимает «C:\папка», «\\сервер\ресурс\папка»,
  * имена мест («Рабочий стол\Проекты», «Этот компьютер»). Подстановки вида %USERPROFILE%
- * не раскрываются: значения переменных знает только main, а интерфейсу они не выдаются.
+ * разбираются отдельно в main: интерфейс получает только проверенную ссылку на папку.
  */
 export function parseTypedPath(input: string, catalog: PlaceCatalog): TypedPath {
   const text = input.trim().replace(/^"(.*)"$/, '$1').trim();

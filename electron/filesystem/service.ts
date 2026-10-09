@@ -6,6 +6,7 @@ import type { WindowsFileRef, WindowsFileEntry, WindowsFileMetadata, WindowsFile
 import { WindowsFilesError, resolveSafePath, validateWindowsName, joinRelative, isContained } from './paths';
 import { inspectWindowsTree, copyWindowsTree, cleanCreatedWindowsTree } from './tree';
 import { WindowsFilesState, type StoredDraft } from './state';
+import { snapshotFile } from './fileSnapshot';
 import { replaceWindowsFile } from './replace';
 import { isNetworkFolder } from './network';
 import { existingAt, freeNameIn, mergeDraftMetadata, parseChoices } from './publishing';
@@ -23,6 +24,7 @@ export interface WindowsFilesDependencies {
   restoreFromTrash?: (info: { path: string; deletedAfter: number; size: number | null; name: string }) => Promise<void>;
   /** Запускает перетаскивание файлов наружу из окна owner. Пути отдаются только main-процессу. */
   startDrag?: (owner: number, files: string[]) => void | Promise<void>;
+  fileDetails?: (paths: string[]) => Promise<{ hidden: boolean }[]>;
 }
 /** Общие параметры изменяющих команд: группа отмены и «не записывать в журнал» (внутренние вызовы одной операции). */
 export interface OpOptions { group?: string; silent?: boolean }
@@ -75,6 +77,7 @@ export class WindowsFilesService {
   private locks = new Map<string, Promise<unknown>>();
   private parentSearch = new Map<string, { expires: number; ref: WindowsFileRef | null }>();
   private watchers = new Map<string, { watcher: FSWatcher; timer?: ReturnType<typeof setTimeout>; ref: WindowsFileRef; owners: Set<number> }>();
+  private listNames = new Map<string, { mtimeMs: number; names: string[] }>();
   private constructor(private deps: WindowsFilesDependencies, readonly state: WindowsFilesState, readonly journal: UndoJournal) {}
   static async create(deps: WindowsFilesDependencies) {
     const state = await WindowsFilesState.load(deps.userData);
@@ -151,7 +154,7 @@ export class WindowsFilesService {
     const root = this.state.root(ref.rootId);
     const filename = allowLink && !ref.draftId ? path.join(root.path, ...ref.relativePath.split('/')) : await this.filename(ref);
     const stat = await fs.lstat(filename);
-    return { name: path.posix.basename(ref.relativePath) || path.basename(filename), relativePath: ref.relativePath, storage: ref.draftId ? 'flux' : 'windows', ...(ref.draftId ? { draftId: ref.draftId } : {}), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other', fileId: ref.draftId ? this.draftFileId(ref.draftId) : await this.identity(filename), size: stat.size, modifiedAt: stat.mtime.toISOString(), linked: stat.isSymbolicLink() };
+    return { name: path.posix.basename(ref.relativePath) || path.basename(filename), relativePath: ref.relativePath, storage: ref.draftId ? 'flux' : 'windows', ...(ref.draftId ? { draftId: ref.draftId } : {}), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other', fileId: ref.draftId ? this.draftFileId(ref.draftId) : await this.identity(filename), size: stat.size, modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), rootId: ref.rootId, linked: stat.isSymbolicLink() };
   }
   async roots() {
     return Promise.all(this.state.data.roots.map(async root => ({ id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: await fs.stat(root.path).then(stat => stat.isDirectory()).catch(() => false) })));
@@ -163,6 +166,17 @@ export class WindowsFilesService {
     return this.filename(resolved);
   }
   async addRoot(filename: string, name?: string) { const root = await this.state.addRoot(filename, 'custom', name); return { id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: true }; }
+  async resolveAddress(text: string): Promise<WindowsFileRef | null> {
+    if (typeof text !== 'string' || text.length > 32767 || /[\u0000-\u001f]/u.test(text)) throw new WindowsFilesError('INVALID_REQUEST', 'Некорректный адрес.');
+    const allowed = new Set(['USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'WINDIR', 'SYSTEMROOT', 'PUBLIC']);
+    let unknown = false;
+    const filename = text.replace(/%([^%]+)%/g, (_, name: string) => {
+      const key = name.toUpperCase();
+      if (!allowed.has(key) || !process.env[key]) { unknown = true; return ''; }
+      return process.env[key]!;
+    });
+    return unknown ? null : this.refForShellPath(filename);
+  }
   /** Только main передаёт путь из Shell; renderer не умеет выдавать себе новый корень. */
   async refForShellPath(filename: string): Promise<WindowsFileRef | null> {
     if (typeof filename !== 'string' || !path.isAbsolute(filename) || filename.length > 32767 || /[\u0000-\u001f]/u.test(filename)) return null;
@@ -196,10 +210,17 @@ export class WindowsFilesService {
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new WindowsFilesError('INVALID_RANGE', 'Некорректный диапазон списка.');
     const names: string[] = [];
     if (filename) {
-      const directory = await fs.opendir(filename);
-      for await (const item of directory) {
-        if (/^\.flux-write-[0-9a-f]{64}\.lock$/u.test(item.name)) continue;
-        names.push(item.name); if (names.length >= MAX_LIST) break;
+      const mtimeMs = (await fs.stat(filename)).mtimeMs;
+      const cached = this.listNames.get(filename);
+      if (cached?.mtimeMs === mtimeMs) names.push(...cached.names);
+      else {
+        const directory = await fs.opendir(filename);
+        for await (const item of directory) {
+          if (/^\.flux-(?:write-[0-9a-f]{64}\.lock|replace-[0-9a-f-]{36}\.tmp)$/u.test(item.name)) continue;
+          names.push(item.name); if (names.length >= MAX_LIST) break;
+        }
+        if (this.listNames.size >= 32) this.listNames.delete(this.listNames.keys().next().value!);
+        this.listNames.set(filename, { mtimeMs, names: [...names] });
       }
     }
     for (const draft of Object.values(this.state.data.drafts)) if (!draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId) await this.reconcileDraftParent(draft).catch(() => undefined);
@@ -210,6 +231,12 @@ export class WindowsFilesService {
     for (const item of candidates.slice(offset, offset + limit)) {
       try { validateWindowsName(item.name); entries.push(await this.entry({ rootId: ref.rootId, relativePath: joinRelative(ref.relativePath, item.name), ...(item.draftId ? { draftId: item.draftId } : {}) }, true)); }
       catch (error: any) { if (error.code !== 'ENOENT' && error.code !== 'INVALID_NAME') throw error; }
+    }
+    for (const entry of entries) { const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] }; }
+    if (this.deps.fileDetails && filename) {
+      const physical = entries.filter(entry => !entry.draftId);
+      const details = await this.deps.fileDetails(physical.map(entry => path.join(filename, entry.name))).catch(() => []);
+      physical.forEach((entry, index) => { if (details[index]) entry.hidden = details[index].hidden; });
     }
     return { root: (await this.roots()).find(root => root.id === ref.rootId), relativePath: ref.relativePath, entries, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
   }
@@ -234,7 +261,41 @@ export class WindowsFilesService {
         base64: bytes.toString('base64'), sha256: hashWindowsBytes(bytes) };
     } finally { await file.close(); }
   }
-  changed(ref: WindowsFileRef) { this.deps.onChanged?.({ rootId: ref.rootId, relativePath: path.posix.dirname(ref.relativePath) === '.' ? '' : path.posix.dirname(ref.relativePath), rescan: true }); }
+  changed(ref: WindowsFileRef) { this.listNames.clear(); this.deps.onChanged?.({ rootId: ref.rootId, relativePath: path.posix.dirname(ref.relativePath) === '.' ? '' : path.posix.dirname(ref.relativePath), rescan: true }); }
+  /** Поиск собирает результаты отдельно от list: системные атрибуты тоже читаются пакетами. */
+  async hydrateSystemAttributes(entries: WindowsFileEntry[]): Promise<void> {
+    if (!this.deps.fileDetails) return;
+    const candidates = entries.filter(entry => entry.storage === 'windows' && entry.rootId && !entry.linked);
+    const checked = await Promise.all(candidates.map(async entry => {
+      const filename = await this.filename({ rootId: entry.rootId!, relativePath: entry.relativePath }).catch(() => null);
+      return filename ? { entry, filename } : null;
+    }));
+    const physical = checked.filter((item): item is NonNullable<typeof item> => item !== null);
+    if (!physical.length) return;
+    const details = await this.deps.fileDetails(physical.map(item => item.filename)).catch(() => []);
+    physical.forEach(({ entry }, index) => { if (typeof details[index]?.hidden === 'boolean') entry.hidden = details[index].hidden; });
+  }
+  async fileHash(ref: WindowsFileRef) { const filename = await this.filename(ref); const version = await snapshotFile(filename); await this.filename(ref); return version; }
+  /** Для файловых операций временная копия уже проверена: не загружаем её целиком в память редактора. */
+  async replaceFromFile(ref: WindowsFileRef, source: string, baseSha256: string) {
+    ref = this.resolveRef(ref); const filename = await this.filename(ref);
+    return this.locked(filename, async () => {
+      const entry = await this.entry(ref); const current = await snapshotFile(filename);
+      if (current.sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл назначения изменился. Проверьте свежую версию.');
+      const temporary = path.join(path.dirname(filename), `.flux-replace-${randomUUID()}.tmp`);
+      try {
+        const copied = await snapshotFile(source, temporary);
+        await this.filename(ref);
+        if (ref.draftId) {
+          if ((await snapshotFile(filename)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился перед заменой.');
+          await fs.rename(temporary, filename);
+        } else await replaceWindowsFile(temporary, filename, baseSha256);
+        await this.preserveIdentity(filename, entry.fileId);
+        await this.state.history(entry.fileId, 'replace-copy', ref.relativePath, copied.sha256); this.changed(ref);
+        return this.entry(ref);
+      } finally { await fs.rm(temporary, { force: true }); }
+    });
+  }
   async write(ref: WindowsFileRef, base64: string, baseSha256: string) {
     if (ref?.draftId) return this.locked(`draft-operation:${ref.draftId}`, () => this.writeResolved(this.resolveRef(ref), base64, baseSha256));
     return this.writeResolved(ref, base64, baseSha256);
@@ -692,7 +753,7 @@ export class WindowsFilesService {
       }
       if (!parent.draftId) await this.filename(parent); else if (this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку для перемещения черновика.');
       await this.ensureFreeName(parent, name, draft.id);
-      if (baseSha256 && (await this.read(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
+      if (baseSha256 && (await this.fileHash(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
       const previousRef = this.resolveRef(ref); draft.parent = { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }; draft.parentFileId = parent.draftId ? undefined : await this.identity(await this.filename(parent)); draft.name = name;
       const next = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: draft.id };
       if (draft.kind === 'directory') this.rebaseDraftChildren(draft.id, next.relativePath);
@@ -705,7 +766,7 @@ export class WindowsFilesService {
       const entry = await this.entry(ref);
       if (entry.kind === 'directory') return this.moveDirectory(ref, parent, name, source, target, entry.fileId);
       if (entry.kind !== 'file') throw new WindowsFilesError('UNSUPPORTED_ENTRY', 'Этот тип файла переносится средствами Windows.');
-      const original = await this.read(ref);
+      const original = { ...await this.fileHash(ref), fileId: entry.fileId };
       if (baseSha256 && original.sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл изменился; повторите действие со свежей версией.');
       // link не заменяет существующую цель, в отличие от rename на POSIX.
       try { await fs.link(source, target.filename); }
@@ -715,8 +776,8 @@ export class WindowsFilesService {
       }
       let removedSource = false;
       try {
-        const copied = await this.read(target.ref);
-        const fresh = await this.read(ref);
+        const copied = await this.fileHash(target.ref);
+        const fresh = { ...await this.fileHash(ref), fileId: (await this.entry(ref)).fileId };
         if (copied.sha256 !== original.sha256 || fresh.sha256 !== original.sha256 || fresh.fileId !== original.fileId) throw new WindowsFilesError('CONFLICT', 'Исходный файл изменился при переносе. Он сохранён на прежнем месте.');
         await this.filename(ref); await fs.unlink(source); removedSource = true;
         await this.preserveIdentity(target.filename, original.fileId);
@@ -794,7 +855,7 @@ export class WindowsFilesService {
     ref = this.resolveRef(ref);
     if (ref.draftId) {
       const draft = this.draft(ref);
-      if (baseSha256 && (await this.read(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
+      if (baseSha256 && (await this.fileHash(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
       draft.trashed = true; await this.state.history(this.draftFileId(draft.id), 'trash-draft', ref.relativePath); this.changed(ref);
       return { trashed: true, fileId: this.draftFileId(draft.id), storage: 'flux' };
     }
@@ -802,8 +863,54 @@ export class WindowsFilesService {
     const filename = await this.filename(ref);
     return this.locked(filename, async () => {
       const entry = await this.entry(ref);
-      if (baseSha256 && (await this.read(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл изменился; сначала проверьте свежую версию.');
+      if (baseSha256 && (await this.fileHash(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл изменился; сначала проверьте свежую версию.');
       await this.deps.trashItem(filename); await this.state.history(entry.fileId, 'trash', ref.relativePath); this.changed(ref); return { trashed: true, fileId: entry.fileId, nativePath: filename };
+    });
+  }
+  /** Очистка локальной корзины не затрагивает опубликованные файлы Windows. */
+  async purgeDraft(ref: WindowsFileRef) {
+    if (!ref || typeof ref.draftId !== 'string' || !Object.hasOwn(this.state.data.drafts, ref.draftId)) throw new WindowsFilesError('DRAFT_MISSING', 'Черновик не найден.');
+    const draft = this.state.data.drafts[ref.draftId];
+    if (!draft.trashed || draft.publishedRef || draft.parent.rootId !== ref.rootId) throw new WindowsFilesError('INVALID_REQUEST', 'Удалить можно только черновик из корзины.');
+    const ids = new Set([draft.id]);
+    let previous = 0;
+    while (previous !== ids.size) {
+      previous = ids.size;
+      for (const child of Object.values(this.state.data.drafts)) if (child.parent.draftId && ids.has(child.parent.draftId) && !child.publishedRef) ids.add(child.id);
+    }
+    for (const id of ids) {
+      if (this.state.data.drafts[id].kind !== 'directory') await fs.rm(path.join(this.deps.userData, 'windows-files-drafts', `${id}.bin`), { force: true });
+      delete this.state.data.drafts[id];
+    }
+    await this.state.save(); this.changed(ref); return { deleted: ids.size };
+  }
+  /** Shift+Delete: корни и ссылки запрещены; команда не выдаёт обещание отмены. */
+  async permanentDelete(ref: WindowsFileRef, baseSha256?: string) {
+    ref = this.resolveRef(ref);
+    if (!ref.relativePath) throw new WindowsFilesError('ROOT_OPERATION', 'Подключённую папку нельзя удалить через Flux.');
+    const filename = await this.filename(ref);
+    return this.locked(ref.draftId ? `draft-operation:${ref.draftId}` : filename, async () => {
+      const before = await this.entry(ref);
+      if (baseSha256 && (await this.fileHash(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл изменился; сначала проверьте свежую версию.');
+      if (before.linked) throw new WindowsFilesError('LINK_OPERATION', 'Подключите папку назначения отдельно.');
+      // У папки-черновика нет каталога Windows: удаляем только её локальное дерево.
+      const ids = new Set<string>();
+      if (ref.draftId) {
+        ids.add(ref.draftId);
+        let previous = 0;
+        while (previous !== ids.size) {
+          previous = ids.size;
+          for (const draft of Object.values(this.state.data.drafts)) if (draft.parent.draftId && ids.has(draft.parent.draftId) && !draft.publishedRef) ids.add(draft.id);
+        }
+        for (const id of ids) {
+          const draft = this.state.data.drafts[id];
+          if (draft.kind !== 'directory') await fs.rm(path.join(this.deps.userData, 'windows-files-drafts', `${id}.bin`), { force: true });
+          delete this.state.data.drafts[id];
+        }
+      } else await fs.rm(filename, { recursive: before.kind === 'directory' });
+      await this.state.history(before.fileId, 'permanent-delete', ref.relativePath);
+      await this.state.save(); this.changed(ref);
+      return { deleted: true };
     });
   }
   async reveal(ref: WindowsFileRef) { ref = this.resolveRef(ref); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Сначала выберите «Отобразить в Windows».'); this.deps.showItemInFolder(await this.filename(ref)); return { opened: true }; }
@@ -850,7 +957,7 @@ export class WindowsFilesService {
     if (existing) { existing.owners.add(owner); return { watching: true }; }
     if (this.watchers.size >= 64) throw new WindowsFilesError('WATCH_LIMIT', 'Открыто слишком много наблюдаемых папок. Закройте лишние окна.');
     const record = { watcher: null as FSWatcher | null, timer: undefined as ReturnType<typeof setTimeout> | undefined, ref, owners: new Set([owner]) };
-    const emit = () => { if (!record.timer) record.timer = setTimeout(() => { record.timer = undefined; this.deps.onChanged?.({ ...ref, rescan: true }); }, 150); };
+    const emit = () => { this.listNames.clear(); if (!record.timer) record.timer = setTimeout(() => { record.timer = undefined; this.deps.onChanged?.({ ...ref, rescan: true }); }, 150); };
     record.watcher = watchFolder(filename, { persistent: false }, emit);
     record.watcher.on('error', emit);
     this.watchers.set(filename, record as NonNullable<ReturnType<typeof this.watchers.get>>);

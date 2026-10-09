@@ -1,8 +1,11 @@
 /** Браузерная проверка Проводника с имитацией нативного файлового моста. */
+import { mkdir } from 'node:fs/promises';
 import { EXPLORER_KEYS, type KeyAction } from '../src/components/files/explorerKeys';
 
-const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
+const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5174';
 const CHROME = process.env.FLUX_CHROME || '/usr/bin/chromium';
+const FOCUS = process.env.EXPLORER_UI_FOCUS;
+const SHOTS = process.env.EXPLORER_SHOTS || '/tmp/flux-explorer-shots';
 let passed = 0; let failed = 0;
 const ok = (name: string, value: boolean) => { if (value) { passed++; console.log('✓', name); } else { failed++; console.error('✗', name); } };
 const MENU = 'body > [data-context-menu]';
@@ -19,15 +22,32 @@ async function openCreateMenu(page: Page, section: 'В Windows' | 'В Flux') {
 async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: string, name?: string) {
   await openCreateMenu(page, section);
   await page.locator(MENU).last().getByRole('button', { name: item, exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.waitFor();
-  if (name !== undefined) await dialog.getByLabel('Имя').fill(name);
-  await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
-  await dialog.waitFor({ state: 'detached' });
+  const input = page.getByRole('textbox', { name: 'Имя' });
+  await input.waitFor();
+  if (name !== undefined) await input.fill(name);
+  await input.press('Enter');
+  await input.waitFor({ state: 'detached' });
+}
+async function changeView(page: Page, label: string) {
+  await page.getByRole('button', { name: 'Просмотреть' }).click();
+  await page.locator('[data-context-menu]').getByRole('button', { name: label, exact: true }).click();
+}
+async function openProperties(page: Page, pattern: RegExp) {
+  await page.getByRole('row', { name: pattern }).click({ button: 'right' });
+  await page.locator('[data-context-menu]').getByRole('button', { name: 'Свойства', exact: true }).click();
+}
+async function loadUntil(page: Page, count: number) {
+  const scroller = page.locator('[data-windows-explorer] main .overflow-auto');
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.waitForFunction((wanted) => document.querySelector('[data-explorer-status]')?.textContent?.includes(`Элементов: ${wanted}`), count, { timeout: 5000 }).catch(() => undefined);
+    if ((await page.locator('[data-explorer-status]').textContent())?.includes(`Элементов: ${count}`)) return;
+  }
 }
 
 (async () => {
   const { chromium } = await import('playwright-core');
+    await mkdir(SHOTS, { recursive: true });
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
@@ -35,27 +55,87 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
-    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
+    await page.locator('[data-windows-explorer]').waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
-    ok('Нативный sidebar загружает подключённые папки и список', await page.getByRole('button', { name: 'Документы', exact: true }).isVisible() && await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
-    await page.getByRole('button', { name: 'Общий доступ', exact: true }).click();
+    ok('Браузерный стенд помечен как эмуляция моста, а не проверка настоящей Windows', await page.evaluate(() => (window as any).__fixtureKind === 'emulated-windows-files-bridge'));
+    ok('Навигация показывает подключённую папку fixture', await page.getByRole('treeitem', { name: /Проекты/ }).isVisible());
+    ok('Список показывает тестовый файл на текущем месте', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    const docRow = page.getByRole('row', { name: /Инструкция\.docx/ });
+    const binRow = page.getByRole('row', { name: /Архив\.bin/ });
+    const selectedRows = () => page.locator('[role="row"][data-entry-key][aria-selected="true"]').count();
+    if (!FOCUS) {
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).click({ button: 'right' });
+    await page.locator(MENU).getByRole('button', { name: 'Показать дополнительные параметры' }).click();
+    await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).waitFor();
+    ok('Дополнительные параметры передают выбор в имитированный shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenu' && request.extended === true)));
+    await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).click();
+    ok('Выбор пункта меню передаётся имитированному shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuInvoke')));
+    await page.getByRole('button', { name: 'Новая вкладка' }).click();
+    ok('Кнопка добавляет активную вкладку Проводника', await page.getByRole('tab').count() === 2 && await page.getByRole('tab').nth(1).getAttribute('aria-selected') === 'true');
+    await page.getByRole('tab').first().click();
+    ok('Переключение вкладки возвращает её в активное состояние', await page.getByRole('tab').first().getAttribute('aria-selected') === 'true');
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
+    ok('Переключение вкладки восстанавливает её отдельное место', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
+    await page.getByRole('searchbox').fill('Отчёт');
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    ok('Поиск по имени получает потоковый результат от файлового моста', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'search' && request.query === 'Отчёт') && (window as any).__searchEvents.filter((event: any) => event.done).length > 0));
+    await page.getByRole('button', { name: 'Очистить поиск' }).click();
+    await page.locator('[data-windows-explorer]').focus(); await page.keyboard.press('Control+f');
+    ok('Ctrl+F фокусирует поиск активного окна Проводника', await page.evaluate(() => document.activeElement?.getAttribute('type') === 'search'));
+    if (await page.getByRole('button', { name: 'Очистить поиск' }).count()) await page.getByRole('button', { name: 'Очистить поиск' }).click();
+    const beforeRefresh = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'list' && request.ref.relativePath === '').length);
+    await page.locator('[data-windows-explorer]').focus(); await page.keyboard.press('F5');
+    await page.waitForFunction((before) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'list' && request.ref.relativePath === '').length > before, beforeRefresh);
+    ok('F5 обновляет открытую папку через bridge', true);
+    await page.evaluate(() => (window as any).__delaySearch(400));
+    await page.getByRole('searchbox').fill('Инструкция');
+    await page.getByRole('button', { name: 'Остановить поиск' }).waitFor();
+    await page.getByRole('button', { name: 'Остановить поиск' }).click();
+    ok('Остановка поиска посылает searchCancel, а не ждёт завершения обхода', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'searchCancel')));
+    await page.evaluate(() => (window as any).__delaySearch(0));
+    await page.getByRole('button', { name: 'Очистить поиск' }).click().catch(() => undefined);
+    await page.getByRole('button', { name: 'Просмотреть' }).click();
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Плитки', exact: true }).click();
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'viewStateSet'));
+    ok('Выбранный вид сохраняется в bridge viewState', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'viewStateSet')));
+    await changeView(page, 'Таблица');
+    await page.locator('[data-crumb]').last().dblclick();
+    const address = page.getByRole('combobox', { name: 'Адрес' });
+    await address.waitFor(); await address.fill('Проекты'); await address.press('Enter');
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    ok('Двойной щелчок по адресу включает ввод относительного пути', await page.evaluate(() => new URLSearchParams(document.querySelector('[data-testid="route"]')?.textContent?.split('?')[1] || '').get('path') === 'Проекты'));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
+    await page.getByRole('row', { name: /Заметка\.txt/ }).waitFor();
+    await page.getByRole('row', { name: /Заметка\.txt/ }).click();
+    await page.getByRole('button', { name: 'Просмотреть' }).click();
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Область предварительного просмотра' }).click();
+    await page.getByRole('complementary', { name: 'Предварительный просмотр' }).waitFor();
+    await page.getByText('x', { exact: true }).waitFor();
+    ok('Область предварительного просмотра показывает содержимое тестового TXT bridge-ответа', await page.getByRole('complementary', { name: 'Предварительный просмотр' }).isVisible());
+    await page.getByRole('button', { name: 'Просмотреть' }).click();
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Область сведений' }).click();
+    ok('Область сведений показывает данные выбранного файла', await page.getByRole('complementary', { name: 'Сведения' }).getByRole('heading', { name: 'Заметка.txt', exact: true }).isVisible());
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
+    await page.waitForFunction(() => document.querySelector('[data-testid="route"]')?.textContent === '/explorer?root=desktop-id&path=');
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
+    await page.evaluate(() => (window as any).__go('/explorer?view=shared'));
     await page.getByRole('heading', { name: 'Общий доступ' }).waitFor();
     ok('Общий доступ открывается внутренней папкой того же Проводника', await page.getByText('Папка «Общий доступ» пуста').isVisible() && (await page.getByTestId('route').textContent())?.includes('view=shared'));
     await page.getByRole('button', { name: 'Проводник' }).click();
-    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
     ok('Возврат из общего доступа сохраняет текущую папку Windows', (await page.getByTestId('route').textContent())?.includes('root=desktop-id') === true);
     await page.evaluate(() => (window as any).__go('/windows-files?root=desktop-id&path='));
-    await page.getByRole('heading', { name: 'Проводник' }).waitFor();
+    await page.locator('[data-windows-explorer]').waitFor();
     ok('Сохранённый адрес «Файлы Windows» открывает ту же программу', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     await page.getByRole('row', { name: /Проекты/ }).locator('img[src^="data:image/png;"]').waitFor();
-    ok('Папка использует PNG из нативного моста', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
+    ok('Папка использует PNG, возвращённый тестовым мостом', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
 
     await page.getByRole('row', { name: /Проекты/ }).dblclick();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
-    ok('Двойное нажатие входит в папку и обновляет путь', (await page.getByTestId('route').textContent())?.includes('path=Проекты') || await page.getByRole('button', { name: 'Проекты', exact: true }).isVisible());
+    ok('Двойное нажатие входит в папку и обновляет путь', (await page.getByTestId('route').textContent())?.includes('path=Проекты') || await page.getByRole('treeitem', { name: 'Проекты' }).isVisible());
     await page.getByLabel('Путь').getByRole('button', { name: 'Рабочий стол', exact: true }).click();
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     ok('Повторный переход в папку сохраняет предыдущий шаг истории', await page.getByRole('button', { name: 'Назад' }).isEnabled());
@@ -69,34 +149,44 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
       await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
     }
     ok('Быстрые повторные переходы не теряют историю', await page.getByRole('button', { name: 'Вперёд' }).isEnabled());
-    await page.getByRole('textbox', { name: 'Поиск по имени' }).fill('Отчёт');
+    const reportSearchesBefore = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'search' && request.query === 'Отчёт').length);
+    await page.getByRole('searchbox').fill('Отчёт');
+    await page.waitForFunction((previousCount) => {
+      const requests = (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'search' && request.query === 'Отчёт');
+      const active = requests.at(-1);
+      return requests.length > previousCount && !!active && (window as any).__searchEvents.some((event: any) => event.requestId === active.requestId && event.done);
+    }, reportSearchesBefore);
+    await page.waitForFunction(() => {
+      const rows = [...document.querySelectorAll('[role="row"][data-entry-key]')].map((row) => row.textContent || '');
+      return rows.filter((text) => /Отчёт\.xlsx/u.test(text)).length === 1 && !rows.some((text) => /Архив/u.test(text));
+    });
     ok('Поиск по имени оставляет совпадение', await page.getByRole('row', { name: /Отчёт\.xlsx/ }).count() === 1 && await page.getByRole('row', { name: /Архив/ }).count() === 0);
 
-    await page.getByRole('button', { name: 'Свойства Отчёт.xlsx' }).click();
+    await openProperties(page, /Отчёт\.xlsx/);
     await page.getByRole('dialog', { name: /Свойства/ }).waitFor();
     ok('Свойства показывают проекты, теги и историю', await page.getByText('Проект 1 · текущий').isVisible() && await page.getByText('AHU-01', { exact: true }).count() >= 1 && await page.getByText(/История файла/).isVisible());
     await page.getByRole('button', { name: 'Сохранить свойства' }).click();
     ok('Свойства отправляются только в windowsFiles bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'setMetadata')));
 
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
-    await page.getByRole('textbox', { name: 'Поиск по имени' }).fill('');
+    await page.getByRole('searchbox').fill('');
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     await page.evaluate(() => { (window as any).__delayMetadataPath('Инструкция.docx'); (window as any).__failMetadataPath('Инструкция.docx'); });
-    await page.getByRole('button', { name: 'Свойства Инструкция.docx' }).click();
+    await openProperties(page, /Инструкция\.docx/);
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
-    await page.getByRole('button', { name: 'Свойства Архив.bin' }).click();
+    await openProperties(page, /Архив\.bin/);
     await page.getByRole('dialog', { name: /Свойства · Архив\.bin/ }).waitFor();
     await page.waitForTimeout(400);
     ok('Поздний сбой закрытой карточки не портит новую карточку', await page.getByLabel('Ревизия').inputValue() === 'Архив.bin' && await page.getByRole('alert').count() === 0);
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Проекты', exact: true }).click();
+    await page.getByRole('treeitem', { name: 'Проекты' }).click();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
     await page.getByRole('button', { name: 'Назад' }).click();
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
     ok('Кнопка «Назад» возвращает к исходной папке', (await page.getByTestId('route').textContent())?.includes('path=') === true && await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
     await page.evaluate(() => (window as any).__delayListPath('Проекты'));
-    await page.getByRole('button', { name: 'Проекты', exact: true }).click();
+    await page.getByRole('treeitem', { name: 'Проекты' }).click();
     await page.getByLabel('Путь').getByRole('button', { name: 'Проекты', exact: true }).waitFor();
     await page.getByLabel('Путь').getByRole('button', { name: 'Рабочий стол', exact: true }).click();
     await page.waitForTimeout(700);
@@ -108,7 +198,7 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Проект 1 · текущий').isVisible());
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-    ok('Шапка Проводника без кнопок создания: создание только правой кнопкой', await page.getByRole('banner').getByRole('button', { name: /Создать|Новая папка/ }).count() === 0);
+    ok('Шапка Проводника без кнопок создания: создание только правой кнопкой', await page.locator('[data-explorer-commands]').getByRole('button', { name: /Создать|Новая папка/ }).count() === 0);
     await openCreateMenu(page, 'В Windows');
     ok('«Создать ▸»: раздел «В Windows» с пятью пунктами', JSON.stringify(await page.locator(MENU).last().locator('button').allInnerTexts()) === JSON.stringify(KINDS));
     await page.getByRole('button', { name: 'В Flux', exact: true }).hover();
@@ -121,6 +211,10 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     ok('Папка Windows: mkdir с родителем «Проекты» и введённым именем', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'mkdir' && request.name === 'Чертежи' && request.parent.relativePath === 'Проекты')));
     await page.getByRole('row', { name: /Чертежи/ }).waitFor();
     ok('Созданная папка Windows появляется в списке и выделена', await page.getByRole('row', { name: /Чертежи/ }).getAttribute('aria-selected') === 'true');
+    await page.getByRole('button', { name: 'Дополнительно' }).click();
+    await page.locator('[data-context-menu]').getByRole('button', { name: /Отменить: Тестовая операция/ }).click();
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'undo'));
+    ok('Команда отмены обращается к системному undo bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'undo')));
     const draftsBefore = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'publishDraft').length);
     await createVia(page, 'В Flux', 'Документ Word');
     ok('Документ Flux: createDraft с именем по умолчанию, без публикации', await page.evaluate((before) => {
@@ -128,14 +222,17 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
       return calls.some((request: any) => request.action === 'createDraft' && request.name === 'Новый документ.docx' && request.parent.relativePath === 'Проекты') && calls.filter((request: any) => request.action === 'publishDraft').length === before;
     }, draftsBefore));
     await page.getByRole('row', { name: /Новый документ\.docx/ }).waitFor();
-    await page.getByRole('row', { name: /Новый документ\.docx/ }).click();
-    await page.getByRole('button', { name: /Опубликовать/ }).click();
+    await page.getByRole('row', { name: /Новый документ\.docx/ }).click({ button: 'right' });
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Опубликовать в Windows' }).click();
+    await page.getByRole('dialog').waitFor();
+    await page.getByRole('button', { name: /Опубликовать/ }).last().click();
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
     ok('Публикация черновика запускается отдельно', await page.evaluate((before) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'publishDraft').length > before, draftsBefore));
 
-    await page.getByRole('button', { name: 'Этот компьютер', exact: true }).click();
-    await page.getByRole('button', { name: /Локальный диск \(C:\)/ }).waitFor();
+    await page.getByRole('treeitem', { name: 'Этот компьютер' }).click();
+    await page.getByRole('treeitem', { name: /Локальный диск \(C:\)/ }).waitFor();
     ok('Этот компьютер показывает подключённые тома из нативного моста', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'volumes')));
-    await page.getByRole('button', { name: /Локальный диск \(C:\)/ }).click();
+    await page.getByRole('treeitem', { name: /Локальный диск \(C:\)/ }).click();
     await page.getByRole('row', { name: /Fluxdraftfolders/ }).waitFor();
     ok('Том открывается и показывает папку Fluxdraftfolders', await page.getByRole('row', { name: /Fluxdraftfolders/ }).isVisible());
     await page.getByRole('row', { name: /Fluxdraftfolders/ }).dblclick();
@@ -162,6 +259,8 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     await draftFolder.waitFor();
     await draftFolder.click({ button: 'right' });
     await page.locator('[data-context-menu]').getByRole('button', { name: 'Опубликовать в Windows' }).click();
+    await page.getByRole('dialog', { name: 'Публикация черновика' }).waitFor();
+    await page.getByRole('button', { name: 'Опубликовать доступные' }).click();
     await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'publishDraftTree'));
     ok('Публикация папки с вложенным документом отправляет publishDraftTree с draft ref', await page.evaluate(() => {
       const request = (window as any).__windowsFilesCalls.find((item: any) => item.action === 'publishDraftTree');
@@ -209,23 +308,29 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
 
     await page.evaluate(() => document.documentElement.classList.remove('dark'));
-
-    await page.screenshot({ path: '/tmp/flux-explorer-light.png', fullPage: true });
+    ok('Светлая тема действительно установлена на documentElement', await page.evaluate(() => !document.documentElement.classList.contains('dark')));
+    await page.locator('[data-windows-explorer]').screenshot({ path: `${SHOTS}/windows-explorer-1280-light.png` });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
-    await page.screenshot({ path: '/tmp/flux-explorer-dark.png', fullPage: true });
+    ok('Тёмная тема действительно установлена на documentElement', await page.evaluate(() => document.documentElement.classList.contains('dark')));
+    await page.locator('[data-windows-explorer]').screenshot({ path: `${SHOTS}/windows-explorer-1280-dark.png` });
     await page.evaluate(() => document.documentElement.classList.remove('dark'));
-    ok('Снимки Проводника сохранены в светлой и тёмной теме', await page.getByRole('heading', { name: 'Проводник' }).isVisible());
+    await page.setViewportSize({ width: 1024, height: 820 });
+    for (const dark of [false, true]) {
+      await page.evaluate((enabled) => document.documentElement.classList.toggle('dark', enabled), dark);
+      ok(`Тема ${dark ? 'тёмная' : 'светлая'} реально установлена для кадра 1024px`, await page.evaluate((enabled) => document.documentElement.classList.contains('dark') === enabled, dark));
+      await page.locator('[data-windows-explorer]').screenshot({ path: `${SHOTS}/windows-explorer-1024-${dark ? 'dark' : 'light'}.png` });
+    }
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    await page.setViewportSize({ width: 1280, height: 820 });
+    ok('Снимки Проводника сохранены в светлой и тёмной теме при 1280 и 1024px', await page.locator('[data-windows-explorer]').isVisible());
 
-    await page.getByRole('button', { name: 'Плитки' }).click();
+    await changeView(page, 'Плитки');
     ok('Переключение на плитки работает', await page.getByRole('button', { name: /Отчёт\.xlsx/ }).count() === 1);
-    await page.getByRole('button', { name: 'Список' }).click();
+    await changeView(page, 'Список');
 
     // --- Выделение нескольких объектов
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
-    const docRow = page.getByRole('row', { name: /Инструкция\.docx/ });
-    const binRow = page.getByRole('row', { name: /Архив\.bin/ });
-    const selectedRows = () => page.locator('tbody tr[aria-selected="true"]').count();
     await docRow.click();
     ok('Щелчок выделяет один объект', await selectedRows() === 1 && await docRow.getAttribute('aria-selected') === 'true');
     await binRow.click({ modifiers: ['Control'] });
@@ -235,7 +340,7 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     await docRow.click();
     await binRow.click({ modifiers: ['Shift'] });
     ok('Shift+щелчок выделяет диапазон от первого щелчка', await selectedRows() === 2);
-    ok('В строке состояния видно число выбранных', await page.getByText(/выбрано 2/).isVisible());
+    ok('В строке состояния видно число выбранных', await page.getByText(/Выбрано:\s*2/u).isVisible());
     await docRow.click();
     ok('Обычный щелчок снова оставляет один объект', await selectedRows() === 1);
 
@@ -249,22 +354,37 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     // --- Страницы и прокрутка: обновление не теряет подгруженное и не сбрасывает прокрутку
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Большая'));
     await page.getByRole('row', { name: /Файл 001/ }).waitFor();
-    ok('Большая папка открывается первой страницей', await page.locator('tbody tr').count() === 200);
-    await page.getByRole('button', { name: 'Показать ещё' }).click();
+    ok('Большая папка открывается первой страницей', (await page.locator('[data-explorer-status]').textContent())?.includes('Элементов: 200+') === true);
+    await loadUntil(page, 400);
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = 299 * 34; });
     await page.getByRole('row', { name: /Файл 300/ }).waitFor();
-    await page.getByRole('button', { name: 'Показать ещё' }).click();
+    await loadUntil(page, 450);
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await page.getByRole('row', { name: /Файл 450/ }).waitFor();
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = 150 * 34; });
+    await page.getByRole('row', { name: /Файл 150/ }).waitFor();
     await page.getByRole('row', { name: /Файл 150/ }).click();
-    await page.evaluate(() => { document.querySelector<HTMLElement>('tbody')!.closest<HTMLElement>('.overflow-auto')!.scrollTop = 2400; });
-    const scrollBefore = await page.evaluate(() => document.querySelector<HTMLElement>('tbody')!.closest<HTMLElement>('.overflow-auto')!.scrollTop);
+    await page.evaluate(() => { document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto')!.scrollTop = 2400; });
+    const scrollBefore = await page.evaluate(() => document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto')!.scrollTop);
     const listsBefore = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'list' && request.ref.relativePath === 'Большая' && !request.offset).length);
     await page.evaluate(() => (window as any).__emitChanged('desktop-id', 'Большая/Новый.txt'));
     await page.waitForFunction((before) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'list' && request.ref.relativePath === 'Большая' && !request.offset).length > before, listsBefore);
     await page.waitForTimeout(300);
-    const scrollAfter = await page.evaluate(() => document.querySelector<HTMLElement>('tbody')!.closest<HTMLElement>('.overflow-auto')!.scrollTop);
-    ok('Обновление перечитывает уже показанные страницы, а не только первую', await page.locator('tbody tr').count() === 450);
+    const scrollAfter = await page.evaluate(() => document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto')!.scrollTop);
+    ok('Обновление перечитывает уже показанные страницы, а не только первую', (await page.locator('[data-explorer-status]').textContent())?.includes('Элементов: 450') === true);
     ok('Обновление не сбрасывает прокрутку', scrollBefore > 1000 && Math.abs(scrollAfter - scrollBefore) <= 2);
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = 149 * 34; });
+    await page.getByRole('row', { name: /Файл 150/ }).waitFor();
     ok('Выделение в большой папке переживает обновление', await page.getByRole('row', { name: /Файл 150/ }).getAttribute('aria-selected') === 'true' && await selectedRows() === 1);
+    await page.keyboard.press('Home');
+    await page.waitForFunction(() => document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto')!.scrollTop < 34);
+    ok('Home раскрывает выбранную первую строку списка', await page.getByRole('row', { name: /Файл 001/ }).getAttribute('aria-selected') === 'true');
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = 2400; });
+    await page.keyboard.press('Home');
+    await page.waitForFunction(() => document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto')!.scrollTop < 34);
+    ok('Повторный Home прокручивает к тому же выбранному объекту после ручной прокрутки', await page.getByRole('row', { name: /Файл 001/ }).getAttribute('aria-selected') === 'true' && await selectedRows() === 1);
+    await page.locator('[data-windows-explorer] main .overflow-auto').evaluate((element) => { element.scrollTop = 0; });
+    await page.getByRole('row', { name: /Файл 003/ }).waitFor();
     await page.getByRole('row', { name: /Файл 003/ }).click();
     await page.getByRole('row', { name: /Файл 007/ }).click({ modifiers: ['Shift'] });
     ok('Shift+щелчок берёт все промежуточные объекты', await selectedRows() === 5);
@@ -273,6 +393,7 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     ok('Смена папки сбрасывает выделение', await selectedRows() === 0);
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    }
 
     // --- Горячие клавиши: таблица explorerKeys читается здесь же, клавиша без сценария роняет набор
     const go = (path: string) => page.evaluate((target) => (window as any).__go(`/explorer?root=desktop-id&path=${target}`), path);
@@ -280,16 +401,29 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     const callsOf = (action: string) => page.evaluate((name) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === name), action);
     /** Начать с чистого списка: другая папка сбрасывает выделение, потом нужная. */
     const fresh = async (path: string, wanted: RegExp) => {
-      await go(path === 'Проекты' ? 'Большая' : 'Проекты');
+      const waitForPath = async (target: string) => page.waitForFunction((expected) => {
+        const route = document.querySelector('[data-testid="route"]')?.textContent || '';
+        return new URLSearchParams(route.split('?')[1] || '').get('path') === expected;
+      }, target);
+      const scrollToStart = async () => {
+        const scroller = page.locator('[data-windows-explorer] main .overflow-auto');
+        await scroller.evaluate((element) => { element.scrollTop = 0; element.scrollLeft = 0; });
+        await page.waitForFunction(() => {
+          const element = document.querySelector<HTMLElement>('[data-windows-explorer] main .overflow-auto');
+          return element?.scrollTop === 0 && element.scrollLeft === 0;
+        });
+      };
+      const intermediate = path === 'Проекты' ? 'Большая' : 'Проекты';
+      await go(intermediate); await waitForPath(intermediate); await scrollToStart();
       // Дожидаемся другой папки: два перехода подряд без паузы сливаются в один, и выбор не сбрасывается
       await page.getByRole('row', { name: path === 'Проекты' ? /Файл 001/ : /Отчёт\.xlsx/ }).waitFor();
-      await go(path);
+      await go(path); await waitForPath(path); await scrollToStart();
       await page.getByRole('row', { name: wanted }).waitFor();
     };
-    /** Фокус в списке без выделения: щелчок по пустому месту. */
-    const focusList = () => page.locator('main').click({ position: { x: 600, y: 520 } });
+    /** Пустая папка не создаёт виртуализированный список: клавиши принимает корень окна. */
+    const focusList = () => page.locator('[data-windows-explorer]').focus();
     const row = (name: RegExp) => page.getByRole('row', { name });
-    const selectedAt = async () => page.locator('tbody tr').evaluateAll((items) => items.map((item, index) => item.getAttribute('aria-selected') === 'true' ? index : -1).filter((index) => index >= 0));
+    const selectedAt = async () => page.locator('[role="row"][data-entry-key]').evaluateAll((items) => items.map((item, index) => item.getAttribute('aria-selected') === 'true' ? index : -1).filter((index) => index >= 0));
     const SCENARIOS: Record<KeyAction, () => Promise<boolean>> = {
       open: async () => {
         await fresh('', /Инструкция\.docx/); await docRow.click(); await page.keyboard.press('Enter');
@@ -314,7 +448,7 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         const input = page.getByLabel('Новое имя'); await input.waitFor();
         const before = await input.inputValue();
         await input.fill('Архив2.bin'); await input.press('Enter');
-        await page.getByRole('dialog', { name: 'Переименовать' }).waitFor({ state: 'detached' });
+        await input.waitFor({ state: 'detached' });
         return before === 'Архив.bin' && (await callsOf('rename')).some((request: any) => request.name === 'Архив2.bin' && request.ref.relativePath === 'Архив.bin');
       },
       trash: async () => {
@@ -330,7 +464,12 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         await fresh('Большая', /Файл 010/);
         await row(/Файл 010/).click(); await row(/Файл 011/).click({ modifiers: ['Control'] });
         await page.keyboard.press('Control+c');
-        return await page.getByText('Скопировано объектов: 2').isVisible();
+        await go('Проекты'); await row(/Отчёт\.xlsx/).waitFor(); await focusList();
+        const before = (await callsOf('copy')).length;
+        await page.keyboard.press('Control+v');
+        await page.waitForFunction((count) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'copy').length >= count + 2, before);
+        const copies = (await callsOf('copy')).slice(before);
+        return copies.length === 2 && copies.every((request: any) => request.parent.relativePath === 'Проекты' && /^Большая\/Файл 01[01]/.test(request.ref.relativePath));
       },
       paste: async () => {
         // Два файла копируются и вставляются в другую папку; затем один файл — в ту же, со свободным именем
@@ -338,9 +477,10 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         await row(/Файл 012/).click(); await row(/Файл 013/).click({ modifiers: ['Control'] });
         await page.keyboard.press('Control+c');
         await go('Проекты'); await row(/Отчёт\.xlsx/).waitFor(); await focusList();
+        const before = (await callsOf('copy')).length;
         await page.keyboard.press('Control+v');
         await row(/Файл 013/).waitFor();
-        const copies = (await callsOf('copy')).filter((request: any) => request.parent.relativePath === 'Проекты');
+        const copies = (await callsOf('copy')).slice(before).filter((request: any) => request.parent.relativePath === 'Проекты');
         const two = copies.length === 2 && copies.every((request: any) => /^Большая\/Файл 01[23]/.test(request.ref.relativePath));
         await fresh('Большая', /Файл 030/);
         await row(/Файл 030/).click(); await page.keyboard.press('Control+c'); await page.keyboard.press('Control+v');
@@ -352,8 +492,9 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         await fresh('Большая', /Файл 020/);
         await row(/Файл 020/).click(); await row(/Файл 021/).click({ modifiers: ['Control'] });
         await page.keyboard.press('Control+x');
-        const shown = await page.getByText('Вырезано объектов: 2').isVisible();
-        await go(encodeURIComponent('Проекты/Архив')); await page.getByText('Папка пуста').waitFor(); await focusList();
+        await page.waitForFunction(() => document.querySelector<HTMLButtonElement>('button[aria-label="Вставить"]')?.disabled === false);
+        const shown = await page.getByRole('button', { name: 'Вставить' }).isEnabled();
+        await go(encodeURIComponent('Проекты/Архив')); await page.getByText('Эта папка пуста.').waitFor(); await focusList();
         await page.keyboard.press('Control+v');
         await row(/Файл 021/).waitFor();
         const moves = (await callsOf('move')).filter((request: any) => request.parent.relativePath === 'Проекты/Архив');
@@ -361,11 +502,11 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
       },
       selectAll: async () => {
         await fresh('', /Инструкция\.docx/); await docRow.click(); await page.keyboard.press('Control+a');
-        const total = await page.locator('tbody tr').count();
+        const total = await page.locator('[role="row"][data-entry-key]').count();
         return total > 1 && await selectedRows() === total;
       },
       create: async () => {
-        await fresh('Проекты', /Отчёт\.xlsx/); await focusList();
+        await fresh('Проекты', /Отчёт\.xlsx/); await page.locator('[data-windows-explorer]').focus();
         await page.keyboard.press('Control+Shift+N');
         // Меню, раскрытое сразу, кладётся в страницу от внутреннего к внешнему: «последнего» по порядку тут нет
         await page.getByRole('button', { name: 'Папку', exact: true }).waitFor();
@@ -373,15 +514,15 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         const onFolder = await page.evaluate(() => document.activeElement?.textContent === 'Папку');
         const bothPlaces = await page.getByRole('button', { name: 'В Flux', exact: true }).isVisible();
         await page.keyboard.press('Enter');
-        const dialog = page.getByRole('dialog', { name: 'Новая папка Windows' }); await dialog.waitFor();
-        const named = await page.getByLabel('Имя').inputValue() === 'Новая папка';
-        await page.getByLabel('Имя').press('Escape');
-        await dialog.waitFor({ state: 'detached' });
+        const nameInput = page.getByRole('textbox', { name: 'Имя' }); await nameInput.waitFor();
+        const named = await nameInput.inputValue() === 'Новая папка';
+        await nameInput.press('Escape');
+        await nameInput.waitFor({ state: 'detached' });
         return onFolder && bothPlaces && named;
       },
       back: async () => {
         await fresh('', /Инструкция\.docx/);
-        await page.getByRole('button', { name: 'Проекты', exact: true }).click(); await row(/Отчёт\.xlsx/).waitFor();
+        await page.getByRole('treeitem', { name: 'Проекты' }).click(); await row(/Отчёт\.xlsx/).waitFor();
         await page.keyboard.press('Backspace'); await row(/Инструкция\.docx/).waitFor();
         return (await route()).endsWith('path=');
       },
@@ -402,39 +543,61 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
         return (await selectedAt()).join() === '0';
       },
       extendDown: async () => {
-        await fresh('', /Инструкция\.docx/); await page.locator('tbody tr').nth(0).click({ position: { x: 4, y: 8 } });
+        await fresh('', /Инструкция\.docx/); await page.locator('[role="row"][data-entry-key]').nth(0).click({ position: { x: 4, y: 8 } });
         await page.keyboard.press('Shift+ArrowDown'); await page.keyboard.press('Shift+ArrowDown');
         return (await selectedAt()).join() === '0,1,2';
       },
       extendUp: async () => {
-        await fresh('', /Инструкция\.docx/); await page.locator('tbody tr').nth(0).click({ position: { x: 4, y: 8 } });
+        await fresh('', /Инструкция\.docx/); await page.locator('[role="row"][data-entry-key]').nth(0).click({ position: { x: 4, y: 8 } });
         await page.keyboard.press('Shift+ArrowDown'); await page.keyboard.press('Shift+ArrowDown'); await page.keyboard.press('Shift+ArrowUp');
         return (await selectedAt()).join() === '0,1';
       },
       right: async () => {
-        await fresh('', /Инструкция\.docx/); await page.getByRole('button', { name: 'Плитки' }).click(); await focusList();
-        const tiles = page.locator('[data-entries-grid] button[data-entry-key]');
+        await fresh('', /Инструкция\.docx/); await changeView(page, 'Плитки'); await focusList();
+        const tiles = page.locator('button[data-entry-key]');
         await page.keyboard.press('ArrowRight'); const first = await tiles.nth(0).getAttribute('aria-selected');
         await page.keyboard.press('ArrowRight'); const second = await tiles.nth(1).getAttribute('aria-selected');
         return first === 'true' && second === 'true' && await tiles.nth(0).getAttribute('aria-selected') === 'false';
       },
       left: async () => {
-        const tiles = page.locator('[data-entries-grid] button[data-entry-key]');
+        const tiles = page.locator('button[data-entry-key]');
         await tiles.nth(1).click(); await page.keyboard.press('ArrowLeft');
         const moved = await tiles.nth(0).getAttribute('aria-selected') === 'true' && await tiles.nth(1).getAttribute('aria-selected') === 'false';
-        await page.getByRole('button', { name: 'Список' }).click();
+        await changeView(page, 'Список');
         return moved;
       },
     };
     for (const binding of EXPLORER_KEYS) {
+      if (FOCUS && binding.action !== FOCUS) continue;
       const scenario = SCENARIOS[binding.action];
       ok(`Для клавиши ${binding.label} есть сценарий проверки`, !!scenario);
       if (!scenario) continue;
       try { ok(`Клавиша ${binding.label}: ${binding.does}`, await scenario()); }
-      catch (cause: any) { console.error(String(cause?.message || cause).split('\n')[0]); ok(`Клавиша ${binding.label}: ${binding.does}`, false); }
+      catch (cause: any) { console.error(String(cause?.message || cause).split('\n').slice(0, 10).join('\n')); ok(`Клавиша ${binding.label}: ${binding.does}`, false); }
     }
     ok('Таблица клавиш не содержит повторов сочетаний', new Set(EXPLORER_KEYS.map((binding) => binding.label)).size === EXPLORER_KEYS.length);
-    await go('Проекты');
+    if (!FOCUS) {
+    await fresh('Большая', /Файл 015/);
+    await row(/Файл 015/).click(); await page.keyboard.press('Control+c');
+    await row(/Файл 016/).click(); await row(/Файл 017/).click({ modifiers: ['Control'] });
+    const russianCopyPrevented = await page.locator('[data-windows-explorer]').evaluate((root) => {
+      const event = new KeyboardEvent('keydown', { key: 'с', code: 'KeyC', ctrlKey: true, bubbles: true, cancelable: true });
+      root.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    await go('Проекты'); await row(/Отчёт\.xlsx/).waitFor(); await focusList();
+    const beforeRussianPaste = (await callsOf('copy')).length;
+    await page.keyboard.press('Control+v');
+    await page.waitForFunction((count) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'copy').length >= count + 2, beforeRussianPaste);
+    const russianCopies = (await callsOf('copy')).slice(beforeRussianPaste);
+    ok('Русская клавиша Ctrl+С копирует выбранные файлы по physical KeyC', russianCopyPrevented && russianCopies.length === 2 && russianCopies.every((request: any) => request.parent.relativePath === 'Проекты' && /^Большая\/Файл 01[67]/.test(request.ref.relativePath)));
+
+    await fresh('Проекты', /Отчёт\.xlsx/);
+    await row(/Отчёт\.xlsx/).dragTo(row(/Архив/));
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'move' && request.ref.relativePath === 'Проекты/Отчёт.xlsx' && request.parent.relativePath === 'Проекты/Архив'));
+    ok('Перетаскивание файла в папку отправляет ровно одну команду перемещения', (await callsOf('move')).filter((request: any) => request.ref.relativePath === 'Проекты/Отчёт.xlsx' && request.parent.relativePath === 'Проекты/Архив').length === 1);
+    // Перетаскивание переместило файл в Архив: контекстное меню проверяем на результате операции.
+    await go(encodeURIComponent('Проекты/Архив'));
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
     await page.setViewportSize({ width: 1440, height: 820 });
     await page.evaluate(() => { const windowFrame = document.querySelector<HTMLElement>('#mount > div')!; Object.assign(windowFrame.style, { inset: 'auto', width: '800px', height: '500px', left: '600px', top: '80px', transform: 'translate(24px, 20px)', overflow: 'hidden' }); });
@@ -461,14 +624,14 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     await desktopArea.waitFor();
     await page.getByRole('button', { name: 'Системная папка' }).waitFor();
     const desktopSettled = await page.waitForFunction(() => !document.querySelector('section[aria-label="Рабочий стол Windows"]')?.textContent?.includes('Читаем Рабочий стол Windows'), undefined, { timeout: 3000 }).then(() => true).catch(() => false);
-    ok('Рабочий стол завершает полный запрос списка и убирает индикатор загрузки', desktopSettled);
+    ok('Эмулированный рабочий стол скрывает индикатор после ответа тестового bridge', desktopSettled);
     await page.waitForTimeout(100);
     const desktopRect = await desktopArea.boundingBox();
     if (!desktopRect) throw new Error('Не нашлась область рабочего стола для проверки меню');
     const desktopPoint = { x: desktopRect.x + desktopRect.width - 8, y: desktopRect.y + desktopRect.height - 8 };
     const shellIcon = page.getByRole('button', { name: 'Системная папка' });
     const shellBox = await shellIcon.boundingBox();
-    ok('Системный значок использует глобальные DIP на мониторе с отрицательным началом', !!shellBox && Math.abs(shellBox.x - 80) < 5 && Math.abs(shellBox.y - 100) < 5);
+    ok('Стенд размещает ответные значки по координатам тестового снимка', !!shellBox && Math.abs(shellBox.x - 80) < 5 && Math.abs(shellBox.y - 100) < 5);
     await page.screenshot({ path: '/tmp/flux-desktop-light.png' });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await page.screenshot({ path: '/tmp/flux-desktop-dark.png' });
@@ -500,6 +663,7 @@ async function createVia(page: Page, section: 'В Windows' | 'В Flux', item: st
     ok('Нет загрузки файловых байтов или метаданных на сервер компании', await page.evaluate(() => (window as any).__windowsFilesCalls.every((request: any) => !['upload', 'projectWrite'].includes(request.action))));
     ok('Нет ошибок браузера', errors.length === 0);
     if (errors.length) console.error(errors.slice(0, 5));
+    }
   } finally { await browser.close(); }
   console.log(`${passed} проверок пройдено, ${failed} провалено`);
   process.exit(failed ? 1 : 0);

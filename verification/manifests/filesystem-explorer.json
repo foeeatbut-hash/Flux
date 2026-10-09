@@ -1,0 +1,457 @@
+{
+  "version": 1,
+  "group": "filesystem-explorer",
+  "programs": [],
+  "suites": [
+    {
+      "id": "filesystem-explorer-ui",
+      "path": "scripts/test-windows-explorer-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-contents-ui",
+      "path": "scripts/test-explorer-contents-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-operation-ui",
+      "path": "scripts/test-explorer-operation-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-native-operations",
+      "path": "scripts/test-explorer-native-operations.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "7zip-bin-full",
+        "temporary-filesystem"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-windows-native",
+      "path": "scripts/test-windows-files-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-operation-logic",
+      "path": "scripts/test-explorer-operations.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-view-model",
+      "path": "scripts/test-explorer-view-model.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    }
+  ],
+  "actions": [
+    {
+      "id": "filesystem-explorer.navigate-tabs-search",
+      "program": "explorer",
+      "label": "Навигация, вкладки и поиск в текущем месте",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/components/files/AddressBar.tsx",
+        "src/components/files/useExplorerSearch.ts",
+        "src/components/files/useExplorerTabs.ts"
+      ],
+      "triggers": [
+        "button",
+        "keyboard",
+        "searchbox",
+        "tab"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Вкладки сохраняют своё место; поиск принимает потоковые результаты и прекращается по команде пользователя"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Навигация, новые вкладки, поиск по имени и отмена потока проверяются на эмулируемом файловом bridge"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть несколько локальных и сетевых папок во вкладках на Windows; выполнить и остановить поиск",
+          "expected": [
+            "Адрес каждой вкладки сохраняется; результаты и отмена соответствуют реальному содержимому"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.view-selection-operations",
+      "program": "explorer",
+      "label": "Виды папки, выделение и файловые операции",
+      "sources": [
+        "src/components/files/ContentsPane.tsx",
+        "src/components/files/viewModel.ts",
+        "src/components/files/useSelection.ts",
+        "src/components/files/fileOps.ts"
+      ],
+      "triggers": [
+        "button",
+        "keyboard",
+        "context-menu",
+        "drag-drop"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Вид и порядок столбцов сохраняются; клавиши и выделение управляют объектами списка; операции отправляют соответствующие команды bridge"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Fixture проверяет восемь видов папки, сортировку, группировку, столбцы, предпросмотр, панель сведений и lazy metadata автора",
+            "Сценарии проверяют выделение, горячие клавиши, создание, переименование, удаление, отмену, публикацию, перетаскивание и меню дополнительных параметров на эмулируемом bridge"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить операции с тестовыми файлами в отдельной папке установленного приложения Flux",
+          "expected": [
+            "Файлы и каталоги изменены ожидаемым образом; данные вне тестовой папки не затронуты"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.properties-deep-links",
+      "program": "explorer",
+      "label": "Свойства и глубокие ссылки",
+      "sources": [
+        "src/components/explorer/WindowsExplorer.tsx",
+        "src/components/explorer/WindowsPropertiesDialog.tsx",
+        "filesystem/contracts.ts"
+      ],
+      "triggers": [
+        "context-menu",
+        "keyboard",
+        "route"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Свойства показывают файловые метаданные; ссылка на свойства загружает родительское место и выбирает нужный объект"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-ui",
+          "layer": "component",
+          "claims": [
+            "Стенд проверяет показ метаданных и ссылку на свойства на синтетических объектах"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть свойства реального файла и ссылку на файл в отдельном окне",
+          "expected": [
+            "Имя, расположение и свойства относятся к выбранному файлу"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.ui-content-layout-and-columns",
+      "program": "explorer",
+      "label": "Виды содержимого, столбцы и системные свойства",
+      "sources": [
+        "src/components/files/ContentsPane.tsx",
+        "src/components/files/viewModel.ts",
+        "src/components/files/CommandBar.tsx",
+        "filesystem/contracts.ts"
+      ],
+      "triggers": [
+        "button",
+        "context-menu",
+        "keyboard"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Восемь видов отображают элементы в заданном порядке; настраиваемые столбцы и системные свойства загружаются по запросу"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-contents-ui",
+          "layer": "component",
+          "claims": [
+            "Component fixture проверяет восемь видов, column-major список, высоту строки мелких значков, сортировку, группировку, столбцы и имитированный ответ systemProperties"
+          ]
+        },
+        {
+          "suite": "filesystem-explorer-view-model",
+          "layer": "unit",
+          "claims": [
+            "Чистые проверки охватывают нормализацию сохранённого вида, стабильный ключ папки, сортировку, группировку и порядок папок при обратной сортировке"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить виды и свойства автора в установленном приложении на поддерживаемой платформе",
+          "expected": [
+            "Фактическая платформа возвращает доступные свойства; fixture не считается проверкой Windows"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.archive",
+      "program": "explorer",
+      "label": "Создание архива из выбранных объектов",
+      "sources": [
+        "electron/filesystem/archives.ts",
+        "electron/filesystem/service.ts",
+        "scripts/test-explorer-native-operations.ts"
+      ],
+      "triggers": [
+        "context-menu",
+        "button"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Архив содержит выбранные файлы и вложенные каталоги; занятое имя не перезаписывает прежний архив"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-native-operations",
+          "layer": "unit",
+          "claims": [
+            "Проверка создаёт ZIP во временной файловой системе, открывает его независимым 7-Zip и проверяет вложенную папку и отказ при занятом имени"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать ZIP из тестовых объектов в установленном приложении",
+          "expected": [
+            "Архив открывается, содержит выбранное поддерево и не затрагивает существующий файл с тем же именем"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.permanent-delete-purge-draft",
+      "program": "explorer",
+      "label": "Безвозвратное удаление и очистка корзины черновиков",
+      "sources": [
+        "electron/filesystem/service.ts",
+        "src/components/explorer/WindowsExplorer.tsx",
+        "scripts/test-explorer-native-operations.ts",
+        "scripts/test-explorer-operation-ui.ts"
+      ],
+      "triggers": [
+        "keyboard",
+        "context-menu",
+        "confirmation"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Подключённый корень нельзя удалить безвозвратно; подтверждённая очистка удаляет выбранный черновик и его дочерние данные"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-native-operations",
+          "layer": "unit",
+          "claims": [
+            "Временная файловая система проверяет отказ для корня, удаление без trash mock и очистку draft-поддерева с локальными байтами; корзина Windows не заявляется"
+          ]
+        },
+        {
+          "suite": "filesystem-explorer-operation-ui",
+          "layer": "component",
+          "claims": [
+            "Bridge fixture проверяет отмену подтверждения, purgeDraft только после подтверждения и отдельные команды восстановления Windows и Flux"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить Shift+Delete и очистку корзины Flux на тестовых объектах установленного приложения",
+          "expected": [
+            "Удаляется только выбранный объект после подтверждения; корень и соседние данные остаются на месте"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.replace-copy",
+      "program": "explorer",
+      "label": "Безопасная замена файла при копировании или перемещении",
+      "sources": [
+        "electron/filesystem/replacementCopy.ts",
+        "electron/filesystem/undo.ts",
+        "src/components/files/useExplorerOperations.tsx",
+        "scripts/test-explorer-native-operations.ts",
+        "scripts/test-explorer-operation-ui.ts"
+      ],
+      "triggers": [
+        "drag-drop",
+        "keyboard",
+        "dialog"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Замена использует проверенную версию назначения, переносит свойства по выбору и поддерживает отмену без затирания внешней правки"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-native-operations",
+          "layer": "unit",
+          "claims": [
+            "Временная файловая система проверяет замену, перенос свойств, rollback, undo/redo и отказ при устаревшем хэше"
+          ]
+        },
+        {
+          "suite": "filesystem-explorer-operation-ui",
+          "layer": "component",
+          "claims": [
+            "Эмулируемый bridge проверяет replace/keepBoth/skip, отказ замены заблокированного пути и группирование операций"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить замену конфликтующего файла и отмену операции на тестовой папке",
+          "expected": [
+            "Выбранное содержимое установлено; отмена восстанавливает исходную версию назначения"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.operation-logic",
+      "program": "explorer",
+      "label": "Решения буфера обмена и публикации черновиков",
+      "sources": [
+        "src/components/files/explorerOperationLogic.ts",
+        "scripts/test-explorer-operations.ts"
+      ],
+      "triggers": [
+        "keyboard",
+        "drag-drop",
+        "dialog"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Действие выбирается по корню и модификатору; решения публикации соответствуют плану и выбору пользователя"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-operation-logic",
+          "layer": "unit",
+          "claims": [
+            "Чистые проверки покрывают copy/move, решения replace/keepBoth, запрет замены заблокированных объектов и публикацию дерева"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Выбрать действия при конфликте публикации черновика в тестовой папке",
+          "expected": [
+            "Каждый конфликт обрабатывается выбранным способом, заблокированные объекты не получают молчаливое решение"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    },
+    {
+      "id": "filesystem-explorer.windows-native-shell",
+      "program": "explorer",
+      "label": "Windows shell, NTFS, системная корзина и нативные значки",
+      "sources": [
+        "scripts/test-windows-files-native.ts",
+        "electron/nativeShellSource.ts",
+        "electron/filesystem/shellCommands.ts",
+        "src/components/files/PlaceIcon.tsx",
+        "src/components/files/RecyclePane.tsx"
+      ],
+      "triggers": [
+        "filesystem-operation",
+        "context-menu",
+        "recycle-bin"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Настоящая Windows проверяет NTFS, Windows shell и системную корзину; браузерный fixture не засчитывается за эти проверки"
+      ],
+      "checks": [
+        {
+          "suite": "filesystem-explorer-windows-native",
+          "layer": "windows-native",
+          "claims": [
+            "Тест использует системные ReplaceFileW, корзину Windows, значки, быстрый доступ и команды shell; Linux-only запуск возвращает SKIP"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "Запустить native suite на Windows и выполнить приёмку проводника в настоящих локальных и сетевых папках",
+          "expected": [
+            "NTFS и shell-вызовы подтверждены; системная корзина, изображения/значки и операции соответствуют Windows"
+          ],
+          "status": "NOT_RUN"
+        }
+      ]
+    }
+  ],
+  "connections": []
+}

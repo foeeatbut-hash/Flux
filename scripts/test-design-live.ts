@@ -48,13 +48,14 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Мессенджер', '/chat', true],
   ['Почта', '/mail', true],
   ['E3Flux', '/e3flux', true],
+  ['Проводник', '/explorer', true],
 ];
 
 const PROBE = String.raw`(() => {
   const wins = [...document.querySelectorAll('[data-win]')].filter((w) => w.style.display !== 'none').sort((a, b) => +b.style.zIndex - +a.style.zIndex);
   const root = (wins[0] && wins[0].querySelector('[data-window-body]')) || document.body;
   const rr = root.getBoundingClientRect();
-  const out = { bold: [], small: [], upper: [], rows: [] };
+  const out = { bold: [], small: [], upper: [], rows: [], explorerRows: [] };
   for (const el of root.querySelectorAll('*')) {
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1 || r.bottom < rr.top || r.top > rr.bottom) continue;
@@ -64,6 +65,11 @@ const PROBE = String.raw`(() => {
     // у тех одна ячейка на всю ширину
     if (el.tagName === 'TR' && el.parentElement && el.parentElement.tagName === 'TBODY' && el.cells.length > 1) out.rows.push(Math.round(r.height));
     if (el.classList.contains('fx-li')) out.rows.push(Math.round(r.height));
+    if (el.matches('[role="row"][data-entry-key]')) {
+      const height = Math.round(r.height);
+      out.rows.push(height);
+      out.explorerRows.push(height);
+    }
     if (el.closest('.fx-badge, .fx-av, .stamp, .graf, svg, [data-art]')) continue;
     for (const n of el.childNodes) {
       if (n.nodeType !== 3) continue;
@@ -135,6 +141,9 @@ const PROBE = String.raw`(() => {
       if (done && p.rows.length) {
         const off = p.rows.filter((h: number) => h < 28 || h > 40);
         ok(`${name}: строки 28–40 px`, off.length <= Math.floor(p.rows.length / 10), { всего: p.rows.length, вне: off.slice(0, 6) });
+      }
+      if (path === '/explorer') {
+        ok('Проводник: строки role=row/data-entry-key имеют высоту 34 px по эталону Windows', p.explorerRows.length > 0 && p.explorerRows.every((h: number) => h === 34), p.explorerRows.slice(0, 8));
       }
     }
 

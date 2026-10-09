@@ -49,6 +49,7 @@ async function main() {
     const NEEDS_NO_UI = ['bin-restore', 'bin-purge'];
     check(NEEDS_NO_UI.every(command => nativeCommands.includes(command)) && /InvokeVerb\(child, verb, true\)/u.test(csharp), 'Команды корзины вызываются без окон подтверждения (NO_UI)');
     check(/GetFileAttributes/u.test(csharp) && /0x400000u/u.test(csharp), 'Миниатюра облачной заглушки не заставляет Windows скачать файл');
+    check(/name\.StartsWith\("OneDrive", StringComparison\.OrdinalIgnoreCase\)\) continue;/u.test(csharp), 'SyncRootManager не добавляет OneDrive в облачные места Проводника');
     check(!/ShellExecute|Process\.Start|cmd\.exe/u.test(csharp), 'Помощник не запускает процессы по данным запроса');
 
     // ---- обмен с процессом-помощником
@@ -146,14 +147,19 @@ process.stdin.on('end', () => process.exit(0));
     await rejects(() => shell.pin({ rootId, relativePath: '../вне корня' }, true), 'INVALID_NAME', 'Закрепление не выходит за подключённые папки');
 
     const cloudFolder = path.join(sandbox, 'Яндекс Диск'); await fs.mkdir(cloudFolder);
+    const oneDriveFolder = path.join(sandbox, 'OneDrive - Компания'); await fs.mkdir(oneDriveFolder);
+    await fs.writeFile(path.join(oneDriveFolder, 'Файл.docx'), 'локальный файл');
     answers['cloud-roots'] = () => [
       { id: 'YandexDisk!S-1', name: 'Яндекс Диск', provider: 'yandex', path: cloudFolder, icon: PNG_1X1 },
-      { id: 'OneDrive!S-1', name: 'OneDrive', provider: 'onedrive', path: path.join(sandbox, 'нет такой'), icon: null },
+      { id: 'OneDrive!S-1', name: 'OneDrive - Компания', provider: 'onedrive', path: oneDriveFolder, icon: null },
       { id: 'Other!S-1', name: 'Прочее', provider: 'странный', path: elsewhere, icon: 'не png' },
     ];
     const cloud = await shell.cloudRoots();
-    check(cloud.supported && cloud.items.map(item => item.provider).join() === 'yandex,other' && cloud.items[0].icon?.startsWith('data:image/png;base64,') === true && cloud.items[1].icon === null, 'Облачные корни: имя, поставщик и значок; несуществующая папка отброшена, чужой «PNG» не пропущен');
+    check(cloud.supported && cloud.items.map(item => item.provider).join() === 'yandex,other' && !cloud.items.some(item => item.id === 'OneDrive!S-1') && cloud.items[0].icon?.startsWith('data:image/png;base64,') === true && cloud.items[1].icon === null, 'Облачные места исключают OneDrive, сохраняя Яндекс Диск и прочие корни');
     check(cloud.items[0].root.id !== rootId && cloud.items[0].root.kind === 'custom' && !JSON.stringify(cloud).includes(sandbox), 'Каждый облачный корень — отдельный capability, как подключённая папка, без путей');
+    const oneDriveRoot = await service.addRoot(oneDriveFolder, 'OneDrive - Компания');
+    const oneDriveListing = await service.list({ rootId: oneDriveRoot.id, relativePath: '' });
+    check(oneDriveListing.entries.some(item => item.name === 'Файл.docx'), 'Папка внутри OneDrive остаётся доступной как обычный физический корень');
 
     // миниатюры
     const png = (extra: object = {}) => ({ base64: PNG_1X1, width: 96, height: 96, thumbnail: true, ...extra });
@@ -258,9 +264,9 @@ process.stdin.on('end', () => process.exit(0));
     const events: WindowsSearchEvent[] = [];
     const viewState = await ViewStateStore.load(userData);
     const bridge = new ExplorerBridge({ service, shell, viewState, emitSearch: (_owner, event) => events.push(event) });
-    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
+    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
       'recycleBin', 'recycleBinRestore', 'recycleBinPurge', 'recycleBinEmpty', 'startDrag', 'importPaths', 'undoState', 'undo', 'redo', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete'];
-    check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все 25 команд Проводника известны ipc, а прежние и выдуманные — нет');
+    check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все команды Проводника известны ipc, а прежние и выдуманные — нет');
     for (const action of actions) {
       const outcome = await bridge.handle({ action } as WindowsFilesRequest, 1).then(() => 'ok', (error: any) => error.code);
       assert.notEqual(outcome, 'INVALID_ACTION', `${action} не подключена`); passed++;

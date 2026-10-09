@@ -106,8 +106,15 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
     return () => { stop(); void windowsFilesRequest({ action: 'unwatch', ref: watched }); };
   }, [key, enabled, load]);
 
+  const loadAll = useCallback(async () => {
+    const folder = refRef.current; if (!folder) return;
+    const id = ++request.current; setLoading(true); setError('');
+    try { const data = await fetchPages(folder, null); if (id === request.current) setListing(data); }
+    catch (cause: any) { if (id === request.current) setError(cause?.message || 'Не удалось прочитать папку целиком'); }
+    finally { if (id === request.current) setLoading(false); }
+  }, [fetchPages]);
   return {
-    listing, entries: listing?.entries ?? NONE, loading, error, setError, scrollRef,
+    loadAll, listing, entries: listing?.entries ?? NONE, loading, error, setError, scrollRef,
     nextOffset: listing?.nextOffset ?? null,
     reload: useCallback(() => load('refresh'), [load]),
     loadMore: useCallback(() => load('more'), [load]),

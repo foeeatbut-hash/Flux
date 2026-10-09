@@ -123,7 +123,7 @@ export class NativeShellHost {
     else {
       const code = typeof message.code === 'string' && /^[A-Z_]{1,40}$/u.test(message.code) ? message.code : 'HELPER_FAILED';
       const error = new WindowsFilesError(`NATIVE_${code}`, NATIVE_MESSAGES[code] ?? 'Windows не выполнила действие. Файлы не тронуты.');
-      Object.assign(error, { nativeDiagnostic: { stage: message.stage, type: message.type, hresult: message.hresult, message: typeof message.message === 'string' ? message.message.slice(0, 300) : undefined } });
+      Object.assign(error, { nativeDiagnostic: { stage: message.stage, type: message.type, hresult: message.hresult, method: message.method, message: typeof message.message === 'string' ? message.message.slice(0, 300) : undefined } });
       current.request.reject(error);
     }
     this.afterRequest();

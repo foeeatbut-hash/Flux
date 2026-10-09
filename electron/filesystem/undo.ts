@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { WindowsFileRef, WindowsUndoLabel, WindowsUndoResult, WindowsUndoState } from '../../filesystem/contracts';
+import type { WindowsFileRef, WindowsFileMetadata, WindowsUndoLabel, WindowsUndoResult, WindowsUndoState } from '../../filesystem/contracts';
+import { snapshotFile } from './fileSnapshot';
 import { WindowsFilesError } from './paths';
 import type { WindowsFilesService } from './service';
 
@@ -20,7 +21,9 @@ export interface Fingerprint { kind: 'file' | 'directory'; fileId: string; size:
 export interface TrashInfo { path: string; at: number; size: number | null; name: string }
 /** Место объекта: папка (capability) и имя в ней. Черновик узнаётся по draftId — его путь для показа может меняться. */
 export interface Place { parent: WindowsFileRef; name: string }
+type MetaValues = Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'>;
 export type UndoOp =
+  | { kind: 'replace'; at: WindowsFileRef; before: string; after: string; beforeSha256: string; afterSha256: string; beforeMetadata: MetaValues; afterMetadata: MetaValues }
   | { kind: 'move'; from: Place; to: Place; fileId: string; draftId?: string }
   /** Создание, копирование, импорт: отмена — в корзину, повтор — обратно из корзины. */
   | { kind: 'create'; at: WindowsFileRef; fingerprint: Fingerprint | null; trashed?: TrashInfo }
@@ -32,6 +35,7 @@ interface Stored { version: 1; entries: UndoEntry[]; cursor: number }
 export class UndoJournal {
   private data: Stored = { version: 1, entries: [], cursor: 0 };
   private queue: Promise<unknown> = Promise.resolve();
+  private savedSnapshots = new Set<string>();
   private constructor(private filename: string) {}
   /** Журнал лежит в userData и переживает перезапуск; повреждённый файл откладывается в сторону, а журнал начинается заново. */
   static async load(userData: string): Promise<UndoJournal> {
@@ -42,7 +46,39 @@ export class UndoJournal {
     } catch (error: any) {
       if (error.code !== 'ENOENT') await fs.rename(journal.filename, `${journal.filename}.broken-${Date.now()}`).catch(() => undefined);
     }
+    journal.savedSnapshots = journal.snapshotIds();
+    // Незавершённые операции могли оставить копии; свежие файлы не трогаем.
+    const folder = path.join(userData, 'windows-files-undo-bytes');
+    for (const id of await fs.readdir(folder).catch(() => [])) {
+      if (!/^[0-9a-f-]{36}$/u.test(id) || journal.savedSnapshots.has(id)) continue;
+      const filename = path.join(folder, id);
+      const stat = await fs.lstat(filename).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > 86400000) await fs.unlink(filename).catch(() => undefined);
+    }
     return journal;
+  }
+  private snapshotIds(): Set<string> {
+    return new Set(this.data.entries.flatMap(({ op }) => op.kind === 'replace' ? [op.before, op.after] : []));
+  }
+  snapshotPath(id: string): string {
+    if (!/^[0-9a-f-]{36}$/u.test(id)) throw new WindowsFilesError('UNDO_UNAVAILABLE', 'Копия для отмены недоступна.');
+    return path.join(path.dirname(this.filename), 'windows-files-undo-bytes', id);
+  }
+  async storeFile(filename: string) {
+    const id = randomUUID(); const destination = this.snapshotPath(id);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    return { id, ...await snapshotFile(filename, destination) };
+  }
+  async storeBytes(bytes: Buffer): Promise<string> {
+    const id = randomUUID();
+    const folder = path.join(path.dirname(this.filename), 'windows-files-undo-bytes');
+    await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(path.join(folder, id), bytes, { flag: 'wx', mode: 0o600 });
+    return id;
+  }
+  async readBytes(id: string): Promise<Buffer> {
+    if (!/^[0-9a-f-]{36}$/u.test(id)) throw new WindowsFilesError('UNDO_UNAVAILABLE', 'Копия для отмены недоступна.');
+    return fs.readFile(path.join(path.dirname(this.filename), 'windows-files-undo-bytes', id));
   }
   private label(entry: UndoEntry | undefined): WindowsUndoLabel | null { return entry ? { id: entry.id, label: entry.label, at: entry.at } : null; }
   state(): WindowsUndoState { return { undo: this.label(this.data.entries[this.data.cursor - 1]), redo: this.label(this.data.entries[this.data.cursor]) }; }
@@ -78,9 +114,14 @@ export class UndoJournal {
   }
   async save(): Promise<void> {
     const snapshot = JSON.stringify(this.data);
+    const retained = this.snapshotIds();
     const operation = this.queue.then(async () => {
       const temp = `${this.filename}.${randomUUID()}.tmp`;
-      try { await fs.writeFile(temp, snapshot, { flag: 'wx', mode: 0o600 }); await fs.rename(temp, this.filename); }
+      try {
+        await fs.writeFile(temp, snapshot, { flag: 'wx', mode: 0o600 }); await fs.rename(temp, this.filename);
+        for (const id of this.savedSnapshots) if (!retained.has(id)) await fs.unlink(this.snapshotPath(id)).catch(() => undefined);
+        this.savedSnapshots = retained;
+      }
       finally { await fs.unlink(temp).catch(() => undefined); }
     });
     this.queue = operation.catch(() => undefined);
@@ -171,15 +212,26 @@ async function shift(service: WindowsFilesService, entry: UndoEntry, op: Extract
   await service.moveCore(ref, target.parent, target.name);
 }
 
+async function restoreReplacement(service: WindowsFilesService, entry: UndoEntry, op: Extract<UndoOp, { kind: 'replace' }>, redo: boolean) {
+  const expected = redo ? op.beforeMetadata : op.afterMetadata;
+  const metadata = await service.metadata(op.at);
+  const current = { tags: metadata.tags, projectIds: metadata.projectIds, revision: metadata.revision, responsible: metadata.responsible };
+  if (JSON.stringify(current) !== JSON.stringify(expected)) throw changed(entry.label);
+  await service.replaceFromFile(op.at, service.journal.snapshotPath(redo ? op.after : op.before), redo ? op.beforeSha256 : op.afterSha256);
+  await service.setMetadata(op.at, redo ? op.afterMetadata : op.beforeMetadata);
+}
+
 async function undoOne(service: WindowsFilesService, entry: UndoEntry): Promise<void> {
   const op = entry.op;
-  if (op.kind === 'move') await shift(service, entry, op, op.to, op.from);
+  if (op.kind === 'replace') await restoreReplacement(service, entry, op, false);
+  else if (op.kind === 'move') await shift(service, entry, op, op.to, op.from);
   else if (op.kind === 'create') op.trashed = await toTrash(service, entry, op.at, op.fingerprint);
   else await fromTrash(service, entry, op.at, op.trashed);
 }
 async function redoOne(service: WindowsFilesService, entry: UndoEntry): Promise<void> {
   const op = entry.op;
-  if (op.kind === 'move') await shift(service, entry, op, op.from, op.to);
+  if (op.kind === 'replace') await restoreReplacement(service, entry, op, true);
+  else if (op.kind === 'move') await shift(service, entry, op, op.from, op.to);
   else if (op.kind === 'create') await fromTrash(service, entry, op.at, op.trashed);
   else op.trashed = await toTrash(service, entry, op.at, op.fingerprint);
 }

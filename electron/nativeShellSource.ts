@@ -95,14 +95,11 @@ public static class FluxShellFiles {
     [PreserveSig] int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
   }
   [ComImport, Guid("000214F4-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-  public interface IContextMenu2 : IContextMenu {
-    // Методы IContextMenu объявлены заново по той же причине, что в IShellItem2: иначе
-    // HandleMenuMsg уходил в слот QueryContextMenu, меню наполнялось повторно с мусорными
-    // аргументами, номера команд сдвигались («Удалить» отвечало open, «Свойства» — printto),
-    // а подменю («Отправить», 7-Zip) падали с AccessViolation
-    [PreserveSig] new int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
-    [PreserveSig] new int InvokeCommand(IntPtr pici);
-    [PreserveSig] new int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
+  public interface IContextMenu2 {
+    // COM использует плоскую таблицу: наследование с повторными объявлениями сдвигает слот HandleMenuMsg.
+    [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
+    [PreserveSig] int InvokeCommand(IntPtr pici);
+    [PreserveSig] int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
     [PreserveSig] int HandleMenuMsg(uint msg, IntPtr wParam, IntPtr lParam);
   }
   [ComImport, Guid("973810AE-9599-4B88-9E4D-6EE98C9552DA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -176,6 +173,7 @@ public static class FluxShellFiles {
     Dictionary<string,object> answer = new Dictionary<string,object> { {"ok", false}, {"code", code}, {"stage", Stage} };
     if (failure != null) {
       answer["type"] = failure.GetType().Name; answer["hresult"] = failure.HResult.ToString("X8");
+      if (failure.TargetSite != null) answer["method"] = failure.TargetSite.Name;
       // Текст нужен журналу диагностики и проверке на CI; пути диска из него вырезаются, человеку он не показывается.
       string detail = failure.Message ?? ""; detail = System.Text.RegularExpressions.Regex.Replace(detail, @"[A-Za-z]:\\[^\s'""]*|\\\\[^\s'""]+", "<путь>");
       answer["message"] = detail.Length > 300 ? detail.Substring(0, 300) : detail;
@@ -253,7 +251,7 @@ public static class FluxShellFiles {
 
   // ------------------------------------------------------ контекстное меню
   sealed class MenuSession {
-    public IContextMenu Menu; public IntPtr Handle; public Dictionary<int,string> Labels = new Dictionary<int,string>();
+    public IContextMenu Menu; public IntPtr Handle; public int CommandCount; public Dictionary<int,string> Labels = new Dictionary<int,string>();
     public string Token = Guid.NewGuid().ToString("N");
     public void Dispose() { if (Handle != IntPtr.Zero) { DestroyMenu(Handle); Handle = IntPtr.Zero; } if (Menu != null) { Marshal.ReleaseComObject(Menu); Menu = null; } }
   }
@@ -275,7 +273,6 @@ public static class FluxShellFiles {
       try { return (IContextMenu)Marshal.GetObjectForIUnknown(raw); } finally { Marshal.Release(raw); }
     } finally { foreach (IntPtr pidl in pidls) if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl); }
   }
-  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string Verb(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2);
     try {
@@ -286,7 +283,6 @@ public static class FluxShellFiles {
     } catch { return null; } finally { Marshal.FreeCoTaskMem(buffer); }
   }
   /** Что ответил GetCommandString на запрос (W — GCS_VERBW, A — GCS_VERBA): для журнала диагностики, не для интерфейса. */
-  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string VerbProbe(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2); string report = "";
     try {
@@ -329,12 +325,14 @@ public static class FluxShellFiles {
       }
       bool hasSub = info.hSubMenu != IntPtr.Zero;
       if (label.Length == 0 && !hasSub) continue; // пункты с собственной отрисовкой без текста показать нечем
-      int offset = hasSub ? -1 : (int)info.wID - (int)first;
-      Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
+      // Подменю и заголовки не имеют номера команды: UINT_MAX в GetCommandString повреждает память расширения.
+      bool command = !hasSub && info.wID >= first && info.wID - first < (uint)session.CommandCount;
+      int offset = command ? (int)(info.wID - first) : -1;
+      Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (hasSub || command) && (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
       if (TraceOn) Trace("menu: probe " + offset);
-      if (TraceOn) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " sub=" + hasSub + " " + VerbProbe(menu, offset);
-      if (!hasSub) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
-      else if (depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
+      if (TraceOn && command) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " " + VerbProbe(menu, offset);
+      if (command) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
+      else if (hasSub && depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
       result.Add(entry);
     }
     return result;
@@ -348,11 +346,15 @@ public static class FluxShellFiles {
     for (int i = 0; i < items.Length; i++) items[i] = Item(list[i]);
     MenuSession session = new MenuSession();
     try {
+      Stage = "menu-bind";
       session.Menu = MenuFor(items); session.Handle = CreatePopupMenu();
       // EXPLORE | CANRENAME — как просит сам Проводник; EXTENDEDVERBS — «классическое» меню с Shift.
       uint flags = 0x4u | 0x10u | (Flag(args, "extended") ? 0x100u : 0u);
+      Stage = "menu-query";
       int hr = session.Menu.QueryContextMenu(session.Handle, 0, 1, 0x7FFF, flags);
       if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      session.CommandCount = hr & 0xFFFF;
+      Stage = "menu-read";
       List<object> tree = ReadMenu(session.Handle, session.Menu, 1, session, 0);
       Session = session;
       Dictionary<string,object> data = new Dictionary<string,object> { {"token", session.Token}, {"items", tree} };
@@ -463,6 +465,7 @@ public static class FluxShellFiles {
         try {
           using (RegistryKey key = root.OpenSubKey(name)) {
             if (key == null) continue;
+            if (name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase)) continue;
             string folder = null;
             using (RegistryKey users = key.OpenSubKey("UserSyncRoots")) {
               if (users != null) { folder = users.GetValue(sid) as string; if (folder == null) foreach (string other in users.GetValueNames()) { folder = users.GetValue(other) as string; if (folder != null) break; } }
@@ -471,9 +474,8 @@ public static class FluxShellFiles {
             string title = key.GetValue("DisplayNameResource") as string;
             if (title != null && title.StartsWith("@")) { StringBuilder buffer = new StringBuilder(260); title = SHLoadIndirectString(title, buffer, 260, IntPtr.Zero) == 0 ? buffer.ToString() : null; }
             string folderName = Path.GetFileName(folder.TrimEnd('\\'));
-            // У OneDrive для работы папка называется «OneDrive - Компания», а ресурс — просто «OneDrive»: Проводник показывает папку.
-            if (String.IsNullOrWhiteSpace(title) || (name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase) && folderName.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase))) title = folderName;
-            string provider = name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase) ? "onedrive" : name.IndexOf("Yandex", StringComparison.OrdinalIgnoreCase) >= 0 ? "yandex" : "other";
+            if (String.IsNullOrWhiteSpace(title)) title = folderName;
+            string provider = name.IndexOf("Yandex", StringComparison.OrdinalIgnoreCase) >= 0 ? "yandex" : "other";
             string icon = null;
             try {
               IShellItem folderItem = Item(folder); IntPtr bitmap = IntPtr.Zero;
@@ -662,6 +664,35 @@ public static class FluxShellFiles {
 
   // ------------------------------------------------------------ вход
   /** Одна строка JSON -> одна строка JSON. Пути не попадают в сообщения об ошибках. */
+  [DllImport("propsys.dll", CharSet=CharSet.Unicode)] static extern int PropVariantToStringAlloc(IntPtr value, out IntPtr text);
+  static string FileProperties(Dictionary<string,object> args) {
+    string path = Str(args, "path");
+    FileAttributes attributes = File.GetAttributes(path);
+    string author = "";
+    IShellItem item = null; IntPtr value = Marshal.AllocHGlobal(24); IntPtr text = IntPtr.Zero;
+    try {
+      Marshal.Copy(new byte[24], 0, value, 24);
+      item = Item(path);
+      PROPERTYKEY key = new PROPERTYKEY { fmtid = new Guid("F29F85E0-4FF9-1068-AB91-08002B27B3D9"), pid = 4 };
+      if (((IShellItem2)item).GetProperty(ref key, value) >= 0 && PropVariantToStringAlloc(value, out text) >= 0 && text != IntPtr.Zero) author = Marshal.PtrToStringUni(text) ?? "";
+    } finally {
+      if (text != IntPtr.Zero) Marshal.FreeCoTaskMem(text);
+      PropVariantClear(value); Marshal.FreeHGlobal(value);
+      if (item != null) Marshal.ReleaseComObject(item);
+    }
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", new Dictionary<string,object> { {"author", author}, {"createdAt", File.GetCreationTimeUtc(path).ToString("o")}, {"hidden", (attributes & FileAttributes.Hidden) != 0} }} });
+  }
+  // Атрибут Hidden не выводится из имени: в Windows скрытой может быть любая папка.
+  static string FileInfoBatch(Dictionary<string,object> args) {
+    List<string> paths = Strings(args, "paths");
+    if (paths.Count > 500) return Error("BAD_REQUEST", null);
+    List<object> rows = new List<object>();
+    foreach (string path in paths) {
+      try { rows.Add(new Dictionary<string,object> { {"hidden", (File.GetAttributes(path) & FileAttributes.Hidden) != 0} }); }
+      catch { rows.Add(null); }
+    }
+    return Json(new Dictionary<string,object> { {"ok", true}, {"data", rows} });
+  }
   [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   public static string Handle(string line) {
     object id = null;
@@ -675,6 +706,8 @@ public static class FluxShellFiles {
       Dictionary<string,object> args = raw as Dictionary<string,object> ?? new Dictionary<string,object>();
       string answer;
       switch (command) {
+        case "file-properties": answer = FileProperties(args); break;
+        case "file-info": answer = FileInfoBatch(args); break;
         case "ping": answer = Json(new Dictionary<string,object> { {"ok", true}, {"data", "pong"} }); break;
         case "thumbnail": answer = Thumbnail(args); break;
         case "quick-access": answer = QuickAccess(); break;

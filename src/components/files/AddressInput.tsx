@@ -2,8 +2,9 @@ import React from 'react';
 import { FolderPlus } from 'lucide-react';
 import PlaceIcon from './PlaceIcon';
 import { listFolders } from './placesApi';
+import { windowsFilesRequest, type WindowsFileRef } from '../../lib/windowsFiles';
 import {
-  childPlace, parseTypedPath, pathText, placeForRoot, topPlaces, volumeTitle, walkPlace,
+  childPlace, parseTypedPath, pathText, placeForRoot, placeForRef, topPlaces, volumeTitle, walkPlace,
   type Place, type PlaceCatalog, type TypedPath,
 } from './places';
 import { X as T } from './explorerTheme';
@@ -21,7 +22,7 @@ import { X as T } from './explorerTheme';
 const OUTSIDE_WORDS: Record<Exclude<TypedPath, { kind: 'empty' } | { kind: 'place' }>['reason'], string> = {
   drive: 'Такого диска нет среди подключённых.',
   network: 'Сетевой папки с таким адресом нет среди подключённых.',
-  env: 'Переменные вида %ИМЯ% здесь не раскрываются.',
+  env: 'Этот адрес с переменной не удалось открыть в подключённых папках.',
   unknown: 'Этого места нет среди подключённых.',
 };
 
@@ -70,9 +71,21 @@ export default function AddressInput({ place, catalog, onOpen, onCancel, onConne
   };
 
   const submit = async (value: string) => {
-    const parsed = parseTypedPath(value, catalog);
+    let parsed = parseTypedPath(value, catalog);
+    const relative = value.trim().replace(/^"(.*)"$/, '$1').replace(/\//g, '\\');
+    // Относительный адрес считается от открытой папки, сохраняя проверку подключённых корней.
+    if (place.ref && relative && !/^(?:[a-zа-я]:|\\)|%[^%]+%/i.test(relative)
+      && (parsed.kind === 'empty' || (parsed.kind === 'outside' && parsed.reason === 'unknown'))) {
+      parsed = parseTypedPath(`${pathText(place)}\\${relative}`, catalog);
+    }
     if (parsed.kind === 'empty') { onCancel(); return; }
-    if (parsed.kind === 'outside') { setNotice({ kind: 'outside', reason: parsed.reason }); return; }
+    if (parsed.kind === 'outside') {
+      if (parsed.reason === 'env') {
+        const answer = await windowsFilesRequest<WindowsFileRef | null>({ action: 'resolveAddress', text: relative });
+        if (answer.ok && answer.data) { onOpen(placeForRef(answer.data, catalog)); return; }
+      }
+      setNotice({ kind: 'outside', reason: parsed.reason }); return;
+    }
     const walked = await walkPlace(parsed.place, parsed.rest, catalog, (ref) => listFolders(ref));
     if (!('place' in walked)) { setNotice({ kind: 'missing', name: walked.missing }); return; }
     onOpen(walked.place);
