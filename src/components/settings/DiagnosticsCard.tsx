@@ -60,15 +60,6 @@ export default function DiagnosticsCard() {
     <AutomaticIncidentsCard />
     <div className="fx-set-group space-y-2">
       <div className="text-xs font-medium text-slate-800 dark:text-slate-150">Подробная запись работы</div>
-      <p className="text-xs text-slate-600 dark:text-slate-400">
-        Запросы, работа базы, паузы отрисовки, мост оболочки и работа редакторов — со временем
-        каждой операции. Содержимое документов, тела запросов и пароли не записываются.
-      </p>
-      <p className="text-2xs text-slate-500 dark:text-slate-400">
-        Не записываются: старые запросы XMLHttpRequest, чтение ответа потоком, работа других
-        программ и сетевые пакеты системы. При аварийном завершении последняя секунда может
-        не доехать до файла.
-      </p>
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-2xs">
         <dt className="text-slate-500 dark:text-slate-400">Событий в этом окне</dt>

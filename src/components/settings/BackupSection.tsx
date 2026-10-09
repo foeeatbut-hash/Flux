@@ -85,12 +85,6 @@ export default function BackupSection({ isAdmin, mayRun = isAdmin, addToast }: a
               </button>
             )}
           </div>
-          <div className="text-xs text-slate-400 leading-relaxed">
-            Внутри каждого архива: <span className="font-mono">database.sqlite</span> (вся база),
-            папка <span className="font-mono">Проводник</span> (файлы как есть, по проектам и папкам),
-            папка <span className="font-mono">Данные</span> (Excel-книги: теги, закупки, оборудование).
-            Дополнительно при каждом запуске программы делается быстрая страховочная копия базы (хранятся 5 последних).
-          </div>
         </div>
 
         {/* Настройки */}

@@ -265,9 +265,6 @@ export default function TranslateScreen() {
           ))}
         </span>
         <span className="flex-1" />
-        <span className="text-2xs text-slate-400 dark:text-slate-500 truncate hidden @[620px]:inline">
-          работает без сети: память проекта, словарь и узоры писем
-        </span>
       </div>
 
       <RibbonBar tabs={tabs} active={tab} onActive={setTab} state={state} disabled={disabled}

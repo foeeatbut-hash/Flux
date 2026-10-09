@@ -70,9 +70,6 @@ export default function AssistantScreen() {
         </button>
         <MessageCircleQuestion className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
         <span className="text-xs font-medium text-slate-800 dark:text-slate-300">Помощник</span>
-        <span className="text-2xs text-slate-400 dark:text-slate-500 truncate hidden @[560px]:inline">
-          работает без сети: отвечает по данным этого проекта и по руководству
-        </span>
         <span className="flex-1" />
         <button type="button" onClick={() => setCatalogOpen((v) => !v)} aria-expanded={catalogOpen}
           aria-controls={catalogOpen ? 'catalog-answer-pane' : undefined}
