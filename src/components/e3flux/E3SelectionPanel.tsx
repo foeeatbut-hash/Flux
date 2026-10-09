@@ -21,6 +21,7 @@ import E3ProfileForm from './E3ProfileForm';
 import E3SelectionDialog from './E3SelectionDialog';
 import { useJump, type JumpProps } from './e3Jump';
 import { solutionLine } from './e3SolutionText';
+import { onE3Changed } from '../../lib/e3Changed';
 
 const muted = 'text-slate-500 dark:text-slate-400';
 const SHOWN = 500;
@@ -38,6 +39,7 @@ export default function E3SelectionPanel({ book, projectId, jump }: { book: E3So
   const [error, setError] = useState('');
   const [profileError, setProfileError] = useState('');
   const [busy, setBusy] = useState(false);
+  const dirtyProfile = React.useRef(false);
   const [scope, setScope] = useState('all');
   const [view, setView] = useState<View>('all');
   const [q, setQ] = useState('');
@@ -93,6 +95,25 @@ export default function E3SelectionPanel({ book, projectId, jump }: { book: E3So
     && (!low || `${r.label} ${r.selection.solution?.name || ''} ${r.selection.solution?.id || ''}`.toLocaleLowerCase('ru').includes(low)));
   const opened = rows.list.find((r) => r.id === open);
   const dirty = !!profile && JSON.stringify(draft) !== JSON.stringify(profile.answers);
+  dirtyProfile.current = dirty || busy;
+
+  useEffect(() => onE3Changed((detail) => {
+    if (detail?.projectId && detail.projectId !== projectId) return;
+    if (detail?.entity === 'profile' && !dirtyProfile.current) void loadProfile();
+  }), [projectId, loadProfile]);
+  useEffect(() => {
+    const onEntity = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      if (detail?.kind !== 'tag' && detail?.kind !== 'element') return;
+      fetch(`/api/projects/${encodeURIComponent(projectId)}/systems`).then((r) => {
+        if (!r.ok) throw new Error('Оборудование недоступно');
+        return r.json();
+      }).then((data) => setSystems(data.systems || [])).catch(() => undefined);
+    };
+    window.addEventListener('socket:entity:changed', onEntity);
+    return () => window.removeEventListener('socket:entity:changed', onEntity);
+  }, [projectId]);
 
   const saveProfile = async () => {
     if (!profile) return;

@@ -1,6 +1,7 @@
 import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
-import { getPrisma, sendError, broadcast } from '../context.js';
+import { getPrisma, sendError } from '../context.js';
+import { emitEntityChanged } from '../entityChanged.js';
 import { randomUUID } from 'node:crypto';
 import { canSeeProject } from './members.js';
 import { sourceInfo, equipmentCatalog, bindingKey, catalogRevision, matchesFor, publishedRevision } from '../equipmentCatalog.js';
@@ -60,7 +61,7 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
         } else await db.appSetting.create({ data: { id: `ecb-${el.id}`, key, userId: null, value: JSON.stringify(binding) } });
         await db.appSetting.create({ data: { key: `equipment_catalog_history:${el.id}:${randomUUID()}`, userId: (req as any).authUser?.id || null, value: JSON.stringify({ before: old, after: binding }) } });
       });
-      broadcast('equipment:updated', { projectId: el.monoblock.system.projectId, componentId: el.id });
+      emitEntityChanged('element', el.id, req);
       res.json({ ok: true, binding });
     } catch (err: any) {
       if (err.code === 'P2002') return res.status(409).json({ error: 'Привязку уже сохранил коллега. Обновите карточку' });

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
-import { emitEntityChanged } from '../entityChanged.js';
+import { emitEntitiesChanged } from '../entityChanged.js';
 import { ROLES, roleById, roleFits, type RoleId } from '../../equipment/roles.js';
 import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
@@ -90,6 +90,11 @@ export function registerEquipmentEditRoutes(app: Express): void {
         await tx.componentElement.delete({ where: { id: found.id } });
       });
 
+      // После отвязки теги становятся свободными, а дочерние позиции меняют
+      // владельца; открытые разделы перечитывают эти сущности по событиям.
+      emitEntitiesChanged('tag', (found.tags || []).map((tag: any) => tag.id), req);
+      emitEntitiesChanged('element', [found.id, ...children.map((child: any) => child.id)], req);
+
       // Удаление реестра — событие, которое должно быть видно: кто и что убрал
       try {
         await prisma.systemChangeLog.create({
@@ -171,6 +176,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
         where: { id: req.params.id },
         data: withBump({ equipClass: equipClass || null, equipKind: equipKind || null }),
       });
+      emitEntitiesChanged('element', [row.id], req);
       res.json({ ok: true, equipClass: row.equipClass || '', equipKind: row.equipKind || '' });
     } catch (err: any) { sendError(res, err); }
   });
@@ -248,8 +254,8 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const parentLink = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
       // Реестр тегов и другие открытые окна перечитывают запись сразу; событие
       // для позиции обновляет занятость тега и карточку оборудования.
-      for (const changedTagId of parentLink.changedTagIds) emitEntityChanged('tag', changedTagId, req);
-      emitEntityChanged('element', comp.id, req);
+    emitEntitiesChanged('tag', parentLink.changedTagIds, req);
+    emitEntitiesChanged('element', [comp.id], req);
       res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag: parentLink.parentTag });
     } catch (err: any) { sendError(res, err); }
   });
@@ -371,7 +377,12 @@ async function createPosition(
   // Родство тега: по тому же правилу, что и при импорте — тег ближайшего
   // тегированного владельца, а если такого нет, тег установки
   let parentTag = '';
-  if (tag?.tagId) parentTag = await linkParentTag(prisma, at.projectId, created.id, tag.tagId, { userId: me?.id });
+  if (tag?.tagId) {
+    const parentLink = await linkParentTag(prisma, at.projectId, created.id, tag.tagId, { userId: me?.id });
+    parentTag = parentLink.parentTag;
+    emitEntitiesChanged('tag', parentLink.changedTagIds, req);
+  }
+  emitEntitiesChanged('element', [created.id], req);
 
   const parentRole = at.parent ? (at.parent.role || 'БЛОК') : 'БЛОК';
   const fits = roleFits(parentRole, role);

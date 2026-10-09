@@ -1,7 +1,7 @@
 import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
-import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.js';
+import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
@@ -106,9 +106,10 @@ async function ensureDefaultStandard(): Promise<void> {
   const prisma = getPrisma();
   const count = await prisma.docStandard.count().catch(() => -1);
   if (count === 0) {
-    await prisma.docStandard.create({
+    const created = await prisma.docStandard.create({
       data: { name: 'ЗапСиб / PDH2 (процедура 96Z-0001)', config: JSON.stringify(DEFAULT_STANDARD) },
-    }).catch(() => {});
+    }).catch(() => null);
+    if (created) announceVdrChange();
   }
 }
 
@@ -131,6 +132,15 @@ export function nextRevision(rev: string, certify = false): string {
 }
 
 const parseJson = (raw: any, fb: any) => { try { const v = JSON.parse(raw); return v ?? fb; } catch { return fb; } };
+
+// Сокет сообщает только область изменённых данных; клиент перечитывает её из
+// базы и не принимает значения из события за источник истины.
+function announceVdrChange(projectId?: string | null, registerId?: string): void {
+  broadcast('vdr:changed', {
+    ...(projectId ? { projectId } : {}),
+    ...(registerId ? { registerId } : {}),
+  });
+}
 
 // ── Разбор Excel-ВДР 2.0: многострочная шапка, columnMap, extra ──
 const CORE_FIELDS: { field: string; match: RegExp }[] = [
@@ -272,6 +282,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           config: JSON.stringify(req.body?.config || DEFAULT_STANDARD),
         },
       });
+      announceVdrChange();
       res.json({ standard: { id: std.id, name: std.name, config: parseJson(std.config, {}) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -282,6 +293,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (typeof req.body?.name === 'string' && req.body.name.trim()) data.name = req.body.name.trim();
       if (req.body?.config && typeof req.body.config === 'object') data.config = JSON.stringify(req.body.config);
       const std = await getPrisma().docStandard.update({ where: { id: req.params.id }, data });
+      announceVdrChange();
       res.json({ standard: { id: std.id, name: std.name, config: parseJson(std.config, {}) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -291,6 +303,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const me = authUserOf(req);
       if (me && !isPrivilegedUser(me)) return res.status(403).json({ error: 'Удалять стандарты может администратор' });
       await getPrisma().docStandard.delete({ where: { id: req.params.id } });
+      announceVdrChange();
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
   });
@@ -328,6 +341,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (req.body?.standardId) data.standardId = String(req.body.standardId);
       if (req.body?.managerId) data.managerId = String(req.body.managerId);
       const register = await getPrisma().docRegister.create({ data });
+      announceVdrChange(register.projectId, register.id);
       res.json({ register });
     } catch (err: any) { sendError(res, err); }
   });
@@ -344,6 +358,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (Array.isArray(req.body?.columnsConfig)) data.columnsConfig = JSON.stringify(req.body.columnsConfig);
       if (Array.isArray(req.body?.revisions)) data.revisions = JSON.stringify(req.body.revisions);
       const register = await getPrisma().docRegister.update({ where: { id: req.params.id }, data });
+      announceVdrChange(register.projectId, register.id);
       res.json({ register: { ...register, columnsConfig: parseJson(register.columnsConfig, []), revisions: parseJson(register.revisions, []) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -366,6 +381,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
         where: { id: register.id },
         data: { revision, revisions: JSON.stringify(history) },
       });
+      announceVdrChange(updated.projectId, updated.id);
       res.json({ register: { ...updated, revisions: history, columnsConfig: parseJson(updated.columnsConfig, []) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -376,7 +392,10 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
         return res.status(403).json({ error: 'Удалять реестр может администратор или руководитель' });
       }
-      await getPrisma().docRegister.delete({ where: { id: req.params.id } });
+      const prisma = getPrisma();
+      const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
+      await prisma.docRegister.delete({ where: { id: req.params.id } });
+      if (register) announceVdrChange(register.projectId, register.id);
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
   });
@@ -406,6 +425,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (req.body?.assigneeId) data.assigneeId = String(req.body.assigneeId);
       if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
       const item = await prisma.docRegisterItem.create({ data });
+      announceVdrChange(register.projectId, register.id);
       res.json({ item: { ...item, extra: {} } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -449,6 +469,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (newStatus && STATUSES.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
 
       const updated = await prisma.docRegisterItem.update({ where: { id: item.id }, data });
+      announceVdrChange(item.projectId, item.registerId);
 
       // Уведомления документооборота
       if (data.status && data.status !== item.status) {
@@ -479,7 +500,10 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
         return res.status(403).json({ error: 'Удалять строки реестра может администратор или руководитель' });
       }
-      await getPrisma().docRegisterItem.delete({ where: { id: req.params.id } });
+      const prisma = getPrisma();
+      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
+      await prisma.docRegisterItem.delete({ where: { id: req.params.id } });
+      if (item) announceVdrChange(item.projectId, item.registerId);
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
   });
@@ -644,6 +668,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
         },
       });
 
+      announceVdrChange(item.projectId, item.registerId);
       res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -800,6 +825,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       }
       await prisma.docRegister.update({ where: { id: register.id }, data: regData });
 
+      announceVdrChange(projectId, register.id);
       res.json({ register: { id: register.id, name: register.name }, created, updated, skipped, sheet: best.sheet, columns: mergedCols.length });
     } catch (err: any) { sendError(res, err); }
   });

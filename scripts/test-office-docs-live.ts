@@ -116,6 +116,22 @@ async function upload(name: string, bytes: Buffer): Promise<string> {
     ok('панели ИИ нет', !(await fr.locator('.ai-dock').isVisible().catch(() => false)));
     ok('интерфейс по-русски', /[А-Яа-яЁё]{4,}/.test(whole.replace(body, '')), whole.slice(0, 120));
 
+    console.log('\n1a. Ранняя команда панели после готовности редактора');
+    await page.evaluate(() => {
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Flux Office — Документ"]');
+      if (!frame?.contentWindow) return;
+      (window as any).__fluxPanelAck = null;
+      window.addEventListener('message', (event) => {
+        if (event.source === frame.contentWindow && event.data?.flux === 'office' && event.data?.op === 'flux:table-inserted') (window as any).__fluxPanelAck = event.data.payload;
+      });
+      frame.contentWindow.postMessage({ flux: 'office', event: 'insertTable', payload: { rows: [['Панель', 'Значение'], ['TAG-1', 'Насос']] } }, location.origin);
+    });
+    await page.waitForFunction(() => (window as any).__fluxPanelAck !== null, null, { timeout: 12000 }).catch(() => {});
+    const tableAck = await page.evaluate(() => (window as any).__fluxPanelAck);
+    const afterTable = await text.innerText().catch(() => '');
+    ok('панель получила подтверждение вставки таблицы', tableAck?.ok === true, tableAck);
+    ok('таблица с данными появилась в документе', afterTable.includes('Панель') && afterTable.includes('TAG-1') && afterTable.includes('Насос'), afterTable.slice(0, 300));
+
     console.log('\n2. Правка и Ctrl+S');
     const MARK = `ПРАВКА${stamp.slice(-4).toUpperCase()}`;
     await fr.getByText('Проба Flux Office').first().click();

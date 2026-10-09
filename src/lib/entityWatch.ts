@@ -23,9 +23,9 @@ export function useEntityChanged(kind: string, id: string | null | undefined, my
     if (!id) return;
     const onChanged = (e: Event) => {
       const d = (e as CustomEvent).detail || {};
-      if (d.kind !== kind || d.id !== id) return;
+      if (d.kind !== kind || (d.id !== id && !(Array.isArray(d.ids) && d.ids.includes(id)))) return;
       if (myUserId && d.byId === myUserId) return;
-      setChange({ kind: d.kind, id: d.id, by: String(d.by || ''), at: Number(d.at) || Date.now() });
+      setChange({ kind: d.kind, id, by: String(d.by || ''), at: Number(d.at) || Date.now() });
     };
     window.addEventListener('socket:entity:changed', onChanged as EventListener);
     return () => window.removeEventListener('socket:entity:changed', onChanged as EventListener);

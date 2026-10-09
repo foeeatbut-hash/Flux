@@ -14,6 +14,7 @@ import { e3AttributesService } from '../../services/e3AttributesService';
 import { buildExportSources, type ExportSystem } from '../../lib/exportWorkspace';
 import { e3Rows } from '../../lib/e3Table';
 import { fileName } from '../../lib/exchange';
+import { onE3Changed } from '../../lib/e3Changed';
 import { count } from '../../lib/plural';
 import { Btn, Empty, Field, Seg, Select, Toolbar } from '../ui';
 import { useJump, type JumpProps } from './e3Jump';
@@ -44,6 +45,8 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
   // Загрузка заполненной книги: план в окне, перечитывание данных после записи или отмены
   const [reload, setReload] = React.useState(0);
   const [preview, setPreview] = React.useState<UploadPreview | null>(null);
+  const previewRef = React.useRef(false);
+  previewRef.current = !!preview;
   const [busy, setBusy] = React.useState(false);
   const [uploadError, setUploadError] = React.useState('');
   const [undoable, setUndoable] = React.useState(() => lastUpload(projectId));
@@ -63,6 +66,21 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
       .catch((e: any) => { if (alive) setError(e.message || 'Не удалось загрузить данные'); });
     return () => { alive = false; };
   }, [projectId, reload]);
+
+  React.useEffect(() => onE3Changed((detail) => {
+    if (detail?.projectId && detail.projectId !== projectId) return;
+    if (detail?.entity && detail.entity !== 'attributes') return;
+    if (!previewRef.current) setReload((n) => n + 1);
+  }), [projectId]);
+  React.useEffect(() => {
+    const onEntity = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      if ((detail?.kind === 'tag' || detail?.kind === 'element') && !previewRef.current) setReload((n) => n + 1);
+    };
+    window.addEventListener('socket:entity:changed', onEntity);
+    return () => window.removeEventListener('socket:entity:changed', onEntity);
+  }, [projectId]);
 
   const sources = React.useMemo(() => buildExportSources(systems || [], []), [systems]);
   const units = sources.scopes.filter((s) => s.id.startsWith('unit:'));
@@ -186,7 +204,7 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
           {missing > 0 && 'Янтарная ячейка: у атрибута есть «Да», а данных в проекте нет.'}
         </div>}
       </div>
-      {preview && <E3UploadDialog preview={preview} busy={busy} error={uploadError} onApply={() => void apply()} onClose={() => { setPreview(null); setUploadError(''); }} />}
+      {preview && <E3UploadDialog preview={preview} busy={busy} error={uploadError} onApply={() => void apply()} onClose={() => { setPreview(null); setUploadError(''); setReload((n) => n + 1); }} />}
     </div>
   );
 }

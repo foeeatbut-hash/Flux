@@ -198,6 +198,14 @@ export const PATCHES = [
     find: '  useEffect(() => {\n    const handlers = mcpSheetHandlersRef\n    return installSheetsMcpBridge({',
     replace: '  useEffect(() => {\n    if ((window as any).__fluxNoGenOfficeAI) return\n    const handlers = mcpSheetHandlersRef\n    return installSheetsMcpBridge({',
   },
+  {
+    // Flux скрывает панель Copilot в electron-renderer.js. Лист должен занять
+    // всё окно: без этой колонки он попадает в пустую ячейку шириной 34/360 px.
+    id: 'flux-sheets-fill-hidden-copilot-layout',
+    file: 'apps/sheets/src/renderer/styles.css',
+    find: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}',
+    replace: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}\n\n/* Copilot скрыт в оболочке Flux, поэтому лист занимает всё окно. */\n.sheet-body,\n.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: minmax(0, 1fr);\n}',
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */

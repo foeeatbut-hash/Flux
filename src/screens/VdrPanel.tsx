@@ -1,5 +1,5 @@
 import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../components/ui';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -81,6 +81,12 @@ export default function VdrPanel() {
   const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const focusItemId = searchParams.get('item');
+  const projectIdRef = useRef(projectId);
+  const projectTagsRequestRef = useRef(0);
+  if (projectIdRef.current !== projectId) {
+    projectIdRef.current = projectId;
+    projectTagsRequestRef.current++;
+  }
 
   const register = registers.find(r => r.id === regId) || null;
   const standard = standards.find(s => s.id === register?.standardId) || standards[0] || null;
@@ -101,6 +107,20 @@ export default function VdrPanel() {
       if (r.ok) setItems((await r.json()).items || []);
     } catch (_) {}
   };
+  const loadProjectTags = async (targetProjectId = projectId) => {
+    if (targetProjectId !== projectIdRef.current) return;
+    const requestId = ++projectTagsRequestRef.current;
+    try {
+      const r = await fetch(`/api/projects/${targetProjectId}/tags`);
+      if (!r.ok) return;
+      const d = await r.json();
+      // Запоздавший ответ старого проекта или более ранний запрос текущего не
+      // должен подменить справочник тегов в уже открытой карточке.
+      if (requestId !== projectTagsRequestRef.current || projectIdRef.current !== targetProjectId) return;
+      const list = Array.isArray(d) ? d : (d.tags || []);
+      setProjectTags(list.map((t: any) => ({ id: t.id, identifier: t.identifier })));
+    } catch (_) {}
+  };
 
   useEffect(() => {
     (async () => {
@@ -112,14 +132,42 @@ export default function VdrPanel() {
       setLoading(false);
       fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
-      fetch(`/api/projects/${projectId}/tags`).then(r => r.ok ? r.json() : []).then(d => {
-        const list = Array.isArray(d) ? d : (d.tags || []);
-        setProjectTags(list.map((t: any) => ({ id: t.id, identifier: t.identifier })));
-      }).catch(() => {});
+      void loadProjectTags(projectId);
     })();
   }, [projectId]);
 
   useEffect(() => { if (regId) { loadItems(regId); setSelected(new Set()); } }, [regId]);
+  // Сокет приносит только сигнал; содержимое и права по-прежнему проверяются
+  // обычным API. Черновики карточки и реквизитов хранятся внутри форм, поэтому
+  // фоновое обновление списка не затирает введённые, но ещё не сохранённые поля.
+  useEffect(() => {
+    const onVdrChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      void refresh();
+      fetch('/api/vdr/standards')
+        .then(r => r.ok ? r.json() : { standards: [] })
+        .then(d => setStandards(d.standards || []))
+        .catch(() => {});
+    };
+    const onTagsChanged = () => { void loadProjectTags(projectId); };
+    const onEntityChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; id?: string; ids?: string[]; projectId?: string }>).detail;
+      if (detail?.kind !== 'tag') return;
+      if (detail.projectId && detail.projectId !== projectId) return;
+      // Для одиночной и пакетной записи приходит id либо ids; импорт проекта
+      // использует id вида project:<id> и обязательно содержит projectId.
+      if (detail.id || detail.ids?.length) void loadProjectTags(projectId);
+    };
+    window.addEventListener('socket:vdr:changed', onVdrChanged);
+    window.addEventListener('socket:tag:updated', onTagsChanged);
+    window.addEventListener('socket:entity:changed', onEntityChanged);
+    return () => {
+      window.removeEventListener('socket:vdr:changed', onVdrChanged);
+      window.removeEventListener('socket:tag:updated', onTagsChanged);
+      window.removeEventListener('socket:entity:changed', onEntityChanged);
+    };
+  }, [projectId, regId, cardItem?.id]);
   // Открыть карточку по deep-link из уведомления
   useEffect(() => {
     if (focusItemId && items.length && !cardItem) {
