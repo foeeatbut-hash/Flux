@@ -264,9 +264,9 @@ process.stdin.on('end', () => process.exit(0));
     const events: WindowsSearchEvent[] = [];
     const viewState = await ViewStateStore.load(userData);
     const bridge = new ExplorerBridge({ service, shell, viewState, emitSearch: (_owner, event) => events.push(event) });
-    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
+    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
       'recycleBin', 'recycleBinRestore', 'recycleBinPurge', 'recycleBinEmpty', 'startDrag', 'importPaths', 'undoState', 'undo', 'redo', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete'];
-    check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все 25 команд Проводника известны ipc, а прежние и выдуманные — нет');
+    check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все команды Проводника известны ipc, а прежние и выдуманные — нет');
     for (const action of actions) {
       const outcome = await bridge.handle({ action } as WindowsFilesRequest, 1).then(() => 'ok', (error: any) => error.code);
       assert.notEqual(outcome, 'INVALID_ACTION', `${action} не подключена`); passed++;

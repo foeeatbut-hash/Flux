@@ -122,6 +122,10 @@ rig = bridge((r) => r.action === 'fileHash' ? good({ sha256: 'h-' + (r as any).r
 const cutClip = await makeClip(rig.request, [file('a'), file('Папка1', 'f', { kind: 'directory' })], 'r', true);
 eq('при вырезании у файла запоминается хеш, у папки нет', cutClip.items.map((item) => item.sha256), ['h-a', undefined]);
 eq('при копировании хеш не читается', (await makeClip(rig.request, [file('a')], 'r', false)).items[0].sha256, undefined);
+rig = bridge(() => bad('Файл недоступен'));
+let refusedCut = false;
+try { await makeClip(rig.request, [file('a')], 'r', true); } catch { refusedCut = true; }
+eq('ошибка проверки версии не создаёт вырезанный объект без хеша', refusedCut, true);
 
 rig = bridge(() => good({}));
 let pasted = await pasteClip(rig.request, { cut: false, items: [{ ref: { rootId: 'r', relativePath: 'a' }, name: 'a', kind: 'file' }, { ref: { rootId: 'r', relativePath: 'b' }, name: 'b', kind: 'file' }] }, { rootId: 'r', relativePath: '' }, ['a']);

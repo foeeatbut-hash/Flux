@@ -275,7 +275,6 @@ public static class FluxShellFiles {
       try { return (IContextMenu)Marshal.GetObjectForIUnknown(raw); } finally { Marshal.Release(raw); }
     } finally { foreach (IntPtr pidl in pidls) if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl); }
   }
-  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string Verb(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2);
     try {
@@ -286,7 +285,6 @@ public static class FluxShellFiles {
     } catch { return null; } finally { Marshal.FreeCoTaskMem(buffer); }
   }
   /** Что ответил GetCommandString на запрос (W — GCS_VERBW, A — GCS_VERBA): для журнала диагностики, не для интерфейса. */
-  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   static string VerbProbe(IContextMenu menu, int offset) {
     IntPtr buffer = Marshal.AllocCoTaskMem(512 * 2); string report = "";
     try {
@@ -662,7 +660,6 @@ public static class FluxShellFiles {
 
   // ------------------------------------------------------------ вход
   /** Одна строка JSON -> одна строка JSON. Пути не попадают в сообщения об ошибках. */
-  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   [DllImport("propsys.dll", CharSet=CharSet.Unicode)] static extern int PropVariantToStringAlloc(IntPtr value, out IntPtr text);
   [DllImport("ole32.dll")] static extern int PropVariantClear(IntPtr value);
   static string FileProperties(Dictionary<string,object> args) {
@@ -693,6 +690,7 @@ public static class FluxShellFiles {
     }
     return Json(new Dictionary<string,object> { {"ok", true}, {"data", rows} });
   }
+  [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions, System.Security.SecurityCritical]
   public static string Handle(string line) {
     object id = null;
     try {

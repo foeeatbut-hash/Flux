@@ -2,18 +2,28 @@ import React from 'react';
 import { Home, Monitor, Network } from 'lucide-react';
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
 import type { WindowsFileEntry, WindowsFileRef } from '../../lib/windowsFiles';
+import { windowsFilesRequest, type WindowsThumbnail } from '../../lib/windowsFiles';
 import type { PlaceKind } from './places';
 
 /**
  * Значок места. У папки, диска и облачного корня — настоящий значок Windows
  * через мост (`getIcon`), своих рисованных на месте системных нет. У
- * Главной, Этого компьютера и Сети ссылки на файл не существует, и мост не
- * умеет отдать значок виртуального узла, поэтому там стоят простые линейные
- * значки — пока владелец не решит, нужна ли для них отдельная команда моста.
+ * У виртуальных мест мост принимает только фиксированные имена оболочки.
  */
 export default function PlaceIcon({ kind, name, fileRef, size = 16, flux = false, className = '' }: {
   kind: PlaceKind; name: string; fileRef?: WindowsFileRef; size?: number; flux?: boolean; className?: string;
 }) {
+  const [icon, setIcon] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let active = true; setIcon(null);
+    if (kind === 'home' || kind === 'computer' || kind === 'network') {
+      void windowsFilesRequest<WindowsThumbnail | null>({ action: 'placeIcon', place: kind, size: Math.max(16, Math.min(512, Math.round(size))) }).then((answer) => {
+        if (active && answer.ok && answer.data?.dataUrl?.startsWith('data:image/png;base64,')) setIcon(answer.data.dataUrl);
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
+  }, [kind, size]);
+  if (icon) return <img src={icon} width={size} height={size} alt="" draggable={false} className={`shrink-0 ${className}`} />;
   if (kind === 'home') return <Home width={size} height={size} aria-hidden className={`shrink-0 ${className}`} />;
   if (kind === 'computer') return <Monitor width={size} height={size} aria-hidden className={`shrink-0 ${className}`} />;
   if (kind === 'network') return <Network width={size} height={size} aria-hidden className={`shrink-0 ${className}`} />;

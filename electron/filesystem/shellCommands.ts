@@ -130,6 +130,18 @@ export class ShellCommands {
     return work;
   }
 
+  async placeIcon(place: string, size: number): Promise<WindowsThumbnail | null> {
+    const paths: Record<string, string> = {
+      home: '::{679f85cb-0220-4080-b29b-5540cc05aab6}',
+      computer: '::{20D04FE0-3AEA-1069-A2D8-08002B30309D}',
+      network: '::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}',
+    };
+    if (!Object.hasOwn(paths, place) || !Number.isInteger(size) || size < 16 || size > 512) throw new WindowsFilesError('INVALID_REQUEST', 'Некорректный значок места.');
+    if (!this.windows) return null;
+    const raw = await this.host.call('thumbnail', { path: paths[place], size, thumbOnly: false }, 20_000);
+    const url = raw && pngUrl(raw.base64);
+    return url && Number.isInteger(raw.width) && Number.isInteger(raw.height) && raw.width > 0 && raw.height > 0 ? { dataUrl: url, width: raw.width, height: raw.height, thumbnail: false } : null;
+  }
   async openWithList(owner: number, ref: WindowsFileRef): Promise<WindowsOpenWithHandler[]> {
     if (!this.windows) throw new WindowsFilesError('NOT_WINDOWS', NOT_WINDOWS);
     const filename = await this.service.nativePath(ref);

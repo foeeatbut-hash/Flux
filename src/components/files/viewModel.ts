@@ -2,7 +2,7 @@ import type { WindowsFileEntry } from '../../lib/windowsFiles';
 
 export type FolderLayout = 'extraLarge' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
 export type FolderSort = 'name' | 'modified' | 'type' | 'size';
-export type FolderGroup = 'none' | 'name' | 'type' | 'date' | 'size';
+export type FolderGroup = 'none' | 'name' | 'type' | 'date' | 'size' | 'project' | 'tags';
 export type FolderColumn = 'name' | 'created' | 'modified' | 'type' | 'size' | 'author' | 'tags' | 'project' | 'revision' | 'responsible' | 'storage';
 
 export interface FolderView {
@@ -30,7 +30,7 @@ export const FOLDER_COLUMNS: { id: FolderColumn; label: string }[] = [
 const COLUMN_IDS = new Set<FolderColumn>(FOLDER_COLUMNS.map((column) => column.id));
 const LAYOUTS = new Set<FolderLayout>(Object.keys(VIEW_LABELS) as FolderLayout[]);
 const SORTS = new Set<FolderSort>(['name', 'modified', 'type', 'size']);
-const GROUPS = new Set<FolderGroup>(['none', 'name', 'type', 'date', 'size']);
+const GROUPS = new Set<FolderGroup>(['none', 'name', 'type', 'date', 'size', 'project', 'tags']);
 
 export const DEFAULT_VIEW: FolderView = {
   layout: 'details', sort: 'name', descending: false, group: 'none',
@@ -86,6 +86,8 @@ export function orderedEntries(entries: WindowsFileEntry[], view: FolderView): W
 
 export function groupLabel(entry: WindowsFileEntry, group: FolderGroup): string {
   if (group === 'none') return '';
+  if (group === 'tags') return entry.metadata?.tags.slice().sort().join(', ') || 'Без тегов';
+  if (group === 'project') return (entry.projectNames || entry.metadata?.projectIds)?.slice().sort().join(', ') || 'Без проекта';
   if (group === 'name') return entry.name.slice(0, 1).toLocaleUpperCase('ru') || '#';
   if (group === 'type') return entry.kind === 'directory' ? 'Папки' : extensionOf(entry.name).toLocaleUpperCase('ru') || 'Без расширения';
   if (group === 'size') return entry.kind === 'directory' ? 'Папки' : entry.size === 0 ? 'Пустые' : entry.size < 1024 * 1024 ? 'Маленькие' : entry.size < 100 * 1024 * 1024 ? 'Средние' : 'Большие';

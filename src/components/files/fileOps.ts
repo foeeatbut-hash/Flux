@@ -27,9 +27,12 @@ export const subscribeClip = (listener: () => void) => { listeners.add(listener)
 export function setClip(next: Clip | null) { current = next; listeners.forEach((listener) => listener()); }
 
 /** Хеш содержимого файла: перенос и удаление откажут, если файл успели изменить. */
-async function hashOf(request: BridgeRequest, ref: WindowsFileRef): Promise<string | undefined> {
-  const response = await request<{ sha256?: string }>({ action: 'fileHash', ref }).catch(() => null);
-  return response && 'data' in response ? response.data?.sha256 : undefined;
+async function hashOf(request: BridgeRequest, ref: WindowsFileRef): Promise<string> {
+  const response = await request<{ sha256?: string }>({ action: 'fileHash', ref });
+  if ('error' in response) throw new Error(response.error.message);
+  const hash = response.data?.sha256;
+  if (typeof hash !== 'string' || !hash) throw new Error('Не удалось проверить версию файла. Буфер обмена сохранён без изменений.');
+  return hash;
 }
 
 /** Собрать буфер из выбранных. Для «вырезать» у файлов запоминается хеш — защита от потери правок. */

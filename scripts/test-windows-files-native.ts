@@ -207,6 +207,19 @@ async function main() {
       check(again === picture, 'Повторный запрос приходит из кэша');
       for (let i = 0; i < 20; i++) await shell!.thumbnail(R('Заметка.txt'), 20 + i * 10, false);
       check(host.running, 'Двадцать подряд запросов обслуживает один запущенный помощник');
+      const computer = await shell!.placeIcon('computer', 32);
+      check(!!computer?.dataUrl.startsWith('data:image/png;base64,'), 'Значок «Этот компьютер» поступает из виртуального места Windows');
+      const invalidPlace = await shell!.placeIcon('произвольное место', 32).then(() => null, error => error.code);
+      check(invalidPlace === 'INVALID_REQUEST', 'Команда значка виртуального места принимает только фиксированные места');
+    });
+
+    await section('Системные свойства и скрытые объекты', async () => {
+      await fs.writeFile(dir('Скрытый.txt'), 'тест системного атрибута');
+      await run('attrib.exe', ['+H', dir('Скрытый.txt')]);
+      const rows = await host.call('file-info', { paths: [dir('Скрытый.txt'), dir('Заметка.txt')] });
+      check(rows[0]?.hidden === true && rows[1]?.hidden === false, 'Hidden читается из атрибута Windows, а не из имени файла');
+      const properties = await shell!.fileProperties(R('Скрытый.txt'));
+      check(properties.hidden && Number.isFinite(Date.parse(properties.createdAt)) && typeof properties.author === 'string', 'Системные свойства возвращают дату создания, скрытость и строку автора');
     });
 
     await section('Быстрый доступ и облачные корни', async () => {

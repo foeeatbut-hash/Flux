@@ -164,6 +164,8 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
     let entry;
     try { entry = await service.entry(ref, true); } catch { return; } // файл исчез между списком и запросом — не ошибка поиска
     if (!filter.full(entry, service.state)) return;
+    const metadata = service.state.data.metadata[entry.fileId];
+    if (metadata) entry.metadata = { ...metadata, history: [] };
     page.push({ ...entry, rootId: ref.rootId, parentPath });
     if (++found >= limits.hits) stop = 'limit-hits';
     if (page.length >= PAGE_SIZE || Date.now() - flushed >= PAGE_MS) flush();

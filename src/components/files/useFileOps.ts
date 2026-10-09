@@ -41,8 +41,9 @@ export function useFileOps({ rootId, folder, names, reload, request = windowsFil
 
   const take = useCallback(async (entries: WindowsFileEntry[], cut: boolean) => {
     if (!rootId || !entries.length) return;
-    setClip(await makeClip(request, entries, rootId, cut));
-  }, [rootId, request]);
+    try { setClip(await makeClip(request, entries, rootId, cut)); }
+    catch (cause) { addToast(cause instanceof Error ? cause.message : 'Не удалось подготовить буфер обмена.', 'error'); }
+  }, [rootId, request, addToast]);
 
   const paste = useCallback(async () => {
     const clipped = getClip();

@@ -13,8 +13,8 @@ export default function CommandBar({ view, onView, selected, busy, canPaste, onC
   const toggle = (kind: 'sort' | 'view' | 'more', event: React.MouseEvent<HTMLButtonElement>) => { const r = event.currentTarget.getBoundingClientRect(); setMenu({ kind, x: r.left, y: r.bottom }); };
   const icon = (label: string, Icon: React.ElementType, onClick: () => void, disabled: boolean) => <button type="button" aria-label={label} title={label} onClick={onClick} disabled={disabled || busy} className={`h-8 w-11 shrink-0 rounded flex items-center justify-center ${T.iconButton} disabled:opacity-35`}><Icon size={16} strokeWidth={1.3} /></button>;
   const mark = (yes: boolean) => yes ? <Check size={14} /> : undefined;
-  const sortLabels = { name: 'Имя', modified: 'Дата изменения', type: 'Тип', size: 'Размер' };
-  const groupLabels = { none: '(Нет)', name: 'Имя', type: 'Тип', date: 'Дата изменения', size: 'Размер' };
+  const sortLabels = { name: 'Имя', modified: 'Дата изменения', type: 'Тип', size: 'Размер', project: 'Проект', tags: 'Теги' };
+  const groupLabels = { none: '(Нет)', name: 'Имя', type: 'Тип', date: 'Дата изменения', size: 'Размер', project: 'Проект', tags: 'Теги' };
   return <div data-explorer-commands className={`flex h-[46px] shrink-0 items-center gap-1 border-y px-2 ${T.pane} ${T.line} ${T.text}`}>
     <div className="flex overflow-x-auto items-center min-w-0 flex-1">
       {icon('Вырезать', Scissors, onCut, !selected)}{icon('Копировать', Copy, onCopy, !selected)}{icon('Вставить', Clipboard, onPaste, !canPaste)}{icon('Переименовать', TextCursorInput, onRename, selected !== 1)}{icon('Общий доступ', Share2, () => onShare?.(), !onShare || selected !== 1)}{icon('Удалить', Trash2, onDelete, !selected)}

@@ -16,6 +16,8 @@ export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;
   rootId?: string; createdAt?: string; hidden?: boolean; author?: string; metadata?: WindowsFileMetadata;
+  /** Названия проектов для показа; идентификаторы остаются в metadata. */
+  projectNames?: string[];
 }
 export interface WindowsFileContent extends WindowsFileEntry { base64: string; sha256: string }
 export interface WindowsFileMetadata {
@@ -49,6 +51,8 @@ export type WindowsFilesRequest =
   | { action: 'archive'; refs: WindowsFileRef[]; parent: WindowsFileRef; name: string; group?: string }
   | { action: 'purgeDraft'; ref: WindowsFileRef }
   | { action: 'systemProperties'; ref: WindowsFileRef }
+  | { action: 'resolveAddress'; text: string }
+  | { action: 'placeIcon'; place: 'home' | 'computer' | 'network'; size: number }
   | { action: 'permanentDelete'; ref: WindowsFileRef; baseSha256?: string }
   | { action: 'copyPath'; refs: WindowsFileRef[] }
   | { action: 'reveal' | 'open'; ref: WindowsFileRef }

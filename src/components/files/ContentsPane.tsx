@@ -263,7 +263,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       case 'author': return entry.author || systemValues[entryMetadataKey(rootId, entry)]?.author || '—';
       case 'storage': return entry.storage === 'flux' ? 'Только в Flux' : 'Windows';
       case 'tags': return entry.metadata?.tags?.join(', ') || metadata?.tags?.join(', ') || '—';
-      case 'project': return entry.metadata?.projectIds?.join(', ') || metadata?.projectIds?.join(', ') || '—';
+      case 'project': return entry.projectNames?.join(', ') || entry.metadata?.projectIds?.join(', ') || metadata?.projectIds?.join(', ') || '—';
       case 'revision': return entry.metadata?.revision || metadata?.revision || '—';
       case 'responsible': return entry.metadata?.responsible || metadata?.responsible || '—';
     }
@@ -396,7 +396,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
         {visibleRows.map((virtualRow) => <div key={virtualRow.key} data-virtual-column={virtualRow.index} className="absolute top-0 h-full w-[196px]" style={{ left: virtualRow.start }}>
           <div data-entries-grid data-entry-flow="column-major" data-flow-row-count={listRowsPerColumn} className="flex h-full flex-col overflow-hidden border-r px-1" style={{ width: 196 }}>
             {(listColumns[virtualRow.index] || []).map((item) => item.kind === 'group'
-              ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center truncate px-1 text-[11px] font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
+              ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center overflow-hidden px-1 text-[11px] font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
               : <div key={item.key} className="relative flex h-8 shrink-0 items-center" onDragOver={(event) => { if (item.entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (item.entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, item.entry); } }}>
                 {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${item.entry.name}`} checked={selection.isSelected(item.entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(item.entry, { ctrl: true })} className="mr-1" />}
                 <button type="button" role="row" data-entry-key={item.entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
@@ -413,7 +413,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       {rubberband && <div aria-hidden className="pointer-events-none absolute z-20 border border-[#0067c0] bg-[#0067c0]/15" style={{ left: rubberband.x, top: rubberband.y - containerRef.current!.scrollTop, width: rubberband.width, height: rubberband.height }} />}
       {!entries.length && <div className={`p-4 text-sm ${T.muted}`}>Папка пуста</div>}
     </div>
-    {columnMenu && <div role="dialog" aria-label="Столбцы и порядок" className={`fixed z-[120] w-64 rounded-md p-2 shadow-lg ${T.menu} ${T.text}`} style={{ left: columnMenu.x, top: columnMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+    {columnMenu && <div role="dialog" aria-label="Столбцы и порядок" className={`fixed z-[120] w-64 rounded-md p-2 shadow-md ${T.menu} ${T.text}`} style={{ left: columnMenu.x, top: columnMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
       <div className={`mb-1 px-2 text-xs font-semibold ${T.muted}`}>Столбцы таблицы</div>
       {FOLDER_COLUMNS.map(({ id, label }) => <div key={id} className="flex h-8 items-center gap-2 px-2 text-xs">
         <label className="flex min-w-0 flex-1 items-center gap-2"><input type="checkbox" checked={columns.includes(id)} disabled={id === 'name'} onChange={() => toggleColumn(id)} /><span className="truncate">{label}</span></label>

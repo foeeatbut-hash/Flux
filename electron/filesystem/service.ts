@@ -166,6 +166,17 @@ export class WindowsFilesService {
     return this.filename(resolved);
   }
   async addRoot(filename: string, name?: string) { const root = await this.state.addRoot(filename, 'custom', name); return { id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: true }; }
+  async resolveAddress(text: string): Promise<WindowsFileRef | null> {
+    if (typeof text !== 'string' || text.length > 32767 || /[\u0000-\u001f]/u.test(text)) throw new WindowsFilesError('INVALID_REQUEST', 'Некорректный адрес.');
+    const allowed = new Set(['USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'WINDIR', 'SYSTEMROOT', 'PUBLIC']);
+    let unknown = false;
+    const filename = text.replace(/%([^%]+)%/g, (_, name: string) => {
+      const key = name.toUpperCase();
+      if (!allowed.has(key) || !process.env[key]) { unknown = true; return ''; }
+      return process.env[key]!;
+    });
+    return unknown ? null : this.refForShellPath(filename);
+  }
   /** Только main передаёт путь из Shell; renderer не умеет выдавать себе новый корень. */
   async refForShellPath(filename: string): Promise<WindowsFileRef | null> {
     if (typeof filename !== 'string' || !path.isAbsolute(filename) || filename.length > 32767 || /[\u0000-\u001f]/u.test(filename)) return null;
@@ -742,7 +753,7 @@ export class WindowsFilesService {
       const entry = await this.entry(ref);
       if (entry.kind === 'directory') return this.moveDirectory(ref, parent, name, source, target, entry.fileId);
       if (entry.kind !== 'file') throw new WindowsFilesError('UNSUPPORTED_ENTRY', 'Этот тип файла переносится средствами Windows.');
-      const original = await this.read(ref);
+      const original = { ...await this.fileHash(ref), fileId: entry.fileId };
       if (baseSha256 && original.sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл изменился; повторите действие со свежей версией.');
       // link не заменяет существующую цель, в отличие от rename на POSIX.
       try { await fs.link(source, target.filename); }
@@ -752,8 +763,8 @@ export class WindowsFilesService {
       }
       let removedSource = false;
       try {
-        const copied = await this.read(target.ref);
-        const fresh = await this.read(ref);
+        const copied = await this.fileHash(target.ref);
+        const fresh = { ...await this.fileHash(ref), fileId: (await this.entry(ref)).fileId };
         if (copied.sha256 !== original.sha256 || fresh.sha256 !== original.sha256 || fresh.fileId !== original.fileId) throw new WindowsFilesError('CONFLICT', 'Исходный файл изменился при переносе. Он сохранён на прежнем месте.');
         await this.filename(ref); await fs.unlink(source); removedSource = true;
         await this.preserveIdentity(target.filename, original.fileId);

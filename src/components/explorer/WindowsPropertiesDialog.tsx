@@ -17,6 +17,8 @@ export default function PropertiesDialog({ entry, rootId, metadata, projects, ta
       <ReadOnly label="Тип" value={entry.kind === 'directory' ? 'Папка' : entry.name.split('.').pop()?.toUpperCase() || 'Файл'} />
       <ReadOnly label="Размер" value={entry.kind === 'directory' ? '—' : fileSize(entry.size)} />
       <ReadOnly label="Изменён" value={dateLabel(entry.modifiedAt)} />
+      <ReadOnly label="Создан" value={entry.createdAt ? dateLabel(entry.createdAt) : '—'} />
+      <ReadOnly label="Автор" value={entry.author || '—'} />
       <ReadOnly label="Хранение" value={entry.storage === 'flux' ? 'Только в Flux' : 'Windows'} />
       <Field label="Ревизия"><Input value={revision} onChange={(e) => setRevision(e.target.value)} placeholder="Например, 2" /></Field>
       <Field label="Ответственный"><Input value={responsible} onChange={(e) => setResponsible(e.target.value)} placeholder="Фамилия Имя" /></Field>

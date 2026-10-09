@@ -29,6 +29,12 @@ async function main() {
   try {
     const rootId = (await service.roots())[0].id;
     const ref = (name: string) => ({ rootId, relativePath: name }); const parent = ref('');
+    const oldProfile = process.env.USERPROFILE;
+    process.env.USERPROFILE = root;
+    try {
+      check('Переменная адреса раскрывается только внутри подключённого корня', (await service.resolveAddress('%USERPROFILE%'))?.rootId === rootId);
+      check('Неизвестные переменные и выход за подключённый корень не дают доступ', await service.resolveAddress('%PATH%') === null && await service.resolveAddress('%USERPROFILE%/..') === null);
+    } finally { if (oldProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldProfile; }
     const write = (name: string, text: string) => fs.writeFile(path.join(root, name), text);
     const read = (name: string) => fs.readFile(path.join(root, name), 'utf8');
     await write('source.txt', 'новое содержимое'); await write('target.txt', 'старое содержимое');
@@ -84,6 +90,14 @@ async function main() {
     check('Замена файла больше 64 МБ не использует лимит редактора', (await fs.stat(largeTarget)).size === 64 * 1024 * 1024 + 1 && (await service.fileHash(ref('large-target.bin'))).sha256 === (await service.fileHash(ref('large.bin'))).sha256);
     await undoLast(service);
     check('Потоковая отмена большого файла восстанавливает малый оригинал', await read('large-target.bin') === 'раньше');
+    const snapshots = await fs.readdir(path.join(userData, 'windows-files-undo-bytes'));
+    await service.journal.record({ label: 'Новая ветка отмены', op: { kind: 'create', at: ref('source.txt'), fingerprint: null } });
+    check('Новая операция очищает копии отменённой замены, потерявшие ссылку в журнале', (await fs.readdir(path.join(userData, 'windows-files-undo-bytes'))).length < snapshots.length);
+    const largeHash = (await service.fileHash(ref('large.bin'))).sha256;
+    await service.move(ref('large.bin'), parent, 'large-moved.bin', largeHash);
+    check('Перенос файла больше 64 МБ проверяет потоковые версии и сохраняет содержимое', (await service.fileHash(ref('large-moved.bin'))).sha256 === largeHash && !await fs.stat(largeSource).then(() => true).catch(() => false));
+    await undoLast(service);
+    check('Отмена переноса большого файла возвращает исходный путь', (await service.fileHash(ref('large.bin'))).sha256 === largeHash);
     const store = await ViewStateStore.load(userData);
     for (const scope of [`${rootId}\0Папка\0`, 'длинный путь'.repeat(300)]) {
       const key = folderViewStorageKey(scope); await store.set({ [key]: { layout: 'large' } });

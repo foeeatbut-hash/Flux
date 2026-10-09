@@ -18,8 +18,14 @@ export default function PropertiesWindow({ entry, rootId, onClose }: { entry: Wi
   const [responsible, setResponsible] = React.useState('');
   const [tagQuery, setTagQuery] = React.useState('');
   const [busy, setBusy] = React.useState(true);
+  const [systemProperties, setSystemProperties] = React.useState<{ author?: string; createdAt?: string }>({});
   React.useEffect(() => {
     let alive = true;
+    setBusy(true); setMetadata(null);
+    setSystemProperties({});
+    if (!entry.draftId) void windowsFilesRequest<{ author: string; createdAt: string }>({ action: 'systemProperties', ref: entryRef(entry, rootId) }).then((answer) => {
+      if (alive && answer.ok) setSystemProperties({ ...(typeof answer.data?.author === 'string' ? { author: answer.data.author } : {}), ...(typeof answer.data?.createdAt === 'string' ? { createdAt: answer.data.createdAt } : {}) });
+    }).catch(() => undefined);
     void windowsFilesRequest<WindowsFileMetadata>({ action: 'metadata', ref: entryRef(entry, rootId) }).then((answer) => {
       if (!alive) return;
       if (answer.ok) { const m = answer.data; setMetadata(m); setDraftTags(m.tags); setDraftProjects(m.projectIds); setRevision(m.revision); setResponsible(m.responsible); }
@@ -37,5 +43,5 @@ export default function PropertiesWindow({ entry, rootId, onClose }: { entry: Wi
     setBusy(false);
     if (answer.ok) { toast('Свойства сохранены', 'success'); onClose(); } else if ('error' in answer) toast(answer.error.message, 'error');
   };
-  return <PropertiesDialog {...{ entry, rootId, metadata, projects, tags, draftTags, setDraftTags, draftProjects, setDraftProjects, revision, setRevision, responsible, setResponsible, tagQuery, setTagQuery, busy, onClose }} activeProjectId={activeProject?.id || ''} onSave={() => void save()} />;
+  return <PropertiesDialog {...{ rootId, metadata, projects, tags, draftTags, setDraftTags, draftProjects, setDraftProjects, revision, setRevision, responsible, setResponsible, tagQuery, setTagQuery, onClose }} entry={{ ...entry, ...systemProperties }} busy={busy || !metadata} activeProjectId={activeProject?.id || ''} onSave={() => void save()} />;
 }

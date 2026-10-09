@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { DEFAULT_VIEW, contentsRows, normalizeFolderView, orderedEntries, type FolderView } from '../src/components/files/viewModel';
+import { DEFAULT_VIEW, contentsRows, groupLabel, normalizeFolderView, orderedEntries, type FolderView } from '../src/components/files/viewModel';
 import { folderViewStorageKey } from '../src/components/files/useFolderView';
 import type { WindowsFileEntry } from '../src/lib/windowsFiles';
 
@@ -45,4 +45,7 @@ check(grouped[0].kind === 'group' && grouped[0].label === 'Папки · Пап�
   'Группы следуют тому же порядку, что и клавиатурная навигация');
 check(grouped.filter((row) => row.kind === 'group').length === 4, 'Заголовок появляется при смене группы в отсортированном списке');
 check(source[0].name === 'zeta.txt', 'Построение модели не меняет исходный массив');
+const tagged = { ...source[0], metadata: { fileId: source[0].fileId, tags: ['Тег Б', 'Тег А'], projectIds: ['Проект Б', 'Проект А'], revision: '', responsible: '', history: [] } };
+check(groupLabel(tagged, 'tags') === 'Тег А, Тег Б' && groupLabel(source[0], 'tags') === 'Без тегов', 'Группировка тегов учитывает метаданные и отсутствие тегов');
+check(groupLabel(tagged, 'project') === 'Проект А, Проект Б' && normalizeFolderView({ group: 'project' }).group === 'project', 'Группировка проектов сохраняется в настройках вида');
 console.log(`ALL TESTS PASSED (${passed})`);

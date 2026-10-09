@@ -60,13 +60,15 @@ export default function RecyclePane({ onChanged, request = windowsFilesRequest }
     try {
       const failures: string[] = [];
       for (const draft of items) {
-        const result = await request({ action: 'purgeDraft', ref: draft.ref });
-        if ('error' in result) failures.push(`${draft.name}: ${result.error.message}`);
+        try {
+          const result = await request({ action: 'purgeDraft', ref: draft.ref });
+          if ('error' in result) failures.push(`${draft.name}: ${result.error.message}`);
+        } catch (cause) { failures.push(`${draft.name}: ${cause instanceof Error ? cause.message : 'Не удалось удалить черновик.'}`); }
       }
       if (alive.current) {
         await load();
         if (failures.length) setError(`Не удалось удалить некоторые черновики: ${failures.join('; ')}`);
-        else onChanged();
+        onChanged();
       }
     } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : 'Черновики не удалены.'); }
     finally { if (alive.current) setBusy(false); }
