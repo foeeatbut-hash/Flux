@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { fileIdOf, pathOf, targetOrigin, fromOwnFrame, sha256Hex, copyName, isOfficeMsg } from '../src/lib/officeBridge';
+import { waitForEditor } from '../tools/genoffice/inject/editor-readiness';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>
@@ -72,7 +73,11 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   win.window = win;
   const ctx = vm.createContext({
     window: win, localStorage: win.localStorage, Proxy, Promise, Object, String, Blob, URL,
-    document: { head: { appendChild: () => {} }, createElement: () => ({}) },
+    Node: { ELEMENT_NODE: 1 }, MutationObserver: class { observe() {} },
+    document: {
+      head: { appendChild: () => {} }, documentElement: { nodeType: 1, matches: () => false, querySelectorAll: () => [], appendChild: () => {} },
+      createElement: () => ({}), addEventListener: () => {}, querySelectorAll: () => [],
+    },
   });
   vm.runInContext(src, ctx);
   const d = win.desktop;
@@ -125,9 +130,63 @@ const ok = (n: string, c: boolean, d?: unknown) =>
   ok('свёрнутая панель ИИ Таблицы скрыта', /\.copilot\{display:none!important\}/.test(shim));
   // В Electron Ctrl+S — клавиша меню главного процесса; без меню книга не сохранялась
   ok('Ctrl+S отдаётся Таблице командой меню', /MENU_KEYS = \{ s: 'save'/.test(shim) && /listeners\.get\('menu:action'\)/.test(shim));
-  const hostApps = readFileSync('server/officeHostApps.ts', 'utf8');
+  const rendererParent = { postMessage: () => {} };
+  let rendererMessage: ((event: any) => void) | null = null;
+  const rendererWindow: any = {
+    parent: rendererParent,
+    location: { origin: 'http://localhost:3000' },
+    addEventListener: (type: string, fn: (event: any) => void) => { if (type === 'message') rendererMessage = fn; },
+    dispatchEvent: () => true,
+  };
+  rendererWindow.window = rendererWindow;
+  const rendererDocument: any = {
+    head: { appendChild: () => {} },
+    documentElement: { appendChild: () => {}, querySelectorAll: () => [] },
+    createElement: () => ({ style: { cssText: '' } }),
+    addEventListener: () => {},
+  };
+  class TestMutationObserver { observe() {} }
+  let rendererNow = 1_000;
+  class RendererDate extends Date { static now() { return rendererNow; } }
+  const runnableShim = shim.replace(/^export const /gm, 'const ').replace(/^export default .*;?\s*$/gm, '');
+  const rendererContext = vm.createContext({
+    window: rendererWindow, document: rendererDocument, localStorage: { setItem: () => {} },
+    Node: { ELEMENT_NODE: 1 }, MutationObserver: TestMutationObserver, Date: RendererDate,
+  });
+  vm.runInContext(runnableShim, rendererContext);
+  rendererMessage?.({ source: rendererParent, origin: 'http://localhost:3000', data: {
+    flux: 'office', event: 'ipc', payload: { channel: 'flux:insert-table', args: [{ id: 'early', payload: { rows: [['Тег'], ['AHU-1']] } }] },
+  } });
+  const insertedCommands: any[] = [];
+  rendererWindow.__fluxIpc.on('flux:insert-table', (_event: unknown, message: unknown) => insertedCommands.push(message));
+  rendererMessage?.({ source: rendererParent, origin: 'http://localhost:3000', data: {
+    flux: 'office', event: 'ipc', payload: { channel: 'flux:insert-table', args: [{ id: 'ready', payload: { rows: [['Код'], ['AHU-2']] } }] },
+  } });
+  ok('ранняя команда вставки ждёт подписку Таблицы и выполняется один раз',
+    insertedCommands.length === 2 && insertedCommands[0]?.id === 'early' && insertedCommands[1]?.id === 'ready', insertedCommands);
+  rendererWindow.__fluxIpc.removeAllListeners('flux:refresh-export');
+  rendererMessage?.({ source: rendererParent, origin: 'http://localhost:3000', data: {
+    flux: 'office', event: 'ipc', payload: { channel: 'flux:refresh-export', args: [{ id: 'stale' }] },
+  } });
+  rendererNow += 7_001;
+  const expiredCommands: any[] = [];
+  rendererWindow.__fluxIpc.on('flux:refresh-export', (_event: unknown, message: unknown) => expiredCommands.push(message));
+  ok('просроченная команда панели не меняет книгу после таймаута', expiredCommands.length === 0, expiredCommands);
+  let editorReady = false;
+  setTimeout(() => { editorReady = true; }, 25);
+  ok('Документ ждёт позднюю готовность редактора', await waitForEditor(() => editorReady ? { ready: true } : null, 250) !== null);
+  ok('Документ завершает раннюю вставку отказом, если редактор не готов', await waitForEditor(() => null, 20) === null);
+  const hostPolicy = readFileSync('server/officeHostPolicy.ts', 'utf8');
   ok('белый список Таблицы без ИИ, печати и экспорта через Electron',
-    /workbook:create-document', 'workbook:export-pdf', 'workbook:print'/.test(hostApps) && !/'ai:/.test(hostApps));
+    /OFFICE_HOST_ALLOWED/.test(hostPolicy) && /workbook:export-pdf', 'workbook:print'/.test(hostPolicy) && /isGenOfficeAIChannel/.test(hostPolicy));
+  const localEditor = readFileSync('src/components/office/LocalOfficeEditor.tsx', 'utf8');
+  ok('чистое локальное окно Таблицы закрывается без запроса сохранения',
+    /if \(app !== 'docs' && !dirty\.current\) return true;/.test(localEditor));
+  ok('Документ проверяет актуальные правки через собственный closeCheck',
+    /if \(app === 'docs'\) \{\s*const state = await ask\('closeCheck', 'closeCheck'\)/.test(localEditor));
+  const docsCollab = readFileSync('tools/genoffice/inject/docs-collab.ts', 'utf8');
+  ok('ранняя вставка Документа ждёт редактор после готовности моста',
+    /p\.on\('insertTable', async/.test(docsCollab) && /waitForEditor\(\(\) =>/.test(docsCollab));
   const sheetsHost = readFileSync('tools/genoffice/inject/sheets-host.ts', 'utf8');
   ok('окну — имя файла Flux, а не случайное имя снимка', /f\.name = basename\(f\.path\)/.test(sheetsHost));
 

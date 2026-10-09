@@ -368,9 +368,12 @@ export default function OfficeHost() {
   // свои правки, дать серверу превратить метки в поля и подставить значения,
   // открыть файл заново (server/routes/projectData.ts)
   const [dataOpen, setDataOpen] = useState(false);
-  const insertField = (f: { key: string; title: string }) => {
-    send({ event: 'insertText', payload: `{{${f.key}}}` });
-    addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+  const insertField = async (f: { key: string; title: string }) => {
+    const result = await askFrame<{ ok: boolean; error?: string }>(
+      'insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`,
+    );
+    if (result?.ok) addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+    else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
   };
   // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
   const saveBeforeServer = async (): Promise<boolean> => {

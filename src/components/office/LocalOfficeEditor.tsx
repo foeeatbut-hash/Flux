@@ -93,8 +93,11 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   }, [app, fileRef.rootId, fileRef.relativePath, fileRef.draftId, closeSession]);
   const save = useCallback(async () => {
     if (busySave.current) return busySave.current;
+    if (!ready) return !dirty.current;
+    // Документ сообщает dirty через свой closeCheck; локальный dirty ref
+    // отслеживает только PDF и Таблицу и не может решать за Word.
+    if (app !== 'docs' && !dirty.current) return true;
     const operation = (async () => {
-      if (!ready) return !dirty.current;
       try {
         if (app === 'docs') {
           const state = await ask('closeCheck', 'closeCheck');
@@ -230,7 +233,11 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     const result = await answer;
     if (!result?.ok) toast(result?.error || 'Поле не вставлено.', 'error');
   };
-  const insertText = async (text: string) => { if (app === 'docs') send({ event: 'insertText', payload: text }); };
+  const insertText = async (text: string) => {
+    if (app !== 'docs') return;
+    const result = await ask('insertText', 'flux:text-inserted', text);
+    if (!result?.ok) toast(result?.error || 'Редактор не готов — текст не вставлен', 'error');
+  };
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
