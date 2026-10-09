@@ -13,6 +13,7 @@ type FixtureComponent = ExportSystem['monoblocks'][number]['components'][number]
   version: number;
   hasConflict: boolean;
   status: string;
+  catalogSource?: { effective?: Array<{ group: string; key: string; source: string }> };
 };
 type FixtureMonoblock = Omit<ExportSystem['monoblocks'][number], 'components'> & { id: string; components: FixtureComponent[] };
 type FixtureSystem = Omit<ExportSystem, 'monoblocks'> & { fileName?: string; monoblocks: FixtureMonoblock[] };

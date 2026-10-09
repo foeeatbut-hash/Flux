@@ -1,6 +1,7 @@
 import { withDefaults, type CatalogRef, type Component, type Family, type ValveValues } from '../catalog/model';
 import { parseDesignation } from '../catalog/designation';
 import { evalCond } from '../catalog/rules';
+import { sourceValuesEqual } from './sourceValueComparison.js';
 
 export interface SourceParam { key: string; value: string; unit?: string }
 export interface SourceGroup { title: string; params: SourceParam[] }
@@ -8,7 +9,7 @@ export type SourceMode = 'xml' | 'catalog' | 'hybrid';
 export interface CatalogBinding {
   mode: SourceMode; modelId?: string; code?: string; manufacturer?: string;
   revision: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family';
-  values?: ValveValues; at: string; snapshot?: Component | Family;
+  values?: ValveValues; acceptedCatalogParams?: string[]; at: string; snapshot?: Component | Family;
 }
 export interface EffectiveParam extends SourceParam {
   group: string;
@@ -21,6 +22,7 @@ export interface SourceDiscrepancy {
   group: string; key: string; xmlValue: string; catalogValue: string;
   xmlUnit?: string; catalogUnit?: string; sourceRef?: CatalogRef;
 }
+export interface CatalogAcceptedValue { value: string; unit?: string; sourceRef?: CatalogRef }
 
 export interface FamilyMatch { family: Family; values: ValveValues }
 
@@ -40,6 +42,16 @@ export function matchPublishedFamily(families: Family[], designation: string, ma
   return parseDesignation(candidates, designation).filter(r => r.complete)
     .map(r => ({ family: candidates.find(f => f.id === r.familyId)!, values: r.values }))
     .filter(x => !!x.family);
+}
+
+/** Ограничивает поиск моделями класса выбранного оборудования, не угадывая код для неизвестного типа. */
+export function catalogCodesForEquipment(equipType: unknown): string[] {
+  const type = String(equipType || '').toLocaleLowerCase('ru');
+  if (/вентилятор|fan/.test(type)) return ['fan'];
+  if (/клапан|привод|valve|actuator/.test(type)) return ['valve'];
+  if (/двигател|motor/.test(type)) return ['motor'];
+  if (/фильтр|filter/.test(type)) return ['filter'];
+  return [];
 }
 
 /** Resolve family defaults and exact, verified table rows for one parsed variant. */
@@ -82,34 +94,72 @@ const aliases: Record<string, string> = {
   'температура окружающей среды': 'температура работы', 'крутящий момент привода': 'крутящий момент',
 };
 const canonical = (v: string) => aliases[label(v)] || label(v);
+const unitDimension = (value: string | undefined): string => {
+  const unit = (value || '').normalize('NFC').trim().replace(/\s+/g, ' ').replace(/²/g, '2').replace(/³/g, '3');
+  const groups: Array<[string, string[]]> = [
+    ['length', ['мм', 'мм.', 'mm', 'см', 'cm', 'м', 'm']],
+    ['pressure', ['па', 'pa', 'кпа', 'kpa']],
+    ['power', ['вт', 'w', 'квт', 'kw']],
+    ['volume-flow', ['м3/ч', 'м3/час', 'куб.м/ч', 'куб.м/час', 'm3/h', 'кубометр/ч', 'кубометр/час', 'м3/с', 'м3/сек', 'куб.м/с', 'куб.м/сек', 'm3/s', 'm3/sec', 'кубометр/с', 'кубометр/сек']],
+  ];
+  return groups.find(([, units]) => units.includes(unit.toLowerCase()))?.[0] || `exact:${unit}`;
+};
+const unitsCompatible = (a?: string, b?: string): boolean => (!a && !b) || (!!a && !!b && unitDimension(a) === unitDimension(b));
 const present = (v: unknown) => String(v ?? '').trim() !== '' && String(v).trim() !== '—';
 
 /** Источники накладываются на чтении; исходный XML не меняется. */
-const comparable = (value: unknown) => {
-  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru');
-  return /^[+-]?\d+(?:[.,]\d+)?$/.test(normalized) ? String(Number(normalized.replace(',', '.'))) : normalized;
-};
-export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: SourceMode, model?: Component | Family, options: { values?: ValveValues; revision?: string; sourceRef?: CatalogRef } = {}): { groups: SourceGroup[]; effective: EffectiveParam[]; warnings: string[]; discrepancies: SourceDiscrepancy[] } {
+function modelSpecs(model: Component | Family, values?: ValveValues) {
+  return 'positions' in model ? familySpecs(model, values || {}) : model.specs || [];
+}
+
+/** Каталог сам задаёт предлагаемые значения; адрес и текст вычисляются из снимка, а не запроса браузера. */
+export function catalogValuesByAddress(raw: unknown, model: Component | Family, options: { values?: ValveValues; sourceRef?: CatalogRef } = {}): Record<string, CatalogAcceptedValue> {
+  const groups = sourceGroups(raw);
+  const result: Record<string, CatalogAcceptedValue> = {};
+  const ambiguous = new Set<string>();
+  for (const spec of modelSpecs(model, options.values)) {
+    const matches = groups.flatMap(group => group.params.map(param => ({ group, param })))
+      .filter(item => canonical(item.param.key) === canonical(spec.label.ru));
+    const compatible = matches.filter(item => unitsCompatible(item.param.unit, spec.unit));
+    const address = compatible.length === 1
+      ? `${compatible[0].group.title}||${compatible[0].param.key}`
+      : !matches.length ? `Характеристики из каталога||${spec.label.ru}` : '';
+    if (!address) continue;
+    if (ambiguous.has(address)) continue;
+    if (Object.hasOwn(result, address)) { delete result[address]; ambiguous.add(address); continue; }
+    result[address] = { value: String(spec.value ?? ''), ...(spec.unit ? { unit: spec.unit } : {}), ...(spec.sourceRef || options.sourceRef ? { sourceRef: spec.sourceRef || options.sourceRef } : {}) };
+  }
+  return result;
+}
+
+export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: SourceMode, model?: Component | Family, options: { values?: ValveValues; revision?: string; sourceRef?: CatalogRef; acceptedCatalogParams?: string[] } = {}): { groups: SourceGroup[]; effective: EffectiveParam[]; warnings: string[]; discrepancies: SourceDiscrepancy[] } {
   const groups = sourceGroups(raw).map(g => ({ ...g, params: g.params.map(p => ({ ...p, value: String(p.value ?? '') })) }));
   const warnings: string[] = [];
   const discrepancies: SourceDiscrepancy[] = [];
   const origins = new Map<SourceParam, EffectiveParam['source']>();
   const sourceRefs = new Map<SourceParam, CatalogRef | undefined>();
+  const accepted = new Set(options.acceptedCatalogParams || []);
+  const acceptedValues = model ? catalogValuesByAddress(raw, model, options) : {};
   for (const g of groups) for (const p of g.params) origins.set(p, 'xml');
   if (mode !== 'xml' && model) {
     let extra = groups.find(g => g.title === 'Характеристики из каталога');
-    const specs = 'positions' in model ? familySpecs(model, options.values || {}) : model.specs || [];
+    const specs = modelSpecs(model, options.values);
     for (const spec of specs) {
       const matches = groups.flatMap(g => g.params.map(p => ({ g, p }))).filter(x => canonical(x.p.key) === canonical(spec.label.ru));
-      const compatible = matches.filter(x => !x.p.unit || !spec.unit || label(x.p.unit) === label(spec.unit));
+      const compatible = matches.filter(x => unitsCompatible(x.p.unit, spec.unit));
       if (compatible.length === 1) {
         const { g, p } = compatible[0];
         // В режиме XML + каталог сохраняем оба исходных значения: разницу
         // нельзя терять в эффективном поле, где XML имеет приоритет.
-        if (mode === 'hybrid' && present(p.value) && present(spec.value) && comparable(p.value) !== comparable(spec.value)) {
+        const address = `${g.title}||${p.key}`;
+        const acceptedValue = accepted.has(address) ? acceptedValues[address] : undefined;
+        if (mode === 'hybrid' && !acceptedValue && present(p.value) && present(spec.value) && !sourceValuesEqual({ value: p.value, unit: p.unit }, { value: spec.value, unit: spec.unit })) {
           discrepancies.push({ group: g.title, key: p.key, xmlValue: String(p.value), catalogValue: String(spec.value), ...(p.unit ? { xmlUnit: p.unit } : {}), ...(spec.unit ? { catalogUnit: spec.unit } : {}), ...(spec.sourceRef || options.sourceRef ? { sourceRef: spec.sourceRef || options.sourceRef } : {}) });
         }
-        if (mode === 'catalog' || !present(p.value)) { p.value = spec.value; p.unit = spec.unit || p.unit; origins.set(p, 'catalog'); sourceRefs.set(p, spec.sourceRef || options.sourceRef); }
+        if (acceptedValue || mode === 'catalog' || !present(p.value)) {
+          p.value = acceptedValue?.value ?? spec.value; p.unit = acceptedValue?.unit || spec.unit || p.unit;
+          origins.set(p, 'catalog'); sourceRefs.set(p, acceptedValue?.sourceRef || spec.sourceRef || options.sourceRef);
+        }
       } else if (!matches.length) {
         if (!extra) { extra = { title: 'Характеристики из каталога', params: [] }; groups.push(extra); }
         const p = { key: spec.label.ru, value: spec.value, unit: spec.unit }; extra.params.push(p); origins.set(p, 'catalog'); sourceRefs.set(p, spec.sourceRef || options.sourceRef);

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, Box, Boxes, ChevronRight, Fan, Filter, Flame, Layers, LayoutGrid,
   List, Plus, Recycle, SlidersHorizontal, Snowflake, Square, Tag as TagIcon,
@@ -88,22 +88,14 @@ export default function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickT
   const generalComp = components.find((component) => component.itemCode === '__unit__');
   const monoGenerals = components.filter((component) => component.itemCode.endsWith('_общие'));
   const generalSpecs = generalComp ? normalizeSpecs(generalComp.specs).groups : [];
-  // Одинаковые ключи из разных групп уточняются названием группы, иначе цифры выглядят противоречиво.
-  const generalParams = useMemo(() => {
-    const flat = generalSpecs.flatMap((group) => (group.params || [])
-      .filter((param) => String(param.value ?? '').trim())
-      .map((param) => ({ ...param, groupTitle: group.title })));
-    const counts: Record<string, number> = {};
-    for (const param of flat) {
-      const key = String(param.key).trim().toLowerCase();
-      counts[key] = (counts[key] || 0) + 1;
-    }
-    return flat.slice(0, 12).map((param) => ({
-      ...param,
-      key: counts[String(param.key).trim().toLowerCase()] > 1 && param.groupTitle && param.groupTitle !== 'Параметры'
-        ? `${param.key} · ${param.groupTitle}` : param.key,
-    }));
-  }, [generalComp?.specs]);
+  const generalGroups = useMemo(() => generalSpecs
+    .map(group => ({ ...group, params: (group.params || []).filter(param => String(param.value ?? '').trim()) }))
+    .filter(group => group.params.length > 0), [generalComp?.specs]);
+  const groupStorageKey = `flux.equipment.unit-expanded-groups:${unit.id}`;
+  const [expandedGeneralGroups, setExpandedGeneralGroups] = useState<Record<string, boolean>>(() => readUnitGroupState(groupStorageKey, generalGroups.map(group => group.title)));
+  const [detailedSchematic, setDetailedSchematic] = useState(false);
+  useEffect(() => setExpandedGeneralGroups(readUnitGroupState(groupStorageKey, generalGroups.map(group => group.title))), [groupStorageKey, generalGroups.map(group => group.title).join('\u0000')]);
+  useEffect(() => { try { localStorage.setItem(groupStorageKey, JSON.stringify(expandedGeneralGroups)); } catch { /* состояние вида необязательно */ } }, [groupStorageKey, expandedGeneralGroups]);
 
   const tags = (component: UnitSchematicComponent) => (
     <span className="inline-flex items-center gap-1 flex-wrap">
@@ -148,31 +140,27 @@ export default function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickT
   const rootBranch = (node: UnitSchematicNode<UnitSchematicComponent>, i: number) => {
     const component = node.item;
     const Icon = sectionIcon(component.equipType);
-    const preview = topSpecs(component.specs);
-    return (
-      <React.Fragment key={component.id}>
-        {i > 0 && <div className="flex items-center shrink-0 text-slate-300 dark:text-slate-500"><ArrowRight className="w-4 h-4" /></div>}
-        <div className="shrink-0 w-36 flex flex-col items-center gap-2">
-          <button type="button" onClick={() => onSelectBlock(component.id)} title={`${blockLabel(component)} — открыть характеристики`} className="group w-full flex flex-col items-center text-center gap-1.5 p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:border-slate-400 dark:hover:border-slate-600 transition-colors cursor-pointer">
-            <Icon className={`w-5 h-5 ${sectionTint(component.equipType)}`} />
-            <span className="text-xs font-medium leading-tight line-clamp-2 text-slate-700 dark:text-slate-300">{blockLabel(component)}</span>
-            {preview.length > 0 && <span className="w-full text-xs text-slate-400 leading-tight truncate">{preview.map((param) => `${param.value}${param.unit ? ` ${param.unit}` : ''}`).join(' · ')}</span>}
-            {component.hasConflict && <span className="text-xs text-rose-500">изменилось</span>}
-          </button>
-          {tags(component)}
-          {node.children.length > 0 && (
-            <details className="w-full rounded border border-slate-200 dark:border-slate-800">
-              <summary className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400 cursor-pointer">Ветви: {node.children.length}</summary>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">{node.children.map((child) => branch(child, 1))}</div>
-            </details>
-          )}
-        </div>
-      </React.Fragment>
-    );
+    const preview = topSpecs(component.specs, detailedSchematic ? 4 : 1);
+    return <div key={component.id} className="min-w-0">
+      <button type="button" onClick={() => onSelectBlock(component.id)} title={`${blockLabel(component)} — открыть характеристики`} className="group w-full min-w-0 flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:border-slate-400 dark:hover:border-slate-600 transition-colors cursor-pointer text-left">
+        {i > 0 && <ArrowRight className="w-3.5 h-3.5 shrink-0 text-slate-300 dark:text-slate-500" aria-label="Направление воздуха" />}
+        <Icon className={`w-5 h-5 shrink-0 ${sectionTint(component.equipType)}`} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-medium leading-tight line-clamp-2 text-slate-700 dark:text-slate-300">{blockLabel(component)}</span>
+          {preview.length > 0 && <span className="mt-0.5 block text-xs text-slate-400 leading-tight line-clamp-2">{preview.map((param) => `${param.key}: ${param.value}${param.unit ? ` ${param.unit}` : ''}`).join(' · ')}</span>}
+        </span>
+        {component.hasConflict && <span className="text-xs text-rose-500 shrink-0">изменилось</span>}
+      </button>
+      <div className="mt-1 flex items-start gap-1">{tags(component)}</div>
+      {node.children.length > 0 && <details className="mt-1 rounded border border-slate-200 dark:border-slate-800">
+        <summary className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400 cursor-pointer">Ветви: {node.children.length}</summary>
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">{node.children.map(child => branch(child, 1))}</div>
+      </details>}
+    </div>;
   };
 
   return <>
-    <div data-share-route="/equipment" data-share-focus={`unit:${unit.id}`} data-share-label={`Схема установки: ${unit.name}`} className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+    <div data-share-route="/equipment" data-share-focus={`unit:${unit.id}`} data-share-label={`Схема установки: ${unit.name}`} className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="fx-badge fx-badge-accent">Установка</span>
@@ -184,21 +172,40 @@ export default function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickT
       </div>
     </div>
 
-    <div className="flex-1 overflow-y-auto p-4 space-y-5">
-      {generalParams.length > 0 && <section>
-        <div className="fx-group-title mb-1.5">Общие характеристики установки</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 border-y border-slate-200 dark:border-slate-800 py-2">
-          {generalParams.map((param, i) => <div key={i} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
-            <span className="u-sel text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate" title={param.key}>{param.key}</span>
-            <span className="u-sel font-medium text-slate-800 dark:text-slate-100 shrink-0 text-right">{param.value}{param.unit ? <span className="text-slate-400 font-normal"> {param.unit}</span> : ''}</span>
-          </div>)}
+    <div className="flex-1 overflow-y-auto p-3 @container space-y-3">
+      {generalGroups.length > 0 && <section>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="fx-group-title">Общие характеристики установки</div>
+          <button type="button" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer" onClick={() => setExpandedGeneralGroups(Object.fromEntries(generalGroups.map(group => [group.title, !generalGroups.every(item => expandedGeneralGroups[item.title])]))) }>
+            {generalGroups.every(group => expandedGeneralGroups[group.title]) ? 'Свернуть группы' : 'Раскрыть группы'}
+          </button>
         </div>
-        <button type="button" onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer">Все параметры установки →</button>
+        <div className="space-y-2">
+          {generalGroups.map(group => <section key={group.title} className="min-w-0">
+            <button type="button" aria-expanded={!!expandedGeneralGroups[group.title]} onClick={() => setExpandedGeneralGroups(current => ({ ...current, [group.title]: !current[group.title] }))} className="flex w-full items-center gap-1.5 min-h-7 border-b border-slate-200 dark:border-slate-800 text-left cursor-pointer">
+              {expandedGeneralGroups[group.title] ? <ChevronRight className="h-3.5 w-3.5 rotate-90 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-600 dark:text-slate-300">{group.title}</span><span className="text-xs text-slate-500">{group.params.length}</span>
+            </button>
+            {expandedGeneralGroups[group.title] && <div className="grid grid-cols-2 @[640px]:grid-cols-4 divide-y divide-slate-200 dark:divide-slate-800">
+              {group.params.map((param, index) => {
+                const fullRow = String(param.key || '').length > 38 || String(param.value || '').length > 44 || /примеч|описани|комментар/i.test(String(param.key || '')) || /[\r\n]/.test(String(param.value || ''));
+                return <div key={`${param.key}/${index}`} className={`col-span-2 @[640px]:col-span-2 ${fullRow ? 'col-span-full @[640px]:col-span-full' : ''} grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 min-h-7 px-1.5 py-1 text-xs`}>
+                  <span className="u-sel min-w-0 break-words text-slate-500 dark:text-slate-400" title={param.key}>{param.key}</span>
+                  <span className="u-sel min-w-0 break-words text-right font-medium text-slate-800 dark:text-slate-100">{param.value}{param.unit ? <span className="text-slate-400 font-normal"> {param.unit}</span> : ''}</span>
+                </div>;
+              })}
+            </div>}
+          </section>)}
+        </div>
+        <button type="button" onClick={() => onSelectBlock(generalComp!.id)} className="mt-1 text-xs text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer">Все параметры установки →</button>
       </section>}
 
       {tree.roots.length > 0 && <section>
-        <div className="fx-group-title mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
-        <div className="flex items-start gap-2 overflow-x-auto pb-2 -mx-1 px-1">{tree.roots.map(rootBranch)}</div>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="fx-group-title flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
+          <button type="button" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer" aria-expanded={detailedSchematic} onClick={() => setDetailedSchematic(value => !value)}>{detailedSchematic ? 'Свернуть схему' : 'Подробно'}</button>
+        </div>
+        <div className="grid w-fit max-w-full grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-start gap-2">{tree.roots.map((node, index) => rootBranch(node, index))}</div>
       </section>}
 
       <section>
@@ -224,4 +231,9 @@ export default function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickT
       </section>
     </div>
   </>;
+}
+
+function readUnitGroupState(storageKey: string, titles: string[]): Record<string, boolean> {
+  try { const saved = JSON.parse(localStorage.getItem(storageKey) || 'null'); if (saved && typeof saved === 'object' && !Array.isArray(saved)) return Object.fromEntries(titles.map((title, index) => [title, typeof saved[title] === 'boolean' ? saved[title] : index < 2])); } catch { /* initial view remains compact */ }
+  return Object.fromEntries(titles.map((title, index) => [title, index < 2]));
 }
