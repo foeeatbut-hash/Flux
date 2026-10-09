@@ -661,7 +661,6 @@ public static class FluxShellFiles {
   // ------------------------------------------------------------ вход
   /** Одна строка JSON -> одна строка JSON. Пути не попадают в сообщения об ошибках. */
   [DllImport("propsys.dll", CharSet=CharSet.Unicode)] static extern int PropVariantToStringAlloc(IntPtr value, out IntPtr text);
-  [DllImport("ole32.dll")] static extern int PropVariantClear(IntPtr value);
   static string FileProperties(Dictionary<string,object> args) {
     string path = Str(args, "path");
     FileAttributes attributes = File.GetAttributes(path);
