@@ -1,4 +1,5 @@
 import { initializeAuthToken, getAuthSessionKey } from './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
+import { restoreStartupUser } from './lib/startupAuth';
 import { startDiagnostics } from './lib/diagnostics';
 import { registerEmergencySave } from './lib/emergencySave';
 import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
@@ -180,12 +181,13 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 async function mountAuthenticatedApp() {
   try {
     await initializeAuthToken();
-    const response = getAuthSessionKey() ? await fetch('/api/auth/me', { signal: AbortSignal.timeout(8000) }) : null;
-    if (response?.ok) {
-      const data = await response.json();
-      if (data.user?.id) useStore.getState().setUser(data.user);
-    }
-  } catch (_) { /* unavailable server: show the connection/login screen */ }
+    const user = getAuthSessionKey()
+      ? await restoreStartupUser<NonNullable<ReturnType<typeof useStore.getState>['user']>>(
+        (signal) => fetch('/api/auth/me', { signal }),
+      )
+      : null;
+    if (user) useStore.getState().setUser(user);
+  } catch (_) { /* сервер недоступен — продолжаем к входу; повторы связи ограничены */ }
   try {
     const rootEl = document.getElementById('root');
     if (!rootEl) throw new Error('Корневой элемент #root не найден в документе');
