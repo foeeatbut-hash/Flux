@@ -177,10 +177,12 @@ export default function WindowsExplorer() {
   React.useEffect(() => { if (!search.results.active && !folder.loading && folder.nextOffset !== null && (view.sort !== 'name' || view.descending || view.group !== 'none')) void folder.loadAll(); }, [view.sort, view.descending, view.group, folder.entries]);
   const selectAll = () => { if (!search.results.active && folder.nextOffset !== null) { selectAfterLoad.current = { scope: folderKey(ref), kind: 'all' }; void folder.loadAll(); } else selection.all(); };
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.defaultPrevented || properties || share || archive) return;
+    // Кнопки портального меню получают Enter сами, без открытия выбранного файла позади.
+    if (event.defaultPrevented || properties || share || archive || (event.target as HTMLElement).closest('[data-context-menu]')) return;
     shellKeys(event); if (event.defaultPrevented || isTypingTarget(event.target)) return;
     const ctrl = event.ctrlKey || event.metaKey;
-    const key = event.key.toLowerCase();
+    // Сочетания используют физическую клавишу и при русской раскладке Windows.
+    const key = (ctrl || event.altKey) && /^Key[A-Z]$/u.test(event.code) ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
     if (ctrl && event.shiftKey && /^Digit[1-8]$/u.test(event.code)) { event.preventDefault(); setView({ ...view, layout: Object.keys(VIEW_LABELS)[Number(event.code.slice(-1)) - 1] as FolderView['layout'] }); return; }
     if (ctrl && !event.shiftKey && key === 'n') { event.preventDefault(); useWindowStore.getState().openAnother(`/explorer?${params.toString()}`); return; }
     if (ctrl && event.shiftKey && key === 'c') { event.preventDefault(); if (selection.selected.length) void command({ action: 'copyPath', refs: selection.selected.map((entry) => entryRef(entry, rootId)) }); return; }

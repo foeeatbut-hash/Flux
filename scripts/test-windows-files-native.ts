@@ -67,6 +67,7 @@ async function main() {
     shell = new ShellCommands({} as WindowsFilesService, host); // подменяется ниже, когда служба создана
     service = await WindowsFilesService.create({
       userData, knownFolders: { desktop }, trashItem: recycle, showItemInFolder: () => undefined, openPath: async () => '',
+      fileDetails: async paths => host.call('file-info', { paths }),
       restoreFromTrash: info => shell!.restoreFromTrash(info),
     });
     shell = new ShellCommands(service, host);
@@ -220,6 +221,8 @@ async function main() {
       check(rows[0]?.hidden === true && rows[1]?.hidden === false, 'Hidden читается из атрибута Windows, а не из имени файла');
       const properties = await shell!.fileProperties(R('Скрытый.txt'));
       check(properties.hidden && Number.isFinite(Date.parse(properties.createdAt)) && typeof properties.author === 'string', 'Системные свойства возвращают дату создания, скрытость и строку автора');
+      const hits = await searchEverything(svc, R(''), 'Скрытый.txt');
+      check(hits.length === 1 && hits[0].hidden === true, 'Результат поиска сохраняет атрибут Hidden настоящего файла Windows');
     });
 
     await section('Быстрый доступ и облачные корни', async () => {

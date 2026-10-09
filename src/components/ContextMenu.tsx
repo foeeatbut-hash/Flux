@@ -46,7 +46,8 @@ function SubmenuRows({ items, onClose, depth, bounds, parent, focusFirst }: {
   // Фокус — только тому подменю, которое раскрылось само (defaultOpen) и
   // глубже других: иначе фокус прыгал бы по цепочке вложенных подменю
   useEffect(() => {
-    if (focusFirst && !items.some((item) => item.defaultOpen)) ref.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+    // Фокус вложенного меню не должен прокручивать страницу: scroll закрывает всё меню.
+    if (focusFirst && !items.some((item) => item.defaultOpen)) ref.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus({ preventScroll: true });
   }, []);
   const [placement, setPlacement] = useState<{ side: 'left' | 'right'; left: number; top: number; maxHeight: number } | null>(null);
   const place = () => {

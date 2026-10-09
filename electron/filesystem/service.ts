@@ -262,6 +262,19 @@ export class WindowsFilesService {
     } finally { await file.close(); }
   }
   changed(ref: WindowsFileRef) { this.listNames.clear(); this.deps.onChanged?.({ rootId: ref.rootId, relativePath: path.posix.dirname(ref.relativePath) === '.' ? '' : path.posix.dirname(ref.relativePath), rescan: true }); }
+  /** Поиск собирает результаты отдельно от list: системные атрибуты тоже читаются пакетами. */
+  async hydrateSystemAttributes(entries: WindowsFileEntry[]): Promise<void> {
+    if (!this.deps.fileDetails) return;
+    const candidates = entries.filter(entry => entry.storage === 'windows' && entry.rootId && !entry.linked);
+    const checked = await Promise.all(candidates.map(async entry => {
+      const filename = await this.filename({ rootId: entry.rootId!, relativePath: entry.relativePath }).catch(() => null);
+      return filename ? { entry, filename } : null;
+    }));
+    const physical = checked.filter((item): item is NonNullable<typeof item> => item !== null);
+    if (!physical.length) return;
+    const details = await this.deps.fileDetails(physical.map(item => item.filename)).catch(() => []);
+    physical.forEach(({ entry }, index) => { if (typeof details[index]?.hidden === 'boolean') entry.hidden = details[index].hidden; });
+  }
   async fileHash(ref: WindowsFileRef) { const filename = await this.filename(ref); const version = await snapshotFile(filename); await this.filename(ref); return version; }
   /** Для файловых операций временная копия уже проверена: не загружаем её целиком в память редактора. */
   async replaceFromFile(ref: WindowsFileRef, source: string, baseSha256: string) {

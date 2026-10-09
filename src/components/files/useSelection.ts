@@ -105,6 +105,7 @@ export function reconcileSelection(state: SelectionState, entries: WindowsFileEn
  * самое обновление списка его сохраняет.
  */
 export function useSelection(entries: WindowsFileEntry[], scope: string) {
+  const [focusRequest, setFocusRequest] = useState(0);
   const [state, setState] = useState<SelectionState>(EMPTY_SELECTION);
   const scopeRef = useRef(scope);
   const entriesRef = useRef(entries); entriesRef.current = entries;
@@ -123,12 +124,12 @@ export function useSelection(entries: WindowsFileEntry[], scope: string) {
   const click = useCallback((entry: WindowsFileEntry, mods: { ctrl?: boolean; shift?: boolean } = {}) => setState((previous) => applyClick(previous, entriesRef.current, entry, mods)), []);
   /** Правая кнопка: объект внутри выбора не трогает выбор, вне его — выбирает один. */
   const context = useCallback((entry: WindowsFileEntry) => setState((previous) => previous.ids.includes(entryKey(entry)) ? { ...previous, focus: entryKey(entry) } : applyClick(previous, entriesRef.current, entry, {})), []);
-  const only = useCallback((entry: WindowsFileEntry) => setState(applyClick(EMPTY_SELECTION, entriesRef.current, entry, {})), []);
+  const only = useCallback((entry: WindowsFileEntry) => { setState(applyClick(EMPTY_SELECTION, entriesRef.current, entry, {})); setFocusRequest((n) => n + 1); }, []);
   const all = useCallback(() => setState(selectAll(entriesRef.current)), []);
   const clear = useCallback(() => setState(EMPTY_SELECTION), []);
-  const move = useCallback((delta: number, extend = false) => setState((previous) => applyMove(previous, entriesRef.current, delta, extend)), []);
+  const move = useCallback((delta: number, extend = false) => { setState((previous) => applyMove(previous, entriesRef.current, delta, extend)); setFocusRequest((n) => n + 1); }, []);
 
-  return { selected, focused, ids: state.ids, isSelected: (entry: WindowsFileEntry) => state.ids.includes(entryKey(entry)), click, context, only, all, clear, move };
+  return { selected, focused, focusRequest, ids: state.ids, isSelected: (entry: WindowsFileEntry) => state.ids.includes(entryKey(entry)), click, context, only, all, clear, move };
 }
 
 /** Прокрутить список так, чтобы объект был виден — стрелками выбор уходит за край. */

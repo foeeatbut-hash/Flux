@@ -11,6 +11,8 @@ import { createArchive } from '../electron/filesystem/archives';
 import { undoLast, redoLast } from '../electron/filesystem/undo';
 import { folderViewStorageKey } from '../src/components/files/useFolderView';
 import { ViewStateStore } from '../electron/filesystem/viewState';
+import { SearchRegistry } from '../electron/filesystem/search';
+import type { WindowsSearchHit } from '../filesystem/contracts';
 
 let passed = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); passed++; };
@@ -23,12 +25,21 @@ async function main() {
   const moved = new Map<string, string>();
   const service = await WindowsFilesService.create({
     userData, knownFolders: { desktop: root }, showItemInFolder: () => undefined, openPath: async () => '',
+    fileDetails: async paths => paths.map(filename => ({ hidden: path.basename(filename) === 'NativeHidden.txt' })),
     trashItem: async filename => { const target = path.join(bin, `object-${moved.size}`); await fs.rename(filename, target); moved.set(filename, target); },
     restoreFromTrash: async info => { const target = moved.get(info.path); assert.ok(target); await fs.rename(target, info.path); moved.delete(info.path); },
   });
   try {
     const rootId = (await service.roots())[0].id;
     const ref = (name: string) => ({ rootId, relativePath: name }); const parent = ref('');
+    await fs.writeFile(path.join(root, 'NativeHidden.txt'), 'атрибут скрытости');
+    const found = await new Promise<WindowsSearchHit[]>((resolve, reject) => {
+      const hits: WindowsSearchHit[] = [];
+      new SearchRegistry().start(service, 1, { ref: parent, requestId: 'native-hidden', query: 'NativeHidden' }, (_owner, event) => {
+        hits.push(...event.hits); if (event.done) event.error ? reject(new Error(event.error.message)) : resolve(hits);
+      });
+    });
+    check('Поиск сохраняет системную скрытость для фильтра показа скрытых файлов', found.length === 1 && found[0].hidden === true);
     const oldProfile = process.env.USERPROFILE;
     process.env.USERPROFILE = root;
     try {
@@ -104,7 +115,7 @@ async function main() {
       const reopened = await ViewStateStore.load(userData);
       check('Вид сохраняется и повторно читается для разделителей и длинного пути', (reopened.get([key])[key] as any).layout === 'large');
     }
-    console.log(`EXPLORER NATIVE OPERATIONS PASSED (${passed}) — реальная файловая система; корзина Windows подменена`);
+    console.log(`EXPLORER NATIVE OPERATIONS PASSED (${passed}) — реальная файловая система; нативные атрибуты и корзина Windows подменены`);
   } finally { service.close(); await fs.rm(sandbox, { recursive: true, force: true }); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

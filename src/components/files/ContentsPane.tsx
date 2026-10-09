@@ -249,7 +249,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   const renderName = (entry: WindowsFileEntry, large = false) => <span className={`flex min-w-0 items-center ${large ? 'flex-col justify-center gap-2 text-center' : 'gap-2'}`}>
     <Thumbnail entry={entry} rootId={rootId} size={large ? iconSize : view.layout === 'tiles' ? 48 : 20} />
     <span className={`min-w-0 truncate ${large ? 'max-w-full whitespace-normal line-clamp-2' : ''}`} title={entry.name}>{editing?.fileId === entry.fileId ? <input autoFocus aria-label="Новое имя" value={editing.value} onFocus={(e) => { const dot = editing.value.lastIndexOf('.'); e.currentTarget.setSelectionRange(0, dot > 0 ? dot : editing.value.length); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onChange={(e) => editing.onChange(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') editing.onCommit(); if (e.key === 'Escape') editing.onCancel(); }} className="h-6 max-w-full border border-[#0067c0] bg-white px-1 text-xs text-[#1b1b1b] outline-none dark:border-[#4cc2ff] dark:bg-[#383838] dark:text-white" /> : displayName(entry, view.extensions)}</span>
-    {entry.storage === 'flux' && !large && <span className={`shrink-0 text-[11px] ${T.faint}`}>Только в Flux</span>}
+    {entry.storage === 'flux' && !large && <span className={`shrink-0 text-xs ${T.faint}`}>Только в Flux</span>}
   </span>;
 
   const cellValue = (entry: WindowsFileEntry, column: FolderColumn) => {
@@ -334,9 +334,14 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     }
   };
 
+  const revealedFocus = useRef('');
   useEffect(() => {
     const focusedId = selection.focused?.fileId;
-    if (!focusedId) return;
+    if (!focusedId) { revealedFocus.current = ''; return; }
+    // Обновление списка сохраняет прокрутку: показываем фокус только при смене выбора или вида.
+    const key = JSON.stringify([focusedId, selection.focusRequest, view.layout, view.group, view.sort, view.descending]);
+    if (revealedFocus.current === key) return;
+    revealedFocus.current = key;
     if (view.layout === 'list') {
       const columnIndex = listColumns.findIndex((column) => column.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
       if (columnIndex >= 0) listVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
@@ -344,7 +349,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       const rowIndex = rows.findIndex((row) => row.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
       if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     }
-  }, [selection.focused?.fileId, rows, listColumns, view.layout, virtualizer, listVirtualizer]);
+  }, [selection.focused?.fileId, selection.focusRequest, rows, listColumns, view.layout, view.group, view.sort, view.descending, virtualizer, listVirtualizer]);
 
   useEffect(() => {
     if (!hasMore || !loadMore || busy || !containerRef.current) return;
@@ -396,7 +401,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
         {visibleRows.map((virtualRow) => <div key={virtualRow.key} data-virtual-column={virtualRow.index} className="absolute top-0 h-full w-[196px]" style={{ left: virtualRow.start }}>
           <div data-entries-grid data-entry-flow="column-major" data-flow-row-count={listRowsPerColumn} className="flex h-full flex-col overflow-hidden border-r px-1" style={{ width: 196 }}>
             {(listColumns[virtualRow.index] || []).map((item) => item.kind === 'group'
-              ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center overflow-hidden px-1 text-[11px] font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
+              ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center overflow-hidden px-1 text-xs font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
               : <div key={item.key} className="relative flex h-8 shrink-0 items-center" onDragOver={(event) => { if (item.entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (item.entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, item.entry); } }}>
                 {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${item.entry.name}`} checked={selection.isSelected(item.entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(item.entry, { ctrl: true })} className="mr-1" />}
                 <button type="button" role="row" data-entry-key={item.entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
