@@ -1,5 +1,5 @@
 import { SectionHead, Btn, IconBtn, Dialog } from '../components/ui';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useInsightStore } from '../store/insightStore';
 import { useEntityChanged } from '../lib/entityWatch';
@@ -7,13 +7,13 @@ import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport
 import { fetchList } from '../lib/apiList';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
-import { RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network, ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine, Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square, ArrowRight, LayoutGrid, List, Search, Save, Download } from 'lucide-react';
+import { RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network, ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine, Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square, ArrowRight, LayoutGrid, List, Search, Save, Download, Upload } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
 import UnitSchematic from '../components/equipment/UnitSchematic';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
-import { hasAdminRole } from '../lib/permissions';
+import { can, hasAdminRole } from '../lib/permissions';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -37,6 +37,9 @@ interface Category { id: string; label: string; composite?: boolean; }
 import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
 import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs';
 import BlockCard from '../components/equipment/BlockCard';
+import EquipmentXmlSourcePanel from '../components/equipment/EquipmentXmlSourcePanel';
+import EquipmentSourceImportDialog from '../components/equipment/EquipmentSourceImportDialog';
+import { getEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
 import PositionList from '../components/equipment/PositionList';
 import { classifyAll, classTitle } from '../../equipment/classes';
@@ -63,6 +66,7 @@ export default function Equipment() {
   const { activeProject, user } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ activeProject: s.activeProject, user: s.user })));
   const { addToast } = useToastStore();
   const isAdmin = hasAdminRole(user as any);
+  const canManageEquipment = can(user as any, 'equipment.manage');
 
   const [categories, setCategories] = useState<Category[]>([
     { id: 'AHU', label: 'Центральные кондиционеры', composite: true },
@@ -74,6 +78,14 @@ export default function Equipment() {
   const [systems, setSystems] = useState<SystemUnit[]>([]);
   const [loading, setLoading] = useState(false);
   const [tags, setTags] = useState<PickerTag[]>([]);
+  const [xmlSourceStatuses, setXmlSourceStatuses] = useState<Record<string, { status: string; revision?: string }>>({});
+  const [showXmlUpdatesOnly, setShowXmlUpdatesOnly] = useState(false);
+  const sourceScanGeneration = useRef(0);
+  const sourceScanBusy = useRef(false);
+  const sourceScanQueued = useRef(false);
+  const sourceScanLatest = useRef<(() => Promise<void>) | null>(null);
+  const sourceScanController = useRef<AbortController | null>(null);
+  const sourceScanDebounce = useRef<number | null>(null);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -84,6 +96,7 @@ export default function Equipment() {
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
+  const [showSourceImport, setShowSourceImport] = useState(false);
   const navigate = useNavigate();
 
   // Профиль видимости параметров по типу оборудования
@@ -91,6 +104,108 @@ export default function Equipment() {
   const [visMode, setVisMode] = useState<'admin' | 'self'>('admin');
 
   const pid = activeProject?.id || '';
+  const sourceStatusKey = (tagId: string, elementId: string) => `${tagId}:${elementId}`;
+
+  const checkProjectXmlSources = useCallback(async () => {
+    if (!pid) return;
+    if (sourceScanBusy.current) { sourceScanQueued.current = true; return; }
+    const generation = ++sourceScanGeneration.current;
+    sourceScanBusy.current = true;
+    const controller = new AbortController();
+    sourceScanController.current = controller;
+    try {
+      const response = await fetch(api(`/equipment/projects/${encodeURIComponent(pid)}/sources`), { signal: controller.signal });
+      if (!response.ok) return;
+      const result = await response.json();
+      const sources: any[] = Array.isArray(result.sources) ? result.sources : [];
+      const next: Record<string, { status: string; revision?: string }> = {};
+      const setSourceStatus = (source: any, status: string, revision?: string) => {
+        const targets: any[] = Array.isArray(source.targetTags) ? source.targetTags : [{ elementId: source.elementId, tagIds: [source.tagId] }];
+        for (const target of targets) for (const tagId of target.tagIds || [source.tagId]) {
+          next[sourceStatusKey(String(tagId), String(target.elementId))] = { status, revision };
+        }
+      };
+      if (!canManageEquipment) {
+        const needsReview = new Set(['pending', 'partial']);
+        for (const source of sources) {
+          const candidate = source.latestCandidate;
+          const status = candidate?.status || 'noChanges';
+          if (needsReview.has(status)) setSourceStatus(source, status, candidate?.revision);
+        }
+        if (generation === sourceScanGeneration.current) setXmlSourceStatuses(next);
+        return;
+      }
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(2, sources.length) }, async () => {
+        while (cursor < sources.length && generation === sourceScanGeneration.current) {
+          const source = sources[cursor++];
+          const sharedStatus = source.latestCandidate?.status;
+          const hasSharedReview = sharedStatus === 'pending' || sharedStatus === 'partial';
+          const local = getEquipmentSourceBinding(pid, String(source.sourceId), String(source.tagId), String(source.elementId));
+          if (!local) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); continue; }
+          try {
+            const scan = await scanEquipmentSource(local);
+            if (generation !== sourceScanGeneration.current) return;
+            if (scan.status !== 'ready') {
+              setSourceStatus(source, hasSharedReview ? sharedStatus : scan.status, source.latestCandidate?.revision || scan.candidates[0]?.revision);
+              continue;
+            }
+            if (scan.invalidFiles?.length) {
+              setSourceStatus(source, hasSharedReview ? sharedStatus : 'invalid', source.latestCandidate?.revision || scan.recommended?.revision);
+              continue;
+            }
+            const picked: EquipmentSourceCandidate | undefined = scan.recommended;
+            if (!picked) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'no-match', source.latestCandidate?.revision); continue; }
+            if (generation !== sourceScanGeneration.current) return;
+            // Проверка может создать только распарсенный кандидат. Решения и
+            // характеристики меняются только после явного действия в панели.
+            const checked = await fetch(api(`/equipment/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(source.sourceId)}/check`), {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fileName: picked.fileName, revision: picked.revision, selectedRule: picked.selectedRule, sha256: picked.sha256, size: picked.size, base64: picked.base64 }),
+              signal: controller.signal,
+            });
+            const payload = await checked.json().catch(() => ({}));
+            if (generation !== sourceScanGeneration.current) return;
+            setSourceStatus(source, payload.candidate ? payload.candidate.status : (payload.unchanged ? 'noChanges' : 'source-unavailable'), payload.candidate?.revision || picked.revision);
+          } catch (_) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); }
+        }
+      });
+      await Promise.all(workers);
+      if (generation === sourceScanGeneration.current) setXmlSourceStatuses(next);
+    } catch (_) {
+      // Список реестра остаётся доступен, даже если проверка источников офлайн.
+    } finally {
+      sourceScanBusy.current = false;
+      if (sourceScanController.current === controller) sourceScanController.current = null;
+      if (sourceScanQueued.current) {
+        sourceScanQueued.current = false;
+        void sourceScanLatest.current?.();
+      }
+    }
+  }, [pid, canManageEquipment]);
+  sourceScanLatest.current = checkProjectXmlSources;
+
+  const scheduleProjectXmlCheck = useCallback(() => {
+    if (sourceScanDebounce.current !== null) window.clearTimeout(sourceScanDebounce.current);
+    sourceScanDebounce.current = window.setTimeout(() => {
+      sourceScanDebounce.current = null;
+      void sourceScanLatest.current?.();
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    sourceScanGeneration.current++;
+    if (!pid) { setXmlSourceStatuses({}); return; }
+    void checkProjectXmlSources();
+    const timer = window.setInterval(() => { void checkProjectXmlSources(); }, 5 * 60 * 1000);
+    return () => {
+      sourceScanGeneration.current++;
+      sourceScanController.current?.abort();
+      window.clearInterval(timer);
+      if (sourceScanDebounce.current !== null) window.clearTimeout(sourceScanDebounce.current);
+      sourceScanDebounce.current = null;
+    };
+  }, [pid, checkProjectXmlSources]);
 
   // ── Загрузка ──
   const loadCategories = useCallback(async () => {
@@ -136,15 +251,21 @@ export default function Equipment() {
   useEffect(() => { loadSystems(); loadTags(); }, [loadSystems, loadTags]);
   useEffect(() => {
     const onEntityChanged = (event: Event) => {
-      const kind = (event as CustomEvent).detail?.kind;
+      const detail = (event as CustomEvent).detail || {};
+      const kind = detail.kind;
+      if (kind === 'equipment-source' && (!detail.projectId || detail.projectId === pid)) {
+        scheduleProjectXmlCheck();
+        return;
+      }
       if (kind === 'element' || kind === 'tag') {
         void loadSystems();
         void loadTags();
+        scheduleProjectXmlCheck();
       }
     };
     window.addEventListener('socket:entity:changed', onEntityChanged);
     return () => window.removeEventListener('socket:entity:changed', onEntityChanged);
-  }, [loadSystems, loadTags]);
+  }, [loadSystems, loadTags, scheduleProjectXmlCheck, pid]);
 
   // Прежний профиль видимости только читается: писать в него больше нечему — вид
   // теперь живёт на категорию и тип (useCategoryView), а старое переезжает туда
@@ -175,6 +296,16 @@ export default function Equipment() {
   const catSystems = useMemo(() => inCat
     .map(s => (showRemoved ? s : { ...s, monoblocks: s.monoblocks.map(mb => ({ ...mb, components: mb.components.filter(c => c.status !== 'REMOVED') })) }))
     .sort((a, b) => compareTags(a.name, b.name)), [inCat, showRemoved]);
+  const sourceFilteredSystems = useMemo(() => {
+    if (!showXmlUpdatesOnly) return catSystems;
+    const needsReview = new Set(['pending', 'partial']);
+    return catSystems.map(unit => ({ ...unit, monoblocks: unit.monoblocks.map(mb => ({ ...mb, components: mb.components.filter(component =>
+      (component.tags || []).some(tag => needsReview.has(xmlSourceStatuses[sourceStatusKey(tag.id, component.id)]?.status || ''))
+    ) })).filter(mb => mb.components.length) })).filter(unit => unit.monoblocks.length);
+  }, [catSystems, showXmlUpdatesOnly, xmlSourceStatuses]);
+  const xmlNeedsReviewCount = new Set(catSystems.flatMap(unit => unit.monoblocks.flatMap(mb => mb.components.filter(component =>
+    (component.tags || []).some(tag => ['pending', 'partial'].includes(xmlSourceStatuses[sourceStatusKey(tag.id, component.id)]?.status || ''))
+  ).map(component => component.id)))).size;
 
   const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
@@ -496,10 +627,12 @@ export default function Equipment() {
     <div className="fx-page @container">
       <SectionHead title="Оборудование" count={(categories.find(c => c.id === activeCat)?.label || '') + (catCount(activeCat) ? ` · ${catCount(activeCat)}` : '')}
         actions={<>
+          {xmlNeedsReviewCount > 0 && <Btn tone={showXmlUpdatesOnly ? 'primary' : 'ghost'} onClick={() => { setShowXmlUpdatesOnly(value => !value); setListMode(false); }} title="Показать только позиции с найденными XML-ревизиями или проблемами локального источника"><RefreshCw />{showXmlUpdatesOnly ? 'Все позиции' : `Есть обновления · ${xmlNeedsReviewCount}`}</Btn>}
           {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
               «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
           <Btn tone="ghost" onClick={() => { setShowOps(true); loadOps(); }} title="Центр операций: что ввозится в фоне и чем кончилось недавнее"><List />Центр операций</Btn>
           <Btn onClick={() => navigate(`/equipment-export?projectId=${encodeURIComponent(pid)}&scope=${encodeURIComponent(selectedUnitId ? `unit:${selectedUnitId}` : `cat:${activeCat}`)}`)} title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"><Download />Выгрузка данных</Btn>
+          {canManageEquipment && <Btn tone="ghost" onClick={() => setShowSourceImport(true)} title="Выбрать XML в Проводнике, проверить установку и импортировать ревизию"><Upload />Импорт XML установки</Btn>}
           <Btn tone="primary" data-tour="equipment-import-btn" onClick={() => setShowDocImport(true)}
             title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"><ScanLine />Импорт из документов</Btn>
           <IconBtn label="Настройки оборудования" onClick={() => setShowSettings(true)}><Settings /></IconBtn>
@@ -533,9 +666,6 @@ export default function Equipment() {
               </button>
             );
           })}
-        </div>
-        <div className="hidden @[820px]:block px-3 py-2 text-xs text-slate-400 border-t border-slate-200 dark:border-slate-800">
-          PDF, Excel, Word, XML расчёта — или файл через «Проводник»
         </div>
       </nav>
 
@@ -582,15 +712,25 @@ export default function Equipment() {
         <DocImportWizard
           projectId={pid}
           categories={categories}
+          allowDrop={false}
           onClose={() => setShowDocImport(false)}
           onImported={() => { loadSystems(); }}
         />
       )}
+      {showSourceImport && <EquipmentSourceImportDialog projectId={pid} categories={categories} canManage={canManageEquipment} onClose={() => setShowSourceImport(false)} onImported={({ source, category: importedCategory }) => {
+        setShowSourceImport(false);
+        setActiveCat(importedCategory);
+        setSelectedBlockId(null);
+        setSelectedUnitId(source.systemId);
+        setListMode(false);
+        void loadSystems();
+        void loadTags();
+      }} />}
 
       {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
       <PositionTree
         title={categories.find(c => c.id === activeCat)?.label || activeCat}
-        units={catSystems as any}
+        units={sourceFilteredSystems as any}
         loading={loading}
         conflicts={totalConflicts}
         expanded={expanded}
@@ -613,13 +753,16 @@ export default function Equipment() {
         onOpenList={() => setListMode(true)}
         onOpenView={() => setViewOpen(true)}
         onPickTag={(c) => setTagPickerFor(c as any)}
+        sourceStatuses={xmlSourceStatuses}
       />
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">
         {listMode ? (
-          <PositionList systems={catSystems as any} types={types} onOpen={openBlock} onClose={() => setListMode(false)} />
+          <PositionList systems={sourceFilteredSystems as any} types={types} sourceStatuses={xmlSourceStatuses} onOpen={openBlock} onClose={() => setListMode(false)} />
         ) : selected ? (
+          <>
+          {selected.block.tags?.[0] && <EquipmentXmlSourcePanel key={`${pid}:${selected.block.tags[0].id}:${selected.block.id}:component`} projectId={pid} tag={selected.block.tags[0]} elementId={selected.block.id} targetType="component" canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} />}
           <BlockCard
             composition={compositionView(selected.block as any, selected.unit.monoblocks.flatMap(m => m.components) as any, types, blockLabel as any)}
             onOpenPosition={openBlock}
@@ -657,14 +800,22 @@ export default function Equipment() {
               : null}
             highlightKey={highlightKey}
           />
+          </>
         ) : selectedUnit ? (
-          <UnitSchematic
-            unit={selectedUnit}
-            blockLabel={blockLabel}
-            onSelectBlock={(id: string) => { setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); }}
-            onPickTag={(comp: Component) => setTagPickerFor(comp)}
-            onUnlinkTag={(comp: Component, tid: string) => unlinkTag(comp, tid)}
-          />
+          <>
+            {(() => {
+              const unitPosition = selectedUnit.monoblocks.flatMap(mb => mb.components).find(component => component.itemCode === '__unit__');
+              const unitTag = unitPosition?.tags?.[0];
+              return unitPosition && unitTag ? <EquipmentXmlSourcePanel key={`${pid}:${unitTag.id}:${unitPosition.id}:system:${selectedUnit.id}`} projectId={pid} tag={unitTag} elementId={unitPosition.id} targetType="system" systemId={selectedUnit.id} canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} /> : null;
+            })()}
+            <UnitSchematic
+              unit={selectedUnit}
+              blockLabel={blockLabel}
+              onSelectBlock={(id: string) => { setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); }}
+              onPickTag={(comp: Component) => setTagPickerFor(comp)}
+              onUnlinkTag={(comp: Component, tid: string) => unlinkTag(comp, tid)}
+            />
+          </>
         ) : (
           <div className="blank">
               <div className="blank-title">Ничего не выбрано</div>

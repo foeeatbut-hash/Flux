@@ -619,9 +619,13 @@ export function parseEquipmentXML(xmlText: string, opts: VezaOptions = {}): Equi
       const unit: ParsedUnit = {
         name: sysName,
         title: xAttr(sys, 'title', 'описание') || sysName,
-        groups: [],
+        groups: xChildren(sys, 'group').map(g => ({ title: xAttr(g, 'title', 'name') || 'Основные', params: xParams(g) })).filter(g => g.params.length),
         monoblocks: [],
       };
+      if (!unit.groups.length) {
+        const params = xParams(sys);
+        if (params.length) unit.groups.push({ title: 'Основные', params });
+      }
       result.units.push(unit);
 
       const monos = xChildren(sys, 'monoblock');

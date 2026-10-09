@@ -73,6 +73,8 @@ export interface IdentityInput {
   full?: EquipParseResult;
   /** Полный файл расчёта: позиции, которых в нём нет, снимаются. У фрагмента — нет */
   removeMissing?: boolean;
+  /** Вызывающий фиксирует транзакцию и отправит события после успешной записи. */
+  deferEntityChanged?: boolean;
 }
 
 /**
@@ -338,9 +340,11 @@ export async function importEquipmentToDB(
   try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
   catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
 
-  if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
-    || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
-  if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
+  if (!identity.deferEntityChanged) {
+    if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
+      || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
+    if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
+  }
 
   return summary;
 }

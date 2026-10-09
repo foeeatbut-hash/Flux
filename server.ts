@@ -49,6 +49,8 @@ import { registerProjectRoutes } from './server/routes/projects.js';
 import { registerNotificationRoutes } from './server/routes/notifications.js';
 import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
+import { registerEquipmentXmlSourceRoutes } from './server/routes/equipmentXmlSources.js';
+import { registerEquipmentSourceImportRoutes } from './server/routes/equipmentSourceImport.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
 import { registerE3AttributeRoutes } from './server/routes/e3Attributes.js';
@@ -1199,6 +1201,8 @@ registerChatRoutes(app, { io });
 
 
 registerEquipmentCoreRoutes(app);
+registerEquipmentXmlSourceRoutes(app);
+registerEquipmentSourceImportRoutes(app);
 registerEquipmentCatalogRoutes(app);
 
 

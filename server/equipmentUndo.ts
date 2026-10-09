@@ -28,6 +28,7 @@ export interface ElementNow {
   id: string;
   itemCode: string;
   specs: string | null;
+  overrides?: string | null;
   version: number;
   where: string;
   /** Состояние для отмены снятия, переезда и переноса тегов (загрузка партии их заполняет) */
@@ -37,6 +38,7 @@ export interface ElementNow {
   /** Установка позиции: по ней отмена переименования проверяет, что имя ещё то, что дал ввоз */
   systemId?: string;
   systemName?: string;
+  projectId?: string;
 }
 
 export type UndoAction = 'restore' | 'remove' | 'skip' | 'reinstate' | 'reremove' | 'unmove' | 'retag' | 'unrename';

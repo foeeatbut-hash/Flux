@@ -79,6 +79,8 @@ interface Props {
   onShowRemoved?: (v: boolean) => void;
   /** Завести позицию верхнего уровня в моноблоке */
   onAddToMonoblock?: (mb: TreeMonoblock, unit: TreeUnit) => void;
+  /** Состояние XML источника для той же стабильной связки тега и позиции. */
+  sourceStatuses?: Record<string, { status: string; revision?: string }>;
 }
 
 export type TreeMode = 'composition' | 'type';
@@ -153,6 +155,7 @@ export default function PositionTree({
   onToggle, onPickUnit, onPickBlock, onReload, onDeleteUnit, onDeleteComponent, onAddPosition,
   types, mode = 'composition', onMode, onOpenList, onOpenView, onPickTag, onAddToMonoblock,
   removedCount = 0, showRemoved = false, onShowRemoved,
+  sourceStatuses,
 }: Props) {
   // Меню правой кнопки: у курсора, закрывается щелчком мимо и Esc
   const [menu, setMenu] = React.useState<{ x: number; y: number; c: TreeComponent } | null>(null);
@@ -165,6 +168,11 @@ export default function PositionTree({
     return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', onKey); };
   }, [menu]);
   const openMenu = (e: React.MouseEvent, c: TreeComponent) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, c }); };
+  const sourceStatus = (c: TreeComponent) => (c.tags || []).map(tag => sourceStatuses?.[`${tag.id}:${c.id}`]).find(Boolean);
+  const sourceStatusLabel = (status?: string) => ({
+    pending: 'XML обновление', partial: 'XML частично', ambiguous: 'XML выбрать файл', invalid: 'XML ошибка',
+    unstable: 'XML меняется', 'source-unavailable': 'XML нет доступа', 'no-match': 'XML не найден',
+  } as Record<string, string>)[status || ''] || '';
 
   // Ширина дерева — у человека: названия вроде «Электродвигатель 160М6-УХЛ2-400»
   // длинные, и кому-то нужно шире. Тянется за правый край, двойной щелчок —
@@ -218,6 +226,7 @@ export default function PositionTree({
         </span>
         {c.manual && <span className="text-2xs text-slate-400 shrink-0" title="Заведено вручную">рук.</span>}
         {c.sourceKind === 'note' && <span className="text-2xs text-amber-600 dark:text-amber-400 shrink-0" title="Заведено по примечанию выгрузки">прим.</span>}
+        {sourceStatusLabel(sourceStatus(c)?.status) && <span className="text-amber-700 dark:text-amber-300 shrink-0" title={`${sourceStatusLabel(sourceStatus(c)?.status)}${sourceStatus(c)?.revision ? ` · ревизия ${sourceStatus(c)?.revision}` : ''}`} aria-label={sourceStatusLabel(sourceStatus(c)?.status)}><RefreshCw className="w-3 h-3" /></span>}
       </button>
       {canDelete(c as any) && (
         <>

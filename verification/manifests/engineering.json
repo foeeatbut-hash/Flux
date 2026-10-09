@@ -30,7 +30,16 @@
         "src/components/EquipmentImportPreview.tsx",
         "src/lib/equipmentExchange.ts",
         "equipment/composition.ts",
-        "equipment/notes.ts"
+        "equipment/notes.ts",
+        "src/components/equipment/EquipmentXmlSourcePanel.tsx",
+        "src/lib/equipmentSourcesLocal.ts",
+        "equipment/sourceXml.ts",
+        "equipment/sourceValueComparison.ts",
+        "server/equipmentSourceReview.ts",
+        "server/equipmentXmlUndo.ts",
+        "server/routes/equipmentXmlSources.ts",
+        "server/routes/equipmentUndo.ts",
+        "server/equipmentParser.ts"
       ]
     },
     {
@@ -528,10 +537,23 @@
         "catalog:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
@@ -547,11 +569,27 @@
         "database:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "env", "name": "FLUX_DB_FIXTURE_URL" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_DB_FIXTURE_URL"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
@@ -568,10 +606,23 @@
         "browser:global"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
@@ -588,10 +639,23 @@
         "browser:global"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
@@ -608,10 +672,23 @@
         "browser:global"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
@@ -628,13 +705,80 @@
         "browser:global"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        }
       ],
       "timeoutMs": 360000,
       "external": true
+    },
+    {
+      "id": "eng-equipment-xml-revisions",
+      "path": "scripts/test-equipment-xml-revisions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-xml-routes-sqlite",
+      "path": "scripts/test-equipment-xml-routes-sqlite.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-xml-undo-structure",
+      "path": "scripts/test-equipment-xml-undo-structure.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-source-targets",
+      "path": "scripts/test-equipment-source-targets.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-source-import",
+      "path": "scripts/test-equipment-source-import.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-param-access",
+      "path": "scripts/test-equipment-param-access.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
     }
   ],
   "actions": [
@@ -2404,9 +2548,7 @@
       "expected": [
         "В браузере и пока нет моста кнопки «Демонстрация» и «Выгрузить в E3.series» неактивны, а шапка объясняет причину."
       ],
-      "checks": [
-
-      ],
+      "checks": [],
       "manual": [
         {
           "layer": "browser-live",
@@ -4174,6 +4316,86 @@
           "scenario": "В тестовом проекте выполнить действие «Настроить глобальные этапы закупки в параметрах» и повторно открыть изменённые данные.",
           "expected": [
             "Результат соответствует указанным ожидаемым значениям; соседние записи не меняются."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "equipment.xml-source-review",
+      "program": "equipment",
+      "label": "Связать XML источника и рассмотреть новую ревизию",
+      "sources": [
+        "src/screens/Equipment.tsx",
+        "src/components/equipment/EquipmentXmlSourcePanel.tsx",
+        "src/lib/equipmentSourcesLocal.ts",
+        "server/routes/equipmentXmlSources.ts",
+        "server/routes/equipmentSourceImport.ts",
+        "server/equipmentSourceTargets.ts",
+        "server/equipmentSourceTargets.ts",
+        "server/equipmentSourceReview.ts",
+        "server/equipmentXmlUndo.ts"
+      ],
+      "triggers": [
+        "source XML picker",
+        "check revisions",
+        "accept/keep change",
+        "import first XML revision",
+        "undo review"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Папка и Windows file refs остаются локальными; сервер проверяет исходный SHA и хранит только разобранные характеристики. Проверка не меняет импортированный baseline; частичные решения не удаляют отсутствующие параметры, ручные значения требуют явного подтверждения, undo пропускает конфликтующие правки."
+      ],
+      "checks": [
+        {
+          "suite": "eng-equipment-xml-revisions",
+          "layer": "unit",
+          "claims": [
+            "Поддерживаются все legacy-форматы характеристик; повреждённые данные блокируют применение; ручные и отсутствующие параметры видны и требуют явного решения."
+          ]
+        },
+        {
+          "suite": "eng-equipment-xml-routes-sqlite",
+          "layer": "api-db",
+          "claims": [
+            "SQLite fixture проверяет component and installation root+nested parameter candidates, atomic multi-position apply/undo, stale child CAS, failed XML, imported/reviewed baseline, same-SHA rebase, manual override, project permissions and restart persistence."
+          ]
+        },
+        {
+          "suite": "eng-equipment-xml-undo-structure",
+          "layer": "api-db",
+          "claims": [
+            "SQLite undo проверяет восстановление структурных полей, безопасное снятие созданных строк с сохранением тегов, блокировку отката при новых дочерних позициях, перепривязке источника и CAS-конфликте."
+          ]
+        },
+        {
+          "suite": "eng-equipment-source-targets",
+          "layer": "unit",
+          "claims": [
+            "Установка сопоставляет вложенные позиции только по точному уникальному тегу или точному коду и моноблоку; структурные добавления, удаления и неоднозначности остаются review-only."
+          ]
+        },
+        {
+          "suite": "eng-equipment-source-import",
+          "layer": "api-db",
+          "claims": [
+            "Первичный XML импорт проходит preview/apply, привязывает тег установки после успешного импорта и повтор той же ревизии идемпотентен."
+          ]
+        },
+        {
+          "suite": "eng-equipment-param-access",
+          "layer": "api-db",
+          "claims": [
+            "Каталожные effective-параметры нельзя изменить через обычные API-маршруты; XML и manual overrides сохраняют каталог неизменным."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "В двух темах открыть позицию с XML source, проверить найденную ревизию, выбрать ambiguity, применить одну характеристику и сохранить другую; сузить окно до 280px.",
+          "expected": [
+            "Показаны текущие/предложенные значения и manual/catalog origin; scan warnings видны; partial review сохраняется после перезагрузки, baseline обновляется только после завершённого решения."
           ]
         }
       ]

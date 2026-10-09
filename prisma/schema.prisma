@@ -430,6 +430,97 @@ model EquipmentHistory {
   batchId    String?
 }
 
+/// Серверная карточка источника XML. Пути и WindowsFileRef здесь не хранятся:
+/// сервер не имеет права читать локальный диск сотрудника.
+model EquipmentXmlSource {
+  id                  String   @id @default(uuid())
+  projectId           String
+  tagId               String
+  targetType          String   // system | component
+  systemId            String?
+  elementId           String
+  tagIdentifier       String
+  revisionOrder       String   @default("alphabetical")
+  selectedRule        String   @default("exact-tag")
+  lastImportedRevision String?
+  lastImportedSha256  String?
+  lastImportedAt      DateTime?
+  lastReviewedRevision String?
+  lastReviewedSha256   String?
+  lastReviewedAt       DateTime?
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+  candidates          EquipmentXmlCandidate[]
+
+  @@index([projectId, tagId])
+  @@index([elementId])
+}
+
+/// Только сервером проверенная распарсенная ревизия; исходный XML остаётся у клиента.
+model EquipmentXmlCandidate {
+  id               String   @id @default(uuid())
+  sourceId         String
+  projectId        String
+  revision         String
+  fileName         String
+  sha256           String
+  parsedSpecs      String
+  changes          String
+  decisions        String   @default("{}")
+  decisionHistory  String   @default("[]")
+  status           String   @default("pending") // pending | partial | complete | keepResolved
+  expectedVersion  Int
+  expectedVersions String   @default("{}")
+  uploadedById     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  source           EquipmentXmlSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  applications     EquipmentXmlApplication[]
+
+  @@unique([sourceId, sha256])
+  @@index([projectId, sourceId, status])
+}
+
+/// Полный снимок одного подтверждения: характеристики, ручные исключения и состояние ревизии.
+model EquipmentXmlApplication {
+  id                    String   @id @default(uuid())
+  batchId               String   @unique
+  candidateId           String
+  sourceId              String
+  elementId             String
+  oldSpecs              String?
+  newSpecs              String?
+  oldOverrides          String?
+  newOverrides          String?
+  oldVersion            Int
+  newVersion            Int
+  targetSnapshots       String   @default("[]")
+  beforeDecisions       String
+  afterDecisions        String
+  beforeStatus          String
+  afterStatus           String
+  oldImportedRevision   String?
+  oldImportedSha256     String?
+  oldImportedAt         DateTime?
+  newImportedRevision   String?
+  newImportedSha256     String?
+  newImportedAt         DateTime?
+  oldReviewedRevision  String?
+  oldReviewedSha256    String?
+  oldReviewedAt        DateTime?
+  newReviewedRevision  String?
+  newReviewedSha256    String?
+  newReviewedAt        DateTime?
+  actorId               String?
+  createdAt             DateTime @default(now())
+  candidate             EquipmentXmlCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([elementId, createdAt])
+}
+
 model UserNote {
   id          String   @id @default(uuid())
   title       String   @default("Новая заметка")

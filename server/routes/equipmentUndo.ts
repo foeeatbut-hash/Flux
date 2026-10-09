@@ -3,6 +3,35 @@ import { getPrisma, sendError } from '../context.js';
 import { withBump } from '../equipmentVersion.js';
 import { emitEntitiesChanged } from '../entityChanged.js';
 import { planUndo, batchTime, describePlan, type ElementNow, type HistoryRow } from '../equipmentUndo.js';
+import { applyCatalogSourceUndo, isCatalogSourceUndoBatch, planCatalogSourceUndo } from '../equipmentCatalogUndo.js';
+import { applyXmlRevisionUndo, isXmlRevisionBatch, planXmlRevisionUndo } from '../equipmentXmlUndo.js';
+import { canSeeProject, roleGrantsOf } from './members.js';
+import { actorMay } from '../projectAccess.js';
+import { isPrivilegedUser } from '../accessPolicy.js';
+
+async function authorizeXmlUndo(req: Request, batchId: string) {
+  const actor = (req as any).authUser;
+  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  const app = await getPrisma().equipmentXmlApplication.findUnique({ where: { batchId } });
+  const source = app ? await getPrisma().equipmentXmlSource.findUnique({ where: { id: app.sourceId } }) : null;
+  if (!source) throw Object.assign(new Error('Операция XML-ревизии не найдена'), { status: 404 });
+  if (!(await canSeeProject(String(actor.id), source.projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
+  if (!(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
+}
+
+async function authorizeCatalogUndo(req: Request, batchId: string) {
+  const actor = (req as any).authUser;
+  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  if (!(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
+  const prisma = getPrisma();
+  const history = await prisma.equipmentHistory.findMany({ where: { batchId }, select: { elementId: true } });
+  const ids = [...new Set(history.map((item: any) => String(item.elementId)).filter(Boolean))];
+  const elements = ids.length ? await prisma.componentElement.findMany({ where: { id: { in: ids } }, select: { monoblock: { select: { system: { select: { projectId: true } } } } } }) : [];
+  const projectIds = [...new Set(elements.map((element: any) => element.monoblock?.system?.projectId).filter(Boolean) as string[])];
+  for (const projectId of projectIds) {
+    if (!(await canSeeProject(String(actor.id), projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
+  }
+}
 
 /**
  * Отмена импорта расчёта: сначала план, потом применение.
@@ -27,9 +56,10 @@ async function loadBatch(batchId: string) {
   for (const e of els) {
     map.set(e.id, {
       id: e.id, itemCode: String(e.itemCode || e.name || ''),
-      specs: e.specs ?? null, version: Number(e.version || 1),
+      specs: e.specs ?? null, overrides: e.overrides ?? null, version: Number(e.version || 1),
       status: e.status, conflictLog: e.conflictLog ?? null, monoblockId: e.monoblockId,
       systemId: e.monoblock?.system?.id, systemName: e.monoblock?.system?.name,
+      projectId: e.monoblock?.system?.projectId,
       where: `${e.monoblock?.system?.name || ''} · ${e.monoblock?.name || ''}`,
     });
   }
@@ -41,7 +71,23 @@ export function registerEquipmentUndoRoutes(app: Express): void {
   app.get('/api/equipment/import-undo/:batchId', async (req: Request, res: Response) => {
     try {
       const batchId = String(req.params.batchId || '');
+      if (isXmlRevisionBatch(batchId)) {
+        await authorizeXmlUndo(req, batchId);
+        const plan = await planXmlRevisionUndo(batchId);
+        return res.json({ ...plan, summary: { restore: plan.action === 'restore' ? 1 : 0, skipped: plan.action === 'skip' ? 1 : 0 }, at: null });
+      }
+      if (isCatalogSourceUndoBatch(batchId)) await authorizeCatalogUndo(req, batchId);
       const { rows, map } = await loadBatch(batchId);
+      if (isCatalogSourceUndoBatch(batchId)) {
+        const prisma = getPrisma();
+        const bindings = new Map<string, string | null>();
+        for (const id of map.keys()) {
+          const row = await prisma.appSetting.findFirst({ where: { key: `equipment_catalog_binding:${id}`, userId: null } });
+          bindings.set(id, row?.value ?? null);
+        }
+        const plan = planCatalogSourceUndo(batchId, rows, map, bindings);
+        return res.json({ ...plan, summary: { restore: plan.restore.length, skipped: plan.skip.length }, at: null });
+      }
       const plan = planUndo(batchId, rows, map);
       res.json({ ...plan, summary: describePlan(plan), at: batchTime(batchId) || null });
     } catch (err: any) { sendError(res, err); }
@@ -54,7 +100,28 @@ export function registerEquipmentUndoRoutes(app: Express): void {
       const batchId = String(req.body?.batchId || '');
       if (!batchId) return res.status(400).json({ error: 'Нужен batchId' });
 
+      if (isXmlRevisionBatch(batchId)) {
+        await authorizeXmlUndo(req, batchId);
+        const plan = await planXmlRevisionUndo(batchId);
+        const result = await applyXmlRevisionUndo(batchId, plan);
+        emitEntitiesChanged('element', result.changedElementIds, req);
+        return res.json({ ...result, summary: { restore: plan.action === 'restore' ? 1 : 0, skipped: result.skipped } });
+      }
+
+      if (isCatalogSourceUndoBatch(batchId)) await authorizeCatalogUndo(req, batchId);
       const { rows, map } = await loadBatch(batchId);
+      if (isCatalogSourceUndoBatch(batchId)) {
+        const prisma = getPrisma();
+        const bindings = new Map<string, string | null>();
+        for (const id of map.keys()) {
+          const row = await prisma.appSetting.findFirst({ where: { key: `equipment_catalog_binding:${id}`, userId: null } });
+          bindings.set(id, row?.value ?? null);
+        }
+        const plan = planCatalogSourceUndo(batchId, rows, map, bindings);
+        const result = await applyCatalogSourceUndo(batchId, plan, req);
+        emitEntitiesChanged('element', result.changedElementIds, req);
+        return res.json({ ...result, summary: { restore: plan.restore.length, skipped: result.skipped } });
+      }
       const plan = planUndo(batchId, rows, map);
       const life = plan.reinstate.length + plan.reremove.length + plan.unmove.length + plan.retag.length + plan.unrename.length;
       if (!plan.restore.length && !plan.remove.length && !life) {
