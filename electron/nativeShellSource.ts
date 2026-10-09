@@ -346,11 +346,14 @@ public static class FluxShellFiles {
     for (int i = 0; i < items.Length; i++) items[i] = Item(list[i]);
     MenuSession session = new MenuSession();
     try {
+      Stage = "menu-bind";
       session.Menu = MenuFor(items); session.Handle = CreatePopupMenu();
       // EXPLORE | CANRENAME — как просит сам Проводник; EXTENDEDVERBS — «классическое» меню с Shift.
       uint flags = 0x4u | 0x10u | (Flag(args, "extended") ? 0x100u : 0u);
+      Stage = "menu-query";
       int hr = session.Menu.QueryContextMenu(session.Handle, 0, 1, 0x7FFF, flags);
       if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      Stage = "menu-read";
       List<object> tree = ReadMenu(session.Handle, session.Menu, 1, session, 0);
       Session = session;
       Dictionary<string,object> data = new Dictionary<string,object> { {"token", session.Token}, {"items", tree} };

@@ -32,7 +32,11 @@ const limit = (message: string) => { limits++; console.log(`LIMIT ${message}`); 
 const check = (condition: unknown, message: string, detail?: unknown) => condition ? ok(message) : bad(message, detail);
 let helperHost: NativeShellHost | undefined;
 async function section(name: string, work: () => Promise<void>) {
-  try { await work(); } catch (error) { bad(`${name}: набор прерван непредвиденной ошибкой`, error); if (helperHost?.lastStderr) console.error(`   stderr помощника: ${helperHost.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`); }
+  try { await work(); } catch (error) {
+    bad(`${name}: набор прерван непредвиденной ошибкой`, error);
+    if ((error as any)?.nativeDiagnostic) console.error(`   диагностика помощника: ${JSON.stringify((error as any).nativeDiagnostic)}`);
+    if (helperHost?.lastStderr) console.error(`   stderr помощника: ${helperHost.lastStderr.replace(/\r?\n/gu, ' / ').slice(0, 2500)}`);
+  }
 }
 /** Поиск до конца: страницы собираются, пока не придёт done. */
 const searchEverything = (service: WindowsFilesService, ref: WindowsFileRef, query: string) => new Promise<WindowsSearchHit[]>((resolve, reject) => {
