@@ -134,7 +134,8 @@ async function directParent(id: string): Promise<string | null | undefined> {
   await new Promise((resolve) => setTimeout(resolve, 300));
   const linkedTags = (await call('GET', `/api/projects/${projectId}/tags`)).data?.tags || [];
   const linkedTagId = linkedTags.find((t: any) => t.identifier === 'PR-01-M-001')?.id;
-  ok('создание и привязка рассылают событие тега', !!linkedTagId && entityChanges.some((e) => e.kind === 'tag' && e.id === linkedTagId), entityChanges);
+  ok('создание и привязка рассылают событие тега', !!linkedTagId && entityChanges.some((e) =>
+    e.kind === 'tag' && (e.id === linkedTagId || (Array.isArray(e.ids) && e.ids.includes(linkedTagId)))), entityChanges);
   ok('привязка рассылает событие позиции', entityChanges.some((e) => e.kind === 'element' && e.id === motor.id), entityChanges);
 
   console.log('\n6. Позиция в моноблоке: запись и видимое родство тега');
