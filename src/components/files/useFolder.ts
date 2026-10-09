@@ -12,7 +12,7 @@ import { onWindowsFilesChanged, windowsFilesRequest, type WindowsFileEntry, type
  * `useSelection` по `fileId` и имени, ему достаточно получить новый список.
  */
 
-export type FolderListing = { root?: WindowsRoot; entries: WindowsFileEntry[]; nextOffset: number | null; truncated: boolean };
+export type FolderListing = { root?: WindowsRoot; entries: WindowsFileEntry[]; nextOffset: number | null; truncated: boolean; unreadableCount?: number };
 const PAGE = 200;
 // Один и тот же пустой список: новый массив на каждый рендер перезапускал бы всё, что на него смотрит
 const NONE: WindowsFileEntry[] = [];
@@ -47,13 +47,14 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
   const fetchPages = useCallback(async (folder: WindowsFileRef, until: number | null): Promise<FolderListing> => {
     let result: FolderListing | null = null;
     const entries: WindowsFileEntry[] = [];
+    let unreadableCount = 0;
     let offset: number | null = 0;
     while (offset !== null && (result === null || until === null || offset < until)) {
       const response = await windowsFilesRequest<FolderListing>({ action: 'list', ref: folder, offset, limit: PAGE });
       if ('error' in response) throw new Error(response.error.message);
-      result = response.data; entries.push(...response.data.entries); offset = response.data.nextOffset;
+      result = response.data; entries.push(...response.data.entries); unreadableCount += response.data.unreadableCount || 0; offset = response.data.nextOffset;
     }
-    return { ...result!, entries, nextOffset: offset };
+    return { ...result!, entries, unreadableCount, nextOffset: offset };
   }, []);
 
   const load = useCallback(async (mode: 'fresh' | 'refresh' | 'more') => {
@@ -68,7 +69,7 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
         const next = await windowsFilesRequest<FolderListing>({ action: 'list', ref: folder, offset: reached.current, limit: PAGE });
         if ('error' in next) throw new Error(next.error.message);
         if (id !== request.current) return;
-        setListing((previous) => previous ? { ...next.data, entries: [...previous.entries, ...next.data.entries] } : next.data);
+        setListing((previous) => previous ? { ...next.data, entries: [...previous.entries, ...next.data.entries], unreadableCount: (previous.unreadableCount || 0) + (next.data.unreadableCount || 0) } : next.data);
         return;
       }
       // Тихое обновление: сколько показано, столько и перечитываем, прокрутку запоминаем
@@ -77,7 +78,7 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
       if (id !== request.current) return;
       setListing(data);
     } catch (cause: any) {
-      if (id === request.current) { setListing(null); setError(cause?.message || 'Не удалось прочитать папку'); }
+      if (id === request.current) { if (mode === 'fresh') setListing(null); setError(cause?.message || 'Не удалось прочитать папку'); }
     } finally { if (id === request.current) setLoading(false); }
   }, [fetchPages]);
 

@@ -26,7 +26,10 @@ type CimVolume = {
   fileSystem?: unknown;
 };
 
-const VOLUME_SCRIPT = [
+export const VOLUME_SCRIPT = [
+  // PowerShell 5.1 использует системную OEM-кодировку при записи в pipe;
+  // без этого русские метки томов повреждаются при декодировании Node как UTF-8.
+  '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
   "$ErrorActionPreference='Stop'; $rows = Get-CimInstance -ClassName Win32_LogicalDisk | Where-Object { $_.DriveType -in @(2,3,4,5,6) } | Select-Object @{Name='path';Expression={$_.DeviceID + '\\'}},@{Name='label';Expression={$_.VolumeName}},@{Name='driveType';Expression={$_.DriveType}},@{Name='providerName';Expression={$_.ProviderName}},@{Name='size';Expression={$_.Size}},@{Name='freeSpace';Expression={$_.FreeSpace}},@{Name='fileSystem';Expression={$_.FileSystem}}",
   '$rows | ConvertTo-Json -Compress',
 ].join('; ');
@@ -89,7 +92,7 @@ export async function enumerateWindowsVolumes(platform = process.platform): Prom
   if (platform !== 'win32') return [];
   const raw = await new Promise<string>((resolve, reject) => {
     execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', VOLUME_SCRIPT], {
-      windowsHide: true, timeout: 10_000, maxBuffer: 1024 * 1024,
+      windowsHide: true, timeout: 10_000, maxBuffer: 1024 * 1024, encoding: 'utf8',
     }, (error, stdout) => error ? reject(error) : resolve(stdout));
   });
   return parseWindowsLogicalDisks(raw);

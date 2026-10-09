@@ -1,6 +1,6 @@
 import type { WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '../../filesystem/contracts';
 
-export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsVolume, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, ImportedFileBytes } from '../../filesystem/contracts';
+export type { WindowsFileRef, WindowsFileEntry, WindowsFileContent, WindowsFileMetadata, WindowsRoot, WindowsVolume, WindowsKnownFolder, WindowsFilesRequest, WindowsFilesResponse, WindowsFilesChanged, WindowsEquipmentSourcePick, WindowsEquipmentSourceFolderPick, ImportedFileBytes } from '../../filesystem/contracts';
 // Команды Проводника Windows 11 (этап A моста): поиск, дерево, миниатюры, меню Windows, корзина, отмена, план публикации.
 export type {
   WindowsFileChoice, WindowsPublishChoices, WindowsPublishPlan, WindowsPublishPlanItem,

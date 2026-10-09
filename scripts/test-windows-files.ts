@@ -40,6 +40,25 @@ try {
   await rejects(() => service.iconPath({ rootId: 'unknown', relativePath: '' }), 'UNKNOWN_ROOT', 'Запрос значка не выдаёт доступ к неизвестному корню');
   await rejects(() => service.iconPath({ rootId, relativePath: '../outside/private.txt' }), 'INVALID_NAME', 'Запрос значка не обходит границу подключённой папки');
   const listing = await service.list(project); check(listing.entries[0].name === 'Исходный.md', 'Перечисляются реальные файлы с кириллицей');
+  await fs.writeFile(path.join(desktop, 'Недоступный объект.bin'), 'test');
+  const originalEntry = service.entry.bind(service);
+  (service as any).entry = async (ref: any, allowLink?: boolean) => {
+    if (ref.relativePath === 'Недоступный объект.bin') throw Object.assign(new Error('denied'), { code: 'EPERM' });
+    return originalEntry(ref, allowLink);
+  };
+  try {
+    const partial = await service.list({ rootId, relativePath: '' });
+    check(partial.entries.some(entry => entry.name === 'Проект') && partial.unreadableCount === 1,
+      'Недоступный дочерний объект пропускается, доступные соседи остаются в списке');
+  } finally { delete (service as any).entry; }
+  await fs.writeFile(path.join(desktop, 'Изменение каталога.bin'), 'test');
+  const originalOpendir = fs.opendir;
+  (fs as any).opendir = async (folder: string, ...args: any[]) => {
+    if (folder === desktop) throw Object.assign(new Error('denied root'), { code: 'EPERM' });
+    return (originalOpendir as any)(folder, ...args);
+  };
+  try { await rejects(() => service.list({ rootId, relativePath: '' }), 'EPERM', 'Отказ доступа к самой папке остаётся ошибкой, а не пустым списком'); }
+  finally { (fs as any).opendir = originalOpendir; }
   const read = await service.read(original); check(Buffer.from(read.base64, 'base64').toString() === 'оригинал', 'Чтение возвращает настоящие байты');
   await rejects(() => service.read({ rootId: 'unknown', relativePath: '' }), 'UNKNOWN_ROOT', 'Произвольный корень отклонён');
   await rejects(() => service.read({ rootId, relativePath: '../outside/private.txt' }), 'INVALID_NAME', 'Выход через .. отклонён');
