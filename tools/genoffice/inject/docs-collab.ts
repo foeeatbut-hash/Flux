@@ -246,6 +246,12 @@ async function start(cfg: { name: string; color: string }, p: Port): Promise<voi
 export function installFluxCollab(): void {
   const p = port()
   if (!p) return
+  // Мост сообщает hello при загрузке страницы. Готовность окна объявляем
+  // отдельно, когда GenOffice уже создал документ и редактор действительно может работать.
+  void waitForEditor(() => {
+    const ctx = ctxNow()
+    return ctx?.editor && ctx.doc && !isPhasedContentPending() ? ctx.editor : null
+  }, 30_000).then((editor) => { if (editor) p.tell('flux:editor-ready', { app: 'docs' }) })
   // Тег передаётся по самому клику: слова вокруг него и содержимое документа
   // не размечаются и не меняются. Project/tag ids дополняет окно Flux.
   void whenReady().then((editor) => {

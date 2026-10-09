@@ -34,12 +34,12 @@ import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
-  isOfficeMsg, pathOf, fileIdOf, targetOrigin, fromOwnFrame, sha256Hex, copyName,
+  isOfficeMsg, isOfficeEditorReadyMessage, pathOf, fileIdOf, targetOrigin, fromOwnFrame, sha256Hex, copyName,
 } from '../lib/officeBridge';
 
 const EDITOR_URL = 'genoffice/docs/index.html';
 /** Сколько ждать первого слова моста, прежде чем сказать «редактор не собран» */
-const HELLO_MS = 15_000;
+const EDITOR_READY_MS = 45_000;
 
 type Phase = 'loading' | 'ready' | 'missing';
 /** stale — файл сохранил другой; locked — правку держит другой */
@@ -234,7 +234,7 @@ export default function OfficeHost() {
       if (!fromOwnFrame(e.source, frame.current?.contentWindow, e.origin, window.location.origin)) return;
       const m = e.data;
       if (!isOfficeMsg(m)) return;
-      if (m.op === 'hello') { setPhase('ready'); return; }
+      if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
       if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
@@ -329,7 +329,7 @@ export default function OfficeHost() {
       const title = frame.current?.contentDocument?.title;
       if (title !== undefined && title !== 'Flux Office') { setPhase('missing'); return; }
     } catch (_) { /* с диска документ фрейма закрыт — ждём моста */ }
-    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, HELLO_MS);
+    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, EDITOR_READY_MS);
   }, []);
 
   // Закрытие окна: несохранённое сохраняется, а не теряется

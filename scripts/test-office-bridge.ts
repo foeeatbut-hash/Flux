@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { fileIdOf, pathOf, targetOrigin, fromOwnFrame, sha256Hex, copyName, isOfficeMsg } from '../src/lib/officeBridge';
+import { fileIdOf, pathOf, targetOrigin, fromOwnFrame, sha256Hex, copyName, isOfficeMsg, isOfficeEditorReadyMessage } from '../src/lib/officeBridge';
 import { waitForEditor } from '../tools/genoffice/inject/editor-readiness';
 
 let f = 0;
@@ -51,6 +51,12 @@ const ok = (n: string, c: boolean, d?: unknown) =>
     ok(`${f.split('/').pop()}: 'file://' считается диском`, /disk = origin === 'null' \|\| origin === 'file:\/\/'/.test(src) && /disk \? '\*'/.test(src));
   }
   ok('сообщение узнаётся', isOfficeMsg({ flux: 'office', op: 'save' }) && !isOfficeMsg({ op: 'save' }) && !isOfficeMsg(null));
+  ok('hello не открывает Docs до готовности редактора',
+    !isOfficeEditorReadyMessage('docs', { op: 'hello' }) && !isOfficeEditorReadyMessage('sheets', { op: 'hello' }));
+  ok('редактор объявляет готовность только своим init-сигналом',
+    isOfficeEditorReadyMessage('docs', { op: 'flux:editor-ready' }) &&
+    isOfficeEditorReadyMessage('sheets', { op: 'ipc-send', payload: { channel: 'flux:editor-ready' } }) &&
+    isOfficeEditorReadyMessage('pdf', { op: 'hello' }));
 
   console.log('\n3. Хеш и имя копии');
   const bytes = Buffer.from('Документ Flux Office');

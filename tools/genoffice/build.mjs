@@ -136,7 +136,8 @@ async function buildOne(which, src) {
   // Правки patches.mjs вносятся во все редакторы разом — и модули совместной
   // правки кладутся во все, чтобы подключённый правкой импорт всегда находился
   for (const [dir, file] of [
-    ['apps/docs', 'docs-collab.ts'], ['apps/docs', 'editor-readiness.ts'], ['apps/sheets', 'sheets-collab.ts'],
+    ['apps/docs', 'docs-collab.ts'], ['apps/docs', 'editor-readiness.ts'],
+    ['apps/sheets', 'sheets-collab.ts'], ['apps/sheets', 'editor-readiness.ts'],
   ]) {
     mkdirSync(join(src, dir, 'src', 'renderer', 'flux'), { recursive: true });
     cpSync(join(injectDir, file), join(src, dir, 'src', 'renderer', 'flux', file));

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { base64ToBytes, type WindowsFileContent, type WindowsFileRef } from '../../lib/windowsFiles';
-import { isOfficeMsg, fromOwnFrame, targetOrigin, pathOf } from '../../lib/officeBridge';
+import { isOfficeMsg, isOfficeEditorReadyMessage, fromOwnFrame, targetOrigin, pathOf } from '../../lib/officeBridge';
 import { localAnswer } from './OfficeAppEditor';
 import FluxPanel, { type FluxTableRow, type ProjectField } from './FluxPanel';
 import { openEditorTag } from '../../lib/editorTag';
@@ -132,7 +132,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     const receive = async (event: MessageEvent) => {
       if (!fromOwnFrame(event.source, frame.current?.contentWindow, event.origin, window.location.origin) || !isOfficeMsg(event.data)) return;
       const m = event.data;
-      if (m.op === 'hello') { setReady(true); return; }
+      if (isOfficeEditorReadyMessage(app, m)) { setReady(true); return; }
       if (m.op === 'flux:open-panel') { setPanelOpen(true); return; }
       if (m.op === 'flux:tag-click') { if (activeProjectId) void openEditorTag(activeProjectId, m.payload); return; }
       const waiting = waits.current.get(m.op);
