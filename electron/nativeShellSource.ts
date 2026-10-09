@@ -251,7 +251,7 @@ public static class FluxShellFiles {
 
   // ------------------------------------------------------ контекстное меню
   sealed class MenuSession {
-    public IContextMenu Menu; public IntPtr Handle; public Dictionary<int,string> Labels = new Dictionary<int,string>();
+    public IContextMenu Menu; public IntPtr Handle; public int CommandCount; public Dictionary<int,string> Labels = new Dictionary<int,string>();
     public string Token = Guid.NewGuid().ToString("N");
     public void Dispose() { if (Handle != IntPtr.Zero) { DestroyMenu(Handle); Handle = IntPtr.Zero; } if (Menu != null) { Marshal.ReleaseComObject(Menu); Menu = null; } }
   }
@@ -325,12 +325,14 @@ public static class FluxShellFiles {
       }
       bool hasSub = info.hSubMenu != IntPtr.Zero;
       if (label.Length == 0 && !hasSub) continue; // пункты с собственной отрисовкой без текста показать нечем
-      int offset = hasSub ? -1 : (int)info.wID - (int)first;
-      Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
+      // Подменю и заголовки не имеют номера команды: UINT_MAX в GetCommandString повреждает память расширения.
+      bool command = !hasSub && info.wID >= first && info.wID - first < (uint)session.CommandCount;
+      int offset = command ? (int)(info.wID - first) : -1;
+      Dictionary<string,object> entry = new Dictionary<string,object> { {"id", offset}, {"label", label}, {"enabled", (hasSub || command) && (info.fState & 0x3u) == 0}, {"checked", (info.fState & 0x8u) != 0} };
       if (TraceOn) Trace("menu: probe " + offset);
-      if (TraceOn) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " sub=" + hasSub + " " + VerbProbe(menu, offset);
-      if (!hasSub) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
-      else if (depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
+      if (TraceOn && command) entry["probe"] = "wID=" + info.wID + " offset=" + offset + " " + VerbProbe(menu, offset);
+      if (command) { string verb = Verb(menu, offset); if (verb != null) entry["verb"] = verb; session.Labels[offset] = label; }
+      else if (hasSub && depth < 3) { List<object> inner = ReadMenu(info.hSubMenu, menu, first, session, depth + 1); entry["submenu"] = inner; }
       result.Add(entry);
     }
     return result;
@@ -351,6 +353,7 @@ public static class FluxShellFiles {
       Stage = "menu-query";
       int hr = session.Menu.QueryContextMenu(session.Handle, 0, 1, 0x7FFF, flags);
       if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      session.CommandCount = hr & 0xFFFF;
       Stage = "menu-read";
       List<object> tree = ReadMenu(session.Handle, session.Menu, 1, session, 0);
       Session = session;
