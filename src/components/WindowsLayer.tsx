@@ -310,6 +310,11 @@ export default function WindowsLayer() {
     // окно молча забирало бы себе чужой адрес, и второе окно не появлялось
     if ((location.state as any)?.__pane !== `win:${topWin.id}`) return;
     if (here.split('?')[0] !== topWin.path) return;
+    // У многооконного файлового раздела changed href в той же программе означает
+    // другой файл. Его откроет следующее правило как отдельное окно; пассивный
+    // эффект не должен успеть перепривязать прежний файл к новому адресу.
+    const section = sectionForPath(topWin.path);
+    if (section.fileOnly && section.multi && here !== topWin.href) return;
     useWindowStore.getState().setHref(topWin.id, here);
   }, [location, topWin?.id]);
 
@@ -355,8 +360,12 @@ export default function WindowsLayer() {
     // Переход внутри самого окна и по тому же разделу — это оно и перешло:
     // человек открыл документ из библиотеки Конструктора и остался в своём
     // окне. Адрес запоминает следующий эффект, открывать нечего
+    // У многооконных файловых разделов разные адреса означают разные файлы:
+    // новый файл должен получить своё окно, не вытесняя открытый редактор.
     const from = (location.state as any)?.__pane;
-    if (now && from === `win:${now.id}` && now.path === location.pathname) return;
+    const section = now ? sectionForPath(now.path) : null;
+    if (now && from === `win:${now.id}` && now.path === location.pathname
+      && (!(section?.fileOnly && section.multi) || now.href === here)) return;
     st.open(here);
   }, [location, policy, navigate]);
 

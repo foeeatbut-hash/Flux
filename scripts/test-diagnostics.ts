@@ -43,8 +43,14 @@ const ok = (name: string, cond: boolean, detail?: unknown) =>
   ok('office host принимает только известный IPC канал', cleanFields('office.host', { operation: 'secret-channel' })?.operation === undefined);
   ok('office host показывает имя неизвестного канала с безопасным форматом',
     cleanFields('office.host', { unknownChannel: 'sheets:mcp-ready' })?.unknownChannel === 'sheets:mcp-ready');
+  const fileList = cleanFields('ipc.handle', { channel: 'windows-files:invoke', action: 'list', rootRequest: true, entryCount: 7, path: 'E:\\private\\Project' });
+  ok('filesystem IPC diagnostics сохраняет только действие и счётчики, отбрасывая путь',
+    fileList?.action === 'list' && fileList?.rootRequest === true && fileList?.entryCount === 7 && fileList?.path === undefined);
   ok('office host не записывает произвольный ввод как имя канала',
     cleanFields('office.host', { unknownChannel: 'sheets:C:\\Users\\Jane\\book.xlsx' })?.unknownChannel === undefined);
+  const lifecycle = cleanFields('office.lifecycle', { app: 'docs', stage: 'frame-load', instance: 2, sequence: 3, frameLoad: 1, width: 820.4, height: 640, ready: false, dirtyKnown: false, dirty: true, path: 'C:\\Users\\NEVER_LOG_THIS\\book.docx', document: 'NEVER_LOG_THIS' });
+  ok('office lifecycle records only allowlisted UI state and rounds iframe geometry', lifecycle?.app === 'docs' && lifecycle.stage === 'frame-load' && lifecycle.instance === 2 && lifecycle.width === 820 && lifecycle.height === 640 && lifecycle.path === undefined && lifecycle.document === undefined);
+  ok('office lifecycle rejects path-like labels and unsupported apps', cleanFields('office.lifecycle', { app: 'unknown', stage: 'C:\\private\\NEVER_LOG_THIS' })?.stage === undefined);
 }
 
 const BAIT = 'NEVER_LOG_THIS';

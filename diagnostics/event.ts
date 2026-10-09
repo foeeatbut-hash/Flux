@@ -33,6 +33,10 @@ export function newTraceId(): string {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OFFICE_LIFECYCLE_STAGES = new Set([
+  'mount', 'frame-load', 'frame-error', 'editor-ready', 'dirty-state',
+  'close-check-timeout', 'close-save-timeout', 'close-check-result', 'close-save-result', 'close-guard', 'unmount',
+]);
 
 // ── Обезличивание строк ─────────────────────────────────────────────────────
 
@@ -244,7 +248,7 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
     }
     case 'flag': return typeof value === 'boolean' ? value : null;
     case 'phase': return value === 'start' || value === 'end' ? value : null;
-    case 'app': return value === 'pdf' || value === 'sheets' ? value : null;
+    case 'app': return value === 'docs' || value === 'pdf' || value === 'sheets' ? value : null;
     case 'action': return ['open', 'invoke', 'send', 'copy', 'close'].includes(String(value)) ? String(value) : null;
     case 'outcome':
       return value === 'ok' || value === 'error' || value === 'cancelled' || value === 'conflict' || value === 'skipped'
@@ -267,6 +271,7 @@ export function cleanFields(event: string, fields: Record<string, unknown> | und
   for (const [key, kind] of Object.entries(spec)) {
     if (!(key in fields)) continue;
     if (event === 'office.host' && key === 'operation' && !isOfficeOperation(fields[key])) continue;
+    if (event === 'office.lifecycle' && key === 'stage' && !OFFICE_LIFECYCLE_STAGES.has(String(fields[key]))) continue;
     const value = byKind(kind, (fields as Record<string, unknown>)[key]);
     if (value !== null && value !== '') out[key] = value;
   }

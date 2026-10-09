@@ -10,8 +10,10 @@ import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
 import { useToastStore } from '../../store/toastStore';
 import { useModalStore } from '../../store/modalStore';
+import { diagnostic } from '../../lib/diagnostics';
 
 type App = 'docs' | 'pdf' | 'sheets';
+let nextLifecycleInstance = 0;
 interface Props {
   app: App; file: WindowsFileContent; fileRef: WindowsFileRef;
   load: () => Promise<WindowsFileContent>;
@@ -41,6 +43,11 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const dirty = useRef(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const lifecycleInstance = useRef(0);
+  if (!lifecycleInstance.current) lifecycleInstance.current = ++nextLifecycleInstance;
+  const lifecycleSequence = useRef(0);
+  const frameLoadCount = useRef(0);
+  const lifecycleState = useRef({ ready: false, dirtyKnown: false, dirty: false });
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(360);
   const editorArea = useRef<HTMLDivElement>(null);
@@ -64,13 +71,35 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const waits = useRef(new Map<string, (value: any) => void>());
   const busySave = useRef<Promise<boolean> | null>(null);
   const send = useCallback((msg: object) => frame.current?.contentWindow?.postMessage({ flux: 'office', ...msg }, targetOrigin(window.location.origin)), []);
+  const logLifecycle = useCallback((stage: string, extra: { outcome?: 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped'; timeout?: boolean } = {}) => {
+    const rect = frame.current?.getBoundingClientRect();
+    const state = lifecycleState.current;
+    diagnostic('office.lifecycle', {
+      app, stage, instance: lifecycleInstance.current, sequence: ++lifecycleSequence.current,
+      frameLoad: frameLoadCount.current,
+      width: rect ? Math.round(rect.width) : 0, height: rect ? Math.round(rect.height) : 0,
+      ready: state.ready, dirtyKnown: state.dirtyKnown,
+      ...(state.dirtyKnown ? { dirty: state.dirty } : {}), ...extra,
+    });
+  }, [app]);
+  const setDirtyState = useCallback((value: boolean) => {
+    const state = lifecycleState.current;
+    if (state.dirtyKnown && state.dirty === value) return;
+    state.dirtyKnown = true;
+    state.dirty = value;
+    dirty.current = value;
+    logLifecycle('dirty-state');
+  }, [logLifecycle]);
   const ask = useCallback((event: string, answer: string, payload?: unknown) => new Promise<any>(resolve => {
     let timer: ReturnType<typeof setTimeout>;
     const done = (value: any) => { clearTimeout(timer); if (waits.current.get(answer) === done) waits.current.delete(answer); resolve(value); };
     waits.current.set(answer, done);
-    timer = setTimeout(() => done(null), 30_000);
+    timer = setTimeout(() => {
+      if (event === 'closeCheck' || event === 'closeSave') logLifecycle(event === 'closeCheck' ? 'close-check-timeout' : 'close-save-timeout', { outcome: 'error', timeout: true });
+      done(null);
+    }, 30_000);
     send({ event, payload });
-  }), [send]);
+  }), [send, logLifecycle]);
   const command = useCallback((channel: string, payload: unknown) => new Promise<any>(resolve => {
     const id = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const done = (value: any) => { commandWaits.current.delete(id); resolve(value); };
@@ -109,34 +138,46 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           let timer: ReturnType<typeof setTimeout>;
           const done = (ok: any) => { clearTimeout(timer); if (waits.current.get('nativeClose') === done) waits.current.delete('nativeClose'); resolve(ok === true); };
           waits.current.set('nativeClose', done);
-          timer = setTimeout(() => done(false), 120_000);
+          timer = setTimeout(() => { logLifecycle('close-save-timeout', { outcome: 'error', timeout: true }); done(false); }, 120_000);
           send({ event: 'ipc', payload: { channel: app === 'pdf' ? 'pdf:close-save-request' : 'workbook:close-save-request', args: [] } });
         });
-        if (result) { dirty.current = false; setError(''); }
+        if (result) { setDirtyState(false); setError(''); }
         return result;
       } catch (e: any) { setError(e.message); return false; }
     })();
     busySave.current = operation;
     try { return await operation; } finally { if (busySave.current === operation) busySave.current = null; }
-  }, [ready, app, ask, send]);
+  }, [ready, app, ask, send, logLifecycle, setDirtyState]);
   useEffect(() => { saveHandle.current = save; return () => { if (saveHandle.current === save) saveHandle.current = null; }; }, [save, saveHandle]);
   useEffect(() => {
     if (!pane.startsWith('win:')) return;
     return guardClose(pane.slice(4), async () => {
       const ok = await save();
+      logLifecycle('close-guard', { outcome: ok ? 'ok' : 'error' });
       if (!ok) toast('Правки не сохранены. Окно оставлено открытым.', 'error');
       return ok;
     });
-  }, [pane, save, toast]);
+  }, [pane, save, toast, logLifecycle]);
+  useEffect(() => { logLifecycle('mount'); return () => logLifecycle('unmount'); }, [logLifecycle]);
   useEffect(() => {
     const receive = async (event: MessageEvent) => {
       if (!fromOwnFrame(event.source, frame.current?.contentWindow, event.origin, window.location.origin) || !isOfficeMsg(event.data)) return;
       const m = event.data;
-      if (isOfficeEditorReadyMessage(app, m)) { setReady(true); return; }
+      if (isOfficeEditorReadyMessage(app, m)) {
+        if (!lifecycleState.current.ready) { lifecycleState.current.ready = true; logLifecycle('editor-ready'); }
+        setReady(true); return;
+      }
       if (m.op === 'flux:open-panel') { setPanelOpen(true); return; }
       if (m.op === 'flux:tag-click') { if (activeProjectId) void openEditorTag(activeProjectId, m.payload); return; }
       const waiting = waits.current.get(m.op);
-      if (waiting) { waiting(m.payload); return; }
+      if (waiting) {
+        if (m.op === 'closeCheck') {
+          const state = m.payload;
+          if (state && typeof state.dirty === 'boolean') setDirtyState(state.dirty);
+          logLifecycle('close-check-result', { outcome: state ? 'ok' : 'error' });
+        } else if (m.op === 'closeSaveResult') logLifecycle('close-save-result', { outcome: m.payload === true ? 'ok' : 'error' });
+        waiting(m.payload); return;
+      }
       const channel = String(m.payload?.channel || '');
       const args = Array.isArray(m.payload?.args) ? m.payload.args : [];
       const reply = (result: unknown) => send({ reply: m.id, result });
@@ -145,7 +186,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (m.op === 'open') { const f = await io.current.load(); reply({ fileId: f.fileId, name: f.name, sha256: f.sha256, bytes: base64ToBytes(f.base64).slice().buffer as ArrayBuffer }); }
           else if (m.op === 'theme') reply(themeRef.current);
           else if (m.op === 'isBlank') reply(false);
-          else if (m.op === 'save') { await io.current.write(new Uint8Array(m.payload.bytes)); dirty.current = false; setError(''); reply({ ok: true }); }
+          else if (m.op === 'save') { await io.current.write(new Uint8Array(m.payload.bytes)); setDirtyState(false); setError(''); reply({ ok: true }); }
           else if (m.op === 'saveCopy') {
             const made = await io.current.copy(new Uint8Array(m.payload.bytes), m.payload.name);
             reply(made ? { ok: true, path: pathOf(file.fileId) } : { ok: false, canceled: true });
@@ -156,10 +197,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (channel === 'flux:tag-click') { if (activeProjectId) void openEditorTag(activeProjectId, args[0]); return; }
           if (channel === 'flux:command-result') { const result = args[0]; const done = commandWaits.current.get(result?.id); if (done) done(result); return; }
           if (channel === 'flux:field-inserted') { waits.current.get(channel)?.(args[0] || null); return; }
-          if (/dirty-changed$/.test(channel)) dirty.current = args[0] === true;
-          if (channel === 'workbook:pending-edits') dirty.current = Number(args[0]) > 0;
+          if (/dirty-changed$/.test(channel)) setDirtyState(args[0] === true);
+          if (channel === 'workbook:pending-edits') setDirtyState(Number(args[0]) > 0);
           if (/close-save-result$/.test(channel)) {
             await native({ action: 'send', session: await ensure(), channel, args });
+            logLifecycle('close-save-result', { outcome: args[0] === true ? 'ok' : 'error' });
+            if (args[0] === true) setDirtyState(false);
             waits.current.get('nativeClose')?.(args[0]); return;
           }
           if (!channel.startsWith('flux:')) await native({ action: 'send', session: await ensure(), channel, args });
@@ -201,7 +244,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [app, ensure, send, file.fileId, file.name, toast, activeProjectId]);
+  }, [app, ensure, send, file.fileId, file.name, toast, activeProjectId, logLifecycle, setDirtyState]);
   useEffect(() => {
     const bridge = (window as any).electron?.localOffice;
     const off = bridge?.onEvent((event: any) => { if (event.session === sessionId.current) send({ event: 'ipc', payload: { channel: event.channel, args: event.args } }); });
@@ -241,7 +284,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
-      <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} className="min-h-0 min-w-0 flex-1 border-0" />
+      <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
       {panelOpen && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
           event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);

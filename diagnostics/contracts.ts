@@ -67,7 +67,7 @@ export interface KindType {
   count: number;
   flag: boolean;
   phase: 'start' | 'end';
-  app: 'pdf' | 'sheets';
+  app: 'docs' | 'pdf' | 'sheets';
   action: 'open' | 'invoke' | 'send' | 'copy' | 'close';
   channel: string;
   outcome: Outcome;
@@ -132,7 +132,7 @@ export const EVENTS = {
   // Ожидание и выполнение разделены: время в обработчике — не то же самое,
   // что время, которое прождало окно.
   'ipc.call': { channel: 'name', ok: 'flag', error: 'name', code: 'code', waitMs: 'ms' },
-  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name', code: 'code' },
+  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name', code: 'code', action: 'name', rootRequest: 'flag', entryCount: 'count' },
 
   // ── Процесс ───────────────────────────────────────────────────────────────
   'process.start': { pid: 'count', node: 'name', platform: 'name', arch: 'name' },
@@ -181,6 +181,8 @@ export const EVENTS = {
   'office.import': { section: 'name', documentRef: 'id', format: 'name', sourceBytes: 'bytes' },
   'office.dispose': { section: 'name', documentRef: 'id' },
   'office.host': { app: 'app', action: 'action', operation: 'name', unknownChannel: 'channel', error: 'name', code: 'code' },
+  // В кадре только размеры, счётчики и готовность: ни адреса, ни содержимого, ни ID сессии.
+  'office.lifecycle': { app: 'app', stage: 'code', instance: 'count', sequence: 'count', frameLoad: 'count', width: 'count', height: 'count', ready: 'flag', dirtyKnown: 'flag', dirty: 'flag', timeout: 'flag' },
 
   // ── Свёрнутый повтор ──────────────────────────────────────────────────────
   // Опрос уведомлений идёт раз в минуту у каждого окна и в разборе не нужен
