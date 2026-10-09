@@ -95,14 +95,11 @@ public static class FluxShellFiles {
     [PreserveSig] int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
   }
   [ComImport, Guid("000214F4-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-  public interface IContextMenu2 : IContextMenu {
-    // Методы IContextMenu объявлены заново по той же причине, что в IShellItem2: иначе
-    // HandleMenuMsg уходил в слот QueryContextMenu, меню наполнялось повторно с мусорными
-    // аргументами, номера команд сдвигались («Удалить» отвечало open, «Свойства» — printto),
-    // а подменю («Отправить», 7-Zip) падали с AccessViolation
-    [PreserveSig] new int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
-    [PreserveSig] new int InvokeCommand(IntPtr pici);
-    [PreserveSig] new int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
+  public interface IContextMenu2 {
+    // COM использует плоскую таблицу: наследование с повторными объявлениями сдвигает слот HandleMenuMsg.
+    [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
+    [PreserveSig] int InvokeCommand(IntPtr pici);
+    [PreserveSig] int GetCommandString(UIntPtr idCmd, uint type, IntPtr reserved, IntPtr name, uint cchMax);
     [PreserveSig] int HandleMenuMsg(uint msg, IntPtr wParam, IntPtr lParam);
   }
   [ComImport, Guid("973810AE-9599-4B88-9E4D-6EE98C9552DA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -176,6 +173,7 @@ public static class FluxShellFiles {
     Dictionary<string,object> answer = new Dictionary<string,object> { {"ok", false}, {"code", code}, {"stage", Stage} };
     if (failure != null) {
       answer["type"] = failure.GetType().Name; answer["hresult"] = failure.HResult.ToString("X8");
+      if (failure.TargetSite != null) answer["method"] = failure.TargetSite.Name;
       // Текст нужен журналу диагностики и проверке на CI; пути диска из него вырезаются, человеку он не показывается.
       string detail = failure.Message ?? ""; detail = System.Text.RegularExpressions.Regex.Replace(detail, @"[A-Za-z]:\\[^\s'""]*|\\\\[^\s'""]+", "<путь>");
       answer["message"] = detail.Length > 300 ? detail.Substring(0, 300) : detail;
