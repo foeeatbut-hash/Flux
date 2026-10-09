@@ -14,6 +14,7 @@ import { buildEquipmentExchange, equipmentColumns } from '../../lib/equipmentExc
 import { classifyAll } from '../../../equipment/classes';
 import { dataService } from '../../services/dataService';
 import { useRealTimeSync } from '../SocketProvider';
+import { belongsToProject } from '../../lib/coalescedRefresh';
 
 export interface ProjectField {
   key: string;
@@ -309,7 +310,10 @@ export default function FluxPanel(props: FluxPanelProps) {
         || (detail.kind === 'element' && sourceTab === 'equipment')) refresh();
     };
     const onCatalogChanged = () => { if (sourceTab === 'catalog') refresh(); };
-    const onBuilderList = () => { if (['tags', 'equipment'].includes(sourceTab)) refresh(); };
+    const onBuilderList = (detail: any) => {
+      if (!belongsToProject(detail, selectedProjectId)) return;
+      if (['tags', 'equipment'].includes(sourceTab)) refresh();
+    };
     const onVdrChanged = (detail: any) => {
       if (sourceTab === 'docs' && (!detail?.projectId || detail.projectId === selectedProjectId)) refresh();
     };

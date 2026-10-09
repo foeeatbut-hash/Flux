@@ -17,6 +17,7 @@ import { dataService } from '../../services/dataService';
 import { useToastStore } from '../../store/toastStore';
 import { repairTagTree } from '../../lib/tagTree';
 import { parseTagMetadata } from './tagMeta';
+import { belongsToProject, createCoalescedRefresh } from '../../lib/coalescedRefresh';
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -51,12 +52,22 @@ export function useRegistryTags({
   // Последний прочитанный список — состояние в замыкании эффекта уже устарело,
   // а подсветке после захвата нужны свежие карточки прямо сейчас
   const loadedTagsRef = useRef<any[]>([]);
+  const loadTagsRef = useRef<() => Promise<void>>(async () => {});
+  const activeProjectIdRef = useRef(activeProject?.id || '');
+  activeProjectIdRef.current = activeProject?.id || '';
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-  const loadTags = async () => {
+  const loadTagsOnce = async () => {
     if (!activeProject) return;
+    const requestedProjectId = activeProject.id;
     setIsLoading(true);
     try {
-      const data = await dataService.getTags(activeProject.id);
+      const data = await dataService.getTags(requestedProjectId);
+      if (!mountedRef.current || activeProjectIdRef.current !== requestedProjectId) return;
       const tagsList = data.tags || [];
       const tagsWithParsedMetadata = tagsList.map((t: any) => ({
         ...t,
@@ -76,17 +87,18 @@ export function useRegistryTags({
         connections: t.parsedMetadata.connections || [],
         parentId: t.parsedMetadata.parentId,
       })));
-      for (const patch of patches) {
+      await Promise.all(patches.map(async (patch) => {
         const t = tagsWithParsedMetadata.find((x: any) => x.id === patch.id);
-        if (!t) continue;
+        if (!t) return;
         t.parsedMetadata = { ...t.parsedMetadata, connections: patch.connections, parentId: patch.parentId };
         t.metadata = JSON.stringify(t.parsedMetadata);
-        void fetch(`/api/tags/${patch.id}`, {
+        await fetch(`/api/tags/${patch.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           // Только связи: сервер сливает ключи, и снимок остального чужих правок не затрёт; null снимает родителя
           body: JSON.stringify({ metadata: { connections: patch.connections, parentId: patch.parentId ?? null } }),
         }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
-      }
+      }));
+      if (!mountedRef.current || activeProjectIdRef.current !== requestedProjectId) return;
       if (patches.length) {
         addToast(`Связи тегов выправлены: ${patches.length}`, 'info');
       }
@@ -103,19 +115,22 @@ export function useRegistryTags({
     } catch (err) {
       console.error('Failed to load tags:', err);
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current && activeProjectIdRef.current === requestedProjectId) setIsLoading(false);
     }
   };
 
-  const loadTagsRef = useRef(loadTags);
-  loadTagsRef.current = loadTags;
+  loadTagsRef.current = loadTagsOnce;
+  const loadTags = useRef(createCoalescedRefresh(() => loadTagsRef.current())).current;
 
   // Другие программы меняют теги через сервер; перечитываем список по общему
   // событию, чтобы новые теги и правки появлялись без повторного входа.
   useEffect(() => {
-    const onLegacyTagsChanged = () => { void loadTagsRef.current(); };
+    const onLegacyTagsChanged = () => { void loadTags(); };
     const onEntityChanged = (event: Event) => {
-      if ((event as CustomEvent).detail?.kind === 'tag') void loadTagsRef.current();
+      const detail = (event as CustomEvent).detail || {};
+      if (detail.kind !== 'tag') return;
+      if (!belongsToProject(detail, activeProject?.id || '')) return;
+      void loadTags();
     };
     window.addEventListener('flux:tags-changed', onLegacyTagsChanged);
     window.addEventListener('socket:entity:changed', onEntityChanged);
@@ -123,7 +138,7 @@ export function useRegistryTags({
       window.removeEventListener('flux:tags-changed', onLegacyTagsChanged);
       window.removeEventListener('socket:entity:changed', onEntityChanged);
     };
-  }, []);
+  }, [activeProject?.id, loadTags]);
 
   // ── Подсветка после захвата с экрана ────────────────────────────────────
   //

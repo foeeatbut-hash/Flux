@@ -38,7 +38,7 @@ import {
 } from '../lib/officeBridge';
 
 const EDITOR_URL = 'genoffice/docs/index.html';
-/** Сколько ждать первого слова моста, прежде чем сказать «редактор не собран» */
+/** Сколько ждать фактической готовности документа или книги, прежде чем показать ошибку загрузки */
 const EDITOR_READY_MS = 45_000;
 
 type Phase = 'loading' | 'ready' | 'missing';

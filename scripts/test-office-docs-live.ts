@@ -98,6 +98,23 @@ async function upload(name: string, bytes: Buffer): Promise<string> {
       if (!u.startsWith(BASE) && !u.startsWith('blob:') && !u.startsWith('data:')) outside.push(u);
     });
     page.on('pageerror', (e: any) => errs.push(String(e.message).slice(0, 160)));
+    await page.addInitScript(() => {
+      (window as any).__fluxEditorReady = false;
+      (window as any).__fluxPanelAck = null;
+      window.addEventListener('message', (event) => {
+        const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Flux Office — Документ"]');
+        if (event.source !== frame?.contentWindow || event.data?.flux !== 'office') return;
+        if (event.data.op === 'flux:editor-ready') (window as any).__fluxEditorReady = true;
+        if (event.data.op === 'flux:table-inserted') (window as any).__fluxPanelAck = event.data.payload;
+        if (event.data.op === 'hello' && !(window as any).__fluxPanelSent) {
+          (window as any).__fluxPanelSent = true;
+          window.setTimeout(() => { (window as any).__fluxPanelSentBeforeReady = !(window as any).__fluxEditorReady; }, 250);
+          window.setTimeout(() => frame?.contentWindow?.postMessage({
+            flux: 'office', event: 'insertTable', payload: { rows: [['Панель', 'Значение'], ['TAG-1', 'Насос']] },
+          }, location.origin), 250);
+        }
+      });
+    });
     await loginPage(page, BASE, LOGIN, process.env.THEME === 'dark');
 
     console.log('\n1. Открытие');
@@ -116,20 +133,13 @@ async function upload(name: string, bytes: Buffer): Promise<string> {
     ok('панели ИИ нет', !(await fr.locator('.ai-dock').isVisible().catch(() => false)));
     ok('интерфейс по-русски', /[А-Яа-яЁё]{4,}/.test(whole.replace(body, '')), whole.slice(0, 120));
 
-    console.log('\n1a. Ранняя команда панели после готовности редактора');
-    await page.evaluate(() => {
-      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Flux Office — Документ"]');
-      if (!frame?.contentWindow) return;
-      (window as any).__fluxPanelAck = null;
-      window.addEventListener('message', (event) => {
-        if (event.source === frame.contentWindow && event.data?.flux === 'office' && event.data?.op === 'flux:table-inserted') (window as any).__fluxPanelAck = event.data.payload;
-      });
-      frame.contentWindow.postMessage({ flux: 'office', event: 'insertTable', payload: { rows: [['Панель', 'Значение'], ['TAG-1', 'Насос']] } }, location.origin);
-    });
+    console.log('\n1a. Вставка таблицы через панель после готовности редактора');
     await page.waitForFunction(() => (window as any).__fluxPanelAck !== null, null, { timeout: 12000 }).catch(() => {});
     const tableAck = await page.evaluate(() => (window as any).__fluxPanelAck);
+    const wasEarly = await page.evaluate(() => (window as any).__fluxPanelSentBeforeReady === true);
     const afterTable = await text.innerText().catch(() => '');
-    ok('панель получила подтверждение вставки таблицы', tableAck?.ok === true, tableAck);
+    ok('команда отправлена до готовности редактора', wasEarly);
+    ok('команда панели получила подтверждение вставки', tableAck?.ok === true, tableAck);
     ok('таблица с данными появилась в документе', afterTable.includes('Панель') && afterTable.includes('TAG-1') && afterTable.includes('Насос'), afterTable.slice(0, 300));
 
     console.log('\n2. Правка и Ctrl+S');
