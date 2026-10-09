@@ -20,3 +20,33 @@ export function emitEntityChanged(kind: 'tag' | 'element', id: string, req: Requ
     });
   } catch (_) {}
 }
+
+/** Одна пакетная запись должна обновлять открытые списки одним запросом. */
+export function emitEntitiesChanged(kind: 'tag' | 'element', ids: Iterable<string>, req: Request): void {
+  const all = [...new Set(Array.from(ids, (id) => String(id || '')).filter(Boolean))];
+  const unique = all;
+  if (!unique.length) return;
+  if (unique.length === 1) { emitEntityChanged(kind, unique[0], req); return; }
+  try {
+    broadcast('entity:changed', {
+      kind, id: '', ids: unique,
+      by: (req as any).authUser?.name || '',
+      byId: (req as any).authUser?.id || '',
+      at: Date.now(),
+    });
+  } catch (_) {}
+}
+
+/**
+ * Ввоз меняет сразу много сущностей: один проектный маркер будит списки без
+ * тысячи одинаковых socket-пакетов, а префикс ID не совпадёт с карточкой.
+ */
+export function emitProjectDataChanged(kind: 'tag' | 'element', projectId: string, actor?: { userId?: string | null }): void {
+  if (!projectId) return;
+  try {
+    broadcast('entity:changed', {
+      kind, id: `project:${projectId}`, projectId,
+      byId: actor?.userId || '', by: '', at: Date.now(),
+    });
+  } catch (_) {}
+}

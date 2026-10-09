@@ -21,8 +21,12 @@ export function useCatalogLive(opts: { list?: boolean } = {}): void {
   useEffect(() => {
     if (!socket) return;
     const onCatalog = () => { void useCatalogStore.getState().load(); };
-    const onList = (p: { listId?: string }) => {
-      if (withList && p?.listId && p.listId === useBuilderStore.getState().listId) void useBuilderStore.getState().refresh();
+    const onList = (p: { listId?: string; projectId?: string }) => {
+      if (!withList) return;
+      const state = useBuilderStore.getState();
+      if (p?.projectId && p.projectId !== state.projectId) return;
+      void state.refreshLists();
+      if (p?.listId && p.listId === state.listId) void state.refresh();
     };
     socket.on('catalog:changed', onCatalog);
     socket.on('builder:list', onList);

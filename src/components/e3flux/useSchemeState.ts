@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { E3Rect } from '../../../e3/bridgeTypes';
 import { DEFAULT_FORMAT } from '../../../e3/sheetFormats';
 import { e3SolutionsService } from '../../services/e3SolutionsService';
+import { onE3Changed } from '../../lib/e3Changed';
 
 export interface Placed { rect: E3Rect; manual: boolean }
 export interface SchemeSaved { format: string; placed: Record<string, Placed>; /** Снятые флажки «брать в выгрузку» */ off: Record<string, true> }
@@ -34,6 +35,7 @@ export function useSchemeState(projectId: string, canSave: boolean) {
   const version = useRef(0);
   const dirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const saving = useRef(false);
 
   // Серверная раскладка главнее браузерной копии: она общая
   useEffect(() => {
@@ -47,23 +49,35 @@ export function useSchemeState(projectId: string, canSave: boolean) {
     return () => { alive = false; };
   }, [projectId]);
 
+  useEffect(() => onE3Changed((detail) => {
+    if (detail?.entity !== 'layout' || (detail.projectId && detail.projectId !== projectId)) return;
+    // Не заменяем локальное перетаскивание, пока оно ожидает debounce или запись.
+    if (dirty.current || timer.current || saving.current) return;
+    e3SolutionsService.layout(projectId).then((doc) => {
+      if (dirty.current || timer.current || saving.current) return;
+      version.current = doc.version;
+      if (doc.version > 0) setSaved({ format: doc.format || DEFAULT_FORMAT, placed: doc.placed, off: doc.off });
+    }).catch(() => undefined);
+  }), [projectId]);
+
   const flush = useCallback(async (value: SchemeSaved) => {
     try { localStorage.setItem(keyOf(projectId), JSON.stringify(value)); } catch (_) { /* без хранилища раскладка живёт до закрытия окна */ }
     if (!canSave) return;
+    saving.current = true;
     try {
       const doc = await e3SolutionsService.saveLayout(projectId, value, version.current);
       version.current = doc.version;
     } catch (_) {
       // Коллега успел записать раньше (или сервер недоступен): берём серверную, свою — в браузерной копии
       try { const doc = await e3SolutionsService.layout(projectId); version.current = doc.version; if (doc.version > 0) setSaved({ format: doc.format || DEFAULT_FORMAT, placed: doc.placed, off: doc.off }); } catch (__) { /* остаётся как есть */ }
-    }
+    } finally { saving.current = false; }
   }, [projectId, canSave]);
 
   useEffect(() => {
     if (!dirty.current || !saved) return;
     dirty.current = false;
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => { void flush(saved); }, DELAY);
+    timer.current = setTimeout(() => { timer.current = undefined; void flush(saved); }, DELAY);
   }, [saved, flush]);
 
   const update = useCallback((fn: (s: SchemeSaved) => SchemeSaved) => { dirty.current = true; setSaved((s) => fn(s || empty())); }, []);

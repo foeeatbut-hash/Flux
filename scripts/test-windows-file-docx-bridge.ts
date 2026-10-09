@@ -30,6 +30,7 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
           if (data.event === 'closeSave') window.parent.postMessage({ flux: 'office', op: 'closeSaveResult', payload: false }, location.origin);
         });
         window.parent.postMessage({ flux: 'office', op: 'hello' }, location.origin);
+        window.parent.postMessage({ flux: 'office', op: 'flux:editor-ready' }, location.origin);
       </script></body></html>`,
     }));
     await page.goto(`${BASE}/scripts/fixtures/windows-file-docx.html`);

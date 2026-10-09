@@ -19,6 +19,7 @@ let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>
   (c ? console.log('  ✓', n) : (f++, console.error('  ✗', n, d === undefined ? '' : JSON.stringify(d).slice(0, 400))));
 let token = '';
+let syncSocket: import('socket.io-client').Socket | null = null;
 const call = async (method: string, path: string, body?: unknown) => {
   const r = await fetch(`${BASE}${path}`, {
     method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -118,9 +119,24 @@ async function directParent(id: string): Promise<string | null | undefined> {
   ok('и названо, кто его держит', /Датчик ПТС/.test(again.data?.error || ''), again.data);
 
   console.log('\n5. «Создать и привязать»');
+  const { io } = await import('socket.io-client');
+  const entityChanges: any[] = [];
+  syncSocket = io(BASE, { auth: { token }, transports: ['websocket'], reconnection: false });
+  await new Promise<void>((resolve, reject) => {
+    syncSocket!.once('connect', () => resolve());
+    syncSocket!.once('connect_error', reject);
+    setTimeout(() => reject(new Error('Socket не подключился')), 5000);
+  });
+  syncSocket.on('entity:changed', (change: any) => entityChanges.push(change));
   const linked = await call('POST', `/api/equipment/component/${motor.id}/tag`, { identifier: 'PR-01-M-001' });
   ok('новый тег заведён и привязан', linked.status === 200 && linked.data?.created === true, linked.data);
   ok('родитель тега двигателя — тег вентилятора', linked.data?.parentTag === fanTag, [linked.data?.parentTag, fanTag]);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const linkedTags = (await call('GET', `/api/projects/${projectId}/tags`)).data?.tags || [];
+  const linkedTagId = linkedTags.find((t: any) => t.identifier === 'PR-01-M-001')?.id;
+  ok('создание и привязка рассылают событие тега', !!linkedTagId && entityChanges.some((e) =>
+    e.kind === 'tag' && (e.id === linkedTagId || (Array.isArray(e.ids) && e.ids.includes(linkedTagId)))), entityChanges);
+  ok('привязка рассылает событие позиции', entityChanges.some((e) => e.kind === 'element' && e.id === motor.id), entityChanges);
 
   console.log('\n6. Позиция в моноблоке: запись и видимое родство тега');
   const top = await call('POST', `/api/equipment/monoblock/${motor._mb.id}/position`, { name: 'Шкаф управления', role: 'ПРОЧЕЕ', tag: 'PR-01-CP-001' });
@@ -138,6 +154,7 @@ async function directParent(id: string): Promise<string | null | undefined> {
   ok('экранное дерево следует родству родительского тега; позиция без него остаётся корневой', !!cp && visibleParentMatches, [cp?.parentElementId, visibleParent?.id, top.data?.parentTag]);
 
   } finally {
+    syncSocket?.disconnect();
     const del = await call('DELETE', `/api/projects/${projectId}`);
     ok('проверочный проект удалён', del.status === 200, del.status);
   }

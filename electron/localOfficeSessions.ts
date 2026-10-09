@@ -44,7 +44,7 @@ export interface LocalOfficeSessionOptions {
   copyTimeoutMs?: number;
   onDiagnostic?(event: OfficeHostDiagnostic): void;
 }
-interface CopyState { path: string; name: string; made?: unknown; cancel: () => void }
+interface CopyState { path: string; name: string; made?: unknown; canceled?: boolean; saves: Set<Promise<unknown>>; cancel: () => void }
 interface Session {
   id: number; owner: number; app: LocalOfficeApp; host: LocalOfficeHost; nativeId: number;
   ref: WindowsFileRef; fileId: string; sha: string; dir: string; path: string; closed: boolean;
@@ -146,13 +146,17 @@ export class LocalOfficeSessions {
         if (args.length) fail('INVALID_REQUEST', 'Некорректная команда редактора.');
         return { sent: true };
       }
+      if (request.channel === 'pdf:save-as-result' && args[0] === false) s.copy?.cancel();
       await s.host.send(s.nativeId, request.channel, args); return { sent: true };
     }
     if (request.action === 'copy') return this.pdfCopy(s, request.name, auth);
     if (request.action !== 'invoke') fail('INVALID_ACTION', 'Команда локального редактора неизвестна.');
+    const targetCopy = s.app === 'pdf' && request.channel === 'pdf:save' &&
+      request.args?.[0] && typeof request.args[0] === 'object' &&
+      (request.args[0] as any).targetPath === s.copy?.path ? s.copy : undefined;
     const promise = s.queue.catch(() => undefined).then(() => this.invoke(s, request, auth));
-    s.queue = promise; s.inFlight.add(promise);
-    try { return await promise; } finally { s.inFlight.delete(promise); }
+    s.queue = promise; s.inFlight.add(promise); targetCopy?.saves.add(promise);
+    try { return await promise; } finally { s.inFlight.delete(promise); targetCopy?.saves.delete(promise); }
   }
   private args(value: unknown): unknown[] {
     if (value === undefined) return [];
@@ -253,7 +257,8 @@ export class LocalOfficeSessions {
     if (modifies) { await this.writePermission(auth); this.alive(s); }
     const payload = args[0] as any;
     if (s.app === 'pdf' && channel === 'pdf:save' && payload?.redactions !== undefined) fail('CHANNEL_DISABLED', 'Необратимое удаление текста требует отдельного защищённого экспорта PDF.');
-    const pdfTarget = s.app === 'pdf' && channel === 'pdf:save' && payload?.targetPath === s.copy?.path && !!s.copy;
+    const pdfCopy = s.app === 'pdf' && channel === 'pdf:save' && payload?.targetPath === s.copy?.path ? s.copy : undefined;
+    const pdfTarget = !!pdfCopy;
     if (s.copy && modifies && !pdfTarget) fail('COPY_IN_PROGRESS', 'Дождитесь завершения сохранения копии PDF.');
     if (s.app === 'sheets' && channel === 'workbook:write-recovery') {
       // SaveAs uses the same native engine, without replacing the original workbook session.
@@ -276,8 +281,9 @@ export class LocalOfficeSessions {
       this.alive(s);
       const successful = result && result.ok !== false && (!result.canceled || result.fluxCopySaved);
       if (successful && (copyTarget || pdfTarget)) {
-        const made = await this.publishCopy(s, copyTarget || s.copy!.path, copyName || s.copy!.name, auth);
-        if (pdfTarget) s.copy!.made = made;
+        if (pdfTarget && (s.copy !== pdfCopy || pdfCopy?.canceled)) return { ok: false, canceled: true };
+        const made = await this.publishCopy(s, copyTarget || pdfCopy!.path, copyName || pdfCopy!.name, auth);
+        if (pdfTarget) pdfCopy!.made = made;
         else return { canceled: true, fluxCopySaved: true, copy: made };
       } else if (successful && normalSave && !committed) { await this.persist(s, auth); committed = true; }
       return result;
@@ -295,21 +301,34 @@ export class LocalOfficeSessions {
     if (s.app !== 'pdf' || !s.host.requestCopy) fail('INVALID_APP', 'Сохранение копии PDF недоступно.');
     if (s.copy) fail('COPY_IN_PROGRESS', 'Копия PDF уже сохраняется.');
     const name = this.copyName(s, value);
-    let cancel!: () => void;
-    const canceled = new Promise<boolean>(resolve => { cancel = () => resolve(false); });
-    const copy: CopyState = { path: join(s.dir, `copy-${randomUUID()}.pdf`), name, cancel };
+    let resolveCanceled!: (value: boolean) => void;
+    const canceled = new Promise<boolean>(resolve => { resolveCanceled = resolve; });
+    let copy!: CopyState;
+    copy = {
+      path: join(s.dir, `copy-${randomUUID()}.pdf`), name, saves: new Set(),
+      cancel: () => { copy.canceled = true; resolveCanceled(false); },
+    };
     s.copy = copy;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    // This request waits for renderer invoke + send, so it MUST NOT hold the invoke queue.
+    // Запрос ждёт ответ renderer invoke + send, поэтому он не должен занимать очередь invoke.
     const operation = (async () => {
       try {
         const deadline = new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), this.options.copyTimeoutMs ?? 120_000); });
-        const ok = await Promise.race([s.host.requestCopy!(s.nativeId, copy.path), canceled, deadline]);
+        let ok = await Promise.race([s.host.requestCopy!(s.nativeId, copy.path), canceled, deadline]);
+        // Печать ответа native окна может обогнать запись, уже начатую редактором.
+        // Сохраняем capability до завершения этого запроса, чтобы не очищать
+        // временный путь и не разыменовывать уже удалённое состояние копии.
+        if (!ok && copy.saves.size) {
+          await Promise.allSettled([...copy.saves]);
+          // Явная отмена важнее даже уже начавшейся записи из редактора.
+          if (!copy.canceled) ok = !!copy.made;
+        }
+        if (!copy.canceled && copy.made) ok = true;
         if (!ok) {
-          // Resolve the native waiter's timer as well; cancellation never creates a file.
+          // Сбрасываем таймер ожидания native окна; отменённая копия не публикуется.
           try { await s.host.send(s.nativeId, 'pdf:save-as-result', [false]); } catch { /* closed host */ }
         }
-        return copy.made ? { copy: copy.made } : { canceled: true };
+        return copy.made && !copy.canceled ? { copy: copy.made } : { canceled: true };
       } finally {
         if (timeout) clearTimeout(timeout);
         if (s.copy === copy) s.copy = undefined;

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { withBump } from '../equipmentVersion.js';
+import { emitEntitiesChanged } from '../entityChanged.js';
 import { planUndo, batchTime, describePlan, type ElementNow, type HistoryRow } from '../equipmentUndo.js';
 
 /**
@@ -59,6 +60,12 @@ export function registerEquipmentUndoRoutes(app: Express): void {
       if (!plan.restore.length && !plan.remove.length && !life) {
         return res.json({ restored: 0, removed: 0, skipped: plan.skip.length, summary: describePlan(plan) });
       }
+
+      const changedElementIds = [
+        ...plan.restore, ...plan.remove, ...plan.reinstate, ...plan.reremove,
+        ...plan.unmove, ...plan.unrename,
+      ].map((item) => item.elementId).filter(Boolean);
+      const changedTagIds = plan.retag.flatMap((item) => item.tagIds || []);
 
       const undoBatch = `undo-${batchId}`;
       for (const it of plan.restore) {
@@ -150,6 +157,9 @@ export function registerEquipmentUndoRoutes(app: Express): void {
           }
         }
       }
+
+      emitEntitiesChanged('element', changedElementIds, req);
+      emitEntitiesChanged('tag', changedTagIds, req);
 
       res.json({
         restored: plan.restore.length,

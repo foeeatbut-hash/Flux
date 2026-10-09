@@ -17,6 +17,10 @@ export interface EffectiveParam extends SourceParam {
   revision?: string;
   sourceRef?: CatalogRef;
 }
+export interface SourceDiscrepancy {
+  group: string; key: string; xmlValue: string; catalogValue: string;
+  xmlUnit?: string; catalogUnit?: string; sourceRef?: CatalogRef;
+}
 
 export interface FamilyMatch { family: Family; values: ValveValues }
 
@@ -81,9 +85,14 @@ const canonical = (v: string) => aliases[label(v)] || label(v);
 const present = (v: unknown) => String(v ?? '').trim() !== '' && String(v).trim() !== '—';
 
 /** Источники накладываются на чтении; исходный XML не меняется. */
-export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: SourceMode, model?: Component | Family, options: { values?: ValveValues; revision?: string; sourceRef?: CatalogRef } = {}): { groups: SourceGroup[]; effective: EffectiveParam[]; warnings: string[] } {
+const comparable = (value: unknown) => {
+  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru');
+  return /^[+-]?\d+(?:[.,]\d+)?$/.test(normalized) ? String(Number(normalized.replace(',', '.'))) : normalized;
+};
+export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: SourceMode, model?: Component | Family, options: { values?: ValveValues; revision?: string; sourceRef?: CatalogRef } = {}): { groups: SourceGroup[]; effective: EffectiveParam[]; warnings: string[]; discrepancies: SourceDiscrepancy[] } {
   const groups = sourceGroups(raw).map(g => ({ ...g, params: g.params.map(p => ({ ...p, value: String(p.value ?? '') })) }));
   const warnings: string[] = [];
+  const discrepancies: SourceDiscrepancy[] = [];
   const origins = new Map<SourceParam, EffectiveParam['source']>();
   const sourceRefs = new Map<SourceParam, CatalogRef | undefined>();
   for (const g of groups) for (const p of g.params) origins.set(p, 'xml');
@@ -94,7 +103,12 @@ export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: S
       const matches = groups.flatMap(g => g.params.map(p => ({ g, p }))).filter(x => canonical(x.p.key) === canonical(spec.label.ru));
       const compatible = matches.filter(x => !x.p.unit || !spec.unit || label(x.p.unit) === label(spec.unit));
       if (compatible.length === 1) {
-        const { p } = compatible[0];
+        const { g, p } = compatible[0];
+        // В режиме XML + каталог сохраняем оба исходных значения: разницу
+        // нельзя терять в эффективном поле, где XML имеет приоритет.
+        if (mode === 'hybrid' && present(p.value) && present(spec.value) && comparable(p.value) !== comparable(spec.value)) {
+          discrepancies.push({ group: g.title, key: p.key, xmlValue: String(p.value), catalogValue: String(spec.value), ...(p.unit ? { xmlUnit: p.unit } : {}), ...(spec.unit ? { catalogUnit: spec.unit } : {}), ...(spec.sourceRef || options.sourceRef ? { sourceRef: spec.sourceRef || options.sourceRef } : {}) });
+        }
         if (mode === 'catalog' || !present(p.value)) { p.value = spec.value; p.unit = spec.unit || p.unit; origins.set(p, 'catalog'); sourceRefs.set(p, spec.sourceRef || options.sourceRef); }
       } else if (!matches.length) {
         if (!extra) { extra = { title: 'Характеристики из каталога', params: [] }; groups.push(extra); }
@@ -127,5 +141,5 @@ export function resolveCatalogSpecs(raw: unknown, overridesRaw: unknown, mode: S
     const sourceRef = sourceRefs.get(p) || options.sourceRef;
     effective.push({ ...p, group: g.title, source, ...(source === 'catalog' && options.revision ? { revision: options.revision } : {}), ...(source === 'catalog' && sourceRef ? { sourceRef } : {}) });
   }
-  return { groups, effective, warnings };
+  return { groups, effective, warnings, discrepancies };
 }

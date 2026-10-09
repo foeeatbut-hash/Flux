@@ -26,6 +26,8 @@ interface BuilderState {
   reload: () => Promise<void>;
   /** Перечитать открытую ведомость тихо: чужая правка, возврат фокуса */
   refresh: () => Promise<void>;
+  /** Перечитать только список ведомостей, не меняя открытую ведомость и её черновики */
+  refreshLists: () => Promise<void>;
   /** Добавить отменяемое действие, сделанное мимо apply (связь с тегами) */
   pushUndo: (batchId: string, title: string) => void;
   createList: (name: string, classId: string, templateId?: string | null) => Promise<void>;
@@ -102,6 +104,15 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       const sig = (xs: SelectionItemData[]) => xs.map((x) => `${x.id}@${x.updatedAt}`).join('|');
       if (sig(items) !== sig(get().items) || list.updatedAt !== get().list?.updatedAt) set({ list, items, lists: withCounts(get().lists, id, items) });
     } catch { /* сеть моргнула — перечитаем в следующий раз */ }
+  },
+
+  refreshLists: async () => {
+    const projectId = get().projectId;
+    if (!projectId) return;
+    try {
+      const { lists } = await catalogService.lists(projectId);
+      if (get().projectId === projectId) set({ lists });
+    } catch { /* следующая socket-событие/проверка попробует ещё раз */ }
   },
 
   pushUndo: (batchId, title) => set({ undoStack: [{ batchId, title }, ...get().undoStack].slice(0, 50) }),

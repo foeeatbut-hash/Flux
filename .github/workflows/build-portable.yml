@@ -71,6 +71,12 @@ jobs:
       - name: Редакторы Flux Office
         run: node tools/genoffice/build.mjs all
 
+      - name: Проверка локального Office и копирования
+        run: node --import tsx scripts/test-local-office-sessions.ts
+
+      - name: Проверка native PDF и XLSX
+        run: node --import tsx scripts/test-local-office-native.ts
+
       - name: Сборка фронтенда и сервера
         run: npm run build
 

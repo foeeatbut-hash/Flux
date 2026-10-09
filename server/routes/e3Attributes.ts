@@ -14,7 +14,7 @@
  * и проверяются как чужой ввод.
  */
 import type { Express, Request, Response } from 'express';
-import { getPrisma, sendError } from '../context.js';
+import { broadcast, getPrisma, sendError } from '../context.js';
 import { catalogAllowed, catalogFailure, catalogSetting, catalogSettingRaw, claimCatalogSetting } from '../catalogWorkspace.js';
 import { ensureCatalog } from './catalog.js';
 import { classParams } from '../e3ClassParams.js';
@@ -121,6 +121,9 @@ export function registerE3AttributeRoutes(app: Express, can: (user: any, feature
         return res.status(403).json({ error: right === 'import' ? 'Нет права загружать справочники каталога' : 'Нет права править справочник атрибутов' });
       }
       await fn(req, res, db, user);
+      if (right !== 'read' && req.method !== 'GET' && !String(req.path || '').endsWith('/plan') && res.statusCode < 400) {
+        broadcast('e3:changed', { entity: 'attributes' });
+      }
     } catch (e: any) { sendError(res, e, e?.status || (e?.code === 'P2002' ? 409 : 500)); }
   };
 

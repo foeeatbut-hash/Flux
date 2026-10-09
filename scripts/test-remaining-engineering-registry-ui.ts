@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -6,8 +7,8 @@ const fixture = path.join(root, 'scripts/fixtures/remaining-engineering/vite.con
 const chromePath = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const projectId = 'remaining-eng-project';
 const tags: any[] = [
-  { id: 'remaining-eng-tag-a', identifier: 'QA-UI-A', department: 'Проверка UI', brand: 'Марка A', fluid: '', wbs: '', equipmentId: null, metadata: '{}' },
-  { id: 'remaining-eng-tag-b', identifier: 'QA-UI-B', department: 'Проверка UI', brand: 'Марка B', fluid: '', wbs: '', equipmentId: null, metadata: '{}' },
+  { id: 'remaining-eng-tag-a', identifier: 'QA-UI-A', department: 'Проверка UI', brand: 'Марка A', fluid: '', wbs: '', projectId, equipmentId: null, createdAt: '2026-01-02T03:04:05.000Z', updatedAt: '2026-02-03T04:05:06.000Z', metadata: JSON.stringify({ mainName: 'Насос с защитой', descriptions: [{ text: 'Статус', status: 'critical', comment: 'Проверить' }], dynamicFields: { Взрыв: 'Да' }, customFlag: true }) },
+  { id: 'remaining-eng-tag-b', identifier: 'QA-UI-B', department: 'Проверка UI', brand: 'Марка B', fluid: '', wbs: '', projectId, equipmentId: null, metadata: JSON.stringify({ mainName: 'Насос обычный', descriptions: [], dynamicFields: { Взрыв: 'Нет' } }) },
 ];
 const deleted: string[] = [];
 const errors: string[] = [];
@@ -22,7 +23,7 @@ const ok = (name: string, condition: boolean, detail?: unknown) => {
   const { createServer } = await import('vite');
   const vite = await createServer({
     configFile: fixture,
-    server: { host: '127.0.0.1', port: 0, strictPort: false },
+    server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false },
     appType: 'spa',
   });
   let browser: any;
@@ -69,6 +70,59 @@ const ok = (name: string, condition: boolean, detail?: unknown) => {
     await page.getByText('QA-UI-A', { exact: true }).waitFor({ timeout: 10000 });
     ok('реальный экран реестра показывает фикстурные теги', await page.getByText('QA-UI-A', { exact: true }).count() === 1 && await page.getByText('QA-UI-B', { exact: true }).count() === 1);
 
+    const openExport = async () => {
+      await page.getByRole('tab', { name: /Экспорт и импорт/ }).click();
+      await page.getByText('Выгрузить →', { exact: true }).click();
+      return page.getByRole('dialog', { name: 'Экспорт · Теги' });
+    };
+    const columnChooser = async (dialog: any) => dialog.getByText(/ID тега · Код тега/).first();
+    const exportDialog = await openExport();
+    await page.screenshot({ path: '/tmp/registry-export-light.png' });
+    const chooser = await columnChooser(exportDialog);
+    await chooser.click();
+    const allChecks = exportDialog.locator('input[type="checkbox"]');
+    const allCount = await allChecks.count();
+    let allChecked = true;
+    for (let i = 0; i < allCount; i++) allChecked = allChecked && await allChecks.nth(i).isChecked();
+    ok('в светлой теме доступны наименование, актуальность и динамическое поле «Взрыв»',
+      await exportDialog.getByText('Наименование', { exact: true }).count() === 1
+      && await exportDialog.getByText('Актуальность', { exact: true }).count() === 1
+      && await exportDialog.getByText('Взрыв', { exact: true }).count() === 1);
+    ok('по умолчанию отмечены все поля, включая metadata', allCount >= 17 && allChecked, { allCount, allChecked });
+    await exportDialog.getByRole('button', { name: 'CSV', exact: true }).click();
+    const fullDownloadPromise = page.waitForEvent('download');
+    await exportDialog.getByRole('button', { name: 'Выгрузить', exact: true }).click();
+    const fullDownload = await fullDownloadPromise;
+    const fullCsv = await readFile(await fullDownload.path(), 'utf8');
+    ok('полная выгрузка содержит имя, статус, значение «Взрыв» и непрозрачные metadata',
+      fullCsv.includes('Насос с защитой') && fullCsv.includes('Критично') && fullCsv.includes('Взрыв') && fullCsv.includes('customFlag'));
+
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    const darkDialog = await openExport();
+    await page.screenshot({ path: '/tmp/registry-export-dark.png' });
+    ok('диалог открыт в тёмной теме без горизонтального переполнения',
+      await page.evaluate(() => document.documentElement.classList.contains('dark'))
+      && await darkDialog.evaluate((element: HTMLElement) => element.scrollWidth <= element.clientWidth));
+    const darkChooser = await columnChooser(darkDialog);
+    await darkChooser.click();
+    const darkChecks = darkDialog.locator('input[type="checkbox"]');
+    for (let i = 0; i < await darkChecks.count(); i++) {
+      const label = (await darkChecks.nth(i).locator('xpath=..').innerText()).trim();
+      if (!['Код тега', 'Наименование', 'Взрыв'].includes(label)) await darkChecks.nth(i).uncheck();
+    }
+    const selectedCount = await darkDialog.locator('input[type="checkbox"]:checked').count();
+    ok('в тёмной теме можно оставить только выбранные поля', selectedCount === 3 && await darkDialog.getByText('3 столбца').count() === 1, selectedCount);
+    await darkDialog.getByRole('button', { name: 'CSV', exact: true }).click();
+    const selectedDownloadPromise = page.waitForEvent('download');
+    await darkDialog.getByRole('button', { name: 'Выгрузить', exact: true }).click();
+    const selectedDownload = await selectedDownloadPromise;
+    const selectedCsv = await readFile(await selectedDownload.path(), 'utf8');
+    ok('выборочная выгрузка содержит только заголовки и значения отмеченных столбцов',
+      selectedCsv.includes('Код тега') && selectedCsv.includes('Наименование') && selectedCsv.includes('Взрыв')
+      && selectedCsv.includes('QA-UI-A') && selectedCsv.includes('Насос с защитой') && selectedCsv.includes('Да')
+      && !selectedCsv.includes('Марка') && !selectedCsv.includes('customFlag'));
+
+    await page.getByRole('tab', { name: /Дерево связей/ }).click();
     const deleteButtons = page.getByRole('button', { name: 'Удалить тег' });
     await page.getByText('QA-UI-A', { exact: true }).hover();
     await deleteButtons.first().click();

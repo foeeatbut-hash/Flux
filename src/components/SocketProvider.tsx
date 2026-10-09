@@ -225,6 +225,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       window.dispatchEvent(new CustomEvent('socket:entity:changed', { detail: data }));
     };
 
+    const handleE3Changed = (data: { entity?: string; projectId?: string }) => {
+      // Одно имя события объединяет локальную запись и серверную рассылку:
+      // открытые окна перечитывают данные тем же безопасным путём.
+      window.dispatchEvent(new CustomEvent('flux:e3-changed', { detail: data }));
+    };
+
+    const handleVdrChanged = (data: { projectId?: string; registerId?: string }) => {
+      window.dispatchEvent(new CustomEvent('socket:vdr:changed', { detail: data }));
+    };
+
     const handleEquipmentConflict = (data: {
       componentId: string;
       systemId: string;
@@ -280,6 +290,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
     activeSocket.on('app:update-published', handleUpdatePublished);
     activeSocket.on('entity:changed', handleEntityChanged);
+    activeSocket.on('e3:changed', handleE3Changed);
+    activeSocket.on('vdr:changed', handleVdrChanged);
     /**
      * Обращение изменилось.
      *
@@ -318,6 +330,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
       activeSocket.off('app:update-published', handleUpdatePublished);
       activeSocket.off('entity:changed', handleEntityChanged);
+      activeSocket.off('e3:changed', handleE3Changed);
+      activeSocket.off('vdr:changed', handleVdrChanged);
       activeSocket.off('notify:new', handleNotify);
       activeSocket.off('capabilities:changed', handleCapabilities);
       activeSocket.off('connect', handleCapabilities);

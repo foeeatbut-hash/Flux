@@ -17,6 +17,15 @@ export interface OfficeMsg {
 export const isOfficeMsg = (m: unknown): m is OfficeMsg =>
   !!m && typeof m === 'object' && (m as any).flux === 'office' && typeof (m as any).op === 'string';
 
+/** Мост hello — только транспорт; редактор готов после своего init-сигнала. */
+export function isOfficeEditorReadyMessage(app: 'docs' | 'sheets' | 'pdf', message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const m = message as any;
+  if (m.op === 'flux:editor-ready') return true;
+  if (app === 'sheets' && m.op === 'ipc-send' && m.payload?.channel === 'flux:editor-ready') return true;
+  return app === 'pdf' && m.op === 'hello';
+}
+
 /**
  * Файл Flux, спрятанный в «путь» редактора.
  *

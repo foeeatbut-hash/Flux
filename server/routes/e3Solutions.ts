@@ -21,7 +21,7 @@
  * разобранные записи и проверяются как чужой ввод.
  */
 import type { Express, Request, Response } from 'express';
-import { getPrisma, sendError } from '../context.js';
+import { broadcast, getPrisma, sendError } from '../context.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { catalogAllowed, catalogFailure, catalogSetting, catalogSettingRaw, claimCatalogSetting } from '../catalogWorkspace.js';
 import { ensureCatalog } from './catalog.js';
@@ -136,6 +136,17 @@ export function registerE3SolutionRoutes(
         return res.status(403).json({ error: right === 'import' ? 'Нет права загружать справочники каталога' : 'Нет права править каталог типовых решений' });
       }
       await fn(req, res, db, user);
+      const path = String(req.path || '');
+      if (req.method !== 'GET' && res.statusCode < 400 && !path.endsWith('/plan')) {
+        const profile = path.endsWith('/e3-profile');
+        const layout = path.endsWith('/e3-layout');
+        if (profile || layout || (right !== 'read' && !path.endsWith('/defaults/plan'))) {
+          broadcast('e3:changed', {
+            entity: profile ? 'profile' : layout ? 'layout' : 'solutions',
+            ...(req.params?.projectId ? { projectId: String(req.params.projectId) } : {}),
+          });
+        }
+      }
     } catch (e: any) { sendError(res, e, e?.status || (e?.code === 'P2002' ? 409 : 500)); }
   };
   const BASE = '/api/catalog/e3-solutions';

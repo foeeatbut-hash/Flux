@@ -39,13 +39,13 @@ import { guardClose } from '../../lib/closeGuard';
 import { useStore } from '../../store/store';
 import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
-import { isOfficeMsg, targetOrigin, fromOwnFrame } from '../../lib/officeBridge';
+import { isOfficeMsg, isOfficeEditorReadyMessage, targetOrigin, fromOwnFrame } from '../../lib/officeBridge';
 import { dueToSave } from '../collab/useDocCollab';
 
 export type HostedApp = 'pdf' | 'sheets';
 
 const TITLES: Record<HostedApp, string> = { pdf: 'Flux Office — PDF', sheets: 'Flux Office — Таблица' };
-const HELLO_MS = 15_000;
+const EDITOR_READY_MS = 45_000;
 
 /** На что окно отвечает само: язык, тема, ИИ (отключён) */
 export function localAnswer(channel: string, theme: string): { hit: boolean; value?: unknown; error?: string } {
@@ -175,7 +175,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       if (!fromOwnFrame(e.source, frame.current?.contentWindow, e.origin, window.location.origin)) return;
       const m = e.data;
       if (!isOfficeMsg(m)) return;
-      if (m.op === 'hello') { setPhase('ready'); return; }
+      if (isOfficeEditorReadyMessage(app, m)) { setPhase('ready'); return; }
       if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
       const channel = String(m.payload?.channel || '');
       const args = Array.isArray(m.payload?.args) ? m.payload.args : [];
@@ -291,7 +291,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       const title = frame.current?.contentDocument?.title;
       if (title !== undefined && title !== 'Flux Office') { setPhase('missing'); return; }
     } catch (_) { /* с диска документ фрейма закрыт — ждём приветствия */ }
-    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, HELLO_MS);
+    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, EDITOR_READY_MS);
   }, []);
 
   // Закрытие: несохранённое сохраняется тем же путём, что в Electron

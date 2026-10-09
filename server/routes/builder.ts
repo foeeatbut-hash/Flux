@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, onDatabaseSwapped, sendError, broadcast } from '../context.js';
+import { emitProjectDataChanged } from '../entityChanged.js';
 import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { planTagLinks, type TagLink } from '../equipmentTags.js';
 import { importPolicyOfProject } from './tagPolicy.js';
@@ -154,6 +155,7 @@ export function registerBuilderRoutes(app: Express): void {
           createdById: me(req)?.id || null, updatedById: me(req)?.id || null,
         },
       });
+      broadcast('builder:list', { listId: row.id, projectId });
       res.json({ list: toList(row, { items: 0, qty: 0 }) });
     } catch (err: any) { sendError(res, err); }
   });
@@ -183,7 +185,7 @@ export function registerBuilderRoutes(app: Express): void {
       if (b.templateId !== undefined) data.templateId = b.templateId || null;
       if (b.lang !== undefined) data.lang = ['ru', 'en', 'ru+en'].includes(b.lang) ? b.lang : 'ru';
       const row = await prisma.selectionList.update({ where: { id: list.id }, data });
-      broadcast('builder:list', { listId: list.id });
+      broadcast('builder:list', { listId: list.id, projectId: list.projectId });
       res.json({ list: toList(row) });
     } catch (err: any) { sendError(res, err); }
   });
@@ -193,7 +195,11 @@ export function registerBuilderRoutes(app: Express): void {
     try {
       const prisma = getPrisma();
       await ensure(prisma);
-      await prisma.selectionList.updateMany({ where: { id: String(req.params.id) }, data: { deletedAt: new Date() } });
+      const list = await prisma.selectionList.findUnique({ where: { id: String(req.params.id) } });
+      if (list && !list.deletedAt) {
+        const result = await prisma.selectionList.updateMany({ where: { id: list.id, deletedAt: null }, data: { deletedAt: new Date() } });
+        if (result.count) broadcast('builder:list', { listId: list.id, projectId: list.projectId });
+      }
       res.json({ ok: true });
     } catch (err: any) { sendError(res, err); }
   });
@@ -261,7 +267,7 @@ export function registerBuilderRoutes(app: Express): void {
         const names = stale.map((x) => x.tags[0] || x.id).slice(0, 5).join(', ');
         return res.status(409).json({ error: `Позиции уже изменил другой сотрудник: ${names}${stale.length > 5 ? '…' : ''}. Ведомость перечитана — повторите правку.`, stale: stale.map((x) => x.id) });
       }
-      broadcast('builder:list', { listId: list.id });
+      broadcast('builder:list', { listId: list.id, projectId: list.projectId });
       res.json({ batchId, items: saved.map(toItem), removed: removeIds });
     } catch (err: any) { sendError(res, err); }
   });
@@ -320,7 +326,7 @@ export function registerBuilderRoutes(app: Express): void {
         await tx.selectionBatch.update({ where: { id: batch.id }, data: { undone: true } });
       }, TX_LONG);
       await recordChangeSets(prisma, tagChangeContext(req, batch.projectId || '', TAG_SOURCE.builder), gone);
-      broadcast('builder:list', { listId: batch.listId });
+      broadcast('builder:list', { listId: batch.listId, projectId: batch.projectId || '' });
       res.json({ ok: true, listId: batch.listId, removedTags, keptTags });
     } catch (err: any) { sendError(res, err); }
   });
@@ -380,7 +386,7 @@ export function registerBuilderRoutes(app: Express): void {
         throw e;
       }
       await prisma.selectionItem.updateMany({ where: { listId: list.id, deletedAt: null }, data: { status: 'issued' } });
-      broadcast('builder:list', { listId: list.id });
+      broadcast('builder:list', { listId: list.id, projectId: list.projectId });
       res.json({ issue: { id: row.id, rev: row.rev } });
     } catch (err: any) { sendError(res, err); }
   });
@@ -474,7 +480,8 @@ export function registerBuilderRoutes(app: Express): void {
         }
       }, TX_LONG);
       await recordChangeSets(prisma, tagChangeContext(req, list.projectId, TAG_SOURCE.builder), born);
-      broadcast('builder:list', { listId: list.id });
+      if (createdTags.length || linked) emitProjectDataChanged('tag', list.projectId, me(req));
+      broadcast('builder:list', { listId: list.id, projectId: list.projectId });
       res.json({ created: createdTags.length, linked, refused, batchId: batchId || null });
     } catch (err: any) { sendError(res, err); }
   });

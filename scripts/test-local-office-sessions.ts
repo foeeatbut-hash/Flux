@@ -9,6 +9,7 @@ import { LocalOfficeSessions, type LocalOfficeHost, type LocalOfficeEvent } from
 class TestHost implements LocalOfficeHost {
   paths = new Map<number, string>();
   sent: { id: number; channel: string; args: unknown[] }[] = [];
+  saveDelayMs = 0;
   private next = 1;
   private sinks = new Set<(id: number, channel: string, args: unknown[]) => void>();
   private copies = new Map<number, (ok: boolean) => void>();
@@ -27,6 +28,7 @@ class TestHost implements LocalOfficeHost {
     if (channel === 'workbook:select') return { sessionId: 'synthetic-native-session', path: this.paths.get(id) };
     if (channel === 'pdf:save' || channel === 'workbook:save') {
       const path = saveTarget || args[0]?.targetPath || this.paths.get(id)!;
+      if (this.saveDelayMs) await new Promise(resolve => setTimeout(resolve, this.saveDelayMs));
       await writeFile(path, args[0]?.bytes || 'native edited bytes');
       this.afterSave?.();
       await commit?.();
@@ -98,12 +100,30 @@ try {
   const copy = manager.handle(10,{action:'copy',session:p.session,name:'copy.pdf'},auth);
   while (!events.some(e=>e.event.channel === 'pdf:save-as-request')) await new Promise(r=>setTimeout(r,1));
   const copyPath = events.find(e=>e.event.channel === 'pdf:save-as-request')!.event.args[0];
+  // Зафиксированная гонка: ответ native окна задерживается, пока идёт запись копии.
+  pdf.saveDelayMs = 100;
   await manager.handle(10,{action:'invoke',session:p.session,channel:'pdf:save',args:[{path:originalPath,targetPath:copyPath,bytes:'our pending edit'}]},auth);
+  pdf.saveDelayMs = 0;
   await manager.handle(10,{action:'send',session:p.session,channel:'pdf:save-as-result',args:[true]},auth);
   check('PDF reentrant copy completes without deadlock',!!(await copy).copy);
   check('SaveAs after conflict creates sibling and preserves original',await readFile(join(desktop,'copy.pdf'),'utf8')==='our pending edit' && await readFile(join(desktop,'source.pdf'),'utf8')==='external edit');
   const canceled = await manager.handle(10,{action:'copy',session:p.session,name:'canceled.pdf'},auth);
   check('Timed-out/canceled PDF copy does not create a file',canceled.canceled && !(await readdir(desktop)).includes('canceled.pdf'));
+  await writeFile(join(desktop, 'cancel-race.pdf'), 'original pdf');
+  const cancelSession = await manager.handle(60,{action:'open',app:'pdf',ref:ref('cancel-race.pdf')},auth);
+  const cancelCopy = manager.handle(60,{action:'copy',session:cancelSession.session,name:'cancel-race-copy.pdf'},auth);
+  while (!events.some(e=>e.owner === 60 && e.event.channel === 'pdf:save-as-request')) await new Promise(r=>setTimeout(r,1));
+  const cancelTarget = events.find(e=>e.owner === 60 && e.event.channel === 'pdf:save-as-request')!.event.args[0];
+  const cancelOriginal = await manager.handle(60,{action:'invoke',session:cancelSession.session,channel:'pdf:consume-pending'},auth);
+  pdf.saveDelayMs = 100;
+  const pendingSave = manager.handle(60,{action:'invoke',session:cancelSession.session,channel:'pdf:save',args:[{path:cancelOriginal,targetPath:cancelTarget,bytes:'must not publish'}]},auth);
+  await new Promise(r=>setTimeout(r,10));
+  await manager.handle(60,{action:'send',session:cancelSession.session,channel:'pdf:save-as-result',args:[false]},auth);
+  const saveResult = await pendingSave;
+  const canceledDuringSave = await cancelCopy;
+  pdf.saveDelayMs = 0;
+  check('Explicit PDF copy cancellation wins over an in-flight save',canceledDuringSave.canceled && saveResult.canceled && !(await readdir(desktop)).includes('cancel-race-copy.pdf'));
+  await manager.closeOwner(60);
   const sheetResult = await manager.handle(20,{action:'invoke',session:x.session,channel:'workbook:save',copyName:'copy.xlsx',args:[{mode:'save-as',bytes:'copied xlsx'}]},auth);
   check('Sheet SaveAs preserves original and session',sheetResult.fluxCopySaved && await readFile(join(desktop,'source.xlsx'),'utf8')==='original xlsx' && sheets.paths.size===1);
   const recovery = await manager.handle(20,{action:'invoke',session:x.session,channel:'workbook:write-recovery',args:[{bytes:'recovery xlsx'}]},auth);

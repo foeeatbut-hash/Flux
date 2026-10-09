@@ -18,6 +18,7 @@ import E3AttributesByClass from './E3AttributesByClass';
 import E3AttributeDialog from './E3AttributeDialog';
 import E3ImportDialog, { readAttributeFile } from './E3AttributesImport';
 import { CONFLICT_TITLES, classesText, sourceText } from './e3AttributeText';
+import { onE3Changed } from '../../lib/e3Changed';
 
 const attrs = (n: number) => count(n, 'атрибут', 'атрибута', 'атрибутов');
 // Серверный текст 409 кончается словом «Обновите»: окно само перечитывает справочник, так что говорит, что уже сделано
@@ -41,6 +42,8 @@ export default function E3AttributesPanel({ rights, jump }: { rights: { edit: bo
   const [editing, setEditing] = useState('');
   const [mode, setMode] = useState<'list' | 'byClass'>('list');
   const [imp, setImp] = useState<{ items: E3Attribute[]; issues: string[]; plan: E3Plan } | null>(null);
+  const formOpen = useRef(false);
+  formOpen.current = !!editing || !!imp;
   const fileRef = useRef<HTMLInputElement>(null);
   // Переход ведёт в «По типам»: вид переключаем здесь, а тип и атрибут открывает сам вид
   const byClassJump = jump?.jump?.section === 'byClass' ? jump.jump : null;
@@ -50,6 +53,12 @@ export default function E3AttributesPanel({ rights, jump }: { rights: { edit: bo
     try { setBook(await svc.load()); setError(''); } catch (e: any) { setError(e.message); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => onE3Changed((detail) => {
+    if (detail?.entity && detail.entity !== 'attributes') return;
+    // Версия книги стоит в ключе диалога; перечитывание посреди ввода
+    // перемонтировало бы его и выбросило несохранённые настройки.
+    if (!formOpen.current) void reload();
+  }), [reload]);
 
   const items = book?.items || [];
   const classes = useMemo(() => [...new Set(items.map((a) => a.attrClass).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [items]);
@@ -196,8 +205,8 @@ export default function E3AttributesPanel({ rights, jump }: { rights: { edit: bo
           </div>
         </>}
       {editingAttr && <E3AttributeDialog key={`${editingAttr.name}:${book?.version}`} attr={editingAttr} canEdit={rights.edit} busy={busy} error={dialogError}
-        onSave={(p) => void save(p)} onClose={() => { setEditing(''); setDialogError(''); }} />}
-      {imp && <E3ImportDialog plan={imp.plan} parseIssues={imp.issues} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); }} />}
+        onSave={(p) => void save(p)} onClose={() => { setEditing(''); setDialogError(''); void reload(); }} />}
+      {imp && <E3ImportDialog plan={imp.plan} parseIssues={imp.issues} busy={busy} error={dialogError} onApply={(m) => void apply(m)} onClose={() => { setImp(null); setDialogError(''); void reload(); }} />}
     </div>
   );
 }

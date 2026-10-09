@@ -34,12 +34,12 @@ import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
-  isOfficeMsg, pathOf, fileIdOf, targetOrigin, fromOwnFrame, sha256Hex, copyName,
+  isOfficeMsg, isOfficeEditorReadyMessage, pathOf, fileIdOf, targetOrigin, fromOwnFrame, sha256Hex, copyName,
 } from '../lib/officeBridge';
 
 const EDITOR_URL = 'genoffice/docs/index.html';
-/** Сколько ждать первого слова моста, прежде чем сказать «редактор не собран» */
-const HELLO_MS = 15_000;
+/** Сколько ждать фактической готовности документа или книги, прежде чем показать ошибку загрузки */
+const EDITOR_READY_MS = 45_000;
 
 type Phase = 'loading' | 'ready' | 'missing';
 /** stale — файл сохранил другой; locked — правку держит другой */
@@ -234,7 +234,7 @@ export default function OfficeHost() {
       if (!fromOwnFrame(e.source, frame.current?.contentWindow, e.origin, window.location.origin)) return;
       const m = e.data;
       if (!isOfficeMsg(m)) return;
-      if (m.op === 'hello') { setPhase('ready'); return; }
+      if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
       if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
@@ -329,7 +329,7 @@ export default function OfficeHost() {
       const title = frame.current?.contentDocument?.title;
       if (title !== undefined && title !== 'Flux Office') { setPhase('missing'); return; }
     } catch (_) { /* с диска документ фрейма закрыт — ждём моста */ }
-    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, HELLO_MS);
+    setTimeout(() => { if (phaseRef.current === 'loading') setPhase('missing'); }, EDITOR_READY_MS);
   }, []);
 
   // Закрытие окна: несохранённое сохраняется, а не теряется
@@ -368,9 +368,12 @@ export default function OfficeHost() {
   // свои правки, дать серверу превратить метки в поля и подставить значения,
   // открыть файл заново (server/routes/projectData.ts)
   const [dataOpen, setDataOpen] = useState(false);
-  const insertField = (f: { key: string; title: string }) => {
-    send({ event: 'insertText', payload: `{{${f.key}}}` });
-    addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+  const insertField = async (f: { key: string; title: string }) => {
+    const result = await askFrame<{ ok: boolean; error?: string }>(
+      'insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`,
+    );
+    if (result?.ok) addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+    else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
   };
   // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
   const saveBeforeServer = async (): Promise<boolean> => {

@@ -5,7 +5,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import * as XLSX from 'xlsx';
 import { enrichEquipment } from '../equipmentCatalog.js';
 import { getPrisma } from '../context.js';
-import { emitEntityChanged } from '../entityChanged.js';
+import { emitEntitiesChanged, emitEntityChanged, emitProjectDataChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
@@ -104,6 +104,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // Автор создания — из сессии, для любого пути создания (в metadata.createdBy
       // он был только у быстрой строки, и то именем, а не идентификатором)
       await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), tag);
+      emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -148,6 +149,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const existing = await prisma.tag.findMany({ where: { projectId } });
       const byCode = new Map<string, any>();
       const codeToId = new Map<string, string>();
+      const changedTagIds = new Set<string>();
       for (const t of existing) { const k = (t.identifier || '').trim(); if (k) { if (!byCode.has(k)) byCode.set(k, t); codeToId.set(k, t.id); } }
       let created = 0, updated = 0; const dupes: string[] = [];
       const parentLinks: { childCode: string; parentCode: string }[] = [];
@@ -176,6 +178,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           if (!Array.isArray(merged.connections)) merged.connections = [];
           const after = await prisma.tag.update({ where: { id: ex.id }, data: { ...baseData, metadata: JSON.stringify(merged) } });
           history.push(updateSet(ex, after));
+          changedTagIds.add(after.id);
           // Следующая строка с тем же кодом сравнивается уже с записанным, а не с исходным
           byCode.set(code, after);
           updated++; codeToId.set(code, ex.id);
@@ -186,6 +189,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           if (r.actuality) meta.actuality = String(r.actuality);
           const t = await prisma.tag.create({ data: { projectId, ...baseData, metadata: JSON.stringify(meta) } });
           history.push(createdSet(t));
+          changedTagIds.add(t.id);
           created++; codeToId.set(code, t.id); col++;
         }
         if (r.parent) parentLinks.push({ childCode: code, parentCode: String(r.parent).trim() });
@@ -201,8 +205,10 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         pm.connections = [...new Set([...(Array.isArray(pm.connections) ? pm.connections : []), ...childIds])];
         const after = await prisma.tag.update({ where: { id: parentId }, data: { metadata: JSON.stringify(pm) } });
         if (p) history.push(updateSet(p, after));
+        changedTagIds.add(parentId);
       }
       await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tagImport), history);
+      emitEntitiesChanged('tag', changedTagIds, req);
       res.json({ created, updated, duplicates: [...new Set(dupes)] });
     } catch (err: any) {
       await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.tagImport), history);
@@ -257,6 +263,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const duplicated: { id: string; identifier: string }[] = [];
       const linked: { id: string; identifier: string }[] = [];
       const skipped: string[] = [];
+      const changedTagIds = new Set<string>();
 
       for (const r of (rows || [])) {
         const code = String(r.identifier || '').trim();
@@ -289,6 +296,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           if (!Array.isArray(meta.connections)) meta.connections = [];
           const after = await prisma.tag.update({ where: { id: target.id }, data: { ...data, metadata: JSON.stringify(meta) } });
           history.push(updateSet(target, after));
+          changedTagIds.add(after.id);
           byId.set(target.id, after);
           filled.push({ id: target.id, identifier: target.identifier });
           continue;
@@ -312,10 +320,12 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           },
         });
         history.push(createdSet(t));
+        changedTagIds.add(t.id);
         (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
       }
 
       await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.capture), history);
+      emitEntitiesChanged('tag', changedTagIds, req);
       res.json({ created, filled, duplicated, linked, skipped });
     } catch (err: any) {
       await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.capture), history);
@@ -338,6 +348,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
                  fluid: string | null; wbs: string | null; metadata: string | null }[];
     };
     const history: Array<TagChangeSet | null> = [];
+    const changedTagIds = new Set<string>();
     try {
       let deleted = 0, restored = 0;
       // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
@@ -349,7 +360,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         await bumpElementsOfTags(prisma, going.map((g: any) => g.id));
         const r = await prisma.tag.deleteMany({ where: { id: { in: ids }, projectId } });
         deleted = r.count;
-        for (const g of going) history.push(deletedSet(g));
+        for (const g of going) { history.push(deletedSet(g)); changedTagIds.add(g.id); }
       }
       for (const t of (restore || []).slice(0, 2000)) {
         const own = await prisma.tag.findFirst({ where: { id: String(t.id), projectId } });
@@ -365,9 +376,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           },
         });
         history.push(updateSet(own, after));
+        changedTagIds.add(after.id);
         restored++;
       }
       await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.restore), history);
+      emitEntitiesChanged('tag', changedTagIds, req);
       res.json({ deleted, restored });
     } catch (err: any) {
       await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.restore), history);
@@ -399,6 +412,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // Раскладка карточек сюда тоже приходит, но координаты правкой не считаются
       await recordChangeSets(prisma, tagChangeContext(req, '', procurement ? TAG_SOURCE.procurement : TAG_SOURCE.tags),
         results.filter(r => !r.unchanged).map(r => updateSet(r.before, r.tag)));
+      emitEntitiesChanged('tag', results.filter(r => !r.unchanged).map(r => r.tag.id), req);
       // Новые версии — чтобы экран не держал устаревшую после собственной записи
       res.json({ success: true, updated: results.length, missing, versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
     } catch (err: any) {
@@ -463,6 +477,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       }
 
       const importedData = await importParsedDataToDB(projectId, result, prisma, fileName);
+      emitProjectDataChanged('element', projectId, (req as any).authUser);
       const conflictsCount = await prisma.componentElement.count({
         where: {
           monoblock: {
@@ -600,6 +615,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         }),
         include: { tags: true }
       });
+      emitEntityChanged('element', component.id, req);
+      emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -620,6 +637,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         }),
         include: { tags: true }
       });
+      emitEntityChanged('element', component.id, req);
+      emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -636,6 +655,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       await prisma.tag.delete({ where: { id: req.params.id } });
       // История удалённого тега остаётся: таблица с тегом не связана
       await recordTagDeleted(prisma, tagChangeContext(req, gone.projectId, TAG_SOURCE.tags), gone);
+      emitEntityChanged('tag', gone.id, req);
       res.json({ success: true });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
@@ -726,6 +746,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       include: { equipment: true } // we just keep the include to match existing response
     });
     await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), newTag);
+    emitEntityChanged('tag', newTag.id, req);
 
     res.json({ tag: newTag });
   });

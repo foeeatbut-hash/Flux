@@ -23,6 +23,27 @@ const sameOrigin = (o) => (disk ? o === 'null' || o === 'file://' : o === origin
 let seq = 0;
 const waiting = new Map();
 const listeners = new Map();
+const pendingFluxCommands = new Map();
+const PENDING_FLUX_COMMAND_MS = 7_000;
+const MAX_PENDING_FLUX_COMMANDS = 16;
+
+function dispatch(channel, args) {
+  const set = listeners.get(channel);
+  if (set && set.size) {
+    for (const fn of Array.from(set)) { try { fn({ sender: null }, ...(args || [])); } catch (_) {} }
+    return;
+  }
+  // Панель открывается сразу после hello, а Таблица подписывается на команду
+  // лишь после появления книги. Короткое ожидание сохраняет раннюю вставку,
+  // но не меняет книгу после того, как окно уже показало отказ по таймауту.
+  if (channel !== 'flux:insert-table' && channel !== 'flux:refresh-export') return;
+  const now = Date.now();
+  const expiresAt = now + PENDING_FLUX_COMMAND_MS;
+  const queue = (pendingFluxCommands.get(channel) || []).filter((item) => item.expiresAt > now);
+  if (queue.length >= MAX_PENDING_FLUX_COMMANDS) queue.shift();
+  queue.push({ args: args || [], expiresAt });
+  pendingFluxCommands.set(channel, queue);
+}
 
 // GenOffice's AI/provider APIs are outside Flux Office's feature set. Block
 // them at the renderer boundary so a stale or keyboard-triggered control can
@@ -43,8 +64,7 @@ if (parentWin && parentWin !== window) {
       return;
     }
     if (m.event === 'ipc' && m.payload) {
-      const set = listeners.get(m.payload.channel);
-      if (set) for (const fn of Array.from(set)) { try { fn({ sender: null }, ...(m.payload.args || [])); } catch (_) {} }
+      dispatch(m.payload.channel, m.payload.args);
     }
   });
 }
@@ -75,7 +95,17 @@ export const ipcRenderer = {
   on(channel, fn) {
     if (isAiChannel(channel)) return ipcRenderer;
     if (!listeners.has(channel)) listeners.set(channel, new Set());
-    listeners.get(channel).add(fn);
+    const set = listeners.get(channel);
+    set.add(fn);
+    const queued = pendingFluxCommands.get(channel);
+    if (queued?.length) {
+      pendingFluxCommands.delete(channel);
+      for (const item of queued) {
+        if (item.expiresAt > Date.now()) {
+          try { fn({ sender: null }, ...item.args); } catch (_) {}
+        }
+      }
+    }
     return ipcRenderer;
   },
   once(channel, fn) {

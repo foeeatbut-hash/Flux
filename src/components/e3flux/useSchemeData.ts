@@ -4,7 +4,7 @@
  * состояния узла чистые, здесь только чтение и сборка. Связи с E3 пока нет
  * (моста нет), поэтому состояние узла считается с пустой связью.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { attributesForClass, type E3AttributeBook } from '../../../e3/attributes';
 import { attrKey, type Binding, type ExportAttr } from '../../../e3/exportTypes';
 import { nodeState, type E3NodeStateId } from '../../../e3/nodeState';
@@ -17,6 +17,7 @@ import { buildExportSources, type ExportSystem } from '../../lib/exportWorkspace
 import type { ExchangeComponent } from '../../lib/equipmentExchange';
 import { e3AttrValue } from '../../lib/e3Table';
 import { toPositions } from '../../lib/e3Positions';
+import { onE3Changed } from '../../lib/e3Changed';
 
 export interface SchemeNode {
   /** Ключ узла: id позиции и номер среди её тегов — у позиции с четырьмя тегами четыре узла */
@@ -62,6 +63,7 @@ export function useSchemeData(projectId: string, edited: ReadonlySet<string> = N
   const [bindings, setBindings] = useState<Binding[]>([]);
   const [exports, setExports] = useState<E3ExportInfo[]>([]);
   const [tick, setTick] = useState(0);
+  const inputRequest = useRef(0);
 
   // Связь с проектом E3 и то, что туда отправлено. Нет моделей на сервере или нет доступа — связей просто нет
   useEffect(() => {
@@ -74,16 +76,35 @@ export function useSchemeData(projectId: string, edited: ReadonlySet<string> = N
     return () => { alive = false; };
   }, [projectId, tick]);
 
-  useEffect(() => {
-    let alive = true;
-    setSystems(null); setError('');
+  const reloadInputs = useCallback(() => {
+    const request = ++inputRequest.current;
     Promise.all([
       fetch(`/api/projects/${encodeURIComponent(projectId)}/systems?removed=1`).then((r) => { if (!r.ok) throw new Error('Оборудование недоступно. Проверьте доступ к проекту'); return r.json(); }),
       e3SolutionsService.load(), e3SolutionsService.profile(projectId), e3AttributesService.load(),
-    ]).then(([data, b, p, a]) => { if (alive) { setSystems(data.systems || []); setBook(b); setProfile(p.answers); setAttrs(a); } })
-      .catch((e: any) => { if (alive) setError(e.message || 'Не удалось загрузить данные'); });
-    return () => { alive = false; };
+    ]).then(([data, b, p, a]) => { if (request === inputRequest.current) { setSystems(data.systems || []); setBook(b); setProfile(p.answers); setAttrs(a); setError(''); } })
+      .catch((e: any) => { if (request === inputRequest.current) setError(e.message || 'Не удалось загрузить данные'); });
   }, [projectId]);
+
+  useEffect(() => {
+    setSystems(null); setError('');
+    reloadInputs();
+    return () => { inputRequest.current++; };
+  }, [reloadInputs]);
+
+  useEffect(() => onE3Changed((detail) => {
+    if (detail?.projectId && detail.projectId !== projectId) return;
+    if (!detail?.entity || ['attributes', 'solutions', 'profile'].includes(detail.entity)) reloadInputs();
+  }), [projectId, reloadInputs]);
+
+  useEffect(() => {
+    const onEntity = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== projectId) return;
+      if (detail?.kind === 'tag' || detail?.kind === 'element') reloadInputs();
+    };
+    window.addEventListener('socket:entity:changed', onEntity);
+    return () => window.removeEventListener('socket:entity:changed', onEntity);
+  }, [projectId, reloadInputs]);
 
   const model = useMemo(() => {
     if (!systems || !book) return { units: [] as SchemeUnit[], skipped: 0 };

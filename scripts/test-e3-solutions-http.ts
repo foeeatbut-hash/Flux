@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import { registerE3SolutionRoutes } from '../server/routes/e3Solutions';
-import { setPrisma } from '../server/context';
+import { setBroadcaster, setPrisma } from '../server/context';
 import { parseSolutionSheet, parseIoSheet, DEFAULT_FEATURES, DEFAULT_IO_RULES } from '../e3/solutions';
 import { CLASSIFIER_HEADERS } from '../e3/solutionWorkbook';
 
@@ -75,13 +75,15 @@ const IO_FILE = parseIoSheet(IO_SHEET).rows;
 
 async function main() {
   const mock = mockPrisma(); setPrisma(mock.prisma);
+  const events: Array<{ event: string; payload: any }> = [];
+  setBroadcaster((event, payload) => { events.push({ event, payload }); });
   const app = express();
   registerE3SolutionRoutes(app as any, can, { ensure: async () => undefined, canUseProject: async (u, id) => (MEMBERS[id] || []).includes(u.id) });
   const call = async (method: string, path: string, body?: unknown, who?: string, params: Record<string, string> = {}) => {
     const layer = (app as any)._router.stack.find((l: any) => l.route?.path === path && l.route.methods[method.toLowerCase()]);
     assert.ok(layer, `маршрут зарегистрирован: ${method} ${path}`);
     const res: any = { statusCode: 200, status(c: number) { this.statusCode = c; return this; }, json(v: any) { this.body = v; return this; } };
-    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params, query: {} }, res);
+    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params, query: {}, method, path }, res);
     return { status: res.statusCode, body: res.body };
   };
   const BASE = '/api/catalog/e3-solutions';
@@ -110,6 +112,7 @@ async function main() {
   check('отклонённые запросы ничего не записали', mock.state().settings.length === 0 && mock.state().revisions.length === 0);
 
   const applied = await status('загрузка — 200', call('POST', `${BASE}/apply`, { items: FILE, dictionary: { ПП: 'Прямой пуск' }, expectedVersion: 0, missing: 'keep' }, 'importer'), 200);
+  check('запись книги рассылает изменение каталога', events.some((e) => e.event === 'e3:changed' && e.payload.entity === 'solutions'));
   check('версия выросла, автор записан, словарь добавлен', applied.book.version === 1 && applied.book.updatedById === 'u-importer' && applied.book.solutions.length === 3 && applied.book.dictionary.ПП === 'Прямой пуск');
   check('снимок «до» — пустая книга с пометкой вида записи', mock.state().revisions.length === 1 && JSON.parse(mock.state().revisions[0].snapshotJson).solutions.length === 0 && mock.state().revisions[0].entity === 'e3solutions' && mock.state().revisions[0].action === 'import');
   check('признаки решений сохранены вместе с книгой', applied.book.solutions[1].features['valve.limit'] === 'КП2');
@@ -275,6 +278,7 @@ async function main() {
   await status('права каталога профиль не открывают — 403', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'editor', { projectId: 'p1' }), 403);
   await status('профиль по чужой версии — 409', call('PUT', PROFILE, { answers, expectedVersion: 3 }, 'kip', { projectId: 'p1' }), 409);
   const pw = await status('профиль: запись инженером КИП', call('PUT', PROFILE, { answers, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 200);
+  check('профиль рассылается с ID проекта', events.some((e) => e.event === 'e3:changed' && e.payload.entity === 'profile' && e.payload.projectId === 'p1'));
   check('профиль записан с порогом, версия 1, автор', pw.version === 1 && pw.answers['fan.start'].steps[0].upTo === 7.5 && pw.updatedById === 'u-kip');
   const pr = await status('профиль читается', call('GET', PROFILE, undefined, 'editor', { projectId: 'p1' }), 200);
   check('другой участник видит тот же профиль', pr.answers['valve.limit'] === 'КП2');
@@ -291,6 +295,7 @@ async function main() {
   await status('негодное положение блока — 400', call('PUT', LAYOUT, { ...layout, placed: { a: { rect: { x: 'x' }, manual: true } }, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 400);
   await status('раскладка по чужой версии — 409', call('PUT', LAYOUT, { ...layout, expectedVersion: 5 }, 'kip', { projectId: 'p1' }), 409);
   const lw = await status('раскладка: запись инженером КИП', call('PUT', LAYOUT, { ...layout, expectedVersion: 0 }, 'kip', { projectId: 'p1' }), 200);
+  check('раскладка рассылается с ID проекта', events.some((e) => e.event === 'e3:changed' && e.payload.entity === 'layout' && e.payload.projectId === 'p1'));
   check('раскладка записана: версия 1, положение и флажки на месте', lw.version === 1 && lw.placed.a.rect.x === 60 && lw.off.b === true && lw.format === 'А3');
   const lr = await status('раскладку видит любой участник', call('GET', LAYOUT, undefined, 'editor', { projectId: 'p1' }), 200);
   check('участник читает ту же раскладку', lr.placed.a.manual === true);

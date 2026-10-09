@@ -29,6 +29,7 @@ import {
 import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
 import { isPhasedContentPending } from '../phased-content'
+import { waitForEditor } from './editor-readiness'
 
 /** Свои изменения уходят на сервер, пришедшие — нет */
 const REMOTE = 'flux-remote'
@@ -245,6 +246,12 @@ async function start(cfg: { name: string; color: string }, p: Port): Promise<voi
 export function installFluxCollab(): void {
   const p = port()
   if (!p) return
+  // Мост сообщает hello при загрузке страницы. Готовность окна объявляем
+  // отдельно, когда GenOffice уже создал документ и редактор действительно может работать.
+  void waitForEditor(() => {
+    const ctx = ctxNow()
+    return ctx?.editor && ctx.doc && !isPhasedContentPending() ? ctx.editor : null
+  }, 30_000).then((editor) => { if (editor) p.tell('flux:editor-ready', { app: 'docs' }) })
   // Тег передаётся по самому клику: слова вокруг него и содержимое документа
   // не размечаются и не меняются. Project/tag ids дополняет окно Flux.
   void whenReady().then((editor) => {
@@ -265,17 +272,28 @@ export function installFluxCollab(): void {
   // Панель «Данные проекта»: метка {{ключ}} в место курсора. В поле Word её
   // превращает «Обновить поля» (server/officeFields.ts, fillDocxMarkers): поле
   // с кодом GenOffice сам не вставляет, а текст метки переживает любую правку
-  p.on('insertTable', (message: any) => {
+  p.on('insertTable', async (message: any) => {
     try {
-      const ed = ctxNow()?.editor; const rows = message?.rows;
-      if (!ed || !Array.isArray(rows) || !rows.length || rows.length > 501) throw new Error('Таблица должна содержать до 500 строк');
+      const rows = message?.rows;
+      if (!Array.isArray(rows) || !rows.length || rows.length > 501) throw new Error('Таблица должна содержать до 500 строк');
+      // hello сообщает о мосте, а не о готовности редактора; коротко ждём
+      // редактор, иначе ранняя команда из панели выглядела как «вставлено».
+      const ed = await waitForEditor(() => {
+        const ctx = ctxNow()
+        return ctx?.editor && ctx.doc && !isPhasedContentPending() ? ctx.editor : null
+      }, 7_000)
+      if (!ed) throw new Error('Редактор не готов — таблица не вставлена');
       const content = { type: 'docTable', content: rows.map((row: any[], at: number) => ({ type: 'docTableRow', content: row.map(value => ({ type: at === 0 ? 'docTableHeader' : 'docTableCell', content: [{ type: 'docParagraph', content: String(value ?? '') ? [{ type: 'text', text: String(value) }] : [] }] })) })) };
       const ok = ed.chain().focus().insertContent(content).run(); p.tell('flux:table-inserted', { ok });
     } catch (err: any) { p.tell('flux:table-inserted', { ok: false, error: err.message }); }
   });
-  p.on('insertText', (text: unknown) => {
-    const ed = ctxNow()?.editor
-    if (ed && typeof text === 'string' && text) ed.chain().focus().insertContent(text).run()
+  p.on('insertText', async (text: unknown) => {
+    const ed = await waitForEditor(() => {
+      const ctx = ctxNow()
+      return ctx?.editor && ctx.doc && !isPhasedContentPending() ? ctx.editor : null
+    }, 7_000)
+    const ok = !!ed && typeof text === 'string' && !!text && ed.chain().focus().insertContent(text).run()
+    p.tell('flux:text-inserted', { ok, ...(ok ? {} : { error: 'Редактор не готов — текст не вставлен' }) })
   })
 }
 

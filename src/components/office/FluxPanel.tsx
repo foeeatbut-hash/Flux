@@ -13,6 +13,8 @@ import { normalizeSpecs } from '../../lib/specs';
 import { buildEquipmentExchange, equipmentColumns } from '../../lib/equipmentExchange';
 import { classifyAll } from '../../../equipment/classes';
 import { dataService } from '../../services/dataService';
+import { useRealTimeSync } from '../SocketProvider';
+import { belongsToProject } from '../../lib/coalescedRefresh';
 
 export interface ProjectField {
   key: string;
@@ -214,18 +216,24 @@ function rowsOfCatalog(data: any): { columns: Column[]; rows: DataRow[] } {
   return { columns, rows };
 }
 
-function useSource(tab: SourceTab, projectId: string) {
+function useSource(tab: SourceTab, projectId: string, revision: number) {
   const [result, setResult] = useState<{ columns: Column[]; rows: DataRow[] } | null>(null);
   const [loaded, setLoaded] = useState<{ source: SourceTab; projectId: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const generation = React.useRef(0);
+  const sourceKey = `${tab}\u0000${projectId}`;
+  const previousKey = React.useRef(sourceKey);
 
   useEffect(() => {
-    let live = true;
-    setResult(null); setLoaded(null); setError(''); setLoading(false);
+    const mine = ++generation.current;
+    const sameSource = previousKey.current === sourceKey;
+    previousKey.current = sourceKey;
+    if (!sameSource) { setResult(null); setLoaded(null); }
+    setError('');
     if (!projectId && tab !== 'catalog') {
       setError('Выберите проект, чтобы загрузить его данные.'); setLoaded({ source: tab, projectId });
-      return () => { live = false; };
+      return () => { if (generation.current === mine) generation.current++; };
     }
     setLoading(true);
     const load = async () => {
@@ -255,22 +263,23 @@ function useSource(tab: SourceTab, projectId: string) {
           const data = await fetch('/api/catalog').then(failResponse);
           next = rowsOfCatalog(data);
         }
-        if (live) { setResult(next); setLoaded({ source: tab, projectId }); }
+        if (generation.current === mine) { setResult(next); setLoaded({ source: tab, projectId }); }
       } catch (e: any) {
-        if (live) { setError(String(e?.message || e)); setLoaded({ source: tab, projectId }); }
+        if (generation.current === mine) { setError(String(e?.message || e)); setLoaded({ source: tab, projectId }); }
       } finally {
-        if (live) setLoading(false);
+        if (generation.current === mine) setLoading(false);
       }
     };
     void load();
-    return () => { live = false; };
-  }, [tab, projectId]);
+    return () => { if (generation.current === mine) generation.current++; };
+  }, [tab, projectId, revision, sourceKey]);
 
   return { result, loadedSource: loaded?.source, loadedProjectId: loaded?.projectId, error, loading };
 }
 
 export default function FluxPanel(props: FluxPanelProps) {
   const navigate = useNavigate();
+  const { socket } = useRealTimeSync();
   const [tab, setTab] = useState<PanelTab>('tags');
   const [exportSource, setExportSource] = useState<SourceTab>('tags');
   const [selectedProjectId, setSelectedProjectId] = useState(props.projectId || '');
@@ -284,12 +293,41 @@ export default function FluxPanel(props: FluxPanelProps) {
   const [panelError, setPanelError] = useState('');
   const [resolvedFileName, setResolvedFileName] = useState(props.fileName || '');
   const sourceTab: SourceTab = tab === 'data' || tab === 'translation' ? 'tags' : tab === 'export' ? exportSource : tab;
-  const { result, loadedSource, loadedProjectId, error, loading } = useSource(sourceTab, selectedProjectId);
+  const [sourceRevision, setSourceRevision] = useState(0);
+  const { result, loadedSource, loadedProjectId, error, loading } = useSource(sourceTab, selectedProjectId, sourceRevision);
   const currentResult = loadedSource === sourceTab && loadedProjectId === selectedProjectId ? result : null;
   const filtered = useMemo(() => (currentResult?.rows || []).filter((row) => row.haystack.includes(query.trim().toLowerCase())), [currentResult, query]);
   const chosenColumns = columnsBySource[sourceTab]?.selected || currentResult?.columns.map((column) => column.key) || [];
   const activeColumns = useMemo(() => currentResult?.columns.filter((column) => chosenColumns.includes(column.key)) || [], [currentResult, chosenColumns]);
   const activeCellIndexes = useMemo(() => activeColumns.map((column) => currentResult?.columns.findIndex((item) => item.key === column.key) ?? -1), [activeColumns, currentResult]);
+
+  useEffect(() => {
+    const refresh = () => setSourceRevision((revision) => revision + 1);
+    const onEntityChanged = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail.projectId && detail.projectId !== selectedProjectId) return;
+      if ((detail.kind === 'tag' && ['tags', 'procurement', 'equipment'].includes(sourceTab))
+        || (detail.kind === 'element' && sourceTab === 'equipment')) refresh();
+    };
+    const onCatalogChanged = () => { if (sourceTab === 'catalog') refresh(); };
+    const onBuilderList = (detail: any) => {
+      if (!belongsToProject(detail, selectedProjectId)) return;
+      if (['tags', 'equipment'].includes(sourceTab)) refresh();
+    };
+    const onVdrChanged = (detail: any) => {
+      if (sourceTab === 'docs' && (!detail?.projectId || detail.projectId === selectedProjectId)) refresh();
+    };
+    window.addEventListener('socket:entity:changed', onEntityChanged);
+    socket?.on('catalog:changed', onCatalogChanged);
+    socket?.on('builder:list', onBuilderList);
+    socket?.on('vdr:changed', onVdrChanged);
+    return () => {
+      window.removeEventListener('socket:entity:changed', onEntityChanged);
+      socket?.off('catalog:changed', onCatalogChanged);
+      socket?.off('builder:list', onBuilderList);
+      socket?.off('vdr:changed', onVdrChanged);
+    };
+  }, [socket, sourceTab, selectedProjectId]);
 
   useEffect(() => { setSelected([]); setQuery(''); setInsertMessage(''); setPanelError(''); }, [tab, selectedProjectId, exportSource]);
   useEffect(() => { setSelectedProjectId(props.projectId || ''); }, [props.projectId]);
@@ -362,7 +400,7 @@ export default function FluxPanel(props: FluxPanelProps) {
   };
 
   const sourcePanel = () => {
-    if (loading) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Загрузка…</p>;
+    if (loading && !currentResult) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Загрузка…</p>;
     if (error) return <Empty title="Данные недоступны" text={error} />;
     if (!currentResult) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Загрузка…</p>;
     if (!currentResult.rows.length) return <Empty title="Пока нет данных" text="В этом разделе проекта пока нет строк для выгрузки." />;

@@ -7,6 +7,7 @@ import { applyTagLinks, type TagLink } from './equipmentTags.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmentHierarchy.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { notifyExporters } from './e3Impact.js';
+import { emitProjectDataChanged } from './entityChanged.js';
 import { TAG_SOURCE, recordChangeSets, updateSet, type TagChangeSet } from './tagHistory.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
@@ -336,6 +337,10 @@ export async function importEquipmentToDB(
   // Позиции, стоящие в схеме E3, изменились: тому, кто выгружал, — одно уведомление на ввоз (9.4)
   try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
   catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
+
+  if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
+    || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
+  if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
 
   return summary;
 }

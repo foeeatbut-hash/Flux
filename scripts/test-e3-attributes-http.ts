@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import express from 'express';
 import { registerE3AttributeRoutes } from '../server/routes/e3Attributes';
 import { catalogSettingRaw, claimCatalogSetting } from '../server/catalogWorkspace';
-import { setPrisma } from '../server/context';
+import { setBroadcaster, setPrisma } from '../server/context';
 import { parseAttributeSheet } from '../e3/attributes';
 
 type State = { settings: any[]; revisions: any[] };
@@ -85,13 +85,15 @@ const { items: FILE } = parseAttributeSheet(SHEET);
 
 async function main() {
   const mock = mockPrisma(); setPrisma(mock.prisma);
+  const events: Array<{ event: string; payload: any }> = [];
+  setBroadcaster((event, payload) => { events.push({ event, payload }); });
   const app = express();
   registerE3AttributeRoutes(app as any, can, { ensure: async () => undefined });
   const call = async (method: string, path: string, body?: unknown, who?: string, query: Record<string, string> = {}) => {
     const layer = (app as any)._router.stack.find((l: any) => l.route?.path === path && l.route.methods[method.toLowerCase()]);
     assert.ok(layer, `маршрут зарегистрирован: ${method} ${path}`);
     const res: any = { statusCode: 200, status(c: number) { this.statusCode = c; return this; }, json(v: any) { this.body = v; return this; } };
-    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params: {}, query }, res);
+    await layer.route.stack[0].handle({ body, authUser: who ? USERS[who] : undefined, params: {}, query, method, path }, res);
     return { status: res.statusCode, body: res.body };
   };
   const BASE = '/api/catalog/e3-attributes';
@@ -122,6 +124,10 @@ async function main() {
   check('отклонённые запросы ничего не записали', mock.state().settings.length === 0 && mock.state().revisions.length === 0);
 
   const applied = await status('загрузка — 200', call('POST', `${BASE}/apply`, { items: FILE, expectedVersion: 0, missing: 'keep' }, 'importer'), 200);
+  check('успешная запись сообщает открытым окнам об изменении атрибутов', events.some((e) => e.event === 'e3:changed' && e.payload.entity === 'attributes'));
+  const eventCount = events.length;
+  await status('план остаётся только чтением', call('POST', `${BASE}/plan`, { items: FILE }, 'importer'), 200);
+  check('план не рассылает изменение', events.length === eventCount);
   check('версия выросла, автор записан', applied.book.version === 1 && applied.book.updatedById === 'u-importer' && applied.book.items.length === FILE.length);
   check('вернулся номер снимка «до»', typeof applied.revisionId === 'string' && mock.state().revisions.length === 1);
   check('снимок «до» — пустая книга', JSON.parse(mock.state().revisions[0].snapshotJson).items.length === 0 && mock.state().revisions[0].action === 'import');

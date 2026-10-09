@@ -25,6 +25,7 @@
  */
 import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
+import { waitForEditor } from './editor-readiness'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -301,7 +302,13 @@ void fields()
 /** Вставка таблиц и обновление выгрузки: адреса держатся именами Excel. */
 async function exportCommands(): Promise<void> {
   const link = ipc(); if (!link) return;
-  while (!workbook()) await new Promise(r => setTimeout(r, 300));
+  const ready = await waitForEditor(() => {
+    const lazy = hooks()?.lazyWorkbookRef.current
+    return workbook() && lazy && (!lazy.flags || lazy.flags.preloadComplete === true) ? lazy : null
+  }, 40_000, 100)
+  if (!ready) return
+  // hello от shim означает только готовность моста, не книги Excel.
+  link.send('flux:editor-ready', { app: 'sheets' })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
   link.on('flux:insert-table', (_e, message: any) => {
     try {

@@ -26,6 +26,7 @@ interface Snapshot {
   updateAvailable?: Model;
   effective: Array<{ group?: string; key: string; value: string; unit?: string; source: Source; revision?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
   warnings: string[];
+  discrepancies: Array<{ group: string; key: string; xmlValue: string; catalogValue: string; xmlUnit?: string; catalogUnit?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
 }
 interface CatalogIndex {
   components?: Model[];
@@ -243,15 +244,27 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
         {snapshot.warnings.map((warning, index) => <div key={index} className="fx-note fx-note-warn flex items-start gap-2"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />{warning}</div>)}
       </div>}
 
+      {!!snapshot?.discrepancies?.length && <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/30" role="status" aria-label="Расхождения XML и каталога">
+        <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300"><AlertTriangle className="h-4 w-4 shrink-0" />XML и каталог расходятся в {snapshot.discrepancies.length} параметрах</div>
+        {snapshot.discrepancies.map((item, index) => <div key={`${item.group}/${item.key}/${index}`} className="grid grid-cols-[minmax(8rem,1fr)_minmax(0,2fr)] gap-x-3 border-t border-amber-200 pt-1 dark:border-amber-900">
+          <span className="text-slate-700 dark:text-slate-300">{item.group ? `${item.group} · ` : ''}{item.key}</span>
+          <span><span className="text-slate-500 dark:text-slate-400">XML:</span> {item.xmlValue}{item.xmlUnit ? ` ${item.xmlUnit}` : ''}<br /><span className="text-slate-500 dark:text-slate-400">Каталог{item.sourceRef?.file ? ` (${item.sourceRef.file}${item.sourceRef.pages ? `, стр. ${item.sourceRef.pages}` : ''})` : ''}:</span> {item.catalogValue}{item.catalogUnit ? ` ${item.catalogUnit}` : ''}</span>
+        </div>)}
+      </div>}
+
       {snapshot?.effective?.length ? <div className="py-2">
         <div className="fx-label mb-1">Параметры и источник значения</div>
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-          {snapshot.effective.map((param, index) => <div key={`${param.group || ''}/${param.key}/${index}`} className="fx-set-row min-h-8 py-1.5">
+          {snapshot.effective.map((param, index) => {
+            const discrepancy = snapshot.discrepancies?.find(item => item.group === (param.group || '') && item.key === param.key);
+            const detail = discrepancy ? `Расхождение: XML — ${discrepancy.xmlValue}${discrepancy.xmlUnit ? ` ${discrepancy.xmlUnit}` : ''}; каталог — ${discrepancy.catalogValue}${discrepancy.catalogUnit ? ` ${discrepancy.catalogUnit}` : ''}${discrepancy.sourceRef?.file ? `. Источник каталога: ${discrepancy.sourceRef.file}${discrepancy.sourceRef.pages ? `, стр. ${discrepancy.sourceRef.pages}` : ''}` : ''}` : undefined;
+            return <div key={`${param.group || ''}/${param.key}/${index}`} title={detail} aria-label={detail ? `${param.group ? `${param.group} · ` : ''}${param.key}. ${detail}` : undefined} className={`fx-set-row min-h-8 py-1.5 ${discrepancy ? 'rounded-sm border-l-2 border-amber-500 bg-amber-50 px-1.5 dark:border-amber-400 dark:bg-amber-950/30' : ''}`}>
             <span className="fx-set-text min-w-0 truncate" title={[param.group, param.key].filter(Boolean).join(' · ')}>{param.group ? `${param.group} · ` : ''}{param.key}</span>
             <span className="text-xs text-slate-800 dark:text-slate-300 shrink-0">{param.value}{param.unit ? ` ${param.unit}` : ''}</span>
             <span className="fx-badge">{sourceLabel[param.source]}</span>
+            {discrepancy && <span className="fx-badge border border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300" title={detail}>Расхождение</span>}
             <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => { setIssueField({ key: [param.group, param.key].filter(Boolean).join(' · '), value: `${param.value}${param.unit ? ` ${param.unit}` : ''}`, source: param.sourceRef }); setIssueOpen(true); }}>Сообщить</button>
-          </div>)}
+          </div>})}
         </div>
       </div> : null}
 
