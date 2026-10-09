@@ -145,7 +145,7 @@ export async function enrichEquipment(systems: any[]): Promise<void> {
   for (const el of elements) {
     const info = await sourceInfo(el, models, byKey.get(bindingKey(el.id)) || null);
     el.originalSpecs = el.specs; el.specs = JSON.stringify({ groups: info.groups });
-    el.catalogSource = { mode: info.mode, binding: info.binding, effective: info.effective, warnings: info.warnings };
+    el.catalogSource = { mode: info.mode, binding: info.binding, effective: info.effective, warnings: info.warnings, discrepancies: info.discrepancies };
   }
   for (const sys of systems) {
     const parents = new Map(displayParentLinks(sys.monoblocks.flatMap((m: any) => m.components) as any[]).map(e => [e.id, e.parentElementId]));

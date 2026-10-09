@@ -35,7 +35,7 @@ import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
 import ExchangeTab from '../components/registry/ExchangeTab';
 import { type Column } from '../lib/exchange';
-import { TAG_EXCHANGE_COLUMNS, buildTagExchange } from '../lib/tagExchange';
+import { tagExchangeColumns, buildTagExchange } from '../lib/tagExchange';
 import {
   linkChild, unlinkChild, whyNotLink, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
@@ -1969,13 +1969,13 @@ export default function Registry() {
    * занимала экран целиком, и чтобы найти нужное, приходилось крутить страницу.
    */
   const [exchangeOpen, setExchangeOpen] = useState(false);
-  const EXCHANGE_COLUMNS = TAG_EXCHANGE_COLUMNS;
+  const EXCHANGE_COLUMNS = useMemo(() => tagExchangeColumns(tags), [tags]);
 
   const buildExchange = (scopeId: string, cols: Column[]) => buildTagExchange(
     scopeId === 'selected' ? tags.filter((t: any) => selectedTagIds.has(t.id))
       : scopeId === 'filtered' ? matchedTagsList : tags,
     cols,
-    { lineage: getParentTraceLineage, meta: parseTagMetadata },
+    { lineage: getParentTraceLineage, meta: parseTagMetadata, status: getTagOverallStatus },
   );
 
   const startNewTag = () => {
@@ -2510,7 +2510,6 @@ export default function Registry() {
             { id: 'selected', label: 'Отмеченные', count: selectedTagIds.size },
           ]}
           columns={EXCHANGE_COLUMNS}
-          defaultColumns={['identifier', 'brand', 'department', 'wbs', 'fluid']}
           build={buildExchange}
           onImport={() => setShowImportWizard(true)}
           importHint="Разбор файла со сверкой — прежним мастером"

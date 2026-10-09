@@ -107,11 +107,22 @@ export function useRegistryTags({
     }
   };
 
-  // ИИ-чат мог переименовать тег — перечитываем список, чтобы холст обновился
+  const loadTagsRef = useRef(loadTags);
+  loadTagsRef.current = loadTags;
+
+  // Другие программы меняют теги через сервер; перечитываем список по общему
+  // событию, чтобы новые теги и правки появлялись без повторного входа.
   useEffect(() => {
-    const onTagsChanged = () => loadTags();
-    window.addEventListener('flux:tags-changed', onTagsChanged);
-    return () => window.removeEventListener('flux:tags-changed', onTagsChanged);
+    const onLegacyTagsChanged = () => { void loadTagsRef.current(); };
+    const onEntityChanged = (event: Event) => {
+      if ((event as CustomEvent).detail?.kind === 'tag') void loadTagsRef.current();
+    };
+    window.addEventListener('flux:tags-changed', onLegacyTagsChanged);
+    window.addEventListener('socket:entity:changed', onEntityChanged);
+    return () => {
+      window.removeEventListener('flux:tags-changed', onLegacyTagsChanged);
+      window.removeEventListener('socket:entity:changed', onEntityChanged);
+    };
   }, []);
 
   // ── Подсветка после захвата с экрана ────────────────────────────────────

@@ -104,6 +104,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // Автор создания — из сессии, для любого пути создания (в metadata.createdBy
       // он был только у быстрой строки, и то именем, а не идентификатором)
       await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), tag);
+      emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

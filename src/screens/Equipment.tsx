@@ -134,6 +134,17 @@ export default function Equipment() {
 
   useEffect(() => { loadCategories(); loadVisibility(); }, [loadCategories, loadVisibility]);
   useEffect(() => { loadSystems(); loadTags(); }, [loadSystems, loadTags]);
+  useEffect(() => {
+    const onEntityChanged = (event: Event) => {
+      const kind = (event as CustomEvent).detail?.kind;
+      if (kind === 'element' || kind === 'tag') {
+        void loadSystems();
+        void loadTags();
+      }
+    };
+    window.addEventListener('socket:entity:changed', onEntityChanged);
+    return () => window.removeEventListener('socket:entity:changed', onEntityChanged);
+  }, [loadSystems, loadTags]);
 
   // Прежний профиль видимости только читается: писать в него больше нечему — вид
   // теперь живёт на категорию и тип (useCategoryView), а старое переезжает туда

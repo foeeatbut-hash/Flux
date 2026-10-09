@@ -37,12 +37,17 @@ page.route('**/api/**', async (route) => {
   ] };
   else if (endpoint === '/api/projects/equipment-fixture/systems') body = { systems };
   else if (endpoint === '/api/projects/equipment-fixture/tags') body = { tags: [] };
+  else if (endpoint.endsWith('/e3/summary')) body = [];
   else if (endpoint.includes('/settings/equip_visibility_mode')) body = { user: 'admin' };
   else if (endpoint.includes('/settings/equip_visibility')) body = { global: '{}' };
   else if (endpoint.includes('/settings/equip_conflict_mode')) body = { global: 'wait' };
   else if (endpoint.includes('/settings/equip_category_view_')) body = { global: '{}' };
   else if (endpoint === '/api/equipment/view-templates') body = { views: [] };
-  else if (endpoint.includes('/catalog-source')) body = { mode: 'xml', matches: [], effective: [], warnings: [] };
+  else if (endpoint.includes('/catalog-source') && endpoint.includes('/block-1')) body = {
+    mode: 'hybrid', matches: [], effective: [{ group: 'Аэродинамика', key: 'Расход воздуха', value: '12500', unit: 'м³/ч', source: 'xml' }], warnings: [],
+    discrepancies: [{ group: 'Аэродинамика', key: 'Расход воздуха', xmlValue: '12500', catalogValue: '13000', xmlUnit: 'м³/ч', catalogUnit: 'м³/ч', sourceRef: { file: 'Каталог.pdf', pages: '12' } }],
+  };
+  else if (endpoint.includes('/catalog-source')) body = { mode: 'xml', matches: [], effective: [], warnings: [], discrepancies: [] };
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 });
 
@@ -83,6 +88,15 @@ try {
   await page.getByRole('button', { name: 'AHU-101', exact: true }).click();
   await page.getByRole('button', { name: /Вентиляторная секция ВР-80/ }).first().click();
   if (!await page.getByText('Аэродинамика', { exact: true }).isVisible()) throw new Error('real BlockCard parameter groups did not render');
+  const markedParam = page.getByLabel(/Аэродинамика · Расход воздуха\. Расхождение:/);
+  await markedParam.waitFor();
+  if (!await markedParam.getByText('Расхождение', { exact: true }).isVisible()) throw new Error('catalog/XML discrepancy was not marked on its effective parameter row');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+    const geometry = await markedParam.evaluate((el) => { const rect = el.getBoundingClientRect(); const style = getComputedStyle(el); return { width: rect.width, height: rect.height, right: rect.right, viewport: innerWidth, background: style.backgroundColor }; });
+    if (geometry.width < 100 || geometry.height < 28 || geometry.right > geometry.viewport + 1) throw new Error(`discrepancy row layout is invalid in ${theme}: ${JSON.stringify(geometry)}`);
+    await page.screenshot({ path: path.join('/tmp', `flux-equipment-catalog-discrepancy-${theme}.png`) });
+  }
   await page.getByRole('button', { name: 'Радиальные вентиляторы', exact: false }).click();
   if (!await page.getByText('Ничего не выбрано').isVisible()) throw new Error('category change kept stale detail selection');
   await page.getByRole('button', { name: 'FAN-201', exact: true }).click();

@@ -13,30 +13,101 @@ import type { Column } from './exchange';
 
 /** Столбцы, которые умеет отдавать раздел «Теги» */
 export const TAG_EXCHANGE_COLUMNS: Column[] = [
+  { key: 'id', label: 'ID тега' },
   { key: 'identifier', label: 'Код тега' },
+  { key: 'mainName', label: 'Наименование' },
+  { key: 'actuality', label: 'Актуальность' },
   { key: 'brand', label: 'Марка' },
   { key: 'department', label: 'Отдел' },
   { key: 'wbs', label: 'WBS' },
   { key: 'fluid', label: 'Среда' },
+  { key: 'projectId', label: 'ID проекта' },
+  { key: 'equipmentId', label: 'ID оборудования' },
+  { key: 'createdAt', label: 'Создан' },
+  { key: 'updatedAt', label: 'Изменён' },
   { key: 'chain', label: 'Цепочка' },
   { key: 'descriptions', label: 'Замечания' },
+  { key: 'metadata', label: 'Метаданные целиком' },
 ];
+
+const BUILT_IN_META_KEYS = new Set([
+  'x', 'y', '_noPos', 'connections', 'descriptions', 'dynamicFields',
+  'mainName', 'parentId', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
+  'tagSegments', 'markSegments',
+]);
+
+function metadataOf(tag: any): Record<string, any> {
+  const raw = tag?.metadata;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; }
+    catch { return {}; }
+  }
+  return tag?.parsedMetadata && typeof tag.parsedMetadata === 'object' ? tag.parsedMetadata : {};
+}
+
+/** Дополнительные поля берутся из всего набора тегов, чтобы в меню не пропадали поля, пустые у части тегов. */
+export function tagExchangeColumns(tags: any[]): Column[] {
+  const rootKeys = new Set<string>();
+  const dynamicKeys = new Set<string>();
+  for (const tag of tags || []) {
+    const meta = metadataOf(tag);
+    Object.keys(meta).filter((key) => !BUILT_IN_META_KEYS.has(key)).forEach((key) => rootKeys.add(key));
+    const dynamic = meta.dynamicFields;
+    if (dynamic && typeof dynamic === 'object' && !Array.isArray(dynamic)) {
+      Object.keys(dynamic).forEach((key) => dynamicKeys.add(key));
+    }
+  }
+  const sorted = (keys: Set<string>) => [...keys].sort((a, b) => a.localeCompare(b, 'ru'));
+  return [
+    ...TAG_EXCHANGE_COLUMNS,
+    ...sorted(rootKeys).map((key) => ({ key: `meta:${key}`, label: `Метаданные · ${key}` })),
+    ...sorted(dynamicKeys).map((key) => ({ key: `dynamic:${key}`, label: key })),
+  ];
+}
+
+const cellValue = (value: unknown): string => {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+};
 
 export interface TagExchangeHelpers {
   /** Цепочка родителей — её знает экран, здесь она приходит работой */
   lineage: (id: string) => string;
   /** Разбор замечаний из поля метаданных тега */
   meta: (tag: any) => { descriptions: { text: string; status: string; comment: string }[] };
+  status: (tag: any) => string;
 }
+
+const ACTUALITY_LABEL: Record<string, string> = {
+  actual: 'Актуально', warning: 'Проверить', critical: 'Критично', info: 'В работе', draft: 'Устарело',
+};
+const dateCell = (value: unknown): string => {
+  if (!value) return '';
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+};
 
 /** Значение одной ячейки. Пустое поле — пустая строка, а не «undefined» */
 export function tagCell(tag: any, key: string, h: TagExchangeHelpers): string {
   switch (key) {
+    case 'id': return String(tag?.id || '');
     case 'identifier': return String(tag?.identifier || '');
+    case 'mainName': return String(metadataOf(tag).mainName || '');
+    case 'actuality': {
+      const status = h.status(tag);
+      return ACTUALITY_LABEL[status] || status;
+    }
     case 'brand': return String(tag?.brand || '');
     case 'department': return String(tag?.department || '');
     case 'wbs': return String(tag?.wbs || '');
     case 'fluid': return String(tag?.fluid || '');
+    case 'projectId': return String(tag?.projectId || '');
+    case 'equipmentId': return String(tag?.equipmentId || '');
+    case 'createdAt': return dateCell(tag?.createdAt);
+    case 'updatedAt': return dateCell(tag?.updatedAt);
     case 'chain': return String(h.lineage(tag?.id) || tag?.identifier || '');
     case 'descriptions': {
       const list = h.meta(tag)?.descriptions || [];
@@ -44,7 +115,11 @@ export function tagCell(tag: any, key: string, h: TagExchangeHelpers): string {
         .map((d) => `${d.text} [${String(d.status).toUpperCase()}]: ${d.comment}`)
         .join(' | ');
     }
-    default: return '';
+    case 'metadata': return cellValue(metadataOf(tag));
+    default:
+      if (key.startsWith('meta:')) return cellValue(metadataOf(tag)[key.slice(5)]);
+      if (key.startsWith('dynamic:')) return cellValue(metadataOf(tag).dynamicFields?.[key.slice(8)]);
+      return '';
   }
 }
 

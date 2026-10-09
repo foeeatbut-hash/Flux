@@ -53,6 +53,12 @@ assert.equal(effective(hybrid, 'Номинальное напряжение')?.v
 assert.equal(effective(hybrid, 'Номинальное напряжение')?.source, 'catalog');
 assert.equal(effective(hybrid, 'Расчётная мощность')?.value, 'ручное значение', 'гибрид должен сохранить заданное значение');
 assert.equal(effective(hybrid, 'Расчётная мощность')?.source, 'xml');
+const compared = resolveCatalogSpecs([{ title: 'Электрика', params: [{ key: 'Расчётная мощность', value: '5', unit: 'ВА' }] }], {}, 'hybrid', sharedModel);
+assert.deepEqual(compared.discrepancies.map(({ key, xmlValue, catalogValue }) => ({ key, xmlValue, catalogValue })), [
+  { key: 'Расчётная мощность', xmlValue: '5', catalogValue: '7' },
+], 'гибрид показывает различающиеся заполненные значения XML и каталога');
+assert.equal(resolveCatalogSpecs([{ title: 'Электрика', params: [{ key: 'Номинальное напряжение', value: '230,0', unit: 'В' }] }], {}, 'hybrid', actuator('numeric', 'НЕМАН', [spec('Напряжение питания', '230.0', 'В')])).discrepancies.length, 0, 'числа с запятой и точкой считаются одинаковыми');
+assert.equal(resolveCatalogSpecs(rawGroups, {}, 'xml', sharedModel).discrepancies.length, 0, 'в режиме только XML расхождения каталога не показываются');
 
 for (const mode of ['xml', 'catalog', 'hybrid'] as const) {
   const blankOverride = resolveCatalogSpecs(

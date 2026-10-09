@@ -43,7 +43,12 @@ export default function EquipmentExport() {
   }, [projectId, say]);
   React.useEffect(() => { setPhase('loading'); void load(); return () => { generation.current++; }; }, [load]);
   React.useEffect(() => {
-    const changed = (event: Event) => { const value = (event as CustomEvent).detail; if (value?.projectId === projectId && ['equipment', 'component', 'system'].includes(value?.kind)) void load(); };
+    const changed = (event: Event) => {
+      const kind = (event as CustomEvent).detail?.kind;
+      // Старый entity event не содержит projectId и называет позиции element;
+      // экспорт и так читает только выбранный проект с сервера.
+      if (['equipment', 'component', 'element', 'system', 'tag'].includes(kind)) void load();
+    };
     window.addEventListener('socket:entity:changed', changed);
     return () => window.removeEventListener('socket:entity:changed', changed);
   }, [projectId, load]);

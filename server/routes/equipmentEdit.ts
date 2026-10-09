@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
+import { emitEntityChanged } from '../entityChanged.js';
 import { ROLES, roleById, roleFits, type RoleId } from '../../equipment/roles.js';
 import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
@@ -244,8 +245,12 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const tag = await resolveTag(prisma, projectId, req.body?.identifier, { actor });
       if (!tag.ok) return res.status(tag.status || 400).json({ error: tag.problem, fix: tag.fix, field: 'tag' });
       await prisma.componentElement.update({ where: { id: comp.id }, data: withBump({ tags: { connect: { id: tag.tagId } } }) });
-      const parentTag = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
-      res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag });
+      const parentLink = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
+      // Реестр тегов и другие открытые окна перечитывают запись сразу; событие
+      // для позиции обновляет занятость тега и карточку оборудования.
+      for (const changedTagId of parentLink.changedTagIds) emitEntityChanged('tag', changedTagId, req);
+      emitEntityChanged('element', comp.id, req);
+      res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag: parentLink.parentTag });
     } catch (err: any) { sendError(res, err); }
   });
 }
@@ -388,14 +393,14 @@ async function createPosition(
  * Возвращает написание родительского тега — его показывают человеку сразу:
  * «датчик встал под тег двигателя», а не молча.
  */
-async function linkParentTag(prisma: any, projectId: string, componentId: string, tagId: string, actor: { userId?: string | null } = {}): Promise<string> {
-  if (!projectId) return '';
+async function linkParentTag(prisma: any, projectId: string, componentId: string, tagId: string, actor: { userId?: string | null } = {}): Promise<{ parentTag: string; changedTagIds: string[] }> {
+  if (!projectId) return { parentTag: '', changedTagIds: [] };
   const rows = await prisma.componentElement.findMany({
     where: { monoblock: { system: { projectId } } },
     select: { id: true, name: true, parentElementId: true, tags: { select: { id: true } }, monoblock: { select: { systemId: true } } },
   });
   const mine = rows.find((r: any) => r.id === componentId);
-  if (!mine) return '';
+  if (!mine) return { parentTag: '', changedTagIds: [] };
   const sameSystem = rows.filter((r: any) => r.monoblock?.systemId === mine.monoblock?.systemId);
 
   const positions: TaggedPosition[] = sameSystem.map((r: any) => ({
@@ -426,6 +431,7 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
   });
   const handSet = new Set<string>(tags.filter((t: any) => parentSetByHand(t.metadata)).map((t: any) => t.id));
   const plan = planTagParents(positions, root?.tagId || '', nodes, handSet);
+  const changedTagIds: string[] = [];
 
   const metaById = new Map<string, any>(tags.map((t: any) => [t.id, safeMeta(t.metadata)]));
   const history: Array<TagChangeSet | null> = [];
@@ -435,13 +441,18 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
     if (patch.parentId) meta.parentId = patch.parentId; else delete meta.parentId;
     if (meta.parentBy !== 'hand') meta.parentBy = 'import';
     await prisma.tag.update({ where: { id: patch.id }, data: { metadata: JSON.stringify(meta) } });
+    changedTagIds.push(patch.id);
     const was = tags.find((t: any) => t.id === patch.id);
     if (was) history.push(updateSet({ id: was.id, projectId, metadata: was.metadata }, { id: was.id, metadata: meta }));
   }
   await recordChangeSets(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentEdit }, history);
 
   const mineDecision = plan.decisions.find(d => d.childTagId === tagId && d.applied);
-  return mineDecision ? (tags.find((t: any) => t.id === mineDecision.parentTagId)?.identifier || '') : '';
+  return {
+    parentTag: mineDecision ? (tags.find((t: any) => t.id === mineDecision.parentTagId)?.identifier || '') : '',
+    // Даже при привязке готового тега меняется его занятость в Реестре.
+    changedTagIds: [...new Set([...changedTagIds, tagId])],
+  };
 }
 
 function safeMeta(raw: unknown): any {
