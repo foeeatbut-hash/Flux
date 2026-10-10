@@ -50,6 +50,7 @@ export function registerEntityIdMigrationRoutes(app:Express) {
         }
         migration.mappings=migration.mappings.filter((m:any)=>visible.includes(m.projectId));
         migration.projectIds=visible;
+        if(!privileged)migration.counts={};
       }
       res.json({migrations});
     }

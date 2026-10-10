@@ -1,4 +1,4 @@
-/** Real HTTP authorization and journal-isolation checks on an isolated SQLite database. */
+/** Настоящие HTTP-запросы проверяют права и изоляцию журнала на отдельной SQLite. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -82,7 +82,7 @@ async function main() {
     const ownerMigration = ownerHistory.migrations?.find((m: any) => m.migrationId === applied.migrationId);
     const userMigration = userHistory.migrations?.find((m: any) => m.migrationId === applied.migrationId);
     check('owner history includes both migrated projects', ownerHistoryResponse.status === 200 && ownerMigration?.projectIds.length === 2, ownerMigration);
-    check('user history exposes only projects visible through membership', userHistoryResponse.status === 200 && userMigration?.projectIds.length === 1 && userMigration.projectIds[0] === projectA && userMigration.mappings.every((m: any) => m.projectId === projectA), userMigration);
+    check('user history exposes only visible projects without global counts', userHistoryResponse.status === 200 && userMigration?.projectIds.length === 1 && userMigration.projectIds[0] === projectA && userMigration.mappings.every((m: any) => m.projectId === projectA) && Object.keys(userMigration.counts || {}).length === 0, userMigration);
 
     const journal = await prisma.appSetting.findFirst({ where: { key: { startsWith: 'entity_id_migration:' } } });
     assert.ok(journal, 'migration journal row should exist');

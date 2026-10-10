@@ -71,7 +71,7 @@ async function schema(db: any, dialect: Dialect): Promise<Table[]> {
     t.pk = rows.map((r: any) => String(r.c ?? r.C));
     const uniqueRows=await db.$queryRawUnsafe(dialect==='mysql'
       ? `SELECT index_name AS n,column_name AS c FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='${t.name.replace(/'/g,"''")}' AND non_unique=0 ORDER BY index_name,seq_in_index`
-      : `SELECT tc.constraint_name AS n,kcu.column_name AS c FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name=kcu.constraint_name AND tc.constraint_schema=kcu.constraint_schema WHERE tc.constraint_type='UNIQUE' AND tc.table_schema=current_schema() AND tc.table_name='${t.name.replace(/'/g,"''")}' ORDER BY tc.constraint_name,kcu.ordinal_position`);
+      : `SELECT idx.relname AS n,attr.attname AS c,keypart.ordinality AS seq FROM pg_catalog.pg_class tbl JOIN pg_catalog.pg_namespace ns ON ns.oid=tbl.relnamespace JOIN pg_catalog.pg_index ix ON ix.indrelid=tbl.oid AND ix.indisunique AND ix.indisvalid AND ix.indisready AND ix.indpred IS NULL AND ix.indexprs IS NULL JOIN pg_catalog.pg_class idx ON idx.oid=ix.indexrelid JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS keypart(attnum,ordinality) ON keypart.ordinality<=ix.indnkeyatts JOIN pg_catalog.pg_attribute attr ON attr.attrelid=tbl.oid AND attr.attnum=keypart.attnum WHERE ns.nspname=current_schema() AND tbl.relname='${t.name.replace(/'/g,"''")}' ORDER BY idx.relname,keypart.ordinality`);
     const uniqueMap=new Map<string,string[]>();for(const r of uniqueRows){const n=String(r.n??r.N);if(!uniqueMap.has(n))uniqueMap.set(n,[]);uniqueMap.get(n)!.push(String(r.c??r.C));}
     t.unique=[...uniqueMap.values()];if(!t.pk.length)t.pk=t.unique[0]||[];
   }

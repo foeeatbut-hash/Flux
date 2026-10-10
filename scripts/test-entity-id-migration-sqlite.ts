@@ -1,4 +1,4 @@
-/** Project-bound identity migration checks for SQLite and disposable remote-provider fixtures. */
+/** Перенос проектных ID проверяется на SQLite и отдельных тестовых базах провайдеров. */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
