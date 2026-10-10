@@ -413,6 +413,26 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-equipment-catalog-ui",
+      "path": "scripts/test-equipment-catalog-ui.mjs",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-equipment-catalog-revision-guard",
+      "path": "scripts/test-equipment-catalog-revision-guard.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-builder-blank-formulas",
       "path": "scripts/test-catalog-blank.ts",
       "layer": "unit",
@@ -1800,7 +1820,8 @@
       ],
       "risk": "critical",
       "expected": [
-        "Предпросмотр показывает разницу; применение обновляет только не исправленные вручную поля по контракту."
+        "Предпросмотр показывает разницу; применение обновляет только не исправленные вручную поля по контракту.",
+        "Публикация новой версии обновляет статус и поиск, сохраняя выбранный вариант, предпросмотр и неизменённый снимок проекта до явного применения."
       ],
       "checks": [
         {
@@ -1808,6 +1829,20 @@
           "layer": "unit",
           "claims": [
             "Смена источника не подменяет характеристику, заданную входным XML."
+          ]
+        },
+        {
+          "suite": "eng-equipment-catalog-ui",
+          "layer": "unit",
+          "claims": [
+            "Событие публикации показывает доступную ревизию и помечает старый выбор, не меняя снимок проекта, выбранный вариант или предпросмотр."
+          ]
+        },
+        {
+          "suite": "eng-equipment-catalog-revision-guard",
+          "layer": "api-db",
+          "claims": [
+            "Сохранение каталожного предпросмотра принимает только ту опубликованную ревизию, которую проверял пользователь; конфликт сохраняет ручные значения, а XML-режим остаётся доступным."
           ]
         }
       ],

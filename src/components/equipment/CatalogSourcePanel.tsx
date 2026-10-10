@@ -4,6 +4,8 @@ import DataIssueDialog from '../catalog/DataIssueDialog';
 import type { CatalogDataIssueContext } from '../../../feedback/catalogDataIssue';
 import { catalogCodesForEquipment } from '../../../equipment/catalogSpecs';
 import { parseDesignation } from '../../../catalog/designation';
+import { useCatalogLive } from '../catalog/useCatalogLive';
+import { useCatalogStore } from '../../store/catalogStore';
 
 type Mode = 'hybrid' | 'xml' | 'catalog';
 type Source = 'xml' | 'catalog' | 'manual';
@@ -66,6 +68,8 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export default function CatalogSourcePanel({ componentId, version, equipClass, onChanged }: { componentId: string; version: number; equipClass?: string; onChanged: () => void }) {
+  useCatalogLive();
+  const catalogMeta = useCatalogStore((state) => state.meta);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [mode, setMode] = useState<Mode>('hybrid');
   const [selectedId, setSelectedId] = useState('');
@@ -98,7 +102,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
       setSelectedId((current) => current || data.binding?.modelId || '');
       setSelectedType(data.binding?.sourceType || 'component');
       const currentModel = data.binding?.snapshot
-        ? { ...data.binding.snapshot, sourceType: data.binding.sourceType || 'component', manufacturer: data.binding.manufacturer || '', parsedValues: data.binding.values } as Model
+        ? { ...data.binding.snapshot, sourceType: data.binding.sourceType || 'component', sourceRevision: data.binding.sourceRevision || data.binding.snapshot.sourceRevision, manufacturer: data.binding.manufacturer || '', parsedValues: data.binding.values } as Model
         : data.matches.find(item => item.id === data.binding?.modelId) || null;
       setSelectedModel(currentModel);
       setSelectedValues(data.binding?.values || currentModel?.parsedValues || {});
@@ -121,6 +125,29 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
     setCatalogLoaded(false); setAllModels([]);
     void load(controller.signal);
     return () => controller.abort();
+  }, [componentId]);
+
+  useEffect(() => {
+    let generation = 0;
+    let controller: AbortController | null = null;
+    const onPublished = () => {
+      const requestGeneration = ++generation;
+      controller?.abort();
+      controller = new AbortController();
+      setCatalogLoaded(false);
+      setAllModels([]);
+      setSearchResults([]);
+      void (async () => {
+        try {
+          const next = await readJson<Snapshot>(await fetch(`/api/equipment/component/${encodeURIComponent(componentId)}/catalog-source`, { signal: controller!.signal }));
+          if (requestGeneration === generation) setSnapshot(next);
+        } catch (e: any) {
+          if (e?.name !== 'AbortError' && requestGeneration === generation) setError(e?.message || 'Не удалось проверить новую ревизию каталога');
+        }
+      })();
+    };
+    window.addEventListener('catalog:published', onPublished);
+    return () => { generation++; controller?.abort(); window.removeEventListener('catalog:published', onPublished); };
   }, [componentId]);
 
   useEffect(() => {
@@ -182,6 +209,15 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
     return [...byId.values()];
   }, [snapshot?.matches, searchResults]);
   const chosen = selectedModel || candidates.find((item) => item.id === selectedId && (item.sourceType || 'component') === selectedType);
+  const normalizeRevision = (revision?: string) => {
+    if (!revision) return undefined;
+    const timestamp = Date.parse(revision);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : revision;
+  };
+  const matchingUpdateRevision = snapshot?.updateAvailable && snapshot.updateAvailable.id === chosen?.id
+    ? snapshot.updateAvailable.sourceRevision : undefined;
+  const chosenLatestRevision = chosen ? normalizeRevision(matchingUpdateRevision || catalogMeta[chosen.id]?.updatedAt || chosen.sourceRevision) : undefined;
+  const chosenIsStale = !!(chosen?.sourceRevision && chosenLatestRevision && normalizeRevision(chosen.sourceRevision) !== chosenLatestRevision);
 
   const selectModel = async (model: Model) => {
     const sourceType = model.sourceType || 'component';
@@ -219,6 +255,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
           mode,
           ...(selectedId || snapshot?.binding?.modelId ? { modelId: selectedId || snapshot?.binding?.modelId, sourceType: chosen?.sourceType || snapshot?.binding?.sourceType || 'component' } : {}),
           ...(refresh ? { refresh: true } : {}),
+          ...(mode !== 'xml' ? { expectedPublishedRevision: refresh ? snapshot?.updateAvailable?.sourceRevision || preview?.sourceRevision || chosen?.sourceRevision : preview?.sourceRevision || chosen?.sourceRevision } : {}),
           acceptedCatalogParams,
           ...(chosen?.sourceType === 'family' ? { values: selectedValues } : {}),
           ...(snapshot?.binding?.revision ? { expectedRevision: snapshot.binding.revision } : {}),
@@ -289,10 +326,11 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
             <div className="text-xs text-slate-600 dark:text-slate-300">Изменения относительно карточки</div>
             {preview.changes.length ? preview.changes.map(change => <div key={`${change.group}/${change.key}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 text-xs">
               <span className="truncate" title={`${change.group} · ${change.key}`}>{change.key}</span><span className="text-slate-500 dark:text-slate-400">{change.before || '—'} → {change.after || '—'}</span>
-              <span className="fx-badge">{mode === 'hybrid' ? <button type="button" className="fx-btn fx-btn-sm" disabled={busy} onClick={() => void save(false, [`${change.group}||${change.key}`])}>Принять параметр</button> : 'Каталог'}</span>
+              <span className="fx-badge">{mode === 'hybrid' ? <button type="button" className="fx-btn fx-btn-sm" disabled={busy || chosenIsStale} onClick={() => void save(false, [`${change.group}||${change.key}`])}>Принять параметр</button> : 'Каталог'}</span>
             </div>) : <div className="text-xs text-slate-500">Различий нет.</div>}
           </div>}
         </div>}
+        {chosenIsStale && <div className="fx-note fx-note-warn flex items-start gap-2" role="status"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />Выбранная модель устарела после публикации. Проверьте ревизию и предпросмотр перед применением.</div>}
       </div>}
 
       {mode === 'xml' && <div className="flex items-center gap-2 py-1 text-xs text-slate-500 dark:text-slate-400"><span className="fx-badge">XML</span>Каталог не влияет на характеристики.</div>}
@@ -340,7 +378,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
       </details> : null}
 
       <div className="flex flex-wrap items-center gap-2 pt-2">
-        <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy || ((mode === 'hybrid' || mode === 'catalog') && (!selectedId && !snapshot?.binding?.modelId || !preview))} onClick={() => void save(mode === 'hybrid' || mode === 'catalog', mode === 'hybrid' ? (preview?.changes || []).map(change => `${change.group}||${change.key}`) : [])}>
+        <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy || (mode !== 'xml' && chosenIsStale) || ((mode === 'hybrid' || mode === 'catalog') && (!selectedId && !snapshot?.binding?.modelId || !preview))} onClick={() => void save(mode === 'hybrid' || mode === 'catalog', mode === 'hybrid' ? (preview?.changes || []).map(change => `${change.group}||${change.key}`) : [])}>
           {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : snapshot?.binding ? <RefreshCw className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
           {mode === 'xml' ? 'Сохранить режим XML' : mode === 'hybrid' ? 'Принять все различия' : 'Применить данные каталога'}
         </button>

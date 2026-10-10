@@ -9,6 +9,7 @@ import { sourceInfo, equipmentCatalog, bindingKey, catalogRevision, matchesFor, 
 import { previewCatalogSource } from '../equipmentCatalog.js';
 import { catalogValuesByAddress, snapshotForBinding } from '../../equipment/catalogSpecs.js';
 import { withBump } from '../equipmentVersion.js';
+import { readCatalog } from './catalog.js';
 
 export function registerEquipmentCatalogRoutes(app: Express): void {
   const position = async (req: Request) => {
@@ -49,15 +50,16 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
       if (mode !== 'xml' && !model) return res.status(400).json({ error: 'Выберите точную модель в каталоге' });
       if (mode !== 'xml' && model && (sourceType === 'family' ? (model as any).status === 'draft' || !familyMatchesEquipment(el, model as any, catalog) : !componentMatchesEquipment(el, model as any, catalog))) return res.status(400).json({ error: 'Модель не опубликована или не относится к типу этой позиции' });
       const sameSource = old?.modelId === model?.id && (old?.sourceType || 'component') === sourceType;
-      // Persist the canonical catalogue entity as-is. `kind: 'other'` is only
-      // a legacy UI DTO value for families; changing Family.kind would corrupt
-      // parsed facts and conditional specification cases in the project snapshot.
+      // Сохраняем исходную модель: значение «other» из старого DTO не должно менять тип семейства.
       const selected = model;
       const exactCandidate = selected && matchesFor(el, catalog).find(candidate => candidate.id === selected.id && candidate.sourceType === sourceType);
       const values = sourceType === 'family' && model
         ? validateFamilyValues(model as any, req.body?.values ?? (old?.modelId === model.id && sameSource ? old?.values : exactCandidate?.parsedValues ?? {}), exactCandidate?.parsedValues ? [exactCandidate.parsedValues] : [])
         : exactCandidate?.parsedValues || (old?.modelId === model?.id && (old?.sourceType || 'component') === sourceType ? old?.values : undefined);
       const sourceRevision = model ? publishedRevision(catalog.meta?.[model.id]?.updatedAt, catalogRevision(model)) : undefined;
+      const expectedPublishedRevision = req.body?.expectedPublishedRevision;
+      const publicationChanged = () => Object.assign(new Error('Каталог изменился. Обновите предпросмотр перед применением.'), { status: 409 });
+      if (mode !== 'xml' && (typeof expectedPublishedRevision !== 'string' || !expectedPublishedRevision || expectedPublishedRevision !== sourceRevision)) throw publicationChanged();
       const snapshot = sameSource ? snapshotForBinding(old?.snapshot, selected, !!req.body?.refresh) : selected;
       const acceptedCandidate = mode !== 'xml' && model && snapshot
         ? catalogValuesByAddress(el.specs, snapshot, { values, sourceRef: snapshot.catalog }) : {};
@@ -86,6 +88,15 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
       const oldSnapshot = JSON.stringify({ catalogSource: old, overrides: el.overrides ?? null, version: Number(el.version || 1) });
       const newSnapshot = JSON.stringify({ catalogSource: binding, overrides: serializedOverrides, version: Number(el.version || 1) + 1 });
       await p.$transaction(async (db: any) => {
+        // Повторная проверка внутри транзакции защищает ручные значения от публикации после предпросмотра.
+        if (mode !== 'xml') {
+          const currentCatalog = await readCatalog(db);
+          const currentModel = sourceType === 'family'
+            ? currentCatalog.families.find(c => c.id === model!.id)
+            : currentCatalog.components.find(c => c.id === model!.id);
+          if (!currentModel || publishedRevision(currentCatalog.meta?.[currentModel.id]?.updatedAt, catalogRevision(currentModel)) !== expectedPublishedRevision
+            || (sourceType === 'family' ? (currentModel as any).status === 'draft' || !familyMatchesEquipment(el, currentModel as any, currentCatalog) : !componentMatchesEquipment(el, currentModel as any, currentCatalog))) throw publicationChanged();
+        }
         const changed = await db.componentElement.updateMany({
           where: { id: el.id, version: expectedVersion },
           data: withBump({ overrides: serializedOverrides }),
@@ -97,11 +108,12 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
         } else await db.appSetting.create({ data: { id: `ecb-${el.id}`, key, userId: null, value: JSON.stringify(binding) } });
         await db.appSetting.create({ data: { key: `equipment_catalog_history:${el.id}:${randomUUID()}`, userId: (req as any).authUser?.id || null, value: JSON.stringify({ before: old, after: binding }) } });
         await db.equipmentHistory.create({ data: { elementId: el.id, version: expectedVersion, oldSpecs: oldSnapshot, newSpecs: newSnapshot, changeType: 'CATALOG_SOURCE', batchId } });
-      });
+      }, { isolationLevel: 'Serializable' });
       emitEntityChanged('element', el.id, req);
       res.json({ ok: true, binding });
     } catch (err: any) {
       if (err.code === 'P2002') return res.status(409).json({ error: 'Привязку уже сохранил коллега. Обновите карточку' });
+      if (err.code === 'P2034') return res.status(409).json({ error: 'Данные изменились во время применения. Обновите предпросмотр.' });
       sendError(res, err, err.status || 500);
     }
   });
