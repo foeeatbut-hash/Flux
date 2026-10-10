@@ -13,6 +13,7 @@ export function toPositions(items: ExchangeComponent[]): E3Position[] {
     id: String(it.id || ''),
     cls: String(it.cls || 'ПРОЧЕЕ'),
     ...(it.role ? { role: it.role } : {}),
+    ...(it.parentElementId ? { parentElementId: it.parentElementId } : {}),
     ...((it.tags || [])[0]?.identifier ? { tag: it.tags![0].identifier } : {}),
     ...(it.parentTag ? { parentTag: it.parentTag } : {}),
     read: (s: E3RuleSource) => (s.kind === 'field' ? equipmentCell(it, 'e3:x', '', { kind: 'field', key: s.key })

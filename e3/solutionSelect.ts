@@ -21,14 +21,20 @@ const ANY = 'любой';
 const matches = (raw: string, when: string): boolean => (when.startsWith('~') ? normText(raw).includes(normText(when.slice(1))) : same(raw, when));
 
 /**
- * Значения по источнику: подпозиции ищутся среди соседей по тегу владельца.
+ * Значения по источнику: подпозиции ищутся по ID владельца, а для старых
+ * снимков без ID родителя — по тегу.
  * У подпозиций роли значений может быть несколько (датчиков у блока два —
  * реле и термостат), поэтому возвращаются все непустые, а правило берёт первую
  * строку таблицы, подошедшую хоть к одному из них.
  */
 function resolveAll(source: E3RuleSource, position: E3Position, siblings: E3Position[]): string[] {
   if (source.kind === 'field' || source.kind === 'param') return [position.read(source)];
-  const children = position.tag ? siblings.filter((s) => s.id !== position.id && s.parentTag === position.tag && s.role === source.role) : [];
+  const hasIdentityLinks = siblings.some((s) => !!s.parentElementId);
+  const children = hasIdentityLinks
+    ? siblings.filter((s) => s.id !== position.id && s.parentElementId === position.id && s.role === source.role)
+    : position.tag
+      ? siblings.filter((s) => s.id !== position.id && !s.parentElementId && s.parentTag === position.tag && s.role === source.role)
+      : [];
   if (source.kind === 'count') return [String(children.length)];
   const probe: E3RuleSource = source.kind === 'child-param' ? { kind: 'param', name: source.name, ...(source.unit ? { unit: source.unit } : {}) } : { kind: 'field', key: source.key };
   return children.map((c) => c.read(probe)).filter((v) => String(v).trim());
