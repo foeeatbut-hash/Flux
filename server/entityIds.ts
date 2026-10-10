@@ -35,9 +35,8 @@ function shouldRetry(error: any): boolean {
 }
 
 async function standalone<T>(db: any, operation: (tx: any) => Promise<T>, options?: EntityIdOptions): Promise<T> {
-  // Prisma interactive transaction clients may still expose a `$transaction`
-  // method, and lightweight test/provider wrappers often do as well. Callers
-  // that already own the transaction must opt in explicitly to avoid nesting.
+  // Транзакционный клиент Prisma и обёртки могут сохранять метод $transaction.
+  // Явный признак исключает вложенную транзакцию и блокировку импорта.
   if (options?.inTransaction) return operation(db);
   if (typeof db?.$transaction !== 'function') return operation(db);
   let last: unknown;

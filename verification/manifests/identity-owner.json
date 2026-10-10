@@ -202,6 +202,40 @@
       ],
       "prerequisites": [],
       "timeoutMs": 90000
+    },
+    {
+      "id": "identity-project-id-migration",
+      "path": "scripts/test-entity-id-migration-sqlite.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "identity-project-id-migration-ui",
+      "path": "scripts/test-entity-id-migration-ui.mjs",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "vite-port:4176"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "identity-project-id-migration-routes",
+      "path": "scripts/test-entity-id-migration-routes.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
     }
   ],
   "actions": [
@@ -1589,6 +1623,61 @@
           "scenario": "Повторить lock, неверную фразу, аварийный вход и возвращение в основную сессию",
           "expected": [
             "После lock состояние закрыто, основной vault читается неизменённым"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "identity.settings.project-id-migration",
+      "program": "settings",
+      "label": "Перенести проектные UUID в постоянные ID и отменить перенос",
+      "sources": [
+        "src/components/settings/EntityIdMigrationPanel.tsx",
+        "src/lib/entityIdLocalMigration.ts",
+        "server/entityIdMigration.ts",
+        "server/routes/entityIdMigration.ts",
+        "server/entityIds.ts"
+      ],
+      "triggers": [
+        "Проверить сопоставление",
+        "Скачать сопоставление",
+        "Применить перенос",
+        "Отменить перенос"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр не пишет в базу; применение переносит поддержанные ссылки одной транзакцией, блокирует неподдержанные ссылки и внешние связи E3.",
+        "Отмена проверяет актуальность сохранённых ссылок; локальные XML capability и пути сохраняются."
+      ],
+      "checks": [
+        {
+          "suite": "identity-project-id-migration",
+          "layer": "api-db",
+          "claims": [
+            "Перенос сохраняет проектные ссылки и выполняется целиком; устаревший план и внешний E3 блокируются; отмена восстанавливает ID."
+          ]
+        },
+        {
+          "suite": "identity-project-id-migration-ui",
+          "layer": "component",
+          "claims": [
+            "Пользователь проверяет план до применения; блокеры отключают кнопку; перенос и отмена сохраняют локальные связи XML и границы проектов."
+          ]
+        },
+        {
+          "suite": "identity-project-id-migration-routes",
+          "layer": "api-db",
+          "claims": [
+            "Только владелец применяет и отменяет перенос; история ограничена доступными проектами, прямое чтение и запись журнала запрещены."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "windows-native",
+          "scenario": "На двух тестовых Windows-компьютерах применить перенос, затем открыть второй компьютер и проверить восстановление локального XML источника по журналу.",
+          "expected": [
+            "Пути и capability Проводника сохраняются; источник относится к прежней позиции под новым ID."
           ]
         }
       ]

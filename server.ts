@@ -66,6 +66,7 @@ import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
+import { registerEntityIdMigrationRoutes } from './server/routes/entityIdMigration.js';
 import { registerImportDictRoutes } from './server/routes/importDict.js';
 import { registerEquipmentDraftRoutes } from './server/routes/equipmentDraft.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
@@ -1214,6 +1215,7 @@ registerEquipmentDraftRoutes(app);
 // Настройки приложения (/api/settings) — вынесены в server/routes/settings.ts;
 // upsertSetting импортируется из server/context.ts (используется и здесь ниже).
 registerSettingsRoutes(app);
+registerEntityIdMigrationRoutes(app);
 
 
 async function startServer() {

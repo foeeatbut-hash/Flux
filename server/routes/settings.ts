@@ -22,6 +22,8 @@ export function registerSettingsRoutes(app: Express): void {
       if (!me?.id) return res.status(401).json({ error: 'Требуется вход' });
       const { key } = req.params;
       if (!validSettingKey(key)) return res.status(400).json({ error: 'Некорректный ключ настройки' });
+      if (/^__flux_entity_id_counter__/i.test(key)) return res.status(403).json({ error: 'Служебный счётчик доступен только внутренним операциям.' });
+      if (/^entity_id_migration:/i.test(key)) return res.status(403).json({ error: 'История переноса доступна только через команды переноса ID.' });
       if (/^(employee_import_batch:|catalog_)/i.test(key)) return res.status(403).json({error:'Служебные данные импорта доступны только через его команды.'});
       const admin = isAdminActor(me);
       // Ключи доверия постороннему не показываем: по ним видно, чем защищена программа

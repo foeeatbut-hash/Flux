@@ -34,6 +34,18 @@ import { mayClose } from './lib/closeGuard';
 import PlayInviteWatcher from './play/InviteWatcher';
 import { playEnabled } from '../play/enabled';
 import OwnedFileShareSync from './components/explorer/OwnedFileShareSync';
+import { ENV_CONFIG } from './config/env';
+import { syncEntityIdMigrationHistory } from './lib/entityIdLocalMigration';
+
+/** Перечитывает журнал сервера, чтобы локальные ссылки на проекты обновлялись на всех компьютерах. */
+function EntityIdMigrationSync() {
+  const userId = useStore((state) => state.user?.id);
+  React.useEffect(() => {
+    if (!userId) return;
+    return syncEntityIdMigrationHistory(ENV_CONFIG.apiUrl);
+  }, [userId]);
+  return null;
+}
 
 function ScreenLoader() {
   return (
@@ -399,6 +411,7 @@ export default function App() {
             {/* Пока встроенный сервер поднимается — анимированная заставка вместо пустого экрана */}
             <ServerGate>
               <LicenseGate>
+                <EntityIdMigrationSync />
                 <AnimatedRoutes />
                 {playEnabled() && <PlayInviteWatcher />}
                 <TagNavigationPanel />

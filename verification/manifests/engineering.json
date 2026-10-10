@@ -799,6 +799,28 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "eng-project-entity-ids",
+      "path": "scripts/test-entity-ids.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "eng-dynamic-field-identity",
+      "path": "scripts/test-dynamic-field-rename-sqlite.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
     }
   ],
   "actions": [
@@ -843,7 +865,9 @@
       "label": "Развернуть дополнительные поля и сохранить спецификационные сведения",
       "sources": [
         "src/screens/Registry.tsx",
-        "src/components/registry/RegistryHeader.tsx"
+        "src/components/registry/RegistryHeader.tsx",
+        "src/components/registry/TagCardModal.tsx",
+        "server/routes/dictionaries.ts"
       ],
       "triggers": [
         "form toggle",
@@ -851,9 +875,18 @@
       ],
       "risk": "normal",
       "expected": [
-        "Сохранённые дополнительные свойства привязаны к новому тегу и читаются повторно."
+        "Сохранённые дополнительные свойства привязаны к новому тегу и читаются повторно.",
+        "Переименование поля сохраняет значение по постоянному ID категории; выгрузка показывает актуальную подпись."
       ],
-      "checks": [],
+      "checks": [
+        {
+          "suite": "eng-dynamic-field-identity",
+          "layer": "api-db",
+          "claims": [
+            "Переименование категории переносит прежнее значение по ID без потери более нового значения и сохраняет остальные поля metadata."
+          ]
+        }
+      ],
       "manual": [
         {
           "layer": "browser-live",
@@ -3892,6 +3925,13 @@
           "layer": "api-db",
           "claims": [
             "Запись справочника можно создать, изменить и удалить отдельно от корня."
+          ]
+        },
+        {
+          "suite": "eng-dynamic-field-identity",
+          "layer": "api-db",
+          "claims": [
+            "Переименование категории сохраняет значения связанных тегов."
           ]
         }
       ],

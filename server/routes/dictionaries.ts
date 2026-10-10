@@ -127,8 +127,7 @@ export function registerDictionaryRoutes(app: Express): void {
             && !before.parentId
             && req.body.nameRu !== undefined
             && req.body.nameRu !== before.nameRu;
-          // Compare the full prior item so two editors cannot silently rename
-          // the same category from stale snapshots.
+          // Снимок прежних значений защищает категорию от одновременного переименования.
           const changed = await tx.dictionaryItem.updateMany({
             where: { id: before.id, code: before.code, nameRu: before.nameRu, parentId: before.parentId },
             data: {
@@ -152,7 +151,7 @@ export function registerDictionaryRoutes(app: Express): void {
               // намеренно оставляем: обмен и прежние клиенты могут его ещё читать.
               if (fields[before.id] !== undefined || fields[before.nameRu] === undefined) continue;
               const migrated = JSON.stringify({ ...metadata, dynamicFields: { ...fields, [before.id]: fields[before.nameRu] } });
-              // CAS avoids overwriting a value another editor saved after our read.
+              // Сравнение снимка защищает значение, записанное другим редактором после чтения.
               const saved = await tx.tag.updateMany({ where: { id: tag.id, metadata: tag.metadata }, data: { metadata: migrated } });
               if (saved.count !== 1) throw new RenameConflict('Tag metadata changed concurrently');
             }
