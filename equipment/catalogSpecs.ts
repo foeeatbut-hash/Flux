@@ -48,7 +48,7 @@ export function matchPublishedFamily(families: Family[], designation: string, ma
 export function catalogCodesForEquipment(equipType: unknown): string[] {
   const type = String(equipType || '').toLocaleLowerCase('ru');
   if (/вентилятор|fan/.test(type)) return ['fan'];
-  if (/клапан|привод|valve|actuator/.test(type)) return ['valve'];
+  if (/клапан|заслонк|привод|valve|actuator|damper/.test(type)) return ['valve'];
   if (/двигател|motor/.test(type)) return ['motor'];
   if (/фильтр|filter/.test(type)) return ['filter'];
   return [];
