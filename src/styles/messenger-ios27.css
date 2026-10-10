@@ -1,0 +1,284 @@
+/*
+ * Мессенджер: отдельная стеклянная навигационная оболочка.
+ * Размытие допускается для панелей управления, но не для сообщений:
+ * текст и инженерные обозначения должны оставаться чёткими.
+ */
+.fx-ios-messenger {
+  --im-bg: #f5f8fb;
+  --im-sidebar: rgba(255, 255, 255, .68);
+  --im-toolbar: rgba(255, 255, 255, .72);
+  --im-border: rgba(255, 255, 255, .82);
+  --im-outline: rgba(95, 126, 143, .15);
+  --im-hover: rgba(255, 255, 255, .64);
+  --im-selected: rgba(255, 255, 255, .9);
+  --im-text: #243443;
+  --im-secondary: #758796;
+  --im-accent: #168966;
+  --im-own: #d7f3e4;
+  --im-peer: rgba(255, 255, 255, .93);
+  --im-shadow: 0 8px 30px rgba(40, 69, 85, .06), inset 0 1px 0 rgba(255, 255, 255, .75);
+  color: var(--im-text);
+  background: radial-gradient(ellipse 65% 60% at 70% 22%, #e7f5fb 0%, transparent 75%),
+              radial-gradient(ellipse 60% 50% at 88% 95%, #e5f6ed 0%, transparent 83%), var(--im-bg);
+  isolation: isolate;
+}
+
+.dark .fx-ios-messenger {
+  --im-bg: #121d24;
+  --im-sidebar: rgba(27, 40, 50, .82);
+  --im-toolbar: rgba(32, 45, 55, .79);
+  --im-border: rgba(182, 211, 223, .13);
+  --im-outline: rgba(205, 229, 237, .09);
+  --im-hover: rgba(160, 197, 208, .1);
+  --im-selected: rgba(144, 196, 206, .15);
+  --im-text: #e9f2f4;
+  --im-secondary: #9eaebb;
+  --im-accent: #56caa0;
+  --im-own: #245347;
+  --im-peer: #2a3b46;
+  --im-shadow: 0 12px 32px rgba(0, 0, 0, .12), inset 0 1px 0 rgba(255, 255, 255, .05);
+  background: radial-gradient(ellipse 70% 70% at 72% 18%, #1e3440 0%, transparent 70%),
+              radial-gradient(ellipse 54% 60% at 89% 90%, #14352d 0%, transparent 73%), var(--im-bg);
+}
+
+.fx-ios-messenger__sidebar {
+  width: 314px !important;
+  flex: 0 0 314px !important;
+  border-right: 1px solid var(--im-outline) !important;
+  background: var(--im-sidebar) !important;
+  backdrop-filter: blur(27px) saturate(145%);
+  -webkit-backdrop-filter: blur(27px) saturate(145%);
+  box-shadow: 6px 0 24px rgba(41, 81, 95, .035);
+}
+.fx-ios-messenger__sidebar-head {
+  padding: 18px 16px 11px !important;
+  gap: 12px !important;
+}
+.fx-ios-messenger__title {
+  font-size: 21px !important;
+  font-weight: 600;
+  letter-spacing: -.65px;
+  color: var(--im-text) !important;
+}
+.fx-ios-messenger .fx-ibtn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 12px;
+  color: var(--im-secondary);
+  transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+.fx-ios-messenger .fx-ibtn:hover {
+  background: var(--im-selected);
+  box-shadow: var(--im-shadow);
+  color: var(--im-accent);
+}
+.fx-ios-messenger .fx-ibtn:active { transform: scale(.94); }
+.fx-ios-messenger__search .fx-input {
+  height: 39px;
+  border-radius: 13px;
+  background: var(--im-selected) !important;
+  border: 1px solid var(--im-border) !important;
+  box-shadow: var(--im-shadow);
+  color: var(--im-text) !important;
+  font-size: 12px;
+}
+.fx-ios-messenger__search .fx-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--im-accent) 36%, transparent);
+  outline-offset: 0;
+}
+.fx-ios-messenger__filters {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 14px 11px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.fx-ios-messenger__filters::-webkit-scrollbar { display: none; }
+.fx-ios-messenger__filter {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--im-secondary);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.fx-ios-messenger__filter:hover { background: var(--im-hover); }
+.fx-ios-messenger__filter[aria-pressed="true"] {
+  background: var(--im-selected);
+  border-color: var(--im-border);
+  box-shadow: var(--im-shadow);
+  color: var(--im-text);
+}
+.fx-ios-messenger__list {
+  padding: 4px 10px 12px !important;
+  gap: 11px !important;
+}
+.fx-ios-messenger__list .fx-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--im-secondary);
+  padding: 3px 8px 5px;
+}
+.fx-ios-messenger__list .fx-li {
+  height: 58px !important;
+  min-height: 58px;
+  border-radius: 16px !important;
+  margin-bottom: 3px;
+  padding: 7px 10px !important;
+  gap: 12px;
+  border: 1px solid transparent;
+  color: var(--im-text);
+  background: transparent;
+}
+.fx-ios-messenger__list .fx-li:hover {
+  background: var(--im-hover);
+  border-color: var(--im-border);
+}
+.fx-ios-messenger__list .fx-li[aria-current="true"] {
+  background: var(--im-selected);
+  border-color: var(--im-border);
+  box-shadow: var(--im-shadow);
+}
+.fx-ios-messenger__list .fx-li > svg {
+  width: 21px;
+  height: 21px;
+  opacity: .8;
+}
+.fx-ios-messenger__list .fx-li .fx-badge { box-shadow: 0 1px 7px rgba(19, 135, 95, .17); }
+.fx-ios-messenger__main {
+  background: transparent !important;
+}
+.fx-ios-messenger__chat-head {
+  height: 64px !important;
+  min-height: 64px;
+  padding: 0 18px !important;
+  background: var(--im-toolbar) !important;
+  border-bottom: 1px solid var(--im-border) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  z-index: 6;
+}
+.fx-ios-messenger__chat-head h3 { color: var(--im-text) !important; }
+.fx-ios-messenger__chat-head .fx-input {
+  height: 35px;
+  border-radius: 12px;
+  background: var(--im-selected) !important;
+  border: 1px solid var(--im-border) !important;
+}
+.fx-ios-messenger__chat-head .relative > .w-9 {
+  border-radius: 50%;
+  background: var(--im-selected);
+  box-shadow: var(--im-shadow);
+}
+.fx-ios-messenger__timeline {
+  background: transparent !important;
+  padding: 26px clamp(16px, 4%, 48px) 22px !important;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--im-outline) transparent;
+}
+.fx-ios-messenger__timeline .flux-lazy-item {
+  transition: transform 170ms cubic-bezier(.2,.7,.2,1);
+}
+.fx-ios-messenger__bubble {
+  border-radius: 18px !important;
+  border: 1px solid var(--im-border) !important;
+  background: var(--im-peer) !important;
+  color: var(--im-text) !important;
+  padding: 9px 13px !important;
+  box-shadow: 0 2px 9px rgba(41, 73, 86, .065) !important;
+  font-size: 13px !important;
+  line-height: 1.5;
+}
+.fx-ios-messenger__bubble--mine {
+  background: var(--im-own) !important;
+  border-color: rgba(64, 159, 119, .13) !important;
+  color: var(--im-text) !important;
+}
+.fx-ios-messenger__bubble--mine .flux-own-msg,
+.fx-ios-messenger__bubble--mine .flux-own-msg * { color: inherit; }
+.fx-ios-messenger__bubble--mine .text-emerald-50\/80,
+.fx-ios-messenger__bubble--mine .text-emerald-50\/70 { color: var(--im-secondary) !important; }
+.fx-ios-messenger__day {
+  border: 1px solid var(--im-border);
+  box-shadow: var(--im-shadow);
+  background: var(--im-toolbar) !important;
+  color: var(--im-secondary) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-weight: 500 !important;
+  border-radius: 999px;
+}
+.fx-ios-messenger__composer {
+  margin: 0 15px 14px;
+  padding: 10px 11px !important;
+  border: 1px solid var(--im-border) !important;
+  border-radius: 20px;
+  background: var(--im-toolbar) !important;
+  box-shadow: 0 8px 30px rgba(24, 76, 86, .09), inset 0 1px 0 rgba(255,255,255,.55);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  z-index: 5;
+}
+.fx-ios-messenger__composer [data-tour="chat-input"] {
+  min-height: 38px;
+  border-radius: 14px !important;
+  border: 1px solid var(--im-outline) !important;
+  background: var(--im-selected) !important;
+  color: var(--im-text) !important;
+  font-size: 13px !important;
+}
+.fx-ios-messenger__composer button[type="submit"] {
+  height: 36px;
+  width: 36px;
+  padding: 0;
+  border-radius: 13px;
+  background: var(--im-accent) !important;
+  box-shadow: 0 3px 12px rgba(28, 126, 93, .19) !important;
+}
+.fx-ios-messenger__details {
+  background: var(--im-sidebar) !important;
+  border-left: 1px solid var(--im-border) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.fx-ios-messenger .fx-pop,
+.fx-ios-messenger .fx-dialog {
+  background: var(--im-toolbar) !important;
+  border: 1px solid var(--im-border) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 16px 48px rgba(14, 49, 65, .17), inset 0 1px 0 rgba(255,255,255,.2);
+  backdrop-filter: blur(27px) saturate(125%);
+  -webkit-backdrop-filter: blur(27px) saturate(125%);
+}
+.fx-ios-messenger .fx-menu-item { border-radius: 10px; }
+.fx-ios-messenger .fx-menu-item:hover { background: var(--im-hover); }
+.fx-ios-messenger :is(button, input, [role="textbox"]):focus-visible {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 950px) {
+  .fx-ios-messenger__sidebar { width: 275px !important; flex-basis: 275px !important; }
+  .fx-ios-messenger__chat-head .fx-input { width: 132px; }
+}
+@media (max-width: 720px) {
+  .fx-ios-messenger__sidebar { width: 220px !important; flex-basis: 220px !important; }
+  .fx-ios-messenger__list .fx-li { gap: 6px; }
+  .fx-ios-messenger__chat-head { padding: 0 10px !important; }
+  .fx-ios-messenger__chat-head .fx-input { width: 104px; }
+  .fx-ios-messenger__timeline { padding: 18px 10px !important; }
+  .fx-ios-messenger__composer { margin: 0 7px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-ios-messenger *,
+  .fx-ios-messenger *::before,
+  .fx-ios-messenger *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
