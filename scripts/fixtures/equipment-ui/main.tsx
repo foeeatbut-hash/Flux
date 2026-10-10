@@ -13,9 +13,12 @@ type FixtureComponent = ExportSystem['monoblocks'][number]['components'][number]
   version: number;
   hasConflict: boolean;
   status: string;
+  catalogSource?: { effective?: Array<{ group: string; key: string; source: string }> };
 };
 type FixtureMonoblock = Omit<ExportSystem['monoblocks'][number], 'components'> & { id: string; components: FixtureComponent[] };
 type FixtureSystem = Omit<ExportSystem, 'monoblocks'> & { fileName?: string; monoblocks: FixtureMonoblock[] };
+const fixtureProjectId = '7e9f611c-2fd7-49b2-8a40-31ab93337891';
+const longUntaggedId = `${fixtureProjectId}-EQ-000001`;
 
 const systems: FixtureSystem[] = [
   { id: 'ahu-1', name: 'AHU-101', category: 'AHU', fileName: 'расчёт-ahU-101.xlsx', monoblocks: [{ id: 'mb-1', name: 'Приток', components: [
@@ -25,6 +28,7 @@ const systems: FixtureSystem[] = [
       { title: 'Габариты', params: [{ key: 'Ширина', value: '820', unit: 'мм' }, { key: 'Высота', value: '760', unit: 'мм' }] },
     ] }) },
     { id: 'motor-1', itemCode: 'M-1', name: 'Электродвигатель 160М6', equipType: 'Электродвигатель', role: 'ДВИГАТЕЛЬ', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [{ id: 'tag-2', identifier: 'AHU-101-M1' }], specs: JSON.stringify({ groups: [{ title: 'Электрические', params: [{ key: 'Мощность', value: '5.5', unit: 'кВт' }] }] }) },
+    { id: longUntaggedId, itemCode: 'B-2', name: 'Рама фильтра длинного проекта', equipType: 'Корпус фильтра', role: 'ФИЛЬТР', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [], specs: JSON.stringify({ groups: [{ title: 'Габариты', params: [{ key: 'Ширина', value: '600', unit: 'мм' }] }] }) },
   ] }] },
   { id: 'fan-1', name: 'FAN-201', category: 'FAN', monoblocks: [{ id: 'mb-2', name: '__unit__', components: [
     { id: 'fan-unit', itemCode: '__unit__', name: 'Параметры установки', equipType: 'Радиальный вентилятор', role: 'БЛОК', version: 1, hasConflict: false, status: 'OK', tags: [{ id: 'tag-3', identifier: 'FAN-201' }], specs: JSON.stringify({ groups: [{ title: 'Производительность', params: [{ key: 'Расход воздуха', value: '4200', unit: 'м³/ч' }, { key: 'Давление', value: '650', unit: 'Па' }] }] }) },
@@ -37,7 +41,7 @@ const sources = buildExportSources(systems, [
   { id: 'VALVE', label: 'Клапаны' },
   { id: 'CURTAIN', label: 'Воздушные завесы' },
 ]);
-useStore.setState({ user: { id: 'equipment-fixture', name: 'Проверка', symbol: 'TEST', role: 'ADMIN' } as any, activeProject: { id: 'equipment-fixture', name: 'Пробный проект' } as any });
+useStore.setState({ user: { id: 'equipment-fixture', name: 'Проверка', symbol: 'TEST', role: 'ADMIN' } as any, activeProject: { id: fixtureProjectId, name: 'Пробный проект' } as any });
 
 function Fixture() {
   const [screen, setScreen] = useState<'equipment' | 'export'>('equipment');
@@ -51,7 +55,7 @@ function Fixture() {
       <div className="min-h-0 flex-1">
         {screen === 'equipment'
           ? <Equipment />
-          : <ExportBuilder projectId="equipment-fixture" projectName="Пробный проект" initialScope="all" scopes={sources.scopes} rowsOf={sources.rows} say={say} onClose={() => setScreen('equipment')} />}
+          : <ExportBuilder projectId={fixtureProjectId} projectName="Пробный проект" initialScope="all" scopes={sources.scopes} rowsOf={sources.rows} say={say} onClose={() => setScreen('equipment')} />}
       </div>
     </div>
   </PaneContext.Provider></MemoryRouter>;

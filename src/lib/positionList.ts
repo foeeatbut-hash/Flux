@@ -29,6 +29,7 @@ export const ORIGIN_TITLE: Record<Origin, string> = { calc: 'из расчёта
 export interface ListRow {
   id: string;
   tag: string;
+  tagId?: string;
   cls: ClassId;
   kind: string;
   label: string;
@@ -67,9 +68,9 @@ export function positionRows(systems: ListSystem[], types: Map<string, Classifie
         parentTag: parentTagOf(c as any), unitId: sys.id, unitName: sys.name, origin: originOf(c),
         order: Number(c.sourceOrder) || 0,
       };
-      const tags = (c.tags || []).map((x) => x.identifier).filter(Boolean);
+      const tags = (c.tags || []).filter((x) => x.identifier);
       if (!tags.length) out.push({ ...base, tag: '' });
-      for (const tag of tags) out.push({ ...base, tag });
+      for (const tag of tags) out.push({ ...base, tag: tag.identifier, ...(tag.id ? { tagId: tag.id } : {}) });
     }
   }
   return out;
@@ -98,7 +99,7 @@ export function filterRows(rows: ListRow[], f: ListFilter): ListRow[] {
     if (f.tagged === 'with' && !r.tag) return false;
     if (f.tagged === 'without' && r.tag) return false;
     if (!q) return true;
-    return [r.tag, r.label, r.kind, r.parentTag, r.unitName, classById(r.cls).title]
+    return [r.id, r.tag, r.label, r.kind, r.parentTag, r.unitName, classById(r.cls).title]
       .some((v) => v.toLowerCase().includes(q));
   });
 }

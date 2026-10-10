@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Tag as TagIcon, X } from 'lucide-react';
+import { RefreshCw, Search, Tag as TagIcon, X } from 'lucide-react';
 import { classById, classTitle, type Classified } from '../../../equipment/classes';
 import {
   positionRows, filterRows, classCounts, groupRows, ORIGIN_TITLE,
@@ -24,6 +24,7 @@ interface Props {
   types: Map<string, Classified>;
   onOpen: (componentId: string) => void;
   onClose: () => void;
+  sourceStatuses?: Record<string, { status: string; revision?: string }>;
 }
 
 const PREF = 'flux_position_list';
@@ -37,7 +38,7 @@ const readPref = (): { by: GroupBy; tagged: 'all' | 'with' | 'without' } => {
   } catch (_) { return { by: 'class', tagged: 'all' }; }
 };
 
-export default function PositionList({ systems, types, onOpen, onClose }: Props) {
+export default function PositionList({ systems, types, onOpen, onClose, sourceStatuses }: Props) {
   const [pref, setPref] = React.useState(readPref);
   const [classes, setClasses] = React.useState<string[]>([]);
   const [q, setQ] = React.useState('');
@@ -54,6 +55,7 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
   );
   const groups = React.useMemo(() => groupRows(shown, pref.by), [shown, pref.by]);
   const tagged = rows.filter((r) => r.tag).length;
+  const sourceLabel = (status?: string) => ({ pending: 'Есть XML-обновление', partial: 'XML рассмотрен частично', ambiguous: 'Нужно выбрать XML', invalid: 'XML повреждён', unstable: 'XML меняется', 'source-unavailable': 'Папка XML недоступна', 'no-match': 'Подходящий XML не найден' } as Record<string, string>)[status || ''];
 
   const toggleClass = (cls: string) =>
     setClasses((cur) => (cur.includes(cls) ? cur.filter((c) => c !== cls) : [...cur, cls]));
@@ -138,8 +140,9 @@ export default function PositionList({ systems, types, onOpen, onClose }: Props)
                     className="border-t border-slate-100 dark:border-slate-850 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20 cursor-pointer">
                     <td className="px-3 py-1.5 align-top font-mono whitespace-nowrap">
                       {r.tag
-                        ? <span className="inline-flex items-center gap-1 u-sel"><TagIcon className="w-3 h-3 text-emerald-500" />{r.tag}</span>
-                        : <span className="text-slate-300 dark:text-slate-500">без тега</span>}
+                        ? <span className="inline-flex items-center gap-1 u-sel"><TagIcon className="w-3 h-3 text-emerald-500" />{r.tag}{sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status) && <span aria-label={sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status)} title={`${sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status)}${sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.revision ? ` · ревизия ${sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.revision}` : ''}`}><RefreshCw className="w-3 h-3 text-amber-600 dark:text-amber-300" /></span>}</span>
+                        : <span className="text-slate-500 dark:text-slate-400">без тега</span>}
+                      <div className="text-2xs text-slate-500 dark:text-slate-400 u-sel" title="Постоянный ID позиции в проекте">{r.id}</div>
                     </td>
                     <td className="px-2 py-1.5 align-top">
                       <div className="whitespace-nowrap">{classTitle(r.cls)}</div>

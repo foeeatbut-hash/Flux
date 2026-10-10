@@ -5,6 +5,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import * as XLSX from 'xlsx';
 import { enrichEquipment } from '../equipmentCatalog.js';
 import { getPrisma } from '../context.js';
+import { nextProjectEntityId, nextProjectId } from '../entityIds.js';
 import { emitEntitiesChanged, emitEntityChanged, emitProjectDataChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
@@ -85,13 +86,14 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
         let firstProject = await prisma.project.findFirst();
         if (!firstProject) {
-          firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
+          firstProject = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
         }
         projectId = firstProject.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const tag = await prisma.tag.create({
         data: {
+          id: await nextProjectEntityId(prisma, projectId, 'TAG'),
           projectId,
           identifier,
           department: department || null,
@@ -143,7 +145,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const history: Array<TagChangeSet | null> = [];
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
-        let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } }); projectId = fp.id;
+        let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } }); projectId = fp.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const existing = await prisma.tag.findMany({ where: { projectId } });
@@ -187,7 +189,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           const meta: any = { connections: [], descriptions: [], x: 120 + (col % 6) * 360, y: topY + Math.floor(col / 6) * 150 };
           if (r.name) meta.mainName = String(r.name);
           if (r.actuality) meta.actuality = String(r.actuality);
-          const t = await prisma.tag.create({ data: { projectId, ...baseData, metadata: JSON.stringify(meta) } });
+          const t = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG'), projectId, ...baseData, metadata: JSON.stringify(meta) } });
           history.push(createdSet(t));
           changedTagIds.add(t.id);
           created++; codeToId.set(code, t.id); col++;
@@ -239,7 +241,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst();
-        if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } });
+        if (!fp) fp = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
         projectId = fp.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
@@ -310,6 +312,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         if (r.actuality) meta.actuality = String(r.actuality);
         const t = await prisma.tag.create({
           data: {
+            id: await nextProjectEntityId(prisma, projectId, 'TAG'),
             projectId,
             identifier: code,
             brand: r.brand ? String(r.brand) : null,
@@ -459,7 +462,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
         let firstProject = await prisma.project.findFirst();
         if (!firstProject) {
-          firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
+          firstProject = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
         }
         projectId = firstProject.id;
       }
@@ -543,7 +546,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
         let firstProject = await prisma.project.findFirst();
         if (!firstProject) {
-          firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
+          firstProject = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
         }
         projectId = firstProject.id;
       }
@@ -739,6 +742,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   
     const newTag = await prisma.tag.create({
       data: {
+        id: await nextProjectEntityId(prisma, projectId, 'TAG'),
         projectId,
         identifier: finalIdentifier,
         metadata: metadata ? JSON.stringify(metadata) : null

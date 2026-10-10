@@ -1,4 +1,4 @@
-name: Проверка безопасности и MariaDB
+name: Проверка безопасности, MariaDB и PostgreSQL
 
 on:
   workflow_dispatch:
@@ -21,6 +21,7 @@ on:
       - src/config/env.ts
       - src/components/ConnectionPanel.tsx
       - scripts/test-*.ts
+      - prisma/**
       - package.json
       - package-lock.json
       - .github/workflows/verify-security-db.yml
@@ -42,6 +43,17 @@ jobs:
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=5s --health-timeout=5s --health-retries=20
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-fixture-password
+          POSTGRES_DB: flux_id_migration_fixture
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd="pg_isready -U postgres -d flux_id_migration_fixture"
+          --health-interval=5s --health-timeout=5s --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,9 +72,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for check in test-auth-sessions test-owner-auth test-company-database test-client-session test-license-core test-license-revocation test-license-server test-update-signature test-update-download test-session-storage test-security test-portable-resources test-startup-database-bootstrap test-veza-xml; do
+          for check in test-auth-sessions test-owner-auth test-company-database test-client-session test-license-core test-license-revocation test-license-server test-update-signature test-update-download test-session-storage test-security test-portable-resources test-startup-database-bootstrap test-veza-xml test-entity-id-migration-sqlite; do
             node --import tsx "scripts/$check.ts"
           done
+      - name: Перенос проектных ID на отдельных тестовых MariaDB и PostgreSQL
+        env:
+          FLUX_ID_MIGRATION_MARIA_FIXTURE_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_id_migration_fixture
+          FLUX_ID_MIGRATION_PG_FIXTURE_URL: postgresql://postgres:disposable-ci-fixture-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/flux_id_migration_fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const mariadb = require('mariadb');
+          (async () => {
+            const u = new URL(process.env.FLUX_ID_MIGRATION_MARIA_FIXTURE_URL);
+            const db = await mariadb.createConnection({ host: u.hostname, port: Number(u.port), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) });
+            try { await db.query('CREATE DATABASE `flux_id_migration_fixture`'); }
+            finally { await db.end(); }
+          })().catch(e => { console.error(e.message); process.exit(1); });
+          NODE
+          FLUX_ID_MIGRATION_PROVIDER=mysql node --import tsx scripts/test-entity-id-migration-sqlite.ts
+          FLUX_ID_MIGRATION_PROVIDER=postgresql node --import tsx scripts/test-entity-id-migration-sqlite.ts
       - name: Обновления через общую MariaDB 10.11
         env:
           FLUX_UPDATE_MARIA_FIXTURE_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_update_fixture

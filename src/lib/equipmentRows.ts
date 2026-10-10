@@ -58,6 +58,7 @@ export function rowsOfSystem(
       systemName: sys.name,
       monoblockName: mb.name === '__unit__' ? '' : mb.name,
       role: c.role || 'БЛОК',
+      parentElementId: c.parentElementId ?? null,
       parentTag: parentTagOf(c as any),
       parentName: parentNameOf(c as any),
       unitTag,

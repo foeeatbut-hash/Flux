@@ -13,6 +13,8 @@ import {
 } from '../equipment/tagPolicy.js';
 import { TAG_SOURCE, recordTagCreated } from './tagHistory.js';
 import { withBump } from './equipmentVersion.js';
+import { nextProjectEntityId } from './entityIds.js';
+import type { EntityIdOptions } from './entityIds.js';
 
 export interface TagCandidate { id: string; identifier: string; why: string }
 
@@ -198,6 +200,7 @@ export async function applyTagLinks(
   actor: { userId?: string | null } = {},
   /** Позиции, заведённые этим же ввозом: их первая версия — уже с тегом, поднимать её не из чего */
   fresh: Set<string> = new Set(),
+  options: EntityIdOptions = {},
 ): Promise<TagApplyResult> {
   const res: TagApplyResult = { linked: 0, created: 0, skipped: 0, conflicts: [], assigned: [] };
   for (const link of links) {
@@ -223,7 +226,7 @@ export async function applyTagLinks(
 
     let tagId = link.existingTagId;
     if (link.action === 'create' || !tagId) {
-      const created = await prisma.tag.create({ data: { identifier: link.identifier, projectId } });
+      const created = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG', options), identifier: link.identifier, projectId } });
       await recordTagCreated(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, created);
       tagId = created.id;
       res.created++;

@@ -16,6 +16,8 @@ import {
   DEFAULT_FEATURES, DEFAULT_RULES, DEFAULT_IO_RULES, DEFAULT_CLASS_MAP, type E3Position, type E3Solution, type E3SolutionBook, type E3Profile,
 } from '../e3/solutions';
 import { solutionRows, solutionWorkbookBytes, solutionNames, solutionNamesFile, CLASSIFIER_HEADERS, CLASSIFIER_SHEET } from '../e3/solutionWorkbook';
+import { rowsOfSystem } from '../src/lib/equipmentRows';
+import { toPositions } from '../src/lib/e3Positions';
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -161,8 +163,8 @@ let book: E3SolutionBook;
 
 console.log('Подбор решения для позиции');
 {
-  const P = (id: string, cls: string, o: { tag?: string; role?: string; parentTag?: string; params?: Record<string, string>; fields?: Record<string, string>; layout?: Record<string, string> } = {}): E3Position => ({
-    id, cls, role: o.role, tag: o.tag, parentTag: o.parentTag, layout: o.layout,
+  const P = (id: string, cls: string, o: { tag?: string; role?: string; parentTag?: string; parentElementId?: string; params?: Record<string, string>; fields?: Record<string, string>; layout?: Record<string, string> } = {}): E3Position => ({
+    id, cls, role: o.role, tag: o.tag, parentTag: o.parentTag, parentElementId: o.parentElementId, layout: o.layout,
     read: (s) => (s.kind === 'param' ? o.params?.[s.name] ?? '' : s.kind === 'field' ? o.fields?.[s.key] ?? '' : ''),
   });
   const valve = P('v1', 'КЛАПАН', { tag: 'K-1', role: 'БЛОК' });
@@ -187,6 +189,25 @@ console.log('Подбор решения для позиции');
   eq('профиль отвечает, когда ОВ нет данных', sel({ 'valve.voltage': '230' }, undefined, valve, [valve]).answers.find((a) => a.feature === 'valve.voltage'), { feature: 'valve.voltage', value: '230', from: 'profile' });
   eq('раскладка отвечает на свой признак', selectSolution(P('f', 'ФИЛЬТР', { layout: { 'filter.turn': 'да' } }), [], book, {}).answers.find((a) => a.feature === 'filter.turn')?.from, 'layout');
   eq('число приводов — число подпозиций', selectSolution(valve, [valve, drive, P('d2', 'КЛАПАН', { role: 'ПРИВОД', parentTag: 'K-1' })], book, {}).answers.find((a) => a.feature === 'valve.drives')?.value, '2');
+
+  // ID связи сохраняет состав без тегов и разделяет одинаковые теги у разных родителей.
+  const plainValve = P('v-plain', 'КЛАПАН', { role: 'БЛОК' });
+  const plainDrive = P('d-plain', 'КЛАПАН', { role: 'ПРИВОД', parentElementId: 'v-plain', params: { 'Напряжение питания': '24' } });
+  const sameTagValve = P('v-other', 'КЛАПАН', { role: 'БЛОК', tag: 'K-1' });
+  const otherDrive = P('d-other', 'КЛАПАН', { role: 'ПРИВОД', parentElementId: 'v-other', parentTag: 'K-1', params: { 'Напряжение питания': '230' } });
+  const byId = selectSolution(plainValve, [plainValve, plainDrive, sameTagValve, otherDrive], book, {});
+  eq('подпозиции находятся у tagless-родителя по ID: число и параметр', [byId.answers.find((a) => a.feature === 'valve.drives')?.value, byId.answers.find((a) => a.feature === 'valve.voltage')?.value], ['1', '24']);
+  eq('повтор тега у другого родителя не смешивает подпозиции', selectSolution(sameTagValve, [plainValve, plainDrive, sameTagValve, otherDrive], book, {}).answers.find((a) => a.feature === 'valve.voltage')?.value, '230');
+  const renamedValve = { ...sameTagValve, tag: 'K-RENAMED' };
+  const renamedDrive = { ...otherDrive, parentTag: 'K-RENAMED' };
+  eq('переименование тега не разрывает связь по ID', selectSolution(renamedValve, [plainValve, plainDrive, renamedValve, renamedDrive], book, {}).answers.find((a) => a.feature === 'valve.voltage')?.value, '230');
+  eq('старые позиции без parentElementId по-прежнему сопоставляются тегом', selectSolution(valve, [valve, drive], book, {}).answers.find((a) => a.feature === 'valve.voltage')?.value, '24');
+
+  const transformed = toPositions(rowsOfSystem({ name: 'P-1', monoblocks: [{ name: 'MB-1', components: [
+    { id: 'tagless-parent', itemCode: 'V', name: 'Клапан', equipType: 'Клапан' },
+    { id: 'tagless-child', itemCode: 'D', name: 'Привод', equipType: 'Привод', parentElementId: 'tagless-parent' },
+  ] }] }, () => ({ groups: [] })));
+  eq('строки оборудования передают parentElementId в подбор', transformed.map((p) => [p.id, p.parentElementId]), [['tagless-parent', undefined], ['tagless-child', 'tagless-parent']]);
 
   const two = sel({ 'valve.limit': 'КП2', 'valve.box': 'нет' }, { 'valve.heat_valve': 'да', 'valve.heat_drive': 'да' });
   eq('другое сочетание — другое решение', two.solution?.id, '08.01.35');

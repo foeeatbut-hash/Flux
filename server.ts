@@ -49,6 +49,8 @@ import { registerProjectRoutes } from './server/routes/projects.js';
 import { registerNotificationRoutes } from './server/routes/notifications.js';
 import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
+import { registerEquipmentXmlSourceRoutes } from './server/routes/equipmentXmlSources.js';
+import { registerEquipmentSourceImportRoutes } from './server/routes/equipmentSourceImport.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
 import { registerE3AttributeRoutes } from './server/routes/e3Attributes.js';
@@ -64,6 +66,7 @@ import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
+import { registerEntityIdMigrationRoutes } from './server/routes/entityIdMigration.js';
 import { registerImportDictRoutes } from './server/routes/importDict.js';
 import { registerEquipmentDraftRoutes } from './server/routes/equipmentDraft.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
@@ -1199,6 +1202,8 @@ registerChatRoutes(app, { io });
 
 
 registerEquipmentCoreRoutes(app);
+registerEquipmentXmlSourceRoutes(app);
+registerEquipmentSourceImportRoutes(app);
 registerEquipmentCatalogRoutes(app);
 
 
@@ -1210,6 +1215,7 @@ registerEquipmentDraftRoutes(app);
 // Настройки приложения (/api/settings) — вынесены в server/routes/settings.ts;
 // upsertSetting импортируется из server/context.ts (используется и здесь ниже).
 registerSettingsRoutes(app);
+registerEntityIdMigrationRoutes(app);
 
 
 async function startServer() {

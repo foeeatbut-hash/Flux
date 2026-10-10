@@ -139,6 +139,8 @@ const TRUST_KEYS: RegExp[] = [
  * оборудования и т. п. Писать их через общий маршрут — значит обойти эти проверки.
  */
 const SERVER_OWNED: RegExp[] = [
+  /^__flux_entity_id_counter__/i,
+  /^entity_id_migration:/i,
   /^office_/i, /^constructor_param_aliases$/, /^veza_kind_map$/, /^import_(dictionary|symbols)$/,
   /^equip_categories$/, /^insight_muted$/,
   /^employee_import_batch:/i,

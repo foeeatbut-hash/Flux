@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Family } from '../catalog/model';
 import { setPrisma } from '../server/context';
-import { bindingKey, sourceInfo, type EquipmentCatalog } from '../server/equipmentCatalog';
+import { bindingKey, familyMatchesEquipment, sourceInfo, type EquipmentCatalog } from '../server/equipmentCatalog';
 import {
   catalogSnapshotIsStale, familySpecs, matchPublishedFamily, resolveCatalogSpecs, snapshotForBinding,
 } from '../equipment/catalogSpecs';
@@ -30,6 +30,8 @@ const family = (id: string, manufacturerId: string): Family => ({
 
 const a = family('family-a', 'maker-a');
 const b = family('family-b', 'maker-b');
+assert.equal(familyMatchesEquipment({ role: 'Клапан' }, a, { classes: [], manufacturers: [], families: [a], components: [], tagRules: [] }), true, 'legacy damper family kind remains an exact valve-family match without the class dictionary');
+assert.equal(familyMatchesEquipment({ role: 'Вентилятор' }, a, { classes: [], manufacturers: [], families: [a], components: [], tagRules: [] }), false, 'legacy kind fallback still rejects a family for the wrong equipment type');
 const both = matchPublishedFamily([a, b], 'ABC-600-Q');
 assert.equal(both.length, 2, 'same complete designation across makers remains ambiguous');
 assert.equal(matchPublishedFamily([a, b], 'ABC-600-Q', 'maker-a')[0]?.family.id, 'family-a', 'exact maker disambiguates');

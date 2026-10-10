@@ -6,6 +6,9 @@ on:
     paths:
       - electron/**
       - filesystem/**
+      - equipment/sourceXml.ts
+      - src/lib/equipmentSourcesLocal.ts
+      - scripts/test-equipment-sources-local.ts
       - tools/windows-notification-bridge/**
       - tools/e3-probe/**
       - scripts/test-e3-probe.ts
@@ -33,7 +36,7 @@ jobs:
         run: npm ci
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
-          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { shareOf, ensureSharing, forgetFileShare } from '../fileSharing.js';
 import { getPrisma } from '../context.js';
+import { nextProjectId } from '../entityIds.js';
 import { ensureDiskProject, ensureDiskRoot } from '../systemFolders.js';
 import {
   FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile, canManageFile, getMainAdminId,
@@ -215,7 +216,7 @@ app.post('/api/folders', async (req: Request, res: Response) => {
       let firstProject = await prisma.project.findFirst({ where: { system: false } });
       if (!firstProject) {
         firstProject = await prisma.project.create({
-          data: { name: 'Общий Проект' }
+          data: { id: await nextProjectId(prisma), name: 'Общий Проект' },
         });
       }
       projectId = firstProject.id;

@@ -43,5 +43,16 @@ check('выбранные поля ограничивают заголовки �
 })());
 check('пустое дополнительное поле остаётся пустым', whole.rows[1][whole.headers.indexOf('Метаданные · customFlag')] === '');
 
+const stableTags = [
+  { id: 'c', identifier: 'P-3', metadata: JSON.stringify({ dynamicFields: { 'field-id': 'ID значение', 'Старое имя': 'Старое значение', unknownLegacy: 'Ручное поле' } }) },
+  { id: 'd', identifier: 'P-4', metadata: JSON.stringify({ dynamicFields: { 'Новое имя': 'Только имя' } }) },
+];
+const stableNames = { 'field-id': 'Новое имя' };
+const stableColumns = tagExchangeColumns(stableTags, stableNames);
+const stableOutput = buildTagExchange(stableTags, stableColumns, { ...helpers, dynamicFieldNames: stableNames });
+check('поле по ID показывается с текущим именем, неизвестный старый ключ остаётся отдельным', stableColumns.some((column) => column.key === 'dynamic:field-id' && column.label === 'Новое имя') && stableColumns.some((column) => column.key === 'dynamic:Старое имя' && column.label === 'Старое имя'));
+check('экспорт предпочитает ID и читает прежнее имя категории до миграции', stableOutput.rows[0][stableOutput.headers.indexOf('Новое имя')] === 'ID значение' && stableOutput.rows[1][stableOutput.headers.indexOf('Новое имя')] === 'Только имя');
+check('неизвестное прежнее поле остаётся доступно для экспорта', stableColumns.some((column) => column.key === 'dynamic:unknownLegacy') && stableOutput.rows[0][stableOutput.headers.indexOf('unknownLegacy')] === 'Ручное поле');
+
 console.log(`\nПроверка экспорта тегов: ${failed ? `${failed} провалено` : 'всё пройдено'}`);
 process.exit(failed ? 1 : 0);

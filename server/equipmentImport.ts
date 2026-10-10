@@ -9,6 +9,7 @@ import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { notifyExporters } from './e3Impact.js';
 import { emitProjectDataChanged } from './entityChanged.js';
 import { TAG_SOURCE, recordChangeSets, updateSet, type TagChangeSet } from './tagHistory.js';
+import { nextProjectEntityId } from './entityIds.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
 export function flattenGroups(groups: SpecGroup[]): Record<string, { value: string; unit: string }> {
@@ -73,6 +74,10 @@ export interface IdentityInput {
   full?: EquipParseResult;
   /** Полный файл расчёта: позиции, которых в нём нет, снимаются. У фрагмента — нет */
   removeMissing?: boolean;
+  /** Вызывающий фиксирует транзакцию и отправит события после успешной записи. */
+  deferEntityChanged?: boolean;
+  /** Вызывающий передал интерактивный транзакционный клиент Prisma. */
+  inTransaction?: boolean;
 }
 
 /**
@@ -141,7 +146,7 @@ export async function importEquipmentToDB(
     }
     if (!system) {
       system = await prisma.equipmentSystem.create({
-        data: { projectId, name: unitData.name, category, fileName: unitData.fileName || fileName },
+        data: { id: await nextProjectEntityId(prisma, projectId, 'SYS', { inTransaction: identity.inTransaction }), projectId, name: unitData.name, category, fileName: unitData.fileName || fileName },
       });
       existingSystems.push(system);
       ctx.claimed.add(system.id);
@@ -154,12 +159,12 @@ export async function importEquipmentToDB(
     const mbMap: Record<string, any> = {};
     for (const mb of unitData.monoblocks) {
       let monoblock = await prisma.monoblock.findFirst({ where: { systemId: system.id, name: mb.name } });
-      if (!monoblock) monoblock = await prisma.monoblock.create({ data: { systemId: system.id, name: mb.name } });
+      if (!monoblock) monoblock = await prisma.monoblock.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'MB', { inTransaction: identity.inTransaction }), systemId: system.id, name: mb.name } });
       mbMap[mb.name] = monoblock;
     }
     // Служебный моноблок для параметров установки
     let unitMb = await prisma.monoblock.findFirst({ where: { systemId: system.id, name: '__unit__' } });
-    if (!unitMb) unitMb = await prisma.monoblock.create({ data: { systemId: system.id, name: '__unit__' } });
+    if (!unitMb) unitMb = await prisma.monoblock.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'MB', { inTransaction: identity.inTransaction }), systemId: system.id, name: '__unit__' } });
 
     for (const blk of unitBlocks) {
       // Служебный блок установки заводится всегда, даже без параметров: на него
@@ -189,6 +194,7 @@ export async function importEquipmentToDB(
       if (!component) {
         const created = await prisma.componentElement.create({
           data: {
+            id: await nextProjectEntityId(prisma, projectId, 'EQ', { inTransaction: identity.inTransaction }),
             monoblockId: monoblock.id,
             itemCode: blk.code,
             name: blk.title || blk.code,
@@ -324,7 +330,7 @@ export async function importEquipmentToDB(
   // ровно на те позиции, которые он видел в предпросмотре
   if (tagLinks && tagLinks.length) {
     const policy = await importPolicyOfProject(projectId);
-    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy, actor, createdIds);
+    const applied = await applyTagLinks(prisma, projectId, tagLinks, componentIdByKey, policy, actor, createdIds, { inTransaction: identity.inTransaction });
     summary.tagsLinked = applied.linked;
     summary.tagsCreated = applied.created;
     summary.tagConflicts = applied.conflicts;
@@ -338,9 +344,11 @@ export async function importEquipmentToDB(
   try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
   catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
 
-  if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
-    || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
-  if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
+  if (!identity.deferEntityChanged) {
+    if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
+      || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
+    if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
+  }
 
   return summary;
 }

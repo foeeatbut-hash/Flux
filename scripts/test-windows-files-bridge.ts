@@ -20,6 +20,7 @@ import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction } from '../ele
 import { ViewStateStore } from '../electron/filesystem/viewState';
 import { OpaqueIds } from '../electron/filesystem/opaque';
 import { WindowsFilesService } from '../electron/filesystem/service';
+import { parseWindowsLogicalDisks, VOLUME_SCRIPT } from '../electron/filesystem/nativePlaces';
 import { INVOKE_CHANNELS, SEND_CHANNELS } from '../electron/ipcAllow';
 import type { WindowsFilesRequest, WindowsSearchEvent } from '../filesystem/contracts';
 
@@ -37,6 +38,11 @@ async function main() {
   try {
     // ---- исходник помощника: что нельзя проверить компиляцией здесь, проверяется по тексту
     const csharp = NATIVE_SHELL_SOURCE;
+    const placesSource = await read(path.join(__dirname, '../electron/filesystem/nativePlaces.ts'));
+    check(VOLUME_SCRIPT.startsWith('[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)')
+      && /maxBuffer: 1024 \* 1024, encoding: 'utf8'/u.test(placesSource), 'Метки томов PowerShell передаются в UTF-8 без потери кириллицы');
+    const russianVolume = parseWindowsLogicalDisks(JSON.stringify({ path: 'E:\\', label: 'Новый том', driveType: 3, size: 100, freeSpace: 40 }));
+    check(russianVolume.length === 1 && russianVolume[0].label === 'Новый том', 'Разбор JSON метки тома сохраняет русские символы');
     // Add-Type в Windows PowerShell 5.1 собирает C# 5: новый синтаксис роняет сборку помощника целиком, а узнаешь об этом только на Windows.
     const modern: [RegExp, string][] = [[/\?\./u, 'null-условный доступ ?.'], [/\$"/u, 'интерполяция строк'], [/nameof\(/u, 'nameof'], [/\bout var\b/u, 'out var'], [/=>/u, 'лямбда или выражение-член'], [/\bis \w+ \w+\)/u, 'сопоставление is с образцом']];
     for (const [pattern, name] of modern) check(!pattern.test(csharp), `Код помощника не использует ${name}: Windows PowerShell 5.1 собирает C# 5`);

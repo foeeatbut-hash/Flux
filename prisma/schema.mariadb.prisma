@@ -385,6 +385,99 @@ model EquipmentHistory {
   batchId    String?
 }
 
+/// Серверная карточка источника XML. Пути и WindowsFileRef хранятся локально.
+model EquipmentXmlSource {
+  id                   String   @id @default(uuid())
+  projectId            String
+  // Пустая строка означает отсутствие тега; внешний ID здесь не создаётся.
+  tagId                String
+  targetType           String
+  systemId             String?
+  elementId            String
+  tagIdentifier        String
+  // Явно выбранный путь к узлу XML; не является придуманным ID поставщика.
+  xmlTargetIdentity    String?
+  revisionOrder        String   @default("alphabetical")
+  selectedRule         String   @default("exact-tag")
+  lastImportedRevision String?
+  lastImportedSha256   String?
+  lastImportedAt       DateTime?
+  lastReviewedRevision String?
+  lastReviewedSha256   String?
+  lastReviewedAt       DateTime?
+  createdById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
+  candidates           EquipmentXmlCandidate[]
+
+  @@index([projectId, tagId])
+  @@index([elementId])
+}
+
+/// Только сервером проверенная распарсенная ревизия; исходный XML остаётся у клиента.
+model EquipmentXmlCandidate {
+  id              String   @id @default(uuid())
+  sourceId        String
+  projectId       String
+  revision        String
+  fileName        String
+  sha256          String
+  parsedSpecs     String   @db.LongText
+  changes         String   @db.LongText
+  decisions       String   @default("{}") @db.LongText
+  decisionHistory String   @default("[]") @db.LongText
+  status          String   @default("pending")
+  expectedVersion Int
+  expectedVersions String  @default("{}") @db.LongText
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  source          EquipmentXmlSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  applications    EquipmentXmlApplication[]
+
+  @@unique([sourceId, sha256])
+  @@index([projectId, sourceId, status])
+}
+
+/// Полный снимок одного подтверждения: характеристики, ручные исключения и состояние ревизии.
+model EquipmentXmlApplication {
+  id                  String   @id @default(uuid())
+  batchId             String   @unique
+  candidateId         String
+  sourceId            String
+  elementId           String
+  oldSpecs            String?  @db.LongText
+  newSpecs            String?  @db.LongText
+  oldOverrides        String?  @db.LongText
+  newOverrides        String?  @db.LongText
+  oldVersion          Int
+  newVersion          Int
+  targetSnapshots     String   @default("[]") @db.LongText
+  beforeDecisions     String   @db.LongText
+  afterDecisions      String   @db.LongText
+  beforeStatus        String
+  afterStatus         String
+  oldImportedRevision String?
+  oldImportedSha256   String?
+  oldImportedAt       DateTime?
+  newImportedRevision String?
+  newImportedSha256   String?
+  newImportedAt       DateTime?
+  oldReviewedRevision String?
+  oldReviewedSha256   String?
+  oldReviewedAt       DateTime?
+  newReviewedRevision String?
+  newReviewedSha256   String?
+  newReviewedAt       DateTime?
+  actorId             String?
+  createdAt           DateTime @default(now())
+  candidate           EquipmentXmlCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([elementId, createdAt])
+}
+
 model UserNote {
   id          String   @id @default(uuid())
   title       String   @default("Новая заметка")

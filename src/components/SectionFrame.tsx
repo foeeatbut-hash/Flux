@@ -78,6 +78,7 @@ export default function SectionFrame({
   // Пока раздел живой — запоминаем его location, чтобы при возврате открыть там же
   React.useEffect(() => {
     if (isLive && liveLocation.pathname === path) {
+      if (def.fileOnly && def.multi && href && asHref(liveLocation) !== href) return;
       // Окно принимает только собственный переход. Чужой адрес ему сейчас
       // показывают на один кадр, пока оболочка решает, какое окно его откроет;
       // запомнив его, окно забрало бы себе чужой документ — и два окна начали
@@ -87,7 +88,7 @@ export default function SectionFrame({
       setFrozenLoc(liveLocation);
       setFrozenHref(paneId, path, asHref(liveLocation));
     }
-  }, [isLive, liveLocation, path, paneId, setFrozenHref]);
+  }, [isLive, liveLocation, path, paneId, setFrozenHref, def.fileOnly, href]);
 
   /**
    * Живой экземпляр обычно показывает общий адрес программы. Но в оболочке окон
@@ -98,7 +99,13 @@ export default function SectionFrame({
   const foreign = paneId.startsWith('win:')
     && !!href
     && asHref(liveLocation) !== href
-    && (liveLocation.state as any)?.__pane !== paneId;
+    // Переход владельца в другой раздел — это адрес следующего окна, а не
+    // временная навигация текущего раздела. Иначе старый экран на один кадр
+    // получает чужие параметры (например, WindowsFileHost теряет ref файла),
+    // размонтирует редактор и загружает его заново после открытия нового окна.
+    // В разделах с конкретным файлом смена адреса того же раздела тоже
+    // открывает другой файл; прежнее окно должно сохранить свой редактор.
+    && (liveLocation.pathname !== path || (liveLocation.state as any)?.__pane !== paneId || (def.fileOnly && def.multi));
   const location = isLive && !foreign ? liveLocation : frozenLoc;
 
   const navigator = React.useMemo(

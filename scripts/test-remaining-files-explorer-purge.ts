@@ -33,7 +33,7 @@ async function main() {
   try {
     setDialect('sqlite'); setPrisma(prisma);
     const models = parsePrismaSchema('sqlite', readFileSync('prisma/schema.prisma', 'utf8'));
-    for (const model of models.filter(model => ['User', 'Project', 'ProjectMember', 'Folder', 'FileNode', 'Tag'].includes(model.name))) {
+    for (const model of models.filter(model => ['User', 'Project', 'ProjectMember', 'Folder', 'FileNode', 'Tag', 'AppSetting'].includes(model.name))) {
       const columns = model.columns.map(column => `"${column.name}" ${column.sqlType}${column.nullable ? '' : ' NOT NULL'}${column.isId ? ' PRIMARY KEY' : ''}${column.unique ? ' UNIQUE' : ''}${column.defaultSql ? ` DEFAULT ${column.defaultSql}` : ''}`);
       const uniques = model.uniques.map(key => `UNIQUE (${key.columns.map(name => `"${name}"`).join(',')})`);
       await prisma.$executeRawUnsafe(`CREATE TABLE "${model.name}" (${[...columns, ...uniques].join(',')})`);

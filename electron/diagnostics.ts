@@ -78,20 +78,34 @@ function wrapHandlers(sink: FileWriter): void {
       try {
         const result = await listener(event, ...args);
         const businessFailure = businessFailureFor(channel, result);
+        const fileFields = windowsFileRequestFields(channel, args[0], result);
         sink.record('ipc.handle', {
           channel: safeName(channel), sender: event?.sender?.id,
           durationMs: performance.now() - start, ok: !businessFailure, outcome: businessFailure ? 'error' : 'ok',
           ...(businessFailure ? { error: businessFailure.error, code: businessFailure.code } : {}),
+          ...fileFields,
         });
         return result;
       } catch (error: any) {
         sink.record('ipc.handle', {
           channel: safeName(channel), sender: event?.sender?.id,
           durationMs: performance.now() - start, ok: false, outcome: 'error', ...safeError(error),
+          ...windowsFileRequestFields(channel, args[0], null),
         });
         throw error; // поведение обработчика не меняется
       }
     });
+}
+
+const FILE_DIAGNOSTIC_ACTIONS = new Set(['list', 'roots', 'volumes', 'children', 'search', 'resolveAddress']);
+function windowsFileRequestFields(channel: string, request: any, result: any): Record<string, string | number | boolean> {
+  if (channel !== 'windows-files:invoke' || !FILE_DIAGNOSTIC_ACTIONS.has(request?.action)) return {};
+  const action = request.action as string;
+  if (action !== 'list') return { action };
+  const rootRequest = request?.ref?.relativePath === '';
+  const data = result?.ok === true ? result.data : null;
+  const entryCount = Array.isArray(data?.entries) ? data.entries.length : undefined;
+  return { action, rootRequest, ...(entryCount === undefined ? {} : { entryCount }) };
 }
 
 function businessFailureFor(channel: string, result: any): { error: string; code?: string } | null {

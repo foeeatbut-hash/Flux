@@ -32,6 +32,7 @@ import DocflowSection from '../components/settings/DocflowSection';
 import RolesSection from '../components/settings/RolesSection';
 
 import { useShallow } from 'zustand/react/shallow';
+import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settingsVisibility';
 // ── Раздел «Настройки» ─────────────────────────────────────────────────────────
 // Все настройки программы в одном месте: категории слева (как в настройках
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
@@ -47,12 +48,11 @@ type SettingScope = 'global' | 'project';
 
 const SECTIONS: Array<{
   id: SectionId; label: string; icon: any; desc: string; scope: SettingScope;
-  topOnly?: boolean;
   adminFeature?: string;
   ownerOnly?: boolean;
   /**
-   * Лист виден только по праву встроенной программы. От `topOnly` отличается
-   * тем, что должность здесь не значит ничего: право выдаётся явно.
+   * Лист виден только по праву встроенной программы: должность здесь не
+   * значит ничего, право выдаётся явно.
    */
   entitlement?: string;
   /** Главному администратору виден и без права */
@@ -106,17 +106,8 @@ export default function SettingsScreen() {
   const addLog = useLogStore((s) => s.addLog);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const initial = (searchParams.get('section') as SectionId) || 'general';
+  const initial = settingsSectionFromQuery(searchParams.get('section'), user) as SectionId;
   const [section, setSection] = useState<SectionId>(SECTIONS.some(s => s.id === initial) ? initial : 'general');
-
-  // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
-  // Менеджменте): следим за query и переключаемся, а не только при монтировании
-  useEffect(() => {
-    const fromUrl = searchParams.get('section') as SectionId | null;
-    if (fromUrl && SECTIONS.some(s => s.id === fromUrl) && fromUrl !== section) {
-      setSection(fromUrl);
-    }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (id: SectionId) => {
     setSection(id);
@@ -131,10 +122,28 @@ export default function SettingsScreen() {
   const policyCtx = useAppContext();
   const mayManagePlay = canManagePlay(policyCtx);
   const allows = React.useCallback(
-    (def: { topOnly?: boolean; entitlement?: string; orTop?: boolean; ownerOnly?: boolean; adminFeature?: string }) =>
-      (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.topOnly || topAdmin) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
+    (def: { id?: string; entitlement?: string; orTop?: boolean; ownerOnly?: boolean; adminFeature?: string }) =>
+      (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.id || canSeeSettingsSection(def.id, user)) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
     [topAdmin, mayManagePlay, user],
   );
+
+  // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
+  // Менеджменте): следим за query и переключаемся, а не только при монтировании.
+  // При изменении профиля повторно проверяем прямой адрес.
+  useEffect(() => {
+    const fromUrl = searchParams.get('section') as SectionId | null;
+    const definition = fromUrl ? SECTIONS.find(s => s.id === fromUrl) : undefined;
+    if (fromUrl && definition && allows(definition) && fromUrl !== section) {
+      setSection(fromUrl);
+    }
+  }, [searchParams, allows]);
+
+  // Прямой адрес не должен даже кратко показывать содержимое закрытой категории
+  // до того, как эффект синхронизирует выбранную категорию с адресной строкой.
+  const displayedSection = React.useMemo(() => {
+    const def = SECTIONS.find(s => s.id === section);
+    return def && allows(def) ? section : 'general';
+  }, [section, allows]);
 
   // Раздел могли открыть по адресу — тот, кому он не положен, попадает
   // в «Общие», а не в пустую страницу с отказом
@@ -182,34 +191,34 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 overflow-y-auto px-4 @[700px]:px-8 py-4">
-        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
-        {section === 'signature' && <SignatureSection />}
-        {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
-        {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'tags' && <TagsSection addToast={addToast} />}
-        {section === 'notifications' && (
+        {displayedSection === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
+        {displayedSection === 'signature' && <SignatureSection />}
+        {displayedSection === 'roles' && <RolesSection user={user} addToast={addToast} />}
+        {displayedSection === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
+        {displayedSection === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
+        {displayedSection === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
+        {displayedSection === 'tags' && <TagsSection addToast={addToast} />}
+        {displayedSection === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
             <NotificationSettings />
           </SectionShell>
         )}
-        {section === 'translate' && (
+        {displayedSection === 'translate' && (
           <SectionShell title="Переводчик" desc="Чем программа переводит и можно ли подключить свой движок.">
             <TranslateEngineSection />
           </SectionShell>
         )}
-        {section === 'browser' && (
+        {displayedSection === 'browser' && (
           <SectionShell title="Браузер" desc="Отделён от программы; список адресов ведёт администратор.">
             <BrowserSection />
           </SectionShell>
         )}
-        {section === 'license' && <LicenseSection />}
-        {section === 'database' && <DatabaseSection />}
-        {section === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
-        {section === 'logs' && <LogsSection addLog={addLog} />}
-        {playEnabled() && section === 'play' && <PlayPlatform addToast={addToast} />}
-        {section === 'tagrules' && <TagRules addToast={addToast} />}
+        {displayedSection === 'license' && <LicenseSection />}
+        {displayedSection === 'database' && <DatabaseSection />}
+        {displayedSection === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
+        {displayedSection === 'logs' && <LogsSection addLog={addLog} />}
+        {playEnabled() && displayedSection === 'play' && <PlayPlatform addToast={addToast} />}
+        {displayedSection === 'tagrules' && <TagRules addToast={addToast} />}
       </div>
       </div>
     </div>

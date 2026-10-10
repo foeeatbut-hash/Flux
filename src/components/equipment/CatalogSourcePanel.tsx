@@ -2,6 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, LoaderCircle, RefreshCw, Search, X } from 'lucide-react';
 import DataIssueDialog from '../catalog/DataIssueDialog';
 import type { CatalogDataIssueContext } from '../../../feedback/catalogDataIssue';
+import { catalogCodesForEquipment } from '../../../equipment/catalogSpecs';
+import { parseDesignation } from '../../../catalog/designation';
+import { useCatalogLive } from '../catalog/useCatalogLive';
+import { useCatalogStore } from '../../store/catalogStore';
 
 type Mode = 'hybrid' | 'xml' | 'catalog';
 type Source = 'xml' | 'catalog' | 'manual';
@@ -18,21 +22,30 @@ interface Model {
   sourceRevision?: string;
   parsedValues?: Record<string, string | number>;
   status?: string;
+  classId?: string;
+  classIds?: string[];
+  positions?: unknown[];
+  params?: Array<{ key: string; label?: { ru?: string } | string; kind?: 'choice' | 'number' | 'text'; default?: string | number; unit?: string; min?: number; max?: number; values?: Array<{ code: string; label?: { ru?: string } | string }>; variantOptions?: Array<string | number> }>;
+  examples?: string[];
+  tables?: Array<{ rows?: Array<{ verified?: boolean; values?: Record<string, unknown> }> }>
 }
 interface Snapshot {
   mode: Mode;
-  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family'; at?: string; snapshot?: Model };
+  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family'; values?: Record<string, string | number>; at?: string; snapshot?: Model };
   matches: Model[];
   updateAvailable?: Model;
   effective: Array<{ group?: string; key: string; value: string; unit?: string; source: Source; revision?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
   warnings: string[];
   discrepancies: Array<{ group: string; key: string; xmlValue: string; catalogValue: string; xmlUnit?: string; catalogUnit?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
+  originalSpecs?: unknown;
 }
+interface CatalogPreview { changes: Array<{ group: string; key: string; before: string; after: string; beforeSource?: Source; sourceRef?: { file: string; pages?: string; edition?: string } }>; sourceRevision?: string; code: string; manufacturer: string }
 interface CatalogIndex {
   components?: Model[];
   families?: Model[];
   meta?: Record<string, { updatedAt?: string }>;
   manufacturers?: Array<{ id: string; name: string; shortName?: string }>;
+  classes?: Array<{ id: string; code: string; title?: { ru?: string } | string }>;
 }
 
 const MODES: Array<{ value: Mode; label: string }> = [
@@ -54,11 +67,18 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export default function CatalogSourcePanel({ componentId, onChanged }: { componentId: string; onChanged: () => void }) {
+export default function CatalogSourcePanel({ componentId, version, equipClass, onChanged }: { componentId: string; version: number; equipClass?: string; onChanged: () => void }) {
+  useCatalogLive();
+  const catalogMeta = useCatalogStore((state) => state.meta);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [mode, setMode] = useState<Mode>('hybrid');
   const [selectedId, setSelectedId] = useState('');
   const [selectedType, setSelectedType] = useState<'component' | 'family'>('component');
+  const [selectedModel, setSelectedModel] = useState<Model | null>(null);
+  const [preview, setPreview] = useState<CatalogPreview | null>(null);
+  const [selectedValues, setSelectedValues] = useState<Record<string, string | number>>({});
+  const [showModelSpecs, setShowModelSpecs] = useState(false);
+  const [showMatches, setShowMatches] = useState(false);
   const [query, setQuery] = useState('');
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
@@ -81,6 +101,12 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       setMode(data.mode);
       setSelectedId((current) => current || data.binding?.modelId || '');
       setSelectedType(data.binding?.sourceType || 'component');
+      const currentModel = data.binding?.snapshot
+        ? { ...data.binding.snapshot, sourceType: data.binding.sourceType || 'component', sourceRevision: data.binding.sourceRevision || data.binding.snapshot.sourceRevision, manufacturer: data.binding.manufacturer || '', parsedValues: data.binding.values } as Model
+        : data.matches.find(item => item.id === data.binding?.modelId) || null;
+      setSelectedModel(currentModel);
+      setSelectedValues(data.binding?.values || currentModel?.parsedValues || {});
+      setPreview(null);
       setReviewUpdate(false);
       setConflict(false);
     } catch (e: any) {
@@ -95,8 +121,33 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
     setSnapshot(null);
     setSelectedId('');
     setSelectedType('component');
+    setSelectedModel(null); setPreview(null); setSelectedValues({}); setShowModelSpecs(false);
+    setCatalogLoaded(false); setAllModels([]);
     void load(controller.signal);
     return () => controller.abort();
+  }, [componentId]);
+
+  useEffect(() => {
+    let generation = 0;
+    let controller: AbortController | null = null;
+    const onPublished = () => {
+      const requestGeneration = ++generation;
+      controller?.abort();
+      controller = new AbortController();
+      setCatalogLoaded(false);
+      setAllModels([]);
+      setSearchResults([]);
+      void (async () => {
+        try {
+          const next = await readJson<Snapshot>(await fetch(`/api/equipment/component/${encodeURIComponent(componentId)}/catalog-source`, { signal: controller!.signal }));
+          if (requestGeneration === generation) setSnapshot(next);
+        } catch (e: any) {
+          if (e?.name !== 'AbortError' && requestGeneration === generation) setError(e?.message || 'Не удалось проверить новую ревизию каталога');
+        }
+      })();
+    };
+    window.addEventListener('catalog:published', onPublished);
+    return () => { generation++; controller?.abort(); window.removeEventListener('catalog:published', onPublished); };
   }, [componentId]);
 
   useEffect(() => {
@@ -126,13 +177,22 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
           sourceType: 'component' as const,
           sourceRevision: body.meta?.[model.id]?.updatedAt,
         }));
-        const families = (body.families || []).map((family: any) => ({
-          ...family, kind: 'other', sourceType: 'family' as const, sourceRevision: body.meta?.[family.id]?.updatedAt,
-          manufacturer: manufacturers.get(family.manufacturerId)?.name || '',
-          manufacturerSearch: manufacturers.get(family.manufacturerId)?.search || '',
-          specs: (family.specs || []).map((spec: any) => ({ label: spec.label, value: spec.value?.ru || '', unit: spec.unit })),
-        }));
-        setAllModels([...components, ...families]);
+        const families = (body.families || []).filter((family: any) => family.status !== 'draft').map((family: any) => {
+          const parsedExamples = (family.examples || []).flatMap((example: string) => parseDesignation([family], example).filter(result => result.complete).map(result => result.values));
+          const params = (family.params || []).map((param: any) => {
+            const variants = new Set<string | number>();
+            if (param.default !== undefined) variants.add(param.default);
+            for (const row of family.tables || []) for (const item of row.rows || []) if (item.verified && item.values?.[param.key] != null) variants.add(item.values[param.key] as string | number);
+            for (const values of parsedExamples) if (values[param.key] != null) variants.add(values[param.key] as string | number);
+            return { ...param, variantOptions: [...variants] };
+          });
+          return { ...family, params, kind: 'other', sourceType: 'family' as const, sourceRevision: body.meta?.[family.id]?.updatedAt,
+            manufacturer: manufacturers.get(family.manufacturerId)?.name || '', manufacturerSearch: manufacturers.get(family.manufacturerId)?.search || '',
+            specs: (family.specs || []).map((spec: any) => ({ label: spec.label, value: spec.value?.ru || '', unit: spec.unit })) };
+        });
+        const classCodes = new Map((body.classes || []).map(item => [item.id, item.code]));
+        const allowedCodes = catalogCodesForEquipment(equipClass);
+        setAllModels([...components, ...families].filter(model => !allowedCodes.length || [model.classId, ...(model.classIds || [])].some((id: string) => allowedCodes.includes(classCodes.get(id) || ''))));
         setCatalogLoaded(true);
       } catch (e: any) {
         if (e?.name !== 'AbortError') setError(e?.message || 'Не удалось найти модель в каталоге');
@@ -141,16 +201,46 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       }
     }, 220);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, catalogLoaded, allModels]);
+  }, [query, catalogLoaded, allModels, equipClass]);
 
   const candidates = useMemo(() => {
     const byId = new Map<string, Model>();
     for (const item of [...(snapshot?.matches || []), ...searchResults]) byId.set(`${item.sourceType || 'component'}:${item.id}`, item);
     return [...byId.values()];
   }, [snapshot?.matches, searchResults]);
-  const chosen = candidates.find((item) => item.id === selectedId && (item.sourceType || 'component') === selectedType);
+  const chosen = selectedModel || candidates.find((item) => item.id === selectedId && (item.sourceType || 'component') === selectedType);
+  const normalizeRevision = (revision?: string) => {
+    if (!revision) return undefined;
+    const timestamp = Date.parse(revision);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : revision;
+  };
+  const matchingUpdateRevision = snapshot?.updateAvailable && snapshot.updateAvailable.id === chosen?.id
+    ? snapshot.updateAvailable.sourceRevision : undefined;
+  const chosenLatestRevision = chosen ? normalizeRevision(matchingUpdateRevision || catalogMeta[chosen.id]?.updatedAt || chosen.sourceRevision) : undefined;
+  const chosenIsStale = !!(chosen?.sourceRevision && chosenLatestRevision && normalizeRevision(chosen.sourceRevision) !== chosenLatestRevision);
 
-  const save = async (refresh: boolean) => {
+  const selectModel = async (model: Model) => {
+    const sourceType = model.sourceType || 'component';
+    const values = model.parsedValues || Object.fromEntries((model.params || []).filter(param => param.default !== undefined).map(param => [param.key, param.default!]));
+    setSelectedId(model.id); setSelectedType(sourceType); setSelectedModel(model); setSelectedValues(values);
+    setQuery(''); setSearchResults([]); setShowMatches(false); setShowModelSpecs(false); setPreview(null); setError('');
+    try {
+      await previewSelection(model, values);
+    } catch (e: any) { setError(e?.message || 'Не удалось построить сравнение с карточкой'); }
+  };
+
+  const previewSelection = async (model: Model, values: Record<string, string | number>) => {
+    setPreview(null); setError('');
+    try {
+      const response = await fetch(`/api/equipment/component/${encodeURIComponent(componentId)}/catalog-source/preview`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: model.id, sourceType: model.sourceType || 'component', values, mode }),
+      });
+      setPreview(await readJson<CatalogPreview>(response));
+    } catch (e: any) { setError(e?.message || 'Не удалось построить сравнение с карточкой'); }
+  };
+
+  const save = async (refresh: boolean, acceptedCatalogParams: string[] = []) => {
     if ((mode === 'catalog' || mode === 'hybrid') && !selectedId && !snapshot?.binding?.modelId) {
       setError('Выберите точную модель каталога');
       return;
@@ -165,7 +255,11 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
           mode,
           ...(selectedId || snapshot?.binding?.modelId ? { modelId: selectedId || snapshot?.binding?.modelId, sourceType: chosen?.sourceType || snapshot?.binding?.sourceType || 'component' } : {}),
           ...(refresh ? { refresh: true } : {}),
+          ...(mode !== 'xml' ? { expectedPublishedRevision: refresh ? snapshot?.updateAvailable?.sourceRevision || preview?.sourceRevision || chosen?.sourceRevision : preview?.sourceRevision || chosen?.sourceRevision } : {}),
+          acceptedCatalogParams,
+          ...(chosen?.sourceType === 'family' ? { values: selectedValues } : {}),
           ...(snapshot?.binding?.revision ? { expectedRevision: snapshot.binding.revision } : {}),
+          expectedVersion: version,
         }),
       });
       if (response.status === 409) {
@@ -179,6 +273,7 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
       // читаются заново тем же способом, что и после обновления карточки.
       await load();
       setReviewUpdate(false);
+      setPreview(null);
       onChanged();
     } catch (e: any) {
       setError(e?.message || 'Не удалось сохранить источник параметров');
@@ -191,38 +286,54 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
     <div className="fx-group-title">Источник параметров</div>
     {loading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Загрузка источника…</div>}
     {!loading && <>
-      <div className="fx-field py-2">
-        <label className="fx-label" htmlFor={`catalog-mode-${componentId}`}>Откуда брать характеристики</label>
-        <select id={`catalog-mode-${componentId}`} className="fx-input" value={mode} disabled={busy} onChange={(event) => setMode(event.target.value as Mode)}>
+      <div className="flex items-center gap-2 py-1">
+        <label className="fx-label shrink-0" htmlFor={`catalog-mode-${componentId}`}>Источник</label>
+        <select id={`catalog-mode-${componentId}`} className="fx-input min-w-0 flex-1 py-1" value={mode} disabled={busy} onChange={(event) => { const next = event.target.value as Mode; setMode(next); if (chosen) void previewSelection(chosen, selectedValues); }}>
           {MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
-        <div className="fx-hint">Ручные правки сохраняют приоритет. В смешанном режиме XML задаёт заполненные поля, каталог — пропуски.</div>
       </div>
-
-      {(mode === 'hybrid' || mode === 'catalog') && <div className="fx-set-row items-start">
-        <div className="fx-set-text">
-          <div>Модель каталога</div>
-          <div className="fx-set-desc">Выберите изделие, которое точно соответствует позиции.</div>
-        </div>
-        <span className="fx-n">{snapshot?.matches.length || 0} совпадений</span>
-      </div>}
-
-      {(mode === 'hybrid' || mode === 'catalog') && <div className="space-y-2 py-2">
-        {snapshot?.matches.length ? <div className="space-y-1" role="group" aria-label="Подходящие модели каталога">
-          {snapshot.matches.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => { setSelectedId(model.id); setSelectedType(model.sourceType || 'component'); }} />)}
-        </div> : <div className="fx-note">Автоматических совпадений нет. Найдите модель и выберите её вручную.</div>}
-        <div className="flex items-center gap-2">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
-          <input className="fx-input min-w-0 flex-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Искать по коду или производителю" aria-label="Поиск модели каталога" />
+      {(mode === 'hybrid' || mode === 'catalog') && <div className="space-y-1.5 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <input className="fx-input min-w-0 flex-1 py-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Марка, модель или производитель" aria-label="Поиск модели каталога" />
           {query && <button type="button" onClick={() => setQuery('')} className="fx-btn fx-btn-quiet fx-btn-sm" aria-label="Очистить поиск"><X className="w-3.5 h-3.5" /></button>}
         </div>
-        {query.trim().length >= 2 && <div className="space-y-1" role="group" aria-label="Результаты поиска каталога">
-          {searchResults.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => { setSelectedId(model.id); setSelectedType(model.sourceType || 'component'); }} />)}
-          {searchLoading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Поиск в каталоге…</div>}
+        {query.trim().length >= 2 && <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800" role="listbox" aria-label="Результаты поиска каталога">
+          {searchResults.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => void selectModel(model)} />)}
+          {searchLoading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Поиск…</div>}
           {catalogLoaded && !searchResults.length && !error && <div className="fx-note">Модели не найдены.</div>}
         </div>}
-        {chosen && <div className="fx-note">Выбрано: <span className="font-mono">{chosen.code}</span>{chosen.manufacturer ? ` · ${chosen.manufacturer}` : ''}</div>}
+        {!query && (snapshot?.matches.length || 0) > 0 && <>
+          <button type="button" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowMatches(v => !v)}>{showMatches ? 'Скрыть совпадения' : `Совпадения по данным позиции · ${snapshot?.matches.length}`}</button>
+          {showMatches && <div className="max-h-32 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800" role="listbox" aria-label="Подходящие модели каталога">
+            {snapshot?.matches.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => void selectModel(model)} />)}
+          </div>}
+        </>}
+        <div className="fx-set-row min-h-7 py-1" aria-label="Выбранная модель">
+          <span className="fx-set-text min-w-0">{chosen ? <><span className="font-mono">{chosen.code}</span>{chosen.manufacturer ? ` · ${chosen.manufacturer}` : ''}</> : snapshot?.binding?.code ? <><span className="font-mono">{snapshot.binding.code}</span>{snapshot.binding.manufacturer ? ` · ${snapshot.binding.manufacturer}` : ''}</> : 'Модель не выбрана'}</span>
+          {chosen && <button type="button" className="text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300 cursor-pointer" aria-expanded={showModelSpecs} onClick={() => setShowModelSpecs(v => !v)}>{showModelSpecs ? 'Скрыть' : 'Характеристики'}</button>}
+        </div>
+        {chosen && showModelSpecs && <div className="space-y-1 border-l border-slate-200 pl-2 dark:border-slate-700">
+          {chosen.sourceType === 'family' && (chosen.params || []).map(param => <label key={param.key} className="flex min-h-7 items-center gap-2 text-xs">
+            <span className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">{text(param.label) || param.key}{param.unit ? `, ${param.unit}` : ''}</span>
+            {param.kind === 'choice' || (param.variantOptions || []).length > 0 ? <select className="fx-input max-w-48 py-0.5" aria-label={text(param.label) || param.key} value={String(selectedValues[param.key] ?? param.default ?? '')} onChange={event => { const values = { ...selectedValues, [param.key]: param.kind === 'number' ? Number(event.target.value) : event.target.value }; setSelectedValues(values); void previewSelection(chosen, values); }}>
+              {param.kind === 'choice' ? (param.values || []).map(item => <option key={item.code} value={item.code}>{text(item.label) || item.code || '—'}</option>) : <>{(param.variantOptions || []).map(value => <option key={value} value={value}>{value}</option>)}{selectedValues[param.key] != null && !(param.variantOptions || []).some(value => String(value) === String(selectedValues[param.key])) && <option value={selectedValues[param.key]}>Текущий вариант · {selectedValues[param.key]}</option>}</>}
+            </select> : <span className="max-w-48 truncate text-xs text-slate-700 dark:text-slate-300" aria-label={`${text(param.label) || param.key}: значение каталога`}>{String(selectedValues[param.key] ?? param.default ?? '—')} <span className="text-slate-400">из каталога</span></span>}
+          </label>)}
+          {chosen.sourceType !== 'family' && (chosen.specs || []).map((spec, index) => <div key={`${text(spec.label)}/${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-xs"><span className="text-slate-500 dark:text-slate-400">{text(spec.label)}</span><span>{spec.value}{spec.unit ? ` ${spec.unit}` : ''}</span></div>)}
+          {chosen.parsedValues && <div className="text-2xs text-slate-500 dark:text-slate-400">Вариант по обозначению: {Object.entries(selectedValues).map(([key, value]) => `${key} ${value}`).join(' · ')}</div>}
+          {preview && <div className="space-y-1 border-t border-slate-200 pt-1 dark:border-slate-700">
+            <div className="text-xs text-slate-600 dark:text-slate-300">Изменения относительно карточки</div>
+            {preview.changes.length ? preview.changes.map(change => <div key={`${change.group}/${change.key}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+              <span className="truncate" title={`${change.group} · ${change.key}`}>{change.key}</span><span className="text-slate-500 dark:text-slate-400">{change.before || '—'} → {change.after || '—'}</span>
+              <span className="fx-badge">{mode === 'hybrid' ? <button type="button" className="fx-btn fx-btn-sm" disabled={busy || chosenIsStale} onClick={() => void save(false, [`${change.group}||${change.key}`])}>Принять параметр</button> : 'Каталог'}</span>
+            </div>) : <div className="text-xs text-slate-500">Различий нет.</div>}
+          </div>}
+        </div>}
+        {chosenIsStale && <div className="fx-note fx-note-warn flex items-start gap-2" role="status"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />Выбранная модель устарела после публикации. Проверьте ревизию и предпросмотр перед применением.</div>}
       </div>}
+
+      {mode === 'xml' && <div className="flex items-center gap-2 py-1 text-xs text-slate-500 dark:text-slate-400"><span className="fx-badge">XML</span>Каталог не влияет на характеристики.</div>}
 
       {snapshot?.binding && <div className="fx-note border-y border-slate-200 dark:border-slate-800">
         Источник: {mode === 'xml' ? 'XML' : 'каталог'}{snapshot.binding.code && <> · <span className="font-mono">{snapshot.binding.code}</span></>}{snapshot.binding.manufacturer ? ` · ${snapshot.binding.manufacturer}` : ''}
@@ -244,16 +355,14 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
         {snapshot.warnings.map((warning, index) => <div key={index} className="fx-note fx-note-warn flex items-start gap-2"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />{warning}</div>)}
       </div>}
 
-      {!!snapshot?.discrepancies?.length && <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/30" role="status" aria-label="Расхождения XML и каталога">
-        <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300"><AlertTriangle className="h-4 w-4 shrink-0" />XML и каталог расходятся в {snapshot.discrepancies.length} параметрах</div>
+      {!!snapshot?.discrepancies?.length && <details className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/30" aria-label="Расхождения XML и каталога"><summary className="cursor-pointer text-amber-800 dark:text-amber-300">XML и каталог расходятся в {snapshot.discrepancies.length} параметрах</summary>
         {snapshot.discrepancies.map((item, index) => <div key={`${item.group}/${item.key}/${index}`} className="grid grid-cols-[minmax(8rem,1fr)_minmax(0,2fr)] gap-x-3 border-t border-amber-200 pt-1 dark:border-amber-900">
           <span className="text-slate-700 dark:text-slate-300">{item.group ? `${item.group} · ` : ''}{item.key}</span>
           <span><span className="text-slate-500 dark:text-slate-400">XML:</span> {item.xmlValue}{item.xmlUnit ? ` ${item.xmlUnit}` : ''}<br /><span className="text-slate-500 dark:text-slate-400">Каталог{item.sourceRef?.file ? ` (${item.sourceRef.file}${item.sourceRef.pages ? `, стр. ${item.sourceRef.pages}` : ''})` : ''}:</span> {item.catalogValue}{item.catalogUnit ? ` ${item.catalogUnit}` : ''}</span>
         </div>)}
-      </div>}
+      </details>}
 
-      {snapshot?.effective?.length ? <div className="py-2">
-        <div className="fx-label mb-1">Параметры и источник значения</div>
+      {snapshot?.effective?.length ? <details className="py-2"><summary className="fx-label mb-1 cursor-pointer">Параметры и источник значения · {snapshot.effective.length}</summary>
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {snapshot.effective.map((param, index) => {
             const discrepancy = snapshot.discrepancies?.find(item => item.group === (param.group || '') && item.key === param.key);
@@ -266,12 +375,12 @@ export default function CatalogSourcePanel({ componentId, onChanged }: { compone
             <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={() => { setIssueField({ key: [param.group, param.key].filter(Boolean).join(' · '), value: `${param.value}${param.unit ? ` ${param.unit}` : ''}`, source: param.sourceRef }); setIssueOpen(true); }}>Сообщить</button>
           </div>})}
         </div>
-      </div> : null}
+      </details> : null}
 
-      <div className="flex items-center gap-2 pt-2">
-        <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy} onClick={() => void save(mode === 'hybrid' || mode === 'catalog')}>
+      <div className="flex flex-wrap items-center gap-2 pt-2">
+        <button type="button" className="fx-btn fx-btn-primary fx-btn-sm" disabled={busy || (mode !== 'xml' && chosenIsStale) || ((mode === 'hybrid' || mode === 'catalog') && (!selectedId && !snapshot?.binding?.modelId || !preview))} onClick={() => void save(mode === 'hybrid' || mode === 'catalog', mode === 'hybrid' ? (preview?.changes || []).map(change => `${change.group}||${change.key}`) : [])}>
           {busy ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : snapshot?.binding ? <RefreshCw className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
-          {mode === 'xml' ? 'Сохранить источник' : snapshot?.binding ? 'Сохранить источник' : 'Привязать модель'}
+          {mode === 'xml' ? 'Сохранить режим XML' : mode === 'hybrid' ? 'Принять все различия' : 'Применить данные каталога'}
         </button>
         {snapshot?.binding && <button type="button" className="fx-btn fx-btn-sm" onClick={() => { setIssueField(null); setIssueOpen(true); }}>Сообщить о неточности</button>}
         {conflict && <button type="button" className="fx-btn fx-btn-sm" disabled={busy} onClick={() => void load()}><RefreshCw className="w-3.5 h-3.5" />Обновить данные</button>}

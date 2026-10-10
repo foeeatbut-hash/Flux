@@ -22,6 +22,8 @@ interface DocImportWizardProps {
   categories: { id: string; label: string }[];
   onClose: () => void;
   onImported: () => void;
+  /** Отключает файловое перетаскивание в сценариях, где нужен только выбор файла. */
+  allowDrop?: boolean;
 }
 
 interface FileJob {
@@ -81,7 +83,7 @@ const CONF_LABEL: Record<Confidence, string> = { high: 'уверенно', mid: 
 
 let jobSeq = 0;
 
-export default function DocImportWizard({ projectId, categories, onClose, onImported }: DocImportWizardProps) {
+export default function DocImportWizard({ projectId, categories, onClose, onImported, allowDrop = true }: DocImportWizardProps) {
   const { addToast } = useToastStore();
   const [jobs, setJobs] = useState<FileJob[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -421,9 +423,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       <div
         className="fx-dialog w-full max-w-5xl h-[86vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
-        onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={e => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
+        {...(allowDrop ? {
+          onDragOver: (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragOver(true); },
+          onDragLeave: () => setIsDragOver(false),
+          onDrop: (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); },
+        } : {})}
       >
         {/* Шапка */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -433,7 +437,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Импорт из документов</h2>
-              <p className="text-xs text-slate-400">PDF · Excel · Word · XML · вставка таблицы (Ctrl+V)</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -460,8 +463,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 }`}
             >
               <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1.5" />
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Перетащите файлы или выберите источник</p>
-              <p className="text-2xs text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv · фото/скан .jpg .png</p>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{allowDrop ? 'Перетащите файлы или выберите источник' : 'Выберите файлы для импорта'}</p>
               <div className="mt-3 flex justify-center" onClick={event => event.stopPropagation()}>
                 <ImportFileChooser multiple accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif" label="Выбрать файлы" onFiles={handleFiles} />
               </div>
@@ -528,11 +530,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   )}
                 </div>
               )}
-              {jobs.length === 0 && (
-                <p className="text-xs text-slate-400 text-center px-4 py-6">
-                  Бланки подбора, ведомости, опросные листы, страницы каталогов — с любым расположением данных.
-                </p>
-              )}
             </div>
 
             {jobs.length > 1 && (
@@ -548,7 +545,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
                 <ScanLine className="w-10 h-10 text-slate-200 dark:text-slate-800 mb-3" />
                 <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Добавьте документ — распознавание начнётся сразу</p>
-                <p className="text-xs mt-1 max-w-sm">Программа сама найдёт наименование, марку и характеристики. Перед импортом всё можно проверить и поправить.</p>
               </div>
             ) : activeJob.status === 'parsing' || activeJob.status === 'ocr' ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">

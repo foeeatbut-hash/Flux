@@ -6,12 +6,9 @@
  * стоит начало ответа: два вопроса «покажи дубли», заданные в разные дни,
  * иначе неразличимы.
  *
- * Строка «Разговоры видите только вы» стоит на виду не для красоты. Пока о
- * личном не сказано прямо, спрашивают с оглядкой — а помощник, которому не
- * задают вопросов, бесполезен.
  */
 import React from 'react';
-import { Plus, Search, Trash2, Lock } from 'lucide-react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 import { useAssistantChatsStore } from '../../store/assistantChatsStore';
 import { groupByDay } from '../../lib/assistantChats';
 
@@ -105,11 +102,6 @@ export default function ChatHistory({ onPick }: { onPick?: () => void }) {
         ))}
       </div>
 
-      <p className="shrink-0 flex items-start gap-1 px-3 py-2 border-t border-slate-200 dark:border-slate-800
-                    text-2xs leading-snug text-slate-500 dark:text-slate-400">
-        <Lock className="w-3 h-3 mt-px shrink-0" />
-        Разговоры видите только вы — администратор тоже нет.
-      </p>
     </div>
   );
 }

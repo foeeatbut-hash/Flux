@@ -17,7 +17,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { WindowsFilesService, hashWindowsBytes } from '../electron/filesystem/service';
 import { ShellCommands } from '../electron/filesystem/shellCommands';
-import { enumerateWindowsVolumes } from '../electron/filesystem/nativePlaces';
+import { enumerateWindowsVolumes, parseWindowsLogicalDisks, VOLUME_SCRIPT } from '../electron/filesystem/nativePlaces';
 import { NativeShellHost } from '../electron/nativeShellHost';
 import { undoLast } from '../electron/filesystem/undo';
 import { SearchRegistry } from '../electron/filesystem/search';
@@ -246,6 +246,11 @@ async function main() {
     });
 
     await section('Тома, «Открыть с помощью», классическое меню', async () => {
+      const synthetic = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        `function Get-CimInstance { [pscustomobject]@{ DeviceID='E:'; VolumeName='Проверка ё'; DriveType=3; ProviderName=''; Size=1024; FreeSpace=512; FileSystem='NTFS' } }; ${VOLUME_SCRIPT}`],
+      { windowsHide: true, timeout: 10_000, maxBuffer: 1024 * 1024, encoding: 'utf8' });
+      const syntheticVolume = parseWindowsLogicalDisks(synthetic.stdout);
+      check(syntheticVolume.length === 1 && syntheticVolume[0].label === 'Проверка ё', 'Вывод PowerShell сохраняет русскую метку тома в UTF-8 без доступа к реальным дискам');
       const volumes = await enumerateWindowsVolumes();
       check(volumes.length > 0 && volumes.every(item => item.label && /^[A-Z]:$/u.test(item.letter) && (item.size === null || item.used !== null)), `Тома: метка, буква и занятое место (${volumes.map(item => `${item.name} ${item.used}/${item.size}`).join('; ')})`);
       await fs.writeFile(dir('Для меню.txt'), 'меню');

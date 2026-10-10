@@ -230,6 +230,8 @@ export interface E3Position {
   cls: string;
   role?: string;
   tag?: string;
+  /** ID позиции-родителя; если задан, является основой связи с подпозициями. */
+  parentElementId?: string;
   parentTag?: string;
   /** Значение по источнику `field` или `param`; пусто — нет данных */
   read: (source: E3RuleSource) => string;

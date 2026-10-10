@@ -46,6 +46,8 @@ let delayedMetadataPath = '';
 let failedMetadataPath = '';
 let delayedListPath = '';
 let delayedSearchMs = 0;
+let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'partial' = 'none';
+(window as any).__setExplorerListFault = (fault: typeof listFault) => { listFault = fault; };
 
 function childPath(ref: WindowsFileRef): WindowsFileEntry[] {
   if (ref.draftId) return draftChildren.get(ref.draftId) || [];
@@ -111,9 +113,12 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     case 'searchCancel': canceledSearches.add(request.requestId); return { ok: true, data: {} };
     case 'children': return { ok: true, data: childFolders(request.ref, request.peek === true) };
     case 'list': {
+      if ((listFault === 'root-denied' || listFault === 'refresh-denied') && request.ref.relativePath === '') {
+        return { ok: false, error: { code: 'EPERM', message: 'Windows запретила доступ к этому объекту.' } };
+      }
       const offset = request.offset || 0; const limit = request.limit || 250;
       const all = [...childPath(request.ref), ...(!request.ref.draftId ? created.filter((item) => parentOf(item.relativePath) === request.ref.relativePath) : [])].filter((item) => !removed.has(item.relativePath));
-      return { ok: true, data: { root, entries: [...all.slice(offset, offset + limit), ...(offset === 0 && !request.ref.draftId ? drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1).filter((item) => !removed.has(item.relativePath)) : [])], nextOffset: offset + limit < all.length ? offset + limit : null, truncated: false } };
+      return { ok: true, data: { root, entries: [...all.slice(offset, offset + limit), ...(offset === 0 && !request.ref.draftId ? drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1).filter((item) => !removed.has(item.relativePath)) : [])], nextOffset: offset + limit < all.length ? offset + limit : null, truncated: false, ...(listFault === 'partial' && request.ref.relativePath === '' ? { unreadableCount: 2 } : {}) } };
     }
     case 'metadata': return { ok: true, data: { ...metadata, revision: request.ref.relativePath } };
     case 'systemProperties': return { ok: true, data: { author: 'Тестовый автор', createdAt: '2026-09-22T09:00:00.000Z', hidden: false } };

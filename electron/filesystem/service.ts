@@ -228,9 +228,16 @@ export class WindowsFilesService {
     const candidates = [...names.map(name => ({ name, draftId: undefined as string | undefined })), ...virtual.map(draft => ({ name: draft.name, draftId: draft.id }))];
     candidates.sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' }));
     const entries: WindowsFileEntry[] = [];
+    let unreadableCount = 0;
     for (const item of candidates.slice(offset, offset + limit)) {
       try { validateWindowsName(item.name); entries.push(await this.entry({ rootId: ref.rootId, relativePath: joinRelative(ref.relativePath, item.name), ...(item.draftId ? { draftId: item.draftId } : {}) }, true)); }
-      catch (error: any) { if (error.code !== 'ENOENT' && error.code !== 'INVALID_NAME') throw error; }
+      catch (error: any) {
+        if (error.code === 'ENOENT' || error.code === 'INVALID_NAME') continue;
+        // Один объект с отдельным ACL не должен скрывать соседей. Ошибка stat/opendir
+        // самой папки выше по-прежнему прерывает запрос и не выглядит пустым списком.
+        if (error.code === 'EACCES' || error.code === 'EPERM') { unreadableCount++; continue; }
+        throw error;
+      }
     }
     for (const entry of entries) { const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] }; }
     if (this.deps.fileDetails && filename) {
@@ -238,7 +245,7 @@ export class WindowsFilesService {
       const details = await this.deps.fileDetails(physical.map(entry => path.join(filename, entry.name))).catch(() => []);
       physical.forEach((entry, index) => { if (details[index]) entry.hidden = details[index].hidden; });
     }
-    return { root: (await this.roots()).find(root => root.id === ref.rootId), relativePath: ref.relativePath, entries, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
+    return { root: (await this.roots()).find(root => root.id === ref.rootId), relativePath: ref.relativePath, entries, unreadableCount, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
   }
   async read(ref: WindowsFileRef) {
     ref = this.resolveRef(ref);

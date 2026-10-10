@@ -1,4 +1,10 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
+export type WindowsEquipmentSourcePick =
+  | { canceled: true }
+  | { canceled: false; selectedFile: { ref: WindowsFileRef; name: string }; sourceFolder: WindowsFileRef };
+export type WindowsEquipmentSourceFolderPick =
+  | { canceled: true }
+  | { canceled: false; folder: WindowsFileRef };
 export type WindowsKnownFolder = 'desktop' | 'documents' | 'downloads' | 'custom';
 export interface WindowsRoot { id: string; name: string; kind: WindowsKnownFolder; available: boolean; network?: boolean }
 export interface WindowsVolume {
@@ -31,6 +37,8 @@ export type WindowsFilesRequest =
   | { action: 'openRecycleBin' }
   | { action: 'draftTrash' }
   | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
+  | { action: 'pickEquipmentSource' }
+  | { action: 'pickEquipmentSourceFolder' }
   | { action: 'restoreDraft'; ref: WindowsFileRef }
   | { action: 'addRoot' }
   | { action: 'list'; ref: WindowsFileRef; offset?: number; limit?: number }

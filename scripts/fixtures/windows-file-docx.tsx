@@ -12,7 +12,8 @@ import { bytesToBase64 } from '../../src/lib/windowsFiles';
 import type { WindowsFileContent, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse } from '../../filesystem/contracts';
 
 const ref: WindowsFileRef = { rootId: 'mock-root', relativePath: 'Проект.docx' };
-let bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x10, 0x20]);
+const seeded = (window as any).__fixtureDocxBase64;
+let bytes = typeof seeded === 'string' ? Uint8Array.from(atob(seeded), (c: string) => c.charCodeAt(0)) : new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x10, 0x20]);
 let revision = 0;
 const sha = () => `sha-${revision}`;
 const content = (): WindowsFileContent => ({ fileId: 'mock-docx', name: 'Проект.docx', relativePath: ref.relativePath, storage: 'windows', kind: 'file', size: bytes.length, modifiedAt: new Date(0).toISOString(), linked: false, base64: bytesToBase64(bytes), sha256: sha() });

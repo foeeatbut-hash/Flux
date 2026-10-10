@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/test-office-no-ai.cjs
-          for check in test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
+          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Компонентные сценарии интерфейса
@@ -81,6 +81,10 @@ jobs:
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-play-ui; do
             node --import tsx "scripts/$check.ts"
           done
+      - name: Перенос ID в интерфейсе и локальные связи XML
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/test-entity-id-migration-ui.mjs
       - name: Артефакты с явно указанной областью проверки
         if: always()
         uses: actions/upload-artifact@v4

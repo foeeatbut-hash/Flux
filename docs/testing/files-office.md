@@ -107,6 +107,25 @@ Additional scoped regressions added during remaining-action review:
   their group. The approved fix renders pinned notes first and excludes them
   from the following group rendering, so each note is rendered once. The
   synthetic regression passed against the fixed component.
+- `scripts/test-windows-file-office-workspace-live.ts` mounts the real
+  `WindowsLayer`, `SectionFrame`, WindowsFileHost and GenOffice Docs/Sheets
+  against generated DOCX/XLSX files. It passed two-window open, Flux insert,
+  save/close, and an export handoff to a different local XLSX using the same
+  `/windows-file` route. The handoff keeps the original Docs iframe and its
+  unsaved inserted content; closing it writes the original DOCX. The fixture
+  redirects the export URL to a generated local test file, keeping both file
+  windows on the real editor path without a hosted Office server.
+- `scripts/test-windows-file-office-sheets-native-live.ts` passed against a
+  temporary real `WindowsFilesService`, `LocalOfficeSessions`, and Native XLSX
+  sidecar. It checks Flux insertion and save into the source workbook, a second
+  unsaved insertion during export handoff, preservation of the source iframe,
+  and close-time persistence to the original XLSX.
+- The export-handoff regression traced a transient route leak: the live
+  WindowsFile pane briefly received the new file route before WindowsLayer
+  created its second window. `SectionFrame` now keeps a different file route
+  out of the original file-only pane, and WindowsLayer opens that file in its
+  own window. These live tests cover the interaction; they do not establish
+  every Office toolbar action or Windows shell integration.
 
 ## Explicitly not run here
 
