@@ -26,13 +26,13 @@ const adapter = provider === 'sqlite'
   : mysql ? new (require('@prisma/adapter-mariadb').PrismaMariaDb)(remoteUrl)
     : new (require('@prisma/adapter-pg').PrismaPg)({ connectionString: remoteUrl });
 const prisma = new PrismaClient({ adapter });
-// Keep one fixture body for every provider; its raw setup statements use the
-// SQLite/MariaDB `?` form, while PostgreSQL requires numbered placeholders.
+// Одна проба проверяет все провайдеры; PostgreSQL требует нумерованных
+// параметров и кавычек у исходных имён, уже экранированные имена сохраняются.
 if (provider === 'postgresql') {
   const execute = prisma.$executeRawUnsafe.bind(prisma);
   const query = prisma.$queryRawUnsafe.bind(prisma);
   const identifiers = ['NumericReference','projectId','objectId','Project','EquipmentSystem','Monoblock','ComponentElement','parentElementId','monoblockId','itemCode','Tag','identifier','metadata','_ComponentElementToTag','A','B','Dictionary','DictionaryItem','dictionaryId','nameRu','parentId','EquipmentHistory','elementId','oldSpecs','newSpecs','changeType','EquipmentXmlSource','tagId','targetType','systemId','tagIdentifier','xmlTargetIdentity','EquipmentXmlCandidate','sourceId','revision','fileName','sha256','parsedSpecs','changes','decisions','decisionHistory','expectedVersions','EquipmentXmlApplication','batchId','candidateId','oldVersion','newVersion','targetSnapshots','beforeDecisions','afterDecisions','beforeStatus','afterStatus','CatalogRevision','entityId','snapshotJson','ConstructorDoc','bindings','DocRegister','DocRegisterItem','registerId','equipmentTags','SelectionItem','listId','dataJson','AppSetting','TagChange','field','userId','E3Project','fluxProjectId','key','E3Binding','e3ProjectId','state'];
-  const identifierPattern = new RegExp(`(?<![\\w])(${identifiers.sort((a,b)=>b.length-a.length).join('|')})(?![\\w])`, 'g');
+  const identifierPattern = new RegExp(`(?<![\\w"])(${identifiers.sort((a,b)=>b.length-a.length).join('|')})(?![\\w"])`, 'g');
   const bind = (sql: string) => {
     let i = 0;
     const quoted = sql.split(/('(?:''|[^'])*')/g).map((part, index) => index % 2 ? part : part.replace(identifierPattern, '"$1"')).join('');
