@@ -54,7 +54,7 @@ try {
   await fs.writeFile(path.join(desktop, 'Изменение каталога.bin'), 'test');
   const originalOpendir = fs.opendir;
   (fs as any).opendir = async (folder: string, ...args: any[]) => {
-    if (folder === desktop) throw Object.assign(new Error('denied root'), { code: 'EPERM' });
+    if (folder === canonicalDesktop) throw Object.assign(new Error('denied root'), { code: 'EPERM' });
     return (originalOpendir as any)(folder, ...args);
   };
   try { await rejects(() => service.list({ rootId, relativePath: '' }), 'EPERM', 'Отказ доступа к самой папке остаётся ошибкой, а не пустым списком'); }

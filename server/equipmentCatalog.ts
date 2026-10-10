@@ -48,7 +48,7 @@ export function matchesFor(el: any, catalog: EquipmentCatalog | Component[]): Eq
     sourceRevision: !Array.isArray(catalog) ? publishedRevision(catalog.meta?.[c.id]?.updatedAt, catalogRevision(c)) : catalogRevision(c) }));
   if (Array.isArray(catalog)) return componentChoices;
   const makerRecord = maker ? catalog.manufacturers.find(m => [m.name, m.shortName].some(n => manufacturerKey(n) === manufacturerKey(maker))) : undefined;
-  const familyMatches = maker && !makerRecord ? [] : matchPublishedFamily(catalog.families, code, makerRecord?.id).filter(item => !allowedCodes.length || allowedCodes.includes(classCode(item.family.classId)));
+  const familyMatches = maker && !makerRecord ? [] : matchPublishedFamily(catalog.families, code, makerRecord?.id).filter(item => familyMatchesEquipment(el, item.family, catalog));
   const familyChoices = familyMatches.map(({ family, values }) => ({
     ...family, kind: 'other' as const, title: family.title, manufacturer: catalog.manufacturers.find(m => m.id === family.manufacturerId)?.name || '',
     specs: familySpecs(family, values), sourceType: 'family' as const, parsedValues: values,
@@ -117,7 +117,12 @@ export function familyMatchesEquipment(el: any, family: Family, catalog: Equipme
   const allowed = catalogCodesForEquipment(el.equipClass || el.equipType || el.role);
   if (!allowed.length) return true;
   const code = catalog.classes.find(item => item.id === family.classId)?.code || '';
-  return allowed.includes(code);
+  if (code) return allowed.includes(code);
+  // В старых записях каталога может сохраниться смысловой тип семейства без
+  // обновлённого справочника классов. Допускаем только распознанный тип или
+  // название; неизвестные типы по-прежнему не проходят проверку.
+  const familyCodes = catalogCodesForEquipment(`${family.kind || ''} ${family.typeLabel?.ru || ''} ${family.title?.ru || ''}`);
+  return familyCodes.length > 0 && familyCodes.some(familyCode => allowed.includes(familyCode));
 }
 export function componentMatchesEquipment(el: any, component: Component, catalog: EquipmentCatalog): boolean {
   const allowed = catalogCodesForEquipment(el.equipClass || el.equipType || el.role);
@@ -188,7 +193,7 @@ async function freezeFirstMatch(el: any, choice: EquipmentCatalogChoice, all: Eq
       update: {},
     });
   } catch (err: any) {
-    // A pre-existing row can have a different ID but the same unique key.
+    // Существующая строка может иметь другой ID, но тот же уникальный ключ.
     if (err?.code !== 'P2002') throw err;
   }
   const winner = await prisma.appSetting.findFirst({ where: { key, userId: null } });
@@ -203,8 +208,8 @@ export async function sourceInfo(el: any, models?: EquipmentCatalog | Component[
   if (selectedChoice) {
     binding = await freezeFirstMatch(el, selectedChoice, all, record);
     record = binding ? { value: JSON.stringify(binding) } : record;
-    // A racing request may have written a different explicit choice. Always
-    // resolve from the persisted winner's actual family/component snapshot.
+    // Параллельный запрос мог сохранить другой явный выбор. Всегда используем
+    // фактический снимок семейства или модели из победившей строки.
     selectedChoice = undefined;
   }
   const selected = binding?.snapshot || selectedChoice;

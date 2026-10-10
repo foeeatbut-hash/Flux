@@ -487,9 +487,9 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
         update.changed = update.changed || Object.keys(patch).some(key => update!.oldMetadata[key] !== update!.newMetadata[key]);
         update.newVersion = update.oldVersion + (update.changed ? 1 : 0);
       }
-      // Validate tag policy before opening the write transaction. Exact project
-      // matches may be linked; duplicates, occupied tags and invalid names need
-      // an explicit full-import resolution and are never guessed here.
+      // Проверяем правила тегов до записи. Связываем только точные совпадения;
+      // дубли, занятые теги и недопустимые имена требуют отдельного решения
+      // в полном плане импорта, без автоматического выбора.
       const sourceTagPolicy = acceptedAdded.length ? await importPolicyOfProject(projectId) : null;
       for (const action of acceptedAdded) {
         const proposal = action.proposed || {};
