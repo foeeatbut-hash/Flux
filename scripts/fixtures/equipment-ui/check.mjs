@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
 
 const fixtureDir = path.dirname(fileURLToPath(import.meta.url));
+const fixtureProjectId = '7e9f611c-2fd7-49b2-8a40-31ab93337891';
+const longUntaggedId = `${fixtureProjectId}-EQ-000001`;
+const equipmentGeometryWidths = process.env.FLUX_EQUIPMENT_UI_GEOMETRY_WIDTHS
+  ? process.env.FLUX_EQUIPMENT_UI_GEOMETRY_WIDTHS.split(',').map(value => Number(value.trim())).filter(Number.isFinite)
+  : [1024, 1440];
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors = [];
@@ -20,6 +25,7 @@ const systems = [
       { title: 'Габариты', params: [{ key: 'Ширина', value: '820', unit: 'мм' }, { key: 'Высота', value: '760', unit: 'мм' }] },
     ]) },
     { id: 'motor-1', itemCode: 'M-1', name: 'Электродвигатель 160М6', equipType: 'Электродвигатель', role: 'ДВИГАТЕЛЬ', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [{ id: 'tag-2', identifier: 'AHU-101-M1' }], specs: specs([{ title: 'Электрические', params: [{ key: 'Мощность', value: '5.5', unit: 'кВт' }] }]) },
+    { id: longUntaggedId, itemCode: 'B-2', name: 'Рама фильтра длинного проекта', equipType: 'Корпус фильтра', role: 'ФИЛЬТР', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([{ title: 'Габариты', params: [{ key: 'Ширина', value: '600', unit: 'мм' }] }]) },
     { id: 'unit-general', itemCode: '__unit__', name: 'Параметры установки', equipType: 'Установка', role: 'БЛОК', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([
       { title: 'Параметры установки', params: [{ key: 'Расход воздуха', value: '8060', unit: 'м³/ч' }, { key: 'Давление в сети', value: '500', unit: 'Па' }, { key: 'Мощность', value: '38.64', unit: 'кВт' }, { key: 'Количество блоков', value: '7', unit: 'шт.' }] },
       { title: 'Автоматика', params: [{ key: 'Система управления', value: 'контроллер' }] },
@@ -40,8 +46,8 @@ page.route('**/api/**', async (route) => {
     { id: 'VALVE', label: 'Клапаны' },
     { id: 'CURTAIN', label: 'Воздушные завесы' },
   ] };
-  else if (endpoint === '/api/projects/equipment-fixture/systems') body = { systems };
-  else if (endpoint === '/api/projects/equipment-fixture/tags') body = { tags: [] };
+  else if (endpoint === `/api/projects/${fixtureProjectId}/systems`) body = { systems };
+  else if (endpoint === `/api/projects/${fixtureProjectId}/tags`) body = { tags: [] };
   else if (endpoint.endsWith('/e3/summary')) body = [];
   else if (endpoint.includes('/settings/equip_visibility_mode')) body = { user: 'admin' };
   else if (endpoint.includes('/settings/equip_visibility')) body = { global: '{}' };
@@ -131,13 +137,33 @@ try {
     if (geometry.width < 100 || geometry.height < 28 || geometry.right > geometry.viewport + 1) throw new Error(`discrepancy row layout is invalid in ${theme}: ${JSON.stringify(geometry)}`);
     await page.screenshot({ path: path.join('/tmp', `flux-equipment-catalog-discrepancy-${theme}.png`) });
   }
+  await page.getByRole('button', { name: 'Позиции списком: по типу, с тегами' }).click();
+  const positionSearch = page.getByPlaceholder('Тег, название, установка…');
+  await positionSearch.fill(longUntaggedId.slice(-12));
+  const idRow = page.locator('tbody tr').filter({ hasText: longUntaggedId });
+  await idRow.waitFor();
+  if (!await idRow.getByText('без тега', { exact: true }).isVisible()) throw new Error('tagless position is not visible in the equipment list');
+  if (!await idRow.getByText(longUntaggedId, { exact: true }).isVisible()) throw new Error('position list does not display the full project-scoped ID');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+    await page.screenshot({ path: `/tmp/flux-equipment-ui-position-list-long-tagless-id-${theme}.png`, fullPage: true });
+  }
+  await idRow.click();
+  await page.getByText(`ID: ${longUntaggedId}`, { exact: true }).waitFor();
+  const detailIdGeometry = await page.getByText(`ID: ${longUntaggedId}`, { exact: true }).evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth, rectWidth: el.getBoundingClientRect().width }));
+  if (detailIdGeometry.width < 1 || detailIdGeometry.scroll > detailIdGeometry.width + 1) throw new Error(`long project-scoped ID does not wrap in the component card: ${JSON.stringify(detailIdGeometry)}`);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+    await page.screenshot({ path: `/tmp/flux-equipment-ui-long-tagless-id-${theme}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: 'Вентиляторная секция ВР-80' }).first().click();
   await page.getByRole('button', { name: 'Радиальные вентиляторы', exact: false }).click();
   if (!await page.getByText('Ничего не выбрано').isVisible()) throw new Error('category change kept stale detail selection');
   await page.getByRole('button', { name: 'FAN-201', exact: true }).click();
   await page.getByRole('button', { name: /Радиальный вентилятор ВР-80/ }).first().click();
   if (!await page.getByText('Производительность', { exact: true }).isVisible()) throw new Error('category selection did not show the selected fan detail');
 
-  for (const width of [1024, 1440]) {
+  for (const width of equipmentGeometryWidths) {
     await page.setViewportSize({ width, height: 1000 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => document.documentElement.classList.toggle('dark', value === 'dark'), theme);

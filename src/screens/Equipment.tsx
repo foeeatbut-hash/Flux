@@ -624,7 +624,7 @@ export default function Equipment() {
   }
 
   return (
-    <div className="fx-page @container">
+    <div className="fx-page @container equipment-page">
       <SectionHead title="Оборудование" count={(categories.find(c => c.id === activeCat)?.label || '') + (catCount(activeCat) ? ` · ${catCount(activeCat)}` : '')}
         actions={<>
           {xmlNeedsReviewCount > 0 && <Btn tone={showXmlUpdatesOnly ? 'primary' : 'ghost'} onClick={() => { setShowXmlUpdatesOnly(value => !value); setListMode(false); }} title="Показать только позиции с найденными XML-ревизиями или проблемами локального источника"><RefreshCw />{showXmlUpdatesOnly ? 'Все позиции' : `Есть обновления · ${xmlNeedsReviewCount}`}</Btn>}

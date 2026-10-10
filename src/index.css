@@ -1336,6 +1336,10 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-head-title { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--flux-text); white-space: nowrap; letter-spacing: -0.012em; }
   .fx-head-count { font-size: 13px; color: var(--flux-text-muted); white-space: nowrap; }
   .fx-head-acts { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  @container (max-width: 1100px) {
+    .equipment-page > .fx-head { height: auto; min-height: 44px; flex-wrap: wrap; padding-top: 6px; padding-bottom: 6px; }
+    .equipment-page > .fx-head > .fx-head-acts { flex: 1 1 100%; min-width: 0; margin-left: 0; justify-content: flex-end; flex-wrap: wrap; }
+  }
   .fx-tools {
     display: flex; align-items: center; gap: 8px; min-height: 40px; flex: none; padding: 6px 16px;
     border-bottom: 1px solid var(--flux-line); background: var(--flux-surface); min-width: 0; flex-wrap: wrap;

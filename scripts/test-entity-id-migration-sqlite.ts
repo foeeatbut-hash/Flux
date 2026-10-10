@@ -58,7 +58,9 @@ async function main() {
     await ensureRemoteSchema(prisma, dialect, schema, message => logs.push(message));
     assert.deepEqual(logs.filter(message => /Не удалось|Пропуск|Ошибка при/.test(message)), [], `${provider} fixture schema must be created cleanly`);
   }
-  await prisma.$executeRawUnsafe(`CREATE TABLE NumericReference (id TEXT PRIMARY KEY, projectId TEXT, objectId INTEGER)`);
+  await prisma.$executeRawUnsafe(mysql
+    ? `CREATE TABLE NumericReference (id VARCHAR(191) PRIMARY KEY, projectId VARCHAR(191), objectId INTEGER)`
+    : `CREATE TABLE NumericReference (id TEXT PRIMARY KEY, projectId TEXT, objectId INTEGER)`);
   const p='11111111-1111-4111-8111-111111111111', pB='99999999-9999-4999-8999-999999999999';
   const sys='22222222-2222-4222-8222-222222222222', sys2='22222222-2222-4222-8222-222222222223', sysB='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
   const mb='33333333-3333-4333-8333-333333333333', mb2='33333333-3333-4333-8333-333333333334', mbB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
@@ -179,6 +181,17 @@ async function main() {
   await prisma.$executeRawUnsafe(`INSERT INTO Tag(id,identifier,projectId,metadata) VALUES (?, 'late', ?, '{}')`,lateTag,p3new);
   let entitySetConflict=0; try { await undoEntityIdMigration(prisma,secondApply.migrationId); } catch(e:any) { entitySetConflict=e.status; }
   check('undo refuses to orphan project-bound entities created after migration', entitySetConflict===409 && await prisma.tag.findUnique({where:{id:lateTag}})!==null && await prisma.project.findUnique({where:{id:p3new}})!==null);
+
+  const p4='cccccccc-cccc-4ccc-8ccc-ccccccccccc4', sys4='dddddddd-dddd-4ddd-8ddd-ddddddddddd4', mb4='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4';
+  const duplicateId='ffffffff-ffff-4fff-8fff-fffffffffff4';
+  await prisma.$executeRawUnsafe(`INSERT INTO Project(id,name) VALUES (?, 'duplicate identities')`,p4);
+  await prisma.$executeRawUnsafe(`INSERT INTO EquipmentSystem(id,name,projectId) VALUES (?, 's4', ?)`,sys4,p4);
+  await prisma.$executeRawUnsafe(`INSERT INTO Monoblock(id,name,systemId) VALUES (?, 'm4', ?)`,mb4,sys4);
+  await prisma.$executeRawUnsafe(`INSERT INTO ComponentElement(id,name,itemCode,monoblockId,specs) VALUES (?, 'duplicate EQ', 'EQ4', ?, '{}')`,duplicateId,mb4);
+  await prisma.$executeRawUnsafe(`INSERT INTO Tag(id,identifier,projectId,metadata) VALUES (?, 'duplicate tag', ?, '{}')`,duplicateId,p4);
+  const duplicatePlan=await previewEntityIdMigration(prisma);
+  let duplicateApplyCode=0; try { await applyEntityIdMigration(prisma,duplicatePlan.planToken); } catch(e:any) { duplicateApplyCode=e.status; }
+  check('duplicate raw identity across target models blocks apply without partial rewrite', duplicatePlan.blockers.some((item:any)=>item.code==='AMBIGUOUS_LEGACY_ID'&&item.details.id===duplicateId) && duplicateApplyCode===409 && await prisma.componentElement.findUnique({where:{id:duplicateId}})!==null && await prisma.tag.findUnique({where:{id:duplicateId}})!==null);
   console.log(`PASS ${checks} ${provider} migration checks`);
 } finally { await prisma.$disconnect(); rmSync(dir,{recursive:true,force:true}); }
 }

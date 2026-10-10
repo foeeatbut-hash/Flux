@@ -212,6 +212,10 @@ export async function previewEntityIdMigration(db: any): Promise<IdMigrationPlan
   const rootItems=new Set<string>();
   for(const r of targets.items) {const owner=r.dictionary.projectId,project=mapping.get(owner)||owner;const isConfigRoot=r.dictionary.name==='__tag_creation_config__'&&!r.parentId;if(isConfigRoot)rootItems.add(r.id);const prefix=isConfigRoot?'FLD':'DI';await add('DictionaryItem',r.id,'dictionaryItem',prefix,project,owner,entityIdCompliant(r.id,owner,prefix)&&project===owner);}
   const blockers: IdMigrationPlan['blockers'] = [];
+  const identitiesById=new Map<string,IdentityRow[]>();
+  for(const row of inventory){const entries=identitiesById.get(row.id)||[];entries.push(row);identitiesById.set(row.id,entries);}
+  for(const [id,entries] of identitiesById) if(new Set(entries.map(row=>row.model)).size>1)
+    blockers.push({code:'AMBIGUOUS_LEGACY_ID',message:`Идентификатор «${id}» используется несколькими типами сущностей; безопасно перенести его ссылки нельзя.`,details:{id,entities:entries.map(({model,projectId})=>({model,projectId}))}});
   const mappedProjectIds=[...new Set(mappings.map(m=>m.projectId))];
   const mappedElementIds=mappings.filter(m=>m.model==='ComponentElement').map(m=>m.oldId);
   const directlyBound=db.e3Project?.findMany&&mappedProjectIds.length?await db.e3Project.findMany({where:{fluxProjectId:{in:mappedProjectIds}}}):[];
