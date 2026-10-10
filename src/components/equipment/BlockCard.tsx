@@ -76,6 +76,7 @@ export default function BlockCard(props: any) {
           {/* Имя переносится, а не обрывается: «Электродвигатель 160М6-УХЛ2-400-IM1001»
               и есть то, что ищут глазами */}
           <h3 className="u-sel text-sm font-semibold mt-1 break-words line-clamp-3" title={blockLabel(comp)}>{blockLabel(comp)}</h3>
+          <div className="u-sel text-2xs text-slate-500 dark:text-slate-400 break-all" title="Постоянный ID позиции в проекте">ID: {comp.id}</div>
           <E3SchemeLine componentId={comp.id} version={comp.version} />
           {props.composition?.parent && (
             <button type="button" onClick={() => props.onOpenPosition?.(props.composition.parent.id)}

@@ -19,7 +19,7 @@ import TagComments from './TagComments';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
 import { openInProject } from '../../lib/projectScope';
 import {
-  parseTagMetadata, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem,
+  parseTagMetadata, dynamicFieldValue, getTagOverallStatus, statusConfig, actualitySelectOptions, type DescriptionItem,
 } from './tagMeta';
 
 /** Одинаковое поле карточки тега: раньше каждое несло свой набор классов */
@@ -223,8 +223,8 @@ export default function TagCardModal({
                           <div key={cat.id} className="space-y-1">
                             <span className="fx-label">{cat.nameRu}</span>
                             <CustomSelect
-                              value={tagDFields[cat.nameRu] || ''}
-                              onChange={(val) => { onUpdateDynamicFields(tag.id, { [cat.nameRu]: val }); flashSaved(); }}
+                              value={dynamicFieldValue(tagDFields, cat)}
+                              onChange={(val) => { onUpdateDynamicFields(tag.id, { [cat.id]: val }); flashSaved(); }}
                               placeholder="-- Выберите --"
                               options={options.map((opt: any) => ({
                                 value: opt.nameRu,

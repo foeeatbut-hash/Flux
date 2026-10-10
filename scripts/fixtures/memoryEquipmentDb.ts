@@ -24,6 +24,7 @@ export function memoryEquipmentDb(): MemoryDb {
   let seq = 0;
   const id = (p: string) => `${p}-${++seq}`;
   const systems: Row[] = [], monoblocks: Row[] = [], elements: Row[] = [], tags: Row[] = [], history: Row[] = [];
+  const settings = new Map<string, Row>();
   const links = new Set<string>(); // `${elementId}|${tagId}`
 
   const fits = (row: Row, where: Row = {}) => Object.entries(where).every(([k, v]) => {
@@ -58,7 +59,25 @@ export function memoryEquipmentDb(): MemoryDb {
   };
 
   const prisma: any = {
+    project: {
+      findUnique: async ({ where }: any) => where.id === 'p1' ? { id: 'p1' } : null,
+    },
+    appSetting: {
+      upsert: async ({ where, create }: any) => {
+        const row = settings.get(where.id) || { ...create, updatedAt: new Date() };
+        settings.set(where.id, row);
+        return { ...row };
+      },
+      findUnique: async ({ where }: any) => { const row = settings.get(where.id); return row ? { ...row } : null; },
+      updateMany: async ({ where, data }: any) => {
+        const row = settings.get(where.id);
+        if (!row || row.key !== where.key || row.userId !== where.userId || row.value !== where.value) return { count: 0 };
+        Object.assign(row, data, { updatedAt: new Date() });
+        return { count: 1 };
+      },
+    },
     equipmentSystem: {
+      findUnique: async ({ where }: any) => { const r = systems.find(s => s.id === where.id); return r ? { id: r.id } : null; },
       findMany: async ({ where, include }: any) => systems.filter(s => fits(s, where)).map(s => ({
         ...s,
         ...(include?.monoblocks ? { monoblocks: monoblocks.filter(m => m.systemId === s.id).map(m => (include.monoblocks.include?.components
@@ -70,6 +89,7 @@ export function memoryEquipmentDb(): MemoryDb {
       delete: async ({ where }: any) => { const i = systems.findIndex(s => s.id === where.id); if (i >= 0) systems.splice(i, 1); return {}; },
     },
     monoblock: {
+      findUnique: async ({ where }: any) => { const r = monoblocks.find(m => m.id === where.id); return r ? { id: r.id } : null; },
       findFirst: async ({ where }: any) => { const r = monoblocks.find(m => fits(m, where)); return r ? { ...r } : null; },
       create: async ({ data }: any) => { const r = { id: id('mb'), createdAt: new Date(), ...data }; monoblocks.push(r); return { ...r }; },
       findMany: async ({ where, include }: any) => monoblocks.filter(m => fits(m, where)).map(m => ({
@@ -79,6 +99,7 @@ export function memoryEquipmentDb(): MemoryDb {
       delete: async ({ where }: any) => { const i = monoblocks.findIndex(m => m.id === where.id); if (i >= 0) monoblocks.splice(i, 1); return {}; },
     },
     componentElement: {
+      findUnique: async ({ where }: any) => { const r = elements.find(e => e.id === where.id); return r ? { id: r.id } : null; },
       create: async ({ data }: any) => {
         const { tags: t, ...rest } = data;
         const r: Row = { id: id('el'), createdAt: new Date(), hasConflict: false, manual: false, conflictLog: null, overrides: null, equipClass: null, equipKind: null, ...rest };

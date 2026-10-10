@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, onDatabaseSwapped, sendError, broadcast } from '../context.js';
+import { nextProjectEntityId } from '../entityIds.js';
 import { emitProjectDataChanged } from '../entityChanged.js';
 import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { planTagLinks, type TagLink } from '../equipmentTags.js';
@@ -458,7 +459,7 @@ export function registerBuilderRoutes(app: Express): void {
             const brand = parse<any>(row.dataJson, {}).designation || null;
             if (dup) { tagId = dup.id; linked++; }
             else {
-              const made = await tx.tag.create({ data: { projectId: list.projectId, identifier: l.identifier, brand } });
+              const made = await tx.tag.create({ data: { id: await nextProjectEntityId(tx, list.projectId, 'TAG', { inTransaction: true }), projectId: list.projectId, identifier: l.identifier, brand } });
               tagId = made.id; createdTags.push(tagId); born.push(createdSet(made));
             }
           } else {

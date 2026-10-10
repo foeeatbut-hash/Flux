@@ -10,7 +10,7 @@ import { actorMay } from '../projectAccess.js';
 import { canSeeProject, roleGrantsOf } from './members.js';
 import { applyEquipmentSourceDecisions, diffEquipmentSource, equipmentSourceSpecsEqual, parseEquipmentSourceGroups, rebaseSourceDecisions, sourceDecisionStatus, type SourceChange, type SourceGroup } from '../equipmentSourceReview.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
-import { decodeEquipmentSourceXml, EQUIPMENT_SOURCE_MAX_BYTES } from '../../equipment/sourceXml.js';
+import { decodeEquipmentSourceXml, EQUIPMENT_SOURCE_MAX_BYTES, type EquipmentXmlTargetIdentity } from '../../equipment/sourceXml.js';
 import { inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename, type EquipmentSourceFilenameRule } from '../../equipment/sourceXml.js';
 import { bindingKey as catalogBindingKey, sourceInfo as equipmentCatalogSourceInfo } from '../equipmentCatalog.js';
 import { resolveEquipmentSourceTargets, type EquipmentSourceTargetElement, type EquipmentSourceTargetsResult } from '../equipmentSourceTargets.js';
@@ -18,14 +18,16 @@ import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
 import { recordTagCreated, TAG_SOURCE } from '../tagHistory.js';
 import { blockKey } from '../specUtils.js';
+import { nextProjectEntityId } from '../entityIds.js';
 
 const authUserOf = (req: Request) => (req as any).authUser || null;
 const parseJson = (raw: unknown, fallback: any) => { try { return typeof raw === 'string' ? JSON.parse(raw) : raw ?? fallback; } catch { return fallback; } };
 const normTag = (value: unknown) => String(value ?? '').normalize('NFC').trim().toLocaleLowerCase();
 const sourceDto = (source: any, tag: any) => ({
-  sourceId: source.id, projectId: source.projectId, tagId: source.tagId, targetType: source.targetType,
-  systemId: source.systemId || undefined, elementId: source.elementId, tagIdentifier: tag?.identifier || source.tagIdentifier,
-  boundIdentifier: source.tagIdentifier, revisionOrder: parseJson(source.revisionOrder, ['A','B','C','D','E','F','G','H','I','J']),
+  sourceId: source.id, projectId: source.projectId, tagId: source.tagId || undefined, targetType: source.targetType,
+  systemId: source.systemId || undefined, elementId: source.elementId, tagIdentifier: tag?.identifier || source.tagIdentifier || undefined,
+  xmlTargetIdentity: parseJson(source.xmlTargetIdentity, null),
+  boundIdentifier: source.tagIdentifier || undefined, revisionOrder: parseJson(source.revisionOrder, ['A','B','C','D','E','F','G','H','I','J']),
   selectedRule: parseJson(source.selectedRule, { kind: 'exact-tag' }), lastImportedRevision: source.lastImportedRevision || null,
   lastImportedSha256: source.lastImportedSha256 || null, lastImportedAt: source.lastImportedAt || null,
   lastReviewedRevision: source.lastReviewedRevision || null, lastReviewedSha256: source.lastReviewedSha256 || null, lastReviewedAt: source.lastReviewedAt || null,
@@ -45,16 +47,23 @@ export function decodeVerifiedSource(body: any): { text: string; sha256: string 
   return { text, sha256: actual };
 }
 
-function validateXmlTarget(text: string, fileName: string, tag: any, target: any, selectedRule?: EquipmentSourceFilenameRule) {
+function validateXmlTarget(text: string, fileName: string, tag: any, target: any, selectedRule?: EquipmentSourceFilenameRule, xmlTargetIdentity?: unknown) {
   if (!fileName || fileName.length > 255 || /[/\\\u0000-\u001f]/u.test(fileName) || fileName === '.' || fileName === '..') throw Object.assign(new Error('Сервер принимает только имя XML-файла без пути.'), { status: 400 });
   const validRule = selectedRule && (selectedRule.kind === 'exact-tag'
     || (selectedRule.kind === 'selected-name' && typeof selectedRule.fileName === 'string' && selectedRule.fileName.length > 0 && selectedRule.fileName.length <= 255 && !/[/\\\u0000-\u001f]/u.test(selectedRule.fileName)));
   if (!validRule) throw Object.assign(new Error('Правило имени источника не распознано; выберите XML заново.'), { status: 400 });
-  if (!matchesEquipmentSourceFilename(fileName, String(tag.identifier), selectedRule)) throw Object.assign(new Error(`Имя файла «${fileName}» не соответствует сохранённому правилу тега «${tag.identifier}».`), { status: 400 });
+  if (tag) {
+    if (!matchesEquipmentSourceFilename(fileName, String(tag.identifier), selectedRule)) throw Object.assign(new Error(`Имя файла «${fileName}» не соответствует сохранённому правилу тега «${tag.identifier}».`), { status: 400 });
+  } else if (selectedRule.kind !== 'selected-name' || normTag(fileName) !== normTag(String(selectedRule.fileName || ''))) {
+    throw Object.assign(new Error('Для позиции без тега требуется точное имя выбранного XML-файла.'), { status: 400 });
+  }
   if (XMLValidator.validate(text) !== true) throw Object.assign(new Error('XML повреждён или не завершён; текущие характеристики не изменены.'), { status: 400 });
   const result = parseEquipmentXML(text);
-  const groups = groupsForTarget(result, target, String(tag.identifier));
-  const parsedUnit = target.targetType === 'system' ? result.units.find(unit => normTag(unit.name) === normTag(tag.identifier) || (unit.tags || []).some((item: string) => normTag(item) === normTag(tag.identifier))) : undefined;
+  const selected = tag ? { groups: groupsForTarget(result, target, String(tag.identifier)) } : groupsForIdentity(result, xmlTargetIdentity, target.targetType);
+  const groups = selected.groups;
+  const parsedUnit = target.targetType === 'system' ? result.units.find(unit => tag
+    ? normTag(unit.name) === normTag(tag.identifier) || (unit.tags || []).some((item: string) => normTag(item) === normTag(tag.identifier))
+    : unit === result.units[(selected as any).identity.unitIndex]) : undefined;
   return { groups, result, parsedUnit };
 }
 
@@ -72,8 +81,9 @@ async function sourceInProject(req: Request, manage = true) {
   const actor = await access(req, projectId, manage);
   const source = await prisma.equipmentXmlSource.findFirst({ where: { id: String(req.params.sourceId || ''), projectId, deletedAt: null } });
   if (!source) throw Object.assign(new Error('Источник не найден в этом проекте'), { status: 404 });
-  const tag = await prisma.tag.findFirst({ where: { id: source.tagId, projectId } });
-  if (!tag) throw Object.assign(new Error('Тег источника больше не найден в проекте'), { status: 409 });
+  const tag = source.tagId ? await prisma.tag.findFirst({ where: { id: source.tagId, projectId } }) : null;
+  if (source.tagId && !tag) throw Object.assign(new Error('Тег источника больше не найден в проекте'), { status: 409 });
+  if (!tag) return { prisma, projectId, actor, source, tag: null, renamed: false };
   if (String(tag.identifier) !== String(source.tagIdentifier)) {
     // ID сохраняется после переименования; человек видит конфликт имени файла,
     // а источник не перепривязывается молча к похожему тегу.
@@ -84,6 +94,55 @@ async function sourceInProject(req: Request, manage = true) {
 
 function safeGroups(groups: any[]): SourceGroup[] {
   return groups.map(group => ({ title: String(group?.title || 'Параметры'), params: (group?.params || []).map((param: any) => ({ key: String(param?.key || ''), value: param?.value ?? '', unit: String(param?.unit || '') })).filter((param: any) => param.key) }));
+}
+
+function fingerprintForIdentity(result: ReturnType<typeof parseEquipmentXML>, identity: EquipmentXmlTargetIdentity): Record<string, string> | null {
+  const unit = result.units[identity.unitIndex];
+  if (!unit) return null;
+  const target = identity.targetType === 'system'
+    ? unit
+    : unitBlocksOf(unit).filter(item => item.code !== '__unit__')[identity.componentIndex ?? -1];
+  if (!target) return null;
+  const raw = identity.targetType === 'system'
+    ? { name: unit.name, title: unit.title }
+    : { name: (target as any).code, code: (target as any).code, title: (target as any).title, equipType: (target as any).equipType, role: (target as any).role, sourceKind: (target as any).sourceKind };
+  return Object.fromEntries(Object.entries(raw).filter(([, value]) => String(value ?? '').trim()).map(([key, value]) => [key, String(value).normalize('NFC').trim()]));
+}
+
+function groupsForIdentity(result: ReturnType<typeof parseEquipmentXML>, raw: unknown, targetType: 'system' | 'component') {
+  const identity = typeof raw === 'string' ? parseJson(raw, null) : raw;
+  if (!identity || identity.version !== 1 || identity.targetType !== targetType || !Number.isInteger(identity.unitIndex) || identity.unitIndex < 0
+    || (targetType === 'component' && (!Number.isInteger(identity.componentIndex) || identity.componentIndex < 0))) {
+    throw Object.assign(new Error('XML-узел не выбран. Выберите оборудование в XML заново.'), { status: 400 });
+  }
+  const fingerprint = fingerprintForIdentity(result, identity);
+  const expected = identity.fingerprint && typeof identity.fingerprint === 'object' ? identity.fingerprint : {};
+  const keys = Object.keys(expected);
+  if (!fingerprint || !keys.length || Object.keys(fingerprint).length !== keys.length || keys.some(key => !['name', 'code', 'title', 'equipType', 'role', 'sourceKind'].includes(key)
+    || fingerprint[key] !== String(expected[key]).normalize('NFC').trim())) {
+    throw Object.assign(new Error('Выбранный XML-узел изменился или переместился. Проверьте соответствие и выберите узел заново.'), { status: 409 });
+  }
+  const sameFingerprint = explicitTargetChoices(result).filter(choice => choice.identity.targetType === targetType
+    && JSON.stringify(choice.identity.fingerprint) === JSON.stringify(expected));
+  if (sameFingerprint.length !== 1) throw Object.assign(new Error('В XML есть несколько одинаковых узлов; привязка к ним неоднозначна.'), { status: 409 });
+  const unit = result.units[identity.unitIndex];
+  const groups = targetType === 'system'
+    ? safeGroups(unit.groups || [])
+    : safeGroups(unitBlocksOf(unit).filter(item => item.code !== '__unit__')[identity.componentIndex].groups || []);
+  return { groups, identity };
+}
+
+function explicitTargetChoices(result: ReturnType<typeof parseEquipmentXML>) {
+  const choices: Array<{ identity: EquipmentXmlTargetIdentity; label: string }> = [];
+  result.units.forEach((unit, unitIndex) => {
+    const systemIdentity: EquipmentXmlTargetIdentity = { version: 1, targetType: 'system', unitIndex, fingerprint: fingerprintForIdentity(result, { version: 1, targetType: 'system', unitIndex, fingerprint: {} }) || {} };
+    if (Object.keys(systemIdentity.fingerprint).length) choices.push({ identity: systemIdentity, label: `Установка · ${unit.name || unit.title || `узел ${unitIndex + 1}`}` });
+    unitBlocksOf(unit).filter(item => item.code !== '__unit__').forEach((block, componentIndex) => {
+      const identity: EquipmentXmlTargetIdentity = { version: 1, targetType: 'component', unitIndex, componentIndex, fingerprint: fingerprintForIdentity(result, { version: 1, targetType: 'component', unitIndex, componentIndex, fingerprint: {} }) || {} };
+      if (Object.keys(identity.fingerprint).length) choices.push({ identity, label: `Позиция · ${block.code || block.title || `узел ${componentIndex + 1}`} · ${unit.name || unit.title || `установка ${unitIndex + 1}`}` });
+    });
+  });
+  return choices;
 }
 
 export function groupsForTarget(result: ReturnType<typeof parseEquipmentXML>, source: any, identifier: string): SourceGroup[] {
@@ -139,12 +198,23 @@ function makeSourceTargetReview(source: any, root: any, groups: SourceGroup[], p
 }
 
 export function registerEquipmentXmlSourceRoutes(app: Express): void {
+  // Варианты возвращаются только из проверенного снимка выбранного файла;
+  // выбор позиции остаётся явным даже когда в XML нет тегов.
+  app.post('/api/equipment/projects/:projectId/source-targets/preview', async (req, res) => {
+    try {
+      await access(req, String(req.params.projectId || ''));
+      const { text } = decodeVerifiedSource(req.body);
+      if (XMLValidator.validate(text) !== true) return res.status(400).json({ error: 'XML повреждён или не завершён.' });
+      res.json({ targets: explicitTargetChoices(parseEquipmentXML(text)) });
+    } catch (err: any) { sendError(res, err, err.status || 500); }
+  });
+
   app.get('/api/equipment/projects/:projectId/sources', async (req, res) => {
     try {
       const prisma = getPrisma(); const projectId = String(req.params.projectId || '');
       await access(req, projectId, false);
       const rows = await prisma.equipmentXmlSource.findMany({ where: { projectId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
-      const tags = await prisma.tag.findMany({ where: { id: { in: rows.map((row: any) => row.tagId) }, projectId } });
+      const tags = await prisma.tag.findMany({ where: { id: { in: rows.map((row: any) => row.tagId).filter(Boolean) }, projectId } });
       const byId = new Map(tags.map((tag: any) => [tag.id, tag]));
       const recentCandidates = rows.length ? await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: { in: rows.map((row: any) => row.id) } }, orderBy: { updatedAt: 'desc' }, select: { id: true, sourceId: true, revision: true, fileName: true, status: true, changes: true, decisions: true, expectedVersions: true, updatedAt: true } }) : [];
       const latest = new Map<string, any>();
@@ -155,7 +225,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       res.json({ sources: rows.map((row: any) => {
         const candidate = latest.get(row.id) || null;
         const ids = new Set([row.elementId, ...Object.keys(candidate?.expectedVersions || {})]);
-        return { ...sourceDto(row, byId.get(row.tagId)), targetTags: [...ids].map(elementId => ({ elementId, tagIds: targetTags.get(elementId) || (elementId === row.elementId ? [row.tagId] : []) })), latestCandidate: candidate };
+        return { ...sourceDto(row, byId.get(row.tagId)), targetTags: [...ids].map(elementId => ({ elementId, tagIds: targetTags.get(elementId) || (elementId === row.elementId && row.tagId ? [row.tagId] : []) })), latestCandidate: candidate };
       }) });
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
@@ -168,23 +238,24 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const actor = await access(req, projectId);
       const tagId = String(req.body?.tagId || ''); const targetType = String(req.body?.targetType || '');
       const elementId = String(req.body?.elementId || ''); const systemId = String(req.body?.systemId || '');
-      if (!tagId || !elementId || !['system', 'component'].includes(targetType)) return res.status(400).json({ error: 'Нужны тег, позиция и тип источника.' });
-      const tag = await prisma.tag.findFirst({ where: { id: tagId, projectId } });
+      const xmlTargetIdentity = req.body?.xmlTargetIdentity;
+      if (!elementId || !['system', 'component'].includes(targetType) || (!tagId && !xmlTargetIdentity)) return res.status(400).json({ error: 'Нужны позиция, тип источника и явный выбор XML-узла для позиции без тега.' });
+      const tag = tagId ? await prisma.tag.findFirst({ where: { id: tagId, projectId } }) : null;
       const element = await prisma.componentElement.findUnique({ where: { id: elementId }, include: { tags: true, monoblock: { include: { system: true } } } });
-      if (!tag || !element || element.monoblock?.system?.projectId !== projectId || !(element.tags || []).some((item: any) => item.id === tagId)) return res.status(404).json({ error: 'Позиция и тег не связаны в этом проекте.' });
-      if (targetType === 'system' && (!systemId || element.monoblock?.system?.id !== systemId || element.monoblock?.system?.name !== tag.identifier || element.itemCode !== '__unit__')) return res.status(400).json({ error: 'Источник установки должен быть привязан к тегу и служебной позиции __unit__ этой установки.' });
+      if ((tagId && !tag) || !element || element.monoblock?.system?.projectId !== projectId || (tag && !(element.tags || []).some((item: any) => item.id === tagId))) return res.status(404).json({ error: 'Позиция и тег не связаны в этом проекте.' });
+      if (targetType === 'system' && (!systemId || element.monoblock?.system?.id !== systemId || (tag && element.monoblock?.system?.name !== tag.identifier) || element.itemCode !== '__unit__')) return res.status(400).json({ error: 'Источник установки должен быть связан со служебной позицией __unit__ выбранной установки.' });
       if (targetType === 'component' && systemId) return res.status(400).json({ error: 'Для источника компонента не передавайте systemId.' });
       const { text, sha256 } = decodeVerifiedSource(req.body);
       const fileName = String(req.body?.fileName || '');
-      const selectedRule = (parseJson(req.body?.selectedRule, null) || inferEquipmentSourceFilenameRule(fileName, String(tag.identifier))) as EquipmentSourceFilenameRule | null;
-      if (!selectedRule) return res.status(400).json({ error: `Имя файла «${fileName}» не содержит точный тег «${tag.identifier}».` });
-      const { groups } = validateXmlTarget(text, fileName, tag, { targetType, systemId }, selectedRule);
+      const selectedRule = (parseJson(req.body?.selectedRule, null) || (tag ? inferEquipmentSourceFilenameRule(fileName, String(tag.identifier)) : null)) as EquipmentSourceFilenameRule | null;
+      if (!selectedRule) return res.status(400).json({ error: tag ? `Имя файла «${fileName}» не содержит точный тег «${tag.identifier}».` : 'Для позиции без тега выберите файл с точным именем.' });
+      const { groups } = validateXmlTarget(text, fileName, tag, { targetType, systemId }, selectedRule, xmlTargetIdentity);
       // Выбор XML создаёт привязку, но не является импортом. Baseline можно
       // поставить только если уже сохранённые характеристики совпадают с ним.
       const alreadyImported = equipmentSourceSpecsEqual(element.specs ?? null, JSON.stringify({ groups }));
       const source = await prisma.equipmentXmlSource.create({ data: {
-        id: randomUUID(), projectId, tagId, targetType, systemId: targetType === 'system' ? systemId : null,
-        elementId, tagIdentifier: String(tag.identifier), revisionOrder: JSON.stringify(Array.isArray(req.body?.revisionOrder) ? req.body.revisionOrder.slice(0, 30).map(String) : ['A','B','C','D','E','F','G','H','I','J']),
+        id: randomUUID(), projectId, tagId: tagId || '', targetType, systemId: targetType === 'system' ? systemId : null,
+        elementId, tagIdentifier: tag?.identifier || '', xmlTargetIdentity: tag ? null : JSON.stringify(xmlTargetIdentity), revisionOrder: JSON.stringify(Array.isArray(req.body?.revisionOrder) ? req.body.revisionOrder.slice(0, 30).map(String) : ['A','B','C','D','E','F','G','H','I','J']),
         selectedRule: JSON.stringify(selectedRule),
         ...(alreadyImported ? { lastImportedRevision: String(req.body?.revision || ''), lastImportedSha256: String(req.body?.sha256 || ''), lastImportedAt: new Date(), lastReviewedRevision: String(req.body?.revision || ''), lastReviewedSha256: String(req.body?.sha256 || ''), lastReviewedAt: new Date() } : {}),
         createdById: String(actor.id),
@@ -212,16 +283,17 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
     try {
       const { prisma, source, tag } = await sourceInProject(req);
       const element = await prisma.componentElement.findUnique({ where: { id: source.elementId }, include: { tags: true, monoblock: { include: { system: true } } } });
-      if (!element || element.monoblock?.system?.projectId !== source.projectId || !(element.tags || []).some((item: any) => item.id === tag.id)) return res.status(409).json({ error: 'Тег больше не привязан к прежней позиции. Выберите правильное оборудование перед перепривязкой.' });
+      if (!element || element.monoblock?.system?.projectId !== source.projectId || (tag && !(element.tags || []).some((item: any) => item.id === tag.id))) return res.status(409).json({ error: 'Привязка больше не соответствует прежней позиции. Выберите правильное оборудование перед перепривязкой.' });
       if (source.targetType === 'system' && element.monoblock?.system?.id !== source.systemId) return res.status(409).json({ error: 'Установка источника изменилась.' });
-      if (source.targetType === 'system' && element.monoblock?.system?.name !== tag.identifier) return res.status(409).json({ error: 'Имя установки не совпадает с текущим идентификатором тега.' });
+      if (tag && source.targetType === 'system' && element.monoblock?.system?.name !== tag.identifier) return res.status(409).json({ error: 'Имя установки не совпадает с текущим идентификатором тега.' });
       const { text, sha256 } = decodeVerifiedSource(req.body);
       const fileName = String(req.body?.fileName || '');
-      const rule = (parseJson(req.body?.selectedRule, null) || inferEquipmentSourceFilenameRule(fileName, String(tag.identifier))) as EquipmentSourceFilenameRule | null;
-      if (!rule) return res.status(400).json({ error: `Имя файла «${fileName}» не содержит тег «${tag.identifier}».` });
-      validateXmlTarget(text, fileName, tag, source, rule);
+      const rule = (parseJson(req.body?.selectedRule, null) || (tag ? inferEquipmentSourceFilenameRule(fileName, String(tag.identifier)) : null)) as EquipmentSourceFilenameRule | null;
+      if (!rule) return res.status(400).json({ error: tag ? `Имя файла «${fileName}» не содержит тег «${tag.identifier}».` : 'Для позиции без тега выберите файл с точным именем.' });
+      const identity = tag ? source.xmlTargetIdentity : req.body?.xmlTargetIdentity;
+      validateXmlTarget(text, fileName, tag, source, rule, identity);
       const updated = await prisma.$transaction(async (tx: any) => {
-        const claimed = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId: source.projectId, deletedAt: null, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule }, data: { tagIdentifier: String(tag.identifier), selectedRule: JSON.stringify(rule) } });
+        const claimed = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId: source.projectId, deletedAt: null, tagId: source.tagId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, xmlTargetIdentity: source.xmlTargetIdentity ?? null }, data: { tagIdentifier: tag?.identifier || '', selectedRule: JSON.stringify(rule), xmlTargetIdentity: tag ? null : JSON.stringify(identity) } });
         if (claimed.count !== 1) throw Object.assign(new Error('Источник параллельно перепривязали. Обновите карточку.'), { status: 409 });
         const candidates = await tx.equipmentXmlCandidate.findMany({ where: { sourceId: source.id }, select: { id: true, status: true, decisions: true, decisionHistory: true, updatedAt: true } });
         for (const candidate of candidates) {
@@ -241,27 +313,27 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
     try {
       const { prisma, source, renamed, tag } = await sourceInProject(req, false);
       const candidates = await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: source.id }, orderBy: { createdAt: 'asc' }, include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, select: { batchId: true } } } });
-      res.json({ renamed, currentIdentifier: tag.identifier, candidates: candidates.map((candidate: any) => ({ ...candidate, structuralActions: parseJson(candidate.parsedSpecs, {}).structuralActions || [], expectedVersions: parseJson(candidate.expectedVersions, {}), parsedSpecs: undefined, changes: parseJson(candidate.changes, []), decisions: parseJson(candidate.decisions, {}), undoBatchId: candidate.applications?.[0]?.batchId || null, applications: undefined })) });
+      res.json({ renamed, currentIdentifier: tag?.identifier || null, candidates: candidates.map((candidate: any) => ({ ...candidate, structuralActions: parseJson(candidate.parsedSpecs, {}).structuralActions || [], expectedVersions: parseJson(candidate.expectedVersions, {}), parsedSpecs: undefined, changes: parseJson(candidate.changes, []), decisions: parseJson(candidate.decisions, {}), undoBatchId: candidate.applications?.[0]?.batchId || null, applications: undefined })) });
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
 
   app.post('/api/equipment/projects/:projectId/sources/:sourceId/check', async (req, res) => {
     try {
       const { prisma, projectId, actor, source, renamed, tag } = await sourceInProject(req);
-      if (renamed) return res.status(409).json({ error: `Тег переименован: было «${source.tagIdentifier}», сейчас «${tag.identifier}». Перепривяжите файл к новому имени.` });
+      if (renamed) return res.status(409).json({ error: `Тег переименован: было «${source.tagIdentifier}», сейчас «${tag?.identifier}». Перепривяжите файл к новому имени.` });
       const { text, sha256: digest } = decodeVerifiedSource(req.body); const fileName = String(req.body?.fileName || ''); const revision = String(req.body?.revision || '').trim();
       if (!text.trim()) return res.status(400).json({ error: 'XML-файл пуст.' });
       if (!revision || revision.length > 100 || !fileName || fileName.length > 255) return res.status(400).json({ error: 'Не указаны имя XML или ревизия.' });
-      const { groups, parsedUnit } = validateXmlTarget(text, fileName, tag, source, parseJson(source.selectedRule, undefined));
+      const { groups, parsedUnit } = validateXmlTarget(text, fileName, tag, source, parseJson(source.selectedRule, undefined), source.xmlTargetIdentity);
       if (source.targetType === 'component') {
         const element = await prisma.componentElement.findUnique({ where: { id: source.elementId }, include: { tags: true, monoblock: { include: { system: true } } } });
-        if (!element || element.monoblock?.system?.projectId !== projectId || !(element.tags || []).some((item: any) => item.id === tag.id)) return res.status(409).json({ error: 'Тег больше не привязан к исходной позиции. Нужна явная перепривязка.' });
+        if (!element || element.monoblock?.system?.projectId !== projectId || (tag && !(element.tags || []).some((item: any) => item.id === tag.id))) return res.status(409).json({ error: 'Привязка больше не соответствует исходной позиции. Нужна явная перепривязка.' });
       }
       const element = await prisma.componentElement.findUnique({ where: { id: source.elementId }, include: { tags: true, monoblock: true } });
       if (!element) return res.status(409).json({ error: 'Позиция источника больше не существует.' });
       if (source.targetType === 'system') {
         const system = await prisma.equipmentSystem.findFirst({ where: { id: source.systemId, projectId } });
-        if (!system || system.name !== source.tagIdentifier || system.name !== tag.identifier) return res.status(409).json({ error: 'Установка источника была переименована; проверьте соответствие файла.' });
+        if (!system || (tag && (system.name !== source.tagIdentifier || system.name !== tag.identifier))) return res.status(409).json({ error: 'Установка источника была переименована; проверьте соответствие файла.' });
       }
       const systemElements = source.targetType === 'system' ? await prisma.componentElement.findMany({
         where: { monoblock: { systemId: source.systemId } }, include: { tags: true, monoblock: true },
@@ -293,7 +365,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           }
         }
       }
-      const parsedTargetSpecs = { targets: review.targets.map(({ elementId, label, groups }) => ({ elementId, label, groups })), structuralActions: review.structuralActions };
+      const parsedTargetSpecs = { xmlTargetIdentity: source.xmlTargetIdentity ? parseJson(source.xmlTargetIdentity, null) : null, targets: review.targets.map(({ elementId, label, groups }) => ({ elementId, label, groups })), structuralActions: review.structuralActions };
       const existing = await prisma.equipmentXmlCandidate.findFirst({ where: { sourceId: source.id, sha256: digest }, include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, select: { batchId: true } } } });
       if (existing) {
         let candidate = existing;
@@ -336,7 +408,14 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const candidate = await prisma.equipmentXmlCandidate.findFirst({ where: { id: req.params.candidateId, sourceId: source.id, projectId } });
       if (!candidate) return res.status(404).json({ error: 'Кандидат ревизии не найден.' });
       if (candidate.status === 'stale') return res.status(409).json({ error: 'Источник перепривязали. Сначала сравните файл заново.' });
-      if (String(tag.identifier) !== String(source.tagIdentifier) || !matchesEquipmentSourceFilename(candidate.fileName, String(tag.identifier), parseJson(source.selectedRule, { kind: 'exact-tag' }))) return res.status(409).json({ error: 'Кандидат относится к прежнему имени файла или правилу источника. Проверьте и сравните XML заново.' });
+      if (tag) {
+        if (String(tag.identifier) !== String(source.tagIdentifier) || !matchesEquipmentSourceFilename(candidate.fileName, String(tag.identifier), parseJson(source.selectedRule, { kind: 'exact-tag' }))) return res.status(409).json({ error: 'Кандидат относится к прежнему имени файла или правилу источника. Проверьте и сравните XML заново.' });
+      } else {
+        const rule = parseJson(source.selectedRule, null);
+        const parsed = parseJson(candidate.parsedSpecs, {});
+        if (!source.xmlTargetIdentity || JSON.stringify(parsed.xmlTargetIdentity) !== JSON.stringify(parseJson(source.xmlTargetIdentity, null))
+          || rule?.kind !== 'selected-name' || normTag(candidate.fileName) !== normTag(String(rule.fileName || ''))) return res.status(409).json({ error: 'Кандидат относится к другому XML-узлу или имени файла. Проверьте и сравните XML заново.' });
+      }
       const root = await prisma.componentElement.findFirst({ where: { id: source.elementId, monoblock: { system: { projectId } } }, include: { tags: true, monoblock: true } });
       if (!root) return res.status(404).json({ error: 'Позиция источника не найдена в проекте.' });
       const currentTargets = source.targetType === 'system'
@@ -369,7 +448,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           const version = Number(live.version || 1);
           return { elementId: live.id, oldSpecs: live.specs ?? null, newSpecs: live.specs ?? null, oldOverrides: live.overrides ?? null, newOverrides: live.overrides ?? null, oldVersion: version, newVersion: version };
         });
-        if (snapshots.length) snapshots[0].sourceBindingAfter = { projectId: source.projectId, tagId: source.tagId, targetType: source.targetType, systemId: source.systemId ?? null, elementId: source.elementId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, deletedAt: source.deletedAt ?? null };
+        if (snapshots.length) snapshots[0].sourceBindingAfter = { projectId: source.projectId, tagId: source.tagId, targetType: source.targetType, systemId: source.systemId ?? null, elementId: source.elementId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule, deletedAt: source.deletedAt ?? null };
         await prisma.$transaction(async (tx: any) => {
           for (const snapshot of snapshots) {
             const claim = await tx.componentElement.updateMany({ where: { id: snapshot.elementId, version: snapshot.oldVersion, specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides }, data: { version: snapshot.oldVersion, specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides } });
@@ -377,7 +456,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           }
           const claimed = await tx.equipmentXmlCandidate.updateMany({ where: { id: candidate.id, updatedAt: candidate.updatedAt, expectedVersion }, data: { status: 'complete' } });
           if (claimed.count !== 1) throw Object.assign(new Error('Кандидат уже изменился. Обновите список.'), { status: 409 });
-          const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, lastImportedRevision: beforeSource?.lastImportedRevision ?? null, lastImportedSha256: beforeSource?.lastImportedSha256 ?? null, lastImportedAt: beforeSource?.lastImportedAt ?? null, lastReviewedRevision: beforeSource?.lastReviewedRevision ?? null, lastReviewedSha256: beforeSource?.lastReviewedSha256 ?? null, lastReviewedAt: beforeSource?.lastReviewedAt ?? null }, data: { lastImportedRevision: candidate.revision, lastImportedSha256: candidate.sha256, lastImportedAt: now, lastReviewedRevision: candidate.revision, lastReviewedSha256: candidate.sha256, lastReviewedAt: now } });
+          const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, tagId: source.tagId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule, lastImportedRevision: beforeSource?.lastImportedRevision ?? null, lastImportedSha256: beforeSource?.lastImportedSha256 ?? null, lastImportedAt: beforeSource?.lastImportedAt ?? null, lastReviewedRevision: beforeSource?.lastReviewedRevision ?? null, lastReviewedSha256: beforeSource?.lastReviewedSha256 ?? null, lastReviewedAt: beforeSource?.lastReviewedAt ?? null }, data: { lastImportedRevision: candidate.revision, lastImportedSha256: candidate.sha256, lastImportedAt: now, lastReviewedRevision: candidate.revision, lastReviewedSha256: candidate.sha256, lastReviewedAt: now } });
           if (sourceClaim.count !== 1) throw Object.assign(new Error('Импортированную ревизию параллельно обновили. Повторите проверку.'), { status: 409 });
           await tx.equipmentXmlApplication.create({ data: {
             id: randomUUID(), batchId, candidateId: candidate.id, sourceId: source.id, elementId: root.id,
@@ -512,10 +591,12 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const reviewedBaselineChanged = status === 'complete' || status === 'keepResolved';
       const createdSnapshots: any[] = [];
       await prisma.$transaction(async (tx: any) => {
-        const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule }, data: { updatedAt: source.updatedAt } });
+        const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, tagId: source.tagId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule }, data: { updatedAt: source.updatedAt } });
         if (sourceClaim.count !== 1) throw Object.assign(new Error('Источник перепривязали во время сравнения. Проверьте XML заново.'), { status: 409 });
-        const tagClaim = await tx.tag.updateMany({ where: { id: tag.id, projectId, identifier: source.tagIdentifier }, data: { updatedAt: tag.updatedAt } });
-        if (tagClaim.count !== 1) throw Object.assign(new Error('Тег источника переименовали во время сравнения. Проверьте XML заново.'), { status: 409 });
+        if (tag) {
+          const tagClaim = await tx.tag.updateMany({ where: { id: tag.id, projectId, identifier: source.tagIdentifier }, data: { updatedAt: tag.updatedAt } });
+          if (tagClaim.count !== 1) throw Object.assign(new Error('Тег источника переименовали во время сравнения. Проверьте XML заново.'), { status: 409 });
+        }
         for (const update of updates) {
           const claim = await tx.componentElement.updateMany({ where: { id: update.element.id, version: update.oldVersion, specs: update.oldSpecs, overrides: update.oldOverrides, ...update.oldMetadata }, data: update.changed ? withBump({ specs: update.newSpecs, overrides: update.newOverrides, ...update.newMetadata }) : { version: update.oldVersion, specs: update.oldSpecs, overrides: update.oldOverrides } });
           if (claim.count !== 1) throw Object.assign(new Error(`Позицию «${update.element.itemCode}» изменили параллельно. Обновите сравнение.`), { status: 409 });
@@ -524,7 +605,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           const proposal = action.proposed;
           const systemId = String(source.systemId || '');
           let monoblock = await tx.monoblock.findFirst({ where: { systemId, name: proposal.monoblockName } });
-          if (!monoblock) monoblock = await tx.monoblock.create({ data: { systemId, name: proposal.monoblockName } });
+          if (!monoblock) monoblock = await tx.monoblock.create({ data: { id: await nextProjectEntityId(tx, projectId, 'MB', { inTransaction: true }), systemId, name: proposal.monoblockName } });
           const duplicate = await tx.componentElement.findMany({ where: { monoblockId: monoblock.id, itemCode: proposal.itemCode, status: { not: 'REMOVED' } }, select: { id: true } });
           if (duplicate.length) throw Object.assign(new Error(`Позиция «${proposal.itemCode}» уже существует в моноблоке «${proposal.monoblockName}».`), { status: 409 });
           let parentElementId: string | null = null;
@@ -539,14 +620,14 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
             if (hits.length > 1 || hits.some((tag: any) => (tag.componentElements || []).length)) throw Object.assign(new Error(`Тег «${identifier}» изменился или связан параллельно.`), { status: 409 });
             if (hits.length === 1) connectTagIds.push(hits[0].id);
             else {
-              const tag = await tx.tag.create({ data: { projectId, identifier } });
+              const tag = await tx.tag.create({ data: { id: await nextProjectEntityId(tx, projectId, 'TAG', { inTransaction: true }), projectId, identifier } });
               await recordTagCreated(tx, { projectId, userId: String(actor.id), source: TAG_SOURCE.equipmentImport }, tag);
               connectTagIds.push(tag.id);
             }
           }
           const specs = JSON.stringify({ groups: proposal.groups });
           const created = await tx.componentElement.create({ data: {
-            monoblockId: monoblock.id, itemCode: proposal.itemCode, name: proposal.title || proposal.itemCode,
+            id: await nextProjectEntityId(tx, projectId, 'EQ', { inTransaction: true }), monoblockId: monoblock.id, itemCode: proposal.itemCode, name: proposal.title || proposal.itemCode,
             equipType: proposal.equipType || 'ПРОЧЕЕ', specs, version: 1, status: 'OK', manual: false,
             role: proposal.role || 'БЛОК', sourceKind: proposal.sourceKind || null,
             sourceOrder: Number.isFinite(Number(proposal.sourceOrder)) ? Number(proposal.sourceOrder) : 0,
@@ -559,13 +640,13 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
         }
         const beforeSource = await tx.equipmentXmlSource.findUnique({ where: { id: source.id } });
         if (importedBaselineChanged || reviewedBaselineChanged) {
-          const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, lastImportedRevision: beforeSource?.lastImportedRevision ?? null, lastImportedSha256: beforeSource?.lastImportedSha256 ?? null, lastImportedAt: beforeSource?.lastImportedAt ?? null, lastReviewedRevision: beforeSource?.lastReviewedRevision ?? null, lastReviewedSha256: beforeSource?.lastReviewedSha256 ?? null, lastReviewedAt: beforeSource?.lastReviewedAt ?? null }, data: {
+          const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, tagId: source.tagId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule, lastImportedRevision: beforeSource?.lastImportedRevision ?? null, lastImportedSha256: beforeSource?.lastImportedSha256 ?? null, lastImportedAt: beforeSource?.lastImportedAt ?? null, lastReviewedRevision: beforeSource?.lastReviewedRevision ?? null, lastReviewedSha256: beforeSource?.lastReviewedSha256 ?? null, lastReviewedAt: beforeSource?.lastReviewedAt ?? null }, data: {
           ...(importedBaselineChanged ? { lastImportedRevision: candidate.revision, lastImportedSha256: candidate.sha256, lastImportedAt: now } : {}),
           ...(reviewedBaselineChanged ? { lastReviewedRevision: candidate.revision, lastReviewedSha256: candidate.sha256, lastReviewedAt: now } : {}),
           } });
           if (sourceClaim.count !== 1) throw Object.assign(new Error('Импортированную ревизию параллельно обновили. Повторите проверку.'), { status: 409 });
         }
-        const sourceBindingAfter = { projectId: source.projectId, tagId: source.tagId, targetType: source.targetType, systemId: source.systemId ?? null, elementId: source.elementId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, deletedAt: source.deletedAt ?? null };
+        const sourceBindingAfter = { projectId: source.projectId, tagId: source.tagId, targetType: source.targetType, systemId: source.systemId ?? null, elementId: source.elementId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule, deletedAt: source.deletedAt ?? null };
         const currentSnapshots = [...updates.map(({ element: item, ...snapshot }) => ({ elementId: item.id, ...snapshot })), ...createdSnapshots];
         let priorSnapshots: any[] = [];
         if (priorApplication) {

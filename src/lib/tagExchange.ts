@@ -47,22 +47,23 @@ function metadataOf(tag: any): Record<string, any> {
 }
 
 /** Дополнительные поля берутся из всего набора тегов, чтобы в меню не пропадали поля, пустые у части тегов. */
-export function tagExchangeColumns(tags: any[]): Column[] {
+export function tagExchangeColumns(tags: any[], dynamicFieldNames: Record<string, string> = {}): Column[] {
   const rootKeys = new Set<string>();
   const dynamicKeys = new Set<string>();
+  const categoryIdByName = new Map(Object.entries(dynamicFieldNames).map(([id, name]) => [name, id]));
   for (const tag of tags || []) {
     const meta = metadataOf(tag);
     Object.keys(meta).filter((key) => !BUILT_IN_META_KEYS.has(key)).forEach((key) => rootKeys.add(key));
     const dynamic = meta.dynamicFields;
     if (dynamic && typeof dynamic === 'object' && !Array.isArray(dynamic)) {
-      Object.keys(dynamic).forEach((key) => dynamicKeys.add(key));
+      Object.keys(dynamic).forEach((key) => dynamicKeys.add(dynamicFieldNames[key] ? key : categoryIdByName.get(key) || key));
     }
   }
   const sorted = (keys: Set<string>) => [...keys].sort((a, b) => a.localeCompare(b, 'ru'));
   return [
     ...TAG_EXCHANGE_COLUMNS,
     ...sorted(rootKeys).map((key) => ({ key: `meta:${key}`, label: `Метаданные · ${key}` })),
-    ...sorted(dynamicKeys).map((key) => ({ key: `dynamic:${key}`, label: key })),
+    ...sorted(dynamicKeys).map((key) => ({ key: `dynamic:${key}`, label: dynamicFieldNames[key] || key })),
   ];
 }
 
@@ -79,6 +80,8 @@ export interface TagExchangeHelpers {
   /** Разбор замечаний из поля метаданных тега */
   meta: (tag: any) => { descriptions: { text: string; status: string; comment: string }[] };
   status: (tag: any) => string;
+  /** Имя актуальной категории для значения, которое теперь хранится по ID. */
+  dynamicFieldNames?: Record<string, string>;
 }
 
 const ACTUALITY_LABEL: Record<string, string> = {
@@ -118,7 +121,11 @@ export function tagCell(tag: any, key: string, h: TagExchangeHelpers): string {
     case 'metadata': return cellValue(metadataOf(tag));
     default:
       if (key.startsWith('meta:')) return cellValue(metadataOf(tag)[key.slice(5)]);
-      if (key.startsWith('dynamic:')) return cellValue(metadataOf(tag).dynamicFields?.[key.slice(8)]);
+      if (key.startsWith('dynamic:')) {
+        const fieldId = key.slice(8);
+        const fields = metadataOf(tag).dynamicFields;
+        return cellValue(fields?.[fieldId] ?? (h.dynamicFieldNames?.[fieldId] ? fields?.[h.dynamicFieldNames[fieldId]] : undefined));
+      }
       return '';
   }
 }

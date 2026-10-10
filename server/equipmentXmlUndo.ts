@@ -56,7 +56,9 @@ async function sourceIdentityValid(prisma: any, app: any, source: any, candidate
     tags: true, monoblock: { include: { system: true } },
   } });
   if (!root || root.id !== app.elementId || !root.monoblock?.system || root.monoblock.system.projectId !== source.projectId) return false;
-  if (!(root.tags || []).some((tag: any) => tag.id === source.tagId && tag.identifier === source.tagIdentifier)) return false;
+  if (source.tagId) {
+    if (!(root.tags || []).some((tag: any) => tag.id === source.tagId && tag.identifier === source.tagIdentifier)) return false;
+  } else if (!source.xmlTargetIdentity) return false;
   if (source.targetType === 'system') {
     if (!source.systemId || root.monoblock.system.id !== source.systemId || root.itemCode !== '__unit__') return false;
   } else if (source.targetType !== 'component' || source.systemId) return false;
@@ -67,14 +69,23 @@ async function sourceIdentityValid(prisma: any, app: any, source: any, candidate
       return typeof source.selectedRule === 'string' ? JSON.parse(source.selectedRule) : source.selectedRule;
     } catch { return null; }
   })();
-  if (!rule || !matchesEquipmentSourceFilename(String(candidate.fileName || ''), String(source.tagIdentifier || ''), rule)) return false;
+  if (source.tagId) {
+    if (!rule || !matchesEquipmentSourceFilename(String(candidate.fileName || ''), String(source.tagIdentifier || ''), rule)) return false;
+  } else {
+    let parsed: any;
+    try { parsed = typeof candidate.parsedSpecs === 'string' ? JSON.parse(candidate.parsedSpecs) : candidate.parsedSpecs; } catch { return false; }
+    if (!source.xmlTargetIdentity || JSON.stringify(parsed?.xmlTargetIdentity) !== JSON.stringify(typeof source.xmlTargetIdentity === 'string' ? JSON.parse(source.xmlTargetIdentity) : source.xmlTargetIdentity)
+      || !rule || rule.kind !== 'selected-name' || String(candidate.fileName || '').normalize('NFC').trim().toLowerCase() !== String(rule.fileName || '').normalize('NFC').trim().toLowerCase()) return false;
+  }
   const bindingAfter = targets.find(target => target.sourceBindingAfter)?.sourceBindingAfter;
   if (bindingAfter) {
-    const fields = ['projectId', 'tagId', 'targetType', 'systemId', 'elementId', 'tagIdentifier', 'selectedRule', 'deletedAt'];
+    const fields = ['projectId', 'tagId', 'targetType', 'systemId', 'elementId', 'tagIdentifier', 'xmlTargetIdentity', 'selectedRule', 'deletedAt'];
     if (fields.some(field => (source[field] ?? null) !== (bindingAfter[field] ?? null))) return false;
   } else {
-    const inferred = inferEquipmentSourceFilenameRule(String(candidate.fileName || ''), String(source.tagIdentifier || ''));
-    if (!inferred || JSON.stringify(rule) !== JSON.stringify(inferred)) return false;
+    if (source.tagId) {
+      const inferred = inferEquipmentSourceFilenameRule(String(candidate.fileName || ''), String(source.tagIdentifier || ''));
+      if (!inferred || JSON.stringify(rule) !== JSON.stringify(inferred)) return false;
+    } else if (rule.kind !== 'selected-name' || String(candidate.fileName || '').normalize('NFC').trim().toLowerCase() !== String(rule.fileName || '').normalize('NFC').trim().toLowerCase()) return false;
   }
   return targets.some(target => target.elementId === root.id);
 }

@@ -74,6 +74,10 @@ async function main() {
     assert.equal(preview.data.base64, Buffer.from(xml('Л23')).toString('base64'));
   }
   assert.equal(readCount, 2, 'проверка выбора читает два одинаковых снимка файла');
+  const untaggedPreview = await pickEquipmentSource(undefined, pickerRequest);
+  assert.equal(untaggedPreview.ok && untaggedPreview.data.status, 'ready', 'XML для позиции без тега выбирается без угадывания тега');
+  if (untaggedPreview.ok && untaggedPreview.data.status === 'ready') assert.deepEqual(untaggedPreview.data.selectedRule, { kind: 'selected-name', fileName: 'Л23.xml' }, 'привязка без тега закрепляет явно выбранное имя файла');
+  assert.equal(readCount, 4, 'привязка без тега также читает два снимка и проверяет стабильность файла');
   const directRequest: EquipmentSourceRequest = async <T,>(request: any) => {
     if (request.action === 'pickEquipmentSource') return { ok: true, data: {
       canceled: false,

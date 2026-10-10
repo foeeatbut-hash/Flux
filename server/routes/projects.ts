@@ -3,6 +3,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { canSeeProject, registerProjectAccessGuard } from './members.js';
 import { forgetProjectSelections } from './builder.js';
+import { nextProjectId } from '../entityIds.js';
 
 // Проекты: список с учётом состава, создание, правка и удаление.
 //
@@ -45,6 +46,7 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
     const { name, code, customer, contractor, description, info } = req.body;
     const project = await prisma.project.create({
       data: {
+        id: await nextProjectId(prisma),
         // Имя из одних пробелов ничем не лучше пустого: в переключателе проектов
         // такая строка выглядела пустой и выбрать её вслепую было нельзя
         name: String(name ?? '').trim() || 'Без названия',

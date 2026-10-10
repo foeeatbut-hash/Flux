@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { PrismaClient } from '@prisma/client-sqlite';
 import { compareSpecs, detectTypeMismatch } from './specUtils.js';
+import { nextProjectEntityId } from './entityIds.js';
 
 export interface ParseResult {
   systems: {
@@ -706,6 +707,7 @@ export async function importParsedDataToDB(projectId: string, parseResult: Parse
     if (!system) {
       system = await prisma.equipmentSystem.create({
         data: {
+          id: await nextProjectEntityId(prisma, projectId, 'SYS'),
           projectId,
           name: sysData.name,
           fileName: fileName || null
@@ -726,6 +728,7 @@ export async function importParsedDataToDB(projectId: string, parseResult: Parse
       if (!monoblock) {
         monoblock = await prisma.monoblock.create({
           data: {
+            id: await nextProjectEntityId(prisma, projectId, 'MB'),
             systemId: system.id,
             name: mbData.name
           }
@@ -820,6 +823,7 @@ export async function importParsedDataToDB(projectId: string, parseResult: Parse
           // New Component Element creation
           const newComponent = await prisma.componentElement.create({
             data: {
+              id: await nextProjectEntityId(prisma, projectId, 'EQ'),
               monoblockId: monoblock.id,
               name: compData.title || compData.name,
               itemCode: compData.name,

@@ -6,6 +6,7 @@ import {
 } from './windowsFiles';
 import type { WindowsEquipmentSourceFolderPick, WindowsEquipmentSourcePick } from '../../filesystem/contracts';
 import { decodeEquipmentSourceXml, EQUIPMENT_SOURCE_MAX_BYTES, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename, type EquipmentSourceFilenameRule } from '../../equipment/sourceXml';
+import type { EquipmentXmlTargetIdentity } from '../../equipment/sourceXml';
 import { useStore } from '../store/store';
 export type { EquipmentSourceFilenameRule } from '../../equipment/sourceXml';
 
@@ -13,11 +14,12 @@ export interface LocalEquipmentSourceBinding {
   sourceId: string;
   userId?: string;
   projectId: string;
-  tagId: string;
+  tagId?: string;
   systemId?: string;
   elementId?: string;
   targetType: 'system' | 'component';
-  tagIdentifier: string;
+  tagIdentifier?: string;
+  xmlTargetIdentity?: EquipmentXmlTargetIdentity;
   rootId: string;
   relativePath: string;
   selectedFileRef?: WindowsFileRef;
@@ -65,12 +67,16 @@ const systemNames = new Set(['system', 'equipmentsystem', 'установка', 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, trimValues: true, parseTagValue: false, parseAttributeValue: false });
 
 function keyOf(binding: Pick<LocalEquipmentSourceBinding, 'projectId' | 'sourceId' | 'tagId' | 'elementId'>, userId: string): string {
-  return [userId, binding.projectId, binding.sourceId, binding.tagId, binding.elementId || ''].map(encodeURIComponent).join(':');
+  return [userId, binding.projectId, binding.sourceId, binding.elementId || ''].map(encodeURIComponent).join(':');
+}
+
+function legacyKeyOf(binding: Pick<LocalEquipmentSourceBinding, 'projectId' | 'sourceId' | 'tagId' | 'elementId'>, userId: string): string {
+  return [userId, binding.projectId, binding.sourceId, binding.tagId || '', binding.elementId || ''].map(encodeURIComponent).join(':');
 }
 
 /** Локальная привязка содержит только capability Проводника, а не абсолютный путь или данные проекта. */
 export function saveEquipmentSourceBinding(binding: LocalEquipmentSourceBinding): void {
-  if (!binding.sourceId || !binding.projectId || !binding.tagId || !binding.rootId || !['system', 'component'].includes(binding.targetType)) throw new Error('Неполная привязка источника оборудования.');
+  if (!binding.sourceId || !binding.projectId || !binding.elementId || (!binding.tagId && !binding.xmlTargetIdentity) || !binding.rootId || !['system', 'component'].includes(binding.targetType)) throw new Error('Неполная привязка источника оборудования.');
   if (binding.relativePath.startsWith('/') || /^[a-z]:/iu.test(binding.relativePath) || binding.relativePath.split(/[\\/]/u).some((part) => part === '..') || binding.revisionOrder.length > 32 || new Set(binding.revisionOrder).size !== binding.revisionOrder.length) throw new Error('Некорректная папка или порядок ревизий источника.');
   const storage = localStorage;
   const userId = useStore.getState().user?.id;
@@ -80,9 +86,11 @@ export function saveEquipmentSourceBinding(binding: LocalEquipmentSourceBinding)
   storage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
 
-export function getEquipmentSourceBinding(projectId: string, sourceId: string, tagId: string, elementId?: string): LocalEquipmentSourceBinding | null {
+export function getEquipmentSourceBinding(projectId: string, sourceId: string, tagId?: string, elementId?: string): LocalEquipmentSourceBinding | null {
   const userId = useStore.getState().user?.id;
-  return userId ? readAllBindings()[keyOf({ projectId, sourceId, tagId, elementId }, userId)] || null : null;
+  if (!userId) return null;
+  const all = readAllBindings();
+  return all[keyOf({ projectId, sourceId, tagId, elementId }, userId)] || all[legacyKeyOf({ projectId, sourceId, tagId, elementId }, userId)] || null;
 }
 
 export function removeEquipmentSourceBinding(projectId: string, sourceId: string, tagId: string, elementId?: string): void {
@@ -90,6 +98,7 @@ export function removeEquipmentSourceBinding(projectId: string, sourceId: string
   if (!userId) return;
   const all = readAllBindings();
   delete all[keyOf({ projectId, sourceId, tagId, elementId }, userId)];
+  delete all[legacyKeyOf({ projectId, sourceId, tagId, elementId }, userId)];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
 
@@ -102,7 +111,7 @@ function readAllBindings(): Record<string, LocalEquipmentSourceBinding> {
 }
 
 /** Окно Windows возвращает только capability-ссылки; абсолютные пути остаются в Electron main. */
-export async function pickEquipmentSource(tagIdentifier: string, request: EquipmentSourceRequest = windowsFilesRequest): Promise<WindowsFilesResponse<EquipmentSourcePreview>> {
+export async function pickEquipmentSource(tagIdentifier?: string, request: EquipmentSourceRequest = windowsFilesRequest): Promise<WindowsFilesResponse<EquipmentSourcePreview>> {
   const adapter = bridgeAdapter(request);
   const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
   if ('error' in picked) return { ok: false, error: picked.error };
@@ -110,10 +119,10 @@ export async function pickEquipmentSource(tagIdentifier: string, request: Equipm
   const { selectedFile, sourceFolder } = picked.data;
   const bytes = await readStable(adapter, selectedFile.ref);
   if ('error' in bytes) return { ok: true, data: { status: isUnstableReadError(bytes.error.code) ? 'unstable' : 'source-unavailable', message: bytes.error.message } };
-  const selectedRule = inferEquipmentSourceFilenameRule(selectedFile.name, tagIdentifier);
-  if (!selectedRule) return { ok: true, data: { status: 'invalid', message: `Имя XML-файла «${selectedFile.name}» не соответствует тегу «${tagIdentifier}».` } };
+  const selectedRule = tagIdentifier ? inferEquipmentSourceFilenameRule(selectedFile.name, tagIdentifier) : (/\.xml$/iu.test(selectedFile.name) ? { kind: 'selected-name' as const, fileName: selectedFile.name } : null);
+  if (!selectedRule) return { ok: true, data: { status: 'invalid', message: tagIdentifier ? `Имя XML-файла «${selectedFile.name}» не соответствует тегу «${tagIdentifier}».` : 'Выберите XML-файл.' } };
   const text = decodeXml(bytes.data.base64, bytes.data.size);
-  if (!text || !xmlHasTargetTag(text, tagIdentifier, 'system') && !xmlHasTargetTag(text, tagIdentifier, 'component')) return { ok: true, data: { status: 'invalid', message: `В XML-файле «${selectedFile.name}» не найдено оборудование с тегом «${tagIdentifier}».` } };
+  if (!text || tagIdentifier && !xmlHasTargetTag(text, tagIdentifier, 'system') && !xmlHasTargetTag(text, tagIdentifier, 'component')) return { ok: true, data: { status: 'invalid', message: tagIdentifier ? `В XML-файле «${selectedFile.name}» не найдено оборудование с тегом «${tagIdentifier}».` : 'XML-файл повреждён или не содержит выбранную позицию.' } };
   const folderRevision = revisionBetween(sourceFolder, selectedFile.ref);
   const xmlRevision = extractRevisionFromXml(text);
   const revision = xmlRevision || folderRevision || '';
@@ -166,11 +175,14 @@ export async function scanEquipmentSource(
   const warnings: string[] = [];
   const errors: string[] = [];
   let ambiguous = false;
+  const matchesFile = (name: string) => binding.tagIdentifier
+    ? matchesEquipmentSourceFilename(name, binding.tagIdentifier, binding.selectedRule)
+    : binding.selectedRule?.kind === 'selected-name' && normalizeTag(name) === normalizeTag(binding.selectedRule.fileName);
   for (const folder of folders) {
     const folderRef = refForEntry(sourceFolder, folder);
     const files = await listAll(adapter, folderRef, 'file');
     if ('message' in files) { errors.push(files.message); continue; }
-    const matching = files.entries.filter((entry) => matchesEquipmentSourceFilename(entry.name, binding.tagIdentifier, binding.selectedRule));
+    const matching = files.entries.filter((entry) => matchesFile(entry.name));
     if (matching.length > 1) ambiguous = true;
     for (const entry of matching) {
       const fileRef = refForEntry(folderRef, entry);
@@ -181,21 +193,21 @@ export async function scanEquipmentSource(
         continue;
       }
       const text = decodeXml(read.data.base64, read.data.size);
-      if (!text || !xmlHasTargetTag(text, binding.tagIdentifier, binding.targetType)) { invalidFiles.push(entry.name); continue; }
+      if (!text || binding.tagIdentifier && !xmlHasTargetTag(text, binding.tagIdentifier, binding.targetType)) { invalidFiles.push(entry.name); continue; }
       const xmlRevision = extractRevisionFromXml(text);
       const revision = xmlRevision || folder.name;
       if (!revision) { invalidFiles.push(entry.name); continue; }
       const revisionWarning = revisionMismatchWarning(folder.name, xmlRevision);
       if (revisionWarning) warnings.push(`${entry.name}: ${revisionWarning}`);
       if (!rank.has(revision.toUpperCase())) { invalidFiles.push(`${entry.name} (ревизия ${revision} вне порядка ревизий)`); continue; }
-      const selectedRule = binding.selectedRule || inferEquipmentSourceFilenameRule(entry.name, binding.tagIdentifier);
+      const selectedRule = binding.selectedRule || (binding.tagIdentifier ? inferEquipmentSourceFilenameRule(entry.name, binding.tagIdentifier) : null);
       if (!selectedRule) { invalidFiles.push(entry.name); continue; }
       candidates.push({ revision, fileRef, fileName: entry.name, size: read.data.size, modifiedAt: read.data.modifiedAt, sha256: read.data.sha256, base64: read.data.base64, text, selectedRule, ...(revisionWarning ? { revisionWarning } : {}) });
     }
   }
   const directFiles = await listAll(adapter, sourceFolder, 'file');
   if ('message' in directFiles) return { status: 'source-unavailable', candidates, message: directFiles.message };
-  for (const entry of directFiles.entries.filter((file) => matchesEquipmentSourceFilename(file.name, binding.tagIdentifier, binding.selectedRule))) {
+  for (const entry of directFiles.entries.filter((file) => matchesFile(file.name))) {
     const fileRef = refForEntry(sourceFolder, entry);
     const read = await readStable(adapter, fileRef);
     if ('error' in read) {
@@ -203,9 +215,9 @@ export async function scanEquipmentSource(
     }
     const text = decodeXml(read.data.base64, read.data.size);
     const revision = text ? extractRevisionFromXml(text) : null;
-    if (!text || !xmlHasTargetTag(text, binding.tagIdentifier, binding.targetType) || !revision) { invalidFiles.push(entry.name); continue; }
+    if (!text || binding.tagIdentifier && !xmlHasTargetTag(text, binding.tagIdentifier, binding.targetType) || !revision) { invalidFiles.push(entry.name); continue; }
     if (!rank.has(revision.toUpperCase())) { invalidFiles.push(entry.name); continue; }
-    const selectedRule = binding.selectedRule || inferEquipmentSourceFilenameRule(entry.name, binding.tagIdentifier);
+    const selectedRule = binding.selectedRule || (binding.tagIdentifier ? inferEquipmentSourceFilenameRule(entry.name, binding.tagIdentifier) : null);
     if (!selectedRule) { invalidFiles.push(entry.name); continue; }
     candidates.push({ revision, fileRef, fileName: entry.name, size: read.data.size, modifiedAt: read.data.modifiedAt, sha256: read.data.sha256, base64: read.data.base64, text, selectedRule });
   }
@@ -214,9 +226,9 @@ export async function scanEquipmentSource(
   if (errors.some((value) => value.startsWith('unstable:'))) return { status: 'unstable', candidates, message: 'Один из XML-файлов изменяется или копируется. Повторите проверку позже.', ...(invalidFiles.length ? { invalidFiles } : {}) };
   if (errors.length) return { status: 'source-unavailable', candidates, message: errors[0], ...(invalidFiles.length ? { invalidFiles } : {}) };
   if (ambiguous) return { status: 'ambiguous', candidates, message: `В одной или нескольких ревизиях найдено несколько XML-файлов с выбранным правилом имени тега.${warnings.length ? ` ${[...new Set(warnings)].join(' ')}` : ''}`, ...(invalidFiles.length ? { invalidFiles } : {}), ...(warnings.length ? { warnings: [...new Set(warnings)] } : {}) };
-  if (invalidFiles.length) return { status: 'invalid', candidates, message: `XML-файлы источника «${binding.tagIdentifier}» требуют проверки (${invalidFiles.join(', ')}). Более старые данные не следует считать актуальными.`, invalidFiles };
+  if (invalidFiles.length) return { status: 'invalid', candidates, message: `XML-файлы источника «${binding.tagIdentifier || binding.elementId}» требуют проверки (${invalidFiles.join(', ')}). Более старые данные не следует считать актуальными.`, invalidFiles };
   if (warnings.length) return { status: 'invalid', candidates, message: `${[...new Set(warnings)].join(' ')} Проверьте папку и XML до сверки ревизии.`, warnings: [...new Set(warnings)] };
-  if (!candidates.length) return { status: 'no-match', candidates, message: `В папках ревизий не найден XML для тега «${binding.tagIdentifier}».` };
+  if (!candidates.length) return { status: 'no-match', candidates, message: `В папках ревизий не найден XML для ${binding.tagIdentifier ? `тега «${binding.tagIdentifier}»` : 'выбранного имени файла'}.` };
   return { status: 'ready', candidates, recommended: candidates[candidates.length - 1], ...(warnings.length ? { warnings: [...new Set(warnings)] } : {}) };
 }
 

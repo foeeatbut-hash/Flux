@@ -141,7 +141,8 @@ export default function PositionList({ systems, types, onOpen, onClose, sourceSt
                     <td className="px-3 py-1.5 align-top font-mono whitespace-nowrap">
                       {r.tag
                         ? <span className="inline-flex items-center gap-1 u-sel"><TagIcon className="w-3 h-3 text-emerald-500" />{r.tag}{sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status) && <span aria-label={sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status)} title={`${sourceLabel(sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.status)}${sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.revision ? ` · ревизия ${sourceStatuses?.[`${r.tagId || ''}:${r.id}`]?.revision}` : ''}`}><RefreshCw className="w-3 h-3 text-amber-600 dark:text-amber-300" /></span>}</span>
-                        : <span className="text-slate-300 dark:text-slate-500">без тега</span>}
+                        : <span className="text-slate-500 dark:text-slate-400">без тега</span>}
+                      <div className="text-2xs text-slate-500 dark:text-slate-400 u-sel" title="Постоянный ID позиции в проекте">{r.id}</div>
                     </td>
                     <td className="px-2 py-1.5 align-top">
                       <div className="whitespace-nowrap">{classTitle(r.cls)}</div>

@@ -99,7 +99,7 @@ export function filterRows(rows: ListRow[], f: ListFilter): ListRow[] {
     if (f.tagged === 'with' && !r.tag) return false;
     if (f.tagged === 'without' && r.tag) return false;
     if (!q) return true;
-    return [r.tag, r.label, r.kind, r.parentTag, r.unitName, classById(r.cls).title]
+    return [r.id, r.tag, r.label, r.kind, r.parentTag, r.unitName, classById(r.cls).title]
       .some((v) => v.toLowerCase().includes(q));
   });
 }

@@ -136,7 +136,7 @@ export function useQuickCreate({
 
       cats.forEach((cat: any) => {
         const value = dynamicCategorySelections[cat.id] || '';
-        finalDynamicFields[cat.nameRu] = value;
+        finalDynamicFields[cat.id] = value;
 
         const lowName = cat.nameRu.toLowerCase();
         const lowCode = cat.code.toLowerCase();

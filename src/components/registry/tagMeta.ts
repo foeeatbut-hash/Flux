@@ -34,6 +34,11 @@ export interface ParsedMetadata {
   markSegments?: string[];
 }
 
+/** ID поля переживает переименование; имя остаётся запасным ключом для старых тегов. */
+export function dynamicFieldValue(fields: Record<string, string> | undefined, category: { id: string; nameRu: string }): string {
+  return fields?.[category.id] ?? fields?.[category.nameRu] ?? '';
+}
+
 // Чистые функции уровня модуля: не зависят от состояния компонента,
 // используются и главным экраном, и выделенным компонентом поиска
 export function parseTagMetadata(tag: any): ParsedMetadata {

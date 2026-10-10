@@ -389,11 +389,14 @@ model EquipmentHistory {
 model EquipmentXmlSource {
   id                   String   @id @default(uuid())
   projectId            String
+  // Пустая строка означает отсутствие тега; внешний ID здесь не создаётся.
   tagId                String
   targetType           String
   systemId             String?
   elementId            String
   tagIdentifier        String
+  // Явно выбранный путь к узлу XML; не является придуманным ID поставщика.
+  xmlTargetIdentity    String?
   revisionOrder        String   @default("alphabetical")
   selectedRule         String   @default("exact-tag")
   lastImportedRevision String?

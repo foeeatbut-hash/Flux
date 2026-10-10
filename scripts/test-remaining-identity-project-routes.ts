@@ -17,6 +17,7 @@ const dbPath = path.join(tempDir, 'synthetic.sqlite');
 const raw = new Database(dbPath);
 raw.exec(`
   CREATE TABLE "Project" ("id" TEXT PRIMARY KEY NOT NULL, "name" TEXT NOT NULL, "code" TEXT NOT NULL DEFAULT '', "customer" TEXT NOT NULL DEFAULT '', "contractor" TEXT NOT NULL DEFAULT '', "description" TEXT NOT NULL DEFAULT '', "info" TEXT NOT NULL DEFAULT '', "status" TEXT NOT NULL DEFAULT 'ACTIVE', "system" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+  CREATE TABLE "AppSetting" ("id" TEXT PRIMARY KEY NOT NULL, "key" TEXT NOT NULL, "userId" TEXT, "value" TEXT NOT NULL, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE "ProjectMember" ("id" TEXT PRIMARY KEY NOT NULL, "projectId" TEXT NOT NULL, "userId" TEXT NOT NULL, "addedBy" TEXT NOT NULL, "addedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
 `);
 raw.close();

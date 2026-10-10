@@ -8,6 +8,7 @@ import { importPolicyOfProject } from './tagPolicy.js';
 import { withBump } from '../equipmentVersion.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, type TagChangeSet } from '../tagHistory.js';
+import { nextProjectEntityId } from '../entityIds.js';
 
 /**
  * Правка реестра оборудования вручную: удаление лишней позиции.
@@ -304,7 +305,7 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
   }
   if (existing) return { ok: true, identifier: check.identifier, corrected, tagId: existing.id, existing: true };
   if (opts.dryRun) return { ok: true, identifier: check.identifier, corrected, created: true };
-  const made = await prisma.tag.create({ data: { identifier: check.identifier, projectId } });
+  const made = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG'), identifier: check.identifier, projectId } });
   await recordTagCreated(prisma, { projectId, userId: opts.actor?.userId, source: TAG_SOURCE.equipmentEdit }, made);
   return { ok: true, identifier: check.identifier, corrected, tagId: made.id, created: true };
 }
@@ -356,6 +357,7 @@ async function createPosition(
 
   const created = await prisma.componentElement.create({
     data: {
+      id: await nextProjectEntityId(prisma, at.projectId, 'EQ'),
       monoblockId: at.monoblockId,
       itemCode: `${base}${no}`,
       name,

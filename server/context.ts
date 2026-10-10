@@ -7,6 +7,7 @@
 // каждом (пере)создании клиента.
 
 import type { Response } from 'express';
+import { nextProjectId } from './entityIds.js';
 
 let _prisma: any = null;
 
@@ -31,7 +32,7 @@ export async function resolveProjectId(raw: string | undefined | null): Promise<
   // Служебный проект (общий диск) проектом «по умолчанию» быть не может:
   // иначе данные, у которых проект не назвали, легли бы в хранилище
   let first = await prisma.project.findFirst({ where: { system: false } });
-  if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
+  if (!first) first = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
   return first.id;
 }
 

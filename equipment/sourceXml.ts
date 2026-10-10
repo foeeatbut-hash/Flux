@@ -5,6 +5,22 @@ export type EquipmentSourceFilenameRule =
   | { kind: 'exact-tag' }
   | { kind: 'selected-name'; fileName: string };
 
+/** Точный выбранный узел XML; поля fingerprint взяты из XML, не придуманы Flux. */
+export interface EquipmentXmlTargetIdentity {
+  version: 1;
+  targetType: 'system' | 'component';
+  unitIndex: number;
+  componentIndex?: number;
+  fingerprint: {
+    name?: string;
+    code?: string;
+    title?: string;
+    equipType?: string;
+    role?: string;
+    sourceKind?: string;
+  };
+}
+
 /** Выбор файла хранит явное правило, чтобы повторный скан не брал соседний XML по подстроке. */
 export function inferEquipmentSourceFilenameRule(fileName: string, tagIdentifier: string): EquipmentSourceFilenameRule | null {
   if (/[\\/]/u.test(fileName) || !fileName.toLowerCase().endsWith('.xml')) return null;

@@ -762,7 +762,7 @@ export default function Equipment() {
           <PositionList systems={sourceFilteredSystems as any} types={types} sourceStatuses={xmlSourceStatuses} onOpen={openBlock} onClose={() => setListMode(false)} />
         ) : selected ? (
           <>
-          {selected.block.tags?.[0] && <EquipmentXmlSourcePanel key={`${pid}:${selected.block.tags[0].id}:${selected.block.id}:component`} projectId={pid} tag={selected.block.tags[0]} elementId={selected.block.id} targetType="component" canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} />}
+          <EquipmentXmlSourcePanel key={`${pid}:${selected.block.tags?.[0]?.id || 'untagged'}:${selected.block.id}:component`} projectId={pid} tag={selected.block.tags?.[0]} elementId={selected.block.id} targetType="component" canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} />
           <BlockCard
             composition={compositionView(selected.block as any, selected.unit.monoblocks.flatMap(m => m.components) as any, types, blockLabel as any)}
             onOpenPosition={openBlock}
@@ -806,7 +806,7 @@ export default function Equipment() {
             {(() => {
               const unitPosition = selectedUnit.monoblocks.flatMap(mb => mb.components).find(component => component.itemCode === '__unit__');
               const unitTag = unitPosition?.tags?.[0];
-              return unitPosition && unitTag ? <EquipmentXmlSourcePanel key={`${pid}:${unitTag.id}:${unitPosition.id}:system:${selectedUnit.id}`} projectId={pid} tag={unitTag} elementId={unitPosition.id} targetType="system" systemId={selectedUnit.id} canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} /> : null;
+              return unitPosition ? <EquipmentXmlSourcePanel key={`${pid}:${unitTag?.id || 'untagged'}:${unitPosition.id}:system:${selectedUnit.id}`} projectId={pid} tag={unitTag} elementId={unitPosition.id} targetType="system" systemId={selectedUnit.id} canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} /> : null;
             })()}
             <UnitSchematic
               unit={selectedUnit}

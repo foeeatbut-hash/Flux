@@ -75,7 +75,7 @@ export const BASE_EQUIPMENT_COLUMNS: Column[] = [
   // тегами — одна и та же конфигурация, а не четыре разных изделия, и что
   // один и тот же клапан, показанный в установке и в категории клапанов, —
   // одна позиция, а не две
-  { key: 'instanceId', label: 'Код позиции в программе' },
+  { key: 'instanceId', label: 'ID позиции' },
   { key: 'system', label: 'Установка' },
   { key: 'monoblock', label: 'Моноблок' },
   { key: 'itemCode', label: 'Код позиции' },

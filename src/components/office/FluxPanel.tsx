@@ -70,24 +70,42 @@ function downloadBlob(blob: Blob, name: string) {
   URL.revokeObjectURL(href);
 }
 
-function rowsOfTags(tags: any[]): { columns: Column[]; rows: DataRow[] } {
-  const metadataOf = (tag: any) => {
-    try { return typeof tag.metadata === 'string' ? JSON.parse(tag.metadata || '{}') : (tag.metadata || {}); } catch { return {}; }
-  };
-  const metaKeys = [...new Set(tags.flatMap((tag) => Object.keys(metadataOf(tag).dynamicFields || {})))].sort((a, b) => a.localeCompare(b, 'ru'));
+function dynamicKeysFor(tags: any[], names: Record<string, string>) {
+  const idsByName = new Map(Object.entries(names).map(([id, name]) => [name, id]));
+  return [...new Set(tags.flatMap((tag) => {
+    const raw = metadataOf(tag).dynamicFields || {};
+    return Object.keys(raw).map((key) => names[key] ? key : idsByName.get(key) || key);
+  }))].sort((a, b) => a.localeCompare(b, 'ru'));
+}
+
+function metadataOf(tag: any) {
+  try { return typeof tag.metadata === 'string' ? JSON.parse(tag.metadata || '{}') : (tag.metadata || {}); } catch { return {}; }
+}
+
+function dynamicFieldValue(fields: any, key: string, names: Record<string, string>) {
+  return fields?.[key] ?? (names[key] ? fields?.[names[key]] : undefined);
+}
+
+function dynamicCategoryNames(dictionaries: any[]) {
+  const config = dictionaries.find((dictionary) => dictionary.name === '__tag_creation_config__');
+  return Object.fromEntries((config?.items || []).filter((item: any) => !item.parentId).map((item: any) => [item.id, item.nameRu]));
+}
+
+function rowsOfTags(tags: any[], names: Record<string, string> = {}): { columns: Column[]; rows: DataRow[] } {
+  const metaKeys = dynamicKeysFor(tags, names);
   const columns = [
     { key: 'identifier', title: 'Тег' }, { key: 'metadata.mainName', title: 'Наименование' },
     { key: 'department', title: 'Отдел' }, { key: 'wbs', title: 'Раздел' },
     { key: 'fluid', title: 'Среда' }, { key: 'brand', title: 'Марка' },
     { key: 'metadata.descriptions', title: 'Описания' }, { key: 'metadata.createdAt', title: 'Создан' },
     { key: 'metadata.updatedAt', title: 'Изменён' },
-    ...metaKeys.map((key) => ({ key: `metadata.dynamicFields.${key}`, title: key })),
+    ...metaKeys.map((key) => ({ key: `metadata.dynamicFields.${key}`, title: names[key] || key })),
   ];
   const rows = tags.map((tag) => {
     const metadata = metadataOf(tag);
     const descriptions = Array.isArray(metadata.descriptions) ? metadata.descriptions.map((item: any) => item.text || item.comment).filter(Boolean).join('; ') : '';
     const cells = [tag.identifier, metadata.mainName, tag.department, tag.wbs, tag.fluid, tag.brand, descriptions, metadata.createdAt, metadata.updatedAt,
-      ...metaKeys.map((key) => metadata.dynamicFields?.[key])].map((v) => String(v ?? ''));
+      ...metaKeys.map((key) => dynamicFieldValue(metadata.dynamicFields, key, names))].map((v) => String(v ?? ''));
     return { id: String(tag.id), cells, haystack: cells.join(' ').toLowerCase() };
   });
   return { columns, rows };
@@ -115,16 +133,14 @@ function rowsOfEquipment(systems: any[]): { columns: Column[]; rows: DataRow[] }
   return { columns: resultColumns, rows };
 }
 
-function rowsOfProcurement(tags: any[], stages: any[], templates: any[]): { columns: Column[]; rows: DataRow[] } {
-  const metadataFor = (tag: any) => {
-    try { return typeof tag.metadata === 'string' ? JSON.parse(tag.metadata || '{}') : (tag.metadata || {}); } catch { return {}; }
-  };
-  const dynamicKeys = [...new Set(tags.flatMap((tag) => Object.keys(metadataFor(tag).dynamicFields || {})))].sort((a, b) => a.localeCompare(b, 'ru'));
+function rowsOfProcurement(tags: any[], stages: any[], templates: any[], names: Record<string, string> = {}): { columns: Column[]; rows: DataRow[] } {
+  const metadataFor = metadataOf;
+  const dynamicKeys = dynamicKeysFor(tags, names);
   const columns = [
     { key: 'tag', title: 'Тег' }, { key: 'name', title: 'Наименование' }, { key: 'brand', title: 'Марка' },
     { key: 'qty', title: 'Количество' }, { key: 'supplier', title: 'Поставщик' }, { key: 'stage', title: 'Этап' },
     { key: 'note', title: 'Примечание' }, { key: 'dates', title: 'Даты этапов' },
-    ...dynamicKeys.map((key) => ({ key: `metadata.dynamicFields.${key}`, title: key })),
+    ...dynamicKeys.map((key) => ({ key: `metadata.dynamicFields.${key}`, title: names[key] || key })),
   ];
   const rows = tags.map((tag) => {
     const metadata = metadataFor(tag);
@@ -149,7 +165,7 @@ function rowsOfProcurement(tags: any[], stages: any[], templates: any[]): { colu
       return date ? `${label}: ${date}` : '';
     }).filter(Boolean).join('; ');
     const cells = [tag.identifier, metadata.mainName, tag.brand, procurement.qty, procurement.supplier, stage?.label, procurement.note, dates,
-      ...dynamicKeys.map((key) => metadata.dynamicFields?.[key])]
+      ...dynamicKeys.map((key) => dynamicFieldValue(metadata.dynamicFields, key, names))]
       .map((value) => String(value ?? ''));
     return { id: String(tag.id), cells, haystack: cells.join(' ').toLowerCase() };
   });
@@ -240,17 +256,21 @@ function useSource(tab: SourceTab, projectId: string, revision: number) {
       try {
         let next: { columns: Column[]; rows: DataRow[] };
         if (tab === 'tags') {
-          const data = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tags`).then(failResponse);
-          next = rowsOfTags(data.tags || []);
+          const [data, dictionaryData] = await Promise.all([
+            fetch(`/api/projects/${encodeURIComponent(projectId)}/tags`).then(failResponse),
+            fetch(`/api/projects/${encodeURIComponent(projectId)}/dictionaries`).then(failResponse),
+          ]);
+          next = rowsOfTags(data.tags || [], dynamicCategoryNames(dictionaryData.dictionaries || []));
         } else if (tab === 'equipment') {
           const data = await fetch(`/api/projects/${encodeURIComponent(projectId)}/systems`).then(failResponse);
           next = rowsOfEquipment(data.systems || []);
         } else if (tab === 'procurement') {
-          const [data, stages, templates] = await Promise.all([
+          const [data, dictionaryData, stages, templates] = await Promise.all([
             fetch(`/api/projects/${encodeURIComponent(projectId)}/tags`).then(failResponse),
+            fetch(`/api/projects/${encodeURIComponent(projectId)}/dictionaries`).then(failResponse),
             loadProcurementStages(), loadStageTemplates(),
           ]);
-          next = rowsOfProcurement(data.tags || [], stages, templates);
+          next = rowsOfProcurement(data.tags || [], stages, templates, dynamicCategoryNames(dictionaryData.dictionaries || []));
         } else if (tab === 'docs') {
           const data = await fetch(`/api/vdr/registers?projectId=${encodeURIComponent(projectId)}`).then(failResponse);
           const registers = data.registers || [];

@@ -11,6 +11,7 @@
  * круг: стол уже зовёт зеркало документа, а зеркало теперь кладётся на стол.
  */
 import { getPrisma, onDatabaseSwapped } from './context.js';
+import { nextProjectId } from './entityIds.js';
 
 /** Имя системной папки стола. Оно же служит ключом поиска — менять нельзя */
 export const DESK_FOLDER = 'Рабочий стол';
@@ -140,7 +141,7 @@ export async function ensureDiskProject(): Promise<string> {
   const found = await prisma.project.findFirst({ where: { system: true } });
   if (found) { diskId = found.id; return diskId; }
   const made = await prisma.project.create({
-    data: { name: DISK_PROJECT, system: true, description: 'Общее хранилище программы: видно всем, от проекта не зависит' },
+    data: { id: await nextProjectId(prisma), name: DISK_PROJECT, system: true, description: 'Общее хранилище программы: видно всем, от проекта не зависит' },
   });
   diskId = made.id;
   return diskId;

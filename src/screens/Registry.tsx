@@ -1773,7 +1773,7 @@ export default function Registry() {
     let updatedFluid = tag.fluid;
 
     cats.forEach((cat: any) => {
-      const val = meta.dynamicFields?.[cat.nameRu];
+      const val = meta.dynamicFields?.[cat.id] ?? meta.dynamicFields?.[cat.nameRu];
       if (val !== undefined) {
         const lowName = cat.nameRu.toLowerCase();
         const lowCode = cat.code.toLowerCase();
@@ -1969,13 +1969,17 @@ export default function Registry() {
    * занимала экран целиком, и чтобы найти нужное, приходилось крутить страницу.
    */
   const [exchangeOpen, setExchangeOpen] = useState(false);
-  const EXCHANGE_COLUMNS = useMemo(() => tagExchangeColumns(tags), [tags]);
+  const dynamicFieldNames = useMemo(() => {
+    const config = dictionaries.find((dictionary: any) => dictionary.name === '__tag_creation_config__');
+    return Object.fromEntries((config?.items || []).filter((item: any) => !item.parentId).map((item: any) => [item.id, item.nameRu]));
+  }, [dictionaries]);
+  const EXCHANGE_COLUMNS = useMemo(() => tagExchangeColumns(tags, dynamicFieldNames), [tags, dynamicFieldNames]);
 
   const buildExchange = (scopeId: string, cols: Column[]) => buildTagExchange(
     scopeId === 'selected' ? tags.filter((t: any) => selectedTagIds.has(t.id))
       : scopeId === 'filtered' ? matchedTagsList : tags,
     cols,
-    { lineage: getParentTraceLineage, meta: parseTagMetadata, status: getTagOverallStatus },
+    { lineage: getParentTraceLineage, meta: parseTagMetadata, status: getTagOverallStatus, dynamicFieldNames },
   );
 
   const startNewTag = () => {

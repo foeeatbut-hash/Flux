@@ -16,12 +16,16 @@ const candidate = { id: 'candidate-b', revision: 'B', fileName: 'L23.xml', sha25
 ], structuralActions: [{ id: 'struct-engine', kind: 'added', label: 'Двигатель М2', reason: 'Новый узел расчёта добавлен в XML.', parsedKey: 'L23‖M2', elementIds: [], proposed: { code: 'M2', title: 'Электродвигатель', equipType: 'ЭЛЕКТРОДВИГАТЕЛЬ', groups: [{ title: 'Электрика', params: [{ key: 'Мощность', value: '5.5', unit: 'кВт' }] }] } }], decisions: { pressure: { action: 'keep' } }, expectedVersion: 2, createdAt: '2026-10-09T10:00:00.000Z' };
 const raceMode = new URLSearchParams(location.search).get('race') === '1';
 const viewerMode = new URLSearchParams(location.search).get('viewer') === '1';
+const untaggedMode = new URLSearchParams(location.search).get('untagged') === '1';
 let source: any = raceMode || viewerMode ? { sourceId: 'source-old', projectId: 'project-fixture', tagId: 'tag-1', elementId: 'element-1', targetType: 'component', tagIdentifier: 'L23', boundIdentifier: 'L23', revisionOrder: ['A', 'B'], selectedRule: { kind: 'exact-tag' }, lastImportedRevision: 'A', lastImportedSha256: 'a'.repeat(64) } : null;
 let sourceReads = 0;
 let fixtureCandidate: any = JSON.parse(JSON.stringify(candidate));
 useStore.setState({ user: { id: 'fixture-user', role: 'ADMIN' } as any } as any);
 (window as any).__fixtureWrites = [];
 (window as any).__structuralPayloads = [];
+(window as any).__sourcePayloads = [];
+(window as any).__sourceRemapPayloads = [];
+let targetPreviewCalls = 0;
 
 (window as any).electron = { windowsFiles: { invoke: async (request: any) => {
   if (request.action === 'pickEquipmentSource') return { ok: true, data: { canceled: false, selectedFile: { ref: ref('L23/A/L23.xml'), name: 'L23.xml' }, sourceFolder: ref('L23') } };
@@ -47,8 +51,20 @@ window.fetch = async (input, init) => {
   }
   if (url.endsWith('/equipment/projects/project-fixture/sources') && init?.method === 'POST') {
     const body = JSON.parse(String(init.body));
-    source = { sourceId: 'source-1', projectId: 'project-fixture', tagId: 'tag-1', elementId: 'element-1', targetType: 'component', tagIdentifier: 'L23', boundIdentifier: 'L23', revisionOrder: ['A', 'B'], selectedRule: body.selectedRule, lastImportedRevision: body.revision, lastImportedSha256: 'a'.repeat(64), lastImportedAt: '2026-10-01T00:00:00.000Z' };
+    (window as any).__sourcePayloads.push(body);
+    source = { sourceId: 'source-1', projectId: 'project-fixture', ...(body.tagId ? { tagId: body.tagId, tagIdentifier: 'L23', boundIdentifier: 'L23' } : {}), ...(body.xmlTargetIdentity ? { xmlTargetIdentity: body.xmlTargetIdentity } : {}), elementId: 'element-1', targetType: 'component', revisionOrder: ['A', 'B'], selectedRule: body.selectedRule, lastImportedRevision: body.revision, lastImportedSha256: 'a'.repeat(64), lastImportedAt: '2026-10-01T00:00:00.000Z' };
     return new Response(JSON.stringify({ source }), { status: 201 });
+  }
+  if (url.endsWith('/equipment/projects/project-fixture/source-targets/preview')) {
+    targetPreviewCalls += 1;
+    const moved = targetPreviewCalls > 1;
+    return new Response(JSON.stringify({ targets: [{ label: moved ? 'Позиция · L23 · установка 1 · проверенный новый узел' : 'Позиция · L23 · установка 1', identity: { version: 1, targetType: 'component', unitIndex: 0, componentIndex: moved ? 1 : 0, fingerprint: { name: 'L23', code: moved ? 'L23-remapped' : 'L23', title: 'L23', equipType: 'ПРОЧЕЕ' } } }] }), { status: 200 });
+  }
+  if (url.endsWith('/equipment/projects/project-fixture/sources/source-1/rebind') && init?.method === 'PUT') {
+    const body = JSON.parse(String(init.body));
+    (window as any).__sourceRemapPayloads.push(body);
+    source = { ...source, xmlTargetIdentity: body.xmlTargetIdentity, selectedRule: body.selectedRule };
+    return new Response(JSON.stringify({ source }), { status: 200 });
   }
   if (url.endsWith('/candidates')) return new Response(JSON.stringify({ candidates: [fixtureCandidate] }), { status: 200 });
   if (url.endsWith('/sources/source-1/check')) return new Response(JSON.stringify({ candidate: fixtureCandidate }), { status: 201 });
@@ -73,7 +89,7 @@ function Fixture() {
   return <main className={`${dark ? 'dark' : ''} h-full bg-white p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100`}><div className={`mx-auto flex h-full min-h-0 flex-col ${narrow ? 'max-w-[360px]' : 'max-w-[1100px]'}`}>
     <h1 className="mb-2 text-sm font-semibold">Пробная карточка · Л23</h1>
     {raceMode && <button type="button" onClick={() => setTagTwo(true)}>Переключить тег</button>}
-    <EquipmentXmlSourcePanel projectId="project-fixture" tag={tagTwo ? { id: 'tag-2', identifier: 'L24' } : { id: 'tag-1', identifier: 'L23' }} elementId="element-1" targetType="component" canManage={!viewerMode} />
+    <EquipmentXmlSourcePanel projectId="project-fixture" tag={untaggedMode ? undefined : tagTwo ? { id: 'tag-2', identifier: 'L24' } : { id: 'tag-1', identifier: 'L23' }} elementId="element-1" targetType="component" canManage={!viewerMode} />
     <div className="mt-3 flex-1 overflow-auto rounded border border-slate-200 p-3 dark:border-slate-800"><p>Демонстрационные характеристики позиции остаются доступны под панелью источника.</p><div className="mt-3 grid grid-cols-2 gap-2"><div>Расход воздуха · 8 060 м³/ч</div><div>Давление · 500 Па</div></div></div>
   </div></main>;
 }

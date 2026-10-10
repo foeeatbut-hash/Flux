@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import crypto from 'crypto';
 import { getPrisma } from '../context.js';
+import { nextProjectId } from '../entityIds.js';
 import { loginWait, loginFailed, loginSucceeded, LOGIN_REFUSED, waitText } from '../security.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from '../legacyIdentity.js';
 import { ensureUserProfileSchema } from '../userProfileSchema.js';
@@ -171,6 +172,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
       if (!existingProject) {
         await prisma.project.create({
           data: {
+            id: await nextProjectId(prisma),
             name: 'Проект Альфа',
           }
         });

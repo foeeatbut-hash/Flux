@@ -229,7 +229,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
           throw error('Найдено прежнее сохранение этой ревизии, но его привязка повреждена; повторный импорт остановлен.', 409);
         }
         const summary = await importEquipmentToDB(tx, input.projectId, input.category, input.fileName, selectedResult, mode, links,
-          { userId: String(actor.id) }, { choices: reviewedChoices, full: edited, removeMissing: true, deferEntityChanged: true });
+          { userId: String(actor.id) }, { choices: reviewedChoices, full: edited, removeMissing: true, deferEntityChanged: true, inTransaction: true });
         const systemRows = await tx.equipmentSystem.findMany({ where: {
           projectId: input.projectId, category: input.category, name: input.unitName, fileName: input.fileName,
         } });

@@ -141,6 +141,22 @@ const parseMeta = (value: unknown) => {
     const deleteChild = childId ? await call('DELETE', `/api/dictionaries/items/${childId}`) : { status: 0 };
     const afterChildDelete = (await call('GET', `/api/projects/${projectId}/dictionaries`)).json?.dictionaries || [];
     ok('дочерняя запись удаляется отдельно от корневой', deleteChild.status === 200 && afterChildDelete.find((d: any) => d.id === dictionaryId)?.items?.length === 1);
+
+    const config = await call('POST', `/api/projects/${projectId}/dictionaries`, {
+      name: '__tag_creation_config__',
+      items: [{ code: `FIELD-${suffix}`, nameRu: `Старое поле ${suffix}` }],
+    });
+    const category = config.json?.dictionary?.items?.[0];
+    await call('PUT', `/api/tags/${tagIds[0]}`, { metadata: { dynamicFields: { [category?.nameRu || '']: 'Да' } } });
+    await call('PUT', `/api/tags/${tagIds[1]}`, { metadata: { dynamicFields: { [category?.id || '']: 'ID сохранён', [category?.nameRu || '']: 'Старое значение' } } });
+    const renameCategory = category ? await call('PUT', `/api/dictionaries/items/${category.id}`, {
+      code: category.code, nameRu: `Новое поле ${suffix}`, parentId: null,
+    }) : { status: 0 };
+    const tagsAfterCategoryRename = (await call('GET', `/api/projects/${projectId}/tags`)).json?.tags || [];
+    const migratedLegacy = parseMeta(tagsAfterCategoryRename.find((t: any) => t.id === tagIds[0])?.metadata)?.dynamicFields;
+    const keptIdValue = parseMeta(tagsAfterCategoryRename.find((t: any) => t.id === tagIds[1])?.metadata)?.dynamicFields;
+    ok('переименование поля переносит старое значение на ID и сохраняет старый ключ', renameCategory.status === 200 && migratedLegacy?.[category?.id] === 'Да' && migratedLegacy?.[category?.nameRu] === 'Да', migratedLegacy);
+    ok('при конфликте ID ключ остаётся главным, прежнее значение не удаляется', keptIdValue?.[category?.id] === 'ID сохранён' && keptIdValue?.[category?.nameRu] === 'Старое значение', keptIdValue);
   } catch (error: any) {
     failures++;
     console.error('  ✗ сценарий прерван:', error?.message || error);
