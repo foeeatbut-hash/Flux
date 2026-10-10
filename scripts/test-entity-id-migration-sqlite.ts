@@ -102,11 +102,13 @@ async function main() {
   await prisma.$executeRawUnsafe(`INSERT INTO DocRegister(id,projectId,name) VALUES ('register',?,'fixture')`,p);
   await prisma.$executeRawUnsafe(`INSERT INTO DocRegisterItem(id,registerId,projectId,equipmentTags) VALUES ('vdr','register',?,?)`,p,JSON.stringify([tag]));
   await prisma.$executeRawUnsafe(`INSERT INTO SelectionItem(id,listId,projectId,dataJson) VALUES ('selection','list',?,?)`,p,JSON.stringify({tagId:tag, note:'opaque note'}));
-  await prisma.$executeRawUnsafe(`INSERT INTO AppSetting(id,key,value) VALUES ('setting-layout',?,?)`, `e3_layout:${p}`, JSON.stringify({projectId:p, format:'fixture', placed:{[eq]:{rect:{x:10,y:20}}}, off:{[eq2]:true}}));
-  await prisma.$executeRawUnsafe(`INSERT INTO AppSetting(id,key,value) VALUES ('setting-binding',?,?)`, `equipment_catalog_binding:${eq}`, JSON.stringify({elementId:eq}));
-  await prisma.$executeRawUnsafe(`INSERT INTO AppSetting(id,key,value) VALUES ('setting-history',?,?)`, `equipment_catalog_history:${eq}:rev-a`, JSON.stringify({entityId:eq}));
-  await prisma.$executeRawUnsafe(`INSERT INTO TagChange(id,tagId,projectId,field,before,after,userId) VALUES ('tag-change',?,?,'parentId',?,?,'identity-user')`,tag,p,tag2,tag2);
-  await prisma.$executeRawUnsafe(`INSERT INTO E3Project(id,fluxProjectId,key,name) VALUES ('e3',?,'external','linked')`,p);
+  await prisma.appSetting.create({data:{id:'setting-layout',key:`e3_layout:${p}`,value:JSON.stringify({projectId:p, format:'fixture', placed:{[eq]:{rect:{x:10,y:20}}}, off:{[eq2]:true}})}});
+  await prisma.appSetting.create({data:{id:'setting-binding',key:`equipment_catalog_binding:${eq}`,value:JSON.stringify({elementId:eq})}});
+  await prisma.appSetting.create({data:{id:'setting-history',key:`equipment_catalog_history:${eq}:rev-a`,value:JSON.stringify({entityId:eq})}});
+  await prisma.tagChange.create({data:{id:'tag-change',tagId:tag,projectId:p,kind:'linkAdded',field:'parentId',before:tag2,after:tag2,userId:'identity-user'}});
+  await prisma.tagChange.create({data:{id:'tag-connection',tagId:tag,projectId:p,kind:'linkAdded',field:'connections',before:tag2,after:tag2}});
+  await prisma.tagChange.create({data:{id:'tag-field-history',tagId:tag,projectId:p,kind:'changed',field:`dynamicFields.${root}`,before:'old',after:'selected'}});
+  await prisma.e3Project.create({data:{id:'e3',fluxProjectId:p,key:'external',name:'linked'}});
   await prisma.$executeRawUnsafe(`INSERT INTO E3Binding(id,e3ProjectId,elementId,state) VALUES ('binding','e3',?,'PLACED')`,eq);
 
   const blocked=await previewEntityIdMigration(prisma);
@@ -131,7 +133,10 @@ async function main() {
   const migratedTag=JSON.parse((await prisma.tag.findUnique({where:{id:nt}})).metadata);
   check('tag parent, connection and dynamic category key map while business value remains', migratedTag.parentId===nt2 && migratedTag.connections[0]===nt2 && migratedTag.dynamicFields[nr]==='selected' && migratedTag.dynamicFields[root]===undefined);
   const migratedTagHistory=await prisma.tagChange.findUnique({where:{id:'tag-change'}});
-  check('TagChange scalar parent snapshots follow the same tag mapping', JSON.parse(migratedTagHistory.before)===nt2 && JSON.parse(migratedTagHistory.after)===nt2);
+  check('TagChange scalar parent snapshots follow the same tag mapping', migratedTagHistory.before===nt2 && migratedTagHistory.after===nt2);
+  const migratedConnection=await prisma.tagChange.findUnique({where:{id:'tag-connection'}});
+  const migratedFieldHistory=await prisma.tagChange.findUnique({where:{id:'tag-field-history'}});
+  check('raw connections and stable field paths keep their history representation', migratedConnection.before===nt2 && migratedConnection.after===nt2 && migratedFieldHistory.field===`dynamicFields.${nr}` && migratedFieldHistory.after==='selected');
   const migratedExpectedVersions=JSON.parse((await prisma.equipmentXmlCandidate.findUnique({where:{id:'candidate'}})).expectedVersions);
   const migratedCatalogSnapshot=JSON.parse((await prisma.catalogRevision.findUnique({where:{id:'revision'}})).snapshotJson);
   check('history, XML snapshots and catalog snapshot IDs migrate while preserving prose', JSON.parse((await prisma.equipmentHistory.findUnique({where:{id:'hist'}})).newSpecs).elementId===ne && JSON.parse((await prisma.equipmentHistory.findUnique({where:{id:'hist'}})).newSpecs).value==='keep' && migratedExpectedVersions[ne]===1 && migratedExpectedVersions[eq]===undefined && migratedCatalogSnapshot.id===nt && migratedCatalogSnapshot.tagId===nt && migratedCatalogSnapshot.prose==='opaque prose');
@@ -143,6 +148,10 @@ async function main() {
   check('known AppSetting keys and JSON IDs migrate with VDR tag arrays and E3 placed keys', (await prisma.docRegisterItem.findUnique({where:{id:'vdr'}})).equipmentTags===JSON.stringify([nt]) && layoutSetting.key===`e3_layout:${np}` && layout.placed[ne]?.rect?.x===10 && layout.placed[eq]===undefined && layout.off[ne2]===true && layout.off[eq2]===undefined && bindingSetting.key===`equipment_catalog_binding:${ne}` && JSON.parse(bindingSetting.value).elementId===ne && historySetting.key===`equipment_catalog_history:${ne}:rev-a` && JSON.parse(historySetting.value).entityId===ne);
   const noOp=await previewEntityIdMigration(prisma);
   check('a second preview after migration proposes no ID changes', noOp.mappings.length===0);
+  await prisma.tagChange.create({data:{id:'late-history',tagId:nt,projectId:np,kind:'linkAdded',field:'connections',after:nt2}});
+  let newHistoryConflict=0;try {await undoEntityIdMigration(prisma,applied.migrationId);}catch(e:any){newHistoryConflict=e.status;}
+  check('new raw connection history blocks undo without losing it',newHistoryConflict===409 && (await prisma.tagChange.findUnique({where:{id:'late-history'}})).after===nt2);
+  await prisma.tagChange.delete({where:{id:'late-history'}});
   const undone=await undoEntityIdMigration(prisma,applied.migrationId);
   const restoredTag=JSON.parse((await prisma.tag.findUnique({where:{id:tag}})).metadata);
   const restoredLayoutSetting=await prisma.appSetting.findUnique({where:{id:'setting-layout'}});
@@ -152,7 +161,7 @@ async function main() {
   const restoredExpectedVersions=JSON.parse((await prisma.equipmentXmlCandidate.findUnique({where:{id:'candidate'}})).expectedVersions);
   const restoredCatalogSnapshot=JSON.parse((await prisma.catalogRevision.findUnique({where:{id:'revision'}})).snapshotJson);
   const restoredChange=await prisma.tagChange.findUnique({where:{id:'tag-change'}});
-  check('guarded undo restores IDs, relationships, field keys, snapshots and setting keys exactly', undone.restored && await prisma.project.findUnique({where:{id:p}})!==null && await prisma.project.findUnique({where:{id:pB}})!==null && (await prisma.componentElement.findUnique({where:{id:eq2}})).parentElementId===eq && restoredTag.parentId===tag2 && restoredTag.connections[0]===tag2 && restoredTag.dynamicFields[root]==='selected' && restoredTag.dynamicFields[nr]===undefined && restoredLayoutSetting.key===`e3_layout:${p}` && restoredLayout.placed[eq]?.rect?.x===10 && restoredLayout.off[eq2]===true && restoredCatalogBinding.key===`equipment_catalog_binding:${eq}` && JSON.parse(restoredCatalogBinding.value).elementId===eq && restoredCatalogHistory.key===`equipment_catalog_history:${eq}:rev-a` && JSON.parse(restoredCatalogHistory.value).entityId===eq && restoredExpectedVersions[eq]===1 && restoredExpectedVersions[ne]===undefined && restoredCatalogSnapshot.id===tag && restoredCatalogSnapshot.tagId===tag && restoredChange.before===tag2 && restoredChange.after===tag2);
+  check('guarded undo restores IDs, relationships, field keys, snapshots and setting keys exactly', undone.restored && await prisma.project.findUnique({where:{id:p}})!==null && await prisma.project.findUnique({where:{id:pB}})!==null && (await prisma.componentElement.findUnique({where:{id:eq2}})).parentElementId===eq && restoredTag.parentId===tag2 && restoredTag.connections[0]===tag2 && restoredTag.dynamicFields[root]==='selected' && restoredTag.dynamicFields[nr]===undefined && restoredLayoutSetting.key===`e3_layout:${p}` && restoredLayout.placed[eq]?.rect?.x===10 && restoredLayout.off[eq2]===true && restoredCatalogBinding.key===`equipment_catalog_binding:${eq}` && JSON.parse(restoredCatalogBinding.value).elementId===eq && restoredCatalogHistory.key===`equipment_catalog_history:${eq}:rev-a` && JSON.parse(restoredCatalogHistory.value).entityId===eq && restoredExpectedVersions[eq]===1 && restoredExpectedVersions[ne]===undefined && restoredCatalogSnapshot.id===tag && restoredCatalogSnapshot.tagId===tag && restoredChange.before===tag2 && restoredChange.after===tag2 && (await prisma.tagChange.findUnique({where:{id:'tag-connection'}})).after===tag2 && (await prisma.tagChange.findUnique({where:{id:'tag-field-history'}})).field===`dynamicFields.${root}`);
 
   // Непрозрачный текст со старым UUID блокирует перенос, но не переписывается.
   const originalMeta=(await prisma.tag.findUnique({where:{id:tag}})).metadata;

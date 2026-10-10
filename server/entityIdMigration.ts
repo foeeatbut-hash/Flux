@@ -126,7 +126,7 @@ function identityInventory(targets:Awaited<ReturnType<typeof targetRows>>):Ident
 const ID_FIELDS=new Set(['projectId','systemId','monoblockId','elementId','tagId','dictionaryId','dictionaryItemId','parentId','sourceId','targetId','ownerId','entityId','fieldId','linkedProjectId']);
 function rewriteKnownJson(table:string,col:string,row:Row,map:Map<string,string>) {
   if(table==='TagChange'&&(row.field==='parentId'||row.field==='connections')) {
-    if(row.field==='parentId'&&typeof row[col]==='string'&&map.has(row[col]))return {value:map.get(row[col]),changed:true,unsupported:[]};
+    if(typeof row[col]==='string'&&map.has(row[col]))return {value:map.get(row[col]),changed:true,unsupported:[]};
     if(row.field==='connections') { const parsed=parseJson(row[col]);if(Array.isArray(parsed)){let changed=false;const value=parsed.map((id:any)=>{if(typeof id==='string'&&map.has(id)){changed=true;return map.get(id);}return id;});return {value,changed,unsupported:[]};} }
   }
   const parsed=parseJson(row[col]);const unsupported:string[]=[];let changed=false;
@@ -172,6 +172,13 @@ function appSettingKey(key: string, map: Map<string,string>) {
     const history=`equipment_catalog_history:${oldId}:`;if(key.startsWith(history))return `equipment_catalog_history:${newId}:`+key.slice(history.length);
   }
   return key;
+}
+
+function tagHistoryField(field:string,map:Map<string,string>) {
+  const parts=field.split('.');
+  if(parts[0]!=='dynamicFields'||!map.has(parts[1]))return field;
+  parts[1]=map.get(parts[1])!;
+  return parts.join('.');
 }
 
 function recordSnapshot(rows:Map<string,Snapshot>,table:string,key:string[],before:Row,after:Row) {
@@ -274,17 +281,24 @@ export async function previewEntityIdMigration(db: any): Promise<IdMigrationPlan
       continue;
     }
     if(!t.pk.length)continue;
+    if(t.name==='TagChange') {
+      const rows=await db.$queryRawUnsafe(`SELECT ${[...new Set([...t.pk,'field'])].map(c=>quote(dialect,c)).join(',')} FROM ${quote(dialect,t.name)}`);
+      for(const row of rows) {
+        const nextField=tagHistoryField(String(row.field||''),mapping);
+        if(nextField!==row.field)recordSnapshot(snapshots,t.name,t.pk,row,{...row,field:nextField});
+      }
+    }
     for(const col of t.columns.filter(c=>JSON_COLUMNS.has(`${t.name}.${c}`)||jsonCandidate.test(c))) {
       const select=[...new Set([...t.pk,col,...(t.name==='TagChange'?['field']:[]),...(t.name==='CatalogRevision'?['entity']:[])])].map(c=>quote(dialect,c)).join(',');
       const rows=await db.$queryRawUnsafe(`SELECT ${select} FROM ${quote(dialect,t.name)} WHERE ${quote(dialect,col)} IS NOT NULL`);
       for(const row of rows) {
-        const scalarTagParent=t.name==='TagChange'&&row.field==='parentId'&&mapping.has(String(row[col]));
+        const scalarTagParent=t.name==='TagChange'&&['parentId','connections'].includes(row.field)&&mapping.has(String(row[col]));
         if(typeof row[col]!=='string'||(!/^\s*[\[{]/.test(row[col])&&!scalarTagParent))continue;
         const decoded=rewriteKnownJson(t.name,col,row,mapping);if(!decoded.changed&&!decoded.unsupported.length)continue;
         if(!JSON_COLUMNS.has(`${t.name}.${col}`))blockers.push({code:'UNSUPPORTED_JSON',message:`${t.name}.${col} содержит переносимый ID в неподдерживаемом JSON-поле.`});
         else {
           if(decoded.unsupported.length)blockers.push({code:'UNSUPPORTED_JSON',message:`${t.name}.${col} содержит ID в неподдерживаемом JSON-пути ${decoded.unsupported[0]}.`});
-          if(decoded.changed){const before:Row={},after:Row={};for(const k of t.pk){before[k]=row[k];after[k]=row[k];}before[col]=row[col];after[col]=JSON.stringify(decoded.value);recordSnapshot(snapshots,t.name,t.pk,before,after);}
+          if(decoded.changed){const before:Row={},after:Row={};for(const k of t.pk){before[k]=row[k];after[k]=row[k];}before[col]=row[col];after[col]=scalarTagParent?String(decoded.value):JSON.stringify(decoded.value);recordSnapshot(snapshots,t.name,t.pk,before,after);}
         }
       }
     }
@@ -315,6 +329,13 @@ async function rejectNewReferences(tx:any,dialect:Dialect,tables:Table[],journal
   const knownNames=new Set(['projectId','systemId','monoblockId','elementId','tagId','dictionaryId','dictionaryItemId','parentId','sourceId','targetId','entityId','fluxProjectId','e3ProjectId','fileId','linkedProjectId']);
   for(const t of tables) {
     if(!t.pk.length)continue;
+    if(t.name==='TagChange') {
+      const rows=await tx.$queryRawUnsafe(`SELECT ${[...new Set([...t.pk,'field','before','after'])].map(c=>quote(dialect,c)).join(',')} FROM ${quote(dialect,t.name)}`);
+      for(const row of rows) {
+        if(tagHistoryField(String(row.field||''),reverse)!==row.field)assertSaved(t.name,row,t.pk,'field',row.field);
+        if(['parentId','connections'].includes(row.field))for(const col of ['before','after'])if(reverse.has(row[col]))assertSaved(t.name,row,t.pk,col,row[col]);
+      }
+    }
     for(const col of t.columns) {
       const incomingTargetFk=t.fks.some(f=>f.column===col&&MODEL_TABLES.some(([,name])=>name===f.table));
       if(OMIT_COLUMNS.has(col.toLowerCase())||col==='id'||(!incomingTargetFk&&!knownNames.has(col)&&!/(?:Id|ID|id)$/.test(col))||t.name==='AppSetting'&&col==='key')continue;
