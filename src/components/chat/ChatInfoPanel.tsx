@@ -7,6 +7,7 @@ export type ChatInfoTab = 'overview' | 'files' | 'tags' | 'members';
 
 interface Props {
   open: boolean;
+  sidebarHiddenOnMobile?: boolean;
   peer: ChatUser | null;
   group: ChatGroup | null;
   tab: ChatInfoTab;
@@ -24,7 +25,7 @@ interface Props {
 }
 
 export default function ChatInfoPanel({
-  open, peer, group, tab, onTabChange, selectedTag, onClearTag, onOpenTag,
+  open, sidebarHiddenOnMobile = false, peer, group, tab, onTabChange, selectedTag, onClearTag, onOpenTag,
   onOpenEquipment, conversationId, conversationType, onlineIds, onOpenFile, formatBytes, onClose,
 }: Props) {
   if (!open || (!peer && !group)) return null;
@@ -32,12 +33,16 @@ export default function ChatInfoPanel({
     { id: 'overview', label: 'Обзор' }, { id: 'files', label: 'Файлы' }, { id: 'tags', label: 'Теги' },
     ...(group ? [{ id: 'members' as const, label: 'Участники' }] : []),
   ];
+  const mobileOffset = sidebarHiddenOnMobile ? 'left-0 @[700px]:left-64 @[900px]:left-72' : 'left-56 @[700px]:left-64 @[900px]:left-72';
+  const mobileWidth = sidebarHiddenOnMobile
+    ? 'w-[min(20rem,100%)] @[700px]:w-[min(20rem,calc(100%-16rem))] @[900px]:w-[min(20rem,calc(100%-18rem))]'
+    : 'w-[min(20rem,calc(100%-14rem))] @[700px]:w-[min(20rem,calc(100%-16rem))] @[900px]:w-[min(20rem,calc(100%-18rem))]';
 
   return (
     <>
       <button type="button" aria-label="Закрыть сведения" onClick={onClose}
-        className="absolute inset-y-0 left-56 right-0 z-20 bg-slate-950/20 @[700px]:left-64 @[900px]:left-72 @[1000px]:hidden" />
-      <aside className="absolute inset-y-0 left-56 right-0 z-30 w-auto border-l border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50 dark:bg-slate-900 select-none shrink-0 overflow-y-auto @[700px]:left-64 @[900px]:left-72 @[1000px]:static @[1000px]:left-auto @[1000px]:z-auto @[1000px]:w-72 @[1000px]:bg-slate-50/50 @[1000px]:dark:bg-slate-900/40">
+        className={`absolute inset-y-0 ${mobileOffset} right-0 z-20 bg-slate-950/20 @[1000px]:hidden`} />
+      <aside className={`absolute inset-y-0 right-0 z-30 ${mobileWidth} border-l border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50 dark:bg-slate-900 select-none shrink-0 overflow-y-auto @[1000px]:static @[1000px]:left-auto @[1000px]:z-auto @[1000px]:w-72 @[1000px]:bg-slate-50/50 @[1000px]:dark:bg-slate-900/40`}>
         {!selectedTag && <div className="sticky top-0 z-10 flex min-w-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-2">
           <div className="flex min-w-0 flex-1 overflow-x-auto" role="tablist" aria-label="Сведения о разговоре">
             {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id}

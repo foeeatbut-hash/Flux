@@ -26,6 +26,7 @@
 import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
 import { waitForEditor } from './editor-readiness'
+import { CustomCommandExecutionError, ICommandService } from '@univerjs/core'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -45,6 +46,7 @@ const SKIP_KEYS = new Set(['cellValue', 'value', 'values', 'cellData'])
 
 const ipc = (): Ipc | undefined => (window as any).__fluxIpc
 const hooks = (): { univerRef: { current: any }; lazyWorkbookRef: { current: any } } | undefined => (window as any).__fluxSheets
+const fluxAnchorName = (anchorId: string): string => `FLUX_ANCHOR_${anchorId.replace(/[^A-Za-z0-9_]/g, '_')}`
 
 let active = false
 let key = ''
@@ -59,6 +61,8 @@ let mine: Array<{ seq: number; op: Op }> = []
 /** Имена листов до последней правки: по ним чужие правки находят свой лист */
 let names = new Map<string, string>()
 let saving: { lazy: any; until: number } | null = null
+let applyingFlux = false
+const guardedRuntimes = new WeakSet<object>()
 
 const api = () => hooks()?.univerRef.current?.univerAPI
 const workbook = () => { try { return api()?.getActiveWorkbook() || null } catch { return null } }
@@ -166,20 +170,79 @@ function selectedOfficeAnchor(wb: any): { kind: 'excel-range'; anchorId: string;
     const quoted = sheetName.replace(/'/g, "''");
     for (const defined of wb.getDefinedNames?.() || []) {
       const name = String(defined?.getName?.() || '');
-      const match = /^FLUX_ANCHOR_([0-9a-f-]{36})$/i.exec(name);
+      const match = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(name);
       if (!match) continue;
       const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '');
       const refMatch = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
       if (!refMatch) continue;
       const refSheet = (refMatch[1] || refMatch[2]).replace(/''/g, "'");
       if ((refSheet === sheetName || refSheet === quoted) && (refMatch[3] + refMatch[4]).toUpperCase() === address) {
-        return { kind: 'excel-range', anchorId: match[1], sheetName, address };
+        const anchorId = match[1].includes('_') ? match[1].replaceAll('_', '-') : match[1];
+        return { kind: 'excel-range', anchorId, sheetName, address };
       }
     }
     // Стабильный ID создаётся в момент выбора. Он закрепится в книге только
     // при вставке метки; простое перемещение курсора ничего не меняет в файле.
     return { kind: 'excel-range', anchorId: globalThis.crypto.randomUUID(), sheetName, address };
   } catch { return null; }
+}
+
+function protectFluxHeaderCells(): void {
+  const runtime = hooks()?.univerRef.current
+  if (!runtime?.univer || guardedRuntimes.has(runtime)) return
+  try {
+    const commandService = runtime.univer.__getInjector().get(ICommandService)
+    guardedRuntimes.add(runtime)
+    commandService.beforeCommandExecuted((command: any) => {
+      if (applyingFlux || /^.*(?:undo|redo).*$/i.test(String(command.id))) return
+      const id = String(command.id || '')
+      if (!/sheet\.(?:command|mutation)\.set-range-values$/i.test(id)) return
+      const wb = workbook()
+      if (!wb) return
+      const protectedCells = new Set<string>()
+      for (const defined of wb.getDefinedNames?.() || []) {
+        const name = String(defined?.getName?.() || '')
+        const match = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(name)
+        if (!match) continue
+        const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+        const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+        if (!m) continue
+        const sheetName = (m[1] || m[2]).replace(/''/g, "'")
+        const sheet = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName)
+        if (sheet) protectedCells.add(`${sheet.getSheetId()}:${Number(m[4]) - 1}:${columnNumber(m[3]) - 1}`)
+      }
+      let blocked = false
+      const inspect = (value: any, depth = 0): void => {
+        if (blocked || !value || typeof value !== 'object' || depth > 6) return
+        if (typeof value.subUnitId === 'string' && value.cellValue && typeof value.cellValue === 'object') {
+          const matrix = value.cellValue
+          for (const [r, row] of Object.entries(matrix)) {
+            if (!row || typeof row !== 'object') continue
+            for (const c of Object.keys(row)) if (protectedCells.has(`${value.subUnitId}:${Number(r)}:${Number(c)}`)) { blocked = true; return }
+          }
+        }
+        if (typeof value.subUnitId === 'string' && ['startRow', 'endRow', 'startColumn', 'endColumn'].every((k) => Number.isFinite(Number(value[k])))) {
+          for (const cell of protectedCells) {
+            const [sheetId, row, col] = cell.split(':')
+            if (sheetId === value.subUnitId && Number(row) >= Number(value.startRow) && Number(row) <= Number(value.endRow) && Number(col) >= Number(value.startColumn) && Number(col) <= Number(value.endColumn)) { blocked = true; return }
+          }
+        }
+        for (const child of Object.values(value)) inspect(child, depth + 1)
+      }
+      inspect(command.params)
+      if (!blocked) return
+      const stack = (commandService as unknown as { _commandExecutionStack?: unknown[] })._commandExecutionStack
+      const index = stack?.indexOf(command) ?? -1
+      if (index >= 0) stack?.splice(index, 1)
+      throw new CustomCommandExecutionError('Поле Flux защищено от обычного редактирования')
+    })
+  } catch (error) { console.warn('[flux] защита меток Таблиц не установлена', error) }
+}
+
+function columnNumber(letters: string): number {
+  let result = 0
+  for (const letter of letters.toUpperCase()) result = result * 26 + letter.charCodeAt(0) - 64
+  return result
 }
 
 function run(op: Op): void {
@@ -315,13 +378,15 @@ async function fields(): Promise<void> {
         const a1 = String(cell.getA1Notation()).split(':')[0]
         cell.setValue(m.value ?? '')
         const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
-        try { wb.deleteDefinedName?.(m.name) } catch { /* имени не было */ }
-        wb.insertDefinedName(m.name, ref)
-        const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : selectedOfficeAnchor(wb)?.anchorId
+        const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : ''
         if (anchorId) {
-          const anchorName = 'FLUX_ANCHOR_' + anchorId
+        const anchorName = fluxAnchorName(anchorId)
           try { wb.deleteDefinedName?.(anchorName) } catch { /* новой ячейке ещё не назначено имя */ }
           wb.insertDefinedName(anchorName, ref)
+        } else if (m.name) {
+          // Существующие источники Flux используют это имя при обновлении полей.
+          try { wb.deleteDefinedName?.(m.name) } catch { /* прежней метки могло не быть */ }
+          wb.insertDefinedName(m.name, ref)
         }
         result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
       }
@@ -341,6 +406,7 @@ async function exportCommands(): Promise<void> {
     return workbook() && lazy && (!lazy.flags || lazy.flags.preloadComplete === true) ? lazy : null
   }, 40_000, 100)
   if (!ready) return
+  protectFluxHeaderCells()
   // hello от shim означает только готовность моста, не книги Excel.
   link.send('flux:editor-ready', { app: 'sheets' })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
@@ -425,6 +491,152 @@ async function exportCommands(): Promise<void> {
       });
       reply(message.id, { ok: true, updated, preserved, retainedRows: [...oldRows.keys()].filter(k => !grid.rowKeys.includes(k)).length });
     } catch (e: any) { reply(message?.id, { ok: false, error: e.message }); }
+  });
+  link.on('flux:apply-office-plan', (_e, message: any) => {
+    const payload = message?.payload ?? message ?? {};
+    try {
+      const wb = workbook();
+      const writes = payload.writes;
+      const schema = payload.schema;
+      const previousRows = Array.isArray(payload.rows) ? payload.rows : [];
+      if (!wb || !Array.isArray(writes) || !writes.length || writes.length > 100000) throw new Error('План заполнения пуст или слишком велик');
+      if (!schema || !Array.isArray(schema.anchors) || schema.anchors.length > 1000) throw new Error('Схема документа не загружена');
+      const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]));
+      const parseRef = (raw: unknown): { sheet: any; row: number; col: number; address: string } | null => {
+        const ref = String(raw ?? '').trim().replace(/^=/, '');
+        const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
+        if (!m) return null;
+        const sheetName = (m[1] || m[2]).replace(/''/g, "'");
+        const sheet = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName);
+        if (!sheet) return null;
+        let col = 0; for (const c of m[3].toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
+        const row = Number(m[4]) - 1;
+        if (row < 0 || col < 1 || !Number.isSafeInteger(row)) return null;
+        return { sheet, row, col: col - 1, address: `${m[3].toUpperCase()}${m[4]}` };
+      };
+      const rangeFor = (name: string) => parseRef(definitions.get(name)?.getRef?.() ?? definitions.get(name)?.getFormulaOrRefString?.());
+      const idHash = (value: string): string => {
+        let a = 2166136261, b = 5381;
+        for (const c of value) { const n = c.codePointAt(0)!; a = Math.imul(a ^ n, 16777619); b = Math.imul(b, 33) ^ n; }
+        return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0).toString(16).padStart(8, '0')}`;
+      };
+      const anchorById = new Map<string, any>(schema.anchors.map((anchor: any) => [String(anchor.id), anchor]));
+      const columns = new Map<string, { sheet: any; col: number }>();
+      for (const write of writes) {
+        const anchorId = String(write?.anchorId ?? '');
+        if (!anchorById.has(anchorId)) throw new Error('План содержит метку, которой нет в схеме');
+        const target = rangeFor(fluxAnchorName(anchorId));
+        if (!target) throw new Error(`Не найдена сохранённая ячейка метки ${anchorId}`);
+        const old = columns.get(anchorId);
+        if (old && (old.sheet.getSheetId() !== target.sheet.getSheetId() || old.col !== target.col)) throw new Error('Метка указывает на несколько ячеек');
+        columns.set(anchorId, target);
+        if (!write || typeof write.entityId !== 'string' || !write.entityId || write.entityId.length > 300 || !(typeof write.value === 'string' || (typeof write.value === 'number' && Number.isFinite(write.value)))) throw new Error('План содержит некорректное значение');
+      }
+      const writeKeys = new Set<string>();
+      for (const write of writes) {
+        const key = `${write.entityId}\u0000${write.anchorId}`;
+        if (writeKeys.has(key)) throw new Error('План содержит повторную запись одной ячейки');
+        writeKeys.add(key);
+      }
+      const priorById = new Map<string, any>(previousRows.map((row: any) => [String(row?.entityId ?? ''), row]));
+      const byEntity = new Map<string, any[]>();
+      for (const write of writes) { const list = byEntity.get(write.entityId) || []; list.push(write); byEntity.set(write.entityId, list); }
+      const rowKey = (entityId: string, sheet: any) => `${entityId}\u0000${String(sheet.getSheetName())}`;
+      const rowMarker = (entityId: string, sheet: any, prior: any, items: any[]) => {
+        const binding = items.map((write: any) => anchorById.get(write.anchorId)?.parts?.find((part: any) => part?.kind === 'field')?.binding).find(Boolean) || {};
+        const sourceId = String(prior?.sourceId || binding.sourceId || '');
+        const entityType = String(prior?.entityType || binding.entityType || '');
+        return `FLUX_ROW_${idHash(`${sourceId}\u0000${entityType}\u0000${entityId}\u0000${sheet.getSheetName()}`)}`;
+      };
+      const targetRows = new Map<string, number>();
+      const lastRows = new Map<any, number>();
+      for (const [entityId, items] of byEntity) {
+        const prior = priorById.get(entityId);
+        const grouped = new Map<any, any[]>();
+        for (const item of items) { const sheet = columns.get(item.anchorId)!.sheet; const list = grouped.get(sheet) || []; list.push(item); grouped.set(sheet, list); }
+        for (const [sheet, sheetItems] of grouped) {
+          const marker = rowMarker(entityId, sheet, prior, sheetItems);
+          const existing = rangeFor(marker);
+          const priorItem = sheetItems.find((item) => typeof prior?.cells?.[item.anchorId] === 'string');
+          const priorAddress = priorItem ? String(prior.cells[priorItem.anchorId]) : '';
+          const priorRowMatch = /^([A-Z]{1,3})(\d+)$/i.exec(priorAddress);
+          const priorRow = priorRowMatch ? Number(priorRowMatch[2]) - 1 : undefined;
+          const chosen = existing?.sheet.getSheetId() === sheet.getSheetId() ? existing.row : priorRow;
+          if (!lastRows.has(sheet)) lastRows.set(sheet, Number(sheet.getLastRow?.() ?? 0));
+          if (chosen !== undefined && chosen >= 0) targetRows.set(rowKey(entityId, sheet), chosen);
+          else { const last = lastRows.get(sheet) + 1; lastRows.set(sheet, last); targetRows.set(rowKey(entityId, sheet), last - 1); }
+        }
+      }
+      const targets = new Set<string>();
+      const changes: Array<{ cell: any; old: any; write: any; row: number; col: number; sheet: any }> = [];
+      const manualRows = new Set<string>();
+      const inspected: Array<{ cell: any; old: any; write: any; row: number; col: number; sheet: any }> = [];
+      for (const [entityId, items] of byEntity) {
+        const prior = priorById.get(entityId);
+        for (const write of items) {
+          const anchor = columns.get(write.anchorId)!;
+          const sheet = anchor.sheet;
+          const row = targetRows.get(rowKey(entityId, sheet))!;
+          const col = anchor.col;
+          const targetKey = `${sheet.getSheetId()}:${row}:${col}`;
+          if (targets.has(targetKey)) throw new Error('Две метки указывают на одну целевую ячейку');
+          targets.add(targetKey);
+          const cell = sheet.getRange(row, col, 1, 1);
+          const old = { values: cell.getValues?.()?.[0]?.[0], formulas: cell.getFormulas?.()?.[0]?.[0] };
+          const knownAddress = prior?.cells?.[write.anchorId];
+          const currentValue = old.values;
+          if (!knownAddress && ((currentValue !== null && currentValue !== undefined && currentValue !== '') || String(old.formulas ?? '') !== '')) throw new Error(`Ячейка ${write.anchorId} в строке ${row + 1} занята; ручное содержимое сохранено`);
+          const expected = prior?.values?.[write.anchorId];
+          if (knownAddress && (String(currentValue ?? '') !== String(expected ?? '') || String(old.formulas ?? '') !== '')) manualRows.add(entityId);
+          inspected.push({ cell, old, write, row, col, sheet });
+        }
+      }
+      changes.push(...inspected.filter((change) => !manualRows.has(change.write.entityId)));
+      const insertedNames: string[] = [];
+      try {
+        applyingFlux = true;
+        for (const change of changes) {
+          change.cell.setValues([[{ v: change.write.value }]]);
+          const name = rowMarker(change.write.entityId, change.sheet, priorById.get(change.write.entityId), byEntity.get(change.write.entityId) || []);
+          if (!definitions.has(name)) {
+            const colName = (() => { let n = change.col + 1, out = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) out = String.fromCharCode(65 + (n - 1) % 26) + out; return out; })();
+            wb.insertDefinedName(name, `'${change.sheet.getSheetName().replace(/'/g, "''")}'!$${colName}$${change.row + 1}`);
+            definitions.set(name, true); insertedNames.push(name);
+          }
+        }
+      } catch (error) {
+        for (const change of changes) {
+          try {
+            if (change.old.formulas) change.cell.setFormulas?.([[change.old.formulas]])
+            else change.cell.setValues([[change.old.values ?? '']])
+          } catch { /* откат продолжает восстановление остальных ячеек */ }
+        }
+        for (const name of insertedNames) { try { wb.deleteDefinedName?.(name); } catch { /* откат продолжается, даже если имя удалить нельзя */ } }
+        throw error;
+      } finally {
+        applyingFlux = false;
+      }
+      const rows = [...byEntity.entries()].map(([entityId, items]) => {
+        const prior = priorById.get(entityId) || {};
+        const cells = { ...(prior.cells || {}) } as Record<string, string>;
+        const values = { ...(prior.values || {}) } as Record<string, string>;
+        for (const write of manualRows.has(entityId) ? [] : items) {
+          const anchor = columns.get(write.anchorId)!;
+          const col = anchor.col;
+          let colName = ''; for (let n = Number(col) + 1; n > 0; n = Math.floor((n - 1) / 26)) colName = String.fromCharCode(65 + (n - 1) % 26) + colName;
+          cells[write.anchorId] = `${colName}${targetRows.get(rowKey(entityId, anchor.sheet))! + 1}`;
+          values[write.anchorId] = String(write.value);
+        }
+        const binding = items.map((write: any) => anchorById.get(write.anchorId)?.parts?.find((part: any) => part?.kind === 'field')?.binding).find(Boolean) || {};
+        const sourceId = String(prior.sourceId || binding.sourceId || '');
+        const entityType = String(prior.entityType || binding.entityType || '');
+        const sourceRevision = String(payload.sourceRevision || prior.sourceRevision || binding.sourceRevision || '');
+        return { entityId, entityType, sourceId, sourceRevision, anchorIds: [...new Set([...(prior.anchorIds || []), ...items.map((w: any) => w.anchorId)])], cells, values };
+      });
+      link.send('flux:office-plan-applied', { ok: true, appliedCount: changes.length, rows, manualRows: [...manualRows] });
+    } catch (error: any) {
+      link.send('flux:office-plan-applied', { ok: false, error: String(error?.message || error) });
+    }
   });
 }
 void exportCommands();

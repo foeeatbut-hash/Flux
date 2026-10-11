@@ -91,7 +91,7 @@ export interface GuideSpecRow {
 }
 
 export const guideSpec = (userId: string, projectId: string, field: string, params: Record<string, string | number> = {}, signal?: AbortSignal) => {
-  const qs = new URLSearchParams({ field, ...Object.entries(params).map(([k, v]) => [k, String(v)]) });
+  const qs = new URLSearchParams([['field', field], ...Object.entries(params).map(([k, v]) => [k, String(v)])]);
   return get<Paged<GuideSpecRow>>(`/project/${encodeURIComponent(projectId)}/spec?${qs}`, userId, signal);
 };
 

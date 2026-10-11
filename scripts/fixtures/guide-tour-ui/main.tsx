@@ -5,12 +5,12 @@ import './fixture.css';
 import GuideSpotlight from '../../../src/components/guide/GuideSpotlight';
 import { useGuideStore } from '../../../src/guide/store';
 import { withProjectContext } from '../../../src/guide/tourRuntime';
-import { TOURS } from '../../../src/assistant/tours';
+import { TOURS } from '../../../src/guide/support/tours';
 
 function Fixture() {
   const [status, setStatus] = useState('Ожидает подтверждения');
   const [sideEffectCount, setSideEffectCount] = useState(0);
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => new URLSearchParams(location.search).has('dark'));
   const [projectSelected, setProjectSelected] = useState(false);
   const projectRef = useRef(false);
   const emptyProject = new URLSearchParams(location.search).has('empty-project');

@@ -62,6 +62,14 @@ const check = (name: string, condition: boolean, details?: unknown) => {
 
     await page.setViewportSize({ width: 390, height: 820 });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
+    check('В узком окне выбранный чат занимает экран, список скрыт', await sidebar.isHidden());
+    check('На узком окне доступна кнопка возврата к списку', await page.getByRole('button', { name: 'Назад к чатам' }).isVisible());
+    await page.locator('aside').last().getByRole('button', { name: 'Закрыть сведения' }).click();
+    await page.getByRole('button', { name: 'Назад к чатам' }).click();
+    check('Возврат из чата открывает список', await sidebar.isVisible());
+    await sidebar.getByRole('button', { name: /R15 · Группа проекта/ }).click();
+    await page.getByRole('button', { name: 'Подробная информация' }).click();
+    await page.getByRole('tab', { name: 'Теги' }).waitFor();
     const narrowBefore = await center.boundingBox();
     const panel = page.locator('aside').filter({ has: page.getByRole('tab', { name: 'Теги' }) });
     const panelBox = await panel.boundingBox();

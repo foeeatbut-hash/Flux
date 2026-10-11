@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb, Play } from 'lucide-react';
 import type { HandbookArticle } from '../../handbook/model';
-import { toursForRoute } from '../../assistant/tours';
+import { toursForRoute } from '../../guide/support/tours';
 import { useGuideStore } from '../../guide/store';
 import { featureById } from '../../lib/permissions';
 import { thingRu, linkRu } from '../../handbook/names';
@@ -52,7 +52,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
 
         {/* Показать вместо «читайте выше»: помощник подсветит кнопки прямо в
             разделе и подождёт нажатия. Демонстрации берутся из общего списка
-            (assistant/tours), а не переписаны рядом */}
+            (support/tours), а не переписаны рядом */}
         {tours.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
             <span className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mr-0.5">

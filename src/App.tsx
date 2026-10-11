@@ -292,9 +292,8 @@ function AnimatedRoutes() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Flux Guide: навигатор, профиль и активный проект. Guide, как и помощник
-  // раньше, не читает окна сам — обстановку сообщает оболочка
-  React.useEffect(() => {
+  // Flux Guide получает навигатор, профиль и активный проект от оболочки.
+  React.useLayoutEffect(() => {
     const g = useGuideStore.getState();
     g.setNavigator((path: string) => navigate(path));
     g.setUserGetter(() => useStore.getState().user ? { id: useStore.getState().user!.id, name: useStore.getState().user!.name } : null);
@@ -302,7 +301,7 @@ function AnimatedRoutes() {
       const p = useStore.getState().activeProject;
       return p ? { id: p.id, name: p.name } : null;
     });
-  }, [navigate]);
+  }, [navigate, user?.id]);
 
   // Сессия API истекла или профиль отключён (401 от сервера) → на экран входа
   React.useEffect(() => {

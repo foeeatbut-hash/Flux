@@ -16,9 +16,9 @@ import {
   type GuideTag, type GuideComponent, type GuideSpecRow,
 } from './projects';
 import { parseQuestion, FIELDS, EQUIPMENT_TYPES, type ParsedQuestion, type FieldType } from './questionParser';
-import { answerFromHandbook } from '../assistant/handbookAnswers';
-import { findBestTour } from '../assistant/tours';
-import { findKnowledge } from '../assistant/knowledge';
+import { answerFromHandbook } from './support/handbookAnswers';
+import { findBestTour } from './support/tours';
+import { findKnowledge } from './support/knowledge';
 import { allowEntitlement } from '../store/policyStore';
 import { uid, type GuideMessage, type GuideAction, type GuideTable, type GuideCard } from './types';
 
@@ -378,7 +378,11 @@ async function characteristicAnswer(p: ParsedQuestion, ctx: AskContext): Promise
       });
     }
     const params: Record<string, string | number> = { componentId: place.componentId };
-    if (p.numeric) { params.op = p.numeric.op; params.value = p.numeric.value; if (p.unit) params.unit = p.unit; }
+    if (p.numeric) {
+      if (p.numeric.upperBound !== undefined) { params.min = p.numeric.value; params.max = p.numeric.upperBound; }
+      else { params.op = p.numeric.op; params.value = p.numeric.value; }
+      if (p.unit) params.unit = p.unit;
+    }
     const row = await guideSpec(ctx.userId, ctx.projectId!, field.keys[0], params);
     if (!row.items.length) {
       return say(`У позиции ${place.component} характеристика «${field.canonical}» отсутствует или не проходит по фильтру.`, {
@@ -399,7 +403,11 @@ async function characteristicAnswer(p: ParsedQuestion, ctx: AskContext): Promise
 
   if (!field) return null;
   const params: Record<string, string | number> = { limit: 200 };
-  if (p.numeric) { params.op = p.numeric.op; params.value = p.numeric.value; if (p.unit) params.unit = p.unit; }
+  if (p.numeric) {
+    if (p.numeric.upperBound !== undefined) { params.min = p.numeric.value; params.max = p.numeric.upperBound; }
+    else { params.op = p.numeric.op; params.value = p.numeric.value; }
+    if (p.unit) params.unit = p.unit;
+  }
   const row = await guideSpec(ctx.userId, ctx.projectId!, field.keys[0], params);
   if (!row.items.length) {
     return say(`Ни у одной позиции проекта характеристика «${field.canonical}» не заполнена.`, { status: 'no-match', source: sourceOf(ctx, 'Оборудование проекта') });
@@ -739,6 +747,18 @@ export async function answerQuestion(question: string, ctx: AskContext): Promise
   }
 
   const p = parseQuestion(text);
+
+  // Оба края диапазона обязательны; перевёрнутые значения просим ввести заново.
+  if (p.numericError === 'reversed-range') {
+    return [say('В диапазоне нижняя граница больше верхней. Уточните значения, например: «расход от 500 до 1000 м³/ч».', {
+      status: 'no-match', clarify: { question: 'Какой диапазон использовать?', options: [] },
+    })];
+  }
+  if (p.numericError === 'incompatible-unit') {
+    return [say(`Единица «${p.unit}» не подходит к характеристике «${p.fields[0]?.canonical}». Укажите совместимую единицу: ${p.fields[0]?.units.join(' или ')}.`, {
+      status: 'no-match', clarify: { question: 'Какую единицу использовать?', options: [] },
+    })];
+  }
 
   // Продолжение разговора имеет приоритет: «их», «а без тегов», «выгрузи»
   if (p.isFollowUp && ctx.lastResult) {

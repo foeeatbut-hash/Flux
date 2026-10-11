@@ -17,12 +17,12 @@ import { canSeeProject } from '../routes/members.js';
 import { isAdminActor, isRealProjectId } from '../projectAccess.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { parseQuestion } from '../../src/guide/questionParser.js';
-import { answerFromHandbook } from '../../src/assistant/handbookAnswers.js';
-import { findKnowledge } from '../../src/assistant/knowledge.js';
+import { answerFromHandbook } from '../../src/guide/support/handbookAnswers.js';
+import { findKnowledge } from '../../src/guide/support/knowledge.js';
 import {
   flattenSpecs, findSpecExact, findSpecFuzzy, enrichTags, procurementStages, flatComponents,
 } from '../routes/guide.js';
-import { matchNumeric } from '../routes/guide.js';
+import { matchNumeric, matchNumericRange } from '../routes/guide.js';
 
 export const SERVICE_USER_ID = 'flux-guide-service';
 const FOLD = (s: string): string => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
@@ -93,6 +93,23 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
   const p = parseQuestion(question);
   const at = nowAt();
 
+  if (p.numericError === 'reversed-range') {
+    return { status: 'no-match', text: 'Нижняя граница диапазона больше верхней. Уточните значения, например: «расход от 500 до 1000 м³/ч».' };
+  }
+  if (p.numericError === 'incompatible-unit') {
+    return { status: 'no-match', text: `Единица «${p.unit}» не подходит к характеристике «${p.fields[0]?.canonical}». Укажите совместимую единицу: ${p.fields[0]?.units.join(' или ')}.` };
+  }
+  const matchesNumeric = (spec: any) => p.numeric?.upperBound !== undefined
+    ? matchNumericRange(spec, p.numeric.value, p.numeric.upperBound, p.unit || '')
+    : !!p.numeric && matchNumeric(spec, p.numeric.op, p.numeric.value, p.unit || '');
+  const numericLabel = p.numeric?.upperBound !== undefined
+    ? `от ${p.numeric.value} до ${p.numeric.upperBound}${p.unit ? ` ${p.unit}` : ''}`
+    : p.numeric ? `${p.numeric.op} ${p.numeric.value}${p.unit ? ` ${p.unit}` : ''}` : '';
+
+  if (/(сортир|по возрастанию|по убыванию|отсорт)/.test(p.normalized)) {
+    return { status: 'no-match', text: 'Сортировку списка Guide пока не поддерживает. Уточните тип оборудования, систему или числовой порог, чтобы сузить выборку.' };
+  }
+
   if (intent === 'tag_lookup' && p.codes.length) {
     const code = p.codes[0];
     const rows = await prisma.tag.findMany({
@@ -129,6 +146,14 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
     if (type) list = list.filter((c) => c.equipType === type);
     if (p.systemNames.length) list = list.filter((c) => p.systemNames.some((name) => FOLD(c.systemName) === FOLD(name)));
     if (intent === 'equipment_no_tag' || p.normalized.includes('без тег')) list = list.filter((c) => !c.tags.length);
+    if (p.numeric) {
+      const field = p.fields[0];
+      if (!field) return { status: 'no-match', text: 'Уточните характеристику для числового фильтра (например, «расход больше 1000 м³/ч»).' };
+      list = list.filter((component) => {
+        const found = findSpecExact(component.specs, FOLD(field.keys[0])) || findSpecFuzzy(component.specs, FOLD(field.keys[0]));
+        return !!found && matchesNumeric(found);
+      });
+    }
     const total = list.length;
     if (intent === 'project_count') {
       if (p.normalized.includes('систем')) {
@@ -137,35 +162,28 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
         const matches = p.systemNames.length ? systems.filter((system: any) => p.systemNames.some((name) => FOLD(system.name) === FOLD(name))) : systems;
         return { status: 'ok', text: p.systemNames.length ? `Система ${p.systemNames[0]} найдена: ${matches.length ? 1 : 0}. Источник: Системы проекта · ${at}` : `Систем в проекте: ${matches.length}. Источник: Системы проекта · ${at}` };
       }
-      if (p.numeric && !p.fields.length) return { status: 'no-match', text: 'Уточните характеристику для числового фильтра (например, «расход больше 1000 м³/ч»).' };
-      if (p.numeric && p.fields[0]) {
-        const field = p.fields[0];
-        list = list.filter((component) => {
-          const found = findSpecExact(component.specs, FOLD(field.keys[0])) || findSpecFuzzy(component.specs, FOLD(field.keys[0]));
-          return !!found && matchNumeric(found, p.numeric!.op, p.numeric!.value, p.unit || '');
-        });
-      }
-      if (type || p.systemNames.length || p.numeric) return { status: 'ok', text: `${type || (p.systemNames.length ? `Система ${p.systemNames.join(', ')}` : 'Оборудование')}: ${list.length} поз.${p.numeric && p.fields[0] ? ` с ${p.fields[0].canonical} ${p.numeric.op} ${p.numeric.value}${p.unit ? ` ${p.unit}` : ''}` : ''} (Источник: Оборудование проекта · ${at})` };
+      if (type || p.systemNames.length || p.numeric) return { status: 'ok', text: `${type || (p.systemNames.length ? `Система ${p.systemNames.join(', ')}` : 'Оборудование')}: ${list.length} поз.${p.numeric && p.fields[0] ? ` с ${p.fields[0].canonical} ${numericLabel}` : ''} (Источник: Оборудование проекта · ${at})` };
       const summary = { tags: await prisma.tag.count({ where: { projectId } }), components: components.length };
       return { status: 'ok', text: `Тегов в проекте: ${summary.tags}, позиций оборудования: ${summary.components}. Источник: Теги/Оборудование проекта · ${at}` };
     }
     if (!total) return { status: 'no-match', text: intent === 'equipment_no_tag' ? `Позиций без тега${type ? ` среди «${type}»` : ''} нет — у всего оборудования есть привязка.` : 'По выбранным условиям ничего не найдено.' };
     return {
       status: 'ok',
-      text: `${intent === 'equipment_no_tag' ? 'Без тега' : `«${type || 'Оборудование'}»`}: ${total} поз.\n${list.slice(0, 5).map((c) => `· ${c.name} (${c.systemName}${c.tags.length ? ', тег ' + c.tags[0].identifier : ' без тега'})`).join('\n')}${total > 5 ? `\n… всего ${total} — полный список в разделе «Оборудование».` : ''}\nИсточник: Оборудование проекта · ${at}`,
+      text: `${intent === 'equipment_no_tag' ? 'Без тега' : `«${type || 'Оборудование'}»`}: ${total} поз.${p.numeric && p.fields[0] ? ` с ${p.fields[0].canonical} ${numericLabel}` : ''}\n${list.slice(0, 5).map((c) => `· ${c.name} (${c.systemName}${c.tags.length ? ', тег ' + c.tags[0].identifier : ' без тега'})`).join('\n')}${total > 5 ? `\n… всего ${total} — полный список в разделе «Оборудование».` : ''}\nИсточник: Оборудование проекта · ${at}`,
     };
   }
 
   if (intent === 'equipment_characteristic' || intent === 'equipment_missing_field') {
     const field = p.fields[0];
     if (!field) return { status: 'no-match', text: 'Уточните, какая характеристика нужна (расход, давление, питание…).' };
+    if (intent === 'equipment_missing_field' && p.numeric) return { status: 'no-match', text: 'Нельзя одновременно запросить незаполненную характеристику и числовой порог. Уточните, нужно ли искать пустое значение или фильтровать заполненные характеристики.' };
     const components = await flatComponents(projectId);
     if (p.codes.length) {
       const comp = components.find((c) => c.tags.some((t) => t.identifier === p.codes[0]));
       if (!comp) return { status: 'no-match', text: `Тега «${p.codes[0]}» в проекте нет или он не привязан к позиции.` };
       const found = findSpecExact(comp.specs, FOLD(field.keys[0])) || findSpecFuzzy(comp.specs, FOLD(field.keys[0]));
       if (!found) return { status: 'no-match', text: `У позиции ${comp.name} характеристика «${field.canonical}» не заполнена.` };
-      if (p.numeric && !matchNumeric(found, p.numeric.op, p.numeric.value, p.unit || '')) return { status: 'no-match', text: `Значение ${field.canonical} у позиции ${comp.name} не проходит фильтр ${p.numeric.op} ${p.numeric.value}${p.unit ? ` ${p.unit}` : ''}.` };
+      if (p.numeric && !matchesNumeric(found)) return { status: 'no-match', text: `Значение ${field.canonical} у позиции ${comp.name} не проходит фильтр ${numericLabel}.` };
       return { status: 'ok', text: `Позиция ${comp.name} (${comp.systemName}): ${found.key} = ${found.value}${found.unit ? ' ' + found.unit : ''}. Источник: Оборудование проекта · ${at}` };
     }
     if (intent === 'equipment_missing_field') {
@@ -178,7 +196,7 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
       .map((c) => ({ c, found: findSpecExact(c.specs, FOLD(field.keys[0])) || findSpecFuzzy(c.specs, FOLD(field.keys[0])) }))
       .filter((r) => r.found);
     if (p.systemNames.length) rows = rows.filter((r) => p.systemNames.some((name) => FOLD(r.c.systemName) === FOLD(name)));
-    if (p.numeric) rows = rows.filter((r) => matchNumeric(r.found!, p.numeric!.op, p.numeric!.value, p.unit || ''));
+    if (p.numeric) rows = rows.filter((r) => matchesNumeric(r.found!));
     if (!rows.length) return { status: 'no-match', text: `Характеристика «${field.canonical}» в проекте не заполнена ни у одной позиции.` };
     return { status: 'ok', text: `«${field.canonical}» заполнено у ${rows.length} поз.\n${rows.slice(0, 5).map((r) => `· ${r.c.name}: ${r.found!.value}${r.found!.unit ? ' ' + r.found!.unit : ''} (${r.c.systemName})`).join('\n')}\nИсточник: Оборудование проекта · ${at}` };
   }
@@ -282,7 +300,7 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
   let boundProjectId: string | null = null;
   if (req.type === 'GROUP') {
     const group = request.chatGroup;
-    if (!group || group.id !== req.conversationId || !(group.members || []).some((m: any) => m.id === req.actorId)) return { published: false, refusal: true, text: 'Запрос не найден.' };
+    if (!group || group.id !== req.conversationId || !(group.ownerId === req.actorId || (group.members || []).some((m: any) => m.id === req.actorId))) return { published: false, refusal: true, text: 'Запрос не найден.' };
     memberIds = [...new Set([group.ownerId, ...group.members.map((m: any) => m.id)].filter(Boolean) as string[])];
     boundProjectId = group.projectId || null;
   } else {
@@ -309,8 +327,10 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
 
   // 4. Не-проектные вопросы: справка без данных проекта — открыта всем
   if (!projectIntents.has(p.intent) && !p.codes.length) {
-    const g = findKnowledge(persistedQuestion);
-    answerText = g || answerFromHandbook(persistedQuestion, 4, () => false)?.text
+    const generalIntents = new Set(['knowledge_howto', 'knowledge_where', 'glossary', 'troubleshoot']);
+    const g = generalIntents.has(p.intent) ? findKnowledge(persistedQuestion) : null;
+    const handbook = p.intent === 'unknown' ? null : answerFromHandbook(persistedQuestion, 4, () => false);
+    answerText = g || handbook?.text
       || 'В проверенной справке нет точного ответа на этот вопрос. Уточните формулировку или откройте Flux Guide.';
   } else {
     // 5. Проектный вопрос: проект связан с разговором или назван клиентом,

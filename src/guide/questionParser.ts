@@ -6,8 +6,8 @@
  * engine.ts (и за ним сервер) валидируют и исполняют. При неоднозначности
  * парсер честно говорит «неоднозначно», а не выбирает первый попавшийся объект.
  */
-import { stripPoliteness, fixKeyboardLayout } from '../assistant/inputRepair';
-import { parse, stem } from '../assistant/nlp';
+import { stripPoliteness, fixKeyboardLayout } from './support/inputRepair';
+import { parse, stem } from './support/nlp';
 
 // ── Словари: типизированные, корректируемые (ТЗ §9.1) ──
 
@@ -41,7 +41,7 @@ export const EQUIPMENT_TYPES: EquipmentType[] = [
   { canonical: 'ВОЗДУШНАЯ ЗАВЕСА', category: 'CURTAIN', stems: ['завес'] },
 ];
 
-export interface NumericFilter { value: number; op: '>' | '<' | '>=' | '<=' | '=' }
+export interface NumericFilter { value: number; op: '>' | '<' | '>=' | '<=' | '='; upperBound?: number }
 
 export interface ParsedQuestion {
   raw: string;
@@ -56,6 +56,7 @@ export interface ParsedQuestion {
   stems: string[];
   intent: QuestionIntent;
   numeric?: NumericFilter;
+  numericError?: 'reversed-range' | 'incompatible-unit';
   unit?: string;
   /** Продолжение вопроса: «их», «а только без тегов», «выгрузи» — контекст прошлого ответа */
   isFollowUp: boolean;
@@ -132,7 +133,7 @@ function detectIntent(normalized: string, codes: string[], fields: FieldType[], 
  *  намерение определяется по прошлому ответу (ТЗ §36.4). */
 const FOLLOWUP_RE = /^(а|и|ну)?\s*(их|они|оно|него|нее|её|эти|только|сколько их|покажи их|выгрузи|в эксель|в excel|в слово|экспортируй|а сейчас|еще|снова)/i;
 
-const UNIT_RE = /(м³\/ч|м3\/ч|м\^3\/ч|л\/с|па|кпа|квт|вт|н·м)/;
+const UNIT_RE = /(м³\/ч|м3\/ч|м\^3\/ч|л\/с|кпа|па|квт|вт|н·м)/;
 const CONVERT_RE = /(?:переведи|пересчитай|в единицах)?\s*(?:в|во)\s+(м³\/ч|м3\/ч|м\^3\/ч|л\/с)\b/;
 /** Имя системы/установки: П1, В12, К3 — латиница или кириллица + номер. */
 const SYSTEM_RE = /(?:^|\s)([пвк]|приточн\w*|вытяжн\w*)\s?(\d{1,2})\b/i;
@@ -165,16 +166,34 @@ export function parseQuestion(text: string): ParsedQuestion {
     if (!systemNames.includes(name)) systemNames.push(name);
   }
 
-  // Число со знаком сравнения: «больше 1000», «менее 500», «не менее 2»
+  // Диапазон разбирается раньше одиночного порога: иначе «от 500 до 1000»
+  // незаметно превращался бы в «не менее 500», теряя верхнюю границу.
   let numeric: NumericFilter | undefined;
-  const numMatch = /(?:больше|более|свыше)\s+(\d[\d\s]*)|(?:меньше|менее)\s+(\d[\d\s]*)|(?:не\s+менее|от)\s+(\d[\d\s]*)|(?:не\s+более|до)\s+(\d[\d\s]*)/.exec(normalized);
+  let numericError: ParsedQuestion['numericError'];
+  const numberPattern = '(?:\\d{1,3}(?:[ \\u00a0]\\d{3})+|\\d+)(?:[,.]\\d+)?';
+  const rangeMatch = new RegExp(`(?:от|между)\\s*(${numberPattern})\\s*(?:до|и)\\s*(${numberPattern})`).exec(normalized);
+  if (rangeMatch) {
+    const lower = Number(rangeMatch[1].replace(/[ \u00a0]/g, '').replace(',', '.'));
+    const upper = Number(rangeMatch[2].replace(/[ \u00a0]/g, '').replace(',', '.'));
+    if (lower > upper) numericError = 'reversed-range';
+    else numeric = { value: lower, op: '>=', upperBound: upper };
+  }
+  // Одиночный порог: «больше 1000», «менее 500», «не менее 2».
+  const numMatch = rangeMatch ? null : /(?:больше|более|свыше)\s+(\d[\d\s]*(?:[,.]\d+)?)|(?:меньше|менее)\s+(\d[\d\s]*(?:[,.]\d+)?)|(?:не\s+менее|от)\s+(\d[\d\s]*(?:[,.]\d+)?)|(?:не\s+более|до)\s+(\d[\d\s]*(?:[,.]\d+)?)/.exec(normalized);
   if (numMatch) {
-    if (numMatch[1]) numeric = { value: Number(numMatch[1].replace(/\s/g, '')), op: '>' };
-    else if (numMatch[2]) numeric = { value: Number(numMatch[2].replace(/\s/g, '')), op: '<' };
-    else if (numMatch[3]) numeric = { value: Number(numMatch[3].replace(/\s/g, '')), op: '>=' };
-    else if (numMatch[4]) numeric = { value: Number(numMatch[4].replace(/\s/g, '')), op: '<=' };
+    const number = (value: string) => Number(value.replace(/\s/g, '').replace(',', '.'));
+    if (numMatch[1]) numeric = { value: number(numMatch[1]), op: '>' };
+    else if (numMatch[2]) numeric = { value: number(numMatch[2]), op: '<' };
+    else if (numMatch[3]) numeric = { value: number(numMatch[3]), op: '>=' };
+    else if (numMatch[4]) numeric = { value: number(numMatch[4]), op: '<=' };
   }
   const unitMatch = UNIT_RE.exec(normalized);
+  const unitRaw = unitMatch?.[1];
+  // Поиск идёт по нижнему регистру, а API принимает каноничные обозначения.
+  const unit = unitRaw === 'м3/ч' || unitRaw === 'м^3/ч' ? 'м³/ч'
+    : unitRaw === 'кпа' ? 'кПа' : unitRaw === 'па' ? 'Па'
+      : unitRaw === 'квт' ? 'кВт' : unitRaw === 'вт' ? 'Вт' : unitRaw;
+  if (numeric && unit && fields[0] && !fields[0].units.includes(unit)) numericError = 'incompatible-unit';
   const convertMatch = CONVERT_RE.exec(normalized);
 
   return {
@@ -188,7 +207,8 @@ export function parseQuestion(text: string): ParsedQuestion {
     stems: p.stems,
     intent: detectIntent(normalized, p.codes, fields, types),
     numeric,
-    unit: unitMatch ? unitMatch[1] : undefined,
+    numericError,
+    unit,
     isFollowUp: FOLLOWUP_RE.test(normalized) && normalized.split(/\s+/).length <= 6,
     convertTo: convertMatch ? convertMatch[1] : undefined,
   };

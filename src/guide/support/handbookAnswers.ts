@@ -1,11 +1,11 @@
-import { ARTICLES, type HandbookArticle } from '../handbook/registry';
-import { indexOf, foldRu } from '../handbook/model';
+import { ARTICLES, type HandbookArticle } from '../../handbook/registry';
+import { indexOf, foldRu } from '../../handbook/model';
 import { stem } from './nlp';
 
 /**
- * Ответы помощника из руководства.
+ * Ответы Flux Guide из справочника.
  *
- * Раньше помощник и руководство жили порознь: в руководстве двадцать с лишним
+ * Раньше вопросы и справочник жили порознь: в руководстве двадцать с лишним
  * статей, а помощник отвечал из своего короткого набора заготовок и на всё
  * остальное разводил руками. Спросить «где написано про подписи в письмах»
  * было некуда: в помощнике этого нет, а в руководстве надо сперва угадать,
@@ -117,7 +117,7 @@ function bestArticle(ws: string[]): { article: HandbookArticle; score: number } 
  * Какое место статьи отвечает на вопрос.
  *
  * Считаем совпадения слов по каждому куску отдельно. Перевес у «что можно
- * сделать»: человек спрашивает у помощника, как что-то сделать, куда чаще,
+ * сделать»: человек спрашивает у Guide, как что-то сделать, куда чаще,
  * чем почему оно так устроено, и при равном счёте вести надо туда.
  */
 function bestPart(a: HandbookArticle, ws: string[]): { anchor: string; text: string } {
@@ -176,7 +176,7 @@ export function answerFromHandbook(
 
   const a = found.article;
   // Статья о закрытой встроенной программе не отвечает никому, кроме тех, кому
-  // она открыта: ответ помощника — такой же способ узнать о программе, как
+  // она открыта: ответ Guide — такой же способ узнать о программе, как
   // строка поиска. Умолчание — отказ: забытый предикат не должен открывать
   if (a.entitlement && !(allow && allow(a.entitlement))) return null;
   const part = bestPart(a, ws);

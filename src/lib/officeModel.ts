@@ -48,7 +48,7 @@ export interface OfficeEntityRow {
   values: Record<string, OfficeValue>;
 }
 
-/** Opaque but deterministic UI identity; raw IDs may overlap across sources/types. */
+/** Стабильный UI ID включает источник и тип: raw ID может совпасть. */
 export function officeEntityId(sourceId: string, entityType: string, rawId: string): string {
   return `office:${encodeURIComponent(sourceId)}:${encodeURIComponent(entityType)}:${encodeURIComponent(rawId)}`;
 }
@@ -121,6 +121,7 @@ function fromQuantity(q: Quantity): OfficeValue {
 
 function readPartValue(part: Extract<OfficePart, { kind: 'field' | 'union' }>, row: OfficeEntityRow): { value?: OfficeValue; conflict?: string[] } {
   if (part.kind === 'field') {
+    if ((part.binding.sourceId && part.binding.sourceId !== row.sourceId) || (part.binding.entityType && part.binding.entityType !== row.entityType)) return {};
     const value = row.values[part.binding.fieldKey];
     return value ? { value: { ...value, unit: value.unit || part.binding.unit } } : {};
   }

@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { TOURS } from '../src/assistant/tours';
+import { TOURS } from '../src/guide/support/tours';
 import {
   canAdvanceTour, evaluateTourResult, expectedResultForStep,
   tourRequiresProject, tourStepNeedsAction, withProjectContext,
@@ -18,7 +18,7 @@ function sourceFiles(dir: string): string[] {
     return statSync(file).isDirectory() ? sourceFiles(file) : /\.tsx?$/.test(file) ? [file] : [];
   });
 }
-const appSources = sourceFiles('src').filter((file) => !file.includes('/assistant/tours.ts'));
+const appSources = sourceFiles('src').filter((file) => !file.includes('/guide/support/tours.ts'));
 const appSourceText = appSources.map((file) => readFileSync(file, 'utf8')).join('\n');
 
 const probe = (state: { route?: string; shown?: string[]; text?: Record<string, string>; attrs?: Record<string, string>; values?: Record<string, string>; project?: boolean } = {}) => ({
@@ -45,7 +45,9 @@ check('каждый data-tour target объявлен реальным комп�
   if (id.startsWith('settings-')) return appSourceText.includes('data-tour={`settings-${s.id}`}');
   return appSourceText.includes(`data-tour="${id}"`) || appSourceText.includes(`data-tour={'${id}'}`);
 }));
-check('результат открытия мастера ограничен его фактическим заголовком', appSourceText.includes('<h2') && appSourceText.includes('Импорт из документов') && !TOURS.flatMap((tour) => tour.steps).some((step) => step.expectedResult?.kind === 'visible-text' && step.expectedResult.selector === 'body'));
+check('результат создания проекта ограничен его диалогом приложения', appSourceText.includes('role="dialog"') && appSourceText.includes('aria-label={label ?? (typeof title') && appSourceText.includes('title="Новый проект"') && TOURS.flatMap((tour) => tour.steps).some((step) => step.expectedResult?.kind === 'visible-text' && step.expectedResult.selector === '[role="dialog"][aria-label="Новый проект"]'));
+check('результат открытия импорта ограничен заголовком его диалога приложения', appSourceText.includes('<h2') && appSourceText.includes('Импорт из документов') && TOURS.flatMap((tour) => tour.steps).some((step) => step.expectedResult?.kind === 'visible-text' && step.expectedResult.selector === 'div[role="dialog"] h2' && step.expectedResult.contains === 'Импорт из документов') && !TOURS.flatMap((tour) => tour.steps).some((step) => step.expectedResult?.kind === 'visible-text' && step.expectedResult.selector === 'body'));
+check('кнопка вопроса Guide соответствует селектору с доступным title в чате', appSourceText.includes('Спросить Flux Guide: ответ придёт в этот же разговор') && TOURS.flatMap((tour) => tour.steps).some((step) => step.target === 'button[title^="Спросить Flux Guide"]'));
 check('информационный шаг можно продолжить', canAdvanceTour({ text: 'информация' }, false));
 check('клик по целевой кнопке сам по себе не завершает шаг', !canAdvanceTour({ text: 'запись', target: '[data-tour="save"]', expectedResult: { kind: 'visible-text', selector: '[role="status"]', contains: 'Сохранено' } }, false));
 check('целевая кнопка без ожидаемого результата заблокирована', !canAdvanceTour({ text: 'действие', target: '[data-tour="save"]' }, true));

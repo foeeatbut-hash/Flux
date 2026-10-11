@@ -29,6 +29,7 @@ import { editorHref } from '../lib/officeFiles';
 import FluxPanel from '../components/office/FluxPanel';
 import FluxOfficePanel, { type FluxOfficeAnchorSelection } from '../components/office/FluxOfficePanel';
 import { officeDataApi } from '../components/office/fluxData';
+import type { OfficeAnchorRow } from '../components/office/fluxData';
 import type { OfficeBinding, OfficeFillPlan, OfficeHeaderSchema } from '../lib/officeModel';
 import { openEditorTag } from '../lib/editorTag';
 import FileEnglishVersion from '../components/translate/FileEnglishVersion';
@@ -238,7 +239,7 @@ export default function OfficeHost() {
       const m = e.data;
       if (!isOfficeMsg(m)) return;
       if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
-      if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
+      if (m.op === 'flux:open-panel') { setLegacyPanelOpen(false); setDataOpen(true); return; }
       if (m.op === 'flux:anchor-selected') { setActiveFluxAnchor(m.payload || null); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
@@ -393,18 +394,39 @@ export default function OfficeHost() {
     if (!(await saveBeforeServer())) throw new Error('Документ не записан. Сначала сохраните правки.');
     return officeDataApi.state(fileId);
   };
-  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding) => {
-    const response = await askFrame<{ ok: boolean; error?: string }>('insertFluxField', 'flux:field-inserted', 8_500, {
-      fieldKey: binding.fieldKey, displayText: binding.fieldKey, anchorId: anchor.anchorId, binding,
+  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => {
+    const response = await askFrame<{ ok: boolean; anchorId?: string; error?: string }>('insertFluxField', 'flux:field-inserted', 8_500, {
+      fieldKey: binding.fieldKey, displayText, anchorId: anchor.anchorId, binding,
     });
     if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
+    if (response.anchorId) setActiveFluxAnchor({ ...anchor, anchorId: response.anchorId });
     return true;
   };
-  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema) => {
-    const response = await askFrame<{ ok: boolean; error?: string }>('applyFluxPlan', 'flux:office-plan-applied', 30_000, { writes: plan.writes, schema });
+  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows: OfficeAnchorRow[]) => {
+    if (collabFileRef.current && !room.holding) throw new Error('Только держатель общей версии может завершить заполнение.');
+    const response = await askFrame<{ ok: boolean; rows?: OfficeAnchorRow[]; appliedCount?: number; manualRows?: string[]; error?: string }>('applyFluxPlan', 'flux:office-plan-applied', 30_000, { writes: plan.writes, schema, rows, sourceRevision: plan.sourceRevision });
     if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
+    if (!response.rows) throw new Error('Редактор не вернул сведения о заполненных строках. Сохраните файл и проверьте результат.');
     if (!(await saveBeforeServer())) throw new Error('Изменения внесены, но документ не записан. Сохраните его через редактор.');
-    return true;
+    const savedHash = base.current.get(fileId);
+    if (!savedHash) throw new Error('Не удалось подтвердить сохранённую версию документа. Повторите заполнение.');
+    const current = await officeDataApi.state(fileId);
+    if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите состояние и повторите заполнение.');
+    const stored = await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
+    reopen(fileId);
+    return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: response.manualRows || [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
+  };
+  const updateOfficeSchema = async (schema: OfficeHeaderSchema) => {
+    if (collabFileRef.current && !room.holding) throw new Error('Только держатель общей версии может записать схему; запросите запись у держателя.');
+    if (!(await saveBeforeServer())) throw new Error('Документ не записан.');
+    const savedHash = base.current.get(fileId);
+    if (!savedHash) throw new Error('Не удалось подтвердить сохранённую версию документа. Повторите сохранение.');
+    const current = await officeDataApi.state(fileId);
+    if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите его и повторите попытку.');
+    await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: current.sourceRevision, schema, ...(current.rows ? { rows: current.rows } : {}) });
+    const next = await officeDataApi.state(fileId);
+    reopen(fileId);
+    return next;
   };
   const [englishOpen, setEnglishOpen] = useState(false);
   const updateFields = async () => {
@@ -465,7 +487,8 @@ export default function OfficeHost() {
           onInsertTable={async rows => { const r = await askFrame<{ok: boolean; error?: string}>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
           beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} />
           : <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={!editable} activeAnchor={activeFluxAnchor}
-            requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites}
+            requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
+            schemaWriteAvailable={editable && (!collabFileRef.current || room.holding)}
             onOpenLegacy={() => setLegacyPanelOpen(true)} onClose={() => setDataOpen(false)} />
       )}
       </div>

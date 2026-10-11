@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Archive, RotateCcw, Search } from 'lucide-react';
 import { useGuideStore } from '../../guide/store';
+import { useModalStore } from '../../store/modalStore';
 
 // ── История вопросов (серверное хранение, ТЗ v3 §4) ──
 
 export function HistoryPanel({ onClose }: { onClose: () => void }) {
   const chats = useGuideStore((s) => s.chats);
+  const projects = useGuideStore((s) => s.projects);
+  const projectId = useGuideStore((s) => s.projectId);
   const archivedChats = useGuideStore((s) => s.archivedChats);
   const historyArchived = useGuideStore((s) => s.historyArchived);
   const historyError = useGuideStore((s) => s.historyError);
@@ -14,12 +17,28 @@ export function HistoryPanel({ onClose }: { onClose: () => void }) {
   const archiveChat = useGuideStore((s) => s.archiveChat);
   const restoreChat = useGuideStore((s) => s.restoreChat);
   const setHistoryArchived = useGuideStore((s) => s.setHistoryArchived);
+  const openConfirm = useModalStore((s) => s.openConfirm);
   const [q, setQ] = useState('');
 
   useEffect(() => { void loadChats(historyArchived); }, [historyArchived, loadChats]);
 
   const rows = historyArchived ? archivedChats : chats;
   const filtered = rows.filter((c) => !q || `${c.title} ${c.preview}`.toLowerCase().includes(q.toLowerCase()));
+
+  const openSavedChat = async (chatId: string) => {
+    const chat = rows.find((item) => item.id === chatId);
+    if (!chat) return;
+    if (chat.projectId && chat.projectId !== projectId) {
+      const targetName = projects.find((project) => project.id === chat.projectId)?.name || chat.projectId;
+      const confirmed = await openConfirm(
+        `Переключить вопросы на проект «${targetName}»?`,
+        `Сохранённый разговор относится к проекту «${targetName}». Текущая переписка останется без изменений, если вы отмените переход.`,
+        { confirmLabel: 'Открыть разговор' },
+      );
+      if (!confirmed) return;
+    }
+    if (await openChat(chatId)) onClose();
+  };
 
   return (
     <div className="absolute left-0 top-full mt-1.5 z-30 w-[340px] max-w-[92vw] rounded-xl border border-slate-200 dark:border-slate-700
@@ -35,7 +54,7 @@ export function HistoryPanel({ onClose }: { onClose: () => void }) {
           const selected = (tab === 'archived') === historyArchived;
           return <button key={tab} type="button" onClick={() => setHistoryArchived(tab === 'archived')}
             aria-pressed={selected}
-            className={`px-2.5 py-1.5 text-xs cursor-pointer border-b-2 ${selected ? 'border-emerald-600 text-slate-900 dark:text-white font-medium' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}>
+            className={`px-2.5 py-1.5 text-xs cursor-pointer border-b-2 ${selected ? 'border-emerald-600 text-slate-900 dark:text-white font-medium' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-dark-text-main'}`}>
             {tab === 'active' ? 'История' : 'Архив'}
           </button>;
         })}
@@ -45,7 +64,7 @@ export function HistoryPanel({ onClose }: { onClose: () => void }) {
         {filtered.length === 0 && <div className="text-xs text-slate-400 px-2 py-2">{historyArchived ? 'В архиве пока пусто.' : 'Сохранённых вопросов пока нет — история появляется после первого вопроса.'}</div>}
         {filtered.map((c) => (
           <div key={c.id} className="group flex items-center gap-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 min-w-0">
-            <button type="button" disabled={historyArchived} onClick={() => { void openChat(c.id); onClose(); }}
+            <button type="button" disabled={historyArchived} onClick={() => { void openSavedChat(c.id); }}
               className="flex-1 min-w-0 text-left px-2.5 py-1.5 cursor-pointer">
               <span className="block text-xs font-semibold text-slate-800 dark:text-dark-text-main truncate">{c.title}</span>
               <span className="block text-2xs text-slate-400 truncate">{c.preview || ' '}</span>

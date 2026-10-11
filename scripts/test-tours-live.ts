@@ -18,7 +18,7 @@ import { testCredentials } from './testCredentials';
  *   npx tsx server.ts > /tmp/srv.log 2>&1 &
  *   npx tsx scripts/test-tours-live.ts
  */
-import { TOURS } from '../src/assistant/tours';
+import { TOURS } from '../src/guide/support/tours';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();

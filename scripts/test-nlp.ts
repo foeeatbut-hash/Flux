@@ -1,5 +1,5 @@
 // Тесты понимания речи ИИ-чата: npx tsx scripts/test-nlp.ts
-import { stem, fuzzyEqual, parse, hasIntent, fieldMatchesStems } from '../src/assistant/nlp';
+import { stem, fuzzyEqual, parse, hasIntent, fieldMatchesStems } from '../src/guide/support/nlp';
 
 let ok = 0, fail = 0; const fails: string[] = [];
 const check = (n: string, c: boolean) => { if (c) ok++; else { fail++; fails.push('✗ ' + n); } };

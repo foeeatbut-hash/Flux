@@ -9,14 +9,13 @@ interface Props {
   state: OfficeState | null;
   selectedField: OfficeField | null;
   activeAnchorId: string;
-  projectId: string;
   readOnly: boolean;
   canEditSchema: boolean;
   onSelectField: (field: OfficeField) => void;
   onSaveSchema: (schema: OfficeHeaderSchema) => Promise<boolean>;
 }
 
-export default function FluxFieldsPanel({ fields, state, selectedField, activeAnchorId, projectId, readOnly, canEditSchema, onSelectField, onSaveSchema }: Props) {
+export default function FluxFieldsPanel({ fields, state, selectedField, activeAnchorId, readOnly, canEditSchema, onSelectField, onSaveSchema }: Props) {
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<OfficeHeaderSchema | null>(state?.schema || null);
   const [saving, setSaving] = useState(false);
@@ -67,7 +66,8 @@ export default function FluxFieldsPanel({ fields, state, selectedField, activeAn
           <Btn tone="primary" disabled={!changed || !canEditSchema || readOnly || saving} onClick={() => void saveSchema()}>{saving ? 'Сохраняем…' : <><Save className="h-3.5 w-3.5" />Сохранить схему</>}</Btn>
         </div>
         {error && <p role="alert" className="px-3 pb-2 text-xs text-rose-700 dark:text-rose-300">{error}</p>}
-        {!canEditSchema && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Редактор пока не подтвердил безопасный мост записи схемы. Изменения не применяются локально.</p>}
+        {!state && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Состояние документа ещё загружается или недоступно.</p>}
+        {!canEditSchema && state && !readOnly && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Схема недоступна для изменения в этом документе.</p>}
         {readOnly && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
         <div className="max-h-52 overflow-auto px-3 pb-3">
           {!draft?.anchors.length && <p className="text-xs text-slate-500 dark:text-slate-400">Щёлкните ячейку заголовка в документе, выберите поле и привяжите его.</p>}
@@ -75,11 +75,11 @@ export default function FluxFieldsPanel({ fields, state, selectedField, activeAn
             const active = activeAnchorId === anchor.id;
             const hasField = anchor.parts.some((part) => part.kind === 'field');
             return <section key={anchor.id} className={`border-t border-slate-200 py-2 first:border-0 dark:border-slate-800 ${active ? 'bg-slate-50 dark:bg-slate-900/50' : ''}`}>
-              <div className="flex items-center justify-between gap-2"><h4 className="min-w-0 truncate text-xs font-semibold">{anchor.sheetName ? `${anchor.sheetName}!` : ''}{anchor.address || anchor.id}</h4><span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{active ? 'активная ячейка' : anchor.kind === 'word-row' ? 'Word' : 'Excel'}</span></div>
+              <div className="flex items-center justify-between gap-2"><h4 className="min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-dark-text-main">{anchor.sheetName ? `${anchor.sheetName}!` : ''}{anchor.address || anchor.id}</h4><span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{active ? 'активная ячейка' : anchor.kind === 'word-row' ? 'Word' : 'Excel'}</span></div>
               <div className="mt-1 space-y-1">
                 {anchor.parts.map((part, partIndex) => <div key={`${anchor.id}:${partIndex}`} className="flex items-center gap-1.5">
                   {part.kind === 'text' ? <Input aria-label={`Текст заголовка ${partIndex + 1}`} disabled={!canEditSchema || readOnly} value={part.text} onChange={(event) => updateAnchor(anchorIndex, (parts) => parts.map((item, at) => at === partIndex && item.kind === 'text' ? { ...item, text: event.target.value } : item))} />
-                    : <span className="min-w-0 flex-1 truncate rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">{partLabel(part)}</span>}
+                    : <span className="min-w-0 flex-1 truncate rounded border border-slate-200 px-2 py-1 text-xs text-slate-800 dark:border-slate-700 dark:text-dark-text-main">{partLabel(part, fields)}</span>}
                   {part.kind !== 'field' && part.kind !== 'union' && <button type="button" aria-label="Удалить часть заголовка" disabled={!canEditSchema || readOnly} className="rounded p-1 text-slate-500 disabled:opacity-40" onClick={() => updateAnchor(anchorIndex, (parts) => parts.filter((_item, at) => at !== partIndex))}><X className="h-3.5 w-3.5" /></button>}
                 </div>)}
               </div>
@@ -90,10 +90,15 @@ export default function FluxFieldsPanel({ fields, state, selectedField, activeAn
                   if (!selectedField) return;
                   const nextBinding = bind(anchor.id, selectedField);
                   updateAnchor(anchorIndex, (parts) => {
-                    const prior = parts.filter((part) => part.kind === 'field').map((part, priority) => ({ ...part.binding, priority }));
-                    const alternatives = [...prior.filter((item) => item.fieldKey !== nextBinding.fieldKey), { ...nextBinding, priority: prior.length }];
-                    let inserted = false;
-                    return parts.filter((part) => part.kind !== 'field').map((part) => part.kind === 'union' && !inserted ? (inserted = true, { ...part, alternatives }) : part).concat(inserted ? [] : [{ kind: 'union' as const, mode: 'first-match' as const, alternatives }]);
+                    const groups = parts.filter((part) => part.kind === 'field' || part.kind === 'union');
+                    const bindings = groups.flatMap((part) => part.kind === 'field' ? [part.binding] : part.alternatives)
+                      .filter((item, index, list) => list.findIndex((other) => other.fieldKey === item.fieldKey && other.sourceId === item.sourceId) === index);
+                    if (!bindings.some((item) => item.fieldKey === nextBinding.fieldKey && item.sourceId === nextBinding.sourceId)) bindings.push(nextBinding);
+                    const alternatives = bindings.map((item, priority) => ({ ...item, priority }));
+                    const insertionAt = parts.findIndex((part) => part.kind === 'field' || part.kind === 'union');
+                    const rest: OfficePart[] = parts.filter((part) => part.kind !== 'field' && part.kind !== 'union');
+                    rest.splice(Math.min(insertionAt, rest.length), 0, { kind: 'union', mode: 'first-match', alternatives });
+                    return rest;
                   });
                 }}><Plus className="h-3.5 w-3.5" />Объединить с выбранным полем</button>
               </div>
@@ -123,10 +128,11 @@ export default function FluxFieldsPanel({ fields, state, selectedField, activeAn
   );
 }
 
-function partLabel(part: OfficePart): string {
-  if (part.kind === 'field') return `⟦${part.binding.fieldKey}⟧`;
+function partLabel(part: OfficePart, fields: OfficeField[]): string {
+  const name = (binding: OfficeBinding) => fields.find((field) => field.sourceId === binding.sourceId && field.fieldKey === binding.fieldKey)?.displayName || 'Поле';
+  if (part.kind === 'field') return `⟦${name(part.binding)}⟧`;
   if (part.kind === 'operator') return part.operator;
-  if (part.kind === 'union') return `Первое непустое: ${part.alternatives.map((item) => item.fieldKey).join(' / ')}`;
+  if (part.kind === 'union') return `Первое непустое: ${part.alternatives.map(name).join(' / ')}`;
   return part.text;
 }
 

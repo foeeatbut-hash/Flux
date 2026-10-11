@@ -82,9 +82,9 @@ for (const file of SRC.filter((p) => p.startsWith('src/store/'))) {
 }
 
 console.log('3. Логические модули не зависят от React и состояния');
-// capture / import / assistant разбирают текст и данные. Их держим пригодными
+// capture / import / guide разбирают текст и данные. Их держим пригодными
 // для запуска в скрипте и в тесте — без React, без хранилищ, без сети.
-for (const dir of ['src/capture', 'src/import', 'src/assistant', 'src/translate']) {
+for (const dir of ['src/capture', 'src/import', 'src/guide/support', 'src/translate']) {
   for (const file of SRC.filter((p) => p.startsWith(dir + '/') && !p.endsWith('.tsx'))) {
     const bad = importsOf(file).filter((i) => /(^|\/)(screens|components|store)\//.test(i) || i === 'react');
     ok(`${relative(dir, file)} чист`, bad.length === 0, bad);

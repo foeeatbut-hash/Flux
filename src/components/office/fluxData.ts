@@ -78,6 +78,17 @@ export interface OfficeState {
   baseHash: string;
   schema: import('../../lib/officeModel').OfficeHeaderSchema;
   sourceRevision: string;
+  rows?: OfficeAnchorRow[];
+}
+
+export interface OfficeAnchorRow {
+  entityId: string;
+  entityType: string;
+  sourceId: string;
+  sourceRevision: string;
+  anchorIds: string[];
+  cells?: Record<string, string>;
+  values?: Record<string, string | number | null>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -90,8 +101,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 export function toProjectQuery(query: OfficeQuery): Record<string, unknown> {
+  const source = query.sources[0];
+  if (source !== 'equipment' && source !== 'tags') throw new Error(`Источник «${source || 'не выбран'}» пока не поддерживается в запросе Office`);
   return {
-    entity: query.sources[0] === 'equipment' ? 'element' : 'tag',
+    entity: source === 'equipment' ? 'element' : 'tag',
     columns: query.columns || [],
     filters: query.filters.map((filter) => ({
       field: filter.fieldKey,
@@ -99,6 +112,7 @@ export function toProjectQuery(query: OfficeQuery): Record<string, unknown> {
       value: filter.value,
     })).concat(query.sources[0] === 'equipment' && query.types.length ? [{ field: 'equipType', op: 'in', value: query.types.join('|') }] : []),
     sort: query.sort.map((item) => ({ field: item.fieldKey, dir: item.direction })),
+    excludedEntityIds: query.excludedEntityIds,
     limit: query.limit,
   };
 }
@@ -111,6 +125,8 @@ export const officeDataApi = {
     query: toProjectQuery(query),
   })),
   state: (fileId: string) => request<OfficeState>(`/api/project-data/files/${encodeURIComponent(fileId)}/office-state`),
+  updateState: (fileId: string, body: { baseHash: string; sourceRevision: string; schema: OfficeState['schema']; rows?: OfficeAnchorRow[] }) =>
+    request<{ ok: true; baseHash: string; schemaVersion: number; anchorCount: number }>(`/api/project-data/files/${encodeURIComponent(fileId)}/office-state`, { ...json(body), method: 'PUT' }),
   preview: (fileId: string, body: { projectId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) =>
     request<OfficeFillPlan>(`/api/project-data/files/${encodeURIComponent(fileId)}/preview`, json(body)),
   confirm: (fileId: string, body: { projectId: string; planId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) =>

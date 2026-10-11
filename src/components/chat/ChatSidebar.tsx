@@ -48,6 +48,7 @@ interface Props {
   users: ChatUser[];
   groups: ChatGroup[];
   currentUserId?: string;
+  hiddenOnMobile?: boolean;
   activeReceiverId: string | null;
   activeGroupId: string | null;
   unreadByKey: Record<string, number>;
@@ -78,7 +79,7 @@ interface Props {
 
 export default function ChatSidebar(props: Props) {
   const {
-    users, groups, currentUserId, activeReceiverId, activeGroupId, unreadByKey, onlineIds,
+    users, groups, currentUserId, hiddenOnMobile, activeReceiverId, activeGroupId, unreadByKey, onlineIds,
     chatIndex, chatIndexReady, section, onSectionChange, filter, onFilterChange, query,
     onQueryChange, onCreateGroup, onOpenDirect, onOpenGroup, historySearchOpen,
     onHistorySearchOpenChange, historyQuery, onHistoryQueryChange, historyResults,
@@ -99,7 +100,7 @@ export default function ChatSidebar(props: Props) {
     && passesChatFilter(filter, 'DIRECT', unreadDirect(person.id)))
     .sort((a, b) => Date.parse(directRow(b.id)?.lastMessageAt || '') - Date.parse(directRow(a.id)?.lastMessageAt || ''));
 
-  return <aside className="fx-side w-56 @[700px]:w-64 @[900px]:w-72 flex flex-col shrink-0 select-none">
+  return <aside className={`fx-side w-56 @[700px]:w-64 @[900px]:w-72 flex flex-col shrink-0 select-none ${hiddenOnMobile ? 'hidden @[700px]:flex' : ''}`}>
     <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
       <div className="flex items-center justify-between gap-2"><h2 className="text-[15px] font-semibold text-slate-900 dark:text-white">Мессенджер</h2>
         <IconBtn label="Создать группу или канал" onClick={onCreateGroup}><Plus className="w-4 h-4" /></IconBtn></div>

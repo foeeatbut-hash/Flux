@@ -25,8 +25,12 @@ async function accessibleFile(req: Request, id: string) {
   return file;
 }
 
-function templateScopeAllowed(template: OfficeHeaderTemplate, actor: any): boolean {
+export function templateScopeAllowed(template: OfficeHeaderTemplate, actor: any): boolean {
   return template.scope === 'SHARED' || template.ownerId === actor?.id;
+}
+
+export function canManageOfficeTemplate(template: OfficeHeaderTemplate, actor: any, privileged: boolean): boolean {
+  return template.scope === 'PERSONAL' ? template.ownerId === actor?.id : template.createdById === actor?.id || privileged;
 }
 
 async function readTemplates(userId: string) {
@@ -71,6 +75,7 @@ async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: Offic
   const [result, fp, slice, aliases] = await Promise.all([runQuery(projectId, query), blockFingerprint(projectId, query, null), loadProjectSlice(projectId), loadProjectAliases(projectId)]);
   const sourceRevision = fp || digest(await projectFingerprint(projectId));
   const elementById = new Map(slice.elements.map((element: any) => [String(element.id), element]));
+  const excluded = new Set(Array.isArray(queryBody?.excludedEntityIds) ? queryBody.excludedEntityIds.map(String) : []);
   const rows = result.rows.map((record: any) => {
     const colon = String(record.key || '').indexOf(':');
     const entityType = colon > 0 ? String(record.key).slice(0, colon) : query.entity;
@@ -84,8 +89,8 @@ async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: Offic
       values[column] = { value: record.cells?.[index] ?? null, revision: sourceRevision, ...(unit ? { unit } : {}) };
     });
     return { entityId, entityType, sourceId, values };
-  }).filter((row: OfficeEntityRow) => row.entityId && !(queryBody?.excludedEntityIds || []).map(String).includes(row.entityId));
-  return { rows, sourceRevision, total: result.total };
+  }).filter((row: OfficeEntityRow) => row.entityId && !excluded.has(row.entityId));
+  return { rows, sourceRevision, total: result.total - Math.max(0, result.rows.length - rows.length) };
 }
 
 async function requireProjectRead(req: Request, projectId: string): Promise<void> {
@@ -130,7 +135,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const query: any = { entity: req.query.entity, columns: String(req.query.columns || '').split(',').filter(Boolean), filters: [], sort: [], limit: Number(req.query.limit) };
       const data = await rowsFor(projectId, query);
       res.json({ revision: data.sourceRevision, total: data.total, rows: data.rows });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) { res.status(err?.status || 400).json({ error: String(err?.message || err) }); }
   });
 
   app.post('/api/project-data/office/query', async (req: Request, res: Response) => {
@@ -140,7 +145,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const data = await rowsFor(projectId, req.body?.query || req.body);
       if (req.body?.sourceRevision && req.body.sourceRevision !== data.sourceRevision) return res.status(409).json({ error: 'Источник изменился', revision: data.sourceRevision });
       res.json({ revision: data.sourceRevision, total: data.total, rows: data.rows });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) { res.status(err?.status || 400).json({ error: String(err?.message || err) }); }
   });
 
   app.get('/api/project-data/files/:id/office-state', async (req: Request, res: Response) => {
@@ -168,10 +173,18 @@ export function registerProjectOfficeRoutes(app: Express): void {
       await requireProjectRead(req, projectId);
       const schema = schemaFromBody(req.body?.schema);
       const prior = await readOfficeBindings(before);
+      const anchors = new Set(schema.anchors.map((anchor) => anchor.id));
+      const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 100000).map((row: any) => ({
+        entityId: String(row?.entityId || '').slice(0, 300), entityType: String(row?.entityType || '').slice(0, 80),
+        sourceId: String(row?.sourceId || '').slice(0, 120), sourceRevision: String(row?.sourceRevision || req.body?.sourceRevision || '').slice(0, 120),
+        anchorIds: Array.isArray(row?.anchorIds) ? [...new Set<string>(row.anchorIds.map(String))].filter((id) => anchors.has(id)).slice(0, 1000) : [],
+        ...(row?.cells && typeof row.cells === 'object' ? { cells: Object.fromEntries(Object.entries(row.cells).filter(([id, value]) => anchors.has(id) && typeof value === 'string').slice(0, 1000).map(([id, value]) => [id, String(value).slice(0, 100)])) } : {}),
+        ...(row?.values && typeof row.values === 'object' ? { values: Object.fromEntries(Object.entries(row.values).filter(([id, value]) => anchors.has(id) && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))).slice(0, 1000).map(([id, value]) => [id, typeof value === 'string' ? value.slice(0, 32767) : value])) } : {}),
+      })) : prior?.rows || [];
       const bindings: OfficePackageBindings = {
         version: 1, schemaVersion: 1, sourceRevision: String(req.body?.sourceRevision || prior?.sourceRevision || ''),
         anchors: schema.anchors.map((anchor) => ({ id: anchor.id, kind: anchor.kind, part: anchor.documentPart, sheet: anchor.sheetName, address: anchor.address, parts: anchor.parts })),
-        rows: prior?.rows || [],
+        rows,
       };
       const updated = await writeOfficeBindings(before, bindings);
       const saved = await writeOfficeFile({ fileId: file.id, body: updated, baseSha: baseHash, user: (req as any).authUser, server: true });
@@ -213,6 +226,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const actor = (req as any).authUser;
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
       const scope = req.body?.scope === 'SHARED' ? 'SHARED' : 'PERSONAL';
+      if (scope === 'SHARED' && !isPrivilegedUser(actor)) return res.status(403).json({ error: 'Создавать общие шаблоны может администратор' });
       const { templates } = await readTemplates(actor.id);
       const template = cleanOfficeTemplate({ ...req.body, scope }, actor.id);
       if (scope === 'SHARED') {
@@ -230,7 +244,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const { templates } = await readTemplates(String(actor?.id || ''));
       const current = templates.find((item) => item.id === String(req.params.id));
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
-      if (!current || (current.scope === 'PERSONAL' && current.ownerId !== actor.id) || (current.scope === 'SHARED' && current.createdById !== actor.id && !isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
+      if (!current || !canManageOfficeTemplate(current, actor, isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
       const updated = cleanOfficeTemplate({ ...req.body, scope: current.scope }, actor.id, current);
       await writeTemplates(actor.id, current.scope, (items) => items.filter((item) => item.id !== current.id).concat(updated));
       res.json({ template: updated });
@@ -243,7 +257,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const { templates } = await readTemplates(String(actor?.id || ''));
       const current = templates.find((item) => item.id === String(req.params.id));
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
-      if (!current || (current.scope === 'PERSONAL' && current.ownerId !== actor.id) || (current.scope === 'SHARED' && current.createdById !== actor.id && !isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
+      if (!current || !canManageOfficeTemplate(current, actor, isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
       await writeTemplates(actor.id, current.scope, (items) => items.filter((item) => item.id !== current.id));
       await writePins(actor.id, (items) => items.filter((id) => id !== current.id));
       res.json({ deleted: true });

@@ -47,7 +47,7 @@ function Fixture() {
   };
   return <div className="@container h-screen min-h-0 overflow-hidden text-[13px] leading-5">
     <div className="relative flex h-full min-w-0 overflow-hidden bg-[var(--flux-surface)] text-[var(--flux-text)]">
-      <ChatSidebar users={users} groups={groups} currentUserId="self" activeReceiverId={activeReceiverId} activeGroupId={activeGroupId}
+      <ChatSidebar users={users} groups={groups} currentUserId="self" hiddenOnMobile={!!(activeReceiverId || activeGroupId)} activeReceiverId={activeReceiverId} activeGroupId={activeGroupId}
         unreadByKey={{ 'group=group-1': 2 }} onlineIds={online} chatIndex={index} chatIndexReady
         section={section} onSectionChange={setSection} filter={filter} onFilterChange={setFilter} query={query} onQueryChange={setQuery}
         onCreateGroup={noop} onOpenDirect={(id) => { setActiveReceiverId(id); setActiveGroupId(null); }}
@@ -56,7 +56,7 @@ function Fixture() {
         historyResults={historyResults} historyTotal={historyResults.length} historyHasMore={false} historyLoading={false} onLoadMoreHistory={noop}
         historySearchError="" onOpenSearchResult={(result) => { setActiveGroupId(result.groupId || null); }} />
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-900">
-        <header className="fx-head justify-between"><div className="min-w-0"><div className="truncate font-semibold">{activeGroupId ? group.name : 'Иван Петров'}</div><div className="text-xs text-slate-500 dark:text-slate-400">Группа проекта · 2 участника</div></div>
+        <header className="fx-head justify-between"><div className="flex min-w-0 items-center gap-2"><button type="button" aria-label="Назад к чатам" className="fx-ibtn shrink-0 @[700px]:hidden" onClick={() => { setActiveGroupId(null); setActiveReceiverId(null); }}><span aria-hidden>←</span></button><div className="min-w-0"><div className="truncate font-semibold">{activeGroupId ? group.name : 'Иван Петров'}</div><div className="hidden @[700px]:block text-xs text-slate-500 dark:text-slate-400">Группа проекта · 2 участника</div></div></div>
           <button type="button" className="fx-btn" aria-label="Подробная информация" onClick={() => setRightOpen(!rightOpen)}>Сведения</button></header>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" aria-label="Переписка">
           {messages.map((message, i) => <MessageBubble key={message.id} msg={message as any} isMe={i === 0} mark={markers[i]} hideNames={false}
@@ -74,7 +74,7 @@ function Fixture() {
           </div>
         </div>
       </main>
-      <ChatInfoPanel open={rightOpen} peer={activeReceiverId ? users[0] : null} group={activeGroupId ? group : null} tab={rightTab} onTabChange={setRightTab}
+      <ChatInfoPanel open={rightOpen} sidebarHiddenOnMobile={!!(activeReceiverId || activeGroupId)} peer={activeReceiverId ? users[0] : null} group={activeGroupId ? group : null} tab={rightTab} onTabChange={setRightTab}
         selectedTag={null} onClearTag={noop} onOpenTag={noop} onOpenEquipment={noop} conversationId={activeGroupId || activeReceiverId || ''}
         conversationType={activeGroupId ? 'GROUP' : 'DIRECT'} onlineIds={online} onOpenFile={noop} formatBytes={(n) => `${n} B`} onClose={() => setRightOpen(false)} />
     </div>

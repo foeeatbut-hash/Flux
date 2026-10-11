@@ -3,62 +3,131 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
 
 const fixtureDir = path.dirname(fileURLToPath(import.meta.url));
+const outputDir = process.env.OFFICE_ADDON_UI_DIR || '/tmp';
+const kind = process.env.OFFICE_ADDON_KIND === 'docs' ? 'docs' : 'sheets';
+const screenshotPrefix = `flux-office-addon-${kind}`;
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
+const failures = [];
 const requests = [];
-page.on('pageerror', (error) => requests.push(`pageerror:${error.message}`));
-page.on('console', (message) => { if (message.type() === 'error') requests.push(`console:${message.text()}`); });
-page.on('response', (response) => { if (response.status() >= 400) requests.push(`http${response.status()}:${response.url()}`); });
-page.route('**/api/**', async (route) => {
-  const url = new URL(route.request().url());
+const screenshotPaths = [];
+page.on('pageerror', (error) => failures.push(`pageerror:${error.message}`));
+page.on('console', (message) => { if (message.type() === 'error') failures.push(`console:${message.text()}`); });
+page.on('response', (response) => { if (response.status() >= 400) failures.push(`http${response.status()}:${response.url()}`); });
+page.route('**/api/project-data/**', async (route) => {
+  const request = route.request();
+  const url = new URL(request.url());
   const endpoint = url.pathname;
   let body = {};
-  if (endpoint === '/api/projects') body = { projects: [{ id: 'p1', name: 'Альфа' }, { id: 'p2', name: 'Бета' }] };
-  else if (/\/api\/projects\/[^/]+\/tags$/.test(endpoint)) {
-    requests.push(`tags:${decodeURIComponent(endpoint.split('/')[3])}`);
-    const secondProject = endpoint.includes('/p2/');
-    if (secondProject) await new Promise((resolve) => setTimeout(resolve, 250));
-    body = { tags: [{ id: 't1', identifier: secondProject ? 'P-201' : 'P-101', department: 'Механика', metadata: { mainName: 'Насос', dynamicFields: {} } }] };
-  } else if (/\/api\/projects\/[^/]+\/systems$/.test(endpoint)) {
-    requests.push(`systems:${decodeURIComponent(endpoint.split('/')[3])}`);
-    body = { systems: [] };
-  } else if (endpoint === '/api/catalog') body = { classes: [], manufacturers: [], families: [], components: [] };
-  else if (endpoint === '/api/vdr/registers') body = { registers: [] };
-  else if (endpoint.endsWith('/meta')) body = { name: 'Пробный документ' };
+  if (endpoint === '/api/project-data/catalog') body = {
+    tagFields: [{ path: 'identifier', title: 'Обозначение' }],
+    elementFields: [{ path: 'identifier', title: 'Обозначение' }, { path: 'name', title: 'Наименование' }, { path: 'equipType', title: 'Тип' }],
+    params: [{ group: 'Основные', key: 'Масса', unit: 'кг' }], aliases: [], metaKeys: [],
+  };
+  else if (endpoint === '/api/project-data/office/templates') body = { templates: [{ id: 'template-1', name: 'Рабочая выборка', scope: 'PERSONAL', ownerId: 'user-1', schema: { version: 1, anchors: [] }, query: { entity: 'element', columns: ['identifier', 'name'], filters: [{ field: 'equipType', op: 'in', value: 'pump|valve' }, { field: 'name', op: 'contains', value: 'P' }], sort: [{ field: 'name', dir: 'desc' }], excludedEntityIds: ['e-2'], limit: 1000 } }], pinned: ['template-1'] };
+  else if (endpoint.endsWith('/office-state')) {
+    if (request.method() === 'PUT') { requests.push({ endpoint: 'office-state-put', body: request.postDataJSON() }); body = { ok: true, baseHash: 'fixture-hash-put', schemaVersion: 1, anchorCount: 1 }; }
+    else body = { baseHash: 'fixture-hash-1', sourceRevision: 'fixture-rev-1', schema: { version: 1, anchors: [{ kind: 'excel-range', id: 'anchor-a1', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'text', text: 'Позиция ' }, { kind: 'field', binding: { fieldKey: 'identifier', sourceId: 'equipment', entityType: 'element', entityId: null, sourceRevision: 'fixture-rev-1', anchorId: 'anchor-a1' } }] }] } };
+  } else if (endpoint === '/api/project-data/office/query') {
+    const requestBody = request.postDataJSON(); requests.push({ endpoint: 'query', body: requestBody });
+    body = { revision: 'fixture-rev-1', total: 2, rows: [
+      { entityId: 'e-1', entityType: 'element', sourceId: 'equipment', tag: 'P-101', values: { identifier: { value: 'P-101', revision: 'fixture-rev-1' }, name: { value: 'Pump A' }, equipType: { value: 'pump' }, 'param:Основные|Масса': { value: 120, unit: 'кг' } } },
+      { entityId: 'e-2', entityType: 'element', sourceId: 'equipment', tag: 'P-102', values: { identifier: { value: 'P-102', revision: 'fixture-rev-1' }, name: { value: 'Pump B' }, equipType: { value: 'pump' }, 'param:Основные|Масса': { value: 130, unit: 'кг' } } },
+    ] };
+  } else if (endpoint.endsWith('/preview')) {
+    const previewBody = request.postDataJSON(); requests.push({ endpoint: 'preview', body: previewBody });
+    body = { planId: 'plan-1', baseHash: previewBody.baseHash, sourceRevision: previewBody.sourceRevision, selectedEntityIds: previewBody.selectedEntityIds, writes: [{ entityId: 'e-1', anchorId: 'anchor-a1', value: 'P-101' }], adds: [], replaces: [], manualRows: [], skips: [], errors: [], conflicts: [] };
+  } else if (endpoint.endsWith('/confirm')) {
+    const confirmBody = request.postDataJSON(); requests.push({ endpoint: 'confirm', body: confirmBody });
+    body = { status: 'ready-for-editor', writes: [{ entityId: 'e-1', anchorId: 'anchor-a1', value: 'P-101' }] };
+  } else if (endpoint.endsWith('/templates') && request.method() === 'POST') {
+    const templateBody = request.postDataJSON(); requests.push({ endpoint: 'template-save', body: templateBody });
+    body = { template: { id: 'template-2', name: templateBody.name, scope: templateBody.scope, ownerId: 'user-1', schema: templateBody.schema, query: templateBody.query, updatedAt: new Date().toISOString() } };
+  } else if (endpoint.includes('/pin')) body = { pinned: ['template-1'] };
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 });
 
 try {
-  await page.goto(process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4190');
-  await page.waitForSelector('#flux-project-picker');
-  await page.waitForTimeout(250);
-  for (const width of [320, 460]) {
-    await page.setViewportSize({ width, height: 760 });
+  const fixtureUrl = process.env.OFFICE_ADDON_UI_URL || process.env.FLUX_UI_URL || process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4190';
+  await page.goto(`${fixtureUrl}${fixtureUrl.includes('?') ? '&' : '?'}kind=${kind}`);
+  await page.getByRole('heading', { name: kind === 'docs' ? 'Flux · Пробный документ.docx' : 'Flux · Пробная книга.xlsx' }).waitFor();
+  await page.waitForTimeout(150);
+  for (const width of [390, 760, 1280]) {
+    await page.setViewportSize({ width, height: 820 });
     for (const theme of ['light', 'dark']) {
-      await page.evaluate((value) => document.querySelector('#root > div').classList.toggle('dark', value === 'dark'), theme);
-      await page.screenshot({ path: path.join('/tmp', `flux-panel-${width}-${theme}.png`), fullPage: true });
-      const geometry = await page.evaluate(() => ({
-        body: document.body.scrollWidth,
-        viewport: innerWidth,
-        panel: document.querySelector('aside')?.getBoundingClientRect().width,
-        panelScroll: document.querySelector('aside')?.scrollWidth,
-        client: document.querySelector('aside')?.clientWidth,
-      }));
-      if (geometry.body > width || geometry.panelScroll > geometry.client) throw new Error(`horizontal overflow ${width}px ${theme}: ${JSON.stringify(geometry)}`);
+      await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+      await page.screenshot({ path: path.join(outputDir, `${screenshotPrefix}-${width}-${theme}.png`), fullPage: true });
+      screenshotPaths.push(path.join(outputDir, `${screenshotPrefix}-${width}-${theme}.png`));
+      const geometry = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: innerWidth, panel: document.querySelector('aside')?.getBoundingClientRect().width, scroll: document.querySelector('aside')?.scrollWidth, client: document.querySelector('aside')?.clientWidth }));
+      if (geometry.body > width || geometry.scroll > geometry.client) throw new Error(`overflow at ${width}px/${theme}: ${JSON.stringify(geometry)}`);
     }
   }
-  await page.getByLabel('Выбрать строку P-101', { exact: true }).check();
-  await page.getByLabel('Выбрать проект для данных Flux').selectOption('p2');
-  if (await page.getByLabel('Выбрать строку P-101', { exact: true }).count()) throw new Error('previous project rows remained visible while the new project was loading');
-  await page.getByLabel('Выбрать строку P-201', { exact: true }).waitFor();
-  if (await page.getByLabel('Выбрать строку P-201', { exact: true }).isChecked()) throw new Error('row selection leaked between projects');
-  if (!requests.includes('tags:p2')) throw new Error(`project selection did not load p2: ${requests}`);
-  await page.locator('#flux-section-picker').selectOption('export');
-  await page.getByLabel('Источник для экспорта').selectOption('equipment');
-  await page.waitForTimeout(150);
-  if (!requests.includes('systems:p2')) throw new Error(`export source selection did not load equipment: ${requests}`);
-  if (requests.some((item) => item.startsWith('console:') || item.startsWith('pageerror:') || item.startsWith('http'))) throw new Error(`browser errors: ${requests}`);
-  console.log(JSON.stringify({ widths: [320, 460], themes: ['light', 'dark'], projectSelection: 'p2', exportSource: 'equipment', requests, screenshots: [320, 460].flatMap((width) => ['light', 'dark'].map((theme) => `/tmp/flux-panel-${width}-${theme}.png`)) }, null, 2));
-} finally {
-  await browser.close();
-}
+
+  await page.getByRole('button', { name: 'Рабочая выборка', exact: true }).click();
+  await page.getByRole('button', { name: '1. Выборка' }).click();
+  await page.getByRole('button', { name: 'Обновить выборку' }).click();
+  await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).waitFor();
+  for (const width of [390, 760, 1280]) {
+    await page.setViewportSize({ width, height: 820 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+      const suffix = `selection-loaded-${width}-${theme}`;
+      await page.screenshot({ path: path.join(outputDir, `${screenshotPrefix}-${suffix}.png`), fullPage: true });
+      screenshotPaths.push(path.join(outputDir, `${screenshotPrefix}-${suffix}.png`));
+      if (theme === 'dark') {
+        const colors = await page.evaluate(() => {
+          const get = (selector) => getComputedStyle(document.querySelector(selector)).color;
+          return { template: get('button.text-slate-800'), header: get('[role="columnheader"]'), row: get('[role="gridcell"]') };
+        });
+        const brightness = (color) => { const rgb = color.match(/\d+/g)?.slice(0, 3).map(Number) || [0, 0, 0]; return rgb.reduce((sum, value) => sum + value, 0) / 3; };
+        if (brightness(colors.template) < 100 || brightness(colors.header) < 100 || brightness(colors.row) < 100) throw new Error(`dark-mode text contrast too low: ${JSON.stringify(colors)}`);
+      }
+    }
+  }
+  await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).check();
+  await page.getByRole('button', { name: '2. Поля и шапка' }).click();
+  await page.getByRole('button', { name: /Наименование/ }).click();
+  await page.getByRole('button', { name: 'Привязать поле' }).click();
+  await page.getByLabel('Текст заголовка 1').fill('Насос ');
+  await page.getByRole('button', { name: 'Текст' }).click();
+  await page.getByRole('button', { name: 'Добавить оператор +' }).click();
+  await page.getByRole('button', { name: 'Объединить с выбранным полем' }).click();
+  await page.getByText('Первое непустое: Обозначение / Наименование', { exact: true }).waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+    if (theme === 'dark') {
+      const anchorLabel = await page.locator('h4').first().evaluate((element) => getComputedStyle(element).color);
+      const brightness = (color) => (color.match(/\d+/g)?.slice(0, 3).map(Number) || [0, 0, 0]).reduce((sum, value) => sum + value, 0) / 3;
+      if (brightness(anchorLabel) < 100) throw new Error(`dark-mode anchor label contrast too low: ${anchorLabel}`);
+    }
+    const outputFile = path.join(outputDir, `${screenshotPrefix}-fields-${theme}.png`);
+    await page.screenshot({ path: outputFile, fullPage: true }); screenshotPaths.push(outputFile);
+  }
+  await page.getByRole('button', { name: 'Сохранить схему' }).click();
+  await page.getByRole('button', { name: '3. Обновление' }).click();
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByText('План заполнения').waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+    const outputFile = path.join(outputDir, `${screenshotPrefix}-plan-${theme}.png`);
+    await page.screenshot({ path: outputFile, fullPage: true }); screenshotPaths.push(outputFile);
+  }
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).click();
+  await page.waitForFunction(() => window.__fluxFixture.ops.some((item) => item.type === 'apply-plan'));
+
+  const data = await page.evaluate(() => window.__fluxFixture.ops);
+  const templateQuery = requests.find((item) => item.endpoint === 'query')?.body?.query;
+  const preview = requests.find((item) => item.endpoint === 'preview')?.body;
+  const confirm = requests.find((item) => item.endpoint === 'confirm')?.body;
+  const metadataWrites = requests.filter((item) => item.endpoint === 'office-state-put').map((item) => item.body);
+  if (!data.some((item) => item.type === 'insert-field' && item.binding.sourceId === 'equipment' && item.binding.anchorId === 'anchor-a1' && item.displayText === 'Наименование')) throw new Error(`native binding callback missing or wrong: ${JSON.stringify(data)}`);
+  const savedSchema = data.filter((item) => item.type === 'save-schema').at(-1)?.schema;
+  if (!savedSchema?.anchors?.[0]?.parts?.some((part) => part.kind === 'operator') || !savedSchema.anchors[0].parts.some((part) => part.kind === 'union')) throw new Error(`schema text/operator/union not saved: ${JSON.stringify(savedSchema)}`);
+  if (!templateQuery || templateQuery.excludedEntityIds?.[0] !== 'e-2' || !templateQuery.filters?.some((filter) => filter.op === 'in' && filter.field === 'equipType') || templateQuery.sort?.[0]?.dir !== 'desc' || !templateQuery.filters?.some((filter) => filter.op === 'contains' && filter.field === 'name')) throw new Error(`template query was not restored to server query contract: ${JSON.stringify(templateQuery)}`);
+  if (!preview || preview.query.excludedEntityIds?.[0] !== 'e-2' || preview.selectedEntityIds?.[0] !== 'e-1' || !confirm?.planId || JSON.stringify(confirm.query) !== JSON.stringify(preview.query)) throw new Error(`preview/confirm contract mismatch: ${JSON.stringify({ preview, confirm })}`);
+  if (!data.some((item) => item.type === 'apply-plan' && item.plan.writes[0].entityId === 'e-1' && item.rows?.[0]?.entityId === 'e-old')) throw new Error(`editor apply callback missing or prior binding rows absent: ${JSON.stringify({ data, requests })}`);
+  if (metadataWrites.length !== 3 || metadataWrites[0].rows?.[0]?.entityId !== 'e-old' || metadataWrites[1].rows?.[0]?.entityId !== 'e-old' || !metadataWrites[2].rows?.some((row) => row.entityId === 'e-1' && row.values?.['anchor-a1'] === 'P-101')) throw new Error(`metadata writes did not preserve existing bindings and persist applied rows: ${JSON.stringify(metadataWrites)}`);
+  if (!(await page.getByRole('status').getByText('Без замены оставлены строки с ручными правками: 1').count())) throw new Error('native bridge manual-row response was not shown to the user');
+  if (failures.length) throw new Error(`browser errors: ${failures.join('; ')}`);
+  console.log(JSON.stringify({ editorKind: kind, viewports: [390, 760, 1280], themes: ['light', 'dark'], verified: ['template restoration', 'query/exclusions', 'field binding bridge', 'text/operator/union schema save', 'preview/confirm optimistic contract', 'editor apply callback', 'schema+row metadata CAS writes'], apiRequests: requests.map(({ endpoint, body }) => ({ endpoint, body })), editorActions: data.map((item) => item.type), screenshots: screenshotPaths }, null, 2));
+} finally { await browser.close(); }

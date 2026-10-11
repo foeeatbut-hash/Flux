@@ -43,6 +43,9 @@ eq('union не выбирает кандидата из другого source/ty
     { ...binding('count'), sourceId: 'tags', entityType: 'tag', priority: 1 }, { ...binding('p'), sourceId: 'equipment', entityType: 'element', priority: 2 },
   ],
 }], row), { value: { value: '1,25', unit: 'кВт', revision: 'R4' } });
+eq('обычное поле также проверяет sourceId и entityType', evaluateOfficeParts([
+  { kind: 'field', binding: { ...binding('p'), sourceId: 'tags', entityType: 'tag' } },
+], row), { error: 'Источник не вернул значение' });
 const anchor: OfficeHeaderAnchor = { kind: 'excel-range', id: 'power-column', sheetName: 'Ведомость', address: 'C2', parts: [{ kind: 'field', binding: binding('p') }] };
 const plan = planOfficeFill({ baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1', 'EQ-2'], rows: [row], anchors: [anchor], existingRows: [{ rowId: 'r1', entityId: 'EQ-1' }, { rowId: 'r-manual', manuallyEdited: true }] });
 eq('повторная привязка обновляет ту же сущность, а не добавляет дубль', [plan.adds, plan.replaces], [[], ['EQ-1']]);

@@ -1,4 +1,4 @@
-import { FIELDS } from '../import/dictionary';
+import { FIELDS } from '../../import/dictionary';
 import { STOPWORDS, ROUTE_WORDS } from './queryWords';
 
 /**
@@ -29,7 +29,7 @@ function convertLayout(word: string, map: Record<string, string>): string {
   return out;
 }
 
-// Знакомые русские слова: команды помощника + синонимы полей словаря
+// Знакомые русские слова: команды Guide + синонимы полей словаря
 let VOCAB_RU: string[] | null = null;
 function vocabRu(): string[] {
   if (!VOCAB_RU) {
@@ -82,8 +82,8 @@ export function fixKeyboardLayout(text: string): string {
 }
 
 // ═══════════ Живая речь ═══════════
-// Помощник работает без интернета и без языковой модели: он разбирает
-// запрос правилами. Чтобы это не выглядело общением с автоматом, здесь
+// Guide разбирает запрос правилами и работает без внешней языковой модели.
+// Чтобы это не выглядело общением с автоматом, здесь
 // три вещи: понимание разговорных оборотов, починка опечаток и внятный
 // ответ, когда вопрос действительно не про программу.
 

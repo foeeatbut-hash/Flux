@@ -10,6 +10,14 @@ const check = (name: string, pass: boolean, detail?: unknown) => {
   if (pass) console.log(`✓ ${name}`);
   else { failures++; console.error(`✗ ${name}`, detail ?? ''); }
 };
+const contrastRatio = (foreground: number[], background: number[]) => {
+  const luminance = (rgb: number[]) => {
+    const channels = rgb.map((value) => value / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+};
 
 async function run(): Promise<void> {
 let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -27,8 +35,7 @@ try {
       const page = await browser.newPage({ viewport: { width, height: 800 }, deviceScaleFactor: 1 });
       const errors: string[] = [];
       page.on('pageerror', (error: Error) => errors.push(error.message));
-      await page.goto(`http://127.0.0.1:${addr.port}/`, { waitUntil: 'networkidle' });
-      if (dark) await page.locator('button').getByText('Тема').click();
+      await page.goto(`http://127.0.0.1:${addr.port}/${dark ? '?dark' : ''}`, { waitUntil: 'networkidle' });
       const next = page.getByRole('button', { name: 'Далее', exact: true });
       await next.click();
       await page.getByRole('button', { name: 'Цель', exact: true }).click();
@@ -45,6 +52,24 @@ try {
         left: getComputedStyle(node).left,
         parent: (node.parentElement && getComputedStyle(node.parentElement).position) || '',
       }));
+      const colors = await page.locator('div.absolute.pointer-events-auto').evaluate((node) => {
+        const paragraph = node.querySelector('p');
+        const canvas = document.createElement('canvas');
+        canvas.width = 1; canvas.height = 1;
+        const context = canvas.getContext('2d')!;
+        context.fillStyle = getComputedStyle(node).backgroundColor;
+        context.fillRect(0, 0, 1, 1);
+        const background = Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = getComputedStyle(paragraph || node).color;
+        context.fillRect(0, 0, 1, 1);
+        const text = Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
+        return { background, text };
+      });
+      const expectedDarkBackground = dark ? [29, 36, 32] : [255, 255, 255];
+      const backgroundClose = colors.background.length === 3 && colors.background.every((value, index) => Math.abs(value - expectedDarkBackground[index]) < 10);
+      check(`${width}px ${dark ? 'тёмная' : 'светлая'}: фон подсказки соответствует теме`, backgroundClose, colors);
+      check(`${width}px ${dark ? 'тёмная' : 'светлая'}: текст подсказки контрастный`, colors.text.length === 3 && contrastRatio(colors.text, colors.background) >= 4.5, colors);
       check(`${width}px ${dark ? 'тёмная' : 'светлая'}: подсказка помещается по ширине`, !!actual && actual.x >= 0 && actual.x + actual.width <= width + 0.5, actual);
       check(`${width}px ${dark ? 'тёмная' : 'светлая'}: подсказка помещается по высоте`, !!actual && actual.y >= 0 && actual.y + actual.height <= 800 + 0.5, actual);
       if (!dark) console.log(`  геометрия ${width}px: цель (${Math.round(targetBox?.x || 0)}, ${Math.round(targetBox?.y || 0)}), подсказка (${Math.round(actual?.x || 0)}, ${Math.round(actual?.y || 0)}, ${Math.round(actual?.width || 0)}×${Math.round(actual?.height || 0)}), style=${tipStyle}, computed=${JSON.stringify(computedStyle)}`);
@@ -53,7 +78,7 @@ try {
 
       await page.getByRole('button', { name: 'Показать результат', exact: true }).click();
       await page.waitForTimeout(350);
-      check(`${width}px ${dark ? 'тёмная' : 'светлая'}: после реального статуса шаг завершён`, await finish.isEnabled());
+      check(`${width}px ${dark ? 'тёмная' : 'светлая'}: после реального статуса шаг завершён`, (await finish.count()) > 0 && await finish.isEnabled());
       check(`${width}px ${dark ? 'тёмная' : 'светлая'}: ошибок страницы нет`, errors.length === 0, errors);
       await page.close();
     }
@@ -73,7 +98,7 @@ try {
 
   const emptyProjectPage = await browser.newPage({ viewport: { width: 390, height: 800 } });
   await emptyProjectPage.goto(`http://127.0.0.1:${addr.port}/?empty-project`, { waitUntil: 'networkidle' });
-  check('пустой проект показывает обязательную ветку контекста', await emptyProjectPage.getByText('Проект не выбран').isVisible());
+  check('пустой проект показывает обязательную ветку контекста', await emptyProjectPage.locator('p[role="status"]').getByText('Проект не выбран').isVisible());
   check('обязательный выбор проекта нельзя пропустить или завершить дальше', await emptyProjectPage.getByRole('button', { name: 'Далее', exact: true }).isDisabled() && await emptyProjectPage.getByRole('button', { name: 'Пропустить шаг' }).count() === 0);
   await emptyProjectPage.getByRole('button', { name: 'Пауза' }).click();
   await emptyProjectPage.getByRole('button', { name: 'Выбрать проект' }).click();

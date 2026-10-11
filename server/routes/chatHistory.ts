@@ -7,6 +7,10 @@ import { sanitizeGuideReplies } from '../services/guideReplies.js';
 import { SERVICE_USER_ID } from '../services/guideF.js';
 import { actorId, canReadChatMessage, isChatParticipant, isGroupMember, sanitizeProjectReferences } from '../services/chatAccess.js';
 
+const directPeerId = (row: any, me: string): string | null => row.senderId === SERVICE_USER_ID
+  ? row.replyTo?.senderId === me ? row.replyTo.receiverId : row.replyTo?.receiverId === me ? row.replyTo.senderId : null
+  : row.senderId === me ? row.receiverId : row.receiverId === me ? row.senderId : null;
+
 export function registerChatHistoryRoutes(app: Express): void {
   /** Индекс разговоров строится из постоянной истории, а непрочитанное —
    * из серверных уведомлений; локальный список людей не является историей чатов. */
@@ -30,7 +34,7 @@ export function registerChatHistoryRoutes(app: Express): void {
         ] },
         select: { senderId: true, receiverId: true, replyTo: { select: { senderId: true, receiverId: true } } },
       });
-      const peerIds = [...new Set((directRows as any[]).map((row) => row.senderId === me ? row.receiverId : row.receiverId === me ? row.senderId : row.replyTo?.senderId === me ? row.replyTo.receiverId : row.replyTo?.receiverId === me ? row.replyTo.senderId : null)
+      const peerIds = [...new Set((directRows as any[]).map((row) => directPeerId(row, me))
         .filter((id): id is string => !!id && id !== me && id !== 'flux-guide-service'))];
       const peers = await prisma.user.findMany({ where: { id: { in: peerIds }, role: { not: 'SERVICE' } }, select: { id: true, name: true, symbol: true } });
       const groupsResult = await Promise.all(visibleGroups.map(async (group) => {
@@ -76,7 +80,7 @@ export function registerChatHistoryRoutes(app: Express): void {
         { chatGroupId: null, OR: [{ senderId: me }, { receiverId: me }] },
         { senderId: SERVICE_USER_ID, chatGroupId: null, replyTo: { is: { guideRequest: true, OR: [{ senderId: me }, { receiverId: me }] } } },
       ] }, select: { senderId: true, receiverId: true, replyTo: { select: { senderId: true, receiverId: true } } } });
-      const peerIds = [...new Set((peers as any[]).map((row) => row.senderId === me ? row.receiverId : row.receiverId === me ? row.senderId : row.replyTo?.senderId === me ? row.replyTo.receiverId : row.replyTo?.receiverId === me ? row.replyTo.senderId : null).filter((id) => id && id !== me && id !== SERVICE_USER_ID))];
+      const peerIds = [...new Set((peers as any[]).map((row) => directPeerId(row, me)).filter((id) => id && id !== me && id !== SERVICE_USER_ID))];
       const chatId = String(req.query.chatId || '');
       const scopedGroupIds = chatId.startsWith('group=') ? groupIds.filter((id) => id === chatId.slice(6)) : chatId ? [] : groupIds;
       const scopedPeerIds = chatId.startsWith('from=') ? peerIds.filter((id) => id === chatId.slice(5)) : chatId ? [] : peerIds;
@@ -111,7 +115,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30));
       const results = matching.slice(offset, offset + limit).map((row: any) => {
         const groupId = row.chatGroupId || null;
-        const peerId = groupId ? null : (row.senderId === me ? row.receiverId : row.receiverId === me ? row.senderId : row.replyTo?.senderId === me ? row.replyTo.receiverId : row.replyTo?.receiverId === me ? row.replyTo.senderId : null);
+        const peerId = groupId ? null : directPeerId(row, me);
         const content = String(row.content || '');
         const hit = content.toLocaleLowerCase('ru-RU').indexOf(q);
         const start = Math.max(0, hit - 60);

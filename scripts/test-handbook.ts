@@ -44,9 +44,6 @@ for (const m of schema.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) MODELS.set(m[
 // Разделы программы из реестра
 const ROUTES = new Map<string, string>();
 for (const m of sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'/g)) ROUTES.set(m[1], m[2]);
-// Flux Play отключён без FLUX_PLAY=1: раздела в реестре нет, и статьи о нём
-// тоже. Регулярка читает исходник и видит его строку в любом случае, поэтому
-// сверяем только то, что реально присутствует в окне
 
 const FEATURE_IDS = new Set(FEATURES.map((f) => f.id));
 

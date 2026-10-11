@@ -4,13 +4,15 @@ import { useStore } from '../../store/store';
 import { Btn, Input } from '../ui';
 import FluxFieldsPanel from './FluxFieldsPanel';
 import FluxSelectionPanel from './FluxSelectionPanel';
-import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
-import type { OfficeBinding } from '../../lib/officeModel';
+import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
+import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
 
 type Tab = 'selection' | 'fields' | 'update';
+interface OfficeApplySummary { appliedCount: number; manualRows: string[]; state?: OfficeState }
 export interface FluxOfficeAnchorSelection {
   anchorId: string;
   kind: 'word-row' | 'excel-range';
+  documentPart?: string;
   sheetName?: string;
   address?: string;
 }
@@ -20,10 +22,11 @@ interface Props {
   fileName: string;
   editorKind: 'docs' | 'sheets';
   readOnly: boolean;
+  schemaWriteAvailable: boolean;
   activeAnchor: FluxOfficeAnchorSelection | null;
   requestState: () => Promise<OfficeState | null>;
-  insertBinding: (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding) => Promise<boolean>;
-  applyWrites: (plan: OfficeFillPlan, schema: OfficeState['schema']) => Promise<boolean>;
+  insertBinding: (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => Promise<boolean>;
+  applyWrites: (plan: OfficeFillPlan, schema: OfficeState['schema'], rows: OfficeAnchorRow[]) => Promise<OfficeApplySummary | false>;
   updateSchema: (schema: OfficeState['schema']) => Promise<OfficeState | null>;
   onOpenLegacy: () => void;
   onClose: () => void;
@@ -47,6 +50,7 @@ export default function FluxOfficePanel(props: Props) {
   const [plan, setPlan] = useState<OfficeFillPlan | null>(null);
   const [planSchema, setPlanSchema] = useState<OfficeState['schema'] | null>(null);
   const [planQuery, setPlanQuery] = useState<Record<string, unknown> | null>(null);
+  const [appliedSummary, setAppliedSummary] = useState<OfficeApplySummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [panelWidth, setPanelWidth] = useState(580);
   const [templates, setTemplates] = useState<OfficeTemplate[]>([]);
@@ -55,7 +59,6 @@ export default function FluxOfficePanel(props: Props) {
   const [templateError, setTemplateError] = useState('');
   const sourceId = query.sources[0] || '';
   const activeAnchor = props.activeAnchor;
-  const fillEnabled = props.editorKind === 'sheets';
 
   useEffect(() => {
     const saved = Number(localStorage.getItem('flux-office-panel-width'));
@@ -105,16 +108,17 @@ export default function FluxOfficePanel(props: Props) {
 
   const runQuery = useCallback(async () => {
     if (!sourceId) { setError('Выберите источник данных.'); return; }
-    const entity = sourceId === 'tags' ? 'tag' : 'element';
-    const columns = sourceFields.map((field) => field.fieldKey);
+    const available = new Set(sourceFields.map((field) => field.fieldKey));
+    const columns = query.columns?.length ? query.columns.filter((key) => available.has(key)) : sourceFields.map((field) => field.fieldKey);
     if (!columns.length) { setError('Для источника сервер не вернул полей.'); return; }
     setLoading(true); setError('');
     try {
       const data = await officeDataApi.query({ ...query, columns });
       setResult(data);
-      setSelectedIds((ids) => ids.filter((id) => data.rows.some((row) => row.entityId === id)));
-      setQuery((current) => ({ ...current, sourceRevision: data.revision }));
+      setSelectedIds((ids) => ids.filter((id) => !query.excludedEntityIds.includes(id) && data.rows.some((row) => row.entityId === id)));
+      setQuery((current) => ({ ...current, columns, sourceRevision: data.revision }));
       setPlan(null);
+      setAppliedSummary(null);
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setLoading(false); }
   }, [sourceId, sourceFields, query]);
@@ -127,18 +131,34 @@ export default function FluxOfficePanel(props: Props) {
         fieldKey: selectedField.fieldKey, sourceId: selectedField.sourceId, entityType: selectedField.entityType,
         entityId: null, sourceRevision: result?.revision || officeState.sourceRevision, ...(selectedField.unit ? { unit: selectedField.unit } : {}), anchorId: activeAnchor.anchorId,
       };
-      if (!(await props.insertBinding(activeAnchor, binding))) throw new Error('Редактор не принял привязку.');
-      await refreshState();
+      if (!(await props.insertBinding(activeAnchor, binding, selectedField.displayName))) throw new Error('Редактор не принял привязку.');
+      const current = await refreshState();
+      if (!current) throw new Error('Поле вставлено, но схему документа не удалось перечитать. Обновите её и сохраните.');
+      const previous = current.schema.anchors.find((anchor) => anchor.id === activeAnchor.anchorId);
+      const parts = previous?.parts || [];
+      const hasBinding = parts.some((part) => part.kind === 'field' && part.binding.fieldKey === binding.fieldKey && part.binding.sourceId === binding.sourceId);
+      if (!hasBinding) {
+        const anchor: OfficeHeaderAnchor = {
+          ...(previous || {}), kind: activeAnchor.kind, id: activeAnchor.anchorId,
+          ...(activeAnchor.documentPart ? { documentPart: activeAnchor.documentPart } : {}),
+          ...(activeAnchor.sheetName ? { sheetName: activeAnchor.sheetName } : {}),
+          ...(activeAnchor.address ? { address: activeAnchor.address } : {}),
+          parts: [...parts, { kind: 'field', binding }],
+        };
+        const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] });
+        if (!saved) throw new Error('Поле вставлено, но его связь с источником не сохранена. Повторите сохранение схемы.');
+        setOfficeState(saved); setTemplateSchema(null);
+      }
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [selectedField, activeAnchor, officeState, result?.revision, props.projectId, props.insertBinding, refreshState]);
+  }, [selectedField, activeAnchor, officeState, result?.revision, props.insertBinding, refreshState]);
 
   const buildPlan = useCallback(async () => {
-    if (!fillEnabled) { setError('Заполнение Word пока недоступно: привязки строк в DOCX ещё не имеют устойчивого ID при сохранении и повторном открытии.'); return; }
     if (!officeState || !schema || !result || !selectedIds.length) { setError('Выберите строки и дождитесь загрузки состояния документа.'); return; }
     setBusy(true); setError('');
     try {
-      const queryBody = toProjectQuery({ ...query, columns: sourceFields.map((field) => field.fieldKey) });
+      setAppliedSummary(null);
+      const queryBody = toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
       const next = await officeDataApi.preview(props.fileId, {
         projectId: props.projectId, baseHash: officeState.baseHash, sourceRevision: result.revision,
         selectedEntityIds: selectedIds, query: queryBody, schema,
@@ -146,7 +166,7 @@ export default function FluxOfficePanel(props: Props) {
       setPlan(next); setPlanSchema(schema!); setPlanQuery(queryBody); setTab('update');
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [fillEnabled, officeState, schema, result, selectedIds, props.fileId, props.projectId, query, sourceFields]);
+  }, [officeState, schema, result, selectedIds, props.fileId, props.projectId, query, sourceFields]);
 
   const applyPlan = useCallback(async () => {
     if (!plan || !planSchema || !planQuery || props.readOnly) return;
@@ -156,18 +176,21 @@ export default function FluxOfficePanel(props: Props) {
         projectId: props.projectId, planId: plan.planId, baseHash: plan.baseHash,
         sourceRevision: plan.sourceRevision, selectedEntityIds: plan.selectedEntityIds, query: planQuery, schema: planSchema,
       });
-      if (!(await props.applyWrites({ ...plan, writes: confirmed.writes }, planSchema))) throw new Error('Редактор не применил заполнение.');
+      const applied = await props.applyWrites({ ...plan, writes: confirmed.writes }, planSchema, officeState?.rows || []);
+      if (!applied) throw new Error('Редактор не применил заполнение.');
+      setAppliedSummary(applied);
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
-      await refreshState();
+      if (applied.state) setOfficeState(applied.state);
+      else await refreshState();
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [plan, planSchema, planQuery, props.readOnly, props.projectId, props.fileId, props.applyWrites, refreshState]);
+  }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, props.fileId, props.applyWrites, refreshState]);
 
   const saveTemplate = async () => {
     if (!schema || !templateName.trim()) return;
     setTemplateError('');
     try {
-      const { template } = await officeDataApi.saveTemplate({ name: templateName.trim(), scope: 'PERSONAL', schema, query: toProjectQuery({ ...query, columns: sourceFields.map((field) => field.fieldKey) }) });
+    const { template } = await officeDataApi.saveTemplate({ name: templateName.trim(), scope: 'PERSONAL', schema, query: toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) }) });
       setTemplates((items) => [template, ...items.filter((item) => item.id !== template.id)]);
       setTemplateName('');
     } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
@@ -180,7 +203,9 @@ export default function FluxOfficePanel(props: Props) {
   const openTemplate = async (template: OfficeTemplate) => {
     setTemplateError('');
     try {
-      setQuery(templateQuery(template, props.projectId));
+      const savedQuery = templateQuery(template, props.projectId);
+      const valid = new Set(fields.filter((field) => field.sourceId === savedQuery.sources[0]).map((field) => field.fieldKey));
+      setQuery({ ...savedQuery, columns: (savedQuery.columns || []).filter((key) => valid.has(key)), filters: savedQuery.filters.filter((filter) => valid.has(filter.fieldKey)), sort: savedQuery.sort.filter((item) => valid.has(item.fieldKey)) });
       setTemplateSchema(template.schema as OfficeState['schema']);
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
     } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
@@ -194,7 +219,7 @@ export default function FluxOfficePanel(props: Props) {
   };
 
   return (
-    <aside aria-label="Flux Office" style={{ width: panelWidth, maxWidth: '100vw' }} className="relative z-20 flex h-full shrink-0 flex-col border-l border-slate-200 bg-white max-[760px]:absolute max-[760px]:inset-y-0 max-[760px]:right-0 max-[760px]:z-50 max-[760px]:w-full dark:border-dark-border dark:bg-dark-surface">
+    <aside aria-label="Flux Office" style={{ '--flux-office-panel-width': `${panelWidth}px` } as React.CSSProperties} className="relative z-20 flex h-full w-[var(--flux-office-panel-width)] shrink-0 flex-col border-l border-slate-200 bg-white max-[760px]:absolute max-[760px]:inset-y-0 max-[760px]:right-0 max-[760px]:z-50 max-[760px]:w-full dark:border-dark-border dark:bg-dark-surface">
       <div role="separator" aria-orientation="vertical" aria-label="Изменить ширину панели Flux" tabIndex={0} onPointerDown={resizePanel}
         onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth((width) => Math.min(850, width + 24)); if (event.key === 'ArrowRight') setPanelWidth((width) => Math.max(320, width - 24)); }}
         className="absolute -left-1 top-0 z-10 hidden h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 md:block" />
@@ -207,7 +232,7 @@ export default function FluxOfficePanel(props: Props) {
       <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-slate-200 px-3 py-2 dark:border-dark-border" aria-label="Шаблоны Flux">
         <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">Шаблоны</span>
         {templates.map((template) => <div key={template.id} className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-dark-border">
-          <button type="button" onClick={() => void openTemplate(template)}>{template.name}</button>
+          <button type="button" className="text-slate-800 dark:text-dark-text-main" onClick={() => void openTemplate(template)}>{template.name}</button>
           <button type="button" onClick={() => void pinTemplate(template)} aria-pressed={pinnedTemplates.includes(template.id)} aria-label={`${pinnedTemplates.includes(template.id) ? 'Открепить' : 'Закрепить'} ${template.name}`} title={pinnedTemplates.includes(template.id) ? 'Открепить' : 'Закрепить'}><Pin className={`h-3 w-3 ${pinnedTemplates.includes(template.id) ? 'fill-current text-emerald-700 dark:text-emerald-300' : ''}`} /></button>
         </div>)}
         <Input aria-label="Название шаблона" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Новый шаблон" className="h-7 min-w-28 max-w-36 text-xs" />
@@ -225,8 +250,8 @@ export default function FluxOfficePanel(props: Props) {
       {error && <p role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p>}
       {!props.projectId && <p className="shrink-0 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">Сначала привяжите документ к проекту.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={setQuery} onRun={() => void runQuery()} onSelectionChange={setSelectedIds} />}
-      {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} projectId={props.projectId} readOnly={props.readOnly} canEditSchema={!props.readOnly} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
-      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fillEnabled={fillEnabled} onRefresh={() => void refreshState()} />}
+      {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
+      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} onRefresh={() => void refreshState()} />}
 
       {tab === 'fields' && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 dark:border-dark-border">
         <span className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">{activeAnchor ? `${activeAnchor.sheetName ? `${activeAnchor.sheetName}!` : ''}${activeAnchor.address || activeAnchor.anchorId}` : 'Выберите ячейку шапки в документе'}</span>
@@ -235,20 +260,20 @@ export default function FluxOfficePanel(props: Props) {
       {tab === 'update' && <div className="flex shrink-0 items-center justify-between border-t border-slate-200 px-3 py-2 dark:border-dark-border">
         <span className="text-xs text-slate-500 dark:text-slate-400">Выбрано строк: {selectedIds.length}</span>
         {plan ? <Btn tone="primary" disabled={busy || props.readOnly || plan.errors.length > 0 || plan.conflicts.length > 0} onClick={() => void applyPlan()}>{busy ? 'Проверка…' : 'Подтвердить и заполнить'}</Btn>
-          : <Btn tone="primary" disabled={busy || props.readOnly || !fillEnabled || !selectedIds.length || !officeState} onClick={() => void buildPlan()}>{busy ? 'Строим план…' : 'Предпросмотр заполнения'}</Btn>}
+          : <Btn tone="primary" disabled={busy || props.readOnly || !selectedIds.length || !officeState} onClick={() => void buildPlan()}>{busy ? 'Строим план…' : 'Предпросмотр заполнения'}</Btn>}
       </div>}
     </aside>
   );
 }
 
-function UpdatePanel({ state, result, plan, selectedCount, busy, readOnly, fillEnabled, onRefresh }: {
-  state: OfficeState | null; result: OfficeQueryResult | null; plan: OfficeFillPlan | null; selectedCount: number;
-  busy: boolean; readOnly: boolean; fillEnabled: boolean; onRefresh: () => void;
+function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOnly, onRefresh }: {
+  state: OfficeState | null; result: OfficeQueryResult | null; plan: OfficeFillPlan | null; applied: OfficeApplySummary | null; selectedCount: number;
+  busy: boolean; readOnly: boolean; onRefresh: () => void;
 }) {
   return <div className="min-h-0 flex-1 overflow-auto p-4 text-sm">
     <div className="mb-4 flex items-center justify-between"><h3 className="font-semibold">Состояние документа и источника</h3><button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={onRefresh} disabled={busy}><LoaderCircle className={busy ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />Проверить</button></div>
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs"><dt className="text-slate-500 dark:text-slate-400">Источник</dt><dd className="truncate">{result?.revision || 'Не запрошен'}</dd><dt className="text-slate-500 dark:text-slate-400">Документ</dt><dd className="truncate">{state?.baseHash || 'Состояние не прочитано'}</dd><dt className="text-slate-500 dark:text-slate-400">Якорей шапки</dt><dd>{state?.schema.anchors.length ?? '—'}</dd><dt className="text-slate-500 dark:text-slate-400">Выбрано строк</dt><dd>{selectedCount}</dd></dl>
-    {!fillEnabled && <p className="mt-4 border-l-2 border-amber-500 pl-3 text-xs text-amber-800 dark:text-amber-300">Заполнение Word пока отключено: ID ячейки DOCX не сохраняется устойчиво между открытием файла и повторным запуском. Привязки полей вставлять можно; заполнение станет доступно после сохранения устойчивых якорей.</p>}
+    {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Обновлено значений: {applied.appliedCount.toLocaleString('ru-RU')}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
     {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
       {plan.errors.map((item, index) => <p key={`error-${index}`} className="text-xs text-rose-700 dark:text-rose-300">{item.message}</p>)}
       {plan.conflicts.map((item, index) => <p key={`conflict-${index}`} className="text-xs text-amber-700 dark:text-amber-300">Конфликт в {item.anchorId}: {item.candidates.join(', ')}</p>)}
@@ -263,11 +288,15 @@ function PlanCount({ label, count }: { label: string; count: number }) { return 
 
 function templateQuery(template: OfficeTemplate, projectId: string): OfficeQuery {
   const saved: any = template.query || {};
+  const savedFilters: any[] = Array.isArray(saved.filters) ? saved.filters : [];
+  const typeFilter = savedFilters.find((filter) => filter.field === 'equipType' && filter.op === 'in');
   return {
     ...initialQuery(projectId),
     sources: [saved.entity === 'element' ? 'equipment' : 'tags'],
     columns: Array.isArray(saved.columns) ? saved.columns.map(String) : [],
-    filters: Array.isArray(saved.filters) ? saved.filters.map((filter: any) => ({ fieldKey: String(filter.field), op: filter.op === 'eq' ? 'equals' : filter.op === 'neq' ? 'notEquals' : filter.op === 'nempty' ? 'notEmpty' : filter.op, value: String(filter.value ?? '') })) : [],
-    sort: Array.isArray(saved.sort) ? saved.sort.map((item: any) => ({ fieldKey: String(item.field), direction: item.direction === 'desc' ? 'desc' : 'asc' })) : [],
+    excludedEntityIds: Array.isArray(saved.excludedEntityIds) ? saved.excludedEntityIds.map(String) : [],
+    types: typeFilter ? String(typeFilter.value || '').split('|').filter(Boolean) : [],
+    filters: savedFilters.filter((filter) => filter !== typeFilter).map((filter: any) => ({ fieldKey: String(filter.field), op: filter.op === 'eq' ? 'equals' : filter.op === 'neq' ? 'notEquals' : filter.op === 'nempty' ? 'notEmpty' : filter.op, value: String(filter.value ?? '') })),
+    sort: Array.isArray(saved.sort) ? saved.sort.map((item: any) => ({ fieldKey: String(item.field), direction: (item.direction ?? item.dir) === 'desc' ? 'desc' : 'asc' })) : [],
   };
 }

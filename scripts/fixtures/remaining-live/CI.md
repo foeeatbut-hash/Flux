@@ -12,7 +12,6 @@ These are registry suite IDs; missing IDs fail setup rather than silently shrink
 2. `collab-mail-shared-api`
 3. `collab-feedback-privacy-api`
 4. `collab-feedback-read-api`
-5. `collab-assistant-privacy-api`
 6. `files-office-files-live`
 7. `eng-remaining-engineering-api-live`
 8. `eng-builder-live-regressions`

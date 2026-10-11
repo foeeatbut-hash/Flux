@@ -160,10 +160,14 @@
         "src/guide/questionParser.ts",
         "src/guide/projects.ts",
         "src/guide/store.ts",
-        "src/assistant/handbookAnswers.ts",
-        "src/assistant/knowledge.ts",
-        "src/assistant/tours.ts",
-        "src/assistant/types.ts",
+        "src/guide/types.ts",
+        "src/guide/support/inputRepair.ts",
+        "src/guide/support/handbookAnswers.ts",
+        "src/guide/support/knowledge.ts",
+        "src/guide/support/nlp.ts",
+        "src/guide/support/queryWords.ts",
+        "src/guide/support/tableExport.ts",
+        "src/guide/support/tours.ts",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx",
         "src/handbook/registry.ts",
@@ -185,6 +189,19 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-chat-screen-ui",
+      "path": "scripts/test-chat-screen-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": ["browser:chromium", "vite-port:5173"],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_UI_URL" },
+        { "kind": "file", "path": "scripts/fixtures/chat-screen.html" },
+        { "kind": "file", "path": "scripts/fixtures/chat-screen.tsx" }
+      ],
       "timeoutMs": 900000
     },
     {
@@ -700,15 +717,6 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-guide-catalog-query",
-      "path": "scripts/test-catalog-query.ts",
-      "layer": "unit",
-      "platform": "any",
-      "resources": [],
-      "prerequisites": [],
-      "timeoutMs": 900000
-    },
-    {
       "id": "collab-translate-contract",
       "path": "scripts/test-translate.ts",
       "layer": "unit",
@@ -809,6 +817,33 @@
           ]
         }
       ]
+    },
+    {
+      "id": "chat.screen-history-and-details",
+      "program": "chat",
+      "label": "Найти разговор, открыть сведения и вызвать Guide",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/chat/ChatSidebar.tsx",
+        "src/components/chat/ChatInfoPanel.tsx",
+        "src/components/chat/MessageBubble.tsx",
+        "src/components/RichChatInput.tsx"
+      ],
+      "triggers": ["input", "tab", "button", "responsive-layout"],
+      "risk": "normal",
+      "expected": [
+        "Поиск сотрудников, фильтр непрочитанных, сведения чата и кнопка F доступны на настоящем экране; служебный профиль Guide не появляется в каталоге сотрудников"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-screen-ui",
+          "layer": "component",
+          "claims": [
+            "Настоящий ChatManagement показывает поиск, фильтр, сведения, проверенную метку ответа Guide и мобильную раскладку"
+          ]
+        }
+      ],
+      "manual": []
     },
     {
       "id": "chat.create.group-channel",
@@ -2117,6 +2152,13 @@
           "claims": [
             "Сервер повторно проверяет владельца разговора и ACL проекта на чтении и записи"
           ]
+        },
+        {
+      "suite": "collab-guide-ui",
+          "layer": "component",
+          "claims": [
+            "В настоящем экране Guide открываются режим вопросов, вкладка архива и статья руководства"
+          ]
         }
       ],
       "manual": [
@@ -2128,6 +2170,33 @@
           ]
         }
       ]
+    },
+    {
+      "id": "guide.screen-questions-table",
+      "program": "guide",
+      "label": "Показать проектный ответ и полный просмотр таблицы в Flux Guide",
+      "sources": [
+        "src/screens/FluxGuide.tsx",
+        "src/components/guide/QuestionsPane.tsx",
+        "src/components/guide/AnswerView.tsx",
+        "src/components/guide/HistoryPanel.tsx",
+        "src/components/guide/HandbookPane.tsx"
+      ],
+      "triggers": ["input", "enter", "button", "resize", "theme"],
+      "risk": "normal",
+      "expected": [
+        "Вопрос, ответ, выбор строк и полный просмотр доступны на мобильной и широкой раскладке в обеих темах"
+      ],
+      "checks": [
+        {
+          "suite": "collab-guide-ui",
+          "layer": "component",
+          "claims": [
+            "Реальный FluxGuide проходит проверки ширины 390, 760 и 1280 пикселей в светлой и тёмной теме"
+          ]
+        }
+      ],
+      "manual": []
     },
     {
       "id": "guide.clear-view",
@@ -2156,37 +2225,25 @@
       ]
     },
     {
-      "id": "guide.catalog-search",
+      "id": "guide.open-catalog",
       "program": "guide",
-      "label": "Искать по опубликованному Каталогу из помощника",
+      "label": "Перейти из Guide в раздел Каталог",
       "sources": [
         "src/screens/FluxGuide.tsx",
         "src/guide/engine.ts"
       ],
-      "triggers": [
-        "button",
-        "input",
-        "form"
-      ],
+      "triggers": ["input", "enter", "button"],
       "risk": "normal",
       "expected": [
-        "Ответ содержит совпавшие записи и источники опубликованного каталога"
+        "Запрос открыть Каталог даёт переход в реальный раздел Каталог; Guide не выполняет здесь поиск по его записям"
       ],
-      "checks": [
-        {
-          "suite": "collab-guide-catalog-query",
-          "layer": "unit",
-          "claims": [
-            "Поиск по опубликованному каталогу возвращает детерминированные соответствия и источники"
-          ]
-        }
-      ],
+      "checks": [],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Найти синтетическое изделие, отсутствующий термин и закрытый источник",
+          "scenario": "Попросить открыть Каталог и нажать на предложенный переход",
           "expected": [
-            "Совпадение сопровождается источником; пустой результат не выдумывается"
+            "Открывается раздел Каталог с его собственным экраном и проверками доступа"
           ]
         }
       ]
@@ -2894,27 +2951,18 @@
       "to": "catalog",
       "status": "implemented",
       "sources": [
-        "src/guide/engine.ts",
-        "catalog/query.ts"
+        "src/guide/engine.ts"
       ],
       "expected": [
-        "Помощник отвечает только по опубликованному снимку Каталога и показывает найденные источники"
+        "Guide предлагает перейти в раздел Каталог по запросу открыть его; поиск записей выполняется в самом Каталоге"
       ],
-      "checks": [
-        {
-          "suite": "collab-guide-catalog-query",
-          "layer": "unit",
-          "claims": [
-            "Точное и частичное совпадение каталога содержит ссылку на источник записи"
-          ]
-        }
-      ],
+      "checks": [],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Задать вопрос о синтетической записи и проверить указанное издание/страницу источника",
+          "scenario": "Попросить Guide открыть Каталог и выбрать предложенный переход",
           "expected": [
-            "Ответ не использует черновые неопубликованные данные"
+            "Открывается раздел Каталог; содержание и поиск принадлежат его экрану"
           ]
         }
       ]

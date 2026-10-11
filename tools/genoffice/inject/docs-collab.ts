@@ -24,10 +24,11 @@
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import {
-  prosemirrorToYXmlFragment, redoCommand, undoCommand, yCursorPlugin, ySyncPlugin, yUndoPlugin,
+  prosemirrorToYXmlFragment, redoCommand, undoCommand, yCursorPlugin, ySyncPlugin, yUndoPlugin, ySyncPluginKey, yUndoPluginKey,
 } from 'y-prosemirror'
 import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
+import { Fragment } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
@@ -124,6 +125,7 @@ const fieldGuardKey = new PluginKey('fluxFieldGuard')
 const cellAnchorIds = new WeakMap<object, string>()
 const isFluxField = (mark: any) => mark?.type?.name === 'instrField' && /^\s*DOCPROPERTY\s+"flux:[^"]+"\s*$/i.test(String(mark.attrs?.instr || ''))
 const bookmarkName = (anchorId: string) => `FLUX_${anchorId.replaceAll('-', '')}`
+const isFluxBookmark = (value: unknown) => /^FLUX(?:_|ROW_|TABLE_)/i.test(String(value || ''))
 const anchorIdFromBookmark = (value: unknown): string | null => {
   const match = /^FLUX_([0-9a-f]{32})$/i.exec(String(value || ''))
   if (!match) return null
@@ -151,6 +153,31 @@ function installFluxFieldGuard(editor: Editor): void {
   try { editor.unregisterPlugin(fieldGuardKey) } catch { /* первый запуск */ }
   editor.registerPlugin(new Plugin({
     key: fieldGuardKey,
+    filterTransaction(tr, state) {
+      const syncChange = tr.getMeta(ySyncPluginKey)
+      const undoState = yUndoPluginKey.getState(state)
+      if (!tr.docChanged || tr.getMeta('fluxFieldCommand') || tr.getMeta('history$') || tr.getMeta('uiEvent') === 'undo' || tr.getMeta('uiEvent') === 'redo' || syncChange?.isChangeOrigin || undoState?.undoManager?.undoing || undoState?.undoManager?.redoing) return true
+      let blocked = false
+      for (const step of tr.steps) {
+        const ranges: number[][] = []
+        step.getMap().forEach((oldStart, oldEnd, newStart, newEnd) => { ranges.push([oldStart, oldEnd, newStart, newEnd]) })
+        for (const [from, to, newFrom, newTo] of ranges) {
+          if (to > from) {
+            state.doc.nodesBetween(from, to, (node: any) => {
+              if (node.isText && (node.marks || []).some(isFluxField)) blocked = true
+            })
+          } else if (from > 0 && from < state.doc.content.size) {
+            const $pos = state.doc.resolve(from)
+            const before = $pos.nodeBefore, after = $pos.nodeAfter
+            if ([before, after].every((node: any) => node?.isText && (node.marks || []).some(isFluxField))) blocked = true
+            if (newTo > newFrom) tr.doc.nodesBetween(newFrom, newTo, (node: any) => {
+              if (node.isText && (node.marks || []).some(isFluxField)) blocked = true
+            })
+          }
+        }
+      }
+      return !blocked
+    },
     props: {
       handleKeyDown(view, event) {
         if (event.key !== 'Backspace' && event.key !== 'Delete') return false
@@ -202,6 +229,197 @@ function persistDocAnchor(editor: Editor, anchorId: string): boolean {
   return true
 }
 
+function officeRowBookmark(sourceId: string, entityType: string, entityId: string, tableIdentity: string): string {
+  let a = 2166136261, b = 5381
+  const raw = `${sourceId}\u0000${entityType}\u0000${entityId}\u0000${tableIdentity}`
+  for (const c of raw) { const n = c.codePointAt(0)!; a = Math.imul(a ^ n, 16777619); b = Math.imul(b, 33) ^ n }
+  return `FLUXROW_${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0).toString(16).padStart(8, '0')}`
+}
+
+function officeTableBookmark(): string {
+  return `FLUXTABLE_${globalThis.crypto.randomUUID().replaceAll('-', '')}`
+}
+
+function paragraphBookmarks(node: any): string[] {
+  return [...(node.attrs?.bookmarks || []), ...(node.attrs?.hiddenBookmarks || [])].map(String)
+}
+
+function rowBookmarks(row: any): string[] {
+  const found: string[] = []
+  row.descendants((node: any) => {
+    if (['docParagraph', 'paragraph'].includes(node.type.name)) found.push(...paragraphBookmarks(node))
+  })
+  return found
+}
+
+function ensureTableBookmark(editor: Editor, table: any, identity: string): any {
+  const rows: any[] = []; table.forEach((row: any) => rows.push(row))
+  if (!rows.length) throw new Error('Таблица не содержит строк')
+  const cells: any[] = []; rows[0].forEach((cell: any) => cells.push(cell))
+  if (!cells.length) throw new Error('Строка заголовков пуста')
+  const paragraphs: any[] = []; cells[0].forEach((child: any) => paragraphs.push(child))
+  const at = paragraphs.findIndex((child) => ['docParagraph', 'paragraph'].includes(child.type.name))
+  if (at < 0) throw new Error('В первой ячейке таблицы нет абзаца для служебной метки')
+  const paragraph = paragraphs[at]
+  if (paragraphBookmarks(paragraph).includes(identity)) return table
+  const attrs = { ...paragraph.attrs, hiddenBookmarks: [...(paragraph.attrs?.hiddenBookmarks || []), identity] }
+  paragraphs[at] = paragraph.type.create(attrs, paragraph.content)
+  cells[0] = cells[0].type.create(cells[0].attrs, Fragment.fromArray(paragraphs))
+  rows[0] = rows[0].type.create(rows[0].attrs, Fragment.fromArray(cells))
+  return table.type.create(table.attrs, Fragment.fromArray(rows))
+}
+
+function setRowIdentity(row: any, identity: string): any {
+  let changed = false
+  const cells: any[] = []
+  row.forEach((cell: any, cellIndex: number) => {
+    let first = true
+    const content: any[] = []
+    cell.forEach((child: any) => {
+      if (first && ['docParagraph', 'paragraph'].includes(child.type.name)) {
+        const attrs = { ...child.attrs }
+        const hidden = [...(attrs.hiddenBookmarks || [])].filter((b: string) => !isFluxBookmark(b))
+        attrs.hiddenBookmarks = [...hidden, ...(cellIndex === 0 ? [identity] : [])]
+        content.push(child.type.create(attrs, child.content))
+        first = false
+        changed = true
+      } else content.push(child)
+    })
+    cells.push(cell.type.create(cell.attrs, Fragment.fromArray(content)))
+  })
+  return changed ? row.type.create(row.attrs, Fragment.fromArray(cells)) : row
+}
+
+function rowWithValues(editor: Editor, styleRow: any, valuesByColumn: Map<number, string>, identity: string, preserveUnbound: boolean): any {
+  const cells: any[] = []
+  let valid = true
+  styleRow.forEach((cell: any, index: number) => {
+    const value = valuesByColumn.get(index)
+    if (value === undefined && preserveUnbound) { cells.push(cell); return }
+    const children: any[] = []
+    let usedParagraph = false
+    cell.forEach((child: any) => {
+      if (['docParagraph', 'paragraph'].includes(child.type.name) && !usedParagraph) {
+        usedParagraph = true
+        const attrs = { ...child.attrs }
+        attrs.bookmarks = [...(attrs.bookmarks || [])].filter((b: string) => !isFluxBookmark(b))
+        attrs.hiddenBookmarks = [...(attrs.hiddenBookmarks || [])].filter((b: string) => !isFluxBookmark(b))
+        if (index === 0) attrs.hiddenBookmarks = [...attrs.hiddenBookmarks, identity]
+        const text = value ? [editor.schema.text(value)] : null
+        children.push(child.type.create(attrs, text))
+      } else if (['docParagraph', 'paragraph'].includes(child.type.name)) {
+        const attrs = { ...child.attrs, bookmarks: [...(child.attrs?.bookmarks || [])].filter((b: string) => !isFluxBookmark(b)), hiddenBookmarks: [...(child.attrs?.hiddenBookmarks || [])].filter((b: string) => !isFluxBookmark(b)) }
+        children.push(child.type.create(attrs))
+      } else { valid = false; children.push(child) }
+    })
+    if (!usedParagraph) valid = false
+    const cellType = editor.schema.nodes.docTableCell || cell.type
+    cells.push(cellType.create(cell.attrs, Fragment.fromArray(children)))
+  })
+  if (!valid || !cells.length) throw new Error('Для заполнения поддерживаются таблицы с обычными абзацами в ячейках')
+  return editor.schema.nodes.docTableRow.create(styleRow.attrs, Fragment.fromArray(cells))
+}
+
+function applyDocOfficePlan(editor: Editor, payload: any): { ok: boolean; rows?: any[]; appliedCount?: number; manualRows?: string[]; error?: string } {
+  const writes = payload?.writes
+  const schema = payload?.schema
+  const priorRows = Array.isArray(payload?.rows) ? payload.rows : []
+  if (!Array.isArray(writes) || !writes.length || writes.length > 100000 || !Array.isArray(schema?.anchors)) return { ok: false, error: 'План заполнения пуст или схема не загружена' }
+  const anchorIds = new Set<string>(schema.anchors.map((anchor: any) => String(anchor.id)))
+  const writeKey = new Set<string>()
+  for (const write of writes) {
+    const key = `${write?.entityId}\u0000${write?.anchorId}`
+    if (!write || typeof write.entityId !== 'string' || !write.entityId || !anchorIds.has(String(write.anchorId)) || !(typeof write.value === 'string' || (typeof write.value === 'number' && Number.isFinite(write.value))) || writeKey.has(key)) return { ok: false, error: 'План содержит некорректные или повторные записи' }
+    writeKey.add(key)
+  }
+  const anchorsById = new Map<string, any>(schema.anchors.map((anchor: any) => [String(anchor.id), anchor]))
+  const tables: Array<{ pos: number; node: any; anchorColumns: Map<string, number>; headerIndex: number; identity: string }> = []
+  editor.state.doc.descendants((table: any, pos: number) => {
+    if (table.type.name !== 'docTable') return
+    const rows: any[] = []
+    table.forEach((row: any) => rows.push(row))
+    const anchorColumns = new Map<string, number>()
+    let headerIndex = -1
+    rows.forEach((row, rowIndex) => row.forEach((cell: any, col: number) => {
+      const marks: string[] = []
+      cell.descendants((node: any) => { if (['docParagraph', 'paragraph'].includes(node.type.name)) marks.push(...paragraphBookmarks(node)) })
+      for (const mark of marks) {
+        const id = anchorIds.has(mark) ? mark : anchorIds.has(anchorIdFromBookmark(mark) || '') ? anchorIdFromBookmark(mark)! : null
+        if (id) { anchorColumns.set(id, col); if (headerIndex < 0 || rowIndex < headerIndex) headerIndex = rowIndex }
+      }
+    }))
+    if (anchorColumns.size) {
+      const identity = rowBookmarks(table).find((mark) => /^FLUXTABLE_[0-9a-f]{32}$/i.test(mark)) || officeTableBookmark()
+      tables.push({ pos, node: table, anchorColumns, headerIndex, identity })
+    }
+    return false
+  })
+  for (const anchorId of new Set(writes.map((write: any) => String(write.anchorId)))) if (!tables.some((table) => table.anchorColumns.has(anchorId))) return { ok: false, error: `В документе не найдена сохранённая метка ${anchorId}` }
+  const priorById = new Map<string, any>(priorRows.map((row: any) => [String(row?.entityId || ''), row]))
+  const byEntity = new Map<string, any[]>()
+  for (const write of writes) { const list = byEntity.get(write.entityId) || []; list.push(write); byEntity.set(write.entityId, list) }
+  const workingTables = new Map<number, any>()
+  const manualRows = new Set<string>()
+  const outputRows = new Map<string, any>()
+  let appliedCount = 0
+  for (const [entityId, entityWrites] of byEntity) {
+    const prior = priorById.get(entityId) || {}
+    const entityTables = new Map(workingTables)
+    const rowIdentityByAnchor = new Map<string, string>()
+    let isManual = false
+    for (const table of tables) {
+      const writesForTable = entityWrites.filter((write) => table.anchorColumns.has(String(write.anchorId)))
+      if (!writesForTable.length) continue
+      const sourceTable = ensureTableBookmark(editor, entityTables.get(table.pos) || table.node, table.identity)
+      const tableRows: any[] = []; sourceTable.forEach((row: any) => tableRows.push(row))
+      const binding = writesForTable.map((write) => anchorsById.get(String(write.anchorId))?.parts?.find((part: any) => part?.kind === 'field')?.binding).find(Boolean) || {}
+      const rowIdentity = officeRowBookmark(String(prior.sourceId || binding.sourceId || ''), String(prior.entityType || binding.entityType || ''), entityId, table.identity)
+      for (const write of writesForTable) rowIdentityByAnchor.set(String(write.anchorId), rowIdentity)
+      const existingIndex = tableRows.findIndex((row) => rowBookmarks(row).includes(rowIdentity))
+      const header = tableRows[table.headerIndex]
+      if (!header) throw new Error('Строка заголовков таблицы не найдена')
+      if (existingIndex >= 0) {
+        const existing = tableRows[existingIndex]
+        existing.forEach((cell: any, col: number) => {
+          const write = writesForTable.find((item) => table.anchorColumns.get(String(item.anchorId)) === col)
+          if (!write) return
+          const anchorId = String(write.anchorId)
+          const expected = prior.values?.[anchorId]
+          const actual: string[] = []
+          cell.descendants((node: any) => { if (node.isText) actual.push(node.text) })
+          if (expected !== undefined && actual.join('') !== String(expected)) isManual = true
+        })
+      }
+      const source = existingIndex >= 0 ? tableRows[existingIndex] : header
+      const valuesByColumn = new Map<number, string>()
+      for (const write of writesForTable) valuesByColumn.set(table.anchorColumns.get(String(write.anchorId))!, String(write.value))
+      const nextRow = rowWithValues(editor, source, valuesByColumn, rowIdentity, existingIndex >= 0)
+      if (existingIndex >= 0) {
+        const nextTable = sourceTable.copy(sourceTable.content.replaceChild(existingIndex, nextRow))
+        entityTables.set(table.pos, nextTable)
+      } else {
+        const nextTable = sourceTable.copy(sourceTable.content.append(Fragment.from(nextRow)))
+        entityTables.set(table.pos, nextTable)
+      }
+    }
+    if (isManual) { manualRows.add(entityId); continue }
+    appliedCount += entityWrites.length
+    for (const [pos, node] of entityTables) if (node !== workingTables.get(pos)) workingTables.set(pos, node)
+    const cells = { ...(prior.cells || {}) } as Record<string, string>
+    const values = { ...(prior.values || {}) } as Record<string, string | number>
+    const binding = entityWrites.map((write) => anchorsById.get(String(write.anchorId))?.parts?.find((part: any) => part?.kind === 'field')?.binding).find(Boolean) || {}
+    for (const write of entityWrites) { cells[String(write.anchorId)] = rowIdentityByAnchor.get(String(write.anchorId)) || ''; values[String(write.anchorId)] = write.value }
+    outputRows.set(entityId, { entityId, entityType: String(prior.entityType || binding.entityType || ''), sourceId: String(prior.sourceId || binding.sourceId || ''), sourceRevision: String(payload.sourceRevision || prior.sourceRevision || binding.sourceRevision || ''), anchorIds: [...new Set([...(prior.anchorIds || []), ...entityWrites.map((write: any) => String(write.anchorId))])], cells, values })
+  }
+  if (workingTables.size) {
+    const tr = editor.state.tr
+    for (const table of tables.filter((candidate) => workingTables.has(candidate.pos)).sort((a, b) => b.pos - a.pos)) tr.replaceWith(table.pos, table.pos + table.node.nodeSize, workingTables.get(table.pos))
+    tr.setMeta('fluxFieldCommand', true)
+    editor.view.dispatch(tr.scrollIntoView())
+  }
+  return { ok: true, appliedCount, rows: [...priorById.values()].map((row: any) => outputRows.get(String(row.entityId)) || row).concat([...outputRows].filter(([id]) => !priorById.has(id)).map(([, row]) => row)), manualRows: [...manualRows] }
+}
+
 async function installFluxFields(): Promise<void> {
   const p = port()
   if (!p) return
@@ -213,10 +431,10 @@ async function installFluxFields(): Promise<void> {
   p.on('insertFluxField', async (request: any) => {
     const key = String(request?.fieldKey || '')
     const label = String(request?.displayText ?? `{{${key}}}`)
-    // Project-data catalog field keys include tag paths, element paths,
-    // aliases (`param:group|key`) and metadata keys. Keep the instruction
-    // injection-safe without hard-coding one catalog generation.
-    const safeKey = key.length <= 200 && /^[\p{L}\p{N}_@.:[\]|-]+$/u.test(key)
+    // Поля каталога содержат пути, пробелы и русские названия параметров.
+    // Разрешаем их, но не кавычки, управляющие знаки и обратную косую черту,
+    // иначе ключ сможет изменить границы инструкции Word.
+    const safeKey = key.length <= 200 && !/["\\\r\n\u0000-\u001f]/.test(key)
     let result: any = { ok: false, fieldKey: key, error: 'Ключ поля не поддерживается' }
     if (safeKey && label.length <= 2000) {
       try {
@@ -225,7 +443,12 @@ async function installFluxFields(): Promise<void> {
         const anchorId = String(request?.anchorId || selectedAnchor?.anchorId || '')
         if (!anchorId || !persistDocAnchor(ed, anchorId)) throw new Error('Выберите ячейку таблицы: якорь не сохранён')
         const instr = `DOCPROPERTY "flux:${key}"`
-        const ok = ed.chain().focus().insertContent([{ type: 'text', text: label, marks: [{ type: 'instrField', attrs: { instr } }] }]).run()
+        const markType = ed.state.schema.marks.instrField
+        if (!markType) throw new Error('Нативная метка Word недоступна')
+        const { from, to } = ed.state.selection
+        const tr = ed.state.tr.replaceWith(from, to, ed.schema.text(label, [markType.create({ instr })])).setMeta('fluxFieldCommand', true)
+        ed.view.dispatch(tr.scrollIntoView())
+        const ok = true
         const anchor = docAnchor(ed)
         result = { ok, fieldKey: key, ...(anchor ? { anchorId: anchor.anchorId, anchor } : { anchorId }), ...(ok ? {} : { error: 'Поле не вставлено в текущую позицию' }) }
       } catch (err: any) { result = { ok: false, fieldKey: key, error: String(err?.message || err) } }
@@ -241,7 +464,12 @@ async function installFluxFields(): Promise<void> {
     state.doc.nodesBetween(scanFrom, scanTo, (node: any, pos: number) => {
       if (!range && node.isText && (node.marks || []).some(isFluxField)) range = { from: pos, to: pos + node.nodeSize }
     })
-    if (range) view.dispatch(state.tr.delete(range.from, range.to).scrollIntoView())
+    if (range) view.dispatch(state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+  })
+  p.on('applyFluxPlan', (request: any) => {
+    let result: any
+    try { result = applyDocOfficePlan(editor, request) } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    p.tell('flux:office-plan-applied', result)
   })
 }
 

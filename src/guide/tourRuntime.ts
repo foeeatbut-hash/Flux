@@ -1,4 +1,4 @@
-import type { Tour, TourExpectedResult, TourStep } from '../assistant/tours';
+import type { Tour, TourExpectedResult, TourStep } from './support/tours';
 
 const PROJECT_TOURS = new Set([
   'add-tag', 'generate-tag', 'link-tags', 'delete-tag', 'export-data',

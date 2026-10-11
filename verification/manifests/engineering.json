@@ -4600,29 +4600,6 @@
       ]
     },
     {
-      "id": "catalog-to-assistant",
-      "from": "catalog",
-      "to": "guide",
-      "status": "conditional",
-      "sources": [
-        "src/guide/engine.ts",
-        "src/assistant/knowledge.ts"
-      ],
-      "expected": [
-        "Ответ помощника с данными каталога ссылается на фактическую версию и не подменяет отсутствующее значение."
-      ],
-      "checks": [],
-      "manual": [
-        {
-          "layer": "browser-live",
-          "scenario": "Запросить у помощника параметр тестового семейства и сверить ответ с карточкой этой версии каталога.",
-          "expected": [
-            "Значение и ссылка совпадают с карточкой выбранной версии."
-          ]
-        }
-      ]
-    },
-    {
       "id": "catalog-to-feedback",
       "from": "catalog",
       "to": "feedback",

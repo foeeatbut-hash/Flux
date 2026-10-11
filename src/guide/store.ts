@@ -8,7 +8,7 @@
  * Настройки — по пользователю. Пустой чат на сервер не попадает.
  */
 import { create } from 'zustand';
-import { TOURS, type Tour } from '../assistant/tours';
+import { TOURS, type Tour } from './support/tours';
 import { canAdvanceTour, withProjectContext } from './tourRuntime';
 import { answerQuestion, type AskContext, type LastResult } from './engine';
 import {
@@ -59,6 +59,7 @@ interface GuideState {
   /** Внедряемые оболочкой функции (App.tsx) */
   navigator: ((path: string) => void) | null;
   userGetter: (() => { id: string; name?: string } | null) | null;
+  actorId: string;
   activeProjectGetter: (() => { id: string; name: string } | null) | null;
   setNavigator: (fn: (path: string) => void) => void;
   setUserGetter: (fn: () => { id: string; name?: string } | null) => void;
@@ -91,7 +92,7 @@ interface GuideState {
   chatsOpen: boolean;
   historyError: string;
   loadChats: (archived?: boolean) => Promise<void>;
-  openChat: (id: string) => Promise<void>;
+  openChat: (id: string) => Promise<boolean>;
   startNewChat: () => Promise<void>;
   archiveChat: (id: string) => Promise<void>;
   restoreChat: (id: string) => Promise<void>;
@@ -128,19 +129,19 @@ export const useGuideStore = create<GuideState>((set, get) => ({
 
   navigator: null,
   userGetter: null,
+  actorId: '',
   activeProjectGetter: null,
   setNavigator: (fn) => set({ navigator: fn }),
   setUserGetter: (fn) => {
-    const oldId = get().userGetter?.()?.id || '';
     const next = fn()?.id || '';
-    if (oldId !== next) {
+    if (get().actorId !== next) {
       // Never let a pending request or conversation from one signed-in account
       // appear in the next account's Guide session. Drafts are account scoped.
-      set({ userGetter: fn, activeProjectGetter: null, projectId: null, projectName: '', projects: [], projectsError: '',
+      set({ userGetter: fn, actorId: next, activeProjectGetter: null, projectId: null, projectName: '', projects: [], projectsError: '',
         messages: [], asking: false, lastResult: null, chatId: null, chatSaveState: 'idle', chatSaveError: '',
         chats: [], archivedChats: [], historyArchived: false, historyError: '',
         draftHandbook: '', draftQuestions: '', favorites: [], recent: [] });
-    } else set({ userGetter: fn });
+    } else set({ userGetter: fn, actorId: next });
   },
   setActiveProjectGetter: (fn) => {
     set({ activeProjectGetter: fn });
@@ -223,7 +224,7 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const current = get();
     if (current.chatId !== id && current.messages.some((m) => m.role === 'user') && current.chatSaveState !== 'saved') {
       await current.saveChat();
-      if (get().chatSaveState !== 'saved') return;
+      if (get().chatSaveState !== 'saved') return false;
     }
     const userId = get().userGetter?.()?.id || '';
     try {
@@ -240,7 +241,11 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       const lastResult = activeId ? latestScoped?.context || null : null;
       set({ projectId: activeId, projectName: p?.name || '', messages, chatId: chat.id, lastResult,
         chatsOpen: false, chatSaveState: 'saved', chatSaveError: '', historyError: '' });
-    } catch { if ((get().userGetter?.()?.id || '') === userId) set({ historyError: 'Разговор недоступен или его не удалось загрузить.' }); }
+      return true;
+    } catch {
+      if ((get().userGetter?.()?.id || '') === userId) set({ historyError: 'Разговор недоступен или его не удалось загрузить.' });
+      return false;
+    }
   },
   startNewChat: async () => {
     const current = get();

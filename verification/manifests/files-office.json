@@ -67,9 +67,18 @@
         "src/screens/OfficeAppHost.tsx",
         "src/screens/OfficeHost.tsx",
         "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/FluxOfficePanel.tsx",
+        "src/components/office/FluxFieldsPanel.tsx",
+        "src/components/office/FluxSelectionPanel.tsx",
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/fluxData.ts",
         "src/components/office/LocalOfficeEditor.tsx",
         "tools/genoffice/inject/docs-collab.ts",
-        "server/routes/officeFiles.ts"
+        "server/routes/officeFiles.ts",
+        "server/routes/projectOffice.ts",
+        "server/officeTemplateStore.ts",
+        "server/officeTemplates.ts",
+        "server/officeBindings.ts"
       ]
     },
     {
@@ -84,10 +93,19 @@
         "src/screens/OfficeHost.tsx",
         "src/screens/SheetCopyEntry.tsx",
         "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/FluxOfficePanel.tsx",
+        "src/components/office/FluxFieldsPanel.tsx",
+        "src/components/office/FluxSelectionPanel.tsx",
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/fluxData.ts",
         "src/components/office/LocalOfficeEditor.tsx",
         "tools/genoffice/inject/sheets-host.ts",
         "tools/genoffice/inject/sheets-collab.ts",
-        "server/routes/officeFiles.ts"
+        "server/routes/officeFiles.ts",
+        "server/routes/projectOffice.ts",
+        "server/officeTemplateStore.ts",
+        "server/officeTemplates.ts",
+        "server/officeBindings.ts"
       ]
     },
     {
@@ -146,6 +164,107 @@
     }
   ],
   "suites": [
+    {
+      "id": "files-office-model",
+      "path": "scripts/test-office-model.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-bindings",
+      "path": "scripts/test-office-bindings.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-data",
+      "path": "scripts/test-office-data.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-template-store",
+      "path": "scripts/test-office-template-store.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-template-permissions",
+      "path": "scripts/test-office-template-permissions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-ui-contract",
+      "path": "scripts/test-office-ui-contract.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-addon-ui",
+      "path": "scripts/test-office-addon-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": ["browser:chromium", "vite-port:dynamic"],
+      "prerequisites": [
+        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/index.html" },
+        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/main.tsx" },
+        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/fixture.css" },
+        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/check.mjs" },
+        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/vite.config.ts" }
+      ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-addon-api-live",
+      "path": "scripts/test-office-api-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": ["api:fixture"],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_API" },
+        { "kind": "env", "name": "FLUX_USER" },
+        { "kind": "env", "name": "FLUX_PASS" },
+        { "kind": "env", "name": "FLUX_PEER_USER" },
+        { "kind": "env", "name": "FLUX_PEER_PASS" },
+        { "kind": "env", "name": "FLUX_PROJECT_ID" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
+    {
+      "id": "files-office-addon-native-live",
+      "path": "scripts/test-office-addon-native-live.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": ["office-native-apps", "browser:chromium", "api:fixture"],
+      "prerequisites": [
+        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
+        { "kind": "env", "name": "FLUX_OFFICE_NATIVE_READY", "value": "1" },
+        { "kind": "env", "name": "FLUX_FIXTURE_META" }
+      ],
+      "timeoutMs": 900000,
+      "external": true
+    },
     {
       "id": "files-file-types",
       "path": "scripts/test-file-types.ts",
@@ -4032,6 +4151,49 @@
       ]
     },
     {
+      "id": "document.project-data-template-addon",
+      "program": "document",
+      "label": "Загрузить проектные данные в привязанные поля документа",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/FluxOfficePanel.tsx",
+        "src/components/office/FluxFieldsPanel.tsx",
+        "src/components/office/ProjectDataPanel.tsx",
+        "server/routes/projectOffice.ts",
+        "server/officeBindings.ts",
+        "server/officeTemplates.ts"
+      ],
+      "triggers": ["editor-panel", "query", "selection", "preview", "confirm"],
+      "risk": "critical",
+      "expected": [
+        "Значения привязываются к выбранным проектным строкам и записываются только после подтверждения проверенного предпросмотра"
+      ],
+      "checks": [
+        {
+          "suite": "files-office-addon-ui",
+          "layer": "component",
+          "claims": [
+            "Дополнение восстанавливает шаблон, позволяет выбрать строки и поля, показывает предпросмотр и передаёт согласованные preview/confirm"
+          ]
+        },
+        {
+          "suite": "files-office-addon-api-live",
+          "layer": "api-db",
+          "claims": [
+            "API проверяет область проекта, привязки, источник и хеш документа при preview/confirm"
+          ]
+        },
+        {
+          "suite": "files-office-addon-native-live",
+          "layer": "windows-native",
+          "claims": [
+            "Реальные Word и Excel сохраняют привязанные поля и метаданные после записи и повторного открытия"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
       "id": "document.translate-selection",
       "program": "document",
       "label": "Перевести выделенный текст в панели перевода",
@@ -4115,6 +4277,51 @@
           "status": "NOT_RUN"
         }
       ]
+    },
+    {
+      "id": "spreadsheet.project-data-template-addon",
+      "program": "spreadsheet",
+      "label": "Заполнить Excel-книгу из выбранных данных проекта",
+      "sources": [
+        "src/components/office/OfficeAppEditor.tsx",
+        "src/components/office/FluxOfficePanel.tsx",
+        "src/components/office/FluxFieldsPanel.tsx",
+        "src/components/office/FluxSelectionPanel.tsx",
+        "src/components/office/ProjectDataPanel.tsx",
+        "src/components/office/fluxData.ts",
+        "server/routes/projectOffice.ts",
+        "server/officeBindings.ts",
+        "server/officeTemplates.ts"
+      ],
+      "triggers": ["editor-panel", "query", "selection", "preview", "confirm"],
+      "risk": "critical",
+      "expected": [
+        "Excel получает выбранные строки только после явного подтверждения проверки; адреса ячеек и проектные привязки сохраняются в книге"
+      ],
+      "checks": [
+        {
+          "suite": "files-office-addon-ui",
+          "layer": "component",
+          "claims": [
+            "Таблица проекта и сохранённые фильтры/порядок строк отображаются в дополнении, выбор и предпросмотр работают"
+          ]
+        },
+        {
+          "suite": "files-office-addon-api-live",
+          "layer": "api-db",
+          "claims": [
+            "Сервер отвергает устаревшие версии проекта и документа, подтверждая только тот же план"
+          ]
+        },
+        {
+          "suite": "files-office-addon-native-live",
+          "layer": "windows-native",
+          "claims": [
+            "Созданные данные читаются в открытой повторно Excel-книге, ручные строки и правки сохранены"
+          ]
+        }
+      ],
+      "manual": []
     }
   ],
   "connections": [

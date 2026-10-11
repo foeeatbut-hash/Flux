@@ -1,21 +1,21 @@
 /**
- * Выгрузка ответа помощника: тот же список, но файлом.
+ * Выгрузка ответа Flux Guide: тот же список, но файлом.
  *
  * Отдельно от хранилища разговора по одной причине: библиотека xlsx весит
  * около 900 КБ, а хранилище поднимается при старте программы. Статический
  * импорт держал бы всю библиотеку в стартовом куске ради кнопки, которую
  * нажимают раз в неделю, — поэтому она грузится по требованию.
  *
- * Модуль остаётся без React и без побочных эффектов (правило для src/assistant):
+ * Модуль остаётся без React и без побочных эффектов:
  * здесь только байты и имя, класть файл во Flux и открывать его — дело
- * вызывающего (assistantStore), у него есть навигация.
+ * вызывающего, у него есть навигация.
  */
-import type { AssistantTable } from './types';
-import { buildDocx, type DocPart } from '../lib/docxWrite';
+import type { GuideTable } from '../types';
+import { buildDocx, type DocPart } from '../../lib/docxWrite';
 
 export interface ExportedTableFile { bytes: Uint8Array; name: string }
 
-export async function exportTableToExcel(table: AssistantTable): Promise<ExportedTableFile> {
+export async function exportTableToExcel(table: GuideTable): Promise<ExportedTableFile> {
   const XLSX = await import('xlsx');
   const aoa = [table.columns, ...table.rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -28,7 +28,7 @@ export async function exportTableToExcel(table: AssistantTable): Promise<Exporte
 
 /** Настоящий .docx: раньше сюда уходила HTML-страница под именем .doc, и Word
  * открывал её с предупреждением «формат не соответствует расширению» */
-export function exportTableToWord(table: AssistantTable): ExportedTableFile {
+export function exportTableToWord(table: GuideTable): ExportedTableFile {
   const parts: DocPart[] = [
     { kind: 'head', text: table.title, level: 1 },
     { kind: 'table', rows: [table.columns, ...table.rows.map((r) => r.map((c) => String(c ?? '')))] },

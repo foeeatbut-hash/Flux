@@ -19,6 +19,7 @@ import { markGroups } from '../components/chat/grouping';
 import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
 import { Link2 } from 'lucide-react';
 import {
+  ArrowLeft,
   MessageSquare, 
   Search, 
   Paperclip, 
@@ -951,6 +952,7 @@ export default function ChatManagement() {
       
       <ChatSidebar
         users={users} groups={groups} currentUserId={user?.id}
+        hiddenOnMobile={!!(activePeer || activeGroup)}
         activeReceiverId={activeReceiverId} activeGroupId={activeGroupId}
         unreadByKey={chatUnreadByKey} onlineIds={onlineIds}
         chatIndex={chatIndex} chatIndexReady={chatIndexReady}
@@ -975,6 +977,7 @@ export default function ChatManagement() {
             {/* Thread Header Info bar */}
             <div className="fx-head shrink-0 select-none justify-between">
               <div className="flex items-center gap-3">
+                <button type="button" aria-label="Назад к чатам" title="Назад к чатам" onClick={() => setActiveReceiverId(null)} className="fx-ibtn shrink-0 @[700px]:hidden"><ArrowLeft className="w-4 h-4" /></button>
                 {activeType === 'DIRECT' && activePeer ? (
                   <>
                     <div className="relative">
@@ -995,7 +998,7 @@ export default function ChatManagement() {
                       </h3>
                       {/* «В сети» стоит первым: прежде чем писать, человек
                           решает, ждать ли ответа сейчас */}
-                      <p className="text-xs leading-snug mt-0.5">
+                      <p className="hidden @[700px]:block text-xs leading-snug mt-0.5">
                         <span className={peerOnline
                           ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
                           : 'text-slate-400'}>
@@ -1012,7 +1015,7 @@ export default function ChatManagement() {
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
                         {activeGroup.name}
                       </h3>
-                      <p className="text-xs text-slate-400 leading-snug mt-0.5 truncate max-w-lg">
+                      <p className="hidden @[700px]:block text-xs text-slate-400 leading-snug mt-0.5 truncate max-w-lg">
                         Группа проекта · все участники проекта
                       </p>
                     </div>
@@ -1022,7 +1025,7 @@ export default function ChatManagement() {
               
               <div className="flex items-center gap-2">
                 {/* Поиск по сообщениям текущей переписки */}
-                <div className="relative">
+                <div className="relative hidden @[700px]:block">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
@@ -1458,6 +1461,7 @@ export default function ChatManagement() {
 
       <ChatInfoPanel
         open={isRightPanelOpen}
+        sidebarHiddenOnMobile={!!(activePeer || activeGroup)}
         peer={activePeer || null}
         group={activeGroup || null}
         tab={rightPanelTab}

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, ChevronRight, ExternalLink, MapPin, Play, Table2 } from 'lucide-react';
 import { useGuideStore } from '../../guide/store';
 import type { GuideAction, GuideCard, GuideMessage, GuideTable } from '../../guide/types';
-import { exportTableToExcel, exportTableToWord } from '../../assistant/tableExport';
+import { exportTableToExcel, exportTableToWord } from '../../guide/support/tableExport';
 import { editorHref, saveNewFile } from '../../lib/officeFiles';
 
 // ── Отрисовка ответа (карточки, таблицы, уточнения) ──
@@ -34,10 +34,18 @@ function AnswerTable({ table }: { table: GuideTable }) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopPropagation(); setExpanded(false); }
+    };
+    window.addEventListener('keydown', close, true);
+    return () => window.removeEventListener('keydown', close, true);
+  }, [expanded]);
   const rows = useMemo(() => {
     const indexed = table.rows.map((row, index) => ({ row, index }));
     if (!sort) return indexed;
-    return indexed.sort((a, b) => a.row[sort.column].localeCompare(b.row[sort.column], 'ru', { numeric: true, sensitivity: 'base' }) * sort.direction);
+    return indexed.sort((a, b) => String(a.row[sort.column] ?? '').localeCompare(String(b.row[sort.column] ?? ''), 'ru', { numeric: true, sensitivity: 'base' }) * sort.direction);
   }, [sort, table.rows]);
   const toggleRow = (index: number) => setSelected((current) => {
     const next = new Set(current);
@@ -67,12 +75,12 @@ function AnswerTable({ table }: { table: GuideTable }) {
         <button type="button" onClick={() => setExpanded((v) => !v)}
           className="fx-btn fx-btn-sm shrink-0">{expanded ? 'Свернуть' : 'Полный просмотр'}</button>
       </div>
-      <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">
+      <div className={`border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden ${expanded ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
         <div className={`${expanded ? 'flex-1 min-h-0' : 'max-h-[360px]'} overflow-auto scrollbar-thin`}>
           <table className="w-full text-sm min-w-[520px]">
             <thead>
               <tr className="sticky top-0 z-10 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850">
-                <th className="w-8 px-2 py-1.5"><input type="checkbox" aria-label="Выбрать все строки" checked={allSelected}
+                <th className="w-8 px-2 py-1.5"><input type="checkbox" className="accent-emerald-600" aria-label="Выбрать все строки" checked={allSelected}
                   onChange={() => setSelected(allSelected ? new Set() : new Set(table.rows.map((_, i) => i)))} /></th>
                 <th className="w-10 text-right px-2 py-1.5">№</th>
                 {table.columns.map((c, index) => <th key={c} aria-sort={sort?.column === index ? (sort.direction === 1 ? 'ascending' : 'descending') : 'none'}
@@ -85,7 +93,7 @@ function AnswerTable({ table }: { table: GuideTable }) {
             <tbody>
               {rows.map(({ row, index }) => (
                 <tr key={index} aria-selected={selected.has(index)} className="h-8 border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850/60">
-                  <td className="w-8 px-2 py-1"><input type="checkbox" aria-label={`Выбрать строку ${index + 1}`} checked={selected.has(index)} onChange={() => toggleRow(index)} /></td>
+                  <td className="w-8 px-2 py-1"><input type="checkbox" className="accent-emerald-600" aria-label={`Выбрать строку ${index + 1}`} checked={selected.has(index)} onChange={() => toggleRow(index)} /></td>
                   <td className="px-2 py-1 text-right tabular-nums text-xs text-slate-400">{index + 1}</td>
                   {row.map((cell, j) => (
                     <td key={j} className="px-2 py-1 text-xs text-slate-800 dark:text-dark-text-main break-words max-w-[280px]">{cell || <span className="text-slate-400">—</span>}</td>

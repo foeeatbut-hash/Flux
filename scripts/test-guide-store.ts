@@ -63,6 +63,14 @@ async function main() {
     await stale;
     check(store.getState().messages.length === 0 && store.getState().projectId === null && puts === 0, 'old actor response cannot write into the next user state');
 
+    let sessionUser: { id: string } | null = { id: 'dynamic-user-a' };
+    const liveGetter = () => sessionUser;
+    store.getState().setUserGetter(liveGetter);
+    store.setState({ messages: [oldMessage], projectId: 'p1', projectName: 'Project one', lastResult: { intent: 'equipment_list', label: 'Fans', projectId: 'p1' } });
+    sessionUser = { id: 'dynamic-user-b' };
+    store.getState().setUserGetter(liveGetter);
+    check(store.getState().messages.length === 0 && store.getState().lastResult === null && store.getState().projectId === null, 'live getter detects actor change and purges prior user data');
+
     // A transient save failure blocks project switching but preserves the
     // current unsaved conversation and its draft for retry.
     globalThis.fetch = (async () => { throw new Error('offline'); }) as typeof fetch;

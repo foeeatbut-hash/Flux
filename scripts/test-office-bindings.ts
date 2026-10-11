@@ -18,7 +18,7 @@ async function partHashes(bytes: Buffer) {
 const schema: OfficePackageBindings = {
   version: 1, schemaVersion: 1, sourceRevision: 'R18',
   anchors: [{ id: 'header-power', kind: 'excel-range', sheet: 'Ведомость', address: 'C2', parts: [{ kind: 'field', binding: { fieldKey: 'power', sourceId: 'equipment', entityType: 'element', entityId: null, sourceRevision: 'R18', unit: 'кВт', anchorId: 'header-power' } }] }],
-  rows: [{ entityId: 'EQ-003', entityType: 'element', sourceId: 'equipment', sourceRevision: 'R18', anchorIds: ['header-power'] }],
+  rows: [{ entityId: 'EQ-003', entityType: 'element', sourceId: 'equipment', sourceRevision: 'R18', anchorIds: ['header-power'], cells: { 'header-power': 'C4' }, values: { 'header-power': 2.5 } }],
 };
 
 async function check(label: string, original: Buffer) {
@@ -35,9 +35,23 @@ async function check(label: string, original: Buffer) {
   eq(`${label}: повреждённая скрытая схема не трактуется как пустая`, await readOfficeBindings(await zip.generateAsync({ type: 'nodebuffer' })).then(() => 'no error', () => 'error'), 'error');
 }
 
+async function checkWordRowMetadata() {
+  const word: OfficePackageBindings = {
+    version: 1, schemaVersion: 1, sourceRevision: 'R18',
+    anchors: [{ id: 'word-col', kind: 'word-row', parts: [{ kind: 'text', text: 'Объём' }] }],
+    rows: [{ entityId: 'office:equipment:element:EQ-003', entityType: 'element', sourceId: 'equipment', sourceRevision: 'R18', anchorIds: ['word-col'], cells: { 'word-col': 'FLUXROW_aabbccddeeff0011' }, values: { 'word-col': '2.5' } }],
+  }
+  const written = await writeOfficeBindings(await makeDocx(), word)
+  eq('DOCX: метаданные строки с устойчивой закладкой читаются после записи', await readOfficeBindings(written), word)
+  const broken = structuredClone(word)
+  broken.rows[0].cells!['word-col'] = 'A1'
+  eq('DOCX: адрес листа не выдаётся за закладку строки', await writeOfficeBindings(await makeDocx(), broken).then(() => 'written', () => 'rejected'), 'rejected')
+}
+
 (async () => {
   await check('DOCX', await makeDocx());
   await check('XLSX', await makeXlsx());
+  await checkWordRowMetadata();
   console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
   process.exit(fail ? 1 : 0);
 })();

@@ -52,7 +52,9 @@ export default function GuideSpotlight() {
   const [rect, setRect] = useState<Rect | null>(null);
   const [missing, setMissing] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [resultPresentAtEntry, setResultPresentAtEntry] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [darkTheme, setDarkTheme] = useState(() => document.documentElement.classList.contains('dark'));
   const [viewport, setViewport] = useState<Viewport>(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const elRef = useRef<Element | null>(null);
 
@@ -63,6 +65,12 @@ export default function GuideSpotlight() {
     const update = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDarkTheme(document.documentElement.classList.contains('dark')));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -114,6 +122,8 @@ export default function GuideSpotlight() {
 
   useEffect(() => {
     if (!activeTour || !step || paused) return;
+    setResultPresentAtEntry(false);
+    let initialProbe = true;
     const checkExpectedResult = () => {
       if (useGuideStore.getState().tourStepCompleted) return;
       const expected = expectedResultForStep(step);
@@ -132,7 +142,12 @@ export default function GuideSpotlight() {
             ? element.value : element.innerText || element.textContent || '';
         },
       };
-      if (evaluateTourResult(expected, probe)) completeTourStep();
+      const matched = evaluateTourResult(expected, probe);
+      if (matched) {
+        if (initialProbe) setResultPresentAtEntry(true);
+        completeTourStep();
+      }
+      initialProbe = false;
     };
     const recompute = () => {
       const el = elRef.current;
@@ -183,6 +198,8 @@ export default function GuideSpotlight() {
   const tipStyle: React.CSSProperties = {
     position: 'absolute', top: tipTop, left: tipLeft, width: tipWidth,
     maxHeight: Math.max(120, viewport.height - 24), overflowY: 'auto',
+    backgroundColor: darkTheme ? 'var(--color-dark-panel)' : '#fff',
+    color: darkTheme ? 'var(--color-dark-text-main)' : '#1f2937',
   };
 
   return createPortal(
@@ -214,26 +231,27 @@ export default function GuideSpotlight() {
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p className="text-xs text-slate-800 dark:text-dark-text-main leading-relaxed mb-3">{step.text}</p>
+        <p className="text-xs text-slate-800 dark:text-dark-text-main leading-relaxed mb-3" style={{ color: darkTheme ? 'var(--color-dark-text-main)' : '#1f2937' }}>{step.text}</p>
         {projectRequired && !hasActiveProject && <p role="status" className="text-xs text-amber-700 dark:text-amber-300 mb-2">Проект не выбран. Приостановите демонстрацию, выберите проект на панели Flux и продолжите.</p>}
         {missing && <p role="status" className="text-xs text-amber-700 dark:text-amber-300 mb-2">{unavailable ? 'Элемент сейчас недоступен. Проверьте права и завершение загрузки.' : 'Не вижу нужный элемент. Проверьте открытую вкладку и доступ к функции.'}</p>}
         {missing && <button type="button" onClick={() => { setMissing(false); setUnavailable(false); setRetryNonce((n) => n + 1); }} className="text-xs text-emerald-700 dark:text-emerald-400 underline underline-offset-2 mb-2">Проверить снова</button>}
         {paused && <p role="status" className="text-xs text-slate-600 dark:text-dark-text-muted mb-2">Демонстрация приостановлена.</p>}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-2xs text-slate-600 dark:text-dark-text-muted">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <span className="text-2xs text-slate-600 dark:text-dark-text-muted sm:max-w-44" style={{ color: darkTheme ? 'var(--color-dark-text-muted)' : '#475569' }}>
             {paused ? 'Продолжите, когда будете готовы'
               : step.requiredContext ? 'Нужно выбрать проект, чтобы продолжить'
               : !step.target ? 'Информационный шаг'
               : missing ? 'Цели нет на экране. Повторите поиск, пропустите шаг или завершите демонстрацию.'
+                : resultPresentAtEntry ? 'Ожидаемое состояние уже есть. Проверьте его; повторять действие не нужно.'
                 : stepCompleted ? 'Ожидаемый результат появился. Можно перейти дальше.'
                   : rect ? 'Ожидаю указанный результат на экране'
                   : 'Ищу элемент на экране…'}
           </span>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={backTour} disabled={tourStepIndex === 0} title="Назад" className="p-1.5 text-slate-600 dark:text-dark-text-muted disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
-            <button type="button" onClick={pauseTour} title={paused ? 'Продолжить' : 'Пауза'} className="p-1.5 text-slate-600 dark:text-dark-text-muted">{paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}</button>
-            {!step.requiredContext && <button type="button" onClick={skipTourStep} title="Пропустить шаг" className="p-1.5 text-slate-600 dark:text-dark-text-muted"><SkipForward className="w-4 h-4" /></button>}
-            <button type="button" onClick={advanceTour} disabled={paused || (!!step.target && !stepCompleted)} className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 enabled:hover:bg-emerald-500 disabled:opacity-40 text-white text-xs rounded-lg">
+          <div className="flex items-center gap-1 self-end">
+            <button type="button" onClick={backTour} disabled={tourStepIndex === 0} title="Назад" className="p-1.5 text-slate-600 dark:text-dark-text-muted disabled:opacity-40" style={{ color: darkTheme ? 'var(--color-dark-text-muted)' : '#475569' }}><ChevronLeft className="w-4 h-4" /></button>
+            <button type="button" onClick={pauseTour} title={paused ? 'Продолжить' : 'Пауза'} className="p-1.5 text-slate-600 dark:text-dark-text-muted" style={{ color: darkTheme ? 'var(--color-dark-text-muted)' : '#475569' }}>{paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}</button>
+            {!step.requiredContext && <button type="button" onClick={skipTourStep} title="Пропустить шаг" className="p-1.5 text-slate-600 dark:text-dark-text-muted" style={{ color: darkTheme ? 'var(--color-dark-text-muted)' : '#475569' }}><SkipForward className="w-4 h-4" /></button>}
+            <button type="button" onClick={advanceTour} disabled={paused || ((!!step.target || !!step.requiredContext) && !stepCompleted)} className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 enabled:hover:bg-emerald-500 disabled:opacity-40 text-white text-xs rounded-lg">
               {isLast ? 'Завершить' : 'Далее'}{!isLast && <ChevronRight className="w-3.5 h-3.5" />}
             </button>
           </div>

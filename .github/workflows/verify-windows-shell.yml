@@ -50,7 +50,7 @@ jobs:
           }
       - name: Guide и модель дополнения Office на Windows
         run: |
-          $checks = @('test-guide-parser', 'test-guide-engine', 'test-guide-tour-runtime', 'test-chat-ux', 'test-office-model', 'test-office-bindings')
+          $checks = @('test-guide-parser', 'test-guide-engine', 'test-guide-store', 'test-guide-tour-runtime', 'test-chat-ux', 'test-office-model', 'test-office-bindings', 'test-office-data', 'test-office-template-store', 'test-office-template-permissions', 'test-office-ui-contract')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,4 +1,4 @@
-/** Изолированные контракты геометрии оболочки и главного действия Flux Play. */
+/** Изолированные контракты геометрии оболочки и контекстных меню. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';

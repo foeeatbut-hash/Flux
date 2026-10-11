@@ -96,6 +96,14 @@ const UNIT_TO_BASE: Record<string, { factor: number; quantity: string }> = {
   'Вт': { factor: 1, quantity: 'power' }, 'кВт': { factor: 1000, quantity: 'power' },
 };
 
+function quantityForField(field: string): string | null {
+  const key = FOLD(field);
+  if (key.includes('расход') || key.includes('производительн')) return 'airflow';
+  if (key.includes('давлен') || key.includes('напор')) return 'pressure';
+  if (key.includes('мощност')) return 'power';
+  return null;
+}
+
 export function toNumber(v: string): number | null {
   // «—», «нет данных», пусто — НЕ ноль: после очистки не должно остаться ни
   // одной цифры, иначе Number('') === 0 протащит пустое значение в фильтр
@@ -119,6 +127,8 @@ export function matchNumeric(p: SpecParam, op: string, value: number, filterUnit
   const base = specValueInBase(p);
   if (base === null) return false;
   const metaFilter = UNIT_TO_BASE[String(filterUnit || '').trim()];
+  const metaSpec = UNIT_TO_BASE[String(p.unit || '').trim()];
+  if (metaFilter && metaSpec && metaFilter.quantity !== metaSpec.quantity) return false;
   const target = metaFilter ? value * metaFilter.factor : value;
   switch (op) {
     case '>': return base > target;
@@ -127,6 +137,11 @@ export function matchNumeric(p: SpecParam, op: string, value: number, filterUnit
     case '<=': return base <= target;
     default: return Math.abs(base - target) < 1e-9;
   }
+}
+
+/** Оба предела сравниваются в базовой единице характеристики. */
+export function matchNumericRange(p: SpecParam, min: number, max: number, filterUnit: string): boolean {
+  return matchNumeric(p, '>=', min, filterUnit) && matchNumeric(p, '<=', max, filterUnit);
 }
 
 /** Сравнение ревизий: какие параметры изменились между oldSpecs и newSpecs. */
@@ -422,12 +437,26 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
       const op = String(req.query.op || '');
       const valueRaw = req.query.value;
       const unit = String(req.query.unit || '').trim();
+      const minRaw = req.query.min;
+      const maxRaw = req.query.max;
+      const hasAnyRangeBound = minRaw !== undefined || maxRaw !== undefined;
+      const hasRange = hasAnyRangeBound && minRaw !== undefined && maxRaw !== undefined;
+      const min = Number(minRaw);
+      const max = Number(maxRaw);
+      if (hasAnyRangeBound && (!hasRange || !Number.isFinite(min) || !Number.isFinite(max) || min > max)) {
+        return fail(res, 400, 'invalid_range', 'Для диапазона нужны обе числовые границы, нижняя не больше верхней.');
+      }
+      if (hasAnyRangeBound && op) return fail(res, 400, 'invalid_range', 'Нельзя передавать диапазон вместе с одиночным порогом.');
       // Явно названная единица должна быть известной: молчаливое игнорирование
       // возвращало бы неверные выборки (NUM-V3-01)
-      if (op && valueRaw !== undefined && unit && !UNIT_TO_BASE[unit]) {
+      if ((op || hasRange) && unit && !UNIT_TO_BASE[unit]) {
         return fail(res, 400, 'invalid_unit', 'Единица «' + unit + '» не поддерживается. Допустимо: м³/ч, л/с для расхода; Па, кПа для давления; Вт, кВт для мощности.');
       }
-      const hasNumeric = ['>', '<', '>=', '<=', '='].includes(op) && valueRaw !== undefined && valueRaw !== '' && !!UNIT_TO_BASE[unit];
+      const requestedQuantity = quantityForField(field);
+      if ((op || hasRange) && unit && requestedQuantity && UNIT_TO_BASE[unit]?.quantity !== requestedQuantity) {
+        return fail(res, 400, 'invalid_unit', `Единица «${unit}» несовместима с характеристикой «${field}».`);
+      }
+      const hasNumeric = hasRange || (['>', '<', '>=', '<=', '='].includes(op) && valueRaw !== undefined && valueRaw !== '' && !!UNIT_TO_BASE[unit]);
 
       let components = await flatComponents(projectId);
       if (componentId) components = components.filter((c) => c.id === componentId);
@@ -453,7 +482,7 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
       if (hasNumeric) {
         rows = rows.filter((r) => {
           const p = { key: r.field, value: r.value, unit: r.unit, group: r.group };
-          return matchNumeric(p, op, Number(valueRaw), unit);
+          return hasRange ? matchNumericRange(p, min, max, unit) : matchNumeric(p, op, Number(valueRaw), unit);
         });
       }
       const { limit, offset } = pageOf(req);
@@ -578,7 +607,7 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
         memberIds = [actorId, conversationId];
       }
       const reply = await prisma.chatMessage.findUnique({
-        where: { id: result.replyId }, include: { sender: { select: { id: true, name: true, symbol: true } }, replyTo: true },
+        where: { id: result.replyId }, include: { sender: { select: { id: true, name: true, symbol: true } }, replyTo: true, guideReply: { select: { projectId: true, kind: true } } },
       });
       if (reply) {
         // Рассылка каждому участнику его (санитизированного) представления
@@ -600,7 +629,7 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
           }
         }
       }
-      res.json({ ok: true, published: result.published, refusal: result.refusal, text: result.text });
+      res.json({ ok: true, published: result.published, refusal: result.refusal, text: result.text, replyId: result.replyId, guideReply: reply?.guideReply || null });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
   });
 

@@ -101,7 +101,7 @@ export const TOURS: Tour[] = [
     intro: 'Проекты создаются в разделе «Проекты». Запускаю демонстрацию.',
     steps: [
       { text: 'Откройте раздел «Проекты» — из Пуска или с панели задач.', target: '[data-tour="nav-/projects"]', route: '/projects', action: 'navigate' },
-      { text: 'Нажмите «Создать проект», чтобы открыть форму. Сам проект появится только после вашего подтверждения.', target: '[data-tour="project-create-btn"]', route: '/projects', action: 'click', expectedResult: { kind: 'visible-text', selector: '[role="dialog"]', contains: 'Новый проект' } },
+      { text: 'Если форма «Новый проект» уже открыта, проверьте её поля; иначе откройте форму кнопкой «Создать проект». Сам проект появится только после вашего подтверждения.', target: '[data-tour="project-create-btn"]', route: '/projects', action: 'click', expectedResult: { kind: 'visible-text', selector: '[role="dialog"][aria-label="Новый проект"]', contains: 'Новый проект' } },
       { text: 'Заполните и проверьте форму. Сохранение проекта остаётся за вами; Guide его не подтверждает.', action: 'info', safeOnly: true },
     ],
   },
@@ -571,7 +571,7 @@ export const TOURS: Tour[] = [
     intro: 'Оборудование не набивают руками — его распознают из бланка подбора, ведомости или страницы каталога. Показываю.',
     steps: [
       { text: 'Откройте раздел «Оборудование».', target: '[data-tour="nav-/equipment"]', route: '/equipment', action: 'navigate', expectedResult: { kind: 'active-route', route: '/equipment' } },
-      { text: 'Откройте мастер импорта. Файл не выбран, данные проекта не меняются.', target: '[data-tour="equipment-import-btn"]', route: '/equipment', action: 'click', expectedResult: { kind: 'visible-text', selector: 'h2', contains: 'Импорт из документов' } },
+      { text: 'Если мастер импорта уже открыт, проверьте его заголовок; иначе откройте мастер. Файл не выбран, данные проекта не меняются.', target: '[data-tour="equipment-import-btn"]', route: '/equipment', action: 'click', expectedResult: { kind: 'visible-text', selector: 'div[role="dialog"] h2', contains: 'Импорт из документов' } },
       { text: 'Выберите свой файл и дождитесь предпросмотра. Сверьте установки, параметры и предупреждения; демонстрация не выбирает файл и не подтверждает импорт.', route: '/equipment', action: 'info', safeOnly: true },
       { text: 'Импорт выполняйте только после проверки предпросмотра и явного подтверждения. Успех определяется результатом в разделе, а не нажатием кнопки.', action: 'info', safeOnly: true },
     ],
@@ -639,7 +639,7 @@ export const TOURS: Tour[] = [
   {
     id: 'ask-in-chat', title: 'Как спросить Flux Guide в переписке',
     keywords: ['чат', 'переписк', 'сообщение', 'помощник в чате', 'спросить в чате', 'f в мессенджере'],
-    questions: ['как спросить помощника в чате', 'как задать вопрос в переписке', 'спросить guide в мессенджере'],
+    questions: ['как спросить Guide в чате', 'как задать вопрос в переписке', 'спросить guide в мессенджере'],
     intro: 'Кнопка F рядом с отправкой превращает сообщение в вопрос Flux Guide — ответ придёт в тот же разговор.',
     steps: [
       { text: 'Откройте Мессенджер и нужный разговор — личный или групповой.', route: '/chat', target: '[data-tour="nav-/chat"]', action: 'navigate' },

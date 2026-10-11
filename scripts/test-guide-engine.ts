@@ -11,10 +11,18 @@ function check(condition: unknown, message: string) {
 }
 
 const originalFetch = globalThis.fetch;
+let rangeRequest = '';
+let rangeCalls = 0;
 async function main() {
 try {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes('/spec?')) {
+      rangeCalls++;
+      rangeRequest = url;
+      const params = new URL(url, 'http://local').searchParams;
+      return ok({ total: 1, items: [{ componentId: 'c-range', name: 'Вентилятор В-2', itemCode: 'V-2', equipType: 'ВЕНТИЛЯТОР', system: 'П1', tags: ['FAN-002'], field: 'Расход воздуха', value: '700', unit: 'м³/ч', group: 'Аэродинамика', specsTotal: 1 }], observed: { min: params.get('min'), max: params.get('max') } });
+    }
     if (url.includes('/tag/')) return ok({ status: 'no-match', identifier: '3700-B08-DW-002B', tags: [] });
     if (url.includes('/components?')) {
       const params = new URL(url, 'http://local').searchParams;
@@ -39,6 +47,15 @@ try {
   const listed = (await answerQuestion('покажи все вентиляторы', context))[0];
   check(listed.table?.rows[0]?.[0] === 'Вентилятор В-1', 'equipment list returns server rows');
   check(listed.source?.label.includes('Оборудование проекта') && listed.context?.projectId === 'project-1', 'data answer carries source and project-bound continuation context');
+
+  const rangeAnswer = (await answerQuestion('покажи расход воздуха от 500 до 1000 м³/ч', context))[0];
+  const rangeParams = new URL(rangeRequest, 'http://local').searchParams;
+  check(rangeAnswer.table?.total === 1 && rangeParams.get('min') === '500' && rangeParams.get('max') === '1000' && !rangeParams.has('op'), `Guide sends both inclusive range bounds to the server (${rangeRequest})`);
+  const rangeCallsBeforeReverse = rangeCalls;
+  const reversedRange = (await answerQuestion('покажи расход воздуха от 1000 до 500 м³/ч', context))[0];
+  check(/нижняя граница/.test(reversedRange.text) && rangeCalls === rangeCallsBeforeReverse, 'reversed range asks for clarification without querying data');
+  const incompatibleUnit = (await answerQuestion('покажи расход воздуха от 1 до 2 кПа', context))[0];
+  check(/не подходит к характеристике/.test(incompatibleUnit.text) && rangeCalls === rangeCallsBeforeReverse, 'incompatible range unit asks for clarification without querying data');
 
   const count = (await answerQuestion('сколько вентиляторов', context))[0];
   check(count.outcome === 'ВЕНТИЛЯТОР: 3' && count.actions?.some((a) => a.route === '/equipment'), 'equipment count has count and valid section action');

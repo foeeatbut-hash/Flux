@@ -13,6 +13,9 @@ interface Expectation {
   code?: string;
   type?: string;
   field?: string;
+  numeric?: { op: string; value: number; upperBound?: number };
+  numericError?: string;
+  unit?: string;
 }
 
 const CASES: Expectation[] = [
@@ -63,6 +66,11 @@ const CASES: Expectation[] = [
   { q: 'открой выгрузку по клапанам', intent: 'open_export' },
   // Числовой фильтр и единицы
   { q: 'расход больше 1000', intent: 'equipment_characteristic', field: 'Расход воздуха' },
+  { q: 'расход воздуха от 500 до 1 000,5 м³/ч', intent: 'equipment_characteristic', field: 'Расход воздуха', numeric: { op: '>=', value: 500, upperBound: 1000.5 } },
+  { q: 'расход воздуха между 1,5 и 2,5 м³/ч', intent: 'equipment_characteristic', field: 'Расход воздуха', numeric: { op: '>=', value: 1.5, upperBound: 2.5 } },
+  { q: 'давление от 0,5 до 1 кПа', intent: 'equipment_characteristic', field: 'Полное давление', numeric: { op: '>=', value: 0.5, upperBound: 1 }, unit: 'кПа' },
+  { q: 'расход от 0,5 до 1 кПа', intent: 'equipment_characteristic', field: 'Расход воздуха', numericError: 'incompatible-unit' },
+  { q: 'расход воздуха от 1000 до 500 м³/ч', intent: 'equipment_characteristic', field: 'Расход воздуха', numericError: 'reversed-range' },
   // Глоссарий и диагностика
   { q: 'что такое ревизия?', intent: 'glossary' },
   { q: 'что такое тег?', intent: 'glossary' },
@@ -80,6 +88,11 @@ for (const c of CASES) {
   if (c.code && p.codes[0] !== c.code) errs.push(`code: ждали ${c.code}, получили ${p.codes[0] || '—'}`);
   if (c.type && p.equipmentTypes[0]?.canonical !== c.type) errs.push(`type: ждали ${c.type}, получили ${p.equipmentTypes[0]?.canonical || '—'}`);
   if (c.field && p.fields[0]?.canonical !== c.field) errs.push(`field: ждали ${c.field}, получили ${p.fields[0]?.canonical || '—'}`);
+  if (c.numeric && (p.numeric?.op !== c.numeric.op || p.numeric.value !== c.numeric.value || p.numeric.upperBound !== c.numeric.upperBound)) {
+    errs.push(`numeric: ждали ${JSON.stringify(c.numeric)}, получили ${JSON.stringify(p.numeric)}`);
+  }
+  if (c.numericError && p.numericError !== c.numericError) errs.push(`numericError: ждали ${c.numericError}, получили ${p.numericError || '—'}`);
+  if (c.unit && p.unit !== c.unit) errs.push(`unit: ждали ${c.unit}, получили ${p.unit || '—'}`);
   if (errs.length) {
     failed++;
     console.log(`FAIL «${c.q}» — ${errs.join('; ')}`);

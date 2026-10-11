@@ -44,7 +44,7 @@ const SECTIONS: [string, string][] = [
   ['Архиватор', '/archives'],
   ['Таблица', '/sheet'],
   ['Документ', '/doc'],
-  ['Помощник', '/assistant'],
+  ['Flux Guide', '/guide'],
   ['Переводчик', '/translate'],
   ['Блокнот', '/notes'],
   ['Календарь', '/calendar'],
@@ -52,7 +52,6 @@ const SECTIONS: [string, string][] = [
   ['Мессенджер', '/chat'],
   ['Почта', '/mail'],
   ['Замечания и предложения', '/feedback'],
-  ['Руководство', '/handbook'],
   ['Сотрудники', '/users'],
   ['Настройки', '/settings'],
 ];
@@ -67,11 +66,6 @@ const SECTIONS: [string, string][] = [
  */
 const SKIP = new Set([
   '/logs', '/pdf',
-  // Flux Play по умолчанию выключен во всей компании и не выдан никому: для
-  // сотрудника, каким обход входит в программу, раздела не существует. Мерить
-  // его раскладку здесь нечем, а проверять, что его НЕ видно, — работа
-  // scripts/test-play-stealth-live.ts, и она делается отдельно
-  '/play',
   // Редакторы Word и Excel открываются только с файлом; без файла это пустая
   // заглушка. Их окна проверяют scripts/test-office-docs-live.ts и
   // test-office-sheets-live.ts вместе с настоящими файлами

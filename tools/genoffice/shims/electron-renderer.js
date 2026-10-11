@@ -173,19 +173,27 @@ document.addEventListener('keydown', (event) => {
   if ((event.key === 'Enter' || event.key === ' ') && isAiControl(event.target)) stopAiControl(event);
 }, true);
 
-// Remove editor controls from the accessibility tree and tab order as well as
-// blocking their events. The observer handles menus and popovers created later.
+// React сохраняет владение узлами ленты; скрытые ИИ-кнопки недоступны для
+// фокуса и событий. Внешнее удаление узлов ломает повторную отрисовку редактора.
+const concealAiControl = (element) => {
+  element.hidden = true;
+  element.inert = true;
+  element.style.setProperty('display', 'none', 'important');
+  element.setAttribute('aria-hidden', 'true');
+  element.setAttribute('tabindex', '-1');
+  if ('disabled' in element) element.disabled = true;
+};
 const removeAiControls = (root) => {
   if (!root?.querySelectorAll) return;
   const controls = '.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],.ctx-item:has(.copilot-badge),button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ribbon-group:has(.ai-entry)';
-  if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) root.remove();
-  for (const element of root.querySelectorAll(controls)) element.remove();
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) concealAiControl(root);
+  for (const element of root.querySelectorAll(controls)) concealAiControl(element);
   const labelled = 'button,[role="menuitem"],input,textarea';
   const candidates = [...root.querySelectorAll(labelled)];
   if (root.nodeType === Node.ELEMENT_NODE && root.matches(labelled)) candidates.unshift(root);
   for (const element of candidates) {
     const label = [element.getAttribute('aria-label'), element.getAttribute('title'), element.getAttribute('data-tip')].filter(Boolean).join(' ');
-    if (aiLabel.test(label)) element.remove();
+    if (aiLabel.test(label)) concealAiControl(element);
   }
 };
 removeAiControls(document);

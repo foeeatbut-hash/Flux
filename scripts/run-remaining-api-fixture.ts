@@ -14,7 +14,6 @@ const targets = [
   'collab-mail-shared-api',
   'collab-feedback-privacy-api',
   'collab-feedback-read-api',
-  'collab-assistant-privacy-api',
   'files-office-files-live',
   'eng-remaining-engineering-api-live',
   'eng-builder-live-regressions',

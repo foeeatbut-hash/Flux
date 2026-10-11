@@ -60,6 +60,7 @@ export function cleanOfficeTemplate(input: any, actorId: string, existing?: Offi
     columns: Array.isArray(input.query.columns) ? input.query.columns.map(String).slice(0, 200) : [],
     filters: Array.isArray(input.query.filters) ? input.query.filters.slice(0, 50).map((filter: any) => ({ field: String(filter?.field || '').slice(0, 200), op: String(filter?.op || 'contains').slice(0, 30), value: String(filter?.value ?? '').slice(0, 500) })) : [],
     sort: Array.isArray(input.query.sort) ? input.query.sort.slice(0, 10).map((sort: any) => ({ field: String(sort?.field || '').slice(0, 200), direction: sort?.direction === 'desc' ? 'desc' : 'asc' })) : [],
+    excludedEntityIds: Array.isArray(input.query.excludedEntityIds) ? [...new Set(input.query.excludedEntityIds.map(String))].slice(0, 5000) : [],
   } : {};
   const scope = existing?.scope || (input?.scope === 'SHARED' ? 'SHARED' : 'PERSONAL');
   return {
