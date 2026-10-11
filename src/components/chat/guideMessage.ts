@@ -4,11 +4,12 @@
  */
 export type GuideMessageKind = 'request' | 'reply' | null;
 
-export function parseGuideMessage(content: string): { kind: GuideMessageKind; text: string } {
+export function parseGuideMessage(content: string, markers: { guideRequest?: boolean; guideReply?: boolean } = {}): { kind: GuideMessageKind; text: string } {
   const value = String(content || '');
-  const request = value.match(/^Запрос Flux Guide:\s?/);
-  if (request) return { kind: 'request', text: value.slice(request[0].length) };
-  const reply = value.match(/^F · Flux Guide(?:\r?\n){1,2}/);
-  if (reply) return { kind: 'reply', text: value.slice(reply[0].length) };
+  if (markers.guideRequest) return { kind: 'request', text: value };
+  if (markers.guideReply) {
+    const reply = value.match(/^F · Flux Guide(?:\r?\n){1,2}/);
+    return { kind: 'reply', text: reply ? value.slice(reply[0].length) : value };
+  }
   return { kind: null, text: value };
 }

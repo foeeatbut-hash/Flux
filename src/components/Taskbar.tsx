@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import {
-  Bell, BellOff, Monitor, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
+  Bell, BellOff, Monitor, LayoutGrid, MessageCircleQuestion, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { visibleSections } from '../lib/appPolicy';
@@ -242,19 +242,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       return;
     }
     st.open('/guide?tab=questions');
-  };
-
-  /**
-   * Справка по тому разделу, где человек стоит, — то же, что F1. Вопросы
-   * отвечают на конкретный вопрос, справочник объясняет раздел целиком: это
-   * разные нужды, поэтому и кнопки разные.
-   */
-  const openHandbook = () => {
-    const path = highlighted || '/';
-    if (path === '/guide') return;
-    const href = `/guide?for=${encodeURIComponent(path)}`;
-    rememberSectionUse('/guide');
-    useWindowStore.getState().open(href);
   };
 
   /**
@@ -503,16 +490,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           className={trayBtn(false)}
         >
           <MessageCircleQuestion size={BAR_ICON + 2} />
-        </button>
-
-        <button
-          type="button"
-          onClick={openHandbook}
-          title="Руководство по этому разделу (F1)"
-          style={{ width: BAR_BTN, height: BAR_BTN }}
-          className={trayBtn(false)}
-        >
-          <LifeBuoy size={BAR_ICON + 2} />
         </button>
 
         {/* Обновление — как в системе: значок у часов светится, когда есть что

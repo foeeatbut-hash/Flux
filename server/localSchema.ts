@@ -184,8 +184,17 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
       )`);
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
-      db.exec('CREATE TABLE IF NOT EXISTS "AssistantChat" ("id" TEXT NOT NULL PRIMARY KEY, "ownerId" TEXT NOT NULL, "projectId" TEXT NOT NULL DEFAULT \'\', "title" TEXT NOT NULL DEFAULT \'\', "preview" TEXT NOT NULL DEFAULT \'\', "messages" TEXT NOT NULL DEFAULT \'[]\', "search" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+      db.exec('CREATE TABLE IF NOT EXISTS "AssistantChat" ("id" TEXT NOT NULL PRIMARY KEY, "kind" TEXT NOT NULL DEFAULT \'assistant\', "ownerId" TEXT NOT NULL, "projectId" TEXT NOT NULL DEFAULT \'\', "title" TEXT NOT NULL DEFAULT \'\', "preview" TEXT NOT NULL DEFAULT \'\', "messages" TEXT NOT NULL DEFAULT \'[]\', "search" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "archivedAt" DATETIME)');
       db.exec('CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")');
+      const assistantChatCols = db.prepare('PRAGMA table_info("AssistantChat")').all() as Array<{ name: string }>;
+      if (assistantChatCols.length && !assistantChatCols.find((c) => c.name === 'archivedAt')) {
+        db.exec('ALTER TABLE "AssistantChat" ADD COLUMN "archivedAt" DATETIME');
+        logInit('[DB Migrate] Добавлена колонка AssistantChat.archivedAt');
+      }
+      if (assistantChatCols.length && !assistantChatCols.find((c) => c.name === 'kind')) {
+        db.exec('ALTER TABLE "AssistantChat" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'assistant\'');
+        logInit('[DB Migrate] Добавлена колонка AssistantChat.kind');
+      }
       // Присутствие: одна строка на человека, «в сети» — свежая отметка
       db.exec('CREATE TABLE IF NOT EXISTS "Presence" ("userId" TEXT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
       db.exec('CREATE INDEX IF NOT EXISTS "Presence_at_idx" ON "Presence"("at")');
@@ -269,6 +278,10 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
       }
       const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
       if (msgCols.length > 0) {
+        if (!msgCols.find(c => c.name === 'guideRequest')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "guideRequest" BOOLEAN NOT NULL DEFAULT false');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.guideRequest');
+        }
         if (!msgCols.find(c => c.name === 'replyToId')) {
           db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "replyToId" TEXT');
           logInit('[DB Migrate] Добавлена колонка ChatMessage.replyToId');
@@ -290,6 +303,24 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
           logInit('[DB Migrate] Добавлена колонка ChatMessage.forwardedFrom');
         }
       }
+      // Привязка ответа F к его вопросу нужна для проверки доступа и идемпотентности.
+      db.exec(`CREATE TABLE IF NOT EXISTS "GuideReply" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "messageId" TEXT NOT NULL,
+        "requestMessageId" TEXT,
+        "projectId" TEXT NOT NULL DEFAULT '',
+        "kind" TEXT NOT NULL DEFAULT '',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "GuideReply_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "ChatMessage" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      const guideReplyCols = db.prepare('PRAGMA table_info("GuideReply")').all() as Array<{ name: string }>;
+      if (guideReplyCols.length && !guideReplyCols.find((c) => c.name === 'requestMessageId')) {
+        db.exec('ALTER TABLE "GuideReply" ADD COLUMN "requestMessageId" TEXT');
+        logInit('[DB Migrate] Добавлена колонка GuideReply.requestMessageId');
+      }
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "GuideReply_messageId_key" ON "GuideReply"("messageId")');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "GuideReply_requestMessageId_key" ON "GuideReply"("requestMessageId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "GuideReply_projectId_idx" ON "GuideReply"("projectId")');
       const grpCols = db.prepare('PRAGMA table_info("ChatGroup")').all() as Array<{ name: string }>;
       if (grpCols.length > 0) {
         if (!grpCols.find(c => c.name === 'description')) {

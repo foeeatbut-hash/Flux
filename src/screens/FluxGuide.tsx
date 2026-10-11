@@ -8,6 +8,7 @@ import { QuestionsPane } from '../components/guide/QuestionsPane';
 import { allowEntitlement } from '../store/policyStore';
 import { useWindowTitle } from '../lib/paneTitle';
 import { useStore } from '../store/store';
+import { usePolicyStore } from '../store/policyStore';
 import { useGuideStore } from '../guide/store';
 import { search } from '../handbook/registry';
 
@@ -26,6 +27,7 @@ export default function FluxGuide() {
   const setNavigator = useGuideStore((s) => s.setNavigator);
   const user = useStore((s) => s.user);
   const activeProject = useStore((s) => s.activeProject);
+  const guideProjectId = useGuideStore((s) => s.projectId);
   const messages = useGuideStore((s) => s.messages);
   const ask = useGuideStore((s) => s.ask);
   const asking = useGuideStore((s) => s.asking);
@@ -44,11 +46,31 @@ export default function FluxGuide() {
   }, [navigate, setNavigator]);
 
   useEffect(() => {
-    if (!user) return;
-    useGuideStore.getState().setUserGetter(() => ({ id: user.id, name: user.name }));
+    useGuideStore.getState().setUserGetter(() => user ? ({ id: user.id, name: user.name }) : null);
     useGuideStore.getState().setActiveProjectGetter(() =>
-      activeProject ? { id: activeProject.id, name: activeProject.name } : null);
+      user && activeProject ? { id: activeProject.id, name: activeProject.name } : null);
   }, [user?.id, activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bootstrap updates after a capabilities event, reconnect, or focus refresh
+  // are also a prompt to re-check project membership. Only the address list is
+  // trusted; a network failure must not erase a live conversation.
+  useEffect(() => usePolicyStore.subscribe((next, previous) => {
+    const changed = next.version !== previous.version
+      || JSON.stringify(next.permissions) !== JSON.stringify(previous.permissions)
+      || JSON.stringify(next.rolePermissions) !== JSON.stringify(previous.rolePermissions);
+    if (changed && useGuideStore.getState().projectId) {
+      void useGuideStore.getState().reconcileProjectAccess();
+    }
+  }), []);
+
+  useEffect(() => {
+    if (!user?.id || !guideProjectId) return;
+    const check = () => { void useGuideStore.getState().reconcileProjectAccess(); };
+    check();
+    const timer = window.setInterval(check, 60_000);
+    window.addEventListener('focus', check);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', check); };
+  }, [user?.id, guideProjectId]);
 
   // Режим входа: ?tab=questions | ?ask= — «Вопросы»; ?article= | ?for= — «Справочник».
   // Реагирует на смену адреса окна: F1 в уже открытый Guide должен показать

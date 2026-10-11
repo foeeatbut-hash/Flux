@@ -2,7 +2,7 @@
 
 Flux Office opens and edits the original DOCX and XLSX files through the
 GenOffice editors embedded in Flux. The Flux ribbon connects project data,
-header bindings, translation, templates, and document revisions to those same
+header bindings, translation, templates, and source comparisons to those same
 files.
 
 ## Что на экране
@@ -17,8 +17,8 @@ files.
   virtualized preview.
 - The header view inserts protected field bindings into the active Word/Excel
   anchor, while retaining ordinary text and document formatting.
-- The update view compares source and document revisions, shows a fill plan,
-  and applies or undoes a confirmed update.
+- The update view compares live source fingerprints and the document hash, shows
+  a fill plan, and applies a confirmed update through normal editor save/history.
 - Templates are managed from the Flux ribbon. They store header structure and
   selection settings, not filled rows or personal data.
 
@@ -29,7 +29,7 @@ files.
   narrow windows switch to a full-height overlay.
 - The panel header shows the current file and close action. Search and source
   controls belong to «Выборка»; field search and insertion belong to «Поля и
-  шапка»; revision comparison and confirmation belong to «Обновление».
+  шапка»; source comparison and confirmation belong to «Обновление».
 - The bottom «Заполнить» action stays in view and is disabled with a specific
   reason until the selection and document anchors are valid.
 - Keep template save/open/pin/reload actions in the top Flux ribbon, not in the
@@ -79,8 +79,9 @@ fallback.
 - A template contains the ordered header parts, anchors/layout, query and sort
   settings, and a schema version. It excludes filled rows and personal data.
   Shared/personal permissions are enforced by the server.
-- An issued revision is immutable. A changed source creates a comparison and
-  draft revision; repeated update must not duplicate rows or bindings.
+- The current API exposes live source fingerprints and saved file history. It
+  does not issue document revisions, so the UI must not show synthetic R1/R2
+  labels.
 
 ## Приёмка и проверки
 

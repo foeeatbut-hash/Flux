@@ -42,7 +42,9 @@ export interface BubbleMessage {
   content: string;
   createdAt: string;
   senderId: string;
-  sender?: { name?: string } | null;
+  sender?: { name?: string; role?: string } | null;
+  guideRequest?: boolean;
+  guideReply?: unknown;
   attachments?: Array<{ id: string; fileName: string; filePath: string; fileSize: number }>;
   linkedElementId?: string | null;
   linkedElement?: { id: string; name: string; itemCode: string } | null;
@@ -104,7 +106,10 @@ export default function MessageBubble({
   onOpenEquipment, onOpenFile, onJumpTo, formatBytes, children,
 }: Props) {
   const name = isMe ? 'Вы' : (msg.sender?.name || 'Сотрудник');
-  const guide = parseGuideMessage(msg.content);
+  const guide = parseGuideMessage(msg.content, {
+    guideRequest: msg.guideRequest,
+    guideReply: !!msg.guideReply && msg.sender?.role === 'SERVICE',
+  });
 
   // Уголок — только у последнего в кучке: у остальных все углы круглые, и
   // кучка читается как один блок, а не как стопка отдельных карточек.

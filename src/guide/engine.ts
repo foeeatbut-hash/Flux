@@ -60,6 +60,7 @@ function withContext<M extends { context?: unknown }>(msg: M, ctx: AskContext, c
 const sourceOf = (ctx: AskContext, label: string): GuideMessage['source'] => ({
   label: ctx.projectName ? `${label} · ${ctx.projectName}` : label,
   at: nowAt(),
+  projectId: ctx.projectId || undefined,
 });
 
 const openTagAction = (t: { id: string; identifier: string }): GuideAction =>
@@ -289,9 +290,9 @@ async function tagLookupAnswer(p: ParsedQuestion, ctx: AskContext): Promise<Guid
   const specTable = places[0]?.specs?.length ? {
     title: `Характеристики позиции ${places[0].component}`,
     columns: ['Группа', 'Параметр', 'Значение', 'Ед.'],
-    rows: places[0].specs.slice(0, 40).map((s) => [s.group, s.key, s.value, s.unit]),
+    rows: places[0].specs.slice(0, 200).map((s) => [s.group, s.key, s.value, s.unit]),
     total: places[0].specsTotal,
-    note: places[0].specsTotal > 40 ? `Показаны первые 40 из ${places[0].specsTotal}` : undefined,
+    note: places[0].specsTotal > 200 ? `Показаны первые 200 из ${places[0].specsTotal}.` : undefined,
   } : undefined;
   return withContext(say(`Тег «${tag.identifier}» найден.`, {
     outcome: `Тег ${tag.identifier}${places[0] ? ` · ${places[0].system} → ${places[0].component}` : ''}`,
@@ -688,7 +689,7 @@ async function followUpAnswer(p: ParsedQuestion, ctx: AskContext): Promise<Guide
   if (inc(n, 'выгрузи', 'эксель', 'excel', 'экспортируй', 'в слово')) {
     return [say(`Открываю штатную «Выгрузку данных» по контексту «${last.label}».`, {
       outcome: 'Выгрузка данных',
-      text: 'Строки и столбцы можно проверить перед сохранением. Экспорт берёт все строки выборки, а не только показанную страницу.',
+      text: 'Откройте штатную «Выгрузку данных», чтобы настроить выборку и столбцы перед сохранением. Таблица ответа Guide содержит только показанные строки.',
       actions: [{ kind: 'open-export', label: 'Открыть «Выгрузку данных»', route: '/equipment-export', query: last.label }],
       source: { label: 'Flux Guide', at: nowAt() },
     })];
@@ -779,7 +780,7 @@ export async function answerQuestion(question: string, ctx: AskContext): Promise
         const tour = findBestTour(text, allowEntitlement);
         return [say('Открываю штатную «Выгрузку данных»: строки, столбцы и предпросмотр — перед сохранением.', {
           outcome: 'Выгрузка данных',
-          text: 'Guide не создаёт файл сам: выборку и столбцы подтверждаете вы. Экспорт берёт все строки выборки, а не только показанную страницу.',
+          text: 'Guide открывает штатную «Выгрузку данных», где вы настраиваете выборку и столбцы перед сохранением.',
           actions: [
             { kind: 'open-export', label: 'Открыть «Выгрузку данных»', route: '/equipment-export', query: p.equipmentTypes[0]?.canonical || '' },
             ...(tour && tour.score >= 1.5 ? [{ kind: 'tour' as const, label: `Показать: ${tour.tour.title}`, tourId: tour.tour.id }] : []),
@@ -852,7 +853,10 @@ export async function answerQuestion(question: string, ctx: AskContext): Promise
   }
 
   // Ответ не найден: не придумываем, предлагаем проверенное (ТЗ §8.4, §34.2-19)
-  const fallbackHandbook = handbookAnswer(text, ctx);
+  // Не превращаем короткое случайное совпадение слов в «ответ из справки».
+  // Ответы из руководства доступны по распознанным справочным намерениям выше;
+  // неизвестный вопрос должен остаться неизвестным.
+  const fallbackHandbook = p.intent === 'unknown' ? null : handbookAnswer(text, ctx);
   if (fallbackHandbook) return [fallbackHandbook];
   const suggestions: GuideMessage['actions'] = [];
   const tourMatch = findBestTour(text, allowEntitlement);

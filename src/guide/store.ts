@@ -9,7 +9,7 @@
  */
 import { create } from 'zustand';
 import { TOURS, type Tour } from '../assistant/tours';
-import { canAdvanceTour } from './tourRuntime';
+import { canAdvanceTour, withProjectContext } from './tourRuntime';
 import { answerQuestion, type AskContext, type LastResult } from './engine';
 import {
   guideProjects, guideChats, guideChatOpen, guideChatSave,
@@ -36,6 +36,16 @@ function writeLocal(key: string, value: unknown): void {
 /** Настройки и списки — по пользователю, не глобально (ТЗ §17). */
 const scoped = (userId: string): string => `u_${userId || 'anon'}`;
 
+function persistSnapshot(userId: string, id: string, projectId: string | null, messages: GuideMessage[]): Promise<void> {
+  const save = async () => {
+    const title = messages.find((m) => m.role === 'user')?.text || 'Вопрос';
+    await guideChatSave(userId, id, { title, projectId: projectId || '', messages });
+  };
+  const queued = chatSaveQueue.catch(() => undefined).then(save);
+  chatSaveQueue = queued;
+  return queued;
+}
+
 export type GuideMode = 'handbook' | 'questions';
 
 interface GuideState {
@@ -61,6 +71,7 @@ interface GuideState {
   projects: GuideProject[];
   projectsError: string;
   loadProjects: () => Promise<void>;
+  reconcileProjectAccess: () => Promise<void>;
 
   /** Вопросы: сеанс + серверная история */
   messages: GuideMessage[];
@@ -119,7 +130,18 @@ export const useGuideStore = create<GuideState>((set, get) => ({
   userGetter: null,
   activeProjectGetter: null,
   setNavigator: (fn) => set({ navigator: fn }),
-  setUserGetter: (fn) => set({ userGetter: fn }),
+  setUserGetter: (fn) => {
+    const oldId = get().userGetter?.()?.id || '';
+    const next = fn()?.id || '';
+    if (oldId !== next) {
+      // Never let a pending request or conversation from one signed-in account
+      // appear in the next account's Guide session. Drafts are account scoped.
+      set({ userGetter: fn, activeProjectGetter: null, projectId: null, projectName: '', projects: [], projectsError: '',
+        messages: [], asking: false, lastResult: null, chatId: null, chatSaveState: 'idle', chatSaveError: '',
+        chats: [], archivedChats: [], historyArchived: false, historyError: '',
+        draftHandbook: '', draftQuestions: '', favorites: [], recent: [] });
+    } else set({ userGetter: fn });
+  },
   setActiveProjectGetter: (fn) => {
     set({ activeProjectGetter: fn });
     // Выбранный проект по умолчанию — активный проект Flux, если он доступен.
@@ -147,8 +169,29 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const userId = get().userGetter?.()?.id || '';
     try {
       const res = await guideProjects(userId);
+      if ((get().userGetter?.()?.id || '') === userId) set({ projects: res.projects, projectsError: '' });
+    } catch { if ((get().userGetter?.()?.id || '') === userId) set({ projectsError: 'Список проектов не загрузился. Проверьте соединение и повторите.' }); }
+  },
+  reconcileProjectAccess: async () => {
+    const userId = get().userGetter?.()?.id || '';
+    try {
+      const res = await guideProjects(userId);
+      if ((get().userGetter?.()?.id || '') !== userId) return;
+      const selectedId = get().projectId;
+      const remains = !selectedId || res.projects.some((p) => p.id === selectedId);
       set({ projects: res.projects, projectsError: '' });
-    } catch { set({ projects: [], projectsError: 'Список проектов не загрузился. Проверьте соединение и повторите.' }); }
+      if (selectedId && !remains) {
+        // Сервер подтвердил отзыв доступа. Удаляем чувствительный контекст,
+        // даже если его текущая беседа ещё не успела сохраниться. Черновик
+        // строки вопроса остаётся нетронутым.
+        set({ projectId: null, projectName: '', messages: [], chatId: null, lastResult: null,
+          chatSaveState: 'idle', chatSaveError: '' });
+      }
+    } catch {
+      // Ошибка сети не является отзывом доступа: сохраняем выбранный проект,
+      // сообщения, контекст и черновик, показывая возможность повторить.
+      if ((get().userGetter?.()?.id || '') === userId) set({ projectsError: 'Доступ к проектам не удалось проверить. Проверьте соединение и повторите.' });
+    }
   },
 
   messages: [],
@@ -166,9 +209,10 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const userId = get().userGetter?.()?.id || '';
     try {
       const chats = await guideChats(userId, { archived });
+      if ((get().userGetter?.()?.id || '') !== userId) return;
       set(archived ? { archivedChats: chats, historyError: '' } : { chats, historyError: '' });
     } catch {
-      set(archived ? { archivedChats: [], historyError: 'Историю загрузить не удалось. Проверьте соединение и повторите.' } : { chats: [], historyError: 'Историю загрузить не удалось. Проверьте соединение и повторите.' });
+      if ((get().userGetter?.()?.id || '') === userId) set(archived ? { historyError: 'Историю загрузить не удалось. Проверьте соединение и повторите.' } : { historyError: 'Историю загрузить не удалось. Проверьте соединение и повторите.' });
     }
   },
   setHistoryArchived: (archived) => {
@@ -184,12 +228,19 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const userId = get().userGetter?.()?.id || '';
     try {
       const { chat } = await guideChatOpen(userId, id);
+      if ((get().userGetter?.()?.id || '') !== userId) return;
       const messages = chat.messages as GuideMessage[];
-      const p = get().projects.find((x) => x.id === chat.projectId);
-      if (chat.projectId && p) set({ projectId: p.id, projectName: p.name });
-      const lastResult = [...messages].reverse().find((m) => m.role === 'guide' && m.context?.projectId === chat.projectId)?.context || null;
-      set({ messages, chatId: chat.id, lastResult, chatsOpen: false, chatSaveState: 'saved', chatSaveError: '', historyError: '' });
-    } catch { set({ historyError: 'Разговор недоступен или его не удалось загрузить.' }); }
+      const projects = get().projects;
+      const latestScoped = [...messages].reverse().find((m) => m.role === 'guide'
+        && m.context?.projectId && projects.some((p) => p.id === m.context!.projectId)
+        && (!m.projectId || m.projectId === m.context?.projectId));
+      const activeId = latestScoped?.context?.projectId
+        || (chat.projectId && projects.some((p) => p.id === chat.projectId) ? chat.projectId : null);
+      const p = projects.find((x) => x.id === activeId);
+      const lastResult = activeId ? latestScoped?.context || null : null;
+      set({ projectId: activeId, projectName: p?.name || '', messages, chatId: chat.id, lastResult,
+        chatsOpen: false, chatSaveState: 'saved', chatSaveError: '', historyError: '' });
+    } catch { if ((get().userGetter?.()?.id || '') === userId) set({ historyError: 'Разговор недоступен или его не удалось загрузить.' }); }
   },
   startNewChat: async () => {
     const current = get();
@@ -206,56 +257,94 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       if (get().chatSaveState !== 'saved') return;
     }
     const userId = get().userGetter?.()?.id || '';
+    const actorId = get().userGetter?.()?.id || '';
     try {
       await guideChatArchive(userId, id);
+      if ((get().userGetter?.()?.id || '') !== actorId) return;
       set((s) => ({
         chats: s.chats.filter((c) => c.id !== id),
         ...(s.chatId === id ? { messages: [], chatId: null, lastResult: null, chatSaveState: 'idle' as const, chatSaveError: '' } : {}),
       }));
       void get().loadChats(true);
-    } catch { set({ historyError: 'Разговор не удалось отправить в архив.' }); }
+    } catch { if ((get().userGetter?.()?.id || '') === actorId) set({ historyError: 'Разговор не удалось отправить в архив.' }); }
   },
   restoreChat: async (id) => {
     const userId = get().userGetter?.()?.id || '';
+    const actorId = userId;
     try {
       await guideChatRestore(userId, id);
+      if ((get().userGetter?.()?.id || '') !== actorId) return;
       set((s) => ({ archivedChats: s.archivedChats.filter((c) => c.id !== id) }));
       void get().loadChats(false);
-    } catch { set({ historyError: 'Разговор не удалось восстановить.' }); }
+    } catch { if ((get().userGetter?.()?.id || '') === actorId) set({ historyError: 'Разговор не удалось восстановить.' }); }
   },
 
   ask: async (text) => {
     const clean = String(text || '').trim();
     if (!clean || get().asking) return;
-    const user = get().userGetter?.();
+    const initial = get();
+    const user = initial.userGetter?.();
     const userId = scoped(user?.id || '');
-    set((s) => ({ messages: [...s.messages, { id: uid(), role: 'user', text: clean }], asking: true }));
+    const targetChatId = initial.chatId || `gchat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const userMessage: GuideMessage = { id: uid(), role: 'user', text: clean, projectId: initial.projectId || undefined };
     const ctx: AskContext = {
       userId,
-      projectId: get().projectId,
-      projectName: get().projectName,
-      lastResult: get().lastResult,
+      projectId: initial.projectId,
+      projectName: initial.projectName,
+      lastResult: initial.lastResult,
     };
+    set({ messages: [...initial.messages, userMessage], asking: true, chatId: targetChatId });
     try {
-      const answers = await answerQuestion(clean, ctx);
+      const rawAnswers = await answerQuestion(clean, ctx);
+      const answers = rawAnswers.map((m) => {
+        if (m.projectId) return m;
+        if (m.source?.projectId) return { ...m, projectId: m.source.projectId };
+        if (m.status === 'permission' && ctx.projectId) return { ...m, projectId: ctx.projectId };
+        return m;
+      });
+      const scopedQuestion = userMessage;
+      const snapshot = [...initial.messages, scopedQuestion, ...answers];
+      const current = get();
+      if (scoped(current.userGetter?.()?.id || '') !== userId) return;
+      const stillCurrent = current.chatId === targetChatId && current.projectId === ctx.projectId;
+      if (answers.some((m) => m.status === 'permission')) {
+        if (stillCurrent) {
+          // 403 — подтверждённый отказ. Не оставляем в активном окне ранее
+          // показанные строки проекта и контекст продолжения.
+          set({ messages: [scopedQuestion, ...answers], asking: false, lastResult: null,
+            chatId: null, chatSaveState: 'idle', chatSaveError: '' });
+        } else {
+          set({ asking: false });
+        }
+        return;
+      }
       // Структурированный контекст последнего ответа — для продолжения вопроса
       const newLast = answers.reduce<LastResult | null>((acc, m) => (m as any).context ?? acc, null);
-      set((s) => ({
-        messages: [...s.messages, ...answers],
-        asking: false,
-        lastResult: newLast ?? s.lastResult,
-      }));
-      void get().saveChat();
-    } catch {
-      set((s) => ({
-        messages: [...s.messages, {
+      if (stillCurrent) {
+        set({ messages: snapshot, asking: false, lastResult: newLast ?? current.lastResult });
+        void get().saveChat();
+      } else {
+        set({ asking: false });
+        await persistSnapshot(userId, targetChatId, ctx.projectId, snapshot);
+      }
+    } catch (error: any) {
+      const unavailable: GuideMessage = {
           id: uid(), role: 'guide', status: 'unavailable',
           text: 'Данные проекта сейчас недоступны.',
           actions: [{ kind: 'ask', label: 'Повторить вопрос', query: clean }],
           source: { label: 'Flux Guide', at: new Date().toLocaleTimeString('ru-RU') },
-        }],
-        asking: false,
-      }));
+      };
+      const current = get();
+      if (scoped(current.userGetter?.()?.id || '') !== userId) return;
+      if (current.chatId === targetChatId && current.projectId === ctx.projectId) {
+        set({ messages: [...current.messages, unavailable], asking: false });
+        void get().saveChat();
+      } else {
+        set({ asking: false });
+        if (error?.status !== 403) {
+          await persistSnapshot(userId, targetChatId, ctx.projectId, [...initial.messages, userMessage, unavailable]);
+        }
+      }
     }
   },
 
@@ -263,6 +352,7 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const s = get();
     if (!s.messages.some((m) => m.role === 'user')) return; // пустой чат не сохраняется
     const userId = scoped(s.userGetter?.()?.id || '');
+    const actorId = s.userGetter?.()?.id || '';
     const id = s.chatId || `gchat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const title = s.messages.find((m) => m.role === 'user')?.text || 'Вопрос';
     if (!s.chatId) set({ chatId: id });
@@ -270,11 +360,19 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const save = async () => {
       try {
         await guideChatSave(userId, id, { title, projectId: s.projectId || '', messages: s.messages });
-        if (get().chatId === id && get().messages === s.messages) set({ chatSaveState: 'saved', chatSaveError: '' });
+        if ((get().userGetter?.()?.id || '') === actorId && get().chatId === id && get().messages === s.messages) set({ chatSaveState: 'saved', chatSaveError: '' });
         void get().loadChats(false);
       } catch (error) {
-        if (get().chatId === id && get().messages === s.messages) {
-          set({ chatSaveState: 'error', chatSaveError: error instanceof Error ? error.message : 'Сохранить разговор не удалось.' });
+        if ((get().userGetter?.()?.id || '') === actorId && get().chatId === id && get().messages === s.messages) {
+          if ((error as any)?.status === 403) {
+            set({ projectId: null, projectName: '', messages: [{ id: uid(), role: 'guide', status: 'permission',
+              text: 'Доступ к проекту отозван. Сохранённые ответы и контекст проекта очищены.' }],
+              lastResult: null, chatId: null, chatSaveState: 'idle', chatSaveError: '',
+              projectsError: 'Доступ к выбранному проекту изменился. Список проектов обновлён.' });
+            void get().reconcileProjectAccess();
+          } else {
+            set({ chatSaveState: 'error', chatSaveError: error instanceof Error ? error.message : 'Сохранить разговор не удалось.' });
+          }
         }
       }
     };
@@ -352,8 +450,9 @@ export const useGuideStore = create<GuideState>((set, get) => ({
   tourStepCompleted: false,
   setHighlight: (selector) => set({ highlightSelector: selector }),
   startTour: (tourId) => {
-    const tour = TOURS.find((t) => t.id === tourId);
-    if (!tour) return;
+    const definition = TOURS.find((t) => t.id === tourId);
+    if (!definition) return;
+    const tour: Tour = withProjectContext(definition, !!get().activeProjectGetter?.());
     // §35.2: если раздел из navigate-шагов уже открыт на столе — не заставляем
     // открывать его повторно, стартуем с первого содержательного шага
     const openPaths = new Set(useWindowStore.getState().windows.map((w) => w.path));
@@ -399,13 +498,14 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     const index = tourStepIndex - 1;
     set({ tourStepIndex: index, tourStepCompleted: false, tourPaused: false });
     const step = activeTour.steps[index];
-    if (step.route && get().navigator) get().navigator!(step.route);
+    // Возврат меняет только позицию Guide: он не повторяет и не запускает действия в программе.
     get().setHighlight(step.target || null);
   },
   pauseTour: () => set((s) => ({ tourPaused: !s.tourPaused })),
   skipTourStep: () => {
     const { activeTour, tourStepIndex } = get();
     if (!activeTour) return;
+    if (activeTour.steps[tourStepIndex].requiredContext) return;
     if (tourStepIndex >= activeTour.steps.length - 1) { get().cancelTour(); return; }
     set({ tourStepCompleted: true });
     get().advanceTour();

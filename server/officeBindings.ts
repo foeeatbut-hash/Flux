@@ -38,6 +38,8 @@ export async function readOfficeBindings(bytes: Buffer): Promise<OfficePackageBi
   const zip = await JSZip.loadAsync(bytes);
   const part = zip.file(PART);
   if (!part) return null;
+  const declared = Number((part as any)._data?.uncompressedSize);
+  if (Number.isFinite(declared) && declared > MAX_BYTES) throw new Error('Скрытая схема Flux слишком велика');
   const xml = await part.async('string');
   if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('Скрытая схема Flux слишком велика');
   const match = /^<fluxOffice xmlns="urn:flux:office:v1">([\s\S]*)<\/fluxOffice>$/.exec(xml);

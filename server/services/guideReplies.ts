@@ -12,6 +12,7 @@ import { isAdminActor } from '../projectAccess.js';
 
 const REVOKED_TEXT = 'Данные этого ответа сейчас недоступны';
 const SERVICE_SENDER_ID = 'flux-guide-service';
+const UNKNOWN_SCOPE = '__guide_scope_unknown__';
 
 interface SanitizableRow {
   id: string;
@@ -40,7 +41,7 @@ export async function sanitizeGuideReplies<T extends SanitizableRow>(rows: T[], 
   // Одна проверка на проект за батч
   const allowed = new Map<string, boolean>();
   for (const pid of projectIds) {
-    allowed.set(pid, await canSeeProject(viewerId, pid, isAdmin));
+    allowed.set(pid, pid !== UNKNOWN_SCOPE && await canSeeProject(viewerId, pid, isAdmin));
   }
 
   const sanitize = <R extends SanitizableRow>(row: R): R => {
@@ -71,29 +72,37 @@ export async function backfillGuideReplies(): Promise<number> {
   const prisma = getPrisma();
   const service = await prisma.user.findUnique({ where: { id: SERVICE_SENDER_ID }, select: { id: true } });
   if (!service) return 0;
-  const rows = await prisma.chatMessage.findMany({
-    where: { senderId: SERVICE_SENDER_ID, guideReply: null },
-    select: { id: true, chatGroupId: true, receiverId: true, replyToId: true },
-    take: 500,
-  });
   let migrated = 0;
-  for (const row of rows as any[]) {
-    let projectId = '';
-    if (row.chatGroupId) {
-      const g = await prisma.chatGroup.findUnique({ where: { id: row.chatGroupId }, select: { projectId: true } });
-      projectId = g?.projectId || '';
-    } else if (row.replyToId) {
-      // Ответ в личном чате: проект берём из исходного запроса по группе, иначе пусто
-      const req = row.replyToId ? await prisma.chatMessage.findUnique({ where: { id: row.replyToId }, select: { chatGroupId: true } }) : null;
-      if (req?.chatGroupId) {
-        const g = await prisma.chatGroup.findUnique({ where: { id: req.chatGroupId }, select: { projectId: true } });
-        projectId = g?.projectId || '';
+  while (true) {
+    const rows = await prisma.chatMessage.findMany({
+      where: { senderId: SERVICE_SENDER_ID, guideReply: null },
+      select: { id: true, chatGroupId: true, receiverId: true, replyToId: true, linkedProjectId: true },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+    });
+    if (!rows.length) break;
+    for (const row of rows as any[]) {
+      let projectId = row.linkedProjectId || UNKNOWN_SCOPE;
+      if (row.chatGroupId) {
+        const g = await prisma.chatGroup.findUnique({ where: { id: row.chatGroupId }, select: { projectId: true } });
+        projectId = g?.projectId || UNKNOWN_SCOPE;
+      } else if (row.replyToId) {
+        // Ответ в личном чате: проект берём из исходного запроса по группе, иначе пусто
+        const req = await prisma.chatMessage.findUnique({ where: { id: row.replyToId }, select: { chatGroupId: true } });
+        if (req?.chatGroupId) {
+          const g = await prisma.chatGroup.findUnique({ where: { id: req.chatGroupId }, select: { projectId: true } });
+          projectId = g?.projectId || projectId;
+        }
       }
+      await prisma.guideReply.upsert({
+        where: { messageId: row.id },
+        update: { projectId, kind: 'legacy' },
+        create: { messageId: row.id, projectId, kind: 'legacy' },
+      });
+      migrated += 1;
     }
-    await prisma.guideReply.create({ data: { messageId: row.id, projectId, kind: 'legacy' } });
-    migrated += 1;
   }
   return migrated;
 }
 
-export { SERVICE_SENDER_ID, REVOKED_TEXT };
+export { SERVICE_SENDER_ID, REVOKED_TEXT, UNKNOWN_SCOPE };

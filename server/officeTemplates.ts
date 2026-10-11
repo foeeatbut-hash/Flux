@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { OfficePart } from '../src/lib/officeModel.js';
+import type { OfficeHeaderSchema, OfficePart } from '../src/lib/officeModel.js';
 
 export interface OfficeHeaderTemplate {
   id: string;

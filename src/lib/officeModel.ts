@@ -48,6 +48,11 @@ export interface OfficeEntityRow {
   values: Record<string, OfficeValue>;
 }
 
+/** Opaque but deterministic UI identity; raw IDs may overlap across sources/types. */
+export function officeEntityId(sourceId: string, entityType: string, rawId: string): string {
+  return `office:${encodeURIComponent(sourceId)}:${encodeURIComponent(entityType)}:${encodeURIComponent(rawId)}`;
+}
+
 export interface OfficeManualRow {
   rowId: string;
   values: Record<string, unknown>;
@@ -114,6 +119,22 @@ function fromQuantity(q: Quantity): OfficeValue {
   return { value: decimalText(amount), ...(q.unit ? { unit: q.unit } : {}) };
 }
 
+function readPartValue(part: Extract<OfficePart, { kind: 'field' | 'union' }>, row: OfficeEntityRow): { value?: OfficeValue; conflict?: string[] } {
+  if (part.kind === 'field') {
+    const value = row.values[part.binding.fieldKey];
+    return value ? { value: { ...value, unit: value.unit || part.binding.unit } } : {};
+  }
+  const candidates = part.alternatives
+    .filter((binding) => (!binding.sourceId || binding.sourceId === row.sourceId) && (!binding.entityType || binding.entityType === row.entityType))
+    .map((binding) => ({ binding, value: row.values[binding.fieldKey] }))
+    .filter((x) => x.value?.value !== null && x.value?.value !== undefined && x.value?.value !== '')
+    .sort((a, b) => a.binding.priority - b.binding.priority || a.binding.fieldKey.localeCompare(b.binding.fieldKey));
+  const tied = candidates.filter((x) => x.binding.priority === candidates[0]?.binding.priority);
+  if (tied.length > 1) return { conflict: tied.map((x) => `${x.binding.sourceId}:${x.binding.entityType}:${x.binding.fieldKey}`) };
+  const selected = candidates[0];
+  return selected?.value ? { value: { ...selected.value, unit: selected.value.unit || selected.binding.unit } } : {};
+}
+
 type Token = { kind: 'number'; quantity: Quantity } | { kind: 'op'; value: string };
 
 /**
@@ -126,24 +147,20 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
   const arithmeticParts = significant.some((part) => part.kind === 'operator');
   const firstExpression = significant.findIndex((part) => part.kind === 'operator' || part.kind === 'field' || part.kind === 'union' || (part.kind === 'text' && /^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(part.text.trim())));
   let lastExpression = significant.length - 1;
-  while (lastExpression >= 0 && significant[lastExpression].kind === 'text' && !/^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(significant[lastExpression].text.trim()) && significant[lastExpression].text.trim() !== ')') lastExpression--;
+  while (lastExpression >= 0) {
+    const last = significant[lastExpression];
+    if (last.kind !== 'text' || /^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(last.text.trim()) || last.text.trim() === ')') break;
+    lastExpression--;
+  }
   const expressionParts = arithmeticParts ? significant.slice(firstExpression, lastExpression + 1) : significant;
   if (!arithmeticParts) {
     const values: OfficeValue[] = [];
     for (const part of significant) {
       if (part.kind === 'text') { values.push({ value: part.text }); continue; }
       if (part.kind === 'operator') return {};
-      let selected: OfficeValue | undefined;
-      if (part.kind === 'field') selected = row.values[part.binding.fieldKey];
-      else {
-        const candidates = part.alternatives
-          .map((binding) => ({ binding, value: row.values[binding.fieldKey] }))
-          .filter((x) => x.value?.value !== null && x.value?.value !== undefined && x.value?.value !== '')
-          .sort((a, b) => a.binding.priority - b.binding.priority || a.binding.fieldKey.localeCompare(b.binding.fieldKey));
-        const tied = candidates.filter((x) => x.binding.priority === candidates[0]?.binding.priority);
-        if (tied.length > 1) return { conflict: tied.map((x) => x.binding.fieldKey) };
-        selected = candidates[0]?.value;
-      }
+      const chosen = readPartValue(part, row);
+      if (chosen.conflict) return { conflict: chosen.conflict };
+      const selected = chosen.value;
       if (!selected || selected.value === null || selected.value === undefined || selected.value === '') return { error: 'Источник не вернул значение' };
       values.push(selected);
     }
@@ -162,17 +179,9 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
       } else return {};
     } else if (part.kind === 'operator') tokens.push({ kind: 'op', value: part.operator });
     else {
-      let selected: OfficeValue | undefined;
-      if (part.kind === 'field') selected = row.values[part.binding.fieldKey];
-      else {
-        const candidates = part.alternatives
-          .map((binding) => ({ binding, value: row.values[binding.fieldKey] }))
-          .filter((x) => x.value?.value !== null && x.value?.value !== undefined && x.value?.value !== '')
-          .sort((a, b) => a.binding.priority - b.binding.priority || a.binding.fieldKey.localeCompare(b.binding.fieldKey));
-        const tied = candidates.filter((x) => x.binding.priority === candidates[0]?.binding.priority);
-        if (tied.length > 1) return { conflict: tied.map((x) => x.binding.fieldKey) };
-        selected = candidates[0]?.value;
-      }
+      const chosen = readPartValue(part, row);
+      if (chosen.conflict) return { conflict: chosen.conflict };
+      const selected = chosen.value;
       const q = selected && parseQuantity(selected);
       if (!q) return { error: `Поле «${part.kind === 'field' ? part.binding.fieldKey : 'объединённого поля'}» не содержит числа с совместимой единицей` };
       tokens.push({ kind: 'number', quantity: q });
@@ -181,10 +190,16 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
   if (!tokens.length || !tokens.some((x) => x.kind === 'op')) return {};
   const stack: Quantity[] = [];
   const ops: string[] = [];
-  const precedence = (op: string) => op === '*' || op === '/' ? 2 : 1;
+  const precedence = (op: string) => op === 'u-' || op === 'u+' ? 3 : op === '*' || op === '/' ? 2 : 1;
   const apply = (): string | null => {
     const op = ops.pop();
     if (!op || op === '(') return 'Нарушен порядок операторов';
+    if (op === 'u-' || op === 'u+') {
+      const value = stack.pop();
+      if (!value) return 'Не хватает значения около унарного знака';
+      stack.push({ ...value, amount: op === 'u-' ? -value.amount : value.amount });
+      return null;
+    }
     const right = stack.pop(), left = stack.pop();
     if (!left || !right) return 'Не хватает значения около оператора';
     if (op === '+' || op === '-') {
@@ -213,6 +228,7 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
       while (ops.length && ops[ops.length - 1] !== '(') { const err = apply(); if (err) return { error: err }; }
       if (ops.pop() !== '(') return { error: 'Нет открывающей скобки' };
     } else {
+      if (expectsValue && (token.value === '-' || token.value === '+')) { ops.push(token.value === '-' ? 'u-' : 'u+'); continue; }
       if (expectsValue) return { error: 'После оператора нужно значение' };
       while (ops.length && ops[ops.length - 1] !== '(' && precedence(ops[ops.length - 1]) >= precedence(token.value)) { const err = apply(); if (err) return { error: err }; }
       ops.push(token.value); expectsValue = true;
@@ -225,7 +241,17 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
   // Внутреннее хранение фиксировано с шестью знаками; округление задаёт единый
   // результат и не зависит от платформенного double округления.
   const round = (value: bigint) => value >= 0n ? (value + 5n) / 10n : (value - 5n) / 10n;
-  return { value: fromQuantity({ ...result, amount: round(result.amount) * 10n }) };
+  const rounded = fromQuantity({ ...result, amount: round(result.amount) * 10n });
+  const prefix = significant.slice(0, firstExpression).filter((part) => part.kind === 'text').map((part) => (part as Extract<OfficePart, {kind:'text'}>).text).join('');
+  const suffix = significant.slice(lastExpression + 1).filter((part) => part.kind === 'text').map((part) => (part as Extract<OfficePart, {kind:'text'}>).text).join('');
+  const suffixUnit = suffix.trim().match(/^(?:кВт|мВт|Вт|kW|MW|W|Па|кПа|МПа|м³\/ч|m³\/h)$/i)?.[0];
+  let rendered = rounded;
+  const displayUnit = suffixUnit ? UNITS[cleanUnit(suffixUnit)] : undefined;
+  if (suffixUnit && displayUnit && result.dimension === displayUnit.dimension) {
+    rendered = { value: decimalText(result.amount / displayUnit.factor) };
+  }
+  if (prefix || suffix) return { value: { value: `${prefix}${rendered.value}${rendered.unit ? ` ${rendered.unit}` : ''}${suffix}` } };
+  return { value: rendered };
 }
 
 export interface ExistingOfficeRow { entityId?: string; rowId: string; manuallyEdited?: boolean }
@@ -242,11 +268,22 @@ export function planOfficeFill(args: {
   const plan: OfficeFillPlan = { baseHash: args.baseHash, sourceRevision: args.sourceRevision, selectedEntityIds: [...new Set(args.selectedEntityIds)], writes: [], adds: [], replaces: [], manualRows: [], skips: [], errors: [], conflicts: [] };
   const rowById = new Map(args.rows.map((row) => [row.entityId, row]));
   const oldById = new Map<string, ExistingOfficeRow>();
+  const duplicateRows = new Map<string, string[]>();
   for (const row of args.existingRows || []) {
     if (row.manuallyEdited || !row.entityId) plan.manualRows.push(row.rowId);
-    else oldById.set(row.entityId, row);
+    else {
+      const siblings = duplicateRows.get(row.entityId) || [];
+      siblings.push(row.rowId);
+      duplicateRows.set(row.entityId, siblings);
+      oldById.set(row.entityId, row);
+    }
   }
   for (const entityId of plan.selectedEntityIds) {
+    const duplicates = duplicateRows.get(entityId);
+    if (duplicates && duplicates.length > 1) {
+      plan.conflicts.push({ entityId, anchorId: '', candidates: duplicates });
+      continue;
+    }
     const row = rowById.get(entityId);
     if (!row) { plan.skips.push({ entityId, anchorId: '', reason: 'Сущность отсутствует в текущей выборке' }); continue; }
     const existed = oldById.has(entityId);

@@ -70,6 +70,8 @@ export interface GuideSource {
   at: string;
   articleId?: string;
   articleTitle?: string;
+  /** Project whose current ACL controls whether this source/result may be shown. */
+  projectId?: string;
 }
 
 export interface GuideMessage {
@@ -85,6 +87,8 @@ export interface GuideMessage {
   clarify?: GuideClarify;
   source?: GuideSource;
   status?: 'ok' | 'no-match' | 'permission' | 'unavailable' | 'need-project';
+  /** Project provenance for this individual message; conversations may span projects. */
+  projectId?: string;
   /** Структурированный контекст для продолжения вопроса («их», «а без тегов», «выгрузи») */
   context?: {
     intent: string; label: string; projectId: string;

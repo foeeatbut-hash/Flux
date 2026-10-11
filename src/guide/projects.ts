@@ -144,7 +144,13 @@ async function put(path: string, userId: string, body: unknown): Promise<unknown
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Сервер недоступен (${res.status})`);
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({} as any));
+    const err = new Error(payload?.error || `Сервер недоступен (${res.status})`) as Error & { code?: string; status?: number };
+    err.code = payload?.code;
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 

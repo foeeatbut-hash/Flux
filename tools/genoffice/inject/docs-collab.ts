@@ -28,6 +28,7 @@ import {
 } from 'y-prosemirror'
 import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
 
@@ -118,6 +119,135 @@ function whenReady(): Promise<Editor> {
     tick()
   })
 }
+
+const fieldGuardKey = new PluginKey('fluxFieldGuard')
+const cellAnchorIds = new WeakMap<object, string>()
+const isFluxField = (mark: any) => mark?.type?.name === 'instrField' && /^\s*DOCPROPERTY\s+"flux:[^"]+"\s*$/i.test(String(mark.attrs?.instr || ''))
+const bookmarkName = (anchorId: string) => `FLUX_${anchorId.replaceAll('-', '')}`
+const anchorIdFromBookmark = (value: unknown): string | null => {
+  const match = /^FLUX_([0-9a-f]{32})$/i.exec(String(value || ''))
+  if (!match) return null
+  const hex = match[1].toLowerCase()
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+function selectionTouchesFluxField(state: any, key: string): boolean {
+  const { from, to, empty } = state.selection
+  if (!empty) {
+    let found = false
+    state.doc.nodesBetween(from, to, (node: any) => {
+      if (node.isText && (node.marks || []).some(isFluxField)) found = true
+    })
+    return found
+  }
+  const probe = key === 'Backspace' ? from - 1 : from
+  if (probe < 0 || probe >= state.doc.content.size) return false
+  const $probe = state.doc.resolve(probe)
+  const node = key === 'Backspace' ? $probe.nodeAfter : $probe.nodeAfter
+  return !!node?.isText && (node.marks || []).some(isFluxField)
+}
+
+function installFluxFieldGuard(editor: Editor): void {
+  try { editor.unregisterPlugin(fieldGuardKey) } catch { /* первый запуск */ }
+  editor.registerPlugin(new Plugin({
+    key: fieldGuardKey,
+    props: {
+      handleKeyDown(view, event) {
+        if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+        // Поле нельзя стереть случайным Backspace; сначала его явно выбирают
+        // и удаляют командой Flux, чтобы таблица не теряла привязку незаметно.
+        return selectionTouchesFluxField(view.state, event.key)
+      },
+    },
+  }))
+}
+
+function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; documentPart: string } | null {
+  const selection = editor.state.selection
+  for (let depth = selection.$from.depth; depth > 0; depth--) {
+    const cell = selection.$from.node(depth)
+    if (!['docTableCell', 'docTableHeader'].includes(cell.type.name)) continue
+    let anchorId: string | undefined
+    cell.descendants((node: any) => {
+      if (anchorId || !['docParagraph', 'paragraph'].includes(node.type.name)) return
+      const names = [...(node.attrs?.bookmarks || []), ...(node.attrs?.hiddenBookmarks || [])]
+      anchorId = names.map(anchorIdFromBookmark).find(Boolean) || undefined
+    })
+    anchorId ||= cellAnchorIds.get(cell)
+    if (!anchorId) { anchorId = globalThis.crypto.randomUUID(); cellAnchorIds.set(cell, anchorId) }
+    return { kind: 'word-row', anchorId, documentPart: 'word/document.xml' }
+  }
+  return null
+}
+
+function persistDocAnchor(editor: Editor, anchorId: string): boolean {
+  const selection = editor.state.selection
+  let cellDepth = -1
+  let paragraphDepth = -1
+  for (let depth = selection.$from.depth; depth > 0; depth--) {
+    const node = selection.$from.node(depth)
+    if (paragraphDepth < 0 && ['docParagraph', 'paragraph'].includes(node.type.name)) paragraphDepth = depth
+    if (['docTableCell', 'docTableHeader'].includes(node.type.name)) { cellDepth = depth; break }
+  }
+  if (cellDepth < 0 || paragraphDepth <= cellDepth) return false
+  const pos = selection.$from.before(paragraphDepth)
+  const paragraph = editor.state.doc.nodeAt(pos)
+  if (!paragraph) return false
+  const name = bookmarkName(anchorId)
+  const existing = [...(paragraph.attrs?.bookmarks || []), ...(paragraph.attrs?.hiddenBookmarks || [])]
+  if (!existing.includes(name)) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, {
+    ...paragraph.attrs,
+    hiddenBookmarks: [...(paragraph.attrs?.hiddenBookmarks || []), name],
+  }))
+  return true
+}
+
+async function installFluxFields(): Promise<void> {
+  const p = port()
+  if (!p) return
+  const editor = await whenReady()
+  installFluxFieldGuard(editor)
+    const report = () => p.tell('flux:anchor-selected', docAnchor(editor))
+  editor.on('selectionUpdate', report)
+  editor.on('destroy', () => editor.off('selectionUpdate', report))
+  p.on('insertFluxField', async (request: any) => {
+    const key = String(request?.fieldKey || '')
+    const label = String(request?.displayText ?? `{{${key}}}`)
+    // Project-data catalog field keys include tag paths, element paths,
+    // aliases (`param:group|key`) and metadata keys. Keep the instruction
+    // injection-safe without hard-coding one catalog generation.
+    const safeKey = key.length <= 200 && /^[\p{L}\p{N}_@.:[\]|-]+$/u.test(key)
+    let result: any = { ok: false, fieldKey: key, error: 'Ключ поля не поддерживается' }
+    if (safeKey && label.length <= 2000) {
+      try {
+        const ed = await whenReady()
+        const selectedAnchor = docAnchor(ed)
+        const anchorId = String(request?.anchorId || selectedAnchor?.anchorId || '')
+        if (!anchorId || !persistDocAnchor(ed, anchorId)) throw new Error('Выберите ячейку таблицы: якорь не сохранён')
+        const instr = `DOCPROPERTY "flux:${key}"`
+        const ok = ed.chain().focus().insertContent([{ type: 'text', text: label, marks: [{ type: 'instrField', attrs: { instr } }] }]).run()
+        const anchor = docAnchor(ed)
+        result = { ok, fieldKey: key, ...(anchor ? { anchorId: anchor.anchorId, anchor } : { anchorId }), ...(ok ? {} : { error: 'Поле не вставлено в текущую позицию' }) }
+      } catch (err: any) { result = { ok: false, fieldKey: key, error: String(err?.message || err) } }
+    }
+    p.tell('flux:field-inserted', result)
+  })
+  p.on('removeFluxField', () => {
+    const { state, view } = editor
+    const { from, to, empty } = state.selection
+    let range: { from: number; to: number } | null = null
+    const scanFrom = empty ? Math.max(0, from - 1) : from
+    const scanTo = empty ? Math.min(state.doc.content.size, from + 1) : to
+    state.doc.nodesBetween(scanFrom, scanTo, (node: any, pos: number) => {
+      if (!range && node.isText && (node.marks || []).some(isFluxField)) range = { from: pos, to: pos + node.nodeSize }
+    })
+    if (range) view.dispatch(state.tr.delete(range.from, range.to).scrollIntoView())
+  })
+}
+
+// Flux tokens use GenOffice's existing `instrField` mark and are serialized
+// by its Word field converter. The ordinary editor remains untouched.
+void installFluxFields()
 
 /** Возвращает тег только когда щелчок пришёлся внутрь явно набранного #TAG. */
 function tagAtPoint(root: HTMLElement, x: number, y: number): string | null {

@@ -406,13 +406,15 @@ export const SECTIONS: Section[] = [
     },
   },
 
-  // ── Помощник ─────────────────────────────────────────────────────────────
+  // ── Flux Guide ──────────────────────────────────────────────────────────
   {
-    title: 'Помощник',
+    title: 'Flux Guide',
     async run(c) {
-      if (!await enter(c, 'Помощник', 'S11-01')) return;
+      if (!await enter(c, 'Flux Guide', 'S11-01')) return;
       await c.page.waitForTimeout(2500);
-      const place = await opened(c, 'S11-01', 'окно помощника открылось', 'S11-до');
+      const place = await opened(c, 'S11-01', 'окно Guide открылось', 'S11-до');
+      const questions = c.page.getByRole('button', { name: 'Вопросы', exact: true });
+      if (await questions.isVisible()) await questions.click();
 
       const box = await field(c, 'прос') || await field(c, 'апиш');
       if (box) {
@@ -424,14 +426,14 @@ export const SECTIONS: Section[] = [
         c.step('S11-01', 'ПРОЙДЕН',
           `${await where(c)}; вопрос задан, ответ получен: ${t.slice(-220)}`, [f]);
       } else {
-        c.step('S11-01', 'НЕ ПРОЙДЕН', `${place}; поля вопроса в окне помощника нет`);
+        c.step('S11-01', 'НЕ ПРОЙДЕН', `${place}; поля вопроса в окне Guide нет`);
       }
 
       c.step('S11-02', 'НЕ ПРОВЕРЕНО', 'переход по ссылке на найденный тег требует проекта с тегами в базе владельца');
       c.step('S11-03', 'НЕ ПРОВЕРЕНО', 'сверка контекста при переключении проекта требует двух наполненных проектов');
-      c.step('S11-04', 'НЕ ПРОВЕРЕНО', 'демонстрации подсвечивают места в разделах — проверяются отдельным набором test-assistant-links');
-      c.step('S11-05', 'ПРОЙДЕН',
-        `${place}; помощник живёт и панелью (Ctrl+K), и окном — одно и то же устройство разговора, история общая (store/assistantChatsStore)`);
+      c.step('S11-04', 'НЕ ПРОВЕРЕНО', 'результат демонстрации в рабочем разделе проверяется отдельно от набора test-guide-spotlight-ui');
+      c.step('S11-05', 'НЕ ПРОВЕРЕНО',
+        `${place}; сохранение, архив и восстановление требуют проверки серверной истории Guide`);
     },
   },
 

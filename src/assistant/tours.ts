@@ -4,6 +4,14 @@
 
 export type TourAction = 'click' | 'input' | 'navigate' | 'info';
 
+export type TourExpectedResult =
+  | { kind: 'active-route'; route: string }
+  | { kind: 'visible'; selector: string }
+  | { kind: 'visible-text'; selector: string; contains: string }
+  | { kind: 'attribute'; selector: string; name: string; value: string }
+  | { kind: 'input-nonempty'; selector: string }
+  | { kind: 'project-selected' };
+
 export interface TourStep {
   text: string;
   target?: string;
@@ -18,6 +26,10 @@ export interface TourStep {
   afterAction?: boolean;
   /** Небезопасное действие только объясняется; шаг не должен подводить к автозаписи. */
   safeOnly?: boolean;
+  /** Действия сотрудника недостаточно: этот интерфейсный результат обязан появиться сам. */
+  expectedResult?: TourExpectedResult;
+  /** Контекстная предпосылка не пропускается, пока сотрудник не выберет проект. */
+  requiredContext?: boolean;
 }
 
 export interface Tour {
@@ -43,10 +55,9 @@ export const TOURS: Tour[] = [
     intro: 'Чтобы добавить новый тег, перейдите в раздел «Теги» и заполните форму. Нажмите «Показать демонстрацию» — я подсвечу каждый шаг.',
     steps: [
       { text: 'Откройте раздел «Теги» — из Пуска или с панели задач.', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
-      { text: 'Введите код нового тега латиницей в поле «Код тега».', target: '[data-tour="tag-code-input"]', route: '/registry', action: 'input' },
+      { text: 'Введите код нового тега латиницей в поле «Код тега». Перед сохранением проверьте, что проект выбран и код свободен.', target: '[data-tour="tag-code-input"]', route: '/registry', action: 'input', expectedResult: { kind: 'input-nonempty', selector: '[data-tour="tag-code-input"]' } },
       { text: 'Заполните марку и наименование. Отдел, WBS и среда — под кнопкой «Доп» в той же строке.', route: '/registry', action: 'info' },
-      { text: 'Нажмите «Создать», чтобы сохранить тег.', target: '[data-tour="tag-create-btn"]', route: '/registry', action: 'click' },
-      { text: 'Проверьте, что тег появился в реестре. Демонстрация не подтверждает сохранение за вас.', action: 'info' },
+      { text: 'Проверьте поля и свободный код. Для записи тега нажмите «Создать» самостоятельно; демонстрация не выполняет запись.', action: 'info', safeOnly: true },
     ],
   },
   {
@@ -56,7 +67,7 @@ export const TOURS: Tour[] = [
     intro: 'Теги можно генерировать автоматически по префиксу — система подставит следующий свободный номер. Показываю.',
     steps: [
       { text: 'Откройте раздел «Теги».', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
-      { text: 'В форме создания введите префикс (например, AHU-) — программа подскажет следующий номер. Сами шаблоны настраиваются в «Справочнике».', target: '[data-tour="tag-code-input"]', route: '/registry', action: 'info' },
+      { text: 'В форме создания введите нужный префикс — программа подскажет следующий номер. Сами шаблоны настраиваются в «Справочнике».', target: '[data-tour="tag-code-input"]', route: '/registry', action: 'input', expectedResult: { kind: 'input-nonempty', selector: '[data-tour="tag-code-input"]' } },
     ],
   },
   {
@@ -79,7 +90,7 @@ export const TOURS: Tour[] = [
     steps: [
       { text: 'Откройте раздел «Теги».', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
       { text: 'Переключитесь на вкладку «Спецификация» (табличный вид) или найдите карточку тега на Схеме.', route: '/registry', action: 'info' },
-      { text: 'Откройте карточку тега — там есть кнопки редактирования и удаления. Подтвердите действие.', action: 'info' },
+      { text: 'В карточке доступны редактирование и удаление. Эта демонстрация не подтверждает удаление и не меняет запись.', action: 'info', safeOnly: true },
     ],
   },
   // ---------- ПРОЕКТЫ ----------
@@ -90,8 +101,8 @@ export const TOURS: Tour[] = [
     intro: 'Проекты создаются в разделе «Проекты». Запускаю демонстрацию.',
     steps: [
       { text: 'Откройте раздел «Проекты» — из Пуска или с панели задач.', target: '[data-tour="nav-/projects"]', route: '/projects', action: 'navigate' },
-      { text: 'Нажмите кнопку создания нового проекта.', target: '[data-tour="project-create-btn"]', route: '/projects', action: 'click' },
-      { text: 'Заполните название и проверьте форму. Создание проекта требует вашего явного подтверждения.', action: 'info', safeOnly: true },
+      { text: 'Нажмите «Создать проект», чтобы открыть форму. Сам проект появится только после вашего подтверждения.', target: '[data-tour="project-create-btn"]', route: '/projects', action: 'click', expectedResult: { kind: 'visible-text', selector: '[role="dialog"]', contains: 'Новый проект' } },
+      { text: 'Заполните и проверьте форму. Сохранение проекта остаётся за вами; Guide его не подтверждает.', action: 'info', safeOnly: true },
     ],
   },
   {
@@ -155,7 +166,7 @@ export const TOURS: Tour[] = [
       { text: 'Откройте раздел «Проводник».', target: '[data-tour="nav-/explorer"]', route: '/explorer', action: 'navigate' },
       { text: 'Выберите или загрузите файл расчёта (XLSX/XML).', route: '/explorer', action: 'info' },
       { text: 'Нажмите на файл правой кнопкой → «Добавить в оборудование…» и выберите категорию (АХУ, вентилятор, клапан…).', route: '/explorer', action: 'info' },
-      { text: 'Импортированное появится в разделе «Оборудование».', target: '[data-tour="nav-/equipment"]', route: '/explorer', action: 'info' },
+      { text: 'После отдельного подтверждённого импорта проверьте результат в разделе «Оборудование». Демонстрация не начинает импорт.', action: 'info', safeOnly: true },
     ],
   },
   // ---------- ОБОРУДОВАНИЕ ----------
@@ -177,7 +188,7 @@ export const TOURS: Tour[] = [
     steps: [
       { text: 'Откройте раздел «Оборудование».', target: '[data-tour="nav-/equipment"]', route: '/equipment', action: 'navigate' },
       { text: 'Найдите подсвеченный компонент с конфликтом и откройте его.', action: 'info' },
-      { text: 'Сверьте старые и новые значения и подтвердите (разрешите) актуальные характеристики.', action: 'info' },
+      { text: 'Сверьте старые и новые значения. Подтверждение ревизии изменяет проект и остаётся за вами.', action: 'info', safeOnly: true },
     ],
   },
   // ---------- СПРАВОЧНИК ----------
@@ -219,8 +230,8 @@ export const TOURS: Tour[] = [
     intro: 'Рабочий чат — для общения с коллегами. Покажу, как написать сообщение.',
     steps: [
       { text: 'Открываю Мессенджер.', target: '[data-tour="nav-/chat"]', route: '/chat', action: 'navigate' },
-      { text: 'Слева — разговоры: помощник, группы проекта и личные диалоги. Выберите собеседника.', target: '[data-tour="chat-peers"]', route: '/chat', action: 'click' },
-      { text: 'Введите текст в поле внизу и нажмите Enter.', target: '[data-tour="chat-input"]', route: '/chat', action: 'input', afterAction: true },
+      { text: 'Слева находятся разговоры. Выберите нужный диалог самостоятельно; отправка сообщения в демонстрацию не входит.', route: '/chat', action: 'info' },
+      { text: 'Можно написать черновик в поле ввода и проверить адресата. Не отправляйте его в рамках демонстрации.', target: '[data-tour="chat-input"]', route: '/chat', action: 'input', expectedResult: { kind: 'input-nonempty', selector: '[data-tour="chat-input"]' }, safeOnly: true },
     ],
   },
   {
@@ -230,9 +241,9 @@ export const TOURS: Tour[] = [
     intro: 'В чате можно отвечать с цитатой, редактировать и удалять свои сообщения. Покажу.',
     steps: [
       { text: 'Открываю Мессенджер.', target: '[data-tour="nav-/chat"]', route: '/chat', action: 'navigate' },
-      { text: 'Выберите диалог слева.', target: '[data-tour="chat-peers"]', route: '/chat', action: 'click' },
+      { text: 'Выберите диалог слева самостоятельно.', route: '/chat', action: 'info' },
       { text: 'Наведите курсор на сообщение — появятся «Ответить», «Копировать», а у своих ещё «Изменить» и «Удалить».', route: '/chat', action: 'info' },
-      { text: 'Нажмите «Ответить» — над полем ввода появится цитата. Напишите ответ и отправьте.', target: '[data-tour="chat-input"]', route: '/chat', action: 'info', afterAction: true },
+      { text: 'Ответ откроет цитату над полем ввода. Не отправляйте сообщение в рамках демонстрации.', target: '[data-tour="chat-input"]', route: '/chat', action: 'input', expectedResult: { kind: 'input-nonempty', selector: '[data-tour="chat-input"]' }, safeOnly: true },
     ],
   },
   {
@@ -242,8 +253,7 @@ export const TOURS: Tour[] = [
     intro: 'К сообщению можно прикрепить файл. Демонстрирую.',
     steps: [
       { text: 'Открываю Мессенджер.', target: '[data-tour="nav-/chat"]', route: '/chat', action: 'navigate' },
-      { text: 'Выберите диалог слева.', target: '[data-tour="chat-peers"]', route: '/chat', action: 'click' },
-      { text: 'Нажмите скрепку рядом с полем ввода, выберите файл и отправьте сообщение.', target: '[data-tour="chat-input"]', route: '/chat', action: 'info', afterAction: true },
+      { text: 'В поле сообщения есть кнопка вложения. Выбор и отправка файла создают сообщение, поэтому это действие оставлено вам.', route: '/chat', action: 'info', safeOnly: true },
     ],
   },
   {
@@ -264,7 +274,7 @@ export const TOURS: Tour[] = [
     intro: 'Заметки ведутся в разделе «Блокнот». Демонстрирую.',
     steps: [
       { text: 'Откройте раздел «Блокнот».', target: '[data-tour="nav-/notes"]', route: '/notes', action: 'navigate' },
-      { text: 'Нажмите «+», чтобы создать заметку.', target: '[data-tour="note-create-btn"]', route: '/notes', action: 'click' },
+      { text: 'Кнопка «Создать заметку» сразу создаёт запись. Нажмите её только когда действительно хотите создать заметку.', route: '/notes', action: 'info', safeOnly: true },
       { text: 'Введите заголовок и текст — заметка сохраняется автоматически.', action: 'info' },
     ],
   },
@@ -329,7 +339,7 @@ export const TOURS: Tour[] = [
     questions: ['как сменить базу данных', 'как подключить общую базу', 'где хранится база', 'как выбрать файл базы'],
     intro: 'Путь к базе меняется в Настройках (или на экране входа). Показываю через Настройки.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «База данных».', target: '[data-tour="settings-database"]', route: '/settings?section=database', action: 'navigate' },
+      { text: 'Откройте Настройки и выберите «База данных».', target: '[data-tour="settings-database"]', route: '/settings?section=database', action: 'click', expectedResult: { kind: 'attribute', selector: '[data-tour="settings-database"]', name: 'aria-current', value: 'true' } },
       { text: 'В блоке «База данных» нажмите «Выбрать файл БД…» (подключить существующую базу) или «Стандартный путь» (вернуть в папку профиля).', action: 'info' },
     ],
   },
@@ -339,7 +349,7 @@ export const TOURS: Tour[] = [
     questions: ['как настроить логи', 'куда сохраняются логи', 'папка crash логов', 'где журнал ошибок'],
     intro: 'Папку для аварийных логов можно выбрать в Настройках. Покажу.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Ошибки и сбои».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'navigate' },
+      { text: 'Откройте Настройки и выберите «Ошибки и сбои».', target: '[data-tour="settings-logs"]', route: '/settings?section=logs', action: 'click', expectedResult: { kind: 'attribute', selector: '[data-tour="settings-logs"]', name: 'aria-current', value: 'true' } },
       { text: 'В блоке «Копия на сервере» нажмите «Выбрать папку…» — туда будут сохраняться журналы с датой и временем в имени.', action: 'info' },
     ],
   },
@@ -349,7 +359,7 @@ export const TOURS: Tour[] = [
     questions: ['как сменить тему', 'тёмная тема', 'светлая тема', 'как поменять оформление'],
     intro: 'Светлая и тёмная темы переключаются в Настройках. Демонстрирую.',
     steps: [
-      { text: 'Откройте Настройки — шестерёнка в подвале Пуска — и выберите «Общие».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'navigate' },
+      { text: 'Откройте Настройки и выберите «Общие».', target: '[data-tour="settings-general"]', route: '/settings?section=general', action: 'click', expectedResult: { kind: 'attribute', selector: '[data-tour="settings-general"]', name: 'aria-current', value: 'true' } },
       { text: 'В блоке «Тема интерфейса» выберите «Светлая» или «Тёмная». Выбор запоминается.', action: 'info' },
     ],
   },
@@ -551,7 +561,7 @@ export const TOURS: Tour[] = [
       { text: 'Открываю раздел «Проекты».', target: '[data-tour="nav-/projects"]', route: '/projects', action: 'navigate' },
       { text: 'Нажмите на карточку проекта — откроется его окно с полями.', route: '/projects', action: 'info' },
       { text: 'Код, заказчик, подрядчик и примечание правятся прямо там: эти поля потом подставляются в титульные листы и в реестр ВДР.', route: '/projects', action: 'info' },
-      { text: 'Сохраните — изменения сразу увидят все, у кого открыт этот проект.', action: 'info' },
+      { text: 'Сохранение меняет данные проекта. Выполняйте его только после проверки; демонстрация не сохраняет поля.', action: 'info', safeOnly: true },
     ],
   },
   {
@@ -560,11 +570,10 @@ export const TOURS: Tour[] = [
     questions: ['как загрузить оборудование', 'как импортировать расчёт', 'загрузка бланка подбора', 'откуда берётся оборудование', 'импорт из документов'],
     intro: 'Оборудование не набивают руками — его распознают из бланка подбора, ведомости или страницы каталога. Показываю.',
     steps: [
-      { text: 'Открываю раздел «Оборудование».', target: '[data-tour="nav-/equipment"]', route: '/equipment', action: 'navigate' },
-      { text: 'Внизу списка категорий — «Импорт из документов». Нажмите её.', target: '[data-tour="equipment-import-btn"]', route: '/equipment', action: 'click' },
-      { text: 'Выберите файл: PDF, Excel, Word или XML. Программа разберёт его и покажет, что нашла.', route: '/equipment', action: 'info', afterAction: true },
-      { text: 'Ничего не запишется, пока вы не посмотрите предпросмотр и не согласитесь: строки с сомнительными значениями помечены отдельно.', action: 'info' },
-      { text: 'Неудачный импорт отменяется целиком — наверху раздела появляется «Отменить импорт».', action: 'info' },
+      { text: 'Откройте раздел «Оборудование».', target: '[data-tour="nav-/equipment"]', route: '/equipment', action: 'navigate', expectedResult: { kind: 'active-route', route: '/equipment' } },
+      { text: 'Откройте мастер импорта. Файл не выбран, данные проекта не меняются.', target: '[data-tour="equipment-import-btn"]', route: '/equipment', action: 'click', expectedResult: { kind: 'visible-text', selector: 'h2', contains: 'Импорт из документов' } },
+      { text: 'Выберите свой файл и дождитесь предпросмотра. Сверьте установки, параметры и предупреждения; демонстрация не выбирает файл и не подтверждает импорт.', route: '/equipment', action: 'info', safeOnly: true },
+      { text: 'Импорт выполняйте только после проверки предпросмотра и явного подтверждения. Успех определяется результатом в разделе, а не нажатием кнопки.', action: 'info', safeOnly: true },
     ],
   },
   {
@@ -586,8 +595,8 @@ export const TOURS: Tour[] = [
     intro: 'Сведения о теге правятся в спецификации — там же видно, что подставится в документы. Показываю.',
     steps: [
       { text: 'Открываю раздел «Теги».', target: '[data-tour="nav-/registry"]', route: '/registry', action: 'navigate' },
-      { text: 'Переключитесь на «Спецификацию» — это табличный вид реестра.', target: '[data-tour="tag-table-tab"]', route: '/registry', action: 'click' },
-      { text: 'Наведите на строку тега и нажмите карандаш — откроется карточка: марка, отдел, WBS, среда. Изменения сохраняются сами.', route: '/registry', action: 'info', afterAction: true },
+      { text: 'Переключитесь на «Спецификацию» — это табличный вид реестра.', target: '[data-tour="tag-table-tab"]', route: '/registry', action: 'click', expectedResult: { kind: 'attribute', selector: '[data-tour="tag-table-tab"]', name: 'aria-selected', value: 'true' } },
+      { text: 'Наведите на строку тега и откройте карточку. Изменения требуют сохранения; демонстрация не редактирует запись.', route: '/registry', action: 'info', safeOnly: true },
       { text: 'Характеристики изделия правятся не здесь, а в «Оборудовании»: у тега они показываются, но принадлежат изделию.', action: 'info' },
     ],
   },
@@ -610,7 +619,7 @@ export const TOURS: Tour[] = [
     steps: [
       { text: 'Открываю Проводник.', target: '[data-tour="nav-/explorer"]', route: '/explorer', action: 'navigate' },
       { text: 'Слева два раздела: «Общий» видят все, «Личный» — только вы. Файл переносится между ними перетаскиванием.', route: '/explorer', action: 'info' },
-      { text: 'Загрузить файл можно этой кнопкой — или просто перетащить его из Windows.', target: '[data-tour="explorer-upload-btn"]', route: '/explorer', action: 'click' },
+      { text: 'Загрузить файл можно этой кнопкой или перетащить его из Windows. Загрузка изменит хранилище; демонстрация не выбирает и не загружает файл.', route: '/explorer', action: 'info', safeOnly: true },
       { text: 'На рабочем столе то же самое делается правой кнопкой по значку: «Положить на общий стол».', action: 'info' },
       { text: 'Кто и что менял с общим файлом, видно в Журнале — если на него выдано право.', action: 'info' },
     ],
@@ -634,7 +643,7 @@ export const TOURS: Tour[] = [
     intro: 'Кнопка F рядом с отправкой превращает сообщение в вопрос Flux Guide — ответ придёт в тот же разговор.',
     steps: [
       { text: 'Откройте Мессенджер и нужный разговор — личный или групповой.', route: '/chat', target: '[data-tour="nav-/chat"]', action: 'navigate' },
-      { text: 'Нажмите кнопку F рядом с «Отправить» — поле ввода выделится изумрудной рамкой, а подсказка покажет, кто увидит ответ.', target: '[data-tour="chat-input"]', action: 'info' },
+      { text: 'Нажмите кнопку F рядом с «Отправить». Проверю, что режим вопроса Guide включился; перед отправкой проверьте, кто увидит ответ.', target: 'button[title^="Спросить Flux Guide"]', action: 'click', expectedResult: { kind: 'attribute', selector: 'button[title^="Спросить Flux Guide"]', name: 'aria-pressed', value: 'true' } },
       { text: 'Напишите вопрос и отправьте. Ответ придёт в этот же разговор от имени Flux Guide; его увидят участники.', action: 'info' },
       { text: 'При смене разговора режим F выключается: следующее сообщение уйдёт как обычное.', action: 'info' },
     ],

@@ -27,6 +27,9 @@ import React, { forwardRef, useImperativeHandle, useCallback, useEffect, useRef,
 import { useSearchParams } from 'react-router-dom';
 import { Btn, Empty } from '../ui';
 import FluxPanel from './FluxPanel';
+import FluxOfficePanel, { type FluxOfficeAnchorSelection } from './FluxOfficePanel';
+import { officeDataApi } from './fluxData';
+import type { OfficeBinding, OfficeFillPlan, OfficeHeaderSchema } from '../../lib/officeModel';
 import { openEditorTag } from '../../lib/editorTag';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { sheetName, cellValue } from '../../../office/fieldKeys';
@@ -82,12 +85,15 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const closeWait = useRef<((ok: boolean) => void) | null>(null);
   const fieldWait = useRef<((r: { ok: boolean; cell?: string; error?: string } | null) => void) | null>(null);
   const commandWaits = useRef(new Map<string, (r: any) => void>());
+  const officeEventWaits = useRef(new Map<string, (payload: any) => void>());
   const command = (channel: string, payload?: unknown): Promise<any> => new Promise(resolve => {
     const id = crypto.randomUUID(); commandWaits.current.set(id, resolve);
     send({ event: 'ipc', payload: { channel, args: [{ id, payload }] } });
     setTimeout(() => { if (commandWaits.current.delete(id)) resolve({ ok: false, error: 'Редактор не ответил' }); }, 15000);
   });
   const [dataOpen, setDataOpen] = useState(false);
+  const [legacyPanelOpen, setLegacyPanelOpen] = useState(false);
+  const [activeFluxAnchor, setActiveFluxAnchor] = useState<FluxOfficeAnchorSelection | null>(null);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const themeRef = useRef(theme);
@@ -180,6 +186,9 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       const channel = String(m.payload?.channel || '');
       const args = Array.isArray(m.payload?.args) ? m.payload.args : [];
       if (m.op === 'ipc-send' && channel.startsWith('flux:')) {
+        if (channel === 'flux:anchor-selected') { setActiveFluxAnchor(args[0] || null); return; }
+        const officeWait = officeEventWaits.current.get(channel);
+        if (officeWait) { officeEventWaits.current.delete(channel); officeWait(args[0] || null); }
         if (channel === 'flux:tag-click') void openEditorTag(activeProjectId, args[0]);
         if (channel === 'flux:command-result') { const r = args[0]; const wait = commandWaits.current.get(r?.id); if (wait) { commandWaits.current.delete(r.id); wait(r); } }
         // Общая книга: свои правки — на сервер, номер — обратно редактору
@@ -338,6 +347,27 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     send({ event: 'ipc', payload: { channel: 'flux:insert-field', args: [{ name: sheetName(f.key), value: cellValue(f.value === '—' ? '' : f.value) }] } });
     setTimeout(() => { if (fieldWait.current) { fieldWait.current = null; addToast('Редактор не ответил — поле не вставлено', 'error'); resolve(); } }, 8000);
   });
+  const callFluxEvent = (channel: string, payload: unknown, responseChannel: string, timeout = 15_000) => new Promise<any>((resolve) => {
+    const finish = (value: any) => { if (officeEventWaits.current.get(responseChannel) === finish) officeEventWaits.current.delete(responseChannel); resolve(value); };
+    officeEventWaits.current.set(responseChannel, finish);
+    send({ event: 'ipc', payload: { channel, args: [payload] } });
+    setTimeout(() => finish(null), timeout);
+  });
+  const requestOfficeState = async () => {
+    if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) throw new Error('Книга не записана. Сначала сохраните правки.');
+    return officeDataApi.state(fileId);
+  };
+  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding) => {
+    const response = await callFluxEvent('flux:insert-field', { name: `FLUX_${binding.fieldKey.replace(/[^A-Za-z0-9_]/g, '_')}`, value: binding.fieldKey, anchorId: anchor.anchorId, binding }, 'flux:field-inserted');
+    if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
+    return true;
+  };
+  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema) => {
+    const response = await callFluxEvent('flux:apply-office-plan', { writes: plan.writes, schema }, 'flux:office-plan-applied', 30_000);
+    if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
+    if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) throw new Error('Изменения внесены, но книга не записана. Сохраните её через редактор.');
+    return true;
+  };
   const updateFields = async () => {
     if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) { addToast('Книга не записана — поля не обновлены', 'error'); return; }
     const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
@@ -384,7 +414,11 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         )}
       </div>
       {dataOpen && (
-        <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind={app} fileName={name} onClose={() => setDataOpen(false)}
+        app === 'sheets' && !legacyPanelOpen ? <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="sheets" fileName={name}
+          readOnly={!(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} activeAnchor={activeFluxAnchor}
+          requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites}
+          onOpenLegacy={() => setLegacyPanelOpen(true)} onClose={() => setDataOpen(false)} />
+          : <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind={app} fileName={name} onClose={() => setDataOpen(false)}
           readOnly={!(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))}
           onInsertField={app === 'sheets' ? insertField : undefined} onInsertTable={app === 'sheets' ? insertTable : undefined}
           onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} />

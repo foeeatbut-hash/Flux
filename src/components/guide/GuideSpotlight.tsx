@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useGuideStore } from '../../guide/store';
-import { isTourTargetInteraction, tourRequiresProject } from '../../guide/tourRuntime';
+import { evaluateTourResult, expectedResultForStep, tourRequiresProject } from '../../guide/tourRuntime';
 import { ChevronLeft, ChevronRight, Pause, Play, SkipForward, X } from 'lucide-react';
+import { activeWindowPath, useWindowStore } from '../../store/windowStore';
 
 interface Rect { top: number; left: number; width: number; height: number; }
+interface Viewport { width: number; height: number; }
 
 /**
  * Первый ВИДИМЫЙ элемент по метке, а не просто первый.
@@ -51,10 +53,17 @@ export default function GuideSpotlight() {
   const [missing, setMissing] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [viewport, setViewport] = useState<Viewport>(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const elRef = useRef<Element | null>(null);
 
   const step = activeTour ? activeTour.steps[tourStepIndex] : null;
   const isLast = activeTour ? tourStepIndex >= activeTour.steps.length - 1 : false;
+
+  useEffect(() => {
+    const update = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   useEffect(() => {
     if (!activeTour || paused) { setRect(null); setMissing(false); setUnavailable(false); elRef.current = null; return; }
@@ -104,30 +113,49 @@ export default function GuideSpotlight() {
   }, [activeTour, tourStepIndex, highlightSelector, paused, retryNonce]);
 
   useEffect(() => {
-    if (!elRef.current) return;
+    if (!activeTour || !step || paused) return;
+    const checkExpectedResult = () => {
+      if (useGuideStore.getState().tourStepCompleted) return;
+      const expected = expectedResultForStep(step);
+      if (!expected) return;
+      const windows = useWindowStore.getState();
+      const probe = {
+        activeRoute: activeWindowPath(windows.windows, windows.desk),
+        projectSelected: !!activeProjectGetter?.(),
+        visible: (selector: string) => !!firstVisible(selector),
+        text: (selector: string) => firstVisible(selector)?.innerText || '',
+        attribute: (selector: string, name: string) => firstVisible(selector)?.getAttribute(name) || null,
+        value: (selector: string) => {
+          const element = firstVisible(selector);
+          if (!element) return '';
+          return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+            ? element.value : element.innerText || element.textContent || '';
+        },
+      };
+      if (evaluateTourResult(expected, probe)) completeTourStep();
+    };
     const recompute = () => {
       const el = elRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
     };
-    const onClick = (e: MouseEvent) => {
-      const el = elRef.current;
-      if (isTourTargetInteraction(e.target, el)) {
-        // Цель лишь отмечается как выполненная: сотрудник сам выбирает момент
-        // перехода, а действие на странице не должно запускать автопереход.
-        completeTourStep();
-      }
-    };
+    const observer = window.setInterval(checkExpectedResult, 300);
     window.addEventListener('resize', recompute);
     window.addEventListener('scroll', recompute, true);
-    document.addEventListener('click', onClick, true);
+    document.addEventListener('click', checkExpectedResult, true);
+    document.addEventListener('input', checkExpectedResult, true);
+    document.addEventListener('change', checkExpectedResult, true);
+    checkExpectedResult();
     return () => {
+      clearInterval(observer);
       window.removeEventListener('resize', recompute);
       window.removeEventListener('scroll', recompute, true);
-      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('click', checkExpectedResult, true);
+      document.removeEventListener('input', checkExpectedResult, true);
+      document.removeEventListener('change', checkExpectedResult, true);
     };
-  }, [rect, completeTourStep]);
+  }, [activeTour, step, paused, activeProjectGetter, completeTourStep]);
 
   if (!activeTour || !step) return null;
   const projectRequired = tourRequiresProject(activeTour.id);
@@ -141,19 +169,29 @@ export default function GuideSpotlight() {
     height: rect.height + pad * 2,
   } : null;
 
-  const tipStyle: React.CSSProperties = hole
-    ? {
-        top: Math.min(window.innerHeight - 160, hole.top + hole.height + 12),
-        left: Math.min(window.innerWidth - 340, Math.max(12, hole.left)),
-      }
-    : { top: window.innerHeight / 2 - 80, left: window.innerWidth / 2 - 170 };
+  const tipWidth = Math.max(0, Math.min(330, viewport.width - 24));
+  const maxLeft = Math.max(12, viewport.width - tipWidth - 12);
+  const rightCandidate = hole ? hole.left + hole.width + 12 : 12;
+  const leftCandidate = hole ? hole.left - tipWidth - 12 : 12;
+  const tipLeft = hole && rightCandidate <= maxLeft
+    ? rightCandidate
+    : hole && leftCandidate >= 12
+      ? leftCandidate
+      : Math.max(12, Math.min(maxLeft, hole?.left || 12));
+  const topCandidate = hole ? hole.top + hole.height + 12 : (viewport.height - 200) / 2;
+  const tipTop = Math.max(12, Math.min(Math.max(12, viewport.height - 220), topCandidate));
+  const tipStyle: React.CSSProperties = {
+    position: 'absolute', top: tipTop, left: tipLeft, width: tipWidth,
+    maxHeight: Math.max(120, viewport.height - 24), overflowY: 'auto',
+  };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9998] pointer-events-none">
+    <div className="fixed inset-0 z-[9998] pointer-events-none" style={{ position: 'fixed', inset: 0, zIndex: 9998, pointerEvents: 'none' }}>
       {hole && (
         <div
           className="absolute rounded-lg"
           style={{
+            position: 'absolute',
             top: hole.top, left: hole.left, width: hole.width, height: hole.height,
             boxShadow: '0 0 0 9999px rgba(15,23,42,0.55)',
             border: '2px solid #10b981',
@@ -165,8 +203,8 @@ export default function GuideSpotlight() {
       )}
 
       <div
-        className="absolute w-[330px] bg-white dark:bg-dark-panel border border-emerald-600/60 rounded-xl shadow-lg p-3.5 pointer-events-auto"
-        style={tipStyle}
+        className="absolute bg-white dark:bg-dark-panel border border-emerald-600/60 rounded-xl shadow-sm p-3.5 pointer-events-auto"
+        style={{ ...tipStyle, pointerEvents: 'auto' }}
       >
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
@@ -184,16 +222,17 @@ export default function GuideSpotlight() {
         <div className="flex items-center justify-between gap-2">
           <span className="text-2xs text-slate-600 dark:text-dark-text-muted">
             {paused ? 'Продолжите, когда будете готовы'
+              : step.requiredContext ? 'Нужно выбрать проект, чтобы продолжить'
               : !step.target ? 'Информационный шаг'
-              : missing ? 'Этого элемента сейчас нет на экране — «Далее»'
-                : stepCompleted ? 'Действие замечено. Перейдите к следующему шагу.'
-                  : rect ? 'Выполните действие на подсвеченном элементе'
+              : missing ? 'Цели нет на экране. Повторите поиск, пропустите шаг или завершите демонстрацию.'
+                : stepCompleted ? 'Ожидаемый результат появился. Можно перейти дальше.'
+                  : rect ? 'Ожидаю указанный результат на экране'
                   : 'Ищу элемент на экране…'}
           </span>
           <div className="flex items-center gap-1">
             <button type="button" onClick={backTour} disabled={tourStepIndex === 0} title="Назад" className="p-1.5 text-slate-600 dark:text-dark-text-muted disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
             <button type="button" onClick={pauseTour} title={paused ? 'Продолжить' : 'Пауза'} className="p-1.5 text-slate-600 dark:text-dark-text-muted">{paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}</button>
-            <button type="button" onClick={skipTourStep} title="Пропустить шаг" className="p-1.5 text-slate-600 dark:text-dark-text-muted"><SkipForward className="w-4 h-4" /></button>
+            {!step.requiredContext && <button type="button" onClick={skipTourStep} title="Пропустить шаг" className="p-1.5 text-slate-600 dark:text-dark-text-muted"><SkipForward className="w-4 h-4" /></button>}
             <button type="button" onClick={advanceTour} disabled={paused || (!!step.target && !stepCompleted)} className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 enabled:hover:bg-emerald-500 disabled:opacity-40 text-white text-xs rounded-lg">
               {isLast ? 'Завершить' : 'Далее'}{!isLast && <ChevronRight className="w-3.5 h-3.5" />}
             </button>

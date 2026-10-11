@@ -35,9 +35,9 @@ import { KindIcon } from './insight/parts';
 const GROUP_TITLE: Record<BarGroup, string> = {
   команда: 'Команда',
   раздел: 'Программы',
-  справка: 'Руководство',
+  справка: 'Flux Guide · справочник',
   проект: 'В проекте',
-  помощник: 'Помощник',
+  помощник: 'Flux Guide · вопросы',
 };
 
 function ItemIcon({ icon, name }: { icon: string; name?: string }) {

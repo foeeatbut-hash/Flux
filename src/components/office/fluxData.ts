@@ -1,110 +1,136 @@
-/**
- * Данные проекта для Flux Office: выборка оборудования/тегов/менеджмента/E3
- * через адресные запросы к серверу. Единый контракт: fieldKey, sourceId,
- * entityId, entityType, displayName, value, unit (ТЗ Flux Office §9).
- */
-import { ENV_CONFIG } from '../../config/env';
+/** Реальные REST-контракты Flux Office; синтетические поля и демо-ревизии здесь запрещены. */
+export type OfficeEntityType = 'tag' | 'element' | 'procurement' | 'vdr' | 'e3';
 
-export type FluxSource = 'equipment' | 'tags' | 'management' | 'e3';
-
-export interface FluxField {
-  key: string;
-  label: string;
-  source: FluxSource;
-  kind: 'text' | 'number';
+export interface OfficeField {
+  fieldKey: string;
+  sourceId: string;
+  entityType: OfficeEntityType;
+  displayName: string;
   unit?: string;
+  kind?: 'text' | 'number';
 }
 
-export interface FluxRow {
+export interface OfficeQueryFilter {
+  fieldKey: string;
+  op: 'contains' | 'equals' | 'notEquals' | 'gt' | 'gte' | 'lt' | 'lte' | 'empty' | 'notEmpty';
+  value?: string;
+}
+
+export interface OfficeQuerySort { fieldKey: string; direction: 'asc' | 'desc' }
+export interface OfficeQuery {
+  projectId: string;
+  sourceRevision?: string;
+  sources: string[];
+  types: string[];
+  filters: OfficeQueryFilter[];
+  sort: OfficeQuerySort[];
+  excludedEntityIds: string[];
+  limit: number;
+  cursor?: string;
+  /** Колонки запроса нужны только текущему project-data executor. */
+  columns?: string[];
+}
+
+export interface OfficeValue { value: string | number | null; unit?: string; revision?: string }
+export interface OfficeQueryRow {
   entityId: string;
-  tag: string;
-  name: string;
-  type: string;
-  systemName: string;
-  values: Record<string, string | number | null>;
+  entityType: OfficeEntityType;
+  sourceId: string;
+  tag?: string;
+  values: Record<string, OfficeValue>;
 }
 
-export interface FluxDataSet {
-  rows: FluxRow[];
-  fields: FluxField[];
+export interface OfficeQueryResult {
+  revision: string;
   total: number;
+  rows: OfficeQueryRow[];
+  nextCursor?: string;
+  fields?: OfficeField[];
 }
 
-export const FLUX_FIELDS: FluxField[] = [
-  { key: 'tag', label: 'Тег', source: 'tags', kind: 'text' },
-  { key: 'name', label: 'Наименование', source: 'tags', kind: 'text' },
-  { key: 'type', label: 'Тип', source: 'equipment', kind: 'text' },
-  { key: 'system', label: 'Система', source: 'equipment', kind: 'text' },
-  { key: 'model', label: 'Модель', source: 'equipment', kind: 'text' },
-  { key: 'airflow', label: 'Расход воздуха', source: 'equipment', kind: 'number', unit: 'м³/ч' },
-  { key: 'pressure', label: 'Давление', source: 'equipment', kind: 'number', unit: 'Па' },
-  { key: 'power', label: 'Мощность', source: 'equipment', kind: 'number', unit: 'кВт' },
-  { key: 'stage', label: 'Этап закупки', source: 'management', kind: 'text' },
-  { key: 'supplier', label: 'Поставщик', source: 'management', kind: 'text' },
-  { key: 'quantity', label: 'Количество', source: 'management', kind: 'number' },
-  { key: 'signal', label: 'Тип сигнала', source: 'e3', kind: 'text' },
-  { key: 'channel', label: 'Канал I/O', source: 'e3', kind: 'text' },
-];
-
-/** Загрузка выборки оборудования проекта с характеристиками */
-export async function fetchProjectData(
-  projectId: string,
-  opts: { type?: string; untagged?: boolean; search?: string } = {},
-): Promise<FluxDataSet> {
-  const qs = new URLSearchParams();
-  if (opts.type) qs.set('type', opts.type);
-  if (opts.untagged) qs.set('untagged', '1');
-  if (opts.search) qs.set('q', opts.search);
-  const res = await fetch(`${ENV_CONFIG.apiUrl}/guide/project/${encodeURIComponent(projectId)}/components?${qs}&limit=200`);
-  if (!res.ok) throw new Error(`Не удалось загрузить оборудование: ${res.status}`);
-  const data = await res.json() as { items: Array<Record<string, any>>; total: number };
-
-  const rows: FluxRow[] = data.items.map((c: any) => {
-    const values: Record<string, string | number | null> = {};
-    for (const s of c.specs || []) {
-      const key = s.key.toLowerCase().replace(/\s/g, '_');
-      values[key] = toNumberOrText(s.value, s.unit);
-      // Алиасы для стандартных полей
-      if (/расход/i.test(s.key)) values['airflow'] = toNumberOrText(s.value, s.unit);
-      if (/давление/i.test(s.key) && !values['pressure']) values['pressure'] = toNumberOrText(s.value, s.unit);
-      if (/мощност/i.test(s.key)) values['power'] = toNumberOrText(s.value, s.unit);
-    }
-    return {
-      entityId: c.id,
-      tag: c.tags?.[0] || '',
-      name: c.name,
-      type: c.equipType,
-      systemName: c.systemName,
-      values,
-    };
-  });
-
-  return { rows, fields: FLUX_FIELDS, total: data.total };
+export interface OfficeFillPlan {
+  planId: string;
+  baseHash: string;
+  sourceRevision: string;
+  selectedEntityIds: string[];
+  writes: Array<{ entityId: string; anchorId: string; value: string | number; unit?: string }>;
+  adds: string[];
+  replaces: string[];
+  manualRows: string[];
+  skips: Array<{ entityId: string; anchorId: string; reason: string }>;
+  errors: Array<{ entityId: string; anchorId: string; message: string }>;
+  conflicts: Array<{ entityId: string; anchorId: string; candidates: string[] }>;
 }
 
-function toNumberOrText(value: string, unit: string): string | number | null {
-  if (!value || value === '—' || value === '-') return null;
-  const n = Number(value.replace(',', '.').replace(/[^\d.\-+eE]/g, ''));
-  if (Number.isFinite(n) && n !== 0) return n;
-  return value + (unit ? ' ' + unit : '');
+export interface OfficeTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  scope: 'PERSONAL' | 'SHARED';
+  ownerId: string | null;
+  pinned?: boolean;
+  schema: unknown;
+  query: Record<string, unknown>;
+  updatedAt: string;
 }
 
-/** Арифметика между метками полей (ТЗ Flux Office §7) */
-export function evaluateArithmetic(ops: string[], values: (number | null)[]): { value: string; error?: string } {
-  const nums = values.map((v) => (typeof v === 'number' ? v : null));
-  if (nums.some((v) => v === null)) return { value: '—', error: 'Нет числового параметра у одной из позиций' };
-  const n = nums as number[];
-  const o = [...ops];
-  // Умножение/деление
-  for (let i = 0; i < o.length;) {
-    if (o[i] === '×' || o[i] === '÷' || o[i] === '*' || o[i] === '/') {
-      if ((o[i] === '÷' || o[i] === '/') && n[i + 1] === 0) return { value: 'Ошибка', error: 'Деление на ноль' };
-      n.splice(i, 2, (o[i] === '×' || o[i] === '*') ? n[i] * n[i + 1] : n[i] / n[i + 1]);
-      o.splice(i, 1);
-    } else i++;
-  }
-  // Сложение/вычитание
-  let total = n[0];
-  for (let i = 0; i < o.length; i++) total += (o[i] === '+' ? n[i + 1] : -n[i + 1]);
-  return { value: String(Number(total.toFixed(4))) };
+export interface OfficeState {
+  baseHash: string;
+  schema: import('../../lib/officeModel').OfficeHeaderSchema;
+  sourceRevision: string;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(data?.error || `Сервер ответил ${response.status}`));
+  return data as T;
+}
+
+const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+export function toProjectQuery(query: OfficeQuery): Record<string, unknown> {
+  return {
+    entity: query.sources[0] === 'equipment' ? 'element' : 'tag',
+    columns: query.columns || [],
+    filters: query.filters.map((filter) => ({
+      field: filter.fieldKey,
+      op: ({ equals: 'eq', notEquals: 'neq', notEmpty: 'nempty' } as Record<string, string>)[filter.op] || filter.op,
+      value: filter.value,
+    })).concat(query.sources[0] === 'equipment' && query.types.length ? [{ field: 'equipType', op: 'in', value: query.types.join('|') }] : []),
+    sort: query.sort.map((item) => ({ field: item.fieldKey, dir: item.direction })),
+    limit: query.limit,
+  };
+}
+
+export const officeDataApi = {
+  catalog: (projectId: string) => request<Record<string, unknown>>(`/api/project-data/catalog?projectId=${encodeURIComponent(projectId)}`),
+  query: (query: OfficeQuery) => request<OfficeQueryResult>('/api/project-data/office/query', json({
+    projectId: query.projectId,
+    sourceRevision: query.sourceRevision,
+    query: toProjectQuery(query),
+  })),
+  state: (fileId: string) => request<OfficeState>(`/api/project-data/files/${encodeURIComponent(fileId)}/office-state`),
+  preview: (fileId: string, body: { projectId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) =>
+    request<OfficeFillPlan>(`/api/project-data/files/${encodeURIComponent(fileId)}/preview`, json(body)),
+  confirm: (fileId: string, body: { projectId: string; planId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) =>
+    request<{ writes: OfficeFillPlan['writes']; status: 'ready-for-editor' }>(`/api/project-data/files/${encodeURIComponent(fileId)}/confirm`, json(body)),
+  templates: () => request<{ templates: OfficeTemplate[]; pinned: string[] }>('/api/project-data/office/templates'),
+  saveTemplate: (body: { name: string; description?: string; scope: OfficeTemplate['scope']; schema: OfficeState['schema']; query: Record<string, unknown> }) =>
+    request<{ template: OfficeTemplate }>('/api/project-data/office/templates', json(body)),
+  updateTemplate: (id: string, body: Partial<Pick<OfficeTemplate, 'name' | 'description' | 'scope' | 'schema' | 'query'>>) =>
+    request<{ template: OfficeTemplate }>(`/api/project-data/office/templates/${encodeURIComponent(id)}`, { ...json(body), method: 'PUT' }),
+  deleteTemplate: (id: string) => request<{ ok: true }>(`/api/project-data/office/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  pinTemplate: (id: string, pinned: boolean) => request<{ pinned: string[] }>(`/api/project-data/office/templates/${encodeURIComponent(id)}/pin`, json({ pinned })),
+};
+
+/** Приводит только реально выданные каталогом поля к общему UI-контракту. */
+export function fieldsFromCatalog(catalog: Record<string, any>): OfficeField[] {
+  const fields: OfficeField[] = [];
+  for (const field of catalog.tagFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'tags', entityType: 'tag', displayName: String(field.title || field.path), kind: 'text' });
+  for (const field of catalog.elementFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'equipment', entityType: 'element', displayName: String(field.title || field.path), kind: 'text' });
+  for (const param of catalog.params || []) fields.push({ fieldKey: `param:${param.group}|${param.key}`, sourceId: 'equipment', entityType: 'element', displayName: `${param.group} · ${param.key}`, unit: param.unit || undefined, kind: 'number' });
+  for (const field of catalog.aliases || []) fields.push({ fieldKey: String(field.path), sourceId: 'equipment', entityType: 'element', displayName: String(field.title || field.path), unit: field.unit || undefined, kind: 'number' });
+  for (const field of catalog.metaKeys || []) fields.push({ fieldKey: `meta:${field.key}`, sourceId: 'tags', entityType: 'tag', displayName: String(field.key), kind: 'text' });
+  return fields;
 }

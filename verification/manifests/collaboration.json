@@ -11,8 +11,6 @@
       "sources": [
         "src/screens/ChatManagement.tsx",
         "src/components/chat/MessageBubble.tsx",
-        "src/components/chat/AssistantEntry.tsx",
-        "src/components/chat/useAssistantCall.ts",
         "src/components/RichChatInput.tsx",
         "src/lib/chatSearch.ts",
         "src/lib/chatDrawing.ts",
@@ -152,12 +150,20 @@
       ],
       "sources": [
         "src/screens/FluxGuide.tsx",
+        "src/components/guide/AnswerView.tsx",
+        "src/components/guide/ProjectSelector.tsx",
+        "src/components/guide/HistoryPanel.tsx",
+        "src/components/guide/QuestionsPane.tsx",
+        "src/components/guide/HandbookPane.tsx",
+        "src/components/guide/GuideSpotlight.tsx",
         "src/guide/engine.ts",
+        "src/guide/questionParser.ts",
+        "src/guide/projects.ts",
         "src/guide/store.ts",
-        "src/components/chat/AssistantEntry.tsx",
-        "src/assistant/answers.ts",
         "src/assistant/handbookAnswers.ts",
-        "src/assistant/sections.ts",
+        "src/assistant/knowledge.ts",
+        "src/assistant/tours.ts",
+        "src/assistant/types.ts",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx",
         "src/handbook/registry.ts",
@@ -635,8 +641,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-query",
-      "path": "scripts/test-assistant.ts",
+      "id": "collab-guide-engine",
+      "path": "scripts/test-guide-engine.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -644,8 +650,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-context",
-      "path": "scripts/test-assistant-context.ts",
+      "id": "collab-guide-store",
+      "path": "scripts/test-guide-store.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -653,8 +659,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-links",
-      "path": "scripts/test-assistant-links.ts",
+      "id": "collab-guide-parser",
+      "path": "scripts/test-guide-parser.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -662,8 +668,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-history-contract",
-      "path": "scripts/test-assistant-chats.ts",
+      "id": "collab-guide-tour-runtime",
+      "path": "scripts/test-guide-tour-runtime.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -671,38 +677,30 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-privacy-api",
-      "path": "scripts/test-assistant-privacy.ts",
+      "id": "collab-guide-history-acl",
+      "path": "scripts/test-guide-server.ts",
       "layer": "api-db",
       "platform": "any",
-      "resources": [
-        "flux-test-api",
-        "api:fixture"
-      ],
-      "prerequisites": [
-        {
-          "kind": "env",
-          "name": "FLUX_TEST_FIXTURE",
-          "value": "1"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_API"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_USER"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_PASS"
-        }
-      ],
-      "timeoutMs": 900000,
-      "external": true
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-catalog-query",
+      "id": "collab-guide-ui",
+      "path": "scripts/test-guide-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": ["vite-port:dynamic", "browser:chromium"],
+      "prerequisites": [
+        { "kind": "file", "path": "scripts/fixtures/guide-ui/index.html" },
+        { "kind": "file", "path": "scripts/fixtures/guide-ui/main.tsx" },
+        { "kind": "file", "path": "scripts/fixtures/guide-ui/fixture.css" },
+        { "kind": "file", "path": "scripts/fixtures/guide-ui/vite.config.ts" }
+      ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-guide-catalog-query",
       "path": "scripts/test-catalog-query.ts",
       "layer": "unit",
       "platform": "any",
@@ -2040,12 +2038,13 @@
       ]
     },
     {
-      "id": "assistant.ask-contextual",
+      "id": "guide.ask-project-data",
       "program": "guide",
       "label": "Задать вопрос о работе, открытом документе или проекте",
       "sources": [
         "src/guide/engine.ts",
-        "src/guide/engine.ts",
+        "src/guide/projects.ts",
+        "src/guide/questionParser.ts",
         "src/guide/store.ts"
       ],
       "triggers": [
@@ -2060,17 +2059,17 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-query",
+      "suite": "collab-guide-engine",
           "layer": "unit",
           "claims": [
-            "Синтетические запросы разрешаются в ожидаемые действия и ответы помощника"
+            "Вопросы разрешаются в точные ответы Flux Guide, источники и связанные действия"
           ]
         },
         {
-          "suite": "collab-assistant-context",
+      "suite": "collab-guide-parser",
           "layer": "unit",
           "claims": [
-            "Подсказка контекста соответствует переднему открытому элементу; недоступный контекст не выдумывается"
+            "Парсер выделяет намерения, точные коды, оборудование и поля без подмены сущностей"
           ]
         }
       ],
@@ -2085,13 +2084,14 @@
       ]
     },
     {
-      "id": "assistant.history-list-search",
+      "id": "guide.history-archive-restore",
       "program": "guide",
-      "label": "Показать историю, искать, открыть и переименовать разговор",
+      "label": "Искать, открыть, архивировать и восстановить разговор Guide",
       "sources": [
         "src/screens/FluxGuide.tsx",
+        "src/components/guide/HistoryPanel.tsx",
         "src/guide/store.ts",
-        "src/guide/store.ts"
+        "src/guide/projects.ts"
       ],
       "triggers": [
         "button",
@@ -2101,28 +2101,28 @@
       ],
       "risk": "normal",
       "expected": [
-        "История содержит сохранённые разговоры проекта и позволяет открыть нужный разговор"
+        "Личная история сохраняется, архивируется, ищется и восстанавливается с проверкой доступа"
       ],
       "checks": [
         {
-          "suite": "collab-assistant-history-contract",
+      "suite": "collab-guide-store",
           "layer": "unit",
           "claims": [
-            "Чистые функции истории задают заголовок, поиск по тексту, группировку по дню и фильтр пустых разговоров"
+            "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
           ]
         },
         {
-          "suite": "collab-assistant-privacy-api",
+      "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
-            "История разговоров закрыта от другого пользователя и администратора"
+            "Сервер повторно проверяет владельца разговора и ACL проекта на чтении и записи"
           ]
         }
       ],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Создать разговор, дождаться автосохранения, переименовать, найти по тексту реплики и открыть снова",
+          "scenario": "Создать разговор, дождаться автосохранения, переключить проект, открыть его и отправить в архив",
           "expected": [
             "После переключения проекта показана история выбранного проекта; чужие данные отсутствуют"
           ]
@@ -2130,7 +2130,7 @@
       ]
     },
     {
-      "id": "assistant.clear-view",
+      "id": "guide.clear-view",
       "program": "guide",
       "label": "Очистить содержимое экрана разговора",
       "sources": [
@@ -2156,7 +2156,7 @@
       ]
     },
     {
-      "id": "assistant.catalog-search",
+      "id": "guide.catalog-search",
       "program": "guide",
       "label": "Искать по опубликованному Каталогу из помощника",
       "sources": [
@@ -2174,7 +2174,7 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-catalog-query",
+          "suite": "collab-guide-catalog-query",
           "layer": "unit",
           "claims": [
             "Поиск по опубликованному каталогу возвращает детерминированные соответствия и источники"
@@ -2192,12 +2192,13 @@
       ]
     },
     {
-      "id": "assistant.background-autosave",
+      "id": "guide.background-autosave",
       "program": "guide",
       "label": "Автоматически сохранять разговор и загружать проектный контекст",
       "sources": [
         "src/guide/store.ts",
-        "src/guide/store.ts",
+        "src/guide/projects.ts",
+        "src/guide/engine.ts",
         "src/screens/FluxGuide.tsx"
       ],
       "triggers": [
@@ -2211,10 +2212,17 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-privacy-api",
+      "suite": "collab-guide-store",
+          "layer": "unit",
+          "claims": [
+            "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
+          ]
+        },
+        {
+      "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
-            "API отклоняет чтение, изменение и удаление чужих разговоров"
+            "API проверяет владельца истории и ACL для каждого проектного сообщения"
           ]
         }
       ],
@@ -2881,7 +2889,7 @@
       ]
     },
     {
-      "id": "assistant.to-catalog",
+      "id": "guide.to-catalog",
       "from": "guide",
       "to": "catalog",
       "status": "implemented",
@@ -2894,7 +2902,7 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-catalog-query",
+          "suite": "collab-guide-catalog-query",
           "layer": "unit",
           "claims": [
             "Точное и частичное совпадение каталога содержит ссылку на источник записи"

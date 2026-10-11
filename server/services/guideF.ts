@@ -22,6 +22,7 @@ import { findKnowledge } from '../../src/assistant/knowledge.js';
 import {
   flattenSpecs, findSpecExact, findSpecFuzzy, enrichTags, procurementStages, flatComponents,
 } from '../routes/guide.js';
+import { matchNumeric } from '../routes/guide.js';
 
 export const SERVICE_USER_ID = 'flux-guide-service';
 const FOLD = (s: string): string => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
@@ -126,10 +127,25 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
     const type = p.equipmentTypes[0]?.canonical;
     let list = components;
     if (type) list = list.filter((c) => c.equipType === type);
+    if (p.systemNames.length) list = list.filter((c) => p.systemNames.some((name) => FOLD(c.systemName) === FOLD(name)));
     if (intent === 'equipment_no_tag' || p.normalized.includes('без тег')) list = list.filter((c) => !c.tags.length);
     const total = list.length;
     if (intent === 'project_count') {
-      if (type) return { status: 'ok', text: `${type}: ${total} поз. (счёт по классу оборудования, не по подстроке имени. Источник: Оборудование проекта · ${at})` };
+      if (p.normalized.includes('систем')) {
+        if (p.numeric) return { status: 'no-match', text: 'Уточните поле для числового фильтра: сейчас фильтр можно применить к характеристике оборудования, но не к числу систем.' };
+        const systems = await prisma.equipmentSystem.findMany({ where: { projectId }, select: { name: true } });
+        const matches = p.systemNames.length ? systems.filter((system: any) => p.systemNames.some((name) => FOLD(system.name) === FOLD(name))) : systems;
+        return { status: 'ok', text: p.systemNames.length ? `Система ${p.systemNames[0]} найдена: ${matches.length ? 1 : 0}. Источник: Системы проекта · ${at}` : `Систем в проекте: ${matches.length}. Источник: Системы проекта · ${at}` };
+      }
+      if (p.numeric && !p.fields.length) return { status: 'no-match', text: 'Уточните характеристику для числового фильтра (например, «расход больше 1000 м³/ч»).' };
+      if (p.numeric && p.fields[0]) {
+        const field = p.fields[0];
+        list = list.filter((component) => {
+          const found = findSpecExact(component.specs, FOLD(field.keys[0])) || findSpecFuzzy(component.specs, FOLD(field.keys[0]));
+          return !!found && matchNumeric(found, p.numeric!.op, p.numeric!.value, p.unit || '');
+        });
+      }
+      if (type || p.systemNames.length || p.numeric) return { status: 'ok', text: `${type || (p.systemNames.length ? `Система ${p.systemNames.join(', ')}` : 'Оборудование')}: ${list.length} поз.${p.numeric && p.fields[0] ? ` с ${p.fields[0].canonical} ${p.numeric.op} ${p.numeric.value}${p.unit ? ` ${p.unit}` : ''}` : ''} (Источник: Оборудование проекта · ${at})` };
       const summary = { tags: await prisma.tag.count({ where: { projectId } }), components: components.length };
       return { status: 'ok', text: `Тегов в проекте: ${summary.tags}, позиций оборудования: ${summary.components}. Источник: Теги/Оборудование проекта · ${at}` };
     }
@@ -149,16 +165,20 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
       if (!comp) return { status: 'no-match', text: `Тега «${p.codes[0]}» в проекте нет или он не привязан к позиции.` };
       const found = findSpecExact(comp.specs, FOLD(field.keys[0])) || findSpecFuzzy(comp.specs, FOLD(field.keys[0]));
       if (!found) return { status: 'no-match', text: `У позиции ${comp.name} характеристика «${field.canonical}» не заполнена.` };
+      if (p.numeric && !matchNumeric(found, p.numeric.op, p.numeric.value, p.unit || '')) return { status: 'no-match', text: `Значение ${field.canonical} у позиции ${comp.name} не проходит фильтр ${p.numeric.op} ${p.numeric.value}${p.unit ? ` ${p.unit}` : ''}.` };
       return { status: 'ok', text: `Позиция ${comp.name} (${comp.systemName}): ${found.key} = ${found.value}${found.unit ? ' ' + found.unit : ''}. Источник: Оборудование проекта · ${at}` };
     }
     if (intent === 'equipment_missing_field') {
-      const list = components.filter((c) => !(findSpecExact(c.specs, FOLD(field.keys[0])) || findSpecFuzzy(c.specs, FOLD(field.keys[0]))));
+      let list = components.filter((c) => !(findSpecExact(c.specs, FOLD(field.keys[0])) || findSpecFuzzy(c.specs, FOLD(field.keys[0]))));
+      if (p.systemNames.length) list = list.filter((c) => p.systemNames.some((name) => FOLD(c.systemName) === FOLD(name)));
       if (!list.length) return { status: 'no-match', text: `Позиций с незаполненным полем «${field.canonical}» нет.` };
       return { status: 'ok', text: `«${field.canonical}» не указано у ${list.length} поз.\n${list.slice(0, 5).map((c) => `· ${c.name} (${c.systemName})`).join('\n')}\nИсточник: Оборудование проекта · ${at}` };
     }
-    const rows = components
+    let rows = components
       .map((c) => ({ c, found: findSpecExact(c.specs, FOLD(field.keys[0])) || findSpecFuzzy(c.specs, FOLD(field.keys[0])) }))
       .filter((r) => r.found);
+    if (p.systemNames.length) rows = rows.filter((r) => p.systemNames.some((name) => FOLD(r.c.systemName) === FOLD(name)));
+    if (p.numeric) rows = rows.filter((r) => matchNumeric(r.found!, p.numeric!.op, p.numeric!.value, p.unit || ''));
     if (!rows.length) return { status: 'no-match', text: `Характеристика «${field.canonical}» в проекте не заполнена ни у одной позиции.` };
     return { status: 'ok', text: `«${field.canonical}» заполнено у ${rows.length} поз.\n${rows.slice(0, 5).map((r) => `· ${r.c.name}: ${r.found!.value}${r.found!.unit ? ' ' + r.found!.unit : ''} (${r.c.systemName})`).join('\n')}\nИсточник: Оборудование проекта · ${at}` };
   }
@@ -204,7 +224,7 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
     const ids = tags.map((t: any) => t.id);
     if (!ids.length) return { status: 'no-match', text: `Тега «${p.codes[0]}» в проекте нет — файлов не искать по чему.` };
     const files = await prisma.fileNode.findMany({
-      where: { deletedAt: null, folder: { projectId, deletedAt: null }, OR: [{ mainTags: { some: { id: { in: ids } } } }, { additionalTags: { some: { id: { in: ids } } } }] },
+      where: { deletedAt: null, scope: 'SHARED', folder: { projectId, deletedAt: null }, OR: [{ mainTags: { some: { id: { in: ids } } } }, { additionalTags: { some: { id: { in: ids } } } }] },
       select: { name: true, revision: true }, take: 5,
     });
     if (!files.length) return { status: 'no-match', text: `Файлов по тегу «${p.codes[0]}» в проекте нет.` };
@@ -243,7 +263,7 @@ export interface FRequest {
   projectId?: string;
 }
 
-export interface FPublishResult { published: boolean; refusal: boolean; text: string; projectId?: string }
+export interface FPublishResult { published: boolean; refusal: boolean; text: string; projectId?: string; replyId?: string }
 
 /** Полный цикл F-запроса на сервере: аудитория → ответ/отказ → публикация. */
 export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
@@ -255,7 +275,7 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
     where: { id: req.requestMessageId },
     include: { chatGroup: { include: { members: { select: { id: true } } } } },
   });
-  if (!request || request.senderId !== req.actorId || request.senderId === service.id) return { published: false, refusal: true, text: 'Запрос не найден.' };
+  if (!request || request.senderId !== req.actorId || request.senderId === service.id || !request.guideRequest) return { published: false, refusal: true, text: 'Запрос не найден.' };
 
   // 2. Члены разговора (сервер, не клиент)
   let memberIds: string[] = [];
@@ -263,7 +283,7 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
   if (req.type === 'GROUP') {
     const group = request.chatGroup;
     if (!group || group.id !== req.conversationId || !(group.members || []).some((m: any) => m.id === req.actorId)) return { published: false, refusal: true, text: 'Запрос не найден.' };
-    memberIds = group.members.map((m: any) => m.id);
+    memberIds = [...new Set([group.ownerId, ...group.members.map((m: any) => m.id)].filter(Boolean) as string[])];
     boundProjectId = group.projectId || null;
   } else {
     if (request.chatGroupId || request.receiverId !== req.conversationId) return { published: false, refusal: true, text: 'Запрос не найден.' };
@@ -275,10 +295,10 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
 
   // 3. Повтор с тем же запросом не создаёт второй ответ (идемпотентность ретрая)
   const existing = await prisma.chatMessage.findFirst({
-    where: { guideReply: { requestMessageId: req.requestMessageId } },
+    where: { OR: [{ guideReply: { requestMessageId: req.requestMessageId } }, { senderId: service.id, replyToId: req.requestMessageId }] },
     select: { id: true },
   });
-  if (existing) return { published: false, refusal: false, text: 'Ответ уже опубликован.' };
+  if (existing) return { published: false, refusal: false, text: 'Ответ уже опубликован.', replyId: existing.id };
 
   const p = parseQuestion(persistedQuestion);
   const projectIntents = new Set(['tag_lookup', 'tag_duplicates', 'equipment_no_tag', 'equipment_missing_field', 'equipment_characteristic', 'equipment_list', 'project_count', 'project_summary', 'procurement_state', 'equipment_revision', 'document_search']);
@@ -312,17 +332,25 @@ export async function handleFRequest(req: FRequest): Promise<FPublishResult> {
   }
 
   // 7. Публикация сервисного ответа в исходный разговор
-  const reply = await prisma.chatMessage.create({
-    data: {
-      content: `F · Flux Guide\n\n${answerText}`,
-      senderId: service.id,
-      ...(req.type === 'GROUP' ? { chatGroupId: req.conversationId } : { receiverId: req.conversationId }),
-      replyToId: req.requestMessageId,
-      guideReply: { create: { requestMessageId: req.requestMessageId, projectId: refusal ? '' : answerProjectId, kind: p.intent } },
-    },
-  });
-  void memberIds;
-  return { published: true, refusal, text: answerText, projectId: refusal ? '' : answerProjectId, ...( { replyId: reply.id } as any) } as FPublishResult;
+  let reply: any;
+  try {
+    reply = await prisma.chatMessage.create({
+      data: {
+        content: `F · Flux Guide\n\n${answerText}`,
+        senderId: service.id,
+        ...(req.type === 'GROUP' ? { chatGroupId: req.conversationId } : { receiverId: req.conversationId }),
+        replyToId: req.requestMessageId,
+        guideReply: { create: { requestMessageId: req.requestMessageId, projectId: refusal ? '' : answerProjectId, kind: p.intent } },
+      },
+    });
+  } catch (error: any) {
+    // Уникальный requestMessageId закрывает гонку двух повторов между проверкой и записью.
+    if (error?.code !== 'P2002') throw error;
+    const duplicate = await prisma.chatMessage.findFirst({ where: { guideReply: { requestMessageId: req.requestMessageId } }, select: { id: true } });
+    if (!duplicate) throw error;
+    return { published: false, refusal: false, text: 'Ответ уже опубликован.', replyId: duplicate.id };
+  }
+  return { published: true, refusal, text: answerText, projectId: refusal ? '' : answerProjectId, replyId: reply.id };
 }
 
 /** Комнаты для рассылки события чата участникам (та же конвенция, что в chat.ts). */

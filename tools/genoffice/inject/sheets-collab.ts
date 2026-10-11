@@ -156,6 +156,32 @@ function selectedTagField(wb: any): { tagId: string; identifier: string } | null
   return null
 }
 
+function selectedOfficeAnchor(wb: any): { kind: 'excel-range'; anchorId: string; sheetName: string; address: string } | null {
+  try {
+    const cell = wb?.getActiveCell?.();
+    const sheet = wb?.getActiveSheet?.();
+    const address = String(cell?.getA1Notation?.() || '').split(':')[0].replace(/\$/g, '').toUpperCase();
+    const sheetName = String(sheet?.getSheetName?.() || '');
+    if (!cell || !/^[A-Z]{1,3}\d+$/.test(address) || !sheetName) return null;
+    const quoted = sheetName.replace(/'/g, "''");
+    for (const defined of wb.getDefinedNames?.() || []) {
+      const name = String(defined?.getName?.() || '');
+      const match = /^FLUX_ANCHOR_([0-9a-f-]{36})$/i.exec(name);
+      if (!match) continue;
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '');
+      const refMatch = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
+      if (!refMatch) continue;
+      const refSheet = (refMatch[1] || refMatch[2]).replace(/''/g, "'");
+      if ((refSheet === sheetName || refSheet === quoted) && (refMatch[3] + refMatch[4]).toUpperCase() === address) {
+        return { kind: 'excel-range', anchorId: match[1], sheetName, address };
+      }
+    }
+    // Стабильный ID создаётся в момент выбора. Он закрепится в книге только
+    // при вставке метки; простое перемещение курсора ничего не меняет в файле.
+    return { kind: 'excel-range', anchorId: globalThis.crypto.randomUUID(), sheetName, address };
+  } catch { return null; }
+}
+
 function run(op: Op): void {
   const a = api()
   if (!a) return
@@ -263,6 +289,8 @@ async function fields(): Promise<void> {
     setTimeout(() => {
       try {
         const wb = workbook()
+        const anchor = selectedOfficeAnchor(wb)
+        if (anchor) link.send('flux:anchor-selected', anchor)
         const field = selectedTagField(wb)
         if (field) {
           link.send('flux:tag-click', { projectId: '', ...field })
@@ -276,7 +304,7 @@ async function fields(): Promise<void> {
       } catch { /* интерфейс книги может быть в переходном состоянии после щелчка */ }
     }, 0)
   }, true)
-  link.on('flux:insert-field', (_e, m: { name?: string; value?: unknown }) => {
+  link.on('flux:insert-field', (_e, m: { name?: string; value?: unknown; anchorId?: string }) => {
     const wb = workbook()
     let result: { ok: boolean; cell?: string; error?: string } = { ok: false, error: 'Книга не готова' }
     try {
@@ -289,6 +317,12 @@ async function fields(): Promise<void> {
         const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
         try { wb.deleteDefinedName?.(m.name) } catch { /* имени не было */ }
         wb.insertDefinedName(m.name, ref)
+        const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : selectedOfficeAnchor(wb)?.anchorId
+        if (anchorId) {
+          const anchorName = 'FLUX_ANCHOR_' + anchorId
+          try { wb.deleteDefinedName?.(anchorName) } catch { /* новой ячейке ещё не назначено имя */ }
+          wb.insertDefinedName(anchorName, ref)
+        }
         result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
       }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }

@@ -27,6 +27,9 @@ import OfficePresence from '../components/collab/OfficePresence';
 import { rememberDoc } from '../store/recentStore';
 import { editorHref } from '../lib/officeFiles';
 import FluxPanel from '../components/office/FluxPanel';
+import FluxOfficePanel, { type FluxOfficeAnchorSelection } from '../components/office/FluxOfficePanel';
+import { officeDataApi } from '../components/office/fluxData';
+import type { OfficeBinding, OfficeFillPlan, OfficeHeaderSchema } from '../lib/officeModel';
 import { openEditorTag } from '../lib/editorTag';
 import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
@@ -236,6 +239,7 @@ export default function OfficeHost() {
       if (!isOfficeMsg(m)) return;
       if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
       if (m.op === 'flux:open-panel') { setDataOpen(true); return; }
+      if (m.op === 'flux:anchor-selected') { setActiveFluxAnchor(m.payload || null); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
       if (wait) { wait(m.payload); return; }
@@ -368,6 +372,8 @@ export default function OfficeHost() {
   // свои правки, дать серверу превратить метки в поля и подставить значения,
   // открыть файл заново (server/routes/projectData.ts)
   const [dataOpen, setDataOpen] = useState(false);
+  const [legacyPanelOpen, setLegacyPanelOpen] = useState(false);
+  const [activeFluxAnchor, setActiveFluxAnchor] = useState<FluxOfficeAnchorSelection | null>(null);
   const insertField = async (f: { key: string; title: string }) => {
     const result = await askFrame<{ ok: boolean; error?: string }>(
       'insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`,
@@ -382,6 +388,23 @@ export default function OfficeHost() {
     }
     const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
     return !state?.dirty || (await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) === true;
+  };
+  const requestOfficeState = async () => {
+    if (!(await saveBeforeServer())) throw new Error('Документ не записан. Сначала сохраните правки.');
+    return officeDataApi.state(fileId);
+  };
+  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding) => {
+    const response = await askFrame<{ ok: boolean; error?: string }>('insertFluxField', 'flux:field-inserted', 8_500, {
+      fieldKey: binding.fieldKey, displayText: binding.fieldKey, anchorId: anchor.anchorId, binding,
+    });
+    if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
+    return true;
+  };
+  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema) => {
+    const response = await askFrame<{ ok: boolean; error?: string }>('applyFluxPlan', 'flux:office-plan-applied', 30_000, { writes: plan.writes, schema });
+    if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
+    if (!(await saveBeforeServer())) throw new Error('Изменения внесены, но документ не записан. Сохраните его через редактор.');
+    return true;
   };
   const [englishOpen, setEnglishOpen] = useState(false);
   const updateFields = async () => {
@@ -437,10 +460,13 @@ export default function OfficeHost() {
       )}
       </div>
       {dataOpen && (
-        <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={!editable} onClose={() => setDataOpen(false)}
+        legacyPanelOpen ? <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={!editable} onClose={() => setDataOpen(false)}
           onInsertField={insertField} onUpdateFields={updateFields}
           onInsertTable={async rows => { const r = await askFrame<{ok: boolean; error?: string}>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
           beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} />
+          : <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={!editable} activeAnchor={activeFluxAnchor}
+            requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites}
+            onOpenLegacy={() => setLegacyPanelOpen(true)} onClose={() => setDataOpen(false)} />
       )}
       </div>
       {conflict && (

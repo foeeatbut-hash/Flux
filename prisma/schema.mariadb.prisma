@@ -516,6 +516,7 @@ model ChatGroup {
 model ChatMessage {
   id              String            @id @default(uuid())
   content         String            @db.LongText
+  guideRequest    Boolean           @default(false)
   createdAt       DateTime          @default(now())
   senderId        String
   sender          User              @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
@@ -973,6 +974,7 @@ model ProjectMember {
 /// Разговор читается и пишется целиком, поиск идёт по полю search.
 model AssistantChat {
   id        String   @id @default(uuid())
+  kind      String   @default("assistant")
   /// Чей разговор. Видит только он — администратор тоже не видит
   ownerId   String
   /// О каком проекте говорили; пусто — разговор вне проекта

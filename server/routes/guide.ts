@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
-import { getPrisma } from '../context.js';
+import { getPrisma, notifyUser } from '../context.js';
 import { canSeeProject } from './members.js';
-import { ensureServiceUser, handleFRequest, SERVICE_USER_ID } from '../services/guideF.js';
-import { backfillGuideReplies, sanitizeGuideReplies } from '../services/guideReplies.js';
+import { handleFRequest } from '../services/guideF.js';
+import { backfillGuideReplies, sanitizeGuideReplies, UNKNOWN_SCOPE } from '../services/guideReplies.js';
 import { isAdminActor, isRealProjectId } from '../projectAccess.js';
 
 /**
@@ -35,7 +35,7 @@ async function requireProject(req: Request, res: Response): Promise<string | nul
   const user = (req as any).authUser;
   const exists = await getPrisma().project.findUnique({ where: { id: projectId }, select: { id: true } });
   if (!exists) {
-    fail(res, 404, 'NO_PROJECT', 'Проект не найден.');
+    fail(res, 403, 'FORBIDDEN', 'Нет доступа к этому проекту.');
     return null;
   }
   const allowed = await canSeeProject(String(user?.id || ''), projectId, isAdminActor(user));
@@ -529,7 +529,7 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
         const ids = tags.map((t: any) => t.id);
         if (ids.length) {
           rows = await prisma.fileNode.findMany({
-            where: { ...baseWhere, OR: [{ mainTags: { some: { id: { in: ids } } } }, { additionalTags: { some: { id: { in: ids } } } }] },
+          where: { AND: [baseWhere, { OR: [{ mainTags: { some: { id: { in: ids } } } }, { additionalTags: { some: { id: { in: ids } } } }] }] },
             include: { mainTags: { select: { identifier: true } }, additionalTags: { select: { identifier: true } }, folder: { select: { name: true } } },
             orderBy: { updatedAt: 'desc' },
           });
@@ -561,35 +561,26 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
       const type = String(req.body?.type) === 'GROUP' ? 'GROUP' : 'DIRECT';
       const conversationId = String(req.body?.conversationId || '');
       const requestMessageId = String(req.body?.requestMessageId || '');
-      const question = String(req.body?.question || '').slice(0, 2000);
       const projectId = req.body?.projectId ? String(req.body.projectId) : undefined;
-      if (!conversationId || !requestMessageId || !question.trim()) {
-        return fail(res, 400, 'BAD_REQUEST', 'Не указан разговор, запрос или вопрос.');
+      if (!conversationId || !requestMessageId) {
+        return fail(res, 400, 'BAD_REQUEST', 'Не указан разговор или сообщение вопроса.');
       }
-      console.log('[Guide][chat-reply] projectId вход:', projectId, '| refusal hint:', req.body?.refusal);
-      const result = await handleFRequest({ type, conversationId, requestMessageId, question, actorId, projectId });
-      console.log('[Guide][chat-reply] result.projectId:', (result as any).projectId, '| published:', result.published);
+      const result = await handleFRequest({ type, conversationId, requestMessageId, question: '', actorId, projectId });
+      if (!result.replyId) return res.json({ ok: true, published: result.published, refusal: result.refusal, text: result.text });
 
       // Рассылка события только участникам (та же конвенция комнат, что в chat.ts)
       const prisma = getPrisma();
       let memberIds: string[] = [];
       if (type === 'GROUP') {
         const group = await prisma.chatGroup.findUnique({ where: { id: conversationId }, include: { members: { select: { id: true } } } });
-        memberIds = (group?.members || []).map((m: any) => m.id);
+        memberIds = [...new Set([group?.ownerId, ...(group?.members || []).map((m: any) => m.id)].filter(Boolean) as string[])];
       } else {
         memberIds = [actorId, conversationId];
       }
-      const reply = await prisma.chatMessage.findFirst({
-        where: { replyToId: requestMessageId, senderId: SERVICE_USER_ID },
-        orderBy: { createdAt: 'desc' }, include: { sender: { select: { id: true, name: true, symbol: true } }, replyTo: true },
+      const reply = await prisma.chatMessage.findUnique({
+        where: { id: result.replyId }, include: { sender: { select: { id: true, name: true, symbol: true } }, replyTo: true },
       });
       if (reply) {
-        // Гарантированная структурная привязка: projectId уже валидирован выше
-        await prisma.guideReply.upsert({
-          where: { messageId: reply.id },
-          update: { projectId: result.projectId || '', kind: 'chat_reply' },
-          create: { messageId: reply.id, projectId: result.projectId || '', kind: 'chat_reply' },
-        });
         // Рассылка каждому участнику его (санитизированного) представления
         for (const memberId of memberIds) {
           const full = await prisma.chatMessage.findUnique({
@@ -598,11 +589,15 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
               attachments: true,
               sender: { select: { id: true, name: true, symbol: true, role: true } },
               guideReply: { select: { projectId: true, kind: true } },
-              replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
+              replyTo: { select: { id: true, content: true, senderId: true, receiverId: true, chatGroupId: true, guideReply: { select: { projectId: true, kind: true } }, sender: { select: { id: true, name: true } } } },
             },
           });
-          const [safe] = await sanitizeGuideReplies([full as any], memberId, false);
+          const member = await prisma.user.findUnique({ where: { id: memberId }, select: { role: true } });
+          const [safe] = await sanitizeGuideReplies([full as any], memberId, isAdminActor(member));
           io.to(`user:${memberId}`).emit('chat:message_received', safe);
+          if (result.published && memberId !== actorId) {
+            await notifyUser(memberId, 'ЧАТ', 'Новый ответ Flux Guide', 'В разговоре опубликован ответ Flux Guide.', type === 'GROUP' ? `/chat?group=${conversationId}` : `/chat?from=${actorId}`);
+          }
         }
       }
       res.json({ ok: true, published: result.published, refusal: result.refusal, text: result.text });
@@ -623,19 +618,44 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
     } catch { return false; }
   };
 
-  const safeGuideHistory = async (row: any, user: any): Promise<{ messages: any[]; preview: string; search: string }> => {
+  let guideKindMigration: Promise<void> | null = null;
+  const ensureGuideChatKinds = (): Promise<void> => {
+    if (!guideKindMigration) guideKindMigration = (async () => {
+      const prisma = getPrisma();
+      const legacy = await prisma.assistantChat.findMany({ where: { kind: 'assistant' }, select: { id: true, messages: true } });
+      for (const row of legacy as any[]) if (isGuideChat(row.messages)) {
+        await prisma.assistantChat.updateMany({ where: { id: row.id, kind: 'assistant' }, data: { kind: 'guide' } });
+      }
+    })().catch((error) => { guideKindMigration = null; throw error; });
+    return guideKindMigration;
+  };
+
+  const safeGuideHistory = async (row: any, user: any): Promise<{ messages: any[]; title: string; preview: string; search: string }> => {
     const messages = (parseJsonSafe(row.messages) || []) as any[];
-    const projectId = String(row.projectId || '');
-    const allowed = !projectId || await canSeeProject(String(user?.id || ''), projectId, isAdminActor(user));
-    const clean = messages.map((message) => {
-      if (allowed || message?.role !== 'guide') return message;
-      const { actions, table, cards, list, clarify, context, ...rest } = message;
-      return { ...rest, text: 'Данные этого ответа сейчас недоступны.', outcome: undefined, status: 'permission' };
+    const fallbackProjectId = String(row.projectId || '');
+    const viewerId = String(user?.id || '');
+    const revoked = new Set<number>();
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      const messageProjectId = typeof message?.projectId === 'string'
+        ? message.projectId
+        : typeof message?.context?.projectId === 'string' ? message.context.projectId : (fallbackProjectId || UNKNOWN_SCOPE);
+      if (messageProjectId && (messageProjectId === UNKNOWN_SCOPE || !(await canSeeProject(viewerId, messageProjectId, isAdminActor(user))))) revoked.add(i);
+    }
+    const clean = messages.map((message, index) => {
+      if (!revoked.has(index)) return message;
+      const { actions, table, cards, list, clarify, context, source, outcome, ...rest } = message;
+      return { ...rest, text: 'Данные этого ответа сейчас недоступны.', outcome: undefined, status: 'permission', source: { label: 'Источник недоступен', at: '' } };
     });
+    const hasRevoked = revoked.size > 0;
+    const title = hasRevoked ? 'Разговор по проекту' : String(row.title || '');
+    const last = clean[clean.length - 1];
+    const preview = String(last?.outcome || last?.text || '');
     return {
       messages: clean,
-      preview: allowed ? String(row.preview || '') : (messages.some((m) => m?.role === 'guide') ? 'Данные этого ответа сейчас недоступны.' : String(row.preview || '')),
-      search: clean.map((m) => String(m?.text || '')).join(' ').toLowerCase(),
+      title,
+      preview: preview.slice(0, 120),
+      search: `${title} ${clean.map((m) => String(m?.text || '')).join(' ')}`.toLowerCase().slice(0, 8000),
     };
   };
 
@@ -643,23 +663,23 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
     try {
       const me = meId(req);
       if (!me) return res.json({ chats: [] });
+      await ensureGuideChatKinds();
       const q = FOLD(String(req.query.q || ''));
       const archived = String(req.query.archived || '') === '1';
       const rows = await getPrisma().assistantChat.findMany({
-        where: { ownerId: me, archivedAt: archived ? { not: null } : null },
+        where: { ownerId: me, kind: 'guide', archivedAt: archived ? { not: null } : null },
         orderBy: { updatedAt: 'desc' },
         take: 1000,
         select: { id: true, projectId: true, title: true, preview: true, messages: true, search: true, updatedAt: true, archivedAt: true },
       });
       const chats = await Promise.all((rows as any[])
-        .filter((r) => isGuideChat(r.messages))
         .map(async (r) => {
           const safe = await safeGuideHistory(r, (req as any).authUser);
           return { row: r, safe };
         }));
       const visible = chats
-        .filter(({ row, safe }) => !q || FOLD(row.title).includes(q) || FOLD(safe.search).includes(q))
-        .map(({ row, safe }) => ({ id: row.id, projectId: row.projectId, title: row.title, preview: safe.preview, updatedAt: row.updatedAt, archivedAt: row.archivedAt }));
+        .filter(({ safe }) => !q || FOLD(safe.search).includes(q))
+        .map(({ row, safe }) => ({ id: row.id, projectId: row.projectId, title: safe.title, preview: safe.preview, updatedAt: row.updatedAt, archivedAt: row.archivedAt }));
       res.json({ chats: visible });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
   });
@@ -667,11 +687,12 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
   app.get('/api/guide/chats/:id', async (req: Request, res: Response) => {
     try {
       const me = meId(req);
+      await ensureGuideChatKinds();
       const row = await getPrisma().assistantChat.findUnique({ where: { id: String(req.params.id || '') } });
       // Владелец сверяется ещё раз: подставить чужой идентификатор недостаточно
-      if (!row || row.ownerId !== me || !isGuideChat(row.messages)) return res.status(404).json({ error: 'Разговор не найден.' });
+      if (!row || row.ownerId !== me || row.kind !== 'guide') return res.status(404).json({ error: 'Разговор не найден.' });
       const safe = await safeGuideHistory(row, (req as any).authUser);
-      res.json({ chat: { id: row.id, projectId: row.projectId, title: row.title, messages: safe.messages, archivedAt: row.archivedAt } });
+      res.json({ chat: { id: row.id, projectId: row.projectId, title: safe.title, messages: safe.messages, archivedAt: row.archivedAt } });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
   });
 
@@ -679,6 +700,7 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
     try {
       const me = meId(req);
       if (!me) return fail(res, 401, 'NO_AUTH', 'Требуется вход.');
+      await ensureGuideChatKinds();
       const id = String(req.params.id || '');
       const body = req.body || {};
       const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -689,15 +711,19 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
       const search = messages.map((m: any) => String(m?.text || '')).join(' ').toLowerCase().slice(0, 8000);
       const preview = String(messages.length ? (messages[messages.length - 1]?.outcome || messages[messages.length - 1]?.text || '') : '').slice(0, 120);
       const data = {
-        ownerId: me, projectId: String(body.projectId || ''), title: title || String(firstUser?.text || 'Вопрос').slice(0, 60),
+        ownerId: me, kind: 'guide', projectId: String(body.projectId || ''), title: title || String(firstUser?.text || 'Вопрос').slice(0, 60),
         preview, messages: JSON.stringify(messages), search,
       };
       const existing = await getPrisma().assistantChat.findUnique({ where: { id } });
       // Обновлять можно только свой разговор
       if (existing && existing.ownerId !== me) return fail(res, 403, 'FORBIDDEN', 'Это не ваш разговор.');
+      if (existing && existing.kind !== 'guide') return fail(res, 409, 'WRONG_CHAT_KIND', 'Идентификатор уже принадлежит другому типу разговора.');
       if (existing?.archivedAt) return fail(res, 409, 'ARCHIVED', 'Сначала восстановите разговор из архива.');
       const projectId = String(body.projectId || '');
-      if (projectId && !(await canSeeProject(me, projectId, isAdminActor((req as any).authUser)))) return fail(res, 403, 'FORBIDDEN', 'Нет доступа к проекту разговора.');
+      const scopedProjects = [...new Set([projectId, ...messages.map((m: any) => typeof m?.projectId === 'string' ? m.projectId : m?.context?.projectId)].filter((pid): pid is string => typeof pid === 'string' && !!pid))];
+      for (const scopedProject of scopedProjects) {
+        if (!(await canSeeProject(me, scopedProject, isAdminActor((req as any).authUser)))) return fail(res, 403, 'FORBIDDEN', 'Нет доступа к проекту разговора.');
+      }
       const chat = existing
         ? await getPrisma().assistantChat.update({ where: { id }, data })
         : await getPrisma().assistantChat.create({ data: { id, ...data } });
@@ -708,8 +734,9 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
   app.post('/api/guide/chats/:id/archive', async (req: Request, res: Response) => {
     try {
       const me = meId(req);
+      await ensureGuideChatKinds();
       const row = await getPrisma().assistantChat.findUnique({ where: { id: String(req.params.id || '') } });
-      if (!row || row.ownerId !== me || !isGuideChat(row.messages)) return res.status(404).json({ error: 'Разговор не найден.' });
+      if (!row || row.ownerId !== me || row.kind !== 'guide') return res.status(404).json({ error: 'Разговор не найден.' });
       if (!row.archivedAt) await getPrisma().assistantChat.update({ where: { id: row.id }, data: { archivedAt: new Date() } });
       res.json({ ok: true });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
@@ -718,8 +745,9 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
   app.post('/api/guide/chats/:id/restore', async (req: Request, res: Response) => {
     try {
       const me = meId(req);
+      await ensureGuideChatKinds();
       const row = await getPrisma().assistantChat.findUnique({ where: { id: String(req.params.id || '') } });
-      if (!row || row.ownerId !== me || !isGuideChat(row.messages)) return res.status(404).json({ error: 'Разговор не найден.' });
+      if (!row || row.ownerId !== me || row.kind !== 'guide') return res.status(404).json({ error: 'Разговор не найден.' });
       if (row.archivedAt) await getPrisma().assistantChat.update({ where: { id: row.id }, data: { archivedAt: null } });
       res.json({ ok: true });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
@@ -729,8 +757,9 @@ export function registerGuideRoutes(app: Express, deps: { io: SocketIOServer }):
   app.delete('/api/guide/chats/:id', async (req: Request, res: Response) => {
     try {
       const me = meId(req);
+      await ensureGuideChatKinds();
       const row = await getPrisma().assistantChat.findUnique({ where: { id: String(req.params.id || '') } });
-      if (!row || row.ownerId !== me || !isGuideChat(row.messages)) return res.json({ ok: true });
+      if (!row || row.ownerId !== me || row.kind !== 'guide') return res.json({ ok: true });
       if (!row.archivedAt) await getPrisma().assistantChat.update({ where: { id: row.id }, data: { archivedAt: new Date() } });
       res.json({ ok: true });
     } catch (err: any) { fail(res, 500, 'UNAVAILABLE', err.message); }
