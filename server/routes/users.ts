@@ -435,6 +435,9 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
+    // Сервисные учётные записи (Flux Guide) — не сотрудники: в реестр людей
+    // и список собеседников они не попадают (F-ACL-09)
+    const visible = (users as any[]).filter((u) => u.role !== 'SERVICE');
     const roles = await prisma.role.findMany().catch(() => [] as any[]);
     const byCode: Record<string, string> = {};
     for (const r of roles as any[]) byCode[r.code] = r.permissions || '{}';
@@ -452,7 +455,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const meId = String((req as any).authUser?.id || '');
     const ownerView = (req as any).authUser?.role === 'OWNER';
     res.setHeader('Cache-Control', 'no-store');
-    res.json((users as any[]).map(({ password, signatureImage, hideOnline, ...u }) => ({
+    res.json(visible.map(({ password, signatureImage, hideOnline, ...u }) => ({
       ...u,
       ...(ownerView && isLegacyBootstrapAdmin(u) ? { legacyBootstrap: true } : {}),
       lastLoginAt: hideOnline && u.id !== meId ? null : u.lastLoginAt,

@@ -22,17 +22,14 @@ import DeveloperContact from './components/DeveloperContact';
 import AutomaticIncidentWatcher from './components/feedback/AutomaticIncidentWatcher';
 import TagNavigationPanel from './components/TagNavigationPanel';
 import { useProblemPanel, openProblemPanel, closeProblemPanel } from './feedback/problemPanel';
-import AssistantSpotlight from './components/AssistantSpotlight';
-import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
+import GuideSpotlight from './components/guide/GuideSpotlight';
+import { useGuideStore } from './guide/store';
 import { Z } from './lib/layers';
 import { FRAME_W, FRAME_H, FRAME_GRIP, FRAME_BTN, FRAME_LABEL, FRAME_LURE } from './lib/metrics';
 import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
 import { useDisplayStore } from './store/displayStore';
-import { SECTIONS } from './workspace/sections';
 import { mayClose } from './lib/closeGuard';
-import PlayInviteWatcher from './play/InviteWatcher';
-import { playEnabled } from '../play/enabled';
 import OwnedFileShareSync from './components/explorer/OwnedFileShareSync';
 import { ENV_CONFIG } from './config/env';
 import { syncEntityIdMigrationHistory } from './lib/entityIdLocalMigration';
@@ -295,35 +292,17 @@ function AnimatedRoutes() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Регистрируем навигатор и доступ к активному проекту для встроенного ассистента
+  // Flux Guide: навигатор, профиль и активный проект. Guide, как и помощник
+  // раньше, не читает окна сам — обстановку сообщает оболочка
   React.useEffect(() => {
-    setAssistantNavigator((path: string) => navigate(path));
-    setAssistantProjectGetter(() => useStore.getState().activeProject?.id || null);
-    // Обстановку помощнику сообщает оболочка: она одна знает, какие окна
-    // открыты и как называются их документы. Если бы помощник читал окна сам,
-    // он знал бы про них больше, чем рама, и они разошлись бы (§17.3)
-    setAssistantSceneGetter(
-      () => {
-        const st = useWindowStore.getState();
-        return st.windows.map((w) => ({
-          path: w.path,
-          section: SECTIONS.find((s) => s.path === w.path)?.title || w.path,
-          title: st.titles[w.id] || '',
-          z: w.z,
-          minimized: w.minimized,
-        }));
-      },
-      () => useStore.getState().activeProject?.name || '',
-    );
+    const g = useGuideStore.getState();
+    g.setNavigator((path: string) => navigate(path));
+    g.setUserGetter(() => useStore.getState().user ? { id: useStore.getState().user!.id, name: useStore.getState().user!.name } : null);
+    g.setActiveProjectGetter(() => {
+      const p = useStore.getState().activeProject;
+      return p ? { id: p.id, name: p.name } : null;
+    });
   }, [navigate]);
-
-  // Сообщаем ассистенту текущий раздел (для контекстной встречи и подсказок)
-  React.useEffect(() => {
-    useAssistantStore.getState().setRoute(location.pathname);
-    // и запоминаем как дело: «что я делал» отвечается этим, а не журналом
-    const title = SECTIONS.find((s) => s.path === location.pathname)?.title;
-    if (title) useAssistantStore.getState().remember(`открыл раздел «${title}»`);
-  }, [location.pathname]);
 
   // Сессия API истекла или профиль отключён (401 от сервера) → на экран входа
   React.useEffect(() => {
@@ -413,7 +392,6 @@ export default function App() {
               <LicenseGate>
                 <EntityIdMigrationSync />
                 <AnimatedRoutes />
-                {playEnabled() && <PlayInviteWatcher />}
                 <TagNavigationPanel />
                 <AutomaticIncidentWatcher />
                 <OwnedFileShareSync />
@@ -422,7 +400,7 @@ export default function App() {
           </div>
         </div>
         <ProblemPanel />
-        <AssistantSpotlight />
+        <GuideSpotlight />
       </SocketProvider>
     </Router>
   );

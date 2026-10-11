@@ -544,6 +544,7 @@ model ChatMessage {
   reactions       String? // JSON: { "👍": ["userId", ...], ... }
   pinned          Boolean           @default(false)
   forwardedFrom   String? // имя исходного отправителя при пересылке
+  guideReply      GuideReply?       @relation("GuideReplyMessage")
 }
 
 model ChatAttachment {
@@ -993,8 +994,22 @@ model AssistantChat {
   search    String   @default("") @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   @@index([ownerId, projectId])
+}
+
+/// Связь ответа F с запросом и проектом для повторной проверки ACL при чтении.
+model GuideReply {
+  id               String      @id @default(uuid())
+  messageId        String      @unique
+  message          ChatMessage @relation("GuideReplyMessage", fields: [messageId], references: [id], onDelete: Cascade)
+  requestMessageId String?     @unique
+  projectId        String      @default("")
+  kind             String      @default("")
+  createdAt        DateTime    @default(now())
+
+  @@index([projectId])
 }
 
 /// Кто сейчас в сети.

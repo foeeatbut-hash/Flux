@@ -20,32 +20,27 @@
 import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { Z } from '../lib/layers';
-import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { BAR_H } from '../lib/metrics';
 import {
   dockPlan, clampSplit, openPanel, closePanel, panelTitle, PANEL_W, type PanelId,
 } from '../lib/rightPanels';
 import NotificationsPanel from './NotificationsPanel';
-import AssistantPanel from './AssistantPanel';
 import type { DisplayRect } from '../../workspace/displays';
 
 const SPLIT_KEY = 'flux_dock_split';
 
 export default function RightDock({ bounds }: { bounds?: DisplayRect } = {}) {
   const notifOpen = useNotificationStore((s) => s.panelOpen);
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
 
-  // Порядок открытия живёт рядом с раскладкой: он и есть свойство колонки, а
-  // не свойство уведомлений или помощника по отдельности
+  // Порядок открытия живёт рядом с раскладкой: он и есть свойство колонки
   const [opened, setOpened] = React.useState<PanelId[]>([]);
   React.useEffect(() => {
     setOpened((prev) => {
-      let next = notifOpen ? openPanel(prev, 'notifications') : closePanel(prev, 'notifications');
-      next = assistantOpen ? openPanel(next, 'assistant') : closePanel(next, 'assistant');
+      const next = notifOpen ? openPanel(prev, 'notifications') : closePanel(prev, 'notifications');
       return next.length === prev.length && next.every((p, i) => p === prev[i]) ? prev : next;
     });
-  }, [notifOpen, assistantOpen]);
+  }, [notifOpen]);
 
   const [width, setWidth] = React.useState(() => (typeof window === 'undefined' ? 1600 : window.innerWidth));
   React.useEffect(() => {
@@ -87,7 +82,7 @@ export default function RightDock({ bounds }: { bounds?: DisplayRect } = {}) {
 
   if (!plan.order.length) return null;
 
-  const body = (id: PanelId) => (id === 'notifications' ? <NotificationsPanel /> : <AssistantPanel />);
+  const body = (id: PanelId) => (id === 'notifications' ? <NotificationsPanel /> : null);
 
   return (
     <aside

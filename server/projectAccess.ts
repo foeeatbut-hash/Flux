@@ -126,7 +126,7 @@ export function judgeMembersChange(c: MembersChange): { ok: true } | { ok: false
  * Ключи, от которых зависит доверие и защита: издатель игр, якорь времени,
  * лицензия, безопасность, резервные копии, политика обращений. Общий маршрут
  * настроек их не читает (у посторонних) и не пишет ни у кого: у каждого есть
- * штатный путь с проверкой прав (play/admin, время в server.ts, security.ts).
+ * штатный путь с проверкой прав (права, время в server.ts, security.ts).
  */
 const TRUST_KEYS: RegExp[] = [
   /^security[._:]/i, /^auth[._:]/i, /^play[._:]/i, /^license/i, /anchor/i, /^time[._:]/i,

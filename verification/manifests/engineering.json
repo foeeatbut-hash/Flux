@@ -4602,10 +4602,10 @@
     {
       "id": "catalog-to-assistant",
       "from": "catalog",
-      "to": "assistant",
+      "to": "guide",
       "status": "conditional",
       "sources": [
-        "src/components/assistant/CatalogAnswer.tsx",
+        "src/guide/engine.ts",
         "src/assistant/knowledge.ts"
       ],
       "expected": [

@@ -191,7 +191,7 @@ export function answerFromHandbook(
 
 /** Адрес перехода: статья и место в ней. */
 export function handbookHref(ans: HandbookAnswer): string {
-  return `/handbook?article=${encodeURIComponent(ans.articleId)}&at=${encodeURIComponent(ans.anchor)}`;
+  return `/guide?article=${encodeURIComponent(ans.articleId)}&at=${encodeURIComponent(ans.anchor)}`;
 }
 
 /**

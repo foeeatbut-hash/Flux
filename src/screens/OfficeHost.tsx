@@ -414,10 +414,7 @@ export default function OfficeHost() {
     return <Empty title="Файл не выбран" text="Откройте документ Word из Проводника двойным щелчком." />;
   }
   if (phase === 'missing') {
-    return (
-      <Empty title="Редактор не установлен"
-        text="В этой сборке нет нового редактора Flux Office. Откройте файл прежним Документом или обновите программу." />
-    );
+    return <Empty title="Редактор не установлен" text="В этой сборке нет редактора Flux Office. Обновите программу или запустите её сборку с GenOffice." />;
   }
 
   return (

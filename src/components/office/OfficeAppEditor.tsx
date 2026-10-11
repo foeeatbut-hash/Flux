@@ -358,7 +358,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   };
   if (!fileId) return <Empty title="Файл не выбран" text="Откройте файл из Проводника двойным щелчком." />;
   if (phase === 'missing') {
-    return <Empty title="Редактор не установлен" text="В этой сборке нет этого редактора Flux Office. Обновите программу." />;
+    return <Empty title="Редактор не установлен" text="В этой сборке нет редактора Flux Office. Обновите программу или запустите её сборку с GenOffice." />;
   }
   return (
     <div className="flex h-full w-full flex-col">

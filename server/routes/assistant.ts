@@ -11,6 +11,10 @@ import { ensureTables as ensureDbTables } from '../ddl.js';
  * который и так самый большой в программе.
  */
 export function registerAssistantRoutes(app: Express): void {
+  const isGuideHistory = (raw: string): boolean => {
+    try { const rows = JSON.parse(raw || '[]'); return Array.isArray(rows) && rows.some((m: any) => m?.role === 'guide'); }
+    catch { return false; }
+  };
   // Агрегатор данных для встроенного локального ассистента: одним запросом
   // отдаёт теги, плоский список оборудования и счётчики по активному проекту
   app.get('/api/assistant/data', async (req: Request, res: Response) => {
@@ -219,6 +223,7 @@ export function registerAssistantRoutes(app: Express): void {
           { name: 'search', kind: 'longtext', notNull: true },
           { name: 'createdAt', kind: 'time', notNull: true, def: 'now' },
           { name: 'updatedAt', kind: 'time', notNull: true, def: 'now' },
+          { name: 'archivedAt', kind: 'time' },
         ],
         indexes: [{ name: 'AssistantChat_owner_project_idx', cols: ['ownerId', 'projectId'] }],
       }], (m) => console.error('[Помощник]', m));
@@ -238,16 +243,17 @@ export function registerAssistantRoutes(app: Express): void {
       const rows = await getPrisma().assistantChat.findMany({
         where: {
           ownerId: me,
+          archivedAt: null,
           ...(projectId ? { projectId } : {}),
           // Поиск идёт по всем репликам: нужное слово чаще во второй, а имя
           // разговора — только первая фраза
           ...(q ? { search: { contains: q } } : {}),
         },
         orderBy: { updatedAt: 'desc' },
-        take: 200,
+        take: 1000,
         select: { id: true, title: true, preview: true, projectId: true, createdAt: true, updatedAt: true },
       });
-      res.json({ chats: rows });
+      res.json({ chats: rows.filter((row: any) => !isGuideHistory(row.messages)).slice(0, 200) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -259,7 +265,7 @@ export function registerAssistantRoutes(app: Express): void {
       await ensureTables();
       const me = meIdOf(req);
       const row = await getPrisma().assistantChat.findUnique({ where: { id: req.params.id } });
-      if (!row || row.ownerId !== me) return res.status(404).json({ error: 'Разговор не найден' });
+      if (!row || row.ownerId !== me || isGuideHistory(row.messages)) return res.status(404).json({ error: 'Разговор не найден' });
       res.json({ chat: row });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -286,6 +292,8 @@ export function registerAssistantRoutes(app: Express): void {
 
       const existing = await getPrisma().assistantChat.findUnique({ where: { id } });
       if (existing && existing.ownerId !== me) return res.status(403).json({ error: 'Чужой разговор' });
+      if (existing && isGuideHistory(existing.messages)) return res.status(409).json({ error: 'Разговор Guide хранится в Flux Guide' });
+      if (existing?.archivedAt) return res.status(409).json({ error: 'Разговор находится в архиве' });
       const chat = existing
         ? await getPrisma().assistantChat.update({ where: { id }, data: { title, preview, messages, search, projectId } })
         : await getPrisma().assistantChat.create({ data: { id, ownerId: me, projectId, title, preview, messages, search } });
@@ -300,7 +308,7 @@ export function registerAssistantRoutes(app: Express): void {
       await ensureTables();
       const me = meIdOf(req);
       const row = await getPrisma().assistantChat.findUnique({ where: { id: req.params.id } });
-      if (!row || row.ownerId !== me) return res.status(404).json({ error: 'Разговор не найден' });
+      if (!row || row.ownerId !== me || isGuideHistory(row.messages)) return res.status(404).json({ error: 'Разговор не найден' });
       await getPrisma().assistantChat.delete({ where: { id: row.id } });
       res.json({ ok: true });
     } catch (err: any) {

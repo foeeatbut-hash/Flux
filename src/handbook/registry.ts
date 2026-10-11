@@ -6,7 +6,6 @@ import { NATIVE_ARTICLES } from './nativeArticles';
 import { E3_ARTICLES } from './e3Articles';
 import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type HandbookHit } from './model';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { playEnabled } from '../../play/enabled';
 
 /**
  * Все статьи руководства в одном месте — и поиск по ним.
@@ -17,9 +16,7 @@ import { playEnabled } from '../../play/enabled';
  */
 export const ARTICLES: HandbookArticle[] = [
   ...CORE_ARTICLES,
-  // Статья про Flux Play — только при включённой платформе: о закрытом разделе
-  // руководство молчит так же, как Пуск
-  ...WORK_ARTICLES.filter((a) => a.id !== 'play' || playEnabled()),
+  ...WORK_ARTICLES,
   ...BUILDER_ARTICLES,
   ...E3_ARTICLES,
   ...NATIVE_ARTICLES,

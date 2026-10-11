@@ -14,8 +14,8 @@
 import {
   decide, entryMode, allows, toMap, PLATFORM_OFF,
   type PlatformState, type PolicyMap, type PolicySubject,
-} from '../play/policy';
-import { APP_PLAY, PLAY_GAMES, gameEntitlement, gameOfEntitlement, isPlayKey } from '../play/features';
+} from '../shared/appPolicy';
+const APP_FEATURE = 'app.fixture';
 import { sectionAccess, visibleSections } from '../src/lib/appPolicy';
 import { SECTIONS } from '../src/workspace/sections';
 import { hasAdminRole } from '../src/lib/permissions';
@@ -44,34 +44,34 @@ ok('срок в будущем ничего не отменяет', entryMode({ 
 
 console.log('\n2. Порядок проверок из ТЗ §3.1');
 {
-  const granted = { [APP_PLAY]: { mode: 'ALLOW' as const } };
+  const granted = { [APP_FEATURE]: { mode: 'ALLOW' as const } };
 
-  const off = decide(who(granted), { enabled: false, supported: true }, APP_PLAY);
+  const off = decide(who(granted), { enabled: false, supported: true }, APP_FEATURE);
   ok('общий выключатель сильнее личной выдачи', !off.allowed && off.source === 'platform', off);
 
-  const unsupported = decide(who(granted), { enabled: true, supported: false }, APP_PLAY);
+  const unsupported = decide(who(granted), { enabled: true, supported: false }, APP_FEATURE);
   ok('неподдержанная база сильнее всего', !unsupported.allowed && unsupported.source === 'platform', unsupported);
 
-  const disabled = decide(who(granted, {}, { active: false }), ON, APP_PLAY);
+  const disabled = decide(who(granted, {}, { active: false }), ON, APP_FEATURE);
   ok('отключённый профиль сильнее платформы', !disabled.allowed && disabled.source === 'profile', disabled);
 
-  const expiredProfile = decide(who(granted, {}, { validUntil: ago }), ON, APP_PLAY);
+  const expiredProfile = decide(who(granted, {}, { validUntil: ago }), ON, APP_FEATURE);
   ok('истёкший профиль — отказ', !expiredProfile.allowed && expiredProfile.source === 'profile', expiredProfile);
 
   const denyOverRole = decide(
-    who({ [APP_PLAY]: { mode: 'DENY' } }, { [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY,
+    who({ [APP_FEATURE]: { mode: 'DENY' } }, { [APP_FEATURE]: { mode: 'ALLOW' } }), ON, APP_FEATURE,
   );
   ok('личный запрет сильнее выдачи роли', !denyOverRole.allowed && denyOverRole.source === 'personal', denyOverRole);
 
   const allowOverRoleDeny = decide(
-    who({ [APP_PLAY]: { mode: 'ALLOW' } }, { [APP_PLAY]: { mode: 'DENY' } }), ON, APP_PLAY,
+    who({ [APP_FEATURE]: { mode: 'ALLOW' } }, { [APP_FEATURE]: { mode: 'DENY' } }), ON, APP_FEATURE,
   );
   ok('личная выдача сильнее запрета роли', allowOverRoleDeny.allowed && allowOverRoleDeny.source === 'personal', allowOverRoleDeny);
 
-  const byRole = decide(who({}, { [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY);
+  const byRole = decide(who({}, { [APP_FEATURE]: { mode: 'ALLOW' } }), ON, APP_FEATURE);
   ok('роль отвечает, когда лично ничего не сказано', byRole.allowed && byRole.source === 'role', byRole);
 
-  const nothing = decide(who(), ON, APP_PLAY);
+  const nothing = decide(who(), ON, APP_FEATURE);
   ok('ничего не сказано нигде — отказ по умолчанию', !nothing.allowed && nothing.source === 'default', nothing);
 }
 
@@ -80,69 +80,50 @@ console.log('\n3. Должность доступа не даёт');
   // Роль администратора в правило вообще не входит: у неё нет отдельной
   // ветки. Проверяем именно это — что решение зависит только от прав
   const admin = who();
-  ok('администратор без выдачи — отказ', !allows(admin, ON, APP_PLAY));
-  ok('администратор с выдачей — доступ', allows(who({ [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY));
-  const adminDenied = who({ [APP_PLAY]: { mode: 'DENY' } }, { [APP_PLAY]: { mode: 'ALLOW' } });
-  ok('личный запрет действует и на администратора', !allows(adminDenied, ON, APP_PLAY));
+  ok('администратор без выдачи — отказ', !allows(admin, ON, APP_FEATURE));
+  ok('администратор с выдачей — доступ', allows(who({ [APP_FEATURE]: { mode: 'ALLOW' } }), ON, APP_FEATURE));
+  const adminDenied = who({ [APP_FEATURE]: { mode: 'DENY' } }, { [APP_FEATURE]: { mode: 'ALLOW' } });
+  ok('личный запрет действует и на администратора', !allows(adminDenied, ON, APP_FEATURE));
 }
 
 console.log('\n3а. Владелец получает полные права встроенных программ');
 {
   const owner = who({}, {}, { owner: true });
-  ok('OWNER получает Flux Play без личной или ролевой выдачи', allows(owner, ON, APP_PLAY));
-  for (const game of PLAY_GAMES) {
-    ok(`OWNER получает игру «${game.title}»`, allows(owner, ON, gameEntitlement(game.id)));
+  ok('OWNER получает встроенный модуль без личной или ролевой выдачи', allows(owner, ON, APP_FEATURE));
+  for (const feature of ['app.fixture', 'module.fixture']) {
+    ok(`OWNER получает игру «${feature}»`, allows(owner, ON, feature));
   }
-  ok('общий выключатель всё ещё выключает Flux Play владельцу',
-    !allows(owner, { enabled: false, supported: true }, APP_PLAY));
-  ok('неподдержанная база блокирует Flux Play владельцу',
-    !allows(owner, { enabled: true, supported: false }, APP_PLAY));
+  ok('общий выключатель всё ещё выключает встроенный модуль владельцу',
+    !allows(owner, { enabled: false, supported: true }, APP_FEATURE));
+  ok('неподдержанная база блокирует встроенный модуль владельцу',
+    !allows(owner, { enabled: true, supported: false }, APP_FEATURE));
   ok('отключённый профиль владельца не получает доступа',
-    !allows({ ...owner, active: false }, ON, APP_PLAY));
+    !allows({ ...owner, active: false }, ON, APP_FEATURE));
   ok('истёкший профиль владельца не получает доступа',
-    !allows({ ...owner, validUntil: ago }, ON, APP_PLAY));
+    !allows({ ...owner, validUntil: ago }, ON, APP_FEATURE));
   ok('ADMIN с выданным доступом сохраняет явную выдачу',
-    allows(who({ [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY));
+    allows(who({ [APP_FEATURE]: { mode: 'ALLOW' } }), ON, APP_FEATURE));
   ok('личный запрет сотрудника сохраняет приоритет',
-    !allows(who({ [APP_PLAY]: { mode: 'DENY' } }, { [APP_PLAY]: { mode: 'ALLOW' } }), ON, APP_PLAY));
+    !allows(who({ [APP_FEATURE]: { mode: 'DENY' } }, { [APP_FEATURE]: { mode: 'ALLOW' } }), ON, APP_FEATURE));
 }
 
 console.log('\n4. Выключенную платформу есть кому включить');
 {
-  const manager = who({ 'play.admin': { mode: 'ALLOW' } });
+  const manager = who({ 'module.admin': { mode: 'ALLOW' } });
   const off: PlatformState = { enabled: false, supported: true };
   ok('общий выключатель не отнимает право управления',
-    allows(manager, off, 'play.admin', { ignoreSwitch: true }));
+    allows(manager, off, 'module.admin', { ignoreSwitch: true }));
   ok('но обычный доступ он отнимает',
-    !allows(who({ [APP_PLAY]: { mode: 'ALLOW' } }), off, APP_PLAY));
+    !allows(who({ [APP_FEATURE]: { mode: 'ALLOW' } }), off, APP_FEATURE));
   // Неподдержанную базу не обходит даже управление: включать там нечего
   ok('неподдержанную базу не обходит и управление',
-    !allows(manager, { enabled: false, supported: false }, 'play.admin', { ignoreSwitch: true }));
+    !allows(manager, { enabled: false, supported: false }, 'module.admin', { ignoreSwitch: true }));
 }
 
 console.log('\n5. Умолчание — отказ');
-ok('без состояния платформы доступа нет', !allows(who({ [APP_PLAY]: { mode: 'ALLOW' } }), PLATFORM_OFF, APP_PLAY));
-ok('без профиля доступа нет', !allows(null, ON, APP_PLAY));
+ok('без состояния платформы доступа нет', !allows(who({ [APP_FEATURE]: { mode: 'ALLOW' } }), PLATFORM_OFF, APP_FEATURE));
+ok('без профиля доступа нет', !allows(null, ON, APP_FEATURE));
 ok('PLATFORM_OFF выключена и не поддержана', !PLATFORM_OFF.enabled && !PLATFORM_OFF.supported);
-
-console.log('\n6. Право на игру — отдельное от права на платформу');
-{
-  const onlyApp = who({ [APP_PLAY]: { mode: 'ALLOW' } });
-  for (const g of PLAY_GAMES) {
-    ok(`«${g.title}» не выдаётся вместе с платформой`, !allows(onlyApp, ON, gameEntitlement(g.id)));
-  }
-  const withGame = who({ [APP_PLAY]: { mode: 'ALLOW' }, [gameEntitlement('testgame')]: { mode: 'ALLOW' } });
-  ok('выданная игра доступна', allows(withGame, ON, gameEntitlement('testgame')));
-  ok('невыданная соседняя — нет', !allows(withGame, ON, gameEntitlement('fluxstrike')));
-  ok('код игры читается из права обратно', gameOfEntitlement(gameEntitlement('fluxstrike')) === 'fluxstrike');
-  ok('чужой код игрой не считается', gameOfEntitlement('log.view') === '');
-}
-
-console.log('\n7. Ключи платформы узнаются по имени');
-ok('право платформы опознано', isPlayKey(APP_PLAY));
-ok('право игры опознано', isPlayKey(gameEntitlement('fluxstrike')));
-ok('рабочее право платформой не считается', !isPlayKey('log.view'));
-ok('пустая строка не считается', !isPlayKey(''));
 
 console.log('\n8. Разбор карты прав');
 ok('строка JSON разбирается', (toMap('{"a":{"enabled":true}}').a as any)?.enabled === true);
@@ -153,19 +134,19 @@ ok('голое false означает «не сказано»', entryMode(false 
 ok('мусор не роняет разбор', Object.keys(toMap('не json')).length === 0);
 ok('null даёт пустую карту', Object.keys(toMap(null)).length === 0);
 
-console.log('\n9. Роль владельца открывает административные разделы и Flux Play');
+console.log('\n9. Роль владельца открывает административные разделы и встроенный модуль');
 const administrativeSection = { path: '/users', adminOnly: true };
-const unlicensedPlaySection = { path: '/play', entitlement: APP_PLAY, accessMode: 'normal' as const };
+const unlicensedModuleSection = { path: '/fixture-module', entitlement: APP_FEATURE, accessMode: 'normal' as const };
 const appCtx = (role: string) => ({ user: { role, isActive: true }, platform: ON });
 ok('OWNER проходит adminOnly', sectionAccess(administrativeSection, appCtx('OWNER')) === 'open');
 ok('ADMIN проходит adminOnly', sectionAccess(administrativeSection, appCtx('ADMIN')) === 'open');
 ok('USER остаётся закрыт на adminOnly', sectionAccess(administrativeSection, appCtx('USER')) === 'hide');
 ok('OWNER и ADMIN открывают UI-функции уровня управления', hasAdminRole({ role: 'OWNER' }) && hasAdminRole({ role: 'ADMIN' }));
 ok('обычный сотрудник не получает UI-функции уровня управления', !hasAdminRole({ role: 'ENGINEER' }));
-ok('OWNER открывает Flux Play и игру', sectionAccess(unlicensedPlaySection, appCtx('OWNER')) === 'open');
+ok('OWNER открывает встроенный модуль и игру', sectionAccess(unlicensedModuleSection, appCtx('OWNER')) === 'open');
 const ownerCtx = { user: { role: 'OWNER', isActive: true }, platform: ON };
 const ownerVisible = visibleSections(SECTIONS, ownerCtx);
-ok('OWNER видит все самостоятельные программы при включённой Flux Play',
+ok('OWNER видит все самостоятельные программы при включённой встроенный модуль',
   ownerVisible.length === SECTIONS.filter(section => !section.fileOnly).length && ownerVisible.every(section => sectionAccess(section, ownerCtx) === 'open'),
   { visible: ownerVisible.map(section => section.path), total: SECTIONS.length });
 ok('скрытие встроенных редакторов не отнимает их открытие у владельца',
@@ -180,7 +161,7 @@ const deniedFile = { path: '/private-file', fileOnly: true, adminOnly: true };
 ok('открытое файловое окно не обходит ограничение доступа',
   visibleSections([deniedFile], appCtx('USER'), ['/private-file']).length === 0);
 for (const role of ['ADMIN', 'USER']) {
-  ok(`${role} без app.play остаётся без Flux Play`, sectionAccess(unlicensedPlaySection, appCtx(role)) === 'explain');
+  ok(`${role} без явного права остаётся без встроенный модуль`, sectionAccess(unlicensedModuleSection, appCtx(role)) === 'explain');
 }
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);

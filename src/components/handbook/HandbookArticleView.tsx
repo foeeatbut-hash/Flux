@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb, Play } from 'lucide-react';
 import type { HandbookArticle } from '../../handbook/model';
 import { toursForRoute } from '../../assistant/tours';
-import { useAssistantStore } from '../../store/assistantStore';
+import { useGuideStore } from '../../guide/store';
 import { featureById } from '../../lib/permissions';
 import { thingRu, linkRu } from '../../handbook/names';
 
@@ -30,7 +30,7 @@ const Head = ({ id, icon: Icon, children }: { id: string; icon: any; children: R
  * две статьи, знает, где искать в третьей.
  */
 export default function HandbookArticleView({ article: a, onGoToSection, onOpen, titleOf }: Props) {
-  const startTour = useAssistantStore((s) => s.startTour);
+  const startTour = useGuideStore((s) => s.startTour);
   // Демонстрации того же раздела: словами объяснено выше, а показать — короче
   const tours = React.useMemo(() => toursForRoute(a.route || '').slice(0, 4), [a.route]);
 

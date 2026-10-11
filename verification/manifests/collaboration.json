@@ -109,27 +109,6 @@
       ]
     },
     {
-      "id": "assistant",
-      "label": "Помощник",
-      "routes": [
-        "/assistant"
-      ],
-      "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/Chat.tsx",
-        "src/components/assistant/ChatHistory.tsx",
-        "src/components/assistant/CatalogAnswer.tsx",
-        "src/components/chat/AssistantEntry.tsx",
-        "src/assistant/context.ts",
-        "src/assistant/resolve.ts",
-        "src/assistant/answers.ts",
-        "src/assistant/handbookAnswers.ts",
-        "src/assistant/sections.ts",
-        "src/store/assistantStore.ts",
-        "src/store/assistantChatsStore.ts"
-      ]
-    },
-    {
       "id": "translate",
       "label": "Переводчик",
       "routes": [
@@ -166,13 +145,19 @@
       ]
     },
     {
-      "id": "handbook",
-      "label": "Руководство",
+      "id": "guide",
+      "label": "Flux Guide: справочник, вопросы и демонстрации",
       "routes": [
-        "/handbook"
+        "/guide"
       ],
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
+        "src/guide/engine.ts",
+        "src/guide/store.ts",
+        "src/components/chat/AssistantEntry.tsx",
+        "src/assistant/answers.ts",
+        "src/assistant/handbookAnswers.ts",
+        "src/assistant/sections.ts",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx",
         "src/handbook/registry.ts",
@@ -237,11 +222,27 @@
         "api:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -256,11 +257,27 @@
         "api:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -281,8 +298,14 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [
-        { "kind": "file", "path": "src/store/mailStore.ts" },
-        { "kind": "file", "path": "src/screens/Mail.tsx" }
+        {
+          "kind": "file",
+          "path": "src/store/mailStore.ts"
+        },
+        {
+          "kind": "file",
+          "path": "src/screens/Mail.tsx"
+        }
       ],
       "timeoutMs": 900000
     },
@@ -531,11 +554,27 @@
         "browser:exclusive"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -552,11 +591,27 @@
         "browser:exclusive"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -1986,12 +2041,12 @@
     },
     {
       "id": "assistant.ask-contextual",
-      "program": "assistant",
+      "program": "guide",
       "label": "Задать вопрос о работе, открытом документе или проекте",
       "sources": [
-        "src/components/assistant/Chat.tsx",
-        "src/assistant/context.ts",
-        "src/store/assistantStore.ts"
+        "src/guide/engine.ts",
+        "src/guide/engine.ts",
+        "src/guide/store.ts"
       ],
       "triggers": [
         "input",
@@ -2031,12 +2086,12 @@
     },
     {
       "id": "assistant.history-list-search",
-      "program": "assistant",
+      "program": "guide",
       "label": "Показать историю, искать, открыть и переименовать разговор",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/ChatHistory.tsx",
-        "src/store/assistantChatsStore.ts"
+        "src/screens/FluxGuide.tsx",
+        "src/guide/store.ts",
+        "src/guide/store.ts"
       ],
       "triggers": [
         "button",
@@ -2076,11 +2131,11 @@
     },
     {
       "id": "assistant.clear-view",
-      "program": "assistant",
+      "program": "guide",
       "label": "Очистить содержимое экрана разговора",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/Chat.tsx"
+        "src/screens/FluxGuide.tsx",
+        "src/guide/engine.ts"
       ],
       "triggers": [
         "button"
@@ -2102,11 +2157,11 @@
     },
     {
       "id": "assistant.catalog-search",
-      "program": "assistant",
+      "program": "guide",
       "label": "Искать по опубликованному Каталогу из помощника",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/CatalogAnswer.tsx"
+        "src/screens/FluxGuide.tsx",
+        "src/guide/engine.ts"
       ],
       "triggers": [
         "button",
@@ -2138,12 +2193,12 @@
     },
     {
       "id": "assistant.background-autosave",
-      "program": "assistant",
+      "program": "guide",
       "label": "Автоматически сохранять разговор и загружать проектный контекст",
       "sources": [
-        "src/store/assistantChatsStore.ts",
-        "src/store/assistantStore.ts",
-        "src/screens/AssistantScreen.tsx"
+        "src/guide/store.ts",
+        "src/guide/store.ts",
+        "src/screens/FluxGuide.tsx"
       ],
       "triggers": [
         "background",
@@ -2555,10 +2610,10 @@
     },
     {
       "id": "handbook.search-article",
-      "program": "handbook",
+      "program": "guide",
       "label": "Искать статью и открыть её",
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
         "src/components/handbook/HandbookNav.tsx",
         "src/handbook/registry.ts"
       ],
@@ -2600,10 +2655,10 @@
     },
     {
       "id": "handbook.toc-follow-anchor",
-      "program": "handbook",
+      "program": "guide",
       "label": "Показать оглавление, переключить следование, перейти к заголовку статьи",
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx"
       ],
@@ -2629,7 +2684,7 @@
     },
     {
       "id": "handbook.open-program-route",
-      "program": "handbook",
+      "program": "guide",
       "label": "Открыть программу по ссылке из статьи",
       "sources": [
         "src/components/handbook/HandbookArticleView.tsx",
@@ -2827,11 +2882,11 @@
     },
     {
       "id": "assistant.to-catalog",
-      "from": "assistant",
+      "from": "guide",
       "to": "catalog",
       "status": "implemented",
       "sources": [
-        "src/components/assistant/CatalogAnswer.tsx",
+        "src/guide/engine.ts",
         "catalog/query.ts"
       ],
       "expected": [
@@ -2935,7 +2990,7 @@
     },
     {
       "id": "handbook.to-section",
-      "from": "handbook",
+      "from": "guide",
       "to": "settings",
       "status": "implemented",
       "sources": [

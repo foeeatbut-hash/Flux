@@ -68,8 +68,6 @@ function childEnvironment(dataDir, port, runId) {
     PORT: String(port),
     VENT_APP_DATA: dataDir,
     FLUX_TEST_OWNER: '1',
-    // Flux Play отключён без этого признака (play/enabled.ts); в стенде его наборы идут
-    FLUX_PLAY: '1',
     FLUX_TEST_LICENSE: '1',
     FLUX_TEST_LICENSE_AUTO: '1',
     FLUX_EMBEDDED: '1',
@@ -370,12 +368,12 @@ async function seed(stateDir) {
   const projectResponse = await jsonCall(first.origin, '/api/projects', 'POST', { name: `Проверочный проект ${suffix}`, code: `FIXTURE-${suffix}` }, owner.token);
   const project = projectResponse?.project;
   if (!project?.id) fail('Project creation did not return an ID.');
-  const playGroup = createdEmployees.slice(0, 4).map(x => x.id);
-  await jsonCall(first.origin, `/api/projects/${encodeURIComponent(project.id)}/members`, 'POST', { userIds: playGroup }, owner.token);
+  const projectMembers = createdEmployees.slice(0, 4).map(x => x.id);
+  await jsonCall(first.origin, `/api/projects/${encodeURIComponent(project.id)}/members`, 'POST', { userIds: projectMembers }, owner.token);
 
   const identities = [
     { ...createdAdmin, symbol: admin.symbol, password: admin.password, role: 'ADMIN' },
-    ...createdEmployees.map((user, index) => ({ ...user, symbol: employees[index].symbol, password: employees[index].password, role: 'ENGINEER_VENT', group: index < 4 ? 'play' : 'outsider' })),
+    ...createdEmployees.map((user, index) => ({ ...user, symbol: employees[index].symbol, password: employees[index].password, role: 'ENGINEER_VENT', group: index < 4 ? 'member' : 'outsider' })),
   ].map(({ id, symbol, password, role, group }) => ({ id, symbol, password, role, ...(group ? { group } : {}) }));
 
   // Every account must authenticate on both independently-secreted app servers.
@@ -399,7 +397,7 @@ async function seed(stateDir) {
     envBindings: Object.fromEntries(identities.map((identity, index) => index === 0
       ? [identity.symbol, { user: 'FLUX_USER', pass: 'FLUX_PASS' }]
       : [identity.symbol, { user: `FLUX_USER${index + 1}`, pass: `FLUX_PASS${index + 1}` }])),
-    groups: { play: identities.filter(x => x.group === 'play').map(x => x.id), outsiders: identities.filter(x => x.group === 'outsider').map(x => x.id) },
+    groups: { members: identities.filter(x => x.group === 'member').map(x => x.id), outsiders: identities.filter(x => x.group === 'outsider').map(x => x.id) },
     notes: 'All account passwords are synthetic and disposable. Owner bearer tokens and database URL are intentionally omitted.',
   };
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });

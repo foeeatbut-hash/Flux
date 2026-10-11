@@ -38,9 +38,7 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_UI_URL: http://127.0.0.1:5173
-          # Flux Play отключён без признака (play/enabled.ts); Vite подставляет его в окно
-          FLUX_PLAY: '1'
-        run: |
+            run: |
           set -euo pipefail
           vite_log="${{ runner.temp }}/flux-ui-vite.log"
           DISABLE_HMR=true node ./node_modules/vite/bin/vite.js \
@@ -75,10 +73,10 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-play-match-frame-ui test-import-file-chooser-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui; do
             node --import tsx "scripts/$check.ts"
           done
-          for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-play-ui; do
+          for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Перенос ID в интерфейсе и локальные связи XML

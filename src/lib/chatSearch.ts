@@ -6,7 +6,7 @@
  * но у него есть правильный ответ — значит, ему место здесь, а не в разметке.
  */
 
-export interface PersonLike { id: string; name: string; symbol: string }
+export interface PersonLike { id: string; name: string; symbol: string; role?: string }
 export interface GroupLike { id: string; name?: string; description?: string }
 
 /** Себя в списке собеседников нет: писать самому себе некуда */
@@ -14,6 +14,9 @@ export function matchUsers<T extends PersonLike>(list: T[], meId: string | undef
   const q = String(query || '').trim().toLowerCase();
   return list.filter((u) => {
     if (u.id === meId) return false;
+    // Сервисные учётные записи (Flux Guide) — отправители сообщений,
+    // а не собеседники: в реестр сотрудников их не показываем
+    if (u.role === 'SERVICE') return false;
     if (!q) return true;
     return u.name.toLowerCase().includes(q) || u.symbol.toLowerCase().includes(q);
   });

@@ -5,7 +5,6 @@ import { anchorsOf, foldRu } from '../src/handbook/model';
 import { FEATURES } from '../src/lib/permissions';
 import { thingRu, linkRu, missingNames } from '../src/handbook/names';
 import { resolveSectionPath } from '../src/lib/sectionAliases';
-import { playEnabled } from '../play/enabled';
 
 /**
  * Руководство не должно врать.
@@ -48,7 +47,6 @@ for (const m of sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'/g)) ROUT
 // Flux Play отключён без FLUX_PLAY=1: раздела в реестре нет, и статьи о нём
 // тоже. Регулярка читает исходник и видит его строку в любом случае, поэтому
 // сверяем только то, что реально присутствует в окне
-if (!playEnabled()) ROUTES.delete('/play');
 
 const FEATURE_IDS = new Set(FEATURES.map((f) => f.id));
 

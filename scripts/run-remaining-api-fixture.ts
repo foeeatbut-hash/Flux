@@ -22,8 +22,6 @@ const targets = [
   'eng-equipment-multi-import-live',
   'eng-equipment-position-add-live',
   'files-remaining-explorer-api',
-  'shell-play-mariadb-two-api-live',
-  'shell-play-two-clients-api-db',
 ] as const;
 const maxPrivateLogBytes = 2 * 1024 * 1024;
 const preparationTimeoutMs = 240_000;
@@ -188,8 +186,7 @@ async function main(): Promise<number> {
     const metadataPath = path.resolve(requestedMetadata);
     const metadata = readFixtureMetadata(metadataPath, fixtureState);
     const admin = metadata.accounts.find((account: any) => account.role === 'ADMIN');
-    const players = metadata.accounts.filter((account: any) => account.role === 'ENGINEER_VENT' && account.group === 'play');
-    if (!admin?.symbol || !admin?.password || players.length < 2 || players.some((account: any) => !account.symbol || !account.password)) fail('Synthetic ADMIN and two Play fixture accounts are required.');
+    if (!admin?.symbol || !admin?.password) fail('Synthetic ADMIN fixture account is required.');
     const registry = loadRegistry(repo);
     const suites = new Map<string, any>();
     for (const manifest of registry.manifests) for (const suite of manifest.suites) suites.set(suite.id, suite);
@@ -197,9 +194,7 @@ async function main(): Promise<number> {
     if (missing.length) fail(`Registered API suites are missing: ${missing.join(', ')}.`);
     const baseEnv = { ...process.env, FLUX_TEST_FIXTURE: '1', FLUX_REMAINING_LIVE_DATABASE_URL: process.env.FLUX_REMAINING_LIVE_DATABASE_URL!, FLUX_DB_FIXTURE_URL: process.env.FLUX_REMAINING_LIVE_DATABASE_URL!, FLUX_REMAINING_LIVE_METADATA: metadataPath, FLUX_API: 'http://127.0.0.1:4300', FLUX_API2: 'http://127.0.0.1:4301', FLUX_USER: admin.symbol, FLUX_PASS: admin.password };
     for (const id of targets) {
-      const env = id === 'shell-play-two-clients-api-db'
-        ? { ...baseEnv, FLUX_USER: players[0].symbol, FLUX_PASS: players[0].password, FLUX_USER2: players[1].symbol, FLUX_PASS2: players[1].password }
-        : baseEnv;
+      const env = baseEnv;
       const saved = process.env;
       process.env = env;
       let result;

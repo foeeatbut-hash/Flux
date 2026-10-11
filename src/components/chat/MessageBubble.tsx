@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { GroupMark } from './grouping';
 import { timeOf } from './grouping';
+import { parseGuideMessage } from './guideMessage';
 
 /**
  * Сообщение в переписке.
@@ -103,6 +104,7 @@ export default function MessageBubble({
   onOpenEquipment, onOpenFile, onJumpTo, formatBytes, children,
 }: Props) {
   const name = isMe ? 'Вы' : (msg.sender?.name || 'Сотрудник');
+  const guide = parseGuideMessage(msg.content);
 
   // Уголок — только у последнего в кучке: у остальных все углы круглые, и
   // кучка читается как один блок, а не как стопка отдельных карточек.
@@ -173,11 +175,18 @@ export default function MessageBubble({
         <div
           className={`relative rounded-2xl ${corner} px-3 py-2 text-xs leading-relaxed min-w-0 max-w-full
                       break-words overflow-hidden shadow-3xs transition-ui ${
-            isMe
+            guide.kind === 'reply'
+              ? 'bg-white dark:bg-slate-850 text-slate-800 dark:text-slate-150 border-l-2 border-emerald-600 dark:border-emerald-400 border-y border-r border-slate-200 dark:border-slate-800'
+              : isMe
               ? 'bg-emerald-600 text-white dark:bg-emerald-700'
               : 'bg-white dark:bg-slate-850 text-slate-800 dark:text-slate-150 border border-slate-200 dark:border-slate-800'
           }`}
         >
+          {guide.kind && (
+            <div className={`mb-1 text-xs font-medium ${guide.kind === 'reply' ? 'text-emerald-700 dark:text-emerald-400' : isMe ? 'text-emerald-100' : 'text-emerald-700 dark:text-emerald-400'}`}>
+              {guide.kind === 'reply' ? 'F · Flux Guide' : 'Запрос Flux Guide'}
+            </div>
+          )}
           {msg.forwardedFrom && (
             <div className={`mb-1 text-2xs font-semibold flex items-center gap-1 select-none ${
               isMe ? 'text-emerald-100' : 'text-sky-600 dark:text-sky-400'}`}>
@@ -206,7 +215,7 @@ export default function MessageBubble({
             </button>
           )}
 
-          <div className={isMe ? 'flux-own-msg' : ''}>{children}</div>
+          <div className={isMe && guide.kind !== 'reply' ? 'flux-own-msg' : ''}>{children}</div>
 
           {msg.linkedElement && (
             <button
