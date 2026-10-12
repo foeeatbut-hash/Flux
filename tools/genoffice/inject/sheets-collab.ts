@@ -529,7 +529,7 @@ async function exportCommands(): Promise<void> {
     if (fluxReadOnly) return false
     const prior = applyingFlux
     applyingFlux = true
-    try { range.setValue(value); return true } catch { return false } finally { applyingFlux = prior }
+    try { range.setValues([[{ v: value }]]); return true } catch { return false } finally { applyingFlux = prior }
   }, () => !fluxReadOnly)
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
   document.addEventListener('contextmenu', (event) => {

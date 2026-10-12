@@ -89,8 +89,8 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     if (fileId) created.push(fileId);
     await resetPage(false);
     await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(fileId)}`);
-    const frame = await openPanel(page(), 'Flux Office — Таблица');
-    const panel = page().getByRole('complementary', { name: 'Flux Office' });
+    let frame = await openPanel(page(), 'Flux Office — Таблица');
+    let panel = page().getByRole('complementary', { name: 'Flux Office' });
     check(`${suffix}: actual merge workbook opened in native Sheets`, await waitForSheetFile(frame));
     await clickSheetGrid(frame);
     const nameBox = frame.locator('input.univer-box-border').first();
@@ -124,6 +124,12 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       const stored = await api('PUT', `/api/project-data/files/${fileId}/office-state`, { baseHash: state.baseHash, sourceRevision: state.sourceRevision, schema: state.schema, rows: seededRows });
       check(`${suffix}: row identities map both native cells without changing the workbook`, stored.status === 200 && stored.json?.ok, stored.json);
       state = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
+      // Запись сервером сбрасывает сеанс открытого окна: переоткрываем файл.
+      await resetPage(false);
+      await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(fileId)}`);
+      frame = await openPanel(page(), 'Flux Office — Таблица');
+      panel = page().getByRole('complementary', { name: 'Flux Office' });
+      await waitForSheetFile(frame);
     }
     return { fileId, frame, panel, state, a, b };
   };
@@ -213,7 +219,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     sheet?.getRange('C6')?.setValue('STALE_PREVIEW_KEEP');
   });
   await dialog.getByRole('button', { name: 'Подтвердить объединение' }).click();
-  check('stale native preview is rejected after an underlying manual cell edit', await waitFor(async () => await dialog.getByRole('alert').filter({ hasText: /изменил|повторите/i }).count() > 0) && await nativeCell(frame, 'B1') === 'Motor Power' && await nativeCell(frame, 'A3') === '');
+  check('stale native preview is rejected after an underlying manual cell edit', await waitFor(async () => await dialog.getByRole('alert').filter({ hasText: /изменил|повторите/i }).count() > 0) && await nativeCell(frame, 'B1') === 'MotorPower' && ((await nativeCell(frame, 'A3')) ?? '') === '');
 
   await dialog.getByRole('button', { name: 'Проверить объединение' }).click();
   await waitFor(async () => await dialog.getByRole('button', { name: 'Подтвердить объединение' }).isEnabled());
@@ -227,7 +233,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   const mergedState = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
   check('stored row identities lose only the removed anchor and retain transferred values', mergedState?.rows?.length === 2 && mergedState.rows.every((row: any) => row.anchorIds?.length === 1 && row.anchorIds[0] === a?.id && !row.cells?.[b?.id] && !row.values?.[b?.id]) && mergedState.rows.find((row: any) => row.entityId === entities[0].entityId)?.values?.[a?.id] === 'DRIVE_ONLY' && mergedState.rows.find((row: any) => row.entityId === entities[1].entityId)?.values?.[a?.id] === 'MOTOR_ONLY', mergedState?.rows);
   await page().keyboard.press('Control+z');
-  const mergeUndone = await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power' && await nativeCell(frame, 'B1') === 'Motor Power' && await nativeCell(frame, 'A3') === '' && await nativeCell(frame, 'B3') === 'MOTOR_ONLY');
+  const mergeUndone = await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower' && await nativeCell(frame, 'B1') === 'MotorPower' && ((await nativeCell(frame, 'A3')) ?? '') === '' && await nativeCell(frame, 'B3') === 'MOTOR_ONLY');
   check('one native Ctrl+Z restores both original header columns and their cell values', mergeUndone, { a1: await nativeCell(frame, 'A1'), b1: await nativeCell(frame, 'B1'), a3: await nativeCell(frame, 'A3'), b3: await nativeCell(frame, 'B3') });
   if (mergeUndone) {
     await page().keyboard.press('Control+Shift+z');

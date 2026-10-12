@@ -32,7 +32,7 @@ async function makeMergeDocx(conflict: boolean): Promise<Buffer> {
     row('SAME_KEEP', 'SAME_KEEP'),
     ...(conflict ? [row('TARGET_CONFLICT', 'SOURCE_CONFLICT')] : []),
   ].join('');
-  const table = `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblGrid><w:gridCol w:w="3600"/><w:gridCol w:w="3600"/></w:tblGrid>${rows}</w:tbl>`;
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="3600"/><w:gridCol w:w="3600"/></w:tblGrid>${rows}</w:tbl>`;
   zip.file('word/document.xml', xml.replace(/<w:tbl>[\s\S]*?<\/w:tbl>/, table));
   return Buffer.from(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
 }

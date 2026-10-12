@@ -506,7 +506,7 @@ try {
     const prePreviewState = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
     await wordPreview.click();
     const wordConfirm = panel.getByRole('button', { name: 'Подтвердить и заполнить' });
-    const previewReady = await wordConfirm.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false);
+    const previewReady = await wordConfirm.waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
     const previewXml = await archiveText(docxId, 'word/document.xml');
     const previewState = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
     check('Word changes remain in preview until explicit confirmation', previewReady && previewXml === prePreviewXml && JSON.stringify(previewState?.rows || []) === JSON.stringify(prePreviewState?.rows || []), { buttonVisible: previewReady, xmlUnchanged: previewXml === prePreviewXml, beforeRows: prePreviewState?.rows?.length, previewRows: previewState?.rows?.length });

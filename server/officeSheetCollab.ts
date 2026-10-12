@@ -94,7 +94,8 @@ export class SheetShared {
   /** Правка участника: номер по порядку и в журнал. null — не принята, причина в error */
   async push(fileId: string, key: string, op: SheetOp, fromSocket: string, guard?: ShareWriteGuard): Promise<{ seq: number } | { error: string; key?: string }> {
     const row = await this.bus.session(fileId);
-    if (!row) return { error: 'Сеанс общей книги не открыт' };
+    // Сервер сбрасывает сеанс при записи файла в обход окна: окна со старым сеансом переоткрывают файл по 'session'
+    if (!row) return { error: 'session' };
     if (key !== row.key) return { error: 'session', key: row.key };
     try {
       const seq = await this.bus.publish(fileId, { kind: 'x', fromSocket, data: Buffer.from(JSON.stringify(op)), app: 'sheets' }, { maxSeq: MAX_OPS, guard });
