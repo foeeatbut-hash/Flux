@@ -421,7 +421,9 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     if (!Array.isArray(response.rows)) throw new Error('Редактор не вернул сведения о заполненных строках. Сохраните книгу и проверьте результат.');
     const current = await saveAndReadOfficeState();
     const stored = await officeDataApi.updateState(fileId, { baseHash: current.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
-    reopenRef.current();
+    // Сервер изменил только часть Flux: книга остаётся открытой, чтобы не терять
+    // историю «назад»; хеш для следующего сохранения — из ответа записи
+    savedHashRef.current = stored.baseHash;
     return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: Array.isArray(response.manualRows) ? response.manualRows.map(String) : [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
   };
   const updateOfficeSchema = async (schema: OfficeHeaderSchema, options: HeaderSchemaSyncOptions = {}) => {
@@ -429,10 +431,9 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     const response = await callFluxEvent(options.captureNative ? 'flux:get-header-schema' : 'flux:sync-header-schema', { schema, ...options }, options.captureNative ? 'flux:header-schema-read' : 'flux:header-schema-synced');
     const syncedSchema = schemaFromNativeHeaders(schema, response);
     const current = await saveAndReadOfficeState();
-    await officeDataApi.updateState(fileId, { baseHash: current.baseHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
-    const next = await officeDataApi.state(fileId);
-    reopenRef.current();
-    return next;
+    const stored = await officeDataApi.updateState(fileId, { baseHash: current.baseHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
+    savedHashRef.current = stored.baseHash;
+    return await officeDataApi.state(fileId);
   };
   const cellActions = useFluxCellActions({ fileId, projectId: activeProjectId,
     readOnly: issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together)),

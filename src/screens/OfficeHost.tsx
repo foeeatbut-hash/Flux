@@ -444,7 +444,9 @@ export default function OfficeHost() {
     const current = await officeDataApi.state(fileId);
     if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите состояние и повторите заполнение.');
     const stored = await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
-    reopen(fileId);
+    // Сервер изменил только часть Flux: окно остаётся открытым (иначе пропадает
+    // история «назад»), а следующее сохранение сверяется уже с новым хешем
+    base.current.set(fileId, stored.baseHash);
     return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: response.manualRows || [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
   };
   const updateOfficeSchema = async (schema: OfficeHeaderSchema, options: HeaderSchemaSyncOptions = {}) => {
@@ -456,22 +458,28 @@ export default function OfficeHost() {
     if (!savedHash) throw new Error('Не удалось подтвердить сохранённую версию документа. Повторите сохранение.');
     const current = await officeDataApi.state(fileId);
     if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите его и повторите попытку.');
-    await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
-    const next = await officeDataApi.state(fileId);
-    reopen(fileId);
-    return next;
+    const stored = await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
+    // Без переоткрытия: редактор уже содержит записанное, а история «назад» живёт в окне
+    base.current.set(fileId, stored.baseHash);
+    return await officeDataApi.state(fileId);
+  };
+  const issuedRef = useRef(issued);
+  issuedRef.current = issued;
+  // Курсор возвращается в ячейку сразу после записи схемы: окно больше не переоткрывается, и ждать
+  // готовности нового редактора не нужно. Если окно всё же открывается заново (выпуск, восстановление),
+  // то же делает эффект ниже, когда редактор снова готов
+  const resumeCellFocus = () => {
+    if (phaseRef.current !== 'ready' || !editableRef.current || issuedRef.current || !pendingCellFocus.current) return;
+    const pending = pendingCellFocus.current; pendingCellFocus.current = null;
+    void askFrame<any>('editFluxHeaderFormula', 'flux:header-formula-edit-started', 15_000, { ...pending, caret: 'end', preserveText: true }).then((result) => { if (!result?.ok) addToast(result?.error || 'Не удалось вернуть курсор в ячейку.', 'error'); });
   };
   const cellActions = useFluxCellActions({ fileId, projectId: activeProjectId, readOnly: phase !== 'ready' || issued || !editable || (collabFileRef.current && !room.holding),
-    requestState: requestOfficeState, updateSchema: updateOfficeSchema, insertBinding: insertOfficeBinding, resumeFocus: (anchorId, schema) => { pendingCellFocus.current = { anchorId, schema }; },
+    requestState: requestOfficeState, updateSchema: updateOfficeSchema, insertBinding: insertOfficeBinding, resumeFocus: (anchorId, schema) => { pendingCellFocus.current = { anchorId, schema }; resumeCellFocus(); },
     requestNative: (operation, payload) => askFrame<any>(operation === 'merge' ? 'mergeFluxHeaderColumns' : 'editFluxHeaderFormula', operation === 'merge' ? 'flux:header-columns-merged' : 'flux:header-formula-edit-started', 30_000, payload),
     onError: (message) => addToast(message, 'error'),
   });
   cellActionsRef.current = cellActions;
-  useEffect(() => {
-    if (phase !== 'ready' || !editable || issued || !pendingCellFocus.current) return;
-    const pending = pendingCellFocus.current; pendingCellFocus.current = null;
-    void askFrame<any>('editFluxHeaderFormula', 'flux:header-formula-edit-started', 15_000, { ...pending, caret: 'end', preserveText: true }).then((result) => { if (!result?.ok) addToast(result?.error || 'Не удалось вернуть курсор в ячейку.', 'error'); });
-  }, [phase, editable, issued, askFrame, addToast]);
+  useEffect(() => { resumeCellFocus(); }, [phase, editable, issued]); // eslint-disable-line react-hooks/exhaustive-deps
   const [englishOpen, setEnglishOpen] = useState(false);
   const updateFields = async () => {
     if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
