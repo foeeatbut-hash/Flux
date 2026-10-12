@@ -63,6 +63,8 @@ void (async () => {
   let context: any = null;
   let page: any = null;
   // Диспетчер окон потребляет хеш адреса один раз, поэтому каждый файл — в свежей странице
+  const dark = process.env.FLUX_EXPLORER_DARK === '1';
+  const shot = async (name: string) => { await page.screenshot({ path: `/tmp/office-explorer-${name}-${dark ? 'dark' : 'light'}.png` }).catch(() => {}); };
   const freshPage = async () => {
     await context?.close().catch(() => {});
     context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -94,7 +96,7 @@ void (async () => {
         },
       },
     };`);
-    await loginPage(page, BASE, fixture.admin, false);
+    await loginPage(page, BASE, fixture.admin, dark);
   };
 
   const panel = () => page.getByRole('complementary', { name: 'Flux Office' });
@@ -155,6 +157,7 @@ void (async () => {
     const before = await disk('one.docx');
     check('предпросмотр не меняет файл на диске', before.equals(await disk('one.docx')));
     await applied(confirm, 'DOCX');
+    await shot('docx');
     check('байты DOCX на диске содержат значения источника 900 и 1200 (панель записала их сама)', await waitFor(async () => { const xml = await diskText('one.docx', 'word/document.xml'); return /900/.test(xml) && /1200/.test(xml); }, 30000));
     // Правка после схемы: редактор сохраняет пакет, открытый до записи схемы, и без переноса часть Flux пропала бы
     await docs.locator('.ProseMirror').first().click();
@@ -189,6 +192,7 @@ void (async () => {
     check('привязка записана в файл XLSX и сеанс книги принял новую версию', await waitFor(async () => ((await readOfficeBindings(await disk('one.xlsx')))?.anchors.length || 0) > 0, 45000), await panel().getByRole('alert').allTextContents().catch(() => []));
     const xlsxConfirm = await fillFromProject('XLSX');
     await applied(xlsxConfirm, 'XLSX');
+    await shot('xlsx');
     check('байты XLSX на диске содержат значения источника 900 и 1200 и ручную ячейку (панель записала их сама)', await waitFor(async () => { const xml = await diskXml('one.xlsx'); return /900/.test(xml) && /1200/.test(xml) && xml.includes('MANUAL_KEEP'); }, 45000));
     // Правка после схемы: сеанс книги пишет свою копию и не должен потерять часть Flux
     await nameBox.fill('H9'); await nameBox.press('Enter');

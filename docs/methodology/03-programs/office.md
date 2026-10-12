@@ -316,6 +316,33 @@ Undo) и IME.
 
 Контракт прежний: план → подтверждение → запись, проверка `baseHash`.
 
+Сделано (этап 1, часть А):
+
+- сервер — `server/routes/projectOfficeLocal.ts`: `POST /api/project-data/office-local/`
+  `state`, `write-state`, `preview`, `confirm`; тело — `projectId` и `base64`
+  содержимого (до 30 МБ), остальное как у файла проекта. Права — по выбранному
+  проекту (`requireProjectRead`), проект «по умолчанию» не подставляется.
+  `write-state` возвращает новые байты и их `baseHash`, файл не пишет; байты
+  в базе и на диске сервера не остаются. Ядро (`planOfficeContent`,
+  `officeStateOfContent`, `rebindOfficeContent`) общее с маршрутами файла
+  проекта;
+- клиент — `OfficeFileSource` в `fluxData.ts` (строка `fileId` или
+  `OfficeLocalSource`), `useOfficeFluxBridge` (порядок «записать правки →
+  прочитать состояние → записать схему», общий для `OfficeHost`,
+  `OfficeAppEditor` и `LocalOfficeEditor`), `useLocalFluxBridge` (байты —
+  через `write()` файлового моста, без переоткрытия);
+- часть Flux не должна пропадать при сохранении из редактора: он открыл пакет
+  до записи схемы. Её переносит `carryFluxPart` (`office/fluxPart.ts`) — в
+  `LocalOfficeEditor` для Word и в сеансе локальной книги
+  (`electron/localOfficeSessions.ts`) для Таблицы; запись хоста сеанс принимает
+  командой `rebase` (хеш должен совпасть с файлом), иначе следующее сохранение
+  книги было бы CONFLICT;
+- «Выпустить» для файлов Проводника скрыто (решение владельца);
+- проверки: `scripts/test-office-local.ts` (маршруты), `test-local-office-sessions.ts`
+  (`rebase`, перенос части), живой `node --import tsx scripts/test-guide-server.ts
+  --office-explorer` — настоящие Word и Таблица в окне `/windows-file`, настоящие
+  сервис файлов и сеанс книги за заглушкой моста, сверка байтов файла на диске.
+
 ### Этапы
 
 Порядок по ТЗ §20 с одним изменением: сначала то, без чего Flux не виден.
