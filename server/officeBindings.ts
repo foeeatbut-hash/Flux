@@ -54,11 +54,8 @@ export async function readOfficeBindings(bytes: Buffer): Promise<OfficePackageBi
   return value;
 }
 
-/** Записывает только валидированную схему и не затрагивает прочие части пакета. */
-export async function writeOfficeBindings(bytes: Buffer, bindings: OfficePackageBindings): Promise<Buffer> {
-  if (!validBindings(bindings)) throw new Error('Нельзя записать некорректную схему Flux');
-  const xml = `<fluxOffice xmlns="urn:flux:office:v1">${escXml(JSON.stringify(bindings))}</fluxOffice>`;
-  if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('Скрытая схема Flux слишком велика');
+/** Кладёт готовый XML части Flux в пакет и при нужде добавляет связь и тип содержимого. */
+async function putPart(bytes: Buffer, xml: string): Promise<Buffer> {
   const zip = await JSZip.loadAsync(bytes);
   zip.file(PART, xml);
   const rels = await zip.file(ROOT_RELS)?.async('string');
@@ -75,4 +72,31 @@ export async function writeOfficeBindings(bytes: Buffer, bindings: OfficePackage
     zip.file(CONTENT_TYPES, contentTypes.replace('</Types>', '<Override PartName="/customXml/itemFluxOffice.xml" ContentType="application/xml"/></Types>'));
   }
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Записывает только валидированную схему и не затрагивает прочие части пакета. */
+export async function writeOfficeBindings(bytes: Buffer, bindings: OfficePackageBindings): Promise<Buffer> {
+  if (!validBindings(bindings)) throw new Error('Нельзя записать некорректную схему Flux');
+  const xml = `<fluxOffice xmlns="urn:flux:office:v1">${escXml(JSON.stringify(bindings))}</fluxOffice>`;
+  if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('Скрытая схема Flux слишком велика');
+  return putPart(bytes, xml);
+}
+
+/**
+ * Часть Flux принадлежит серверу: редактор открыл пакет до записи схемы и
+ * при сохранении вернул бы в файл её старую копию. Поэтому в тело сохранения
+ * из редактора переносится та часть, что сейчас в файле на сервере — как есть,
+ * без разбора. Нет части в файле, нет пакета или части равны — тело не трогаем
+ * (тот же объект, без пережатия архива).
+ */
+export async function carryOfficeBindings(current: Buffer, incoming: Buffer): Promise<Buffer> {
+  // Имена частей лежат в архиве несжатыми: файлы без схемы не разбираем
+  if (!current.includes(PART)) return incoming;
+  try {
+    const have = await (await JSZip.loadAsync(current)).file(PART)?.async('string');
+    if (have === undefined || Buffer.byteLength(have, 'utf8') > MAX_BYTES) return incoming;
+    const mine = await (await JSZip.loadAsync(incoming)).file(PART)?.async('string');
+    if (mine === have) return incoming;
+    return await putPart(incoming, have);
+  } catch { return incoming; }
 }

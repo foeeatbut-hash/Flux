@@ -192,7 +192,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
         rows,
       };
       const updated = await writeOfficeBindings(before, bindings);
-      const saved = await writeOfficeFile({ fileId: file.id, body: updated, baseSha: baseHash, user: (req as any).authUser, server: true });
+      const saved = await writeOfficeFile({ fileId: file.id, body: updated, baseSha: baseHash, user: (req as any).authUser, server: true, fluxPartOnly: true });
       if (saved.status !== 200) return res.status(saved.status).json(saved.json);
       res.json({ ok: true, baseHash: saved.json.sha256, schemaVersion: 1, anchorCount: bindings.anchors.length });
     } catch (err: any) { res.status(err?.status || 400).json({ error: String(err?.message || err) }); }

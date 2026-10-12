@@ -26,6 +26,7 @@ import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWrit
 import { fileBytes } from './fileChunks.js';
 import { collabShared } from '../officeCollab.js';
 import { officeBus } from '../officeBus.js';
+import { carryOfficeBindings } from '../officeBindings.js';
 import { shareOf, authorizedShareWrite, ShareDenied } from '../fileSharing.js';
 import { oncePerDatabase } from '../schemaRuntime.js';
 import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from '../officeRevisions.js';
@@ -100,11 +101,21 @@ export async function writeOfficeFile(a: {
    * в нём старое содержимое (OfficeBus.dropSession)
    */
   server?: boolean;
+  /**
+   * Запись меняет только часть Flux (схему и строки, customXml/itemFluxOffice.xml):
+   * тело документа для редактора прежнее. Сеанс не сбрасывается, а редакторы,
+   * открытые над прежним файлом, получают новый хеш — иначе их следующее
+   * сохранение споткнулось бы о сверку, а переоткрытие стёрло бы историю
+   * отмены. Остальные серверные записи (версия, «Обновить поля», английская)
+   * меняют содержимое, и сеанс в них действительно устаревает.
+   */
+  fluxPartOnly?: boolean;
 }): Promise<{ status: number; json: any }> {
   const deps = routeDeps;
   if (!deps) return { status: 500, json: { error: 'Хранилище файлов Flux Office не подключено' } };
   const prisma = getPrisma();
-  const { fileId, body, autosave } = a;
+  const { fileId, autosave } = a;
+  let body = a.body;
   const base = a.baseSha;
   const user = a.user;
   const reply = (status: number, json: any) => ({ status, json });
@@ -147,6 +158,9 @@ export async function writeOfficeFile(a: {
       bySession: !!a.sessionKey && session?.key === a.sessionKey && session.savedSha === beforeSha,
     });
   }
+  // Часть Flux принадлежит серверу: редактор открыл пакет до записи схемы, и его
+  // тело несёт её старую копию. Переносим текущую, чтобы сохранение не откатывало схему
+  if (!a.server && /\.(docx|xlsx)$/i.test(file.name)) body = await carryOfficeBindings(before, body);
   const afterSha = sha256(body);
   if (afterSha === beforeSha) return reply(200, { sha256: afterSha, size: body.length, unchanged: true });
 
@@ -212,12 +226,27 @@ export async function writeOfficeFile(a: {
   });
   if (old.length) await (prisma as any).fileVersion.deleteMany({ where: { id: { in: old.map((o: any) => o.id) } } });
   // Сеанс общий для всех серверов: сбрасывается в базе, а не в памяти этого
-  if (a.server || shareAtStart && !a.sessionKey) await officeBus.dropSession(fileId);
+  if (a.fluxPartOnly) {
+    // Содержимое для окон то же: сеанс жив, но «что записано последним» теперь новое
+    if (await isCollaborativeFile(file)) {
+      const live = await officeBus.session(fileId).catch(() => null);
+      if (live) await officeBus.patchSession({ fileId, key: live.key }, { savedSha: afterSha }).catch(() => 0);
+    }
+    for (const fn of partWriteListeners) fn(fileId, beforeSha, afterSha);
+  }
+  else if (a.server || shareAtStart && !a.sessionKey) await officeBus.dropSession(fileId);
   // Что записано последним: по этому хешу отличают «записал держатель» от «изменили в обход»
   else if (await isCollaborativeFile(file) && a.sessionKey) await officeBus.patchSession({ fileId, key: a.sessionKey }, { savedSha: afterSha }).catch(() => 0);
 
   return reply(200, { sha256: afterSha, size: body.length, version: saved.version });
 }
+
+/**
+ * Окна редакторов над файлом (server/officeHostApps.ts) подписываются сами:
+ * так ядро записи не зависит от них, а они от него — как раньше.
+ */
+const partWriteListeners: Array<(fileId: string, oldSha: string, newSha: string) => void> = [];
+export const onOfficeFluxPartWritten = (fn: (fileId: string, oldSha: string, newSha: string) => void): void => { partWriteListeners.push(fn); };
 
 let routeDeps: OfficeFileDeps | null = null;
 
