@@ -1,3 +1,4 @@
+import { queueOfficeReply } from './officeReplyQueue';
 import { useFluxCellActions } from './useFluxCellActions';
 import { useFileProject } from '../../lib/useFileProject';
 import { useOfficeIssued } from './useOfficeIssued';
@@ -95,6 +96,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const fieldWait = useRef<((r: { ok: boolean; cell?: string; error?: string } | null) => void) | null>(null);
   const commandWaits = useRef(new Map<string, (r: any) => void>());
   const officeEventWaits = useRef(new Map<string, (payload: any) => void>());
+  const replyQueue = useRef(new Map<string, Promise<unknown>>());
   const command = (channel: string, payload?: unknown): Promise<any> => new Promise(resolve => {
     const id = crypto.randomUUID(); commandWaits.current.set(id, resolve);
     send({ event: 'ipc', payload: { channel, args: [{ id, payload }] } });
@@ -387,12 +389,16 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     send({ event: 'ipc', payload: { channel: 'flux:insert-field', args: [{ name: sheetName(f.key), value: cellValue(f.value === '—' ? '' : f.value) }] } });
     setTimeout(() => { if (fieldWait.current) { fieldWait.current = null; addToast('Редактор не ответил — поле не вставлено', 'error'); resolve(); } }, 8000);
   });
-  const callFluxEvent = (channel: string, payload: unknown, responseChannel: string, timeout = 15_000) => new Promise<any>((resolve) => {
-    const finish = (value: any) => { if (officeEventWaits.current.get(responseChannel) === finish) officeEventWaits.current.delete(responseChannel); resolve(value); };
-    officeEventWaits.current.set(responseChannel, finish);
-    send({ event: 'ipc', payload: { channel, args: [payload] } });
-    setTimeout(() => finish(null), timeout);
-  });
+  const callFluxEvent = (channel: string, payload: unknown, responseChannel: string, timeout = 15_000) => {
+    const expectedFrame = frame.current?.contentWindow;
+    return queueOfficeReply(replyQueue.current, responseChannel, () => new Promise<any>((resolve) => {
+      if (!expectedFrame || expectedFrame !== frame.current?.contentWindow) { resolve(null); return; }
+      const finish = (value: any) => { if (officeEventWaits.current.get(responseChannel) === finish) officeEventWaits.current.delete(responseChannel); resolve(value); };
+      officeEventWaits.current.set(responseChannel, finish);
+      send({ event: 'ipc', payload: { channel, args: [payload] } });
+      setTimeout(() => finish(null), timeout);
+    }));
+  };
   const requestOfficeState = useCallback(async () => {
     if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) throw new Error('Книга не записана. Сначала сохраните правки.');
     const current = await officeDataApi.state(fileId);

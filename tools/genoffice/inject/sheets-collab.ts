@@ -658,13 +658,16 @@ async function exportCommands(): Promise<void> {
       if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
       const wb = workbook()
       const schema = payload.schema
+      const sourceSchema = payload.sourceSchema
       const targetId = String(payload.targetAnchorId || '')
       const sourceIds = Array.isArray(payload.sourceAnchorIds) ? payload.sourceAnchorIds.map(String) : []
       if (!wb || !schema || schema.version !== 1 || !Array.isArray(schema.anchors) || sourceIds.length !== 1 || !targetId || sourceIds[0] === targetId) throw new Error('План объединения заголовков имеет неверный формат')
       const sourceId = sourceIds[0]!
       const targetAnchor = schema.anchors.find((anchor: any) => String(anchor?.id || '') === targetId)
-      const sourceAnchor = schema.anchors.find((anchor: any) => String(anchor?.id || '') === sourceId)
-      if (!targetAnchor || !sourceAnchor || schema.anchors.length > 500) throw new Error('Один из выбранных заголовков отсутствует в схеме')
+      const originalAnchors = sourceSchema?.version === 1 && Array.isArray(sourceSchema.anchors) ? sourceSchema.anchors : []
+      const sourceAnchor = originalAnchors.find((anchor: any) => String(anchor?.id || '') === sourceId)
+      const outputUnion = targetAnchor?.parts?.find((part: any) => part?.kind === 'union')
+      if (!targetAnchor || !sourceAnchor || sourceAnchor.kind !== 'excel-range' || !originalAnchors.some((anchor: any) => String(anchor?.id || '') === targetId) || !outputUnion || outputUnion.mode !== 'first-match' || !Array.isArray(outputUnion.alternatives) || !outputUnion.alternatives.length || schema.anchors.some((anchor: any) => String(anchor?.id || '') === sourceId) || schema.anchors.length > 500) throw new Error('Один из выбранных заголовков отсутствует в исходной или выходной схеме')
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((item: any) => [String(item.getName()), item]))
       const parseRef = (raw: unknown): { sheet: any; row: number; col: number; address: string } | null => {
         const ref = String(raw ?? '').trim().replace(/^=/, '')
@@ -689,11 +692,11 @@ async function exportCommands(): Promise<void> {
       const originalWorkbookId = wb.getId()
       const lastRow = Math.max(target.row, Number(sheet.getLastRow?.() ?? target.row))
       const lastColumn = Math.max(target.col, source.col, Number(sheet.getLastColumn?.() ?? Math.max(target.col, source.col)))
-      if ((lastRow - target.row + 1) * (lastColumn + 1) > 100000) throw new Error('Выбранный лист слишком велик для безопасной проверки')
+      if ((lastRow + 1) * (lastColumn + 1) > 100000) throw new Error('Выбранный лист слишком велик для безопасной проверки')
       if (currentLazy && lazyRef && !currentLazy.flags?.preloadComplete) {
         // Staleness checks include the rest of the used sheet so a manual edit
         // to a neighboring column cannot slip through an old merge preview.
-        const loadRange = { startRow: target.row, endRow: lastRow, startColumn: 0, endColumn: lastColumn }
+        const loadRange = { startRow: 0, endRow: lastRow, startColumn: 0, endColumn: lastColumn }
         if (!(await ensureLazyRangeLoaded(currentRuntime, lazyRef, sheet, loadRange, () => undefined))) throw new Error('Данные выбранных колонок ещё не загружены')
         if (hooks()?.univerRef.current !== currentRuntime || hooks()?.lazyWorkbookRef.current !== currentLazy || workbook()?.getId() !== originalWorkbookId) throw new Error('Книга изменилась во время проверки. Повторите действие')
       }
@@ -705,6 +708,15 @@ async function exportCommands(): Promise<void> {
       const conflicts: Array<{ rowIndex: number; targetText: string; sourceText: string }> = []
       const hasContent = (value: any, formula: string): boolean => !!formula || (value !== null && value !== undefined && value !== '')
       const show = (value: any, formula: string): string => formula || (value === null || value === undefined ? '' : String(value))
+      // Deleting a column also destroys cells above the selected header. These
+      // cannot be moved safely as part of a header merge, so disclose each one
+      // as a conflict before any native mutation.
+      for (let row = 0; row < target.row; row++) {
+        const sourceCell = sheet.getRange(row, source.col, 1, 1)
+        const sourceValue = sourceCell.getValues?.()?.[0]?.[0]
+        const sourceFormula = String(sourceCell.getFormulas?.()?.[0]?.[0] || '')
+        if (hasContent(sourceValue, sourceFormula)) conflicts.push({ rowIndex: row + 1, targetText: '', sourceText: show(sourceValue, sourceFormula) })
+      }
       // Output-label editing replaces the target header and removes the source
       // header. Formula headers are therefore surfaced as preview conflicts,
       // never silently overwritten or discarded.
@@ -726,13 +738,13 @@ async function exportCommands(): Promise<void> {
         const sameFormula = item.targetFormula === item.sourceFormula
         if (targetHas && sourceHas && !(sameValue && sameFormula)) conflicts.push({ rowIndex: row + 1, targetText: show(item.targetValue, item.targetFormula), sourceText: show(item.sourceValue, item.sourceFormula) })
       }
-      const usedSheet = sheet.getRange(target.row, 0, lastRow - target.row + 1, lastColumn + 1)
+      const usedSheet = sheet.getRange(0, 0, lastRow + 1, lastColumn + 1)
       const snapshot = JSON.stringify({
         headers: headerSnapshot,
         rows: snapshots,
         usedSheet: { values: usedSheet.getValues?.() || [], formulas: usedSheet.getFormulas?.() || [] },
       })
-      const schemaKey = JSON.stringify(schema)
+      const schemaKey = JSON.stringify({ desired: schema, source: sourceSchema })
       if (payload.previewOnly === true) {
         for (const [token, item] of headerMergePreviews) if (item.expires < Date.now()) headerMergePreviews.delete(token)
         while (headerMergePreviews.size >= 100) headerMergePreviews.delete(headerMergePreviews.keys().next().value!)

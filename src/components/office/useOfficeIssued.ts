@@ -12,7 +12,7 @@ export function useOfficeIssued(fileId: string) {
         const response = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`);
         if (!response.ok) return;
         const value = await response.json();
-        if (!cancelled) setState({ fileId, issued: value.issued === true });
+        if (!cancelled) setState((previous) => previous.fileId === fileId && previous.issued === (value.issued === true) ? previous : { fileId, issued: value.issued === true });
       } catch { /* Временный сбой сети не снимает уже известную заморозку. */ }
     };
     void read();

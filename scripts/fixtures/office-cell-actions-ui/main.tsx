@@ -16,13 +16,13 @@ const selected: FluxCellActionAnchor[] = [
   { anchorId: 'anchor-b1', kind: 'excel-range', sheetName: 'Перечень', address: 'B1', displayText: 'Motor Power', parts: [{ kind: 'field', binding: binding(fields[1], 'anchor-b1') }] },
 ];
 const ops: any[] = [];
-window.__cellActionsFixture = { ops, setTheme: (theme) => document.getElementById('root')?.classList.toggle('dark', theme === 'dark') };
+window.__cellActionsFixture = { ops, setTheme: (theme) => document.documentElement.classList.toggle('dark', theme === 'dark') };
 
 function Fixture() {
   const [open, setOpen] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   return <main className="fixture-shell">
-    <section className="fixture-sheet" aria-label="Native sheet fixture"><h1>Перечень</h1><div className="grid"><span>A</span><span>B</span><span>Drive Power</span><span>Motor Power</span><span>120</span><span>95</span></div></section>
+    <section className="fixture-sheet" aria-label="Native sheet fixture"><h1>Перечень</h1><div className="grid"><span></span><span>A</span><span>B</span><span>1</span><span>Drive Power</span><span>Motor Power</span><span>2</span><span>120</span><span>95</span></div></section>
     <aside className="fixture-controls"><button onClick={() => { setReadOnly(false); setOpen(true); }}>Открыть действия с двумя ячейками</button><button onClick={() => { setReadOnly(true); setOpen(true); }}>Открыть только для просмотра</button><output aria-live="polite">{open ? 'Действия открыты' : 'Действия закрыты'}</output></aside>
     <FluxCellActionsDialog open={open} selectedAnchors={selected} fields={fields} readOnly={readOnly}
       onCancel={() => { ops.push({ type: 'cancel' }); setOpen(false); }}

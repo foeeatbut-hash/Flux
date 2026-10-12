@@ -36,7 +36,7 @@ export function useFluxCellActions(options: Options) {
       const selected = payload.anchors.map((anchor: any) => {
         const stored = current.schema.anchors.find((item) => item.id === anchor.anchorId);
         if (!stored) throw new Error('Сначала привяжите параметр к ячейке шапки.');
-        return { ...anchor, ...stored, anchorId: stored.id, parts: Array.isArray(anchor.parts) ? anchor.parts : stored.parts };
+        return { ...anchor, ...stored, anchorId: stored.id, parts: Array.isArray(anchor.parts) && anchor.parts.length ? anchor.parts : stored.parts };
       });
       if (openedGeneration !== generation.current) return;
       setState(current); setFields(fieldsFromCatalog(catalog)); setSelection(selected);
@@ -51,7 +51,7 @@ export function useFluxCellActions(options: Options) {
     const schema: OfficeHeaderSchema = { ...state.schema, anchors: state.schema.anchors.filter((anchor) => !request.sourceAnchorIds.includes(anchor.id)).map((anchor) => anchor.id === target.id ? {
       ...anchor, parts: [{ kind: 'union', mode: 'first-match', label: request.outputLabel.trim(), alternatives: request.alternatives.map((binding) => ({ ...binding, anchorId: target.id })) }],
     } : anchor) };
-    const response = await options.requestNative('merge', { schema, rows: state.rows || [], targetAnchorId: target.id, sourceAnchorIds: request.sourceAnchorIds,
+    const response = await options.requestNative('merge', { schema, sourceSchema: state.schema, rows: state.rows || [], targetAnchorId: target.id, sourceAnchorIds: request.sourceAnchorIds,
       ...(confirm ? { confirm: true, previewToken: (request as FluxCellMergeConfirmation).previewToken } : { previewOnly: true }) });
     if (!response?.ok) return response || { ok: false, error: 'Редактор не ответил.' };
     if (confirm) {

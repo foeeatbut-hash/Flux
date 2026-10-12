@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "../../../src/styles/globals.css";
+@import "../../../src/index.css";
+@source "../../../src";
 
 html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
 .fixture-shell { display: flex; min-height: 100vh; gap: 18px; padding: 18px; color: #0f172a; background: #f8fafc; }

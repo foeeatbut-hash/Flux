@@ -1,3 +1,4 @@
+import { queueOfficeReply } from '../components/office/officeReplyQueue';
 import { useFluxCellActions } from '../components/office/useFluxCellActions';
 import { useFileProject } from '../lib/useFileProject';
 import { useOfficeIssued } from '../components/office/useOfficeIssued';
@@ -74,6 +75,7 @@ export default function OfficeHost() {
   const names = useRef(new Map<string, string>());
   /** Ответы редактора на вопросы окна: закрытие ждёт их */
   const waits = useRef(new Map<string, (v: any) => void>());
+  const replyQueue = useRef(new Map<string, Promise<unknown>>());
   const phaseRef = useRef<Phase>('loading');
   phaseRef.current = phase;
   const themeRef = useRef(theme);
@@ -113,13 +115,16 @@ export default function OfficeHost() {
   }, []);
 
   /** Событие редактору и ожидание его ответа; молчание — null */
-  const askFrame = useCallback(<T,>(event: string, answer: string, ms: number, payload?: unknown): Promise<T | null> =>
-    new Promise((resolve) => {
+  const askFrame = useCallback(<T,>(event: string, answer: string, ms: number, payload?: unknown): Promise<T | null> => {
+    const expectedFrame = frame.current?.contentWindow;
+    return queueOfficeReply(replyQueue.current, answer, () => new Promise<T | null>((resolve) => {
+      if (!expectedFrame || expectedFrame !== frame.current?.contentWindow) { resolve(null); return; }
       const done = (v: any) => { if (waits.current.get(answer) === done) waits.current.delete(answer); resolve(v); };
       waits.current.set(answer, done);
       send({ event, payload });
       setTimeout(() => done(null), ms);
-    }), [send]);
+    }));
+  }, [send]);
 
   const open = useCallback(async () => {
     if (!fileId) return null;
@@ -276,6 +281,16 @@ export default function OfficeHost() {
     return () => window.removeEventListener('message', onMessage);
   }, [open, save, saveCopy, send, fileId, addToast]);
 
+  // После повторного открытия контекстные действия знают сохранённые привязки и без боковой панели.
+  useEffect(() => {
+    if (phase !== 'ready' || !fileId) return;
+    let cancelled = false;
+    void officeDataApi.state(fileId).then((state) => {
+      if (!cancelled && state.schema.anchors.length) return askFrame<any>('getFluxHeaderSchema', 'flux:header-schema-read', 15_000, { schema: state.schema });
+    }).catch(() => { /* Панель покажет отказ, если доступ к проекту уже отозван. */ });
+    return () => { cancelled = true; };
+  }, [phase, fileId, askFrame]);
+
   // Тема Flux — тема редактора
   useEffect(() => { if (phase === 'ready') send({ event: 'theme', payload: theme }); }, [theme, phase, send]);
 
@@ -369,6 +384,7 @@ export default function OfficeHost() {
 
   const reopen = (id: string) => {
     base.current.delete(id);
+    phaseRef.current = 'loading';
     setPhase('loading');
     setConflict(null);
     if (id !== fileId) setParams({ file: id }, { replace: true });
@@ -391,20 +407,24 @@ export default function OfficeHost() {
     else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
   };
   // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
-  const saveBeforeServer = async (): Promise<boolean> => {
+  const saveBeforeServer = useCallback(async (): Promise<boolean> => {
     if (collabFileRef.current) {
       return !(holdingRef.current && collabRef.current.unsaved()) || await collabRef.current.flush();
     }
     const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
     return !state?.dirty || (await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) === true;
-  };
-  const requestOfficeState = async () => {
+  }, [askFrame]);
+  const requestOfficeState = useCallback(async () => {
+    // Во время повторного открытия правки ещё невозможны: читаем записанную
+    // схему, а не посылаем запрос уничтожаемому или ещё не готовому фрейму.
+    if (phaseRef.current !== 'ready') return officeDataApi.state(fileId);
     if (!(await saveBeforeServer())) throw new Error('Документ не записан. Сначала сохраните правки.');
     const current = await officeDataApi.state(fileId);
+    if (phaseRef.current !== 'ready') return current;
     if (!current.schema.anchors.length) return current;
     const native = await askFrame<any>('getFluxHeaderSchema', 'flux:header-schema-read', 15_000, { schema: current.schema });
     return { ...current, schema: schemaFromNativeHeaders(current.schema, native) };
-  };
+  }, [saveBeforeServer, fileId, askFrame]);
   const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => {
     const response = await askFrame<{ ok: boolean; anchorId?: string; error?: string }>('insertFluxField', 'flux:field-inserted', 8_500, {
       fieldKey: binding.fieldKey, displayText, anchorId: anchor.anchorId, binding,

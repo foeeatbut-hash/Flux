@@ -19,6 +19,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+async function main() {
 const port = await freePort();
 const url = `http://127.0.0.1:${port}`;
 const vite = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--config', path.join(fixture, 'vite.config.ts'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: root, env: { ...process.env, DISABLE_HMR: 'true' }, stdio: 'ignore' });
@@ -42,3 +43,6 @@ try {
   check?.kill('SIGTERM');
   vite.kill('SIGTERM');
 }
+
+}
+void main().catch((error) => { console.error(error); process.exitCode = 1; });

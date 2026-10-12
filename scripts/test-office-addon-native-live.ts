@@ -11,6 +11,7 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
+import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
@@ -295,7 +296,7 @@ try {
     target.on('console', (message: any) => { if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`.slice(0, 500)); });
     target.on('pageerror', (error: any) => browserErrors.push(`pageerror: ${error?.stack || error?.message || error}`.slice(0, 1000)));
     target.on('requestfailed', (request: any) => browserErrors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText || ''}`.slice(0, 500)));
-    target.on('response', (response: any) => { if (response.status() >= 400) browserErrors.push(`http-${response.status()}: ${response.url()}`.slice(0, 500)); });
+    target.on('response', async (response: any) => { if (response.status() >= 400) { browserErrors.push(`http-${response.status()}: ${response.url()}`.slice(0, 500)); if (response.url().includes('/office-state')) console.error('OFFICE_STATE_SAVE_FAILURE', JSON.stringify({ status: response.status(), request: response.request().postData(), response: await response.text().catch(() => '') })); } });
     target.on('request', (request: any) => {
       const url = String(request.url());
       if (!url.startsWith(BASE) && !url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('ws://127.0.0.1') && !url.startsWith('ws://localhost')) outside.push(url);
@@ -345,6 +346,9 @@ try {
   const headerPanel = page.getByRole('complementary', { name: 'Flux Office' });
   const firstHeader = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.schema?.anchors?.[0];
   const sourceAnchorId = String(firstHeader?.id || '');
+  // Пересобираем шапку через интерфейс; вставка сохраняет исходный текст ячейки.
+  const literalPartRemovers = headerPanel.getByRole('button', { name: 'Удалить часть заголовка', exact: true });
+  while (await literalPartRemovers.count()) await literalPartRemovers.first().click();
   await headerPanel.getByRole('button', { name: 'Добавить оператор *' }).click();
   await headerPanel.getByRole('button', { name: 'Текст', exact: true }).click();
   await headerPanel.getByLabel('Текст заголовка 3').fill('2');
@@ -374,6 +378,8 @@ try {
     return state?.schema?.anchors?.[0]?.parts?.length === 1 && state.schema.anchors[0].parts[0]?.kind === 'field';
   });
   check('removing temporary text and arithmetic restores the original protected binding', restoredHeader && /DOCPROPERTY\s+"flux:/.test(await archiveText(docxId, 'word/document.xml')) && !xmlText(await archiveText(docxId, 'word/document.xml')).includes('Расход: '));
+  const restoredHeaderInEditor = await waitFor(async () => await editor.locator('table tr').count() >= 2 && await editor.locator('[data-instr-field*="flux:"]').count() > 0, 15000);
+  check('Word editor has reloaded the saved table and protected field before native mark checks', restoredHeaderInEditor);
   const docXml = await archiveText(docxId, 'word/document.xml');
   check('Word table, surrounding text, and manual row survive field insertion', /Слева до поля/.test(docXml) && /Текст после поля/.test(docXml) && /Ручная строка/.test(docXml));
   const renderedField = editor.locator('[data-instr-field*="flux:"]').first();
@@ -560,8 +566,17 @@ try {
   const targetAnchorId = String((await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema?.anchors?.[0]?.id || '');
   check('target document has its own native Word anchor UUID', !!targetAnchor && !!targetAnchorId && targetAnchorId !== sourceAnchorId, { sourceAnchorId, targetAnchorId });
   await targetPanel.getByRole('button', { name: templateName, exact: true }).click();
-  const templateReady = await waitFor(async () => (await targetPanel.getByRole('status').count()) === 0 && await targetPanel.getByRole('button', { name: 'Сохранить схему' }).isEnabled().catch(() => false));
-  await targetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
+  const templateAnchorMapping = targetPanel.getByLabel('Целевая ячейка для якоря шаблона 1');
+  const templateMappingReady = await waitFor(async () => await templateAnchorMapping.count() > 0 || (await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0), 15000);
+  check('template opening finishes loading its mapping decision', templateMappingReady);
+  if (await templateAnchorMapping.count()) {
+    const candidateIds = await templateAnchorMapping.locator('option').evaluateAll((options: HTMLOptionElement[]) => options.map((option) => option.value).filter(Boolean));
+    check('ambiguous template slot offers the real target document anchor as a candidate', candidateIds.includes(targetAnchorId), { targetAnchorId, candidateIds });
+    if (candidateIds.includes(targetAnchorId)) await templateAnchorMapping.selectOption(targetAnchorId);
+  }
+  const templateReady = await waitFor(async () => await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0 && await targetPanel.getByRole('button', { name: 'Сохранить схему' }).isEnabled().catch(() => false));
+  check('ambiguous template mapping is explicitly resolved to the target anchor', templateReady, { targetAnchorId, panel: await targetPanel.innerText().catch(() => '') });
+  if (templateReady) await targetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const mappedTemplateState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json;
     const anchor = state?.schema?.anchors?.[0];
@@ -848,6 +863,7 @@ try {
   check('formula refusal keeps exactly the original entity-to-A2 row identity', formulaAfter?.rows?.length === 1 && formulaAfter.rows[0].entityId === formulaEntity?.entityId && formulaAfter.rows[0].cells?.[formulaAnchor?.id] === 'A2', formulaAfter?.rows);
 
   await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
+  await runNativeWordCellActions({ folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   // Theme screenshot is a second actual editor session; does not alter the workbook.
   await resetPage(true);

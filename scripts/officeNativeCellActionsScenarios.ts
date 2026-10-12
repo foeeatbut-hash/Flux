@@ -135,7 +135,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('two different nonempty native rows are reported as conflicts and confirmation is blocked', conflictVisible && !await conflictDialog.getByRole('button', { name: 'Подтвердить объединение' }).isEnabled());
   const conflictAfter = await raw('GET', `/api/files/${conflict.fileId}/raw`);
   check('rejected conflicting merge leaves the saved XLSX bytes unchanged', hash(conflictBefore.bytes) === hash(conflictAfter.bytes));
-  await conflictDialog.getByRole('button', { name: 'Закрыть' }).click();
+  await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
   await clickCell(conflict.frame, 'A1', [], 'right');
   const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });

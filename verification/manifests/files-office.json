@@ -848,6 +848,24 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 120000
+    },
+    {
+      "id": "files-office-cell-actions",
+      "path": "scripts/test-office-cell-actions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "files-office-reply-queue",
+      "path": "scripts/test-office-reply-queue.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [

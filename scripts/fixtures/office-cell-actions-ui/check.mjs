@@ -24,11 +24,11 @@ try {
       if (geometry.body > width || geometry.dialog > width) throw new Error(`dialog overflow at ${width}px/${theme}: ${JSON.stringify(geometry)}`);
       await dialog.getByText(/Выходная ячейка/).waitFor();
       await dialog.getByText(/Вторая ячейка/).waitFor();
-      await dialog.getByText(/DrivePower · equipment/).waitFor();
-      await dialog.getByText(/MotorPower · equipment/).waitFor();
+      await dialog.getByText('DrivePower · equipment', {exact:true}).waitFor();
+      await dialog.getByText('MotorPower · equipment', {exact:true}).waitFor();
       const screenshot = path.join(output, `${width}-${theme}-editable.png`);
       await page.screenshot({ path: screenshot, fullPage: true });
-      await dialog.getByRole('button', { name: 'Закрыть' }).click();
+      await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
       await page.getByText('Действия закрыты').waitFor();
 
       await page.getByRole('button', { name: 'Открыть только для просмотра' }).click();
@@ -36,11 +36,11 @@ try {
       await readOnly.getByText('Документ открыт только для просмотра.').waitFor();
       if (await readOnly.getByRole('button', { name: 'Проверить объединение' }).isEnabled()) throw new Error(`read-only merge action enabled at ${width}px/${theme}`);
       await page.screenshot({ path: path.join(output, `${width}-${theme}-readonly.png`), fullPage: true });
-      await readOnly.getByRole('button', { name: 'Закрыть' }).click();
+      await readOnly.getByRole('button', { name: 'Закрыть', exact: true }).click();
     }
   }
   if (errors.length) throw new Error(`browser errors: ${errors.join('; ')}`);
   const ops = await page.evaluate(() => window.__cellActionsFixture.ops);
   if (ops.filter((item) => item.type === 'cancel').length !== 12) throw new Error(`cancel callbacks missing: ${JSON.stringify(ops)}`);
   console.log(JSON.stringify({ viewports: [390, 760, 1280], themes: ['light', 'dark'], verified: ['two selected anchors and ordered parameter aliases', 'dialog cancel', 'readonly status and disabled merge action', 'responsive geometry'], callbacks: ops.map((item) => item.type) }, null, 2));
-} finally { await browser.close(); }
+} catch (error) { if (errors.length) console.error(errors.join("\n")); console.error((await page.locator("body").innerText()).slice(0, 2200)); await page.screenshot({path:path.join(output,"failure.png"),fullPage:true}); throw error; } finally { await browser.close(); }
