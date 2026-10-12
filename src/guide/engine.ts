@@ -69,9 +69,6 @@ const openTagAction = (t: { id: string; identifier: string }): GuideAction =>
 const openComponentAction = (c: { id: string; name: string }): GuideAction =>
   ({ kind: 'focus-equipment', label: 'Открыть карточку', componentId: c.id });
 
-const exportAction = (title: string): GuideAction =>
-  ({ kind: 'open-export', label: 'Выгрузить в Excel', route: '/equipment-export', query: title });
-
 // ── Классификация актуальности ──
 
 const ACTUALITY_RU: Record<string, string> = {
@@ -97,7 +94,7 @@ const GLOSSARY: Array<{ keys: string[]; term: string; text: string }> = [
   { keys: ['характеристика', 'параметр'], term: 'Характеристика', text: 'Характеристика — измеряемый параметр позиции (расход воздуха, давление, питание) с единицей измерения. Отсутствие значения показывается как «—», а не как ноль.' },
   { keys: ['актуальность'], term: 'Актуальность', text: 'Актуальность — статус достоверности данных тега: актуален, есть предупреждение, критично устарел, черновик. Определяется по описаниям тега, а не по дате правки.' },
   { keys: ['дубл'], term: 'Дубликат тега', text: 'Дубликат — точное совпадение кода у двух и более тегов одного проекта. Похожие коды (…002B и …0028) дублями не считаются: это разные позиции.' },
-  { keys: ['выгрузк', 'экспорт'], term: 'Выгрузка', text: 'Выгрузка создаёт файл из данных Flux (Excel, Flux Office). Не путать с загрузкой: загрузка берёт файл в Flux. Строки и столбцы выбираются в разделе «Выгрузка данных».' },
+  { keys: ['выгрузк', 'экспорт'], term: 'Выгрузка', text: 'Выгрузка создаёт файл из данных Flux (Excel, Flux Office). Не путать с загрузкой: загрузка берёт файл в Flux.' },
   { keys: ['закупк', 'этап'], term: 'Этапы закупки', text: 'Этапы закупки настраивает администратор (например: Добавлен, Заказан, Утверждён, Куплен). Guide считает позиции только по этим формальным этапам, а не по словам в статусе.' },
   { keys: ['кнопк f', 'f в мессенджере', 'флюкс гайд в чате'], term: 'Кнопка F', text: 'Кнопка F в Мессенджере — рядом с отправкой. Включите её, и сообщение станет вопросом Flux Guide: ответ придёт в тот же разговор и будет виден всем его участникам. При смене разговора режим выключается.' },
   { keys: ['flux guide', 'флюкс гайд', 'помощник'], term: 'Flux Guide', text: 'Flux Guide — справочник, вопросы и пошаговое обучение в одной программе. Отвечает по проверенным статьям и данным выбранного проекта; не придумывает ответов. Открывается из Пуска, кнопкой F в Мессенджере или клавишей F1.' },
@@ -227,7 +224,6 @@ function openSectionAnswer(question: string): GuideMessage | null {
   const routeWords: Array<[RegExp, string, string]> = [
     [/тег|реестр/, '/registry', 'Теги'],
     [/оборудован|вентилятор|установк/, '/equipment', 'Оборудование'],
-    [/выгрузк|экспорт|ведомост/, '/equipment-export', 'Выгрузка данных'],
     [/каталог/, '/catalog', 'Каталог'],
     [/e3|схем/, '/e3flux', 'E3Flux'],
     [/проводник|файл/, '/explorer', 'Проводник'],
@@ -353,7 +349,6 @@ async function noTagAnswer(ctx: AskContext, type?: string): Promise<GuideMessage
     },
     actions: [
       { kind: 'navigate', label: 'Открыть Оборудование', route: '/equipment' },
-      exportAction(type ? `Без тега — ${type}` : 'Позиции без тега'),
     ],
     source: sourceOf(ctx, 'Оборудование проекта'),
   }), ctx, { intent: 'equipment_no_tag', label: type ? `Без тега — ${type}` : 'Позиции без тега', equipmentType: type, untagged: true });
@@ -650,7 +645,6 @@ async function listAnswer(p: ParsedQuestion, ctx: AskContext, untagged?: boolean
     },
     actions: [
       { kind: 'navigate', label: 'Открыть Оборудование', route: '/equipment' },
-      exportAction(type || 'Оборудование проекта'),
     ],
     source: sourceOf(ctx, 'Оборудование проекта'),
   }), ctx, {
@@ -682,26 +676,17 @@ async function summaryAnswer(ctx: AskContext, summary?: Awaited<ReturnType<typeo
       rows: s.categories.map((c) => [c.type, String(c.count)]),
       total: s.categories.length,
     } : undefined,
-    actions: [{ kind: 'navigate', label: 'Открыть Теги', route: '/registry' }, exportAction('Сводка проекта')],
+    actions: [{ kind: 'navigate', label: 'Открыть Теги', route: '/registry' }],
     source: sourceOf(ctx, 'Сводка проекта'),
   });
 }
 
-/** Продолжение вопроса: «их», «а только без тегов», «сколько их», «выгрузи» (ТЗ §36.4). */
+/** Продолжение вопроса: «их», «а только без тегов», «сколько их» (ТЗ §36.4). */
 async function followUpAnswer(p: ParsedQuestion, ctx: AskContext): Promise<GuideMessage[] | null> {
   const last = ctx.lastResult;
   if (!last || last.projectId !== ctx.projectId) return null;
   const n = p.normalized;
 
-  // «выгрузи», «в эксель» — открыть штатную выгрузку с контекстом
-  if (inc(n, 'выгрузи', 'эксель', 'excel', 'экспортируй', 'в слово')) {
-    return [say(`Открываю штатную «Выгрузку данных» по контексту «${last.label}».`, {
-      outcome: 'Выгрузка данных',
-      text: 'Откройте штатную «Выгрузку данных», чтобы настроить выборку и столбцы перед сохранением. Таблица ответа Guide содержит только показанные строки.',
-      actions: [{ kind: 'open-export', label: 'Открыть «Выгрузку данных»', route: '/equipment-export', query: last.label }],
-      source: { label: 'Flux Guide', at: nowAt() },
-    })];
-  }
   // «сколько (их)?»
   if (inc(n, 'скольк')) {
     if (last.untagged || inc(n, 'без тег')) return [await noTagAnswer(ctx, last.equipmentType)];
@@ -798,11 +783,10 @@ export async function answerQuestion(question: string, ctx: AskContext): Promise
       case 'document_search': return [await filesAnswer(p, ctx)];
       case 'open_export': {
         const tour = findBestTour(text, allowEntitlement);
-        return [say('Открываю штатную «Выгрузку данных»: строки, столбцы и предпросмотр — перед сохранением.', {
-          outcome: 'Выгрузка данных',
-          text: 'Guide открывает штатную «Выгрузку данных», где вы настраиваете выборку и столбцы перед сохранением.',
+        return [say('Отдельной «Выгрузки данных» больше нет: документы заполняются через дополнение Flux Office.', {
+          outcome: 'Заполнение документов',
+          text: 'Откройте документ во Flux Office и заполните его данными проекта через дополнение Flux Office.',
           actions: [
-            { kind: 'open-export', label: 'Открыть «Выгрузку данных»', route: '/equipment-export', query: p.equipmentTypes[0]?.canonical || '' },
             ...(tour && tour.score >= 1.5 ? [{ kind: 'tour' as const, label: `Показать: ${tour.tour.title}`, tourId: tour.tour.id }] : []),
           ],
           source: { label: 'Flux Guide', at: nowAt() },

@@ -70,8 +70,6 @@ try {
   check(howto.actions?.some((a) => a.kind === 'tour') && howto.source?.label.includes('Демонстрации'), 'known how-to request offers its checked demonstration');
   const tour = (await answerQuestion('покажи как создать тег', context))[0];
   check(tour.actions?.some((a) => a.kind === 'tour' && !!a.tourId), 'demonstration intent returns a real tour action');
-  const exportAction = (await answerQuestion('открой выгрузку по клапанам', context))[0];
-  check(exportAction.actions?.some((a) => a.kind === 'open-export' && a.route === '/equipment-export'), 'export intent opens the штатная data-export section');
 
   const firstResult = (await answerQuestion('покажи все вентиляторы', context))[0];
   const followed = (await answerQuestion('покажи их', { ...context, lastResult: firstResult.context }))[0];
