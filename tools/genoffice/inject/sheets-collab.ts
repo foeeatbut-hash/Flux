@@ -275,6 +275,10 @@ function protectFluxHeaderCells(): void {
       // Загрузка из файла и разрешённые правки соавтора восстанавливают ячейки.
       // Блокируем обычное редактирование, а не внутреннюю загрузку книги.
       if (journalSuppression.active || applying || applyingFlux || /^.*(?:undo|redo).*$/i.test(String(command.id))) return
+      // «Назад» и «вперёд» воспроизводят уже разрешённые правки, в том числе вставку метки Flux в
+      // защищённую ячейку: мутации внутри них не блокируем, иначе отмена привязки упирается в её же защиту
+      const replaying = (commandService as unknown as { _commandExecutionStack?: Array<{ id?: string }> })._commandExecutionStack
+      if (replaying?.some((item) => item?.id === 'univer.command.undo' || item?.id === 'univer.command.redo')) return
       const id = String(command.id || '')
       if (!/sheet\.(?:command|mutation)\.set-range-values$/i.test(id)) return
       const wb = workbook()
@@ -319,6 +323,56 @@ function protectFluxHeaderCells(): void {
       throw new CustomCommandExecutionError('Поле Flux защищено от обычного редактирования')
     })
   } catch (error) { console.warn('[flux] защита меток Таблиц не установлена', error) }
+}
+
+/**
+ * Имена меток Flux (FLUX_ANCHOR_*) — реестр привязок, а не правка человека: в «назад» их не кладём.
+ * Каждая замена имени получает новый внутренний номер, и отмена по старому номеру оставляла бы
+ * в книге два одинаковых имени (сохранение падает: «имя определено дважды»).
+ */
+function withoutHistory<T>(wb: any, run: () => T): T {
+  type Step = { undoMutations: unknown[]; redoMutations: unknown[] }
+  const service = hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService) as { _undoStacks?: Map<string, Step[]> } | undefined
+  const stack = service?._undoStacks?.get(wb.getId())
+  const before = stack?.length ?? 0
+  // Внутри группы (__tempBatchingUndoRedo) новая запись не добавляет шаг, а дописывается в верхний
+  const top = before ? stack![before - 1]! : null
+  const undoLength = top?.undoMutations.length ?? 0
+  const redoLength = top?.redoMutations.length ?? 0
+  try { return run() } finally {
+    if (stack && stack.length > before) stack.length = before
+    if (top) { top.undoMutations.length = undoLength; top.redoMutations.length = redoLength }
+  }
+}
+
+/**
+ * Команды Univer над колонками и строками сами записывают в «назад» восстановление имён с их внутренними
+ * номерами. После сохранения книга пересоздаётся из файла, номера имён меняются, и отмена возвращала бы
+ * метку Flux вторым именем рядом с живым (сохранение падает: «имя определено дважды»). Метки Flux в
+ * историю не входят — выбрасываем их из верхнего шага.
+ */
+function dropAnchorNamesFromHistory(wb: any): void {
+  type Mutation = { id?: string; params?: { name?: string } }
+  const service = hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService) as { _undoStacks?: Map<string, Array<{ undoMutations: Mutation[]; redoMutations: Mutation[] }>> } | undefined
+  const stack = service?._undoStacks?.get(wb.getId())
+  const top = stack?.[stack.length - 1]
+  if (!top) return
+  const isAnchorName = (mutation: Mutation): boolean => /^formula\.mutation\.(?:set|remove)-defined-name$/.test(String(mutation.id)) && String(mutation.params?.name ?? '').startsWith('FLUX_ANCHOR_')
+  top.undoMutations = top.undoMutations.filter((mutation) => !isAnchorName(mutation))
+  top.redoMutations = top.redoMutations.filter((mutation) => !isAnchorName(mutation))
+}
+
+/**
+ * Имя метки: существующее обновляем на месте, а не удаляем и создаём заново. У имени есть внутренний
+ * номер, и записи «назад» (например, удаления колонки) хранят его: новое имя с новым номером при отмене
+ * оставило бы в книге два одинаковых имени.
+ */
+function setAnchorName(wb: any, name: string, ref: string): void {
+  const existing = wb.getDefinedName?.(name)
+  if (!existing) { wb.insertDefinedName(name, ref); return }
+  const plain = (value: unknown): string => String(value ?? '').replace(/^=/, '').replace(/'/g, '')
+  if (plain(existing.getRef?.() ?? existing.getFormulaOrRefString?.()) === plain(ref)) return
+  existing.setRef(ref)
 }
 
 function columnNumber(letters: string): number {
@@ -467,18 +521,19 @@ async function fields(): Promise<void> {
       else {
         applyingFlux = true
         const a1 = String(cell.getA1Notation()).split(':')[0] ?? ''
+        // Подпись ячейки — обычный шаг «назад»; имя метки в историю не попадает
         cell.setValue(m.value ?? '')
         const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
         const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : ''
-        if (anchorId) {
-        const anchorName = fluxAnchorName(anchorId)
-          try { wb.deleteDefinedName?.(anchorName) } catch { /* новой ячейке ещё не назначено имя */ }
-          wb.insertDefinedName(anchorName, ref)
-        } else if (m.name) {
-          // Существующие источники Flux используют это имя при обновлении полей.
-          try { wb.deleteDefinedName?.(m.name) } catch { /* прежней метки могло не быть */ }
-          wb.insertDefinedName(m.name, ref)
-        }
+        withoutHistory(wb, () => {
+          if (anchorId) {
+            setAnchorName(wb, fluxAnchorName(anchorId), ref)
+          } else if (m.name) {
+            // Существующие источники Flux используют это имя при обновлении полей.
+            try { wb.deleteDefinedName?.(m.name) } catch { /* прежней метки могло не быть */ }
+            wb.insertDefinedName(m.name, ref)
+          }
+        })
         result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
       }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
@@ -513,6 +568,16 @@ async function exportCommands(): Promise<void> {
     return
   }
   protectFluxHeaderCells()
+  // «Вперёд» по Ctrl+Shift+Z, как в Word и в Excel: Univer знает только Ctrl+Y. В полях ввода
+  // (имя ячейки, поиск) и в окне формулы заголовка клавиши остаются браузеру
+  document.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.code !== 'KeyZ') return
+    const target = event.target as HTMLElement | null
+    if (target?.closest?.('input, textarea, .flux-sheet-token-edit')) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    void api()?.redo?.()
+  }, true)
   headerTokenOverlay = createSheetsTokenOverlay(link, (anchorId) => {
     const wb = workbook()
     const name = fluxAnchorName(anchorId)
@@ -648,13 +713,14 @@ async function exportCommands(): Promise<void> {
       const undoBatch = syncRuntime?.univer?.__getInjector?.().get(IUndoRedoService)?.__tempBatchingUndoRedo(wb.getId())
       if (!undoBatch) { applyingFlux = priorApplying; throw new Error('Не удалось сгруппировать изменения схемы для отмены') }
       try {
-        for (const target of targets) {
-          target.sheet.getRange(target.row, target.col, 1, 1).setValues([[{ v: target.value }]])
-          const existing = definitions.get(target.name)
-          if (existing) wb.deleteDefinedName(target.name)
-          wb.insertDefinedName(target.name, target.ref)
-        }
-        for (const id of removed) wb.deleteDefinedName?.(fluxAnchorName(String(id)))
+        for (const target of targets) target.sheet.getRange(target.row, target.col, 1, 1).setValues([[{ v: target.value }]])
+        // Группировка нужна подписям ячеек; имена меток вне истории (см. withoutHistory) и вне группы:
+        // иначе их запись склеилась бы с предыдущим шагом человека
+        undoBatch.dispose()
+        withoutHistory(wb, () => {
+          for (const target of targets) setAnchorName(wb, target.name, target.ref)
+          for (const id of removed) wb.deleteDefinedName?.(fluxAnchorName(String(id)))
+        })
       } catch (error) {
         for (const old of oldCells.reverse()) { try { old.sheet.getRange(old.row, old.col, 1, 1).setValues([[old.value]]) } catch { /* best-effort rollback */ } }
         for (const [name, ref] of oldNames) {
@@ -816,9 +882,14 @@ async function exportCommands(): Promise<void> {
           }
         }
         headerCell.setValues([[{ v: outputLabel }]])
-        for (const item of namesToMove) { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.newRef) }
-        wb.deleteDefinedName?.(sourceName)
+        // Метки Flux вне истории (см. withoutHistory); чужие имена Excel возвращаются вместе с колонкой
+        const moveName = (item: { name: string; newRef: string }) => { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.newRef) }
+        for (const item of namesToMove) {
+          if (item.name.startsWith('FLUX_ANCHOR_')) withoutHistory(wb, () => setAnchorName(wb, item.name, item.newRef)); else moveName(item)
+        }
+        withoutHistory(wb, () => wb.deleteDefinedName?.(sourceName))
         sheet.deleteColumn(source.col)
+        dropAnchorNamesFromHistory(wb)
       } catch (error) {
         // До удаления колонки восстанавливаем только те выходные ячейки,
         // которые были заполнены данными исходной колонки.
