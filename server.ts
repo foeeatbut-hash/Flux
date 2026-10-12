@@ -24,6 +24,8 @@ import { registerArchiveRoutes } from './server/routes/archives.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { registerOfficeConvertRoutes } from './server/routes/officeConvert.js';
 import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
+import { registerOfficeRevisionRoutes } from './server/routes/officeRevisions.js';
+import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from './server/officeRevisions.js';
 import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
 import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
@@ -958,13 +960,15 @@ registerFeedbackRoutes(app, { can: userCan, feedbackChunkBytes: limits.feedbackC
 // общий диск считается тем же способом, что и для остальных действий с файлами
 // Право записи файла — одно для кусков Проводника и для сохранения из Flux
 // Office: иначе два пути записи одного файла разошлись бы в правилах
-async function mayWriteFile(req: any, fileId: string): Promise<string> {
+async function mayWriteFile(req: any, fileId: string, allowIssuedDraft = false): Promise<string> {
   const user = (req as any).authUser;
   const license = await licenseForUser(user);
   if (!license.licensed) return 'Сохранение недоступно: продлите лицензию сотрудника у владельца Flux.';
   // Единое правило видимости (server/fileAccess.ts). Раньше любой ADMIN обходил проверку
   // и писал в чужие личные файлы, хотя видит их лишь Главный Администратор; отказ — как «нет файла»
   if (!(await canWriteFile(prisma, user, fileId))) return FILE_NOT_FOUND;
+  await ensureOfficeRevisionTable();
+  if (!allowIssuedDraft && await isIssuedOfficeFile(prisma, fileId)) return immutableOfficeFileError().message;
   const file = await prisma.fileNode.findUnique({ where: { id: fileId }, select: { folderId: true } });
   if (!file?.folderId) return '';
   const folder = await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } });
@@ -981,6 +985,7 @@ registerOfficeFileRoutes(app, {
 });
 registerProjectDataRoutes(app, { mayWrite: mayWriteFile }); // поля, подписи и блоки файлов Flux Office
 registerOfficeConvertRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile }); // .xls/.csv → копия .xlsx
+registerOfficeRevisionRoutes(app, { chunkBytes: limits.chunkBytes, holderOf: (fileId) => officeHub.holderOf(fileId), mayWrite: mayWriteFile, mayWriteDraftPermissions: (req, fileId) => mayWriteFile(req, fileId, true) });
 registerOfficeVersionRoutes(app, { holderOf: (fileId) => officeHub.holderOf(fileId) }); // откат файла
 registerOfficeEnglishRoutes(app, { chunkBytes: limits.chunkBytes, mayWrite: mayWriteFile, holderOf: (fileId) => officeHub.holderOf(fileId) }); // английская версия
 

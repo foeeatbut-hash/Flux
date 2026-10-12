@@ -155,7 +155,8 @@ async function main() {
   db = new Database(dbPath);
 
   const stamp = crypto.randomBytes(5).toString('hex');
-  const officeFilesMode = process.argv.includes('--office-files');
+  const legacyOfficeChecks = ['docs', 'sheets', 'collab'].filter((name) => process.argv.includes(`--office-${name}`));
+  const officeFilesMode = process.argv.includes('--office-files') || legacyOfficeChecks.includes('collab');
   const users = [
     { id: `guide_admin_${stamp}`, symbol: `GA${stamp}`, password: crypto.randomBytes(16).toString('hex'), name: 'Synthetic Guide Admin', role: 'ADMIN' },
     { id: `guide_peer_${stamp}`, symbol: `GP${stamp}`, password: crypto.randomBytes(16).toString('hex'), name: 'Synthetic Guide Peer', role: 'ENGINEER_VENT' },
@@ -187,6 +188,23 @@ async function main() {
       'admin.users.create': { enabled: true },
       'admin.users.manage': { enabled: true },
     }), users[0].id);
+  }
+
+  if (legacyOfficeChecks.length) {
+    await assertNativeOfficeAssets();
+    for (const name of legacyOfficeChecks) {
+      const office = spawn(process.execPath, ['--import', 'tsx', `scripts/test-office-${name}-live.ts`], {
+        cwd,
+        env: { ...process.env, FLUX_API: base, FLUX_API2: base, FLUX_USER: users[0].symbol, FLUX_PASS: users[0].password, FLUX_TEST_FIXTURE: '1', FLUX_PG: '' },
+        stdio: 'inherit',
+      });
+      const [code] = await once(office, 'exit');
+      if (code !== 0) { process.exitCode = typeof code === 'number' ? code : 1; break; }
+    }
+    await stop();
+    db?.close();
+    await rm(dataDir, { recursive: true, force: true });
+    return;
   }
 
   if (process.argv.includes('--office-files')) {

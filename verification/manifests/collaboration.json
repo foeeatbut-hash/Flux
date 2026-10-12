@@ -196,11 +196,23 @@
       "path": "scripts/test-chat-screen-ui.ts",
       "layer": "component",
       "platform": "any",
-      "resources": ["browser:chromium", "vite-port:5173"],
+      "resources": [
+        "browser:chromium",
+        "vite-port:5173"
+      ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_UI_URL" },
-        { "kind": "file", "path": "scripts/fixtures/chat-screen.html" },
-        { "kind": "file", "path": "scripts/fixtures/chat-screen.tsx" }
+        {
+          "kind": "env",
+          "name": "FLUX_UI_URL"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-screen.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-screen.tsx"
+        }
       ],
       "timeoutMs": 900000
     },
@@ -694,6 +706,19 @@
       "timeoutMs": 900000
     },
     {
+      "id": "collab-guide-tours-full-app",
+      "path": "scripts/test-guide-tours-native-live.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "browser:chromium",
+        "vite-port:dynamic",
+        "api:fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "collab-guide-history-acl",
       "path": "scripts/test-guide-server.ts",
       "layer": "api-db",
@@ -707,12 +732,27 @@
       "path": "scripts/test-guide-ui.ts",
       "layer": "component",
       "platform": "any",
-      "resources": ["vite-port:dynamic", "browser:chromium"],
+      "resources": [
+        "vite-port:dynamic",
+        "browser:chromium"
+      ],
       "prerequisites": [
-        { "kind": "file", "path": "scripts/fixtures/guide-ui/index.html" },
-        { "kind": "file", "path": "scripts/fixtures/guide-ui/main.tsx" },
-        { "kind": "file", "path": "scripts/fixtures/guide-ui/fixture.css" },
-        { "kind": "file", "path": "scripts/fixtures/guide-ui/vite.config.ts" }
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/index.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/main.tsx"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/fixture.css"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/vite.config.ts"
+        }
       ],
       "timeoutMs": 900000
     },
@@ -829,7 +869,12 @@
         "src/components/chat/MessageBubble.tsx",
         "src/components/RichChatInput.tsx"
       ],
-      "triggers": ["input", "tab", "button", "responsive-layout"],
+      "triggers": [
+        "input",
+        "tab",
+        "button",
+        "responsive-layout"
+      ],
       "risk": "normal",
       "expected": [
         "Поиск сотрудников, фильтр непрочитанных, сведения чата и кнопка F доступны на настоящем экране; служебный профиль Guide не появляется в каталоге сотрудников"
@@ -2094,14 +2139,14 @@
       ],
       "checks": [
         {
-      "suite": "collab-guide-engine",
+          "suite": "collab-guide-engine",
           "layer": "unit",
           "claims": [
             "Вопросы разрешаются в точные ответы Flux Guide, источники и связанные действия"
           ]
         },
         {
-      "suite": "collab-guide-parser",
+          "suite": "collab-guide-parser",
           "layer": "unit",
           "claims": [
             "Парсер выделяет намерения, точные коды, оборудование и поля без подмены сущностей"
@@ -2140,21 +2185,21 @@
       ],
       "checks": [
         {
-      "suite": "collab-guide-store",
+          "suite": "collab-guide-store",
           "layer": "unit",
           "claims": [
             "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
           ]
         },
         {
-      "suite": "collab-guide-history-acl",
+          "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
             "Сервер повторно проверяет владельца разговора и ACL проекта на чтении и записи"
           ]
         },
         {
-      "suite": "collab-guide-ui",
+          "suite": "collab-guide-ui",
           "layer": "component",
           "claims": [
             "В настоящем экране Guide открываются режим вопросов, вкладка архива и статья руководства"
@@ -2182,7 +2227,13 @@
         "src/components/guide/HistoryPanel.tsx",
         "src/components/guide/HandbookPane.tsx"
       ],
-      "triggers": ["input", "enter", "button", "resize", "theme"],
+      "triggers": [
+        "input",
+        "enter",
+        "button",
+        "resize",
+        "theme"
+      ],
       "risk": "normal",
       "expected": [
         "Вопрос, ответ, выбор строк и полный просмотр доступны на мобильной и широкой раскладке в обеих темах"
@@ -2232,7 +2283,11 @@
         "src/screens/FluxGuide.tsx",
         "src/guide/engine.ts"
       ],
-      "triggers": ["input", "enter", "button"],
+      "triggers": [
+        "input",
+        "enter",
+        "button"
+      ],
       "risk": "normal",
       "expected": [
         "Запрос открыть Каталог даёт переход в реальный раздел Каталог; Guide не выполняет здесь поиск по его записям"
@@ -2269,14 +2324,14 @@
       ],
       "checks": [
         {
-      "suite": "collab-guide-store",
+          "suite": "collab-guide-store",
           "layer": "unit",
           "claims": [
             "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
           ]
         },
         {
-      "suite": "collab-guide-history-acl",
+          "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
             "API проверяет владельца истории и ACL для каждого проектного сообщения"
@@ -2778,6 +2833,50 @@
           "scenario": "Открыть программу из карточки справки, вернуться и открыть статью через поиск",
           "expected": [
             "Маршрут открыт и статья остаётся доступной"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "guide.run-tour",
+      "program": "guide",
+      "label": "Запустить демонстрацию Guide",
+      "sources": [
+        "src/guide/support/tours.ts",
+        "src/guide/tourRuntime.ts",
+        "src/components/guide/GuideSpotlight.tsx"
+      ],
+      "triggers": [
+        "tour-step",
+        "tour-target-action",
+        "tour-navigation"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Демонстрация ведёт по реальным разделам и целям; подтверждаемые шаги требуют действия на целевом элементе."
+      ],
+      "checks": [
+        {
+          "suite": "collab-guide-tour-runtime",
+          "layer": "unit",
+          "claims": [
+            "Правила шагов, целей, условий продолжения и переходов демонстрации проверяются без интерфейса."
+          ]
+        },
+        {
+          "suite": "collab-guide-tours-full-app",
+          "layer": "browser-live",
+          "claims": [
+            "В полном приложении проверены запуск демонстраций, реальные цели, переходы, пауза, назад и отсутствие нежелательных записей."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запустить основные демонстрации Guide в приложении и пройти шаги с целевыми действиями.",
+          "expected": [
+            "Подсветка совпадает с доступной целью, переходы и подтверждение шага соответствуют текущему экрану."
           ]
         }
       ]

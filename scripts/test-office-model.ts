@@ -13,6 +13,16 @@ eq('tag и equipment с одинаковым raw ID имеют разные ст
 eq('сложение кВт и W выполняется точно', evaluateOfficeParts([
   { kind: 'field', binding: binding('p') }, { kind: 'operator', operator: '+' }, { kind: 'field', binding: binding('q') },
 ], row), { value: { value: '2000', unit: 'W' } });
+eq('формула начинается со знака равно и складывает два параметра', evaluateOfficeParts([
+  { kind: 'text', text: '=' }, { kind: 'field', binding: binding('p') }, { kind: 'text', text: ' + ' }, { kind: 'field', binding: binding('q') },
+], row), { value: { value: '2000', unit: 'W' } });
+eq('курсору доступны начало, скобки и числовой множитель формулы', evaluateOfficeParts([
+  { kind: 'text', text: '= (' }, { kind: 'field', binding: binding('p') }, { kind: 'text', text: '+' }, { kind: 'field', binding: binding('q') }, { kind: 'text', text: ') × 2' },
+], row), { value: { value: '4000', unit: 'W' } });
+eq('в формуле сохраняется контроль деления на ноль', evaluateOfficeParts([
+  { kind: 'text', text: '=' }, { kind: 'field', binding: binding('p') }, { kind: 'text', text: '÷0' },
+], row), { error: 'Деление на ноль' });
+eq('один знак равно не даёт пустой успешный результат', !!evaluateOfficeParts([{ kind: 'text', text: '=' }], row).error, true);
 eq('приоритет умножения и скобки', evaluateOfficeParts([
   { kind: 'operator', operator: '(' }, { kind: 'field', binding: binding('p') }, { kind: 'operator', operator: '+' }, { kind: 'field', binding: binding('q') },
   { kind: 'operator', operator: ')' }, { kind: 'operator', operator: '*' }, { kind: 'field', binding: binding('count') },

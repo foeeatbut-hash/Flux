@@ -148,7 +148,7 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
       const id = h.open(path);
       sessions.set(id, { app, fileId: file.id, socketId: socket.id, userId: userId(), dir, path, sha: sha256(bytes), collab, key: book?.key || '' });
       mine.add(id);
-      reply({ session: id, name: file.name, path, ...(book ? { collab: { key: book.key } } : {}) });
+      reply({ session: id, name: file.name, path, sha256: sha256(bytes), ...(book ? { collab: { key: book.key } } : {}) });
     } catch (err: any) {
       reply({ error: String(err?.message || err) });
     }
@@ -230,7 +230,7 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
         s.sha = w.json.sha256;
         if (shared) await sheetShared.markSaved(s.fileId, s.sha, seqAtSave);
         if (!w.json.unchanged) await officeHub.announceSaved(s.fileId, s.sha, socket.id).catch(() => undefined);
-        socket.emit('office:saved-self', { fileId: s.fileId, sha256: s.sha });
+        socket.emit('office:saved-self', { fileId: s.fileId, session: Number(session), sha256: s.sha });
       }
       reply({ result });
     } catch (err: any) {

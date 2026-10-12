@@ -127,7 +127,11 @@ void (async () => {
       { entityId: fan.entityId, entityType: 'element', sourceId: 'equipment', sourceRevision: data.json.revision, anchorIds: ['word-header'], cells: { 'word-header': 'B3' }, values: { 'word-header': 'duplicate row' } },
       { entityId: 'manual:synthetic-row', entityType: 'manual', sourceId: '', sourceRevision: data.json.revision, anchorIds: ['word-header'], cells: { 'word-header': 'B4' }, values: { 'word-header': 'manual row' } },
     ];
-    const savedState = await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema, rows: repeatedRows });
+    // В книге ссылки на ячейки относятся к якорям Excel, а не к закладкам Word.
+    const xlsxSchema = { ...officeSchema, anchors: officeSchema.anchors.map((anchor: any) => ({ ...anchor, kind: 'excel-range', sheetName: 'Sheet1', address: anchor.id === 'word-header' ? 'B1' : 'A1' })) };
+    const invalidState = await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema, rows: repeatedRows });
+    check('state rejects Excel cell references attached to Word bookmark anchors', invalidState.status === 400);
+    const savedState = await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: xlsxSchema, rows: repeatedRows });
     const readState = await request('GET', `/api/project-data/files/${xlsxId}/office-state`);
     check('XLSX state save uses base hash compare-and-set', savedState.status === 200 && savedState.json?.ok && !!savedState.json?.baseHash, savedState.json);
     check('XLSX state keeps schema anchors, duplicate entity rows, cell references, values and manual metadata', readState.status === 200 && readState.json?.schema?.anchors?.length === 2 && readState.json?.rows?.length === 3 && readState.json?.rows?.[0]?.cells?.['xlsx-header'] === 'A2' && readState.json?.rows?.[0]?.values?.['xlsx-header'] === '1200 м³/ч' && readState.json?.rows?.[1]?.values?.['word-header'] === 'duplicate row' && readState.json?.rows?.[2]?.cells?.['word-header'] === 'B4' && readState.json?.rows?.[2]?.values?.['word-header'] === 'manual row', readState.json);

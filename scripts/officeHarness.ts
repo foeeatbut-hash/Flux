@@ -178,6 +178,8 @@ function pgUrl(): string {
  * тогда пропускается, а не выдаётся за пройденную
  */
 export async function holdersInDb(fileId: string): Promise<null | { holders: any[]; peers: any[]; servers: number }> {
+  // Одноразовый SQLite fixture не должен читать конфигурацию рабочей базы.
+  if (process.env.FLUX_TEST_FIXTURE === '1' && !process.env.FLUX_PG) return null;
   const url = pgUrl();
   if (!url) return null;
   try {

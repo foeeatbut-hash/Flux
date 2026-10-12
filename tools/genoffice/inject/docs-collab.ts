@@ -30,6 +30,7 @@ import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { createWordHeaderActions } from './docs-header-merge'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
 
@@ -100,8 +101,22 @@ export const FluxUndoRedo = UndoRedo.extend({
     const parent = (this.parent?.() || {}) as Record<string, any>
     return {
       ...parent,
-      undo: () => (props: any) => (state.active ? undoCommand(props.state, props.dispatch) : parent.undo()(props)),
-      redo: () => (props: any) => (state.active ? redoCommand(props.state, props.dispatch) : parent.redo()(props)),
+      undo: () => (props: any) => {
+        const manager = yUndoPluginKey.getState(props.state)?.undoManager
+        // После открытия другого файла module-global active может быть старым;
+        // тогда используем историю текущего редактора, если Yjs-плагина нет.
+        if (!state.active || !manager) return parent.undo()(props)
+        // Yjs синхронно меняет состояние. Tiptap не должен вслед за ним
+        // отправить транзакцию, созданную до этой перемены.
+        props.tr.setMeta('preventDispatch', true)
+        return undoCommand(props.state, props.dispatch)
+      },
+      redo: () => (props: any) => {
+        const manager = yUndoPluginKey.getState(props.state)?.undoManager
+        if (!state.active || !manager) return parent.redo()(props)
+        props.tr.setMeta('preventDispatch', true)
+        return redoCommand(props.state, props.dispatch)
+      },
     } as any
   },
 })
@@ -124,6 +139,22 @@ function whenReady(): Promise<Editor> {
 const fieldGuardKey = new PluginKey('fluxFieldGuard')
 const cellAnchorIds = new WeakMap<object, string>()
 const isFluxField = (mark: any) => mark?.type?.name === 'instrField' && /^\s*DOCPROPERTY\s+"flux:[^"]+"\s*$/i.test(String(mark.attrs?.instr || ''))
+function fluxFieldIdentity(mark: any): { fieldKey: string; sourceId?: string } | null {
+  const instruction = /^\s*DOCPROPERTY\s+"flux:([^"]+)"\s*$/i.exec(String(mark?.attrs?.instr || ''))?.[1]
+  if (!instruction) return null
+  const composite = /^v1:([^:]+):(.+)$/.exec(instruction)
+  if (!composite) return { fieldKey: instruction }
+  try { return { sourceId: decodeURIComponent(composite[1]), fieldKey: decodeURIComponent(composite[2]) } } catch { return null }
+}
+function fluxInstruction(anchor: any, binding: any): string {
+  const sources = new Set<string>()
+  for (const part of anchor.parts || []) {
+    const candidates = part?.kind === 'field' ? [part.binding] : part?.kind === 'union' ? part.alternatives : []
+    for (const candidate of candidates) if (candidate?.fieldKey === binding.fieldKey) sources.add(String(candidate.sourceId))
+  }
+  const identity = sources.size > 1 ? `v1:${encodeURIComponent(binding.sourceId)}:${encodeURIComponent(binding.fieldKey)}` : binding.fieldKey
+  return `DOCPROPERTY "flux:${identity}"`
+}
 const bookmarkName = (anchorId: string) => `FLUX_${anchorId.replaceAll('-', '')}`
 const isFluxBookmark = (value: unknown) => /^FLUX(?:_|ROW_|TABLE_)/i.test(String(value || ''))
 const anchorIdFromBookmark = (value: unknown): string | null => {
@@ -207,6 +238,147 @@ function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; docume
   return null
 }
 
+type NativeOfficePart = { kind: 'text'; text: string } | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' } | { kind: 'field'; binding: any } | { kind: 'union'; mode: 'first-match'; alternatives: any[] }
+
+function splitNativeText(text: string, followsField: boolean): NativeOfficePart[] {
+  const number = '(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)'
+  const prefixOperator = new RegExp(`^(\\s*)([+*\\-/])\\s*(${number})(.*)$`).exec(text)
+  if (prefixOperator && (followsField || prefixOperator[2] === '*' || prefixOperator[2] === '/')) {
+    const out: NativeOfficePart[] = []
+    if (prefixOperator[1]) out.push({ kind: 'text', text: prefixOperator[1] })
+    out.push({ kind: 'operator', operator: prefixOperator[2] as any }, { kind: 'text', text: prefixOperator[3] })
+    if (prefixOperator[4]) out.push({ kind: 'text', text: prefixOperator[4] })
+    return out
+  }
+  const standalone = /^(\s*)([+\-*/()])(\s*)$/.exec(text)
+  if (standalone) {
+    const out: NativeOfficePart[] = []
+    if (standalone[1]) out.push({ kind: 'text', text: standalone[1] })
+    out.push({ kind: 'operator', operator: standalone[2] as any })
+    if (standalone[3]) out.push({ kind: 'text', text: standalone[3] })
+    return out
+  }
+  const binary = new RegExp(`^(.*?${number}\\s*)([+*\\-/])\\s*(${number})(.*)$`).exec(text)
+  if (binary) return [
+    ...(binary[1] ? [{ kind: 'text', text: binary[1] } as NativeOfficePart] : []),
+    { kind: 'operator', operator: binary[2] as any }, { kind: 'text', text: binary[3] },
+    ...(binary[4] ? [{ kind: 'text', text: binary[4] } as NativeOfficePart] : []),
+  ]
+  return text ? [{ kind: 'text', text }] : []
+}
+
+/** Считывает живую последовательность абзаца: обычный текст между Word-полями
+ * важен для предпросмотра, поэтому порядок берётся из дерева редактора. */
+function readNativeHeader(editor: Editor, anchorId: string, schemaAnchor?: any): NativeOfficePart[] | null {
+  let found: NativeOfficePart[] | null = null
+  editor.state.doc.descendants((paragraph: any) => {
+    if (found || !['docParagraph', 'paragraph'].includes(paragraph.type.name)) return
+    if (![...(paragraph.attrs?.bookmarks || []), ...(paragraph.attrs?.hiddenBookmarks || [])].some((name: unknown) => anchorIdFromBookmark(name) === anchorId)) return
+    const native: Array<{ text: string; identity?: { fieldKey: string; sourceId?: string } }> = []
+    paragraph.descendants((node: any) => {
+      if (node.isText) {
+        const mark = (node.marks || []).find(isFluxField)
+        native.push({ text: node.text, ...(mark ? { identity: fluxFieldIdentity(mark) || undefined } : {}) })
+      }
+    })
+    const schemaParts = schemaAnchor?.parts || []
+    const claimed = new Set<number>()
+    const assigned = native.map((item) => {
+      if (!item.identity) return null
+      const match = schemaParts.findIndex((part: any, index: number) => {
+        if (claimed.has(index)) return false
+        const bindings = part?.kind === 'field' ? [part.binding] : part?.kind === 'union' ? part.alternatives : []
+        return bindings.some((binding: any) => binding?.fieldKey === item.identity!.fieldKey && (!item.identity!.sourceId || binding.sourceId === item.identity!.sourceId))
+      })
+      if (match < 0) return null
+      claimed.add(match)
+      return { schemaIndex: match, part: schemaParts[match] }
+    })
+    const nativeText = native.map((item) => item.text).join('')
+    const renderedSchema = schemaParts.map((part: any, index: number) => {
+      if (part.kind === 'text') return part.text
+      if (part.kind === 'operator') return part.operator
+      const tokenIndex = assigned.findIndex((entry) => entry?.schemaIndex === index)
+      return tokenIndex < 0 ? null : native[tokenIndex].text
+    })
+    const schemaTokenCount = schemaParts.filter((part: any) => part.kind === 'field' || part.kind === 'union').length
+    const hasExactKnownSchema = claimed.size === schemaTokenCount && assigned.every((entry, index) => !native[index].identity || !!entry) && renderedSchema.every((part: string | null) => part !== null) && renderedSchema.join('') === nativeText
+    if (hasExactKnownSchema) { found = schemaParts; return }
+    const parts: NativeOfficePart[] = []
+    let followsField = false
+    const emittedUnions = new Set<number>()
+    native.forEach((item, index) => {
+      const match = assigned[index]
+      if (match?.part?.kind === 'field') { parts.push(match.part); followsField = true; return }
+      if (match?.part?.kind === 'union') {
+        if (!emittedUnions.has(match.schemaIndex)) { parts.push(match.part); emittedUnions.add(match.schemaIndex) }
+        followsField = true; return
+      }
+      const textParts = splitNativeText(item.text, followsField)
+      parts.push(...textParts)
+      followsField = false
+    })
+    found = parts
+  })
+  return found
+}
+
+function wordParagraphForSchema(editor: Editor, paragraph: any, anchor: any, labels: Record<string, string>): any {
+  const existingFields = new Map<string, any>()
+  const existingTextMarks = new Map<string, any[]>()
+  const plainMarks: any[] = []
+  paragraph.descendants((node: any) => {
+    if (!node.isText) return
+    const mark = (node.marks || []).find(isFluxField)
+    const identity = mark && fluxFieldIdentity(mark)
+    const key = identity && `${identity.sourceId || ''}\u0000${identity.fieldKey}`
+    if (key && !existingFields.has(key)) existingFields.set(key, node)
+    if (!mark) {
+      if (!plainMarks.length) plainMarks.push(...(node.marks || []))
+      if (!existingTextMarks.has(node.text)) existingTextMarks.set(node.text, node.marks || [])
+    }
+  })
+  const parts: any[] = []
+  const fieldMarkType = editor.state.schema.marks.instrField
+  const appendText = (value: string, marks?: any[]): void => { if (value) parts.push(editor.schema.text(value, marks || existingTextMarks.get(value) || plainMarks)) }
+  const labelFor = (binding: any): string => {
+    const label = labels[`${binding.sourceId}:${binding.fieldKey}`] ?? labels[binding.fieldKey]
+    return typeof label === 'string' ? label : existingFields.get(`${binding.sourceId}\u0000${binding.fieldKey}`)?.text || existingFields.get(`\u0000${binding.fieldKey}`)?.text || binding.fieldKey
+  }
+  for (const part of anchor.parts) {
+    if (part.kind === 'text') { appendText(part.text); continue }
+    if (part.kind === 'operator') { appendText(part.operator); continue }
+    const binding = part.kind === 'field' ? part.binding : part.alternatives[0]
+    const fieldKey = String(binding.fieldKey)
+    const existingNode = existingFields.get(`${binding.sourceId}\u0000${fieldKey}`) || existingFields.get(`\u0000${fieldKey}`)
+    const existingMarks = existingNode?.marks || []
+    const extraMarks = existingMarks.filter((mark: any) => !isFluxField(mark))
+    const fluxMark = fieldMarkType.create({ instr: fluxInstruction(anchor, binding) })
+    const marks = [...(extraMarks.length ? extraMarks : plainMarks.filter((mark: any) => !isFluxField(mark))), fluxMark]
+    const visible = part.kind === 'field' ? labelFor(binding) : (typeof part.label === 'string' ? part.label : part.alternatives.map(labelFor).join(' / '))
+    appendText(visible, marks)
+  }
+  return paragraph.type.create(paragraph.attrs, Fragment.fromArray(parts))
+}
+
+function validateHeaderSchema(schema: any): boolean {
+  if (!schema || schema.version !== 1 || !Array.isArray(schema.anchors) || schema.anchors.length > 500) return false
+  const seen = new Set<string>()
+  const validBinding = (binding: any, anchorId: string): boolean => !!binding && typeof binding.fieldKey === 'string' && binding.fieldKey.length > 0 && binding.fieldKey.length <= 200 && !/["\\\r\n\u0000-\u001f]/.test(binding.fieldKey) && typeof binding.sourceId === 'string' && binding.sourceId.length > 0 && binding.sourceId.length <= 200 && typeof binding.entityType === 'string' && binding.entityType.length > 0 && binding.entityType.length <= 200 && String(binding.anchorId || anchorId) === anchorId
+  for (const anchor of schema.anchors) {
+    if (!anchor || anchor.kind !== 'word-row' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(anchor.id || '')) || seen.has(anchor.id) || !Array.isArray(anchor.parts) || anchor.parts.length > 500) return false
+    seen.add(anchor.id)
+    for (const part of anchor.parts) {
+      if (part?.kind === 'text' && typeof part.text === 'string' && part.text.length <= 10000) continue
+      if (part?.kind === 'operator' && ['+', '-', '*', '/', '(', ')'].includes(part.operator)) continue
+      if (part?.kind === 'field' && validBinding(part.binding, anchor.id)) continue
+      if (part?.kind === 'union' && part.mode === 'first-match' && (part.label === undefined || (typeof part.label === 'string' && part.label.length <= 200)) && Array.isArray(part.alternatives) && part.alternatives.length > 0 && part.alternatives.length <= 100 && part.alternatives.every((item: any) => validBinding(item, anchor.id) && Number.isInteger(item.priority) && item.priority >= 0)) continue
+      return false
+    }
+  }
+  return true
+}
+
 function persistDocAnchor(editor: Editor, anchorId: string): boolean {
   const selection = editor.state.selection
   let cellDepth = -1
@@ -272,7 +444,7 @@ function ensureTableBookmark(editor: Editor, table: any, identity: string): any 
 function setRowIdentity(row: any, identity: string): any {
   let changed = false
   const cells: any[] = []
-  row.forEach((cell: any, cellIndex: number) => {
+  row.forEach((cell: any, _offset: number, cellIndex: number) => {
     let first = true
     const content: any[] = []
     cell.forEach((child: any) => {
@@ -293,7 +465,9 @@ function setRowIdentity(row: any, identity: string): any {
 function rowWithValues(editor: Editor, styleRow: any, valuesByColumn: Map<number, string>, identity: string, preserveUnbound: boolean): any {
   const cells: any[] = []
   let valid = true
-  styleRow.forEach((cell: any, index: number) => {
+  // Второй аргумент ProseMirror — смещение в тексте. Колонка — третий;
+  // её номер сохраняется после изменения длины соседней ячейки.
+  styleRow.forEach((cell: any, _offset: number, index: number) => {
     const value = valuesByColumn.get(index)
     if (value === undefined && preserveUnbound) { cells.push(cell); return }
     const children: any[] = []
@@ -340,7 +514,7 @@ function applyDocOfficePlan(editor: Editor, payload: any): { ok: boolean; rows?:
     table.forEach((row: any) => rows.push(row))
     const anchorColumns = new Map<string, number>()
     let headerIndex = -1
-    rows.forEach((row, rowIndex) => row.forEach((cell: any, col: number) => {
+    rows.forEach((row, rowIndex) => row.forEach((cell: any, _offset: number, col: number) => {
       const marks: string[] = []
       cell.descendants((node: any) => { if (['docParagraph', 'paragraph'].includes(node.type.name)) marks.push(...paragraphBookmarks(node)) })
       for (const mark of marks) {
@@ -380,7 +554,7 @@ function applyDocOfficePlan(editor: Editor, payload: any): { ok: boolean; rows?:
       if (!header) throw new Error('Строка заголовков таблицы не найдена')
       if (existingIndex >= 0) {
         const existing = tableRows[existingIndex]
-        existing.forEach((cell: any, col: number) => {
+        existing.forEach((cell: any, _offset: number, col: number) => {
           const write = writesForTable.find((item) => table.anchorColumns.get(String(item.anchorId)) === col)
           if (!write) return
           const anchorId = String(write.anchorId)
@@ -424,10 +598,38 @@ async function installFluxFields(): Promise<void> {
   const p = port()
   if (!p) return
   const editor = await whenReady()
+  let liveHeaderSchema: any = null
+  const headerActions = createWordHeaderActions(editor, { validateHeaderSchema, wordParagraphForSchema, readNativeHeader, anchorIdFromBookmark, isFluxField })
   installFluxFieldGuard(editor)
     const report = () => p.tell('flux:anchor-selected', docAnchor(editor))
   editor.on('selectionUpdate', report)
   editor.on('destroy', () => editor.off('selectionUpdate', report))
+  const onHeaderContextMenu = (event: MouseEvent) => {
+    if (event.defaultPrevented) return
+    const target = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null
+    const cellElement = target?.closest('td,th')
+    if (!cellElement || !editor.view.dom.contains(cellElement)) return
+    let clickedAnchorId: string | null = null
+    try {
+      const $clicked = editor.state.doc.resolve(editor.view.posAtDOM(cellElement, 0))
+      for (let depth = $clicked.depth; depth > 0; depth--) {
+        if (['docTableHeader', 'docTableCell'].includes($clicked.node(depth).type.name)) { clickedAnchorId = headerActions.cellAnchorId($clicked.node(depth)); break }
+      }
+    } catch { return }
+    if (!clickedAnchorId) return
+    let anchors: ReturnType<typeof headerActions.selectedBoundHeaderAnchors> = null
+    try { anchors = headerActions.selectedBoundHeaderAnchors(liveHeaderSchema) } catch { return }
+    if (!anchors?.some((anchor) => anchor.anchorId === clickedAnchorId)) return
+    event.preventDefault()
+    event.stopPropagation()
+    p.tell('flux:cell-actions', {
+      editorKind: 'docs',
+      anchors,
+      position: { x: event.clientX, y: event.clientY },
+    })
+  }
+  editor.view.dom.addEventListener('contextmenu', onHeaderContextMenu, true)
+  editor.on('destroy', () => editor.view.dom.removeEventListener('contextmenu', onHeaderContextMenu, true))
   p.on('insertFluxField', async (request: any) => {
     const key = String(request?.fieldKey || '')
     const label = String(request?.displayText ?? `{{${key}}}`)
@@ -439,10 +641,19 @@ async function installFluxFields(): Promise<void> {
     if (safeKey && label.length <= 2000) {
       try {
         const ed = await whenReady()
+        if (!ed.isEditable) throw new Error('Документ открыт только для чтения')
         const selectedAnchor = docAnchor(ed)
-        const anchorId = String(request?.anchorId || selectedAnchor?.anchorId || '')
-        if (!anchorId || !persistDocAnchor(ed, anchorId)) throw new Error('Выберите ячейку таблицы: якорь не сохранён')
-        const instr = `DOCPROPERTY "flux:${key}"`
+        const explicitAnchor = typeof request?.anchorId === 'string' && request.anchorId.length > 0
+        const anchorId = String(explicitAnchor ? request.anchorId : selectedAnchor?.anchorId || '')
+        if (explicitAnchor && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(anchorId)) throw new Error('ID якоря Word имеет неверный формат')
+        if (explicitAnchor && headerActions.isCellSelection()) headerActions.focusFormula({ anchorId, schema: liveHeaderSchema, caret: 'end', preserveText: true })
+        // Новый add-on передаёт anchorId и работает только в ячейке таблицы;
+        // старые вызовы без якоря сохраняют совместимость в обычном тексте.
+        if (explicitAnchor && !persistDocAnchor(ed, anchorId)) throw new Error('Выберите ячейку таблицы: якорь не сохранён')
+        const binding = request?.binding
+        const sourceId = typeof binding?.sourceId === 'string' && binding.fieldKey === key ? binding.sourceId : ''
+        const identity = sourceId ? `v1:${encodeURIComponent(sourceId)}:${encodeURIComponent(key)}` : key
+        const instr = `DOCPROPERTY "flux:${identity}"`
         const markType = ed.state.schema.marks.instrField
         if (!markType) throw new Error('Нативная метка Word недоступна')
         const { from, to } = ed.state.selection
@@ -450,25 +661,103 @@ async function installFluxFields(): Promise<void> {
         ed.view.dispatch(tr.scrollIntoView())
         const ok = true
         const anchor = docAnchor(ed)
-        result = { ok, fieldKey: key, ...(anchor ? { anchorId: anchor.anchorId, anchor } : { anchorId }), ...(ok ? {} : { error: 'Поле не вставлено в текущую позицию' }) }
+        result = { ok, fieldKey: key, ...(anchor ? { anchorId: anchor.anchorId, anchor } : explicitAnchor ? { anchorId } : {}) }
       } catch (err: any) { result = { ok: false, fieldKey: key, error: String(err?.message || err) } }
     }
     p.tell('flux:field-inserted', result)
   })
   p.on('removeFluxField', () => {
+    if (!editor.isEditable) return
     const { state, view } = editor
     const { from, to, empty } = state.selection
-    let range: { from: number; to: number } | null = null
+    const ranges: Array<{ from: number; to: number }> = []
     const scanFrom = empty ? Math.max(0, from - 1) : from
     const scanTo = empty ? Math.min(state.doc.content.size, from + 1) : to
     state.doc.nodesBetween(scanFrom, scanTo, (node: any, pos: number) => {
-      if (!range && node.isText && (node.marks || []).some(isFluxField)) range = { from: pos, to: pos + node.nodeSize }
+      if (!ranges.length && node.isText && (node.marks || []).some(isFluxField)) ranges.push({ from: pos, to: pos + node.nodeSize })
     })
+    const range = ranges[0]
     if (range) view.dispatch(state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+  })
+  p.on('getFluxHeaderSchema', (request: any) => {
+    let result: any
+    try {
+      const schema = request?.schema
+      if (!validateHeaderSchema(schema)) throw new Error('Схема заголовков имеет неверный формат')
+      const anchors = schema.anchors.map((anchor: any) => {
+        const parts = readNativeHeader(editor, String(anchor.id), anchor)
+        if (!parts) throw new Error(`Ячейка заголовка ${anchor.id} больше не найдена в документе`)
+        return { ...anchor, parts }
+      })
+      liveHeaderSchema = { version: schema.version, anchors }
+      result = { ok: true, schema: { version: schema.version, anchors }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, parts: anchor.parts })) }
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    p.tell('flux:header-schema-read', result)
+  })
+  p.on('syncFluxHeaderSchema', (request: any) => {
+    let result: any
+    try {
+      if (!editor.isEditable) throw new Error('Документ открыт только для чтения')
+      const schema = request?.schema
+      const removed = request?.removedAnchorIds ?? []
+      const displayLabels = request?.displayLabels && typeof request.displayLabels === 'object' ? request.displayLabels : {}
+      if (!validateHeaderSchema(schema) || !Array.isArray(removed) || removed.length > 500 || removed.some((id: any) => !/^[0-9a-f-]{36}$/i.test(String(id)))) throw new Error('Схема заголовков имеет неверный формат')
+      if (Object.values(displayLabels).some((label: any) => typeof label !== 'string' || label.length > 2000)) throw new Error('Подписи заголовков имеют неверный формат')
+      const anchors = new Map<string, any>(schema.anchors.map((anchor: any) => [String(anchor.id), anchor]))
+      if (new Set(removed.map(String)).size !== removed.length || removed.some((id: any) => anchors.has(String(id)))) throw new Error('Изменение схемы повторно удаляет или одновременно сохраняет якорь')
+      const targets = new Map<string, { pos: number; paragraph: any }>()
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (!['docParagraph', 'paragraph'].includes(node.type.name)) return
+        const id = [...(node.attrs?.bookmarks || []), ...(node.attrs?.hiddenBookmarks || [])].map(anchorIdFromBookmark).find(Boolean)
+        if (id && !targets.has(id)) targets.set(id, { pos, paragraph: node })
+      })
+      for (const id of [...anchors.keys(), ...removed]) if (!targets.has(id)) throw new Error(`Ячейка заголовка ${id} больше не найдена в документе`)
+      const tr = editor.state.tr
+      const replacements: Array<{ pos: number; before: any; after: any }> = []
+      for (const [id, anchor] of anchors) {
+        const target = targets.get(id)!
+        replacements.push({ pos: target.pos, before: target.paragraph, after: wordParagraphForSchema(editor, target.paragraph, anchor, displayLabels) })
+      }
+      for (const id of removed.map(String)) {
+        const target = targets.get(id)!
+        const attrs = { ...target.paragraph.attrs }
+        attrs.bookmarks = (attrs.bookmarks || []).filter((name: unknown) => anchorIdFromBookmark(name) !== id)
+        attrs.hiddenBookmarks = (attrs.hiddenBookmarks || []).filter((name: unknown) => anchorIdFromBookmark(name) !== id)
+        const children: any[] = []
+        target.paragraph.forEach((child: any) => { if (!child.isText || !(child.marks || []).some(isFluxField)) children.push(child) })
+        replacements.push({ pos: target.pos, before: target.paragraph, after: target.paragraph.type.create(attrs, Fragment.fromArray(children)) })
+      }
+      for (const item of replacements.sort((a, b) => b.pos - a.pos)) tr.replaceWith(item.pos, item.pos + item.before.nodeSize, item.after)
+      if (tr.docChanged) { tr.setMeta('fluxFieldCommand', true); editor.view.dispatch(tr) }
+      const synced = schema.anchors.map((anchor: any) => ({ ...anchor, parts: readNativeHeader(editor, String(anchor.id), anchor) || [] }))
+      liveHeaderSchema = { version: schema.version, anchors: synced }
+      result = { ok: true, schema: { version: schema.version, anchors: synced }, headers: synced.map((anchor: any) => ({ anchorId: anchor.id, parts: anchor.parts })) }
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    p.tell('flux:header-schema-synced', result)
+  })
+  p.on('mergeFluxHeaderColumns', (request: any) => {
+    void (async () => {
+      let result: any
+      try { result = await headerActions.merge(request) }
+      catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+      if (result?.ok && !result.preview) liveHeaderSchema = result.schema
+      p.tell('flux:header-columns-merged', result)
+    })()
+  })
+  p.on('editFluxHeaderFormula', (request: any) => {
+    let result: any
+    try {
+      result = { ok: headerActions.focusFormula(request) }
+      liveHeaderSchema = request.schema
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    p.tell('flux:header-formula-edit-started', result)
   })
   p.on('applyFluxPlan', (request: any) => {
     let result: any
-    try { result = applyDocOfficePlan(editor, request) } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    try {
+      if (!editor.isEditable) throw new Error('Документ открыт только для чтения')
+      result = applyDocOfficePlan(editor, request)
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
     p.tell('flux:office-plan-applied', result)
   })
 }
@@ -501,7 +790,14 @@ function tagAtPoint(root: HTMLElement, x: number, y: number): string | null {
 
 /** Читает только инструкцию Word-поля; видимое слово и соседний текст не угадываются. */
 export function tagTargetFromFieldInstruction(instruction: string): { tagId: string; identifier: string } | null {
-  const match = /^\s*DOCPROPERTY\s+"flux:tag\[([^\]\r\n]+)\]\.identifier"\s*$/i.exec(instruction)
+  const field = /^\s*DOCPROPERTY\s+"flux:([^"\r\n]+)"\s*$/i.exec(instruction)
+  if (!field) return null
+  let key = field[1]
+  const composite = /^v1:([^:]+):(.+)$/.exec(key)
+  if (composite) {
+    try { key = decodeURIComponent(composite[2]) } catch { return null }
+  }
+  const match = /^tag\[([^\]\r\n]+)\]\.identifier$/i.exec(key)
   if (!match) return null
   const value = match[1]
   const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
@@ -564,11 +860,18 @@ async function start(cfg: { name: string; color: string }, p: Port): Promise<voi
   }
 
   const bind = () => {
-    // Своя история редактора в сеансе не нужна: она отменила бы и чужие правки
-    try { editor.unregisterPlugin('history') } catch (_) {}
-    editor.registerPlugin(ySyncPlugin(fragment))
-    editor.registerPlugin(yUndoPlugin({ protectedNodes: new Set(['docParagraph']) }))
-    editor.registerPlugin(yCursorPlugin(awareness))
+    // Подключаем вместе: отдельная регистрация следующего плагина уничтожает
+    // уже созданный view UndoManager и отключает сбор локальной истории.
+    const plugins = editor.state.plugins.filter((plugin) => {
+      const key = (plugin as unknown as { key: string }).key
+      return !key.startsWith('history$') && !['y-sync$', 'y-undo$', 'yjs-cursor$'].includes(key)
+    })
+    editor.view.updateState(editor.state.reconfigure({ plugins: [
+      ...plugins,
+      ySyncPlugin(fragment),
+      yUndoPlugin({ protectedNodes: new Set(['docParagraph']) }),
+      yCursorPlugin(awareness),
+    ] }))
     state.active = true
     applySide(side.keys())
     side.observe((e) => { if (e.transaction.origin === REMOTE) applySide(e.keysChanged) })

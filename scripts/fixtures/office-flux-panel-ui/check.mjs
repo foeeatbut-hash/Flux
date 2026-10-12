@@ -46,6 +46,10 @@ page.route('**/api/project-data/**', async (route) => {
   } else if (endpoint.includes('/pin')) body = { pinned: ['template-1'] };
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 });
+page.route('**/api/office/revisions/**', async (route) => {
+  const fileId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) || 'fixture-file');
+  await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ documentId: `doc-${fileId}`, fileId, fileName: kind === 'docs' ? 'Пробный документ.docx' : 'Пробная книга.xlsx', revisions: [] }) });
+});
 
 try {
   const fixtureUrl = process.env.OFFICE_ADDON_UI_URL || process.env.FLUX_UI_URL || process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4190';
@@ -89,10 +93,10 @@ try {
   await page.getByRole('button', { name: /Наименование/ }).click();
   await page.getByRole('button', { name: 'Привязать поле' }).click();
   await page.getByLabel('Текст заголовка 1').fill('Насос ');
-  await page.getByRole('button', { name: 'Текст' }).click();
+  await page.getByRole('button', { name: 'Текст', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить оператор +' }).click();
   await page.getByRole('button', { name: 'Объединить с выбранным полем' }).click();
-  await page.getByText('Первое непустое: Обозначение / Наименование', { exact: true }).waitFor();
+  await page.getByRole('group', { name: 'Первое непустое: Обозначение / Наименование', exact: true }).waitFor();
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
     if (theme === 'dark') {

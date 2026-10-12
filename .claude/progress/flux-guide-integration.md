@@ -1,14 +1,19 @@
 # Flux Guide, мессенджер и дополнение Flux Office
 
-Ветка: codex/flux-guide-integration. База: 6d360b4b, совпадает с origin/main после fetch.
+Ветка codex/flux-guide-integration; база origin/main 6d360b4b, fetch подтверждён.
+Контрольные коммиты: 0a18a865, f23697d1, 86facd90.
 
-- [x] Аудит эталона Guide и Office v10, selective patch без qa/seed/debug
-- [x] Удаление runtime Flux Play, сохранение общих прав и shell проверок
-- [x] Guide + контекстные демонстрации + постоянная история, диапазоны и подтверждение смены проекта
-- [x] Новый мессенджер и безопасные F ответы
-- [ ] Только дополнение Flux Office (обычный Office не менять)
-- [ ] Интеграция, tests, visual, сборка, PR
+- [x] Guide, новые ответы/история/демонстрации; старые Assistant/Handbook/Play удалены.
+- [x] Мессенджер, F и ACL/privacy; браузерные проверки прошли.
+- [x] Только дополнение Office: schema/fields/units/preview/CAS/manual/repeat/templates.
+- [x] Предыдущий полный native addon + обычные Word/Sheets/collab прошли до новых UX-уточнений.
+- [x] Новые функции: удаление полей, mapping шаблонов, immutable issue/draft.
+- [x] Уточнения пользователя: отдельный dialog по правой кнопке 1/2 headers, merge columns; inline protected chips и формулы с '='.
+- [ ] Итоговый native прогон уточнённого UX, ошибки, снимки light/dark.
+- [ ] Итоговые TS/архитектура/contracts/build/Electron/docs/commit/patch.
+- [ ] PR/CI текущего SHA: push ранее отклонён auto-review; отдельное разрешение публикации запрошено и не получено.
 
-Baseline: исходный tsc на отдельной копии HEAD проходит; первоначальный запуск зависимостей требовал network permission и npm cache /tmp.
+Последние результаты: main TS проходил, архитектура и 8 contracts прошли; API addon исправленная fixture проходит; UI addon 390/760/1280 light/dark проходит. Модель 23 cases, cell actions 7 cases проходят.
+Текущий узкий остаток: native Sheets TS (девять ошибок, включая runtime renderParts scope) исправляет office_sheets_cells, затем rebuild Sheets/main. Docs helper extraction type references исправлены, typed docs build готов; повторить native Docs TS. Новые actual Sheets/Word helpers дописывает office_gap_verification. Browser ещё НЕ запущен после последних уточнений.
 
-Текущая проверка: tsc, архитектура, 8 проверочных контрактов проходят. Guide UI включает настоящие DOCX/XLSX выгрузки, 300 строк с прокруткой/Escape и смену проекта в истории (confirm/cancel). Реальный ChatManagement: 16 браузерных проверок проходят. Изолированный live сервер Guide, Office addon API и Office file/CAS/ACL проходят. Office addon panel fixture проходит; тёмные заголовки исправлены, снимки с загруженными строками/схемой просмотрены. Основной остаток: native Word/Excel batch apply + row metadata save/reopen + actual editor regression, сборка и CI текущей ревизии.
+Логи /tmp/flux-cells-* и /tmp/flux-gap-*; native fixture запускается node --import tsx scripts/test-guide-server.ts --office-addon-native, legacy --office-docs --office-sheets --office-collab. Сначала freeze production/tests, native build (GENOFFICE_SRC=/workspace/Flux/.cache/genoffice), main build, только затем browser. Не собирать/генерировать Prisma во время browser или main tsc.

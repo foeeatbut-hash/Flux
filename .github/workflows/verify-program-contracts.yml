@@ -26,7 +26,7 @@ jobs:
       - name: Guide, демонстрации, мессенджер и модель дополнения Office
         run: |
           set -euo pipefail
-          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-ui-contract; do
+          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-native-schema test-office-revisions test-office-ui-contract; do
             node --import tsx "scripts/$check.ts"
           done
       - name: История Guide и F в одноразовом сервере SQLite
@@ -119,7 +119,7 @@ jobs:
 
   office-native:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -142,6 +142,10 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: node --import tsx scripts/test-guide-server.ts --office-addon-native
+      - name: Совместимость прежних режимов Word, Sheets и совместной правки
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-server.ts --office-docs --office-sheets --office-collab
       - name: Демонстрации Guide в полном приложении
         env:
           FLUX_CHROME: /usr/bin/google-chrome

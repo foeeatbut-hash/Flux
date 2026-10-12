@@ -26,7 +26,9 @@
 import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
 import { waitForEditor } from './editor-readiness'
-import { CustomCommandExecutionError, ICommandService } from '@univerjs/core'
+import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
+import '@univerjs/sheets-ui/facade'
+import { createSheetsTokenOverlay } from './sheets-token-overlay'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -54,6 +56,7 @@ let applying = false
 let maxRemote = 0
 let localSeq = 0
 const queue: Remote[] = []
+const headerMergePreviews = new Map<string, { workbookId: string; sheetId: string; targetId: string; sourceId: string; schema: string; snapshot: string; expires: number }>()
 /** Свои, ещё без номера */
 const pending = new Map<number, Op>()
 /** Свои с номером: переиграть, если придёт чужая с меньшим */
@@ -62,10 +65,24 @@ let mine: Array<{ seq: number; op: Op }> = []
 let names = new Map<string, string>()
 let saving: { lazy: any; until: number } | null = null
 let applyingFlux = false
+let fluxReadOnly = false
 const guardedRuntimes = new WeakSet<object>()
+let headerTokenOverlay: ReturnType<typeof createSheetsTokenOverlay> | null = null
 
 const api = () => hooks()?.univerRef.current?.univerAPI
 const workbook = () => { try { return api()?.getActiveWorkbook() || null } catch { return null } }
+
+/** Детерминированная подпись частей для нативной ячейки заголовка. */
+function renderHeaderParts(parts: any[]): string {
+  const labelFor = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+  return parts.map((part: any) => {
+    if (part?.kind === 'text') return String(part.text || '')
+    if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
+    if (part?.kind === 'field') return labelFor(part.binding)
+    if (part?.kind === 'union' && Array.isArray(part.alternatives)) return typeof part.label === 'string' ? part.label : part.alternatives.map(labelFor).join(' / ')
+    return ''
+  }).join('')
+}
 
 function refreshNames(): void {
   const wb = workbook()
@@ -133,7 +150,7 @@ function selectedTagField(wb: any): { tagId: string; identifier: string } | null
   try {
     const cell = wb?.getActiveCell?.()
     const sheet = wb?.getActiveSheet?.()
-    const a1 = String(cell?.getA1Notation?.() || '').split(':')[0].replace(/\$/g, '').toUpperCase()
+    const a1 = (String(cell?.getA1Notation?.() || '').split(':')[0] ?? '').replace(/\$/g, '').toUpperCase()
     const sheetName = String(sheet?.getSheetName?.() || '')
     if (!cell || !a1 || !sheetName) return null
     const quotedSheet = sheetName.replace(/'/g, "''")
@@ -147,11 +164,13 @@ function selectedTagField(wb: any): { tagId: string; identifier: string } | null
       // диапазоны, иные листы и неоднозначные форматы пропускаем.
       const refMatch = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
       if (!refMatch) continue
-      const refSheet = (refMatch[1] || refMatch[2]).replace(/''/g, "'")
-      const refA1 = `${refMatch[3]}${refMatch[4]}`.toUpperCase()
+      const refSheetValue = refMatch[1] ?? refMatch[2]
+      if (refSheetValue === undefined) continue
+      const refSheet = refSheetValue.replace(/''/g, "'")
+      const refA1 = `${refMatch[3]!}${refMatch[4]!}`.toUpperCase()
       if (refSheet !== sheetName && refSheet !== quotedSheet) continue
       if (refA1 !== a1) continue
-      const value = match[1]
+      const value = match[1]!
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
         ? { tagId: value, identifier: '' }
         : { tagId: '', identifier: value }
@@ -164,7 +183,7 @@ function selectedOfficeAnchor(wb: any): { kind: 'excel-range'; anchorId: string;
   try {
     const cell = wb?.getActiveCell?.();
     const sheet = wb?.getActiveSheet?.();
-    const address = String(cell?.getA1Notation?.() || '').split(':')[0].replace(/\$/g, '').toUpperCase();
+    const address = (String(cell?.getA1Notation?.() || '').split(':')[0] ?? '').replace(/\$/g, '').toUpperCase();
     const sheetName = String(sheet?.getSheetName?.() || '');
     if (!cell || !/^[A-Z]{1,3}\d+$/.test(address) || !sheetName) return null;
     const quoted = sheetName.replace(/'/g, "''");
@@ -175,9 +194,12 @@ function selectedOfficeAnchor(wb: any): { kind: 'excel-range'; anchorId: string;
       const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '');
       const refMatch = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
       if (!refMatch) continue;
-      const refSheet = (refMatch[1] || refMatch[2]).replace(/''/g, "'");
-      if ((refSheet === sheetName || refSheet === quoted) && (refMatch[3] + refMatch[4]).toUpperCase() === address) {
-        const anchorId = match[1].includes('_') ? match[1].replaceAll('_', '-') : match[1];
+      const refSheetValue = refMatch[1] ?? refMatch[2];
+      if (refSheetValue === undefined) continue;
+      const refSheet = refSheetValue.replace(/''/g, "'");
+      if ((refSheet === sheetName || refSheet === quoted) && (refMatch[3]! + refMatch[4]!).toUpperCase() === address) {
+        const matchedAnchorId = match[1]!;
+        const anchorId = matchedAnchorId.includes('_') ? matchedAnchorId.replaceAll('_', '-') : matchedAnchorId;
         return { kind: 'excel-range', anchorId, sheetName, address };
       }
     }
@@ -187,6 +209,51 @@ function selectedOfficeAnchor(wb: any): { kind: 'excel-range'; anchorId: string;
   } catch { return null; }
 }
 
+/** Ячейки для меню берём из списка выделения Univer, а не из primary-клетки. */
+function selectedHeaderCells(wb: any): Array<{ anchorId: string; kind: 'excel-range'; sheetName: string; address: string }> | null {
+  try {
+    const sheet = wb?.getActiveSheet?.()
+    const selection = sheet?.getSelection?.()
+    const ranges = selection?.getActiveRangeList?.()
+    const sheetName = String(sheet?.getSheetName?.() || '')
+    if (!sheetName || !Array.isArray(ranges) || (ranges.length !== 1 && ranges.length !== 2)) return null
+    const cells = ranges.map((range: any) => {
+      const address = String(range?.getA1Notation?.() || '').replace(/\$/g, '').toUpperCase()
+      const match = /^([A-Z]{1,3})([1-9]\d*)$/.exec(address)
+      if (!match) return null
+      let column = 0
+      for (const letter of match[1]!) column = column * 26 + letter.charCodeAt(0) - 64
+      return { address, row: Number(match[2]), column }
+    })
+    if (cells.some((cell) => !cell) || (cells.length === 2 && (
+      cells[0]!.row !== cells[1]!.row || Math.abs(cells[0]!.column - cells[1]!.column) !== 1
+    ))) return null
+    const quotedSheet = sheetName.replace(/'/g, "''")
+    const names = new Map<string, string>()
+    for (const defined of wb.getDefinedNames?.() || []) {
+      const name = String(defined?.getName?.() || '')
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(name)
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(ref)
+      if (!match) continue
+      const refSheet = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+      if (refSheet !== sheetName && refSheet !== quotedSheet) continue
+      const address = `${match[3]!}${match[4]!}`.toUpperCase()
+      names.set(address, anchor[1]!.replaceAll('_', '-'))
+    }
+    // Только ранее привязанные заголовки открывают Flux; иначе обычное меню
+    // таблицы должно остаться доступным.
+    if (cells.some((cell) => !names.has(cell!.address))) return null
+    return cells.map((cell) => ({
+      anchorId: names.get(cell!.address)!,
+      kind: 'excel-range',
+      sheetName,
+      address: cell!.address,
+    }))
+  } catch { return null }
+}
+
 function protectFluxHeaderCells(): void {
   const runtime = hooks()?.univerRef.current
   if (!runtime?.univer || guardedRuntimes.has(runtime)) return
@@ -194,7 +261,20 @@ function protectFluxHeaderCells(): void {
     const commandService = runtime.univer.__getInjector().get(ICommandService)
     guardedRuntimes.add(runtime)
     commandService.beforeCommandExecuted((command: any) => {
-      if (applyingFlux || /^.*(?:undo|redo).*$/i.test(String(command.id))) return
+      // Univer hooks every operation here; only mutations alter workbook data.
+      // Read-only leaves cursor movement, selection and copy commands available.
+      const trusted = journalSuppression.active || applying || applyingFlux
+      if (fluxReadOnly && !trusted && command.type === MUTATION) {
+        // A veto skips Univer's success-path stack cleanup, so remove this
+        // exact dispatch before throwing; nested command frames are preserved.
+        const stack = (commandService as unknown as { _commandExecutionStack?: unknown[] })._commandExecutionStack
+        const index = stack?.indexOf(command) ?? -1
+        if (index >= 0) stack?.splice(index, 1)
+        throw new CustomCommandExecutionError('Книга Flux открыта только для чтения')
+      }
+      // Загрузка из файла и разрешённые правки соавтора восстанавливают ячейки.
+      // Блокируем обычное редактирование, а не внутреннюю загрузку книги.
+      if (journalSuppression.active || applying || applyingFlux || /^.*(?:undo|redo).*$/i.test(String(command.id))) return
       const id = String(command.id || '')
       if (!/sheet\.(?:command|mutation)\.set-range-values$/i.test(id)) return
       const wb = workbook()
@@ -207,9 +287,11 @@ function protectFluxHeaderCells(): void {
         const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
         const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
         if (!m) continue
-        const sheetName = (m[1] || m[2]).replace(/''/g, "'")
+        const sheetNameValue = m[1] ?? m[2]
+        if (sheetNameValue === undefined) continue
+        const sheetName = sheetNameValue.replace(/''/g, "'")
         const sheet = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName)
-        if (sheet) protectedCells.add(`${sheet.getSheetId()}:${Number(m[4]) - 1}:${columnNumber(m[3]) - 1}`)
+        if (sheet) protectedCells.add(`${sheet.getSheetId()}:${Number(m[4]!) - 1}:${columnNumber(m[3]!) - 1}`)
       }
       let blocked = false
       const inspect = (value: any, depth = 0): void => {
@@ -369,13 +451,22 @@ async function fields(): Promise<void> {
   }, true)
   link.on('flux:insert-field', (_e, m: { name?: string; value?: unknown; anchorId?: string }) => {
     const wb = workbook()
+    const priorApplying = applyingFlux
     let result: { ok: boolean; cell?: string; error?: string } = { ok: false, error: 'Книга не готова' }
     try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
+      const anchorId = String((m as any)?.anchorId || '')
+      const binding = (m as any)?.binding
+      if (headerTokenOverlay?.isEditing(anchorId) && binding && headerTokenOverlay.insertField(anchorId, binding, String(m?.value || ''))) {
+        link.send('flux:field-inserted', { ok: true, inlineEditing: true, anchorId })
+        return
+      }
       const cell = wb?.getActiveCell?.() || wb?.getActiveRange?.()
       const sheet = wb?.getActiveSheet?.()
       if (!wb || !cell || !sheet || !m?.name) result = { ok: false, error: 'Выделите ячейку, куда поставить значение' }
       else {
-        const a1 = String(cell.getA1Notation()).split(':')[0]
+        applyingFlux = true
+        const a1 = String(cell.getA1Notation()).split(':')[0] ?? ''
         cell.setValue(m.value ?? '')
         const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
         const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : ''
@@ -391,6 +482,7 @@ async function fields(): Promise<void> {
         result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
       }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    finally { applyingFlux = priorApplying }
     link.send('flux:field-inserted', result)
   })
 }
@@ -407,11 +499,369 @@ async function exportCommands(): Promise<void> {
   }, 40_000, 100)
   if (!ready) return
   protectFluxHeaderCells()
-  // hello от shim означает только готовность моста, не книги Excel.
-  link.send('flux:editor-ready', { app: 'sheets' })
+  headerTokenOverlay = createSheetsTokenOverlay(link, (anchorId) => {
+    const wb = workbook()
+    const name = fluxAnchorName(anchorId)
+    const defined = wb?.getDefinedNames?.().find((item: any) => String(item.getName()) === name)
+    const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+    const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(ref)
+    if (!wb || !match) return null
+    const sheetName = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+    const sheet = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === sheetName)
+    if (!sheet) return null
+    const address = `${match[3]!.toUpperCase()}${match[4]!}`
+    return { range: sheet.getRange(address), sheetName, address }
+  }, (range, value) => {
+    if (fluxReadOnly) return false
+    const prior = applyingFlux
+    applyingFlux = true
+    try { range.setValue(value); return true } catch { return false } finally { applyingFlux = prior }
+  }, () => !fluxReadOnly)
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
+  document.addEventListener('contextmenu', (event) => {
+    if (event.button !== 2 || !(event.target instanceof HTMLCanvasElement)) return
+    const anchors = selectedHeaderCells(workbook())
+    if (!anchors) return
+    // Flux подменяет меню только для привязанного заголовка или пары соседних.
+    // Для обычных ячеек и прочих диапазонов меню Univer остаётся.
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    link.send('flux:cell-actions', {
+      editorKind: 'sheets',
+      anchors,
+      position: { x: event.clientX, y: event.clientY },
+    })
+  }, true)
+  link.on('flux:set-read-only', (_e, message: any) => {
+    const readOnly = message?.readOnly
+    if (typeof readOnly !== 'boolean') { link.send('flux:read-only-changed', { ok: false, error: 'Режим только для чтения имеет неверный формат' }); return }
+    fluxReadOnly = readOnly
+    link.send('flux:read-only-changed', { ok: true, readOnly })
+  })
+  link.on('flux:get-header-schema', (_e, request: any) => {
+    let result: any
+    try {
+      const wb = workbook(); const schema = request?.schema
+      if (!wb || !schema || schema.version !== 1 || !Array.isArray(schema.anchors) || schema.anchors.length > 500) throw new Error('Схема заголовков имеет неверный формат')
+      const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((item: any) => [String(item.getName()), item]))
+      const columnLetters = (col: number): string => { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
+      const parseRef = (raw: unknown): { sheet: any; row: number; col: number; address: string } | null => {
+        const ref = String(raw || '').trim().replace(/^=/, '')
+        const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(ref)
+        if (!match) return null
+        const sheetNameValue = match[1] ?? match[2]
+        if (sheetNameValue === undefined) return null
+        const sheetName = sheetNameValue.replace(/''/g, "'")
+        const sheet = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === sheetName)
+        if (!sheet) return null
+        const col = columnNumber(match[3]!) - 1; const row = Number(match[4]!) - 1
+        return { sheet, row, col, address: `${match[3]!.toUpperCase()}${match[4]!}` }
+      }
+      const anchors = schema.anchors.map((anchor: any) => {
+        const id = String(anchor?.id || '')
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || anchor.kind !== 'excel-range' || !Array.isArray(anchor.parts)) throw new Error('В схеме есть неверный якорь Excel')
+        const ref = definitions.get(fluxAnchorName(id))
+        const target = parseRef(ref?.getRef?.() ?? ref?.getFormulaOrRefString?.())
+        const sheetName = target?.sheet.getSheetName?.() ?? anchor.sheetName
+        const address = target?.address ?? String(anchor.address || '')
+        const sheet = target?.sheet ?? wb.getSheets?.().find((item: any) => String(item.getSheetName()) === sheetName)
+        const match = /^([A-Z]{1,3})([1-9]\d*)$/i.exec(address)
+        if (!sheet || !match) throw new Error(`Ячейка заголовка ${id} не найдена в книге`)
+        const row = target?.row ?? Number(match[2]!) - 1; const col = target?.col ?? columnNumber(match[1]!) - 1
+        const displayText = String(sheet.getRange(row, col, 1, 1).getValues()?.[0]?.[0] ?? '')
+        const liveParts = headerTokenOverlay?.getLiveParts(id)
+        return { ...anchor, sheetName: String(sheet.getSheetName()), address: `${match[1]!.toUpperCase()}${match[2]!}`, parts: liveParts || anchor.parts, displayText: liveParts ? renderHeaderParts(liveParts) : displayText }
+      })
+      result = { ok: true, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
+    } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    link.send('flux:header-schema-read', result)
+  })
+  link.on('flux:sync-header-schema', async (_e, request: any) => {
+    const payload = request?.payload ?? request ?? {}
+    const priorApplying = applyingFlux
+    let result: any
+    try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
+      const wb = workbook(); const schema = payload.schema; const removed = payload.removedAnchorIds ?? []
+      if (!wb || !schema || schema.version !== 1 || !Array.isArray(schema.anchors) || schema.anchors.length > 500 || !Array.isArray(removed) || removed.length > 500) throw new Error('Схема заголовков имеет неверный формат')
+      const labels = payload.displayLabels && typeof payload.displayLabels === 'object' ? payload.displayLabels : {}
+      if (Object.values(labels).some((label: any) => typeof label !== 'string' || label.length > 2000)) throw new Error('Подписи заголовков имеют неверный формат')
+      const seen = new Set<string>()
+      const targets: Array<{ id: string; sheet: any; row: number; col: number; address: string; name: string; ref: string; value: string }> = []
+      const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]))
+      const validBinding = (binding: any, anchorId: string): boolean => !!binding && typeof binding.fieldKey === 'string' && binding.fieldKey.length > 0 && binding.fieldKey.length <= 200 && typeof binding.sourceId === 'string' && binding.sourceId.length > 0 && binding.sourceId.length <= 200 && typeof binding.entityType === 'string' && binding.entityType.length > 0 && binding.entityType.length <= 200 && String(binding.anchorId || anchorId) === anchorId
+      const columnLetters = (col: number): string => { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
+      const labelFor = (binding: any): string => String(labels[`${binding?.sourceId || ''}:${binding?.fieldKey || ''}`] ?? labels[binding?.fieldKey || ''] ?? binding?.displayName ?? binding?.fieldKey ?? '')
+      const renderParts = (parts: any[]): string => parts.map((part: any) => {
+        if (part?.kind === 'text') return String(part.text || '')
+        if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
+        if (part?.kind === 'field') return labelFor(part.binding)
+        if (part?.kind === 'union' && Array.isArray(part.alternatives)) return typeof part.label === 'string' ? part.label : part.alternatives.map(labelFor).join(' / ')
+        throw new Error('В схеме есть неподдерживаемая часть заголовка')
+      }).join('')
+      for (const anchor of schema.anchors) {
+        const id = String(anchor?.id || '')
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || seen.has(id) || !Array.isArray(anchor.parts) || anchor.parts.length > 500) throw new Error('В схеме есть неверный или повторный якорь')
+        seen.add(id)
+        if (anchor.kind !== 'excel-range' || typeof anchor.sheetName !== 'string' || !anchor.sheetName || typeof anchor.address !== 'string') throw new Error(`Для ячейки заголовка ${id} не задан адрес Excel`)
+        for (const part of anchor.parts) {
+          const valid = part?.kind === 'text' && typeof part.text === 'string' && part.text.length <= 10000
+            || part?.kind === 'operator' && ['+', '-', '*', '/', '(', ')'].includes(part.operator)
+            || part?.kind === 'field' && validBinding(part.binding, id)
+            || part?.kind === 'union' && part.mode === 'first-match' && (part.label === undefined || (typeof part.label === 'string' && part.label.length <= 2000)) && Array.isArray(part.alternatives) && part.alternatives.length > 0 && part.alternatives.length <= 100 && part.alternatives.every((item: any) => validBinding(item, id) && Number.isInteger(item.priority) && item.priority >= 0)
+          if (!valid) throw new Error(`В заголовке ${id} есть неподдерживаемая часть`)
+        }
+        const sheet = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === anchor.sheetName)
+        const address = anchor.address.replace(/\$/g, '').toUpperCase()
+        const match = /^([A-Z]{1,3})([1-9]\d*)$/.exec(address)
+        if (!sheet || !match) throw new Error(`Ячейка заголовка ${anchor.sheetName}!${anchor.address} не найдена`)
+        const col = columnNumber(match[1]!) - 1; const row = Number(match[2]!) - 1
+        const name = fluxAnchorName(id); const ref = `'${anchor.sheetName.replace(/'/g, "''")}'!$${match[1]!}$${match[2]!}`
+        targets.push({ id, sheet, row, col, address, name, ref, value: renderParts(anchor.parts) })
+      }
+      if (removed.some((id: any) => !/^[0-9a-f-]{36}$/i.test(String(id))) || new Set(removed.map(String)).size !== removed.length || removed.some((id: any) => seen.has(String(id)))) throw new Error('Изменение схемы повторно удаляет или одновременно сохраняет якорь')
+      const oldCells = targets.map((target) => ({ ...target, value: target.sheet.getRange(target.row, target.col, 1, 1).getValues()?.[0]?.[0] ?? '' }))
+      const oldNames = new Map<string, string | null>()
+      for (const target of targets) oldNames.set(target.name, definitions.has(target.name) ? String(definitions.get(target.name)?.getRef?.() ?? definitions.get(target.name)?.getFormulaOrRefString?.() ?? '') : null)
+      for (const id of removed) {
+        const name = fluxAnchorName(String(id)); const definition = definitions.get(name)
+        if (definition) oldNames.set(name, String(definition.getRef?.() ?? definition.getFormulaOrRefString?.() ?? ''))
+      }
+      applyingFlux = true
+      const syncRuntime = hooks()?.univerRef.current
+      const undoBatch = syncRuntime?.univer?.__getInjector?.().get(IUndoRedoService)?.__tempBatchingUndoRedo(wb.getId())
+      if (!undoBatch) { applyingFlux = priorApplying; throw new Error('Не удалось сгруппировать изменения схемы для отмены') }
+      try {
+        for (const target of targets) {
+          target.sheet.getRange(target.row, target.col, 1, 1).setValues([[{ v: target.value }]])
+          const existing = definitions.get(target.name)
+          if (existing) wb.deleteDefinedName(target.name)
+          wb.insertDefinedName(target.name, target.ref)
+        }
+        for (const id of removed) wb.deleteDefinedName?.(fluxAnchorName(String(id)))
+      } catch (error) {
+        for (const old of oldCells.reverse()) { try { old.sheet.getRange(old.row, old.col, 1, 1).setValues([[old.value]]) } catch { /* best-effort rollback */ } }
+        for (const [name, ref] of oldNames) {
+          try { wb.deleteDefinedName?.(name); if (ref) wb.insertDefinedName(name, ref) } catch { /* best-effort rollback */ }
+        }
+        throw error
+      } finally { undoBatch.dispose(); applyingFlux = priorApplying }
+      result = { ok: true, schemaVersion: schema.version, headers: targets.map(({ id, sheet, address, value }) => ({ anchorId: id, kind: 'excel-range', sheetName: sheet.getSheetName(), address, displayText: value })) }
+    } catch (err: any) { applyingFlux = priorApplying; result = { ok: false, error: String(err?.message || err) } }
+    link.send('flux:header-schema-synced', result)
+  })
+  link.on('flux:merge-header-columns', async (_e, request: any) => {
+    const payload = request?.payload ?? request ?? {}
+    const priorApplying = applyingFlux
+    const replyMerge = (result: any) => link.send('flux:header-columns-merged', result)
+    try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
+      const wb = workbook()
+      const schema = payload.schema
+      const targetId = String(payload.targetAnchorId || '')
+      const sourceIds = Array.isArray(payload.sourceAnchorIds) ? payload.sourceAnchorIds.map(String) : []
+      if (!wb || !schema || schema.version !== 1 || !Array.isArray(schema.anchors) || sourceIds.length !== 1 || !targetId || sourceIds[0] === targetId) throw new Error('План объединения заголовков имеет неверный формат')
+      const sourceId = sourceIds[0]!
+      const targetAnchor = schema.anchors.find((anchor: any) => String(anchor?.id || '') === targetId)
+      const sourceAnchor = schema.anchors.find((anchor: any) => String(anchor?.id || '') === sourceId)
+      if (!targetAnchor || !sourceAnchor || schema.anchors.length > 500) throw new Error('Один из выбранных заголовков отсутствует в схеме')
+      const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((item: any) => [String(item.getName()), item]))
+      const parseRef = (raw: unknown): { sheet: any; row: number; col: number; address: string } | null => {
+        const ref = String(raw ?? '').trim().replace(/^=/, '')
+        const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(ref)
+        if (!match) return null
+        const sheetName = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+        const sheet = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === sheetName)
+        if (!sheet) return null
+        const col = columnNumber(match[3]!) - 1
+        const row = Number(match[4]!) - 1
+        if (row < 0 || col < 0 || !Number.isSafeInteger(row)) return null
+        return { sheet, row, col, address: `${match[3]!.toUpperCase()}${match[4]!}` }
+      }
+      const target = parseRef(definitions.get(fluxAnchorName(targetId))?.getRef?.() ?? definitions.get(fluxAnchorName(targetId))?.getFormulaOrRefString?.())
+      const source = parseRef(definitions.get(fluxAnchorName(sourceId))?.getRef?.() ?? definitions.get(fluxAnchorName(sourceId))?.getFormulaOrRefString?.())
+      if (!target || !source) throw new Error('Не найдены сохранённые ячейки заголовков')
+      if (target.sheet.getSheetId() !== source.sheet.getSheetId() || target.row !== source.row || Math.abs(target.col - source.col) !== 1) throw new Error('Для объединения выберите соседние заголовки одного листа и строки')
+      const sheet = target.sheet
+      const currentRuntime = hooks()?.univerRef.current
+      const lazyRef = hooks()?.lazyWorkbookRef
+      const currentLazy = lazyRef?.current
+      const originalWorkbookId = wb.getId()
+      const lastRow = Math.max(target.row, Number(sheet.getLastRow?.() ?? target.row))
+      const lastColumn = Math.max(target.col, source.col, Number(sheet.getLastColumn?.() ?? Math.max(target.col, source.col)))
+      if ((lastRow - target.row + 1) * (lastColumn + 1) > 100000) throw new Error('Выбранный лист слишком велик для безопасной проверки')
+      if (currentLazy && lazyRef && !currentLazy.flags?.preloadComplete) {
+        // Staleness checks include the rest of the used sheet so a manual edit
+        // to a neighboring column cannot slip through an old merge preview.
+        const loadRange = { startRow: target.row, endRow: lastRow, startColumn: 0, endColumn: lastColumn }
+        if (!(await ensureLazyRangeLoaded(currentRuntime, lazyRef, sheet, loadRange, () => undefined))) throw new Error('Данные выбранных колонок ещё не загружены')
+        if (hooks()?.univerRef.current !== currentRuntime || hooks()?.lazyWorkbookRef.current !== currentLazy || workbook()?.getId() !== originalWorkbookId) throw new Error('Книга изменилась во время проверки. Повторите действие')
+      }
+      const headerSnapshot = [target, source].map((location) => {
+        const cell = location.sheet.getRange(location.row, location.col, 1, 1)
+        return { row: location.row, col: location.col, value: cell.getValues?.()?.[0]?.[0], formula: String(cell.getFormulas?.()?.[0]?.[0] || '') }
+      })
+      const snapshots: Array<{ row: number; targetValue: any; sourceValue: any; targetFormula: string; sourceFormula: string }> = []
+      const conflicts: Array<{ rowIndex: number; targetText: string; sourceText: string }> = []
+      const hasContent = (value: any, formula: string): boolean => !!formula || (value !== null && value !== undefined && value !== '')
+      const show = (value: any, formula: string): string => formula || (value === null || value === undefined ? '' : String(value))
+      // Output-label editing replaces the target header and removes the source
+      // header. Formula headers are therefore surfaced as preview conflicts,
+      // never silently overwritten or discarded.
+      if (headerSnapshot.some((cell) => !!cell.formula)) {
+        const targetHeader = headerSnapshot[target.col < source.col ? 0 : 1]!
+        const sourceHeader = headerSnapshot[target.col < source.col ? 1 : 0]!
+        conflicts.push({ rowIndex: target.row + 1, targetText: show(targetHeader.value, targetHeader.formula), sourceText: show(sourceHeader.value, sourceHeader.formula) })
+      }
+      for (let row = target.row + 1; row <= lastRow; row++) {
+        const values = sheet.getRange(row, Math.min(target.col, source.col), 1, 2).getValues()?.[0] || []
+        const formulas = sheet.getRange(row, Math.min(target.col, source.col), 1, 2).getFormulas?.()?.[0] || []
+        const targetAt = target.col < source.col ? 0 : 1
+        const sourceAt = 1 - targetAt
+        const item = { row, targetValue: values[targetAt], sourceValue: values[sourceAt], targetFormula: String(formulas[targetAt] || ''), sourceFormula: String(formulas[sourceAt] || '') }
+        snapshots.push(item)
+        const targetHas = hasContent(item.targetValue, item.targetFormula)
+        const sourceHas = hasContent(item.sourceValue, item.sourceFormula)
+        const sameValue = JSON.stringify(item.targetValue ?? null) === JSON.stringify(item.sourceValue ?? null)
+        const sameFormula = item.targetFormula === item.sourceFormula
+        if (targetHas && sourceHas && !(sameValue && sameFormula)) conflicts.push({ rowIndex: row + 1, targetText: show(item.targetValue, item.targetFormula), sourceText: show(item.sourceValue, item.sourceFormula) })
+      }
+      const usedSheet = sheet.getRange(target.row, 0, lastRow - target.row + 1, lastColumn + 1)
+      const snapshot = JSON.stringify({
+        headers: headerSnapshot,
+        rows: snapshots,
+        usedSheet: { values: usedSheet.getValues?.() || [], formulas: usedSheet.getFormulas?.() || [] },
+      })
+      const schemaKey = JSON.stringify(schema)
+      if (payload.previewOnly === true) {
+        for (const [token, item] of headerMergePreviews) if (item.expires < Date.now()) headerMergePreviews.delete(token)
+        while (headerMergePreviews.size >= 100) headerMergePreviews.delete(headerMergePreviews.keys().next().value!)
+        const previewToken = globalThis.crypto.randomUUID()
+        headerMergePreviews.set(previewToken, { workbookId: originalWorkbookId, sheetId: String(sheet.getSheetId()), targetId, sourceId, schema: schemaKey, snapshot, expires: Date.now() + 120_000 })
+        replyMerge({ ok: true, previewToken, conflicts })
+        return
+      }
+      const previewToken = String(payload.previewToken || '')
+      const preview = headerMergePreviews.get(previewToken)
+      headerMergePreviews.delete(previewToken)
+      if (payload.confirm !== true || !preview || preview.expires < Date.now() || preview.workbookId !== originalWorkbookId || preview.sheetId !== String(sheet.getSheetId()) || preview.targetId !== targetId || preview.sourceId !== sourceId || preview.schema !== schemaKey || preview.snapshot !== snapshot) throw new Error('Содержимое книги изменилось после предварительного просмотра. Проверьте объединение ещё раз')
+      if (conflicts.length) { replyMerge({ ok: false, conflicts, error: 'В выбранных колонках есть разные непустые значения. Они сохранены без изменений' }); return }
+      const sourceName = fluxAnchorName(sourceId)
+      const sourceRef = String(definitions.get(sourceName)?.getRef?.() ?? definitions.get(sourceName)?.getFormulaOrRefString?.() ?? '')
+      const namesToMove: Array<{ name: string; oldRef: string; newRef: string }> = []
+      const headerCell = sheet.getRange(target.row, target.col, 1, 1)
+      const oldHeader = { value: headerCell.getValues?.()?.[0]?.[0], formula: String(headerCell.getFormulas?.()?.[0]?.[0] || '') }
+      if (oldHeader.formula) throw new Error('Заголовок выхода содержит формулу; сначала замените её обычной подписью')
+      const bindingLabel = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+      const outputLabel = String(targetAnchor.label || targetAnchor.parts?.find((part: any) => part?.kind === 'union')?.label || targetAnchor.parts?.map((part: any) => {
+        if (part?.kind === 'text') return String(part.text || '')
+        if (part?.kind === 'operator') return String(part.operator || '')
+        if (part?.kind === 'field') return bindingLabel(part.binding)
+        if (part?.kind === 'union') return Array.isArray(part.alternatives) ? part.alternatives.map(bindingLabel).join(' / ') : ''
+        return ''
+      }).join('') || '')
+      if (!outputLabel.trim()) throw new Error('Для выходного заголовка задайте название')
+      const letters = (column: number): string => {
+        let result = ''
+        for (let value = column + 1; value > 0; value = Math.floor((value - 1) / 26)) result = String.fromCharCode(65 + (value - 1) % 26) + result
+        return result
+      }
+      for (const defined of wb.getDefinedNames?.() || []) {
+        const name = String(defined?.getName?.() || '')
+        if (!name || name === sourceName) continue
+        const oldRef = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '')
+        const location = parseRef(oldRef)
+        if (location && location.sheet.getSheetId() === sheet.getSheetId() && location.col === source.col) {
+          const newRef = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!$${letters(target.col)}$${location.row + 1}`
+          namesToMove.push({ name, oldRef, newRef })
+        }
+      }
+      applyingFlux = true
+      const undoBatch = currentRuntime?.univer?.__getInjector?.().get(IUndoRedoService)?.__tempBatchingUndoRedo(originalWorkbookId)
+      if (!undoBatch) { applyingFlux = priorApplying; throw new Error('Невозможно безопасно объединить команды в одно действие отмены') }
+      try {
+        for (const item of snapshots) {
+          if (!hasContent(item.targetValue, item.targetFormula) && hasContent(item.sourceValue, item.sourceFormula)) {
+            const targetCell = sheet.getRange(item.row, target.col, 1, 1)
+            if (item.sourceFormula) targetCell.setFormulas([[item.sourceFormula]])
+            else targetCell.setValues([[item.sourceValue]])
+          }
+        }
+        headerCell.setValues([[{ v: outputLabel }]])
+        for (const item of namesToMove) { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.newRef) }
+        wb.deleteDefinedName?.(sourceName)
+        sheet.deleteColumn(source.col)
+      } catch (error) {
+        // До удаления колонки восстанавливаем только те выходные ячейки,
+        // которые были заполнены данными исходной колонки.
+        for (const item of snapshots) {
+          if (!hasContent(item.targetValue, item.targetFormula) && hasContent(item.sourceValue, item.sourceFormula)) {
+            try {
+              const cell = sheet.getRange(item.row, target.col, 1, 1)
+              if (item.targetFormula) cell.setFormulas([[item.targetFormula]])
+              else cell.setValues([[item.targetValue ?? '']])
+            } catch { /* сохраняем возможность откатить остальные строки */ }
+          }
+        }
+        try { if (oldHeader.formula) headerCell.setFormulas([[oldHeader.formula]]); else headerCell.setValues([[oldHeader.value ?? '']]) } catch { /* откат продолжается, если ячейка заголовка недоступна */ }
+        for (const item of namesToMove) {
+          try { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.oldRef) } catch { /* восстанавливаем остальные метки */ }
+        }
+        if (sourceRef) { try { wb.insertDefinedName(sourceName, sourceRef) } catch { /* имя уже могло сохраниться при ошибке редактора */ } }
+        throw error
+      } finally { undoBatch.dispose(); applyingFlux = priorApplying }
+
+      const updatedDefinitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((item: any) => [String(item.getName()), item]))
+      const updatedSchema = { ...schema, anchors: schema.anchors.filter((anchor: any) => String(anchor.id) !== sourceId).map((anchor: any) => {
+        const name = fluxAnchorName(String(anchor.id))
+        const location = parseRef(updatedDefinitions.get(name)?.getRef?.() ?? updatedDefinitions.get(name)?.getFormulaOrRefString?.())
+        return location ? { ...anchor, kind: 'excel-range', sheetName: String(location.sheet.getSheetName()), address: location.address } : anchor
+      }) }
+      const headerResponse = updatedSchema.anchors.map((anchor: any) => {
+        const parts = Array.isArray(anchor.parts) ? anchor.parts : []
+        const displayText = String(anchor.label || parts.map((part: any) => part?.kind === 'text' ? String(part.text || '') : part?.kind === 'operator' ? String(part.operator || '') : part?.kind === 'field' ? String(part.binding?.displayName || part.binding?.fieldKey || '') : part?.kind === 'union' ? String(part.label || part.alternatives?.map((item: any) => item?.displayName || item?.fieldKey).join(' / ') || '') : '').join(''))
+        return { anchorId: anchor.id, kind: 'excel-range', sheetName: anchor.sheetName, address: anchor.address, displayText, parts }
+      })
+      const originalRows = Array.isArray(payload.rows) ? payload.rows : []
+      const snapshotsByRow = new Map(snapshots.map((item) => [item.row + 1, item]))
+      const updatedRows = originalRows.map((row: any) => {
+        const cells = { ...(row?.cells || {}) }
+        const values = { ...(row?.values || {}) }
+        const sourceValue = values[sourceId]
+        const targetValue = values[targetId]
+        const sourceAddress = /^([A-Z]{1,3})([1-9]\d*)$/i.exec(String(cells[sourceId] || ''))
+        const sourceSnapshot = sourceAddress ? snapshotsByRow.get(Number(sourceAddress[2])) : undefined
+        if ((targetValue === undefined || targetValue === null || targetValue === '') && sourceSnapshot && hasContent(sourceSnapshot.sourceValue, sourceSnapshot.sourceFormula)) values[targetId] = sourceValue ?? show(sourceSnapshot.sourceValue, sourceSnapshot.sourceFormula)
+        delete cells[sourceId]
+        delete values[sourceId]
+        const nextCells: Record<string, string> = {}
+        for (const [anchorId, address] of Object.entries(cells)) {
+          const priorAnchor = schema.anchors.find((item: any) => String(item.id) === anchorId)
+          const oldLocation = parseRef(updatedDefinitions.get(fluxAnchorName(anchorId))?.getRef?.() ?? updatedDefinitions.get(fluxAnchorName(anchorId))?.getFormulaOrRefString?.())
+          const parsedAddress = /^([A-Z]{1,3})([1-9]\d*)$/i.exec(String(address || ''))
+          let col = -1
+          if (parsedAddress) col = columnNumber(parsedAddress[1]!) - 1
+          const anchorLocation = priorAnchor ? parseRef(`'${String(priorAnchor.sheetName || '').replace(/'/g, "''")}'!${priorAnchor.address || ''}`) : null
+          const onEditedSheet = oldLocation?.sheet.getSheetId() === sheet.getSheetId() || anchorLocation?.sheet.getSheetId() === sheet.getSheetId()
+          if (parsedAddress && onEditedSheet && col > source.col) col--
+          if (parsedAddress) {
+            let letters = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters
+            nextCells[anchorId] = `${letters}${parsedAddress[2]!}`
+          } else nextCells[anchorId] = String(address)
+        }
+        const anchorIds = Array.isArray(row?.anchorIds) ? row.anchorIds.filter((id: any) => String(id) !== sourceId) : []
+        return { ...row, anchorIds, cells: nextCells, values }
+      })
+      refreshNames()
+      replyMerge({ ok: true, schema: updatedSchema, headers: headerResponse, rows: updatedRows, conflicts: [] })
+    } catch (error: any) {
+      applyingFlux = priorApplying
+      replyMerge({ ok: false, error: String(error?.message || error) })
+    }
+  })
   link.on('flux:insert-table', (_e, message: any) => {
     try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
       const wb = workbook(); const sheet = wb?.getActiveSheet(); const cell = wb?.getActiveCell?.();
       const rows = message?.payload?.rows;
       if (!sheet || !cell || !Array.isArray(rows) || !rows.length || rows.length > 10000) throw new Error('Выделите ячейку и таблицу до 10 000 строк');
@@ -423,6 +873,7 @@ async function exportCommands(): Promise<void> {
   });
   link.on('flux:refresh-export', async (_e, message: any) => {
     try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
       const wb = workbook(); const grid = message?.payload?.grid; const before = message?.payload?.before;
       if (!wb || !grid || grid.rows.length * grid.headers.length > 10000) throw new Error('За одно обновление допускается до 10 000 ячеек данных');
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [d.getName(), d]));
@@ -430,9 +881,9 @@ async function exportCommands(): Promise<void> {
         const d = definitions.get(name); const ref = String(d?.getFormulaOrRefString?.() || '');
         const m = /^=?'((?:[^']|'')+)'!\$?([A-Z]+)\$?(\d+)$/i.exec(ref) || /^=?([^'!]+)!\$?([A-Z]+)\$?(\d+)$/i.exec(ref);
         if (!m) return null;
-        const sheet = wb.getSheets().find((s: any) => s.getSheetName() === m[1].replace(/''/g, "'"));
-        let col = 0; for (const c of m[2].toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
-        return sheet ? { sheet, row: Number(m[3]) - 1, col: col - 1 } : null;
+        const sheet = wb.getSheets().find((s: any) => s.getSheetName() === m[1]!.replace(/''/g, "'"));
+        let col = 0; for (const c of m[2]!.toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
+        return sheet ? { sheet, row: Number(m[3]!) - 1, col: col - 1 } : null;
       };
       const nameOf = (row: string, col: string): string => {
         let a = 2166136261; let b = 5381;
@@ -492,9 +943,10 @@ async function exportCommands(): Promise<void> {
       reply(message.id, { ok: true, updated, preserved, retainedRows: [...oldRows.keys()].filter(k => !grid.rowKeys.includes(k)).length });
     } catch (e: any) { reply(message?.id, { ok: false, error: e.message }); }
   });
-  link.on('flux:apply-office-plan', (_e, message: any) => {
+  link.on('flux:apply-office-plan', async (_e, message: any) => {
     const payload = message?.payload ?? message ?? {};
     try {
+      if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
       const wb = workbook();
       const writes = payload.writes;
       const schema = payload.schema;
@@ -506,13 +958,15 @@ async function exportCommands(): Promise<void> {
         const ref = String(raw ?? '').trim().replace(/^=/, '');
         const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
         if (!m) return null;
-        const sheetName = (m[1] || m[2]).replace(/''/g, "'");
+        const sheetNameValue = m[1] ?? m[2];
+        if (sheetNameValue === undefined) return null;
+        const sheetName = sheetNameValue.replace(/''/g, "'");
         const sheet = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName);
         if (!sheet) return null;
-        let col = 0; for (const c of m[3].toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
+        let col = 0; for (const c of m[3]!.toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
         const row = Number(m[4]) - 1;
         if (row < 0 || col < 1 || !Number.isSafeInteger(row)) return null;
-        return { sheet, row, col: col - 1, address: `${m[3].toUpperCase()}${m[4]}` };
+        return { sheet, row, col: col - 1, address: `${m[3]!.toUpperCase()}${m[4]!}` };
       };
       const rangeFor = (name: string) => parseRef(definitions.get(name)?.getRef?.() ?? definitions.get(name)?.getFormulaOrRefString?.());
       const idHash = (value: string): string => {
@@ -561,11 +1015,32 @@ async function exportCommands(): Promise<void> {
           const priorAddress = priorItem ? String(prior.cells[priorItem.anchorId]) : '';
           const priorRowMatch = /^([A-Z]{1,3})(\d+)$/i.exec(priorAddress);
           const priorRow = priorRowMatch ? Number(priorRowMatch[2]) - 1 : undefined;
-          const chosen = existing?.sheet.getSheetId() === sheet.getSheetId() ? existing.row : priorRow;
+          const chosen = existing && existing.sheet.getSheetId() === sheet.getSheetId() ? existing.row : priorRow;
           if (!lastRows.has(sheet)) lastRows.set(sheet, Number(sheet.getLastRow?.() ?? 0));
           if (chosen !== undefined && chosen >= 0) targetRows.set(rowKey(entityId, sheet), chosen);
-          else { const last = lastRows.get(sheet) + 1; lastRows.set(sheet, last); targetRows.set(rowKey(entityId, sheet), last - 1); }
+          // getLastRow() возвращает индекс, а не количество строк.
+          // Новую запись добавляем за занятой строкой, сохраняя ручные данные.
+          else { const next = lastRows.get(sheet)! + 1; lastRows.set(sheet, next); targetRows.set(rowKey(entityId, sheet), next); }
         }
+      }
+      // После сохранения книга снова загружается частями. Пустое значение
+      // незагруженной ячейки нельзя принимать за ручную правку или свободное место.
+      const runtime = hooks()?.univerRef.current;
+      const lazy = hooks()?.lazyWorkbookRef;
+      const originalLazy = lazy?.current;
+      if (runtime && originalLazy && !originalLazy.flags?.preloadComplete) {
+        const ranges = new Map<any, { startRow: number; endRow: number; startColumn: number; endColumn: number }>();
+        for (const [entityId, items] of byEntity) for (const write of items) {
+          const target = columns.get(write.anchorId)!;
+          const row = targetRows.get(rowKey(entityId, target.sheet))!;
+          const range = ranges.get(target.sheet);
+          ranges.set(target.sheet, range ? { startRow: Math.min(range.startRow, row), endRow: Math.max(range.endRow, row), startColumn: Math.min(range.startColumn, target.col), endColumn: Math.max(range.endColumn, target.col) } : { startRow: row, endRow: row, startColumn: target.col, endColumn: target.col });
+        }
+        for (const [sheet, range] of ranges) {
+          if ((range.endRow - range.startRow + 1) * (range.endColumn - range.startColumn + 1) > 100000) throw new Error('Связанные ячейки слишком далеко друг от друга. Сократите рабочую область');
+          if (!(await ensureLazyRangeLoaded(runtime, lazy, sheet, range, () => undefined))) throw new Error('Связанные ячейки ещё не загружены. Повторите обновление');
+        }
+        if (hooks()?.univerRef.current !== runtime || lazy.current !== originalLazy || workbook()?.getId() !== wb.getId()) throw new Error('Книга изменилась во время чтения ячеек. Повторите обновление');
       }
       const targets = new Set<string>();
       const changes: Array<{ cell: any; old: any; write: any; row: number; col: number; sheet: any }> = [];
@@ -616,8 +1091,9 @@ async function exportCommands(): Promise<void> {
       } finally {
         applyingFlux = false;
       }
-      const rows = [...byEntity.entries()].map(([entityId, items]) => {
+      const updatedRows = [...byEntity.entries()].map(([entityId, items]) => {
         const prior = priorById.get(entityId) || {};
+        if (manualRows.has(entityId)) return prior;
         const cells = { ...(prior.cells || {}) } as Record<string, string>;
         const values = { ...(prior.values || {}) } as Record<string, string>;
         for (const write of manualRows.has(entityId) ? [] : items) {
@@ -633,10 +1109,17 @@ async function exportCommands(): Promise<void> {
         const sourceRevision = String(payload.sourceRevision || prior.sourceRevision || binding.sourceRevision || '');
         return { entityId, entityType, sourceId, sourceRevision, anchorIds: [...new Set([...(prior.anchorIds || []), ...items.map((w: any) => w.anchorId)])], cells, values };
       });
+      const updatedById = new Map(updatedRows.map((row: any) => [String(row.entityId), row]));
+      // Выборка обновляет свои строки; ручные и невыбранные связи остаются.
+      const rows = [...priorById.entries()].map(([id, row]) => updatedById.get(id) || row)
+        .concat(updatedRows.filter((row: any) => !priorById.has(String(row.entityId))));
       link.send('flux:office-plan-applied', { ok: true, appliedCount: changes.length, rows, manualRows: [...manualRows] });
     } catch (error: any) {
       link.send('flux:office-plan-applied', { ok: false, error: String(error?.message || error) });
     }
   });
+  // Подписчик read-only установлен до готовности: Flux может отправить режим
+  // сразу после editor-ready, пока не зарегистрированы остальные команды.
+  link.send('flux:editor-ready', { app: 'sheets' })
 }
 void exportCommands();

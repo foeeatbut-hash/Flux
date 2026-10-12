@@ -210,6 +210,33 @@
       "timeoutMs": 900000
     },
     {
+      "id": "files-office-template-mapping",
+      "path": "scripts/test-office-template-mapping.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-header-editor",
+      "path": "scripts/test-office-header-editor.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-native-schema",
+      "path": "scripts/test-office-native-schema.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "files-office-ui-contract",
       "path": "scripts/test-office-ui-contract.ts",
       "layer": "unit",
@@ -223,13 +250,56 @@
       "path": "scripts/test-office-addon-ui.ts",
       "layer": "component",
       "platform": "any",
-      "resources": ["browser:chromium", "vite-port:dynamic"],
+      "resources": [
+        "browser:chromium",
+        "vite-port:dynamic"
+      ],
       "prerequisites": [
-        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/index.html" },
-        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/main.tsx" },
-        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/fixture.css" },
-        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/check.mjs" },
-        { "kind": "file", "path": "scripts/fixtures/office-flux-panel-ui/vite.config.ts" }
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-flux-panel-ui/index.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-flux-panel-ui/main.tsx"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-flux-panel-ui/fixture.css"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-flux-panel-ui/check.mjs"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-flux-panel-ui/vite.config.ts"
+        }
+      ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-cell-actions-ui",
+      "path": "scripts/test-office-cell-actions-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "browser:chromium",
+        "vite-port:dynamic"
+      ],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-cell-actions-ui/index.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-cell-actions-ui/main.tsx"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/office-cell-actions-ui/check.mjs"
+        }
       ],
       "timeoutMs": 900000
     },
@@ -238,29 +308,59 @@
       "path": "scripts/test-office-api-live.ts",
       "layer": "api-db",
       "platform": "any",
-      "resources": ["api:fixture"],
+      "resources": [
+        "api:fixture"
+      ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "env", "name": "FLUX_PEER_USER" },
-        { "kind": "env", "name": "FLUX_PEER_PASS" },
-        { "kind": "env", "name": "FLUX_PROJECT_ID" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PEER_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PEER_PASS"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PROJECT_ID"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
     },
     {
-      "id": "files-office-addon-native-live",
-      "path": "scripts/test-office-addon-native-live.ts",
-      "layer": "windows-native",
-      "platform": "win32",
-      "resources": ["office-native-apps", "browser:chromium", "api:fixture"],
+      "id": "files-office-addon-browser-live",
+      "path": "scripts/test-office-addon-owned-native.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "browser:chromium",
+        "vite-port:dynamic",
+        "api:fixture"
+      ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_OFFICE_NATIVE_READY", "value": "1" },
-        { "kind": "env", "name": "FLUX_FIXTURE_META" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -730,6 +830,24 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "files-office-header-native",
+      "path": "scripts/test-office-header-native.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "files-office-revisions",
+      "path": "scripts/test-office-revisions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [
@@ -4163,7 +4281,13 @@
         "server/officeBindings.ts",
         "server/officeTemplates.ts"
       ],
-      "triggers": ["editor-panel", "query", "selection", "preview", "confirm"],
+      "triggers": [
+        "editor-panel",
+        "query",
+        "selection",
+        "preview",
+        "confirm"
+      ],
       "risk": "critical",
       "expected": [
         "Значения привязываются к выбранным проектным строкам и записываются только после подтверждения проверенного предпросмотра"
@@ -4184,10 +4308,10 @@
           ]
         },
         {
-          "suite": "files-office-addon-native-live",
-          "layer": "windows-native",
+          "suite": "files-office-addon-browser-live",
+          "layer": "browser-live",
           "claims": [
-            "Реальные Word и Excel сохраняют привязанные поля и метаданные после записи и повторного открытия"
+            "Редакторы Word и Excel в полном приложении сохраняют привязанные поля и метаданные после записи и повторного открытия"
           ]
         }
       ],
@@ -4293,7 +4417,13 @@
         "server/officeBindings.ts",
         "server/officeTemplates.ts"
       ],
-      "triggers": ["editor-panel", "query", "selection", "preview", "confirm"],
+      "triggers": [
+        "editor-panel",
+        "query",
+        "selection",
+        "preview",
+        "confirm"
+      ],
       "risk": "critical",
       "expected": [
         "Excel получает выбранные строки только после явного подтверждения проверки; адреса ячеек и проектные привязки сохраняются в книге"
@@ -4314,10 +4444,10 @@
           ]
         },
         {
-          "suite": "files-office-addon-native-live",
-          "layer": "windows-native",
+          "suite": "files-office-addon-browser-live",
+          "layer": "browser-live",
           "claims": [
-            "Созданные данные читаются в открытой повторно Excel-книге, ручные строки и правки сохранены"
+            "Созданные данные читаются в книге, повторно открытой в приложении, ручные строки и правки сохранены"
           ]
         }
       ],

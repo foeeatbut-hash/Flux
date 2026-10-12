@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { LoaderCircle, Pin, Save, X } from 'lucide-react';
+import { LoaderCircle, X } from 'lucide-react';
 import { useStore } from '../../store/store';
-import { Btn, Input } from '../ui';
+import { Btn } from '../ui';
 import FluxFieldsPanel from './FluxFieldsPanel';
 import FluxSelectionPanel from './FluxSelectionPanel';
+import FluxTemplateControls from './FluxTemplateControls';
+import FluxRevisionPanel from './FluxRevisionPanel';
+import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, type OfficeTemplatePending } from './officeTemplateMapping';
+import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
 import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
 import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
 
@@ -27,7 +31,10 @@ interface Props {
   requestState: () => Promise<OfficeState | null>;
   insertBinding: (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => Promise<boolean>;
   applyWrites: (plan: OfficeFillPlan, schema: OfficeState['schema'], rows: OfficeAnchorRow[]) => Promise<OfficeApplySummary | false>;
-  updateSchema: (schema: OfficeState['schema']) => Promise<OfficeState | null>;
+  updateSchema: (schema: OfficeState['schema'], options?: HeaderSchemaSyncOptions) => Promise<OfficeState | null>;
+  isInlineEditing?: () => boolean;
+  onIssued?: (fileId: string, revisionId: string) => void;
+  onDraftCreated?: (fileId: string) => void;
   onOpenLegacy: () => void;
   onClose: () => void;
 }
@@ -40,7 +47,10 @@ export default function FluxOfficePanel(props: Props) {
   const [tab, setTab] = useState<Tab>('selection');
   const [fields, setFields] = useState<OfficeField[]>([]);
   const [officeState, setOfficeState] = useState<OfficeState | null>(null);
-  const [templateSchema, setTemplateSchema] = useState<OfficeState['schema'] | null>(null);
+  const [templateSourceSchema, setTemplateSourceSchema] = useState<OfficeState['schema'] | null>(null);
+  const [templateTargetSchema, setTemplateTargetSchema] = useState<OfficeState['schema'] | null>(null);
+  const [templateAnchorSelections, setTemplateAnchorSelections] = useState<Record<number, string>>({});
+  const [templateFieldSelections, setTemplateFieldSelections] = useState<Record<string, OfficeField>>({});
   const [query, setQuery] = useState<OfficeQuery>(() => initialQuery(props.projectId));
   const [result, setResult] = useState<OfficeQueryResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -55,7 +65,6 @@ export default function FluxOfficePanel(props: Props) {
   const [panelWidth, setPanelWidth] = useState(580);
   const [templates, setTemplates] = useState<OfficeTemplate[]>([]);
   const [pinnedTemplates, setPinnedTemplates] = useState<string[]>([]);
-  const [templateName, setTemplateName] = useState('');
   const [templateError, setTemplateError] = useState('');
   const sourceId = query.sources[0] || '';
   const activeAnchor = props.activeAnchor;
@@ -79,7 +88,7 @@ export default function FluxOfficePanel(props: Props) {
 
   const refreshState = useCallback(async () => {
     const state = await props.requestState();
-    if (state) { setOfficeState(state); setTemplateSchema(null); }
+    if (state) { setOfficeState(state); setTemplateSourceSchema(null); setTemplateTargetSchema(null); }
     return state;
   }, [props.requestState]);
 
@@ -104,7 +113,13 @@ export default function FluxOfficePanel(props: Props) {
 
   useEffect(() => { setQuery((current) => ({ ...current, projectId: props.projectId })); }, [props.projectId]);
   const sourceFields = useMemo(() => fields.filter((field) => field.sourceId === sourceId), [fields, sourceId]);
+  const templateMapping = useMemo(() => templateSourceSchema && templateTargetSchema
+    ? mapOfficeTemplateToTarget(templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections)
+    : null, [templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections]);
+  const templateSchema = templateMapping?.schema || null;
+  const templatePending: OfficeTemplatePending[] = templateMapping?.pending || [];
   const schema = templateSchema || officeState?.schema;
+  const activeAnchorIndex = schema?.anchors.findIndex((anchor) => anchor.id === activeAnchor?.anchorId) ?? -1;
 
   const runQuery = useCallback(async () => {
     if (!sourceId) { setError('Выберите источник данных.'); return; }
@@ -127,46 +142,59 @@ export default function FluxOfficePanel(props: Props) {
     if (!selectedField || !activeAnchor || !officeState) return;
     setBusy(true); setError('');
     try {
+      const current = await props.requestState();
+      if (!current) throw new Error('Состояние документа недоступно. Повторите проверку.');
+      setOfficeState(current); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
       const binding: OfficeBinding = {
         fieldKey: selectedField.fieldKey, sourceId: selectedField.sourceId, entityType: selectedField.entityType,
-        entityId: null, sourceRevision: result?.revision || officeState.sourceRevision, ...(selectedField.unit ? { unit: selectedField.unit } : {}), anchorId: activeAnchor.anchorId,
+        entityId: null, sourceRevision: result?.revision || current.sourceRevision, ...(selectedField.unit ? { unit: selectedField.unit } : {}), anchorId: activeAnchor.anchorId,
       };
       if (!(await props.insertBinding(activeAnchor, binding, selectedField.displayName))) throw new Error('Редактор не принял привязку.');
-      const current = await refreshState();
-      if (!current) throw new Error('Поле вставлено, но схему документа не удалось перечитать. Обновите её и сохраните.');
+      // При вводе формулы связь хранится в буфере ячейки до Enter.
+      if (props.isInlineEditing?.()) return;
       const previous = current.schema.anchors.find((anchor) => anchor.id === activeAnchor.anchorId);
       const parts = previous?.parts || [];
       const hasBinding = parts.some((part) => part.kind === 'field' && part.binding.fieldKey === binding.fieldKey && part.binding.sourceId === binding.sourceId);
-      if (!hasBinding) {
-        const anchor: OfficeHeaderAnchor = {
-          ...(previous || {}), kind: activeAnchor.kind, id: activeAnchor.anchorId,
-          ...(activeAnchor.documentPart ? { documentPart: activeAnchor.documentPart } : {}),
-          ...(activeAnchor.sheetName ? { sheetName: activeAnchor.sheetName } : {}),
-          ...(activeAnchor.address ? { address: activeAnchor.address } : {}),
-          parts: [...parts, { kind: 'field', binding }],
-        };
-        const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] });
-        if (!saved) throw new Error('Поле вставлено, но его связь с источником не сохранена. Повторите сохранение схемы.');
-        setOfficeState(saved); setTemplateSchema(null);
-      }
+      const anchor: OfficeHeaderAnchor = {
+        ...(previous || {}), kind: activeAnchor.kind, id: activeAnchor.anchorId,
+        ...(activeAnchor.documentPart ? { documentPart: activeAnchor.documentPart } : {}),
+        ...(activeAnchor.sheetName ? { sheetName: activeAnchor.sheetName } : {}),
+        ...(activeAnchor.address ? { address: activeAnchor.address } : {}),
+        parts: hasBinding ? parts : [...parts, { kind: 'field', binding }],
+      };
+      // Текстовые фрагменты задают место вставки; черновая схема помогает
+      // редактору распознать новый токен в текущей позиции курсора.
+      const labels = Object.fromEntries(fields.map((field) => [`${field.sourceId}:${field.fieldKey}`, field.displayName]));
+      const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] }, { captureNative: true, displayLabels: labels });
+      if (!saved) throw new Error('Поле вставлено, но его связь с источником не сохранена. Повторите сохранение схемы.');
+      setOfficeState(saved); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [selectedField, activeAnchor, officeState, result?.revision, props.insertBinding, refreshState]);
+  }, [selectedField, activeAnchor, officeState, result?.revision, fields, props.insertBinding, props.requestState, props.updateSchema]);
 
   const buildPlan = useCallback(async () => {
+    if (templatePending.length) { setError('Сначала уточните все связи выбранного шаблона.'); return; }
+    if (templateSchema) { setError('Сохраните схему шаблона во вкладке «Поля и шапка», затем создайте предпросмотр.'); return; }
     if (!officeState || !schema || !result || !selectedIds.length) { setError('Выберите строки и дождитесь загрузки состояния документа.'); return; }
     setBusy(true); setError('');
     try {
       setAppliedSummary(null);
+      // Обычная ручная правка меняет хеш файла вне панели. Для нового
+      // предпросмотра сохраняем её и читаем актуальные связи; confirm
+      // по-прежнему проверяет ровно эту версию и этот план.
+      const current = await props.requestState();
+      if (!current) throw new Error('Состояние документа недоступно. Повторите проверку.');
+      setOfficeState(current);
+      const previewSchema = templateSchema || current.schema;
       const queryBody = toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
       const next = await officeDataApi.preview(props.fileId, {
-        projectId: props.projectId, baseHash: officeState.baseHash, sourceRevision: result.revision,
-        selectedEntityIds: selectedIds, query: queryBody, schema,
+        projectId: props.projectId, baseHash: current.baseHash, sourceRevision: result.revision,
+        selectedEntityIds: selectedIds, query: queryBody, schema: previewSchema,
       });
-      setPlan(next); setPlanSchema(schema!); setPlanQuery(queryBody); setTab('update');
+      setPlan(next); setPlanSchema(previewSchema); setPlanQuery(queryBody); setTab('update');
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [officeState, schema, result, selectedIds, props.fileId, props.projectId, query, sourceFields]);
+  }, [officeState, schema, templateSchema, templatePending.length, result, selectedIds, props.fileId, props.projectId, props.requestState, query, sourceFields]);
 
   const applyPlan = useCallback(async () => {
     if (!plan || !planSchema || !planQuery || props.readOnly) return;
@@ -186,18 +214,18 @@ export default function FluxOfficePanel(props: Props) {
     finally { setBusy(false); }
   }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, props.fileId, props.applyWrites, refreshState]);
 
-  const saveTemplate = async () => {
-    if (!schema || !templateName.trim()) return;
+  const saveTemplate = async (name: string, scope: OfficeTemplate['scope']) => {
+    if (!schema || !name.trim() || templatePending.length) return;
     setTemplateError('');
     try {
-    const { template } = await officeDataApi.saveTemplate({ name: templateName.trim(), scope: 'PERSONAL', schema, query: toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) }) });
+      const { template } = await officeDataApi.saveTemplate({ name: name.trim(), scope, schema, query: toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) }) });
       setTemplates((items) => [template, ...items.filter((item) => item.id !== template.id)]);
-      setTemplateName('');
     } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
   };
-  const saveSchema = async (nextSchema: OfficeState['schema']) => {
-    const updated = await props.updateSchema(nextSchema);
-    if (updated) { setOfficeState(updated); setTemplateSchema(null); }
+  const saveSchema = async (nextSchema: OfficeState['schema'], options?: { displayLabels?: Record<string, string> }) => {
+    if (templatePending.length) throw new Error('Сначала уточните все связи выбранного шаблона.');
+    const updated = await props.updateSchema(nextSchema, options);
+    if (updated) { setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null); }
     return !!updated;
   };
   const openTemplate = async (template: OfficeTemplate) => {
@@ -206,7 +234,13 @@ export default function FluxOfficePanel(props: Props) {
       const savedQuery = templateQuery(template, props.projectId);
       const valid = new Set(fields.filter((field) => field.sourceId === savedQuery.sources[0]).map((field) => field.fieldKey));
       setQuery({ ...savedQuery, columns: (savedQuery.columns || []).filter((key) => valid.has(key)), filters: savedQuery.filters.filter((filter) => valid.has(filter.fieldKey)), sort: savedQuery.sort.filter((item) => valid.has(item.fieldKey)) });
-      setTemplateSchema(template.schema as OfficeState['schema']);
+      const fresh = await props.requestState();
+      const target = fresh?.schema;
+      if (!target) throw new Error('Сначала прочитайте состояние открытого документа.');
+      setOfficeState(fresh);
+      setTemplateSourceSchema(template.schema as OfficeState['schema']);
+      setTemplateTargetSchema(target);
+      setTemplateAnchorSelections({}); setTemplateFieldSelections({});
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
     } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
   };
@@ -229,16 +263,34 @@ export default function FluxOfficePanel(props: Props) {
         <button type="button" onClick={props.onClose} aria-label="Закрыть Flux" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
       </header>
 
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-slate-200 px-3 py-2 dark:border-dark-border" aria-label="Шаблоны Flux">
-        <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">Шаблоны</span>
-        {templates.map((template) => <div key={template.id} className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-dark-border">
-          <button type="button" className="text-slate-800 dark:text-dark-text-main" onClick={() => void openTemplate(template)}>{template.name}</button>
-          <button type="button" onClick={() => void pinTemplate(template)} aria-pressed={pinnedTemplates.includes(template.id)} aria-label={`${pinnedTemplates.includes(template.id) ? 'Открепить' : 'Закрепить'} ${template.name}`} title={pinnedTemplates.includes(template.id) ? 'Открепить' : 'Закрепить'}><Pin className={`h-3 w-3 ${pinnedTemplates.includes(template.id) ? 'fill-current text-emerald-700 dark:text-emerald-300' : ''}`} /></button>
-        </div>)}
-        <Input aria-label="Название шаблона" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Новый шаблон" className="h-7 min-w-28 max-w-36 text-xs" />
-        <button type="button" onClick={() => void saveTemplate()} disabled={!schema || !templateName.trim() || props.readOnly} title="Сохранить шаблон" className="rounded p-1 text-slate-500 disabled:opacity-40"><Save className="h-3.5 w-3.5" /></button>
+      <div className="min-w-0 shrink-0 overflow-x-auto border-b border-slate-200 px-3 py-2 dark:border-dark-border">
+        <FluxTemplateControls templates={templates} pinnedIds={pinnedTemplates} canSave={!!schema && !props.readOnly && !templatePending.length} busy={busy} error={templateError || undefined} onSave={saveTemplate} onOpen={openTemplate} onPin={pinTemplate} />
       </div>
-      {templateError && <p role="alert" className="border-b border-rose-200 px-3 py-1 text-xs text-rose-700 dark:border-rose-900 dark:text-rose-300">{templateError}</p>}
+      {templatePending.length > 0 && <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <p>Шаблон ожидает уточнения: {templatePending.length}.</p>
+        <div className="mt-2 space-y-2">
+          {templatePending.map((pending) => pending.kind === 'anchor' ? <label key={`anchor:${pending.sourceAnchorIndex}`} className="flex flex-wrap items-center gap-2">
+            <span>Ячейка шаблона {pending.sourceAnchorIndex + 1}: {pending.reason === 'ambiguous-target' ? 'выберите целевую ячейку' : pending.reason === 'target-already-used' ? 'выберите другую целевую ячейку' : 'выберите ячейку документа'}</span>
+            <select aria-label={`Целевая ячейка для якоря шаблона ${pending.sourceAnchorIndex + 1}`} className="h-7 max-w-full rounded border border-amber-300 bg-white px-2 text-xs dark:border-amber-800 dark:bg-dark-surface" value={templateAnchorSelections[pending.sourceAnchorIndex] || ''} onChange={(event) => setTemplateAnchorSelections((current) => ({ ...current, [pending.sourceAnchorIndex]: event.target.value }))}>
+              <option value="">Выберите ячейку</option>
+              {(templateTargetSchema?.anchors || []).filter((anchor) => pending.candidateTargetIds.includes(anchor.id)).map((anchor) => {
+                const index = templateTargetSchema!.anchors.findIndex((item) => item.id === anchor.id);
+                return <option key={anchor.id} value={anchor.id}>{anchor.sheetName ? `${anchor.sheetName}!` : ''}{anchor.address || `Ячейка шапки ${index + 1}`}</option>;
+              })}
+            </select>
+          </label> : <label key={`field:${pending.sourceAnchorIndex}:${pending.partIndex}:${pending.alternativeIndex ?? ''}`} className="flex flex-wrap items-center gap-2">
+            <span>Поле «{pending.fieldKey}» из «{pending.sourceId}»: выберите поле каталога</span>
+            <select aria-label={`Новое поле для ${pending.fieldKey}`} className="h-7 max-w-full rounded border border-amber-300 bg-white px-2 text-xs dark:border-amber-800 dark:bg-dark-surface" value={selectedFieldKey(templateFieldSelections[officeTemplateFieldSelectionKey(pending.sourceAnchorIndex, pending.partIndex, pending.alternativeIndex)])} onChange={(event) => {
+              const field = fields.find((item) => selectedFieldKey(item) === event.target.value);
+              const key = officeTemplateFieldSelectionKey(pending.sourceAnchorIndex, pending.partIndex, pending.alternativeIndex);
+              setTemplateFieldSelections((current) => { const next = { ...current }; if (field) next[key] = field; else delete next[key]; return next; });
+            }}>
+              <option value="">Выберите поле</option>
+              {fields.map((field) => <option key={`${field.sourceId}:${field.fieldKey}:${field.entityType}`} value={selectedFieldKey(field)}>{field.displayName} · {field.sourceId}</option>)}
+            </select>
+          </label>)}
+        </div>
+      </div>}
 
       <nav className="flex shrink-0 border-b border-slate-200 dark:border-dark-border" aria-label="Этап Flux">
         {([['selection', 'Выборка'], ['fields', 'Поля и шапка'], ['update', 'Обновление']] as const).map(([key, label], index) => <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'step' : undefined}
@@ -250,11 +302,16 @@ export default function FluxOfficePanel(props: Props) {
       {error && <p role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p>}
       {!props.projectId && <p className="shrink-0 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">Сначала привяжите документ к проекту.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={setQuery} onRun={() => void runQuery()} onSelectionChange={setSelectedIds} />}
-      {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
-      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} onRefresh={() => void refreshState()} />}
+      {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
+      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
+        const current = await props.requestState();
+        if (!current?.baseHash) return false;
+        setOfficeState(current);
+        return true;
+      }} onRefresh={() => void refreshState()} />}
 
       {tab === 'fields' && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 dark:border-dark-border">
-        <span className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">{activeAnchor ? `${activeAnchor.sheetName ? `${activeAnchor.sheetName}!` : ''}${activeAnchor.address || activeAnchor.anchorId}` : 'Выберите ячейку шапки в документе'}</span>
+        <span title={activeAnchor?.anchorId} className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">{activeAnchor ? `${activeAnchor.sheetName ? `${activeAnchor.sheetName}!` : ''}${activeAnchor.address || (activeAnchorIndex >= 0 ? `Ячейка шапки ${activeAnchorIndex + 1}` : 'Выбрана ячейка таблицы')}` : 'Выберите ячейку шапки в документе'}</span>
         <Btn tone="primary" disabled={busy || props.readOnly || !selectedField || !activeAnchor} onClick={() => void bindSelectedField()}>{busy ? <LoaderCircle className="animate-spin" /> : null}Привязать поле</Btn>
       </div>}
       {tab === 'update' && <div className="flex shrink-0 items-center justify-between border-t border-slate-200 px-3 py-2 dark:border-dark-border">
@@ -266,13 +323,15 @@ export default function FluxOfficePanel(props: Props) {
   );
 }
 
-function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOnly, onRefresh }: {
+function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOnly, fileId, fileName, beforeRevisionIssue, onIssued, onDraftCreated, onRefresh }: {
   state: OfficeState | null; result: OfficeQueryResult | null; plan: OfficeFillPlan | null; applied: OfficeApplySummary | null; selectedCount: number;
-  busy: boolean; readOnly: boolean; onRefresh: () => void;
+  busy: boolean; readOnly: boolean; fileId: string; fileName: string; beforeRevisionIssue: () => Promise<boolean>;
+  onIssued?: (fileId: string, revisionId: string) => void; onDraftCreated?: (fileId: string) => void; onRefresh: () => void;
 }) {
   return <div className="min-h-0 flex-1 overflow-auto p-4 text-sm">
     <div className="mb-4 flex items-center justify-between"><h3 className="font-semibold">Состояние документа и источника</h3><button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={onRefresh} disabled={busy}><LoaderCircle className={busy ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />Проверить</button></div>
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs"><dt className="text-slate-500 dark:text-slate-400">Источник</dt><dd className="truncate">{result?.revision || 'Не запрошен'}</dd><dt className="text-slate-500 dark:text-slate-400">Документ</dt><dd className="truncate">{state?.baseHash || 'Состояние не прочитано'}</dd><dt className="text-slate-500 dark:text-slate-400">Якорей шапки</dt><dd>{state?.schema.anchors.length ?? '—'}</dd><dt className="text-slate-500 dark:text-slate-400">Выбрано строк</dt><dd>{selectedCount}</dd></dl>
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs"><dt className="text-slate-500 dark:text-slate-400">Источник</dt><dd>{result?.revision ? 'Выборка загружена' : 'Выборка не загружена'}</dd><dt className="text-slate-500 dark:text-slate-400">Документ</dt><dd>{state?.baseHash ? 'Состояние прочитано' : 'Не прочитано'}</dd><dt className="text-slate-500 dark:text-slate-400">Якорей шапки</dt><dd>{state?.schema.anchors.length ?? '—'}</dd><dt className="text-slate-500 dark:text-slate-400">Выбрано строк</dt><dd>{selectedCount}</dd></dl>
+    {(result?.revision || state?.baseHash) && <details className="mt-3 text-xs text-slate-500 dark:text-slate-400"><summary className="cursor-pointer">Технические сведения</summary><dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2"><dt>Ревизия источника</dt><dd className="break-all font-mono">{result?.revision || '—'}</dd><dt>Хеш документа</dt><dd className="break-all font-mono">{state?.baseHash || '—'}</dd></dl></details>}
     {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Обновлено значений: {applied.appliedCount.toLocaleString('ru-RU')}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
     {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
       {plan.errors.map((item, index) => <p key={`error-${index}`} className="text-xs text-rose-700 dark:text-rose-300">{item.message}</p>)}
@@ -281,10 +340,17 @@ function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOn
     </section>}
     {readOnly && <p className="mt-4 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
     <div className="sr-only" aria-live="polite">{busy ? 'Flux выполняет запрос' : 'Flux готов'}</div>
+    <div className="mt-5 border-t border-slate-200 pt-4 dark:border-dark-border">
+      <FluxRevisionPanel fileId={fileId} fileName={fileName} beforeIssue={beforeRevisionIssue} onIssued={onIssued} onDraftCreated={onDraftCreated} readOnly={readOnly} />
+    </div>
   </div>;
 }
 
 function PlanCount({ label, count }: { label: string; count: number }) { return <div className="flex items-center justify-between text-xs"><span className="text-slate-600 dark:text-slate-300">{label}</span><strong className="tabular-nums">{count.toLocaleString('ru-RU')}</strong></div>; }
+
+function selectedFieldKey(field?: OfficeField): string {
+  return field ? `${field.sourceId}\u0000${field.entityType}\u0000${field.fieldKey}` : '';
+}
 
 function templateQuery(template: OfficeTemplate, projectId: string): OfficeQuery {
   const saved: any = template.query || {};

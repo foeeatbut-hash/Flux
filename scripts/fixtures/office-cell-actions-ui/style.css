@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "../../../src/styles/globals.css";
+
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+.fixture-shell { display: flex; min-height: 100vh; gap: 18px; padding: 18px; color: #0f172a; background: #f8fafc; }
+.fixture-sheet { flex: 1; min-width: 0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; background: white; }
+.fixture-sheet h1 { margin: 0 0 18px; font-size: 18px; }
+.grid { display: grid; grid-template-columns: 40px minmax(100px,1fr) minmax(100px,1fr); }
+.grid span { border: 1px solid #cbd5e1; padding: 9px; }
+.fixture-controls { display: flex; width: 220px; flex-direction: column; align-items: stretch; gap: 8px; }
+.fixture-controls button { border: 1px solid #94a3b8; border-radius: 6px; padding: 8px; background: white; }
+.dark .fixture-shell { color: #e2e8f0; background: #0f172a; }
+.dark .fixture-sheet { border-color: #475569; background: #111827; }
+.dark .grid span { border-color: #475569; }
+.dark .fixture-controls button { color: #e2e8f0; background: #1e293b; }
+@media (max-width: 560px) { .fixture-shell { flex-direction: column; padding: 10px; } .fixture-controls { width: auto; } }

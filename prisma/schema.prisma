@@ -1144,6 +1144,28 @@ model FileVersion {
   @@index([fileId, version])
 }
 
+/// Выпущенные и черновые ревизии DOCX/XLSX. В отличие от FileVersion,
+/// snapshot не имеет ограничения по числу и не удаляется при новых сохранениях.
+model OfficeDocumentRevision {
+  id                String   @id @default(uuid())
+  documentId        String
+  fileId            String
+  parentRevisionId  String?
+  revision          Int
+  status            String   // ISSUED | DRAFT
+  sha256            String
+  sourceSha         String
+  sourceKind        String?
+  sourceRevision    String?
+  schemaVersion     Int      @default(1)
+  data              Bytes
+  createdById       String?
+  createdAt         DateTime @default(now())
+
+  @@index([documentId, revision])
+  @@index([fileId, status])
+}
+
 /// Прежнее замечание Просмотра перенесено в сам PDF (Flux Office). Строка
 /// PdfMarkup при этом остаётся — для отката и истории; эта отметка только
 /// говорит «второй раз не переносить»

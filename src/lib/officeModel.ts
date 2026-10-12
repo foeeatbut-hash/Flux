@@ -3,6 +3,8 @@
  * редактору: защищённые метки переживают сериализацию как отдельные части.
  */
 
+import { normalizeOfficeFormulaParts } from './officeFormula';
+
 export interface OfficeBinding {
   fieldKey: string;
   sourceId: string;
@@ -18,7 +20,7 @@ export type OfficePart =
   | { kind: 'text'; text: string }
   | { kind: 'field'; binding: OfficeBinding }
   | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' }
-  | { kind: 'union'; mode: 'first-match'; alternatives: Array<OfficeBinding & { priority: number }> };
+  | { kind: 'union'; mode: 'first-match'; label?: string; alternatives: Array<OfficeBinding & { priority: number }> };
 
 export interface OfficeHeaderAnchor {
   kind: 'word-row' | 'excel-range';
@@ -143,6 +145,9 @@ type Token = { kind: 'number'; quantity: Quantity } | { kind: 'op'; value: strin
  * обычным текстом, а неизвестная размерность никогда не складывается молча.
  */
 export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): { value?: OfficeValue; error?: string; conflict?: string[] } {
+  const normalized = normalizeOfficeFormulaParts(parts);
+  parts = normalized.parts;
+  if (normalized.explicit && !parts.some((part) => part.kind === 'field' || part.kind === 'union' || (part.kind === 'text' && /^\d/.test(part.text)))) return { error: 'Добавьте параметры или числа после знака «=»' };
   const tokens: Token[] = [];
   const significant = parts.filter((part) => part.kind !== 'text' || !!part.text.trim());
   const arithmeticParts = significant.some((part) => part.kind === 'operator');

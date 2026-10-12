@@ -36,7 +36,7 @@ function cleanPart(part: any): OfficePart | null {
   if (part?.kind === 'union' && part.mode === 'first-match' && Array.isArray(part.alternatives) && part.alternatives.length > 0 && part.alternatives.length <= 30) {
     const alternatives = part.alternatives.map((item: any) => ({ ...cleanBinding(item), priority: Math.max(0, Math.min(10000, Number(item?.priority) || 0)) }));
     if (alternatives.some((item: any) => !item.fieldKey)) return null;
-    return { kind: 'union', mode: 'first-match', alternatives };
+    return { kind: 'union', mode: 'first-match', alternatives, ...(typeof part.label === 'string' && part.label.trim() ? { label: part.label.trim().slice(0, 200) } : {}) };
   }
   return null;
 }
