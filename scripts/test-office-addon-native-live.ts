@@ -82,8 +82,10 @@ const hasEmptyFormulaTarget = async (fileId: string) =>
   /<c\b[^>]*\br="A2"[^>]*><f>IF\(FALSE,1,(?:&quot;|"){2}\)<\/f><v>\s*<\/v><\/c>/.test(await archiveText(fileId, 'xl/worksheets/sheet1.xml'));
 const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((cellAddress: string) => {
   const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
-  return api?.getActiveWorkbook?.()?.getSheets?.().find((sheet: any) => sheet.getSheetName() === 'Перечень')?.getRange(cellAddress)?.getValues?.()?.[0]?.[0];
-}, address).catch(() => undefined);
+  const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+  if (!sheet) throw new Error('Перечень sheet is unavailable in the actual workbook');
+  return sheet.getRange(cellAddress)?.getValues?.()?.[0]?.[0] ?? '';
+}, address);
 const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 250)); }
@@ -132,6 +134,23 @@ const waitForSheetFile = async (frame: any) => {
     const bounds = canvas?.getBoundingClientRect();
     return !!bounds && bounds.width >= 200 && bounds.height >= 100;
   }).catch(() => false), 30000);
+};
+const loadSheetAddress = async (frame: any, address: string) => {
+  const match = /^([A-Z]{1,3})([1-9]\d*)$/i.exec(address);
+  if (!match) throw new Error(`Invalid fixture cell address: ${address}`);
+  const row = Number(match[2]) - 1;
+  const column = match[1]!.toUpperCase().split('').reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+  const nameBox = frame.locator('input.univer-box-border').first();
+  await nameBox.fill(address);
+  await nameBox.press('Enter');
+  return waitFor(async () => frame.locator('body').evaluate(({ row, column }) => {
+    const runtime = (window as any).__fluxSheets;
+    const workbook = runtime?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+    const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    const lazy = runtime?.lazyWorkbookRef?.current;
+    const loaded = lazy?.loadedRanges?.get?.(sheet?.getSheetId?.());
+    return !!sheet && (lazy?.flags?.preloadComplete === true || !!loaded && row >= loaded.startRow && row <= loaded.endRow && column >= loaded.startColumn && column <= loaded.endColumn);
+  }, { row, column }).catch(() => false), 15000);
 };
 const confirmPreview = async (page: any, panel: any, button: any, label: string) => {
   const enabled = await waitFor(async () => await button.isEnabled().catch(() => false), 10000);
@@ -667,6 +686,7 @@ try {
   });
   const expectedSheetHeader = 'Расход: Аэродинамика · Расход воздуха*2 м³/ч';
   check('Sheets schema persists ordered prefix, protected field, arithmetic, operand, and suffix', customSheetHeaderState && (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text');
+  check('custom header cell is loaded in the native workbook before reading it', await loadSheetAddress(sheets, 'A1'));
   check('native Excel A1 displays the custom ordered header', await waitFor(async () => await sheetCell(sheets, 'A1') === expectedSheetHeader), await sheetCell(sheets, 'A1'));
   await page.keyboard.press('Control+s');
   check('custom Sheets header is serialized into the actual workbook parts', await waitFor(async () => xmlText(await archiveXml(xlsxId)).includes(expectedSheetHeader)));
@@ -676,9 +696,11 @@ try {
     const state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     return state?.schema?.anchors?.[0]?.parts?.length === 1 && state.schema.anchors[0].parts[0]?.kind === 'field';
   });
-  check('Sheets custom text and arithmetic can be removed while preserving the field binding', restoredSheetHeader && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Расход воздуха'), await sheetCell(sheets, 'A1'));
+  const fieldOnlyHeaderLoaded = await loadSheetAddress(sheets, 'A1');
+  check('Sheets custom text and arithmetic can be removed while preserving the field binding', restoredSheetHeader && fieldOnlyHeaderLoaded && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Аэродинамика · Расход воздуха'), await sheetCell(sheets, 'A1'));
   await page.keyboard.press('Control+s');
   await clickSheetGrid(sheets);
+  check('field-only A1 stays loaded for the protected-edit check', await loadSheetAddress(sheets, 'A1'));
   const protectedHeader = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
@@ -699,21 +721,24 @@ try {
     const state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     return state?.schema?.anchors?.[0]?.parts?.length === 0;
   });
-  check('explicitly removing the Sheets field token leaves the anchor and clears its rendered header', removedSheetBinding && await waitFor(async () => (await sheetCell(sheets, 'A1')) === ''), { state: (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.schema?.anchors?.[0], cell: await sheetCell(sheets, 'A1') });
-  check('token removal leaves unrelated manual cell and formula workbook untouched', await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
+  const removedHeaderLoaded = await loadSheetAddress(sheets, 'A1');
+  check('explicitly removing the Sheets field token leaves the anchor and clears its rendered header', removedSheetBinding && removedHeaderLoaded && await waitFor(async () => (await sheetCell(sheets, 'A1')) === ''), { state: (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.schema?.anchors?.[0], cell: await sheetCell(sheets, 'A1') });
+  const manualCellLoaded = await loadSheetAddress(sheets, 'A5');
+  check('token removal leaves unrelated manual cell and formula workbook untouched', manualCellLoaded && await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
   await sheets.locator('input.univer-box-border').first().fill('A1');
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheetPanel.getByLabel('Найти поле Flux').fill('Расход воздуха');
   await sheetPanel.getByRole('button', { name: /Расход воздуха/ }).first().click();
   await waitFor(async () => sheetPanel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
   await sheetPanel.getByRole('button', { name: 'Привязать поле' }).click();
-  await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const reboundSheetField = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     return state?.schema?.anchors?.[0]?.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey);
   });
-  check('field token can be rebound to the same real A1 anchor after removal', reboundSheetField && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Расход воздуха'));
-  check('rebind preserves unrelated manual and formula cells', await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
+  const reboundHeaderLoaded = await loadSheetAddress(sheets, 'A1');
+  check('field token can be rebound to the same real A1 anchor after removal', reboundSheetField && reboundHeaderLoaded && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Аэродинамика · Расход воздуха'));
+  const reboundManualCellLoaded = await loadSheetAddress(sheets, 'A5');
+  check('rebind preserves unrelated manual and formula cells', reboundManualCellLoaded && await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
   await page.keyboard.press('Control+s');
   await capture(page, sheets, 'sheets-light');
   let beforeRepeat = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
