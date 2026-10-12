@@ -4,6 +4,9 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WindowsFilesService } from '../electron/filesystem/service';
+import JSZip from 'jszip';
+import { putFluxPart } from '../office/fluxPart';
+import { makeXlsx } from './officeHarness';
 import { LocalOfficeSessions, type LocalOfficeHost, type LocalOfficeEvent } from '../electron/localOfficeSessions';
 
 class TestHost implements LocalOfficeHost {
@@ -139,6 +142,24 @@ try {
   const d = await manager.handle(30,{action:'open',app:'sheets',ref:draft.ref},auth);
   const draftCopy = await manager.handle(30,{action:'invoke',session:d.session,channel:'workbook:save',copyName:'draft copy.xlsx',args:[{mode:'save-as',bytes:'draft copy'}]},auth);
   check('Flux draft copy remains Flux-only in same parent',draftCopy.copy.file.storage==='flux' && !(await readdir(desktop)).includes('draft copy.xlsx'));
+  // Панель Flux: хост пишет часть со схемой сам, сеанс принимает новый хеш и не теряет часть при сохранении книги
+  const plainBook = await makeXlsx();
+  await writeFile(join(desktop,'flux.xlsx'), plainBook);
+  const fx = await manager.handle(70,{action:'open',app:'sheets',ref:ref('flux.xlsx')},auth);
+  const hostPart = '<fluxOffice xmlns="urn:flux:office:v1">{}</fluxOffice>';
+  const withPart = await putFluxPart(plainBook, hostPart);
+  const hostWrite = await files.write(ref('flux.xlsx'), Buffer.from(withPart).toString('base64'), (await files.read(ref('flux.xlsx'))).sha256);
+  await rejected('Save after a host-side write without rebase is a conflict','CONFLICT',()=>manager.handle(70,{action:'invoke',session:fx.session,channel:'workbook:save',args:[{mode:'save',bytes:plainBook}]},auth));
+  await rejected('Rebase to a hash the file does not have is a conflict','CONFLICT',()=>manager.handle(70,{action:'rebase',session:fx.session,sha256:'0'.repeat(64)},auth));
+  await rejected('Rebase is not offered to PDF sessions','INVALID_REQUEST',()=>manager.handle(10,{action:'rebase',session:p.session,sha256:hostWrite.sha256},auth));
+  licensed = false;
+  await rejected('Rebase needs write permission','READ_ONLY',()=>manager.handle(70,{action:'rebase',session:fx.session,sha256:hostWrite.sha256},auth));
+  licensed = true;
+  check('Rebase accepts the version the host just wrote',(await manager.handle(70,{action:'rebase',session:fx.session,sha256:hostWrite.sha256},auth)).ok === true);
+  await manager.handle(70,{action:'invoke',session:fx.session,channel:'workbook:save',args:[{mode:'save',bytes:plainBook}]},auth);
+  const afterSave = await JSZip.loadAsync(Buffer.from((await files.read(ref('flux.xlsx'))).base64,'base64'));
+  check('Native save carries the Flux part written by the host',await afterSave.file('customXml/itemFluxOffice.xml')?.async('string') === hostPart);
+  await manager.closeOwner(70);
   await manager.closeOwner(10);
   check('Destroying owner closes its native hosts only',pdf.paths.size===0 && sheets.paths.size===2);
   await rejected('Destroyed owner cannot reopen','SESSION_CLOSED',()=>manager.handle(10,{action:'open',app:'pdf',ref:ref('source.pdf')},auth));
