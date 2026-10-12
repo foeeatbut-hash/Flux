@@ -87,7 +87,8 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       return { type: sel?.toJSON?.().type || '', cells };
     });
     check('real Word table gesture selects both neighboring cells as a CellSelection', selection.type === 'cell' && selection.cells === 2, JSON.stringify(selection));
-    await second.click({ button: 'right' });
+    // Правая кнопка по левому полю ячейки: в центре стоит метка поля со своим контекстным меню.
+    await page().mouse.click(b.x + 6, b.y + b.height / 2, { button: 'right' });
     const dialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
     await dialog.waitFor({ timeout: 10000 });
     check('native right-click opens the separate Word cell-actions dialog with both real aliases', await dialog.getByText(/DrivePower/).count() > 0 && await dialog.getByText(/MotorPower/).count() > 0);

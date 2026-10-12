@@ -338,6 +338,51 @@ export const PATCHES = [
     find: '    definedNamesState !== null &&\n    (structuralOps.some((sheet) => sheet.ops.length > 0) || sheetPlan !== undefined)\n  ) {',
     replace: '    definedNamesState !== null &&\n    sheetPlan !== undefined\n  ) {',
   },
+  {
+    // Когда есть снимок имён, applyDefinedNamesState всё равно выбросит все
+    // обычные имена (метки полей), оставив встроенные, скрытые и перечисленные
+    // в preserveNames. Сдвигать выбрасываемое бессмысленно, а метка удалённого
+    // столбца падала с «A formula references the deleted range». Поэтому тот же
+    // фильтр вынесен в общую функцию и применяется до сдвига.
+    id: 'flux-gateway-drop-modeled-names-before-shift-fn',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-defined-names.ts',
+    find: "  // Drop every modeled entry from the existing section, keeping built-ins,\n  // hidden names, and preserve-listed ones in place.\n  const xml = workbookXml.replace(\n    /<definedName\\b[^>]*>[\\s\\S]*?<\\/definedName>|<definedName\\b[^>]*\\/>/g,\n    (element) => {\n      const name = /\\bname=\"([^\"]*)\"/.exec(element)?.[1] ?? ''\n      const unescaped = unescapeXml(name)\n      const keep =\n        unescaped.startsWith('_xlnm') ||\n        /\\bhidden=\"(?:1|true)\"/.test(element) ||\n        preserved.has(unescaped)\n      return keep ? element : ''\n    },\n  )\n",
+    replace: "  // Drop every modeled entry from the existing section, keeping built-ins,\n  // hidden names, and preserve-listed ones in place.\n  const xml = dropModeledDefinedNames(workbookXml, preserved)\n",
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-decl',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-defined-names.ts',
+    find: 'export function applyDefinedNamesState(',
+    replace: "/** Убрать из workbook.xml имена, которые заменит снимок: все обычные, кроме\n *  встроенных `_xlnm*`, скрытых и сохраняемых (preserve). */\nexport function dropModeledDefinedNames(workbookXml: string, preserved: ReadonlySet<string>): string {\n  return workbookXml.replace(\n    /<definedName\\b[^>]*>[\\s\\S]*?<\\/definedName>|<definedName\\b[^>]*\\/>/g,\n    (element) => {\n      const name = /\\bname=\"([^\"]*)\"/.exec(element)?.[1] ?? ''\n      const unescaped = unescapeXml(name)\n      const keep =\n        unescaped.startsWith('_xlnm') ||\n        /\\bhidden=\"(?:1|true)\"/.test(element) ||\n        preserved.has(unescaped)\n      return keep ? element : ''\n    },\n  )\n}\n\nexport function applyDefinedNamesState(",
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-import',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '  applyDefinedNamesState,\n  DefinedNameError,',
+    replace: '  applyDefinedNamesState,\n  dropModeledDefinedNames,\n  DefinedNameError,',
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-call',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '    const shiftedWorkbook = shiftDefinedNames(workbookXml, sheetName, ops)\n',
+    replace: '    // Имена, которые потом заменит снимок, не сдвигаем: метка удалённого\n    // столбца иначе роняет сдвиг (StructuralShiftError).\n    if (definedNamesState !== null) {\n      const kept = dropModeledDefinedNames(workbookXml, new Set(definedNamesState.preserveNames))\n      if (kept !== workbookXml) {\n        workbookXml = kept\n        pkg.write(workbookPath, workbookXml)\n        touchedEntries.add(workbookPath)\n      }\n    }\n    const shiftedWorkbook = shiftDefinedNames(workbookXml, sheetName, ops)\n',
+  },
+  {
+    // Шлюз теперь принимает снимок имён вместе со сдвигом строк и столбцов
+    // (он отбрасывает обычные имена до сдвига), поэтому откладывать имена на
+    // вторую фазу нужно только при операциях над листами, где шлюз по-прежнему
+    // отказывает. Иначе первая фаза сдвигала метки удалённого столбца и падала.
+    id: 'flux-save-defined-names-with-row-col',
+    file: 'apps/sheets/src/renderer/save-actions.ts',
+    find: '  const heldNames = hasShifts ? definedNamesState : null\n',
+    replace: '  const heldNames = sheetOps.length > 0 ? definedNamesState : null\n',
+  },
+  {
+    id: 'flux-save-defined-names-first-phase',
+    file: 'apps/sheets/src/renderer/save-actions.ts',
+    find: '      definedNamesState: splitSave ? null : definedNamesState,\n',
+    replace: '      definedNamesState: heldNames !== null ? null : definedNamesState,\n',
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */
