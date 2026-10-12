@@ -80,12 +80,14 @@ const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex
 const xmlText = (xml: string) => xml.replace(/<[^>]*>/g, '').replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'");
 const hasEmptyFormulaTarget = async (fileId: string) =>
   /<c\b[^>]*\br="A2"[^>]*><f>IF\(FALSE,1,(?:&quot;|"){2}\)<\/f><v>\s*<\/v><\/c>/.test(await archiveText(fileId, 'xl/worksheets/sheet1.xml'));
-const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((cellAddress: string) => {
+const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((_body: HTMLElement, cellAddress: string) => {
   const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
   const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
-  if (!sheet) throw new Error('Перечень sheet is unavailable in the actual workbook');
+  // Нет листа — undefined, а не исключение: проба внутри waitFor не должна
+  // обрывать весь прогон, пока книга перезагружается после сохранения.
+  if (!sheet) return undefined;
   return sheet.getRange(cellAddress)?.getValues?.()?.[0]?.[0] ?? '';
-}, address);
+}, address).catch(() => undefined);
 const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 250)); }
@@ -143,7 +145,7 @@ const loadSheetAddress = async (frame: any, address: string) => {
   const nameBox = frame.locator('input.univer-box-border').first();
   await nameBox.fill(address);
   await nameBox.press('Enter');
-  return waitFor(async () => frame.locator('body').evaluate(({ row, column }) => {
+  return waitFor(async () => frame.locator('body').evaluate((_body: HTMLElement, { row, column }: { row: number; column: number }) => {
     const runtime = (window as any).__fluxSheets;
     const workbook = runtime?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
     const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
@@ -968,7 +970,10 @@ try {
   const issuedSheetFrame = await openPanel(page, 'Flux Office — Таблица');
   const issuedSheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
   check('issued XLSX opens in the actual native grid and announces read-only mode', await waitForSheetFile(issuedSheetFrame) && await waitFor(async () => await issuedSheetPanel.getByText(/Документ открыт только для просмотра/).count() > 0, 15000));
+  // Без подгрузки A1 пустая ячейка равна пустой, и запрет записи прошёл бы впустую.
+  const issuedHeaderLoaded = await loadSheetAddress(issuedSheetFrame, 'A1');
   const issuedHeader = await sheetCell(issuedSheetFrame, 'A1');
+  check('issued XLSX header is loaded before the read-only typing check', issuedHeaderLoaded && typeof issuedHeader === 'string' && issuedHeader !== '', issuedHeader);
   await issuedSheetFrame.locator('input.univer-box-border').first().fill('A1');
   await issuedSheetFrame.locator('input.univer-box-border').first().press('Enter');
   await issuedSheetFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();

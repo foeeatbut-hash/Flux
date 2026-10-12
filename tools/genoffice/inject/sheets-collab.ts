@@ -493,11 +493,25 @@ void fields()
 /** Вставка таблиц и обновление выгрузки: адреса держатся именами Excel. */
 async function exportCommands(): Promise<void> {
   const link = ipc(); if (!link) return;
-  const ready = await waitForEditor(() => {
+  const readyPromise = waitForEditor(() => {
     const lazy = hooks()?.lazyWorkbookRef.current
     return workbook() && lazy && (!lazy.flags || lazy.flags.preloadComplete === true) ? lazy : null
   }, 40_000, 100)
-  if (!ready) return
+  // Панель Flux спрашивает схему заголовков сразу после открытия файла, пока
+  // книга ещё догружается. Обработчик, поставленный только после готовности,
+  // терял этот запрос: хост ждал ответа до таймаута и показывал пустую панель.
+  // Поэтому слушаем с самого начала и отвечаем, когда книга готова.
+  let headerSchemaReader: ((request: any) => void) | null = null
+  const earlyHeaderRequests: any[] = []
+  link.on('flux:get-header-schema', (_e, request: any) => {
+    if (headerSchemaReader) headerSchemaReader(request)
+    else earlyHeaderRequests.push(request)
+  })
+  const ready = await readyPromise
+  if (!ready) {
+    for (let i = 0; i < earlyHeaderRequests.length; i++) link.send('flux:header-schema-read', { ok: false, error: 'Книга не загрузилась. Повторите действие' })
+    return
+  }
   protectFluxHeaderCells()
   headerTokenOverlay = createSheetsTokenOverlay(link, (anchorId) => {
     const wb = workbook()
@@ -538,7 +552,7 @@ async function exportCommands(): Promise<void> {
     fluxReadOnly = readOnly
     link.send('flux:read-only-changed', { ok: true, readOnly })
   })
-  link.on('flux:get-header-schema', (_e, request: any) => {
+  headerSchemaReader = (request: any) => {
     let result: any
     try {
       const wb = workbook(); const schema = request?.schema
@@ -575,7 +589,9 @@ async function exportCommands(): Promise<void> {
       result = { ok: true, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
     link.send('flux:header-schema-read', result)
-  })
+  }
+  // Запросы, пришедшие до готовности книги, обрабатываем теперь.
+  for (const request of earlyHeaderRequests.splice(0)) headerSchemaReader(request)
   link.on('flux:sync-header-schema', async (_e, request: any) => {
     const payload = request?.payload ?? request ?? {}
     const priorApplying = applyingFlux
