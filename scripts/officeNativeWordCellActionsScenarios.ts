@@ -56,7 +56,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       await page().getByRole('button', { name: /2\. Поля и шапка/ }).click();
       const panel = page().getByRole('complementary', { name: 'Flux Office' });
       await panel.getByLabel('Найти поле Flux').fill(alias);
-      await panel.getByRole('button', { name: new RegExp(alias) }).first().click();
+      await panel.getByRole('button', { name: new RegExp(`^${alias}(\\s|$)`) }).click();
       await waitFor(async () => panel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
       await panel.getByRole('button', { name: 'Привязать поле' }).click();
       check(`${suffix}: native Word ${index ? 'B1' : 'A1'} is bound to ${alias}`, await waitFor(async () => {

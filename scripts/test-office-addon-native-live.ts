@@ -440,7 +440,8 @@ try {
       const record = (event) => { if (window.__fluxUndoTrace.length < 40) window.__fluxUndoTrace.push(event); };
       const sync = editor.state.plugins.find((plugin) => plugin.key === 'y-sync$').getState(editor.state);
       const manager = editor.state.plugins.find((plugin) => plugin.key === 'y-undo$').getState(editor.state).undoManager;
-      editor.on('transaction', ({ transaction }) => record({ kind: 'pm', changed: transaction.docChanged, history: transaction.getMeta('addToHistory'), meta: Object.keys(transaction.meta) }));
+      window.__fluxMgr0 = manager; let lastPlugins = editor.state.plugins;
+      editor.on('transaction', ({ transaction }) => { const reconf = editor.state.plugins !== lastPlugins; lastPlugins = editor.state.plugins; record({ kind: 'pm', changed: transaction.docChanged, history: transaction.getMeta('addToHistory'), meta: Object.keys(transaction.meta), reconf, sameMgr: editor.state.plugins.find((x) => x.key === 'y-undo$').getState(editor.state).undoManager === window.__fluxMgr0 }); });
       sync.doc.on('afterTransaction', (transaction) => record({ kind: 'y', changed: transaction.changed.size, history: transaction.meta.get('addToHistory'), origin: transaction.origin && transaction.origin.key || typeof transaction.origin, tracked: manager.trackedOrigins.has(transaction.origin) }));
     })()`);
     const readUndoState = async () => docs.locator('body').evaluate(() => {
@@ -453,6 +454,7 @@ try {
         extensions: [],
         plugins: [],
         keyboardEvents: w.__fluxUndoKeys || [],
+        dbgManager: (() => { const sync = e?.state?.plugins?.find((x: any) => x.key === 'y-sync$')?.getState(e.state); const m = e?.state?.plugins?.find((x: any) => x.key === 'y-undo$')?.getState(e.state)?.undoManager; const obs = m?.doc?._observers?.get('afterTransaction'); return m ? { sameAsInitial: m === w.__fluxMgr0, scope0IsType: m.scope?.[0] === sync?.type, sameDoc: m.doc === sync?.doc, handlerAttached: !!obs && obs.has(m.afterTransactionHandler), undoing: m.undoing, captureTimeout: m.captureTimeout, lastChange: m.lastChange, undoLen: m.undoStack?.length } : null; })(),
         trace: w.__fluxUndoTrace || [],
       };
       for (const extension of e?.extensionManager?.extensions || []) result.extensions.push(String(extension.name || ''));

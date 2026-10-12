@@ -180,6 +180,25 @@ function selectionTouchesFluxField(state: any, key: string): boolean {
   return !!node?.isText && (node.marks || []).some(isFluxField)
 }
 
+/**
+ * Любая регистрация плагина пересобирает виды всех плагинов; вид yUndo при
+ * уничтожении отключает UndoManager от документа Yjs, а новый вид его не
+ * подключает обратно. Если сеанс совместной правки уже привязан, отмена
+ * молча перестаёт собирать правки (гонка с приходом y-state). Поэтому
+ * плагин отмены снимаем и ставим заново: состояние поля тогда создаётся с
+ * новым UndoManager.
+ */
+function reviveUndoManager(editor: Editor): void {
+  const plugins = editor.state.plugins
+  const index = plugins.findIndex((plugin) => (plugin as unknown as { key: string }).key === 'y-undo$')
+  if (index < 0) return
+  const without = plugins.filter((_, i) => i !== index)
+  editor.view.updateState(editor.state.reconfigure({ plugins: without }))
+  editor.view.updateState(editor.state.reconfigure({ plugins: [
+    ...without.slice(0, index), yUndoPlugin({ protectedNodes: new Set(['docParagraph']) }), ...without.slice(index),
+  ] }))
+}
+
 function installFluxFieldGuard(editor: Editor): void {
   try { editor.unregisterPlugin(fieldGuardKey) } catch { /* первый запуск */ }
   editor.registerPlugin(new Plugin({
@@ -218,6 +237,7 @@ function installFluxFieldGuard(editor: Editor): void {
       },
     },
   }))
+  reviveUndoManager(editor)
 }
 
 function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; documentPart: string } | null {

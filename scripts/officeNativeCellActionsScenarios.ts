@@ -36,21 +36,21 @@ async function makeMergeWorkbook(conflict: boolean): Promise<Buffer> {
 }
 
 async function nativeCell(frame: any, address: string): Promise<any> {
-  return frame.locator('body').evaluate((a1: string) => {
+  return frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((sheet: any) => sheet.getSheetName() === 'Перечень')?.getRange(a1)?.getValues?.()?.[0]?.[0];
   }, address).catch(() => undefined);
 }
 
 async function nativeFormula(frame: any, address: string): Promise<string> {
-  return frame.locator('body').evaluate((a1: string) => {
+  return frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return String(api?.getActiveWorkbook?.()?.getSheets?.().find((sheet: any) => sheet.getSheetName() === 'Перечень')?.getRange(a1)?.getFormulas?.()?.[0]?.[0] || '');
   }, address).catch(() => '');
 }
 
 async function clickCell(frame: any, address: string, modifiers: string[] = [], button: 'left' | 'right' = 'left'): Promise<void> {
-  const point = await frame.locator('body').evaluate((a1: string) => {
+  const point = await frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
     const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
@@ -95,14 +95,21 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     await clickSheetGrid(frame);
     const nameBox = frame.locator('input.univer-box-border').first();
     const bind = async (address: string, alias: string) => {
+      // Привязка сохраняет схему и заново открывает книгу в новом окне редактора.
+      // Метка в старом окне исчезает вместе с ним: так отличаем его от нового.
+      await frame.locator('body').evaluate(() => { (window as any).__fluxBindMarker = true; });
       await nameBox.fill(address); await nameBox.press('Enter');
       await clickCell(frame, address);
       await page().getByRole('button', { name: /2\. Поля и шапка/ }).click();
       await panel.getByLabel('Найти поле Flux').fill(alias);
-      await panel.getByRole('button', { name: new RegExp(alias) }).first().click();
+      await panel.getByRole('button', { name: new RegExp(`^${alias}(\\s|$)`) }).click();
       await waitFor(async () => panel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
       await panel.getByRole('button', { name: 'Привязать поле' }).click();
-      check(`${suffix}: ${address} is bound to the real ${alias} alias`, await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias))));
+      const boundOk = await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias)));
+      if (!boundOk) console.error('BIND_DIAGNOSTIC', address, JSON.stringify({ state: (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema, toasts: await page().locator('[role="status"],[role="alert"]').allTextContents().catch(() => []), cell: await nativeCell(frame, address) }));
+      check(`${suffix}: ${address} is bound to the real ${alias} alias`, boundOk);
+      await waitFor(async () => frame.locator('body').evaluate(() => !(window as any).__fluxBindMarker).catch(() => false), 15000);
+      await waitForSheetFile(frame);
     };
     await bind('A1', 'DrivePower');
     await bind('B1', 'MotorPower');
