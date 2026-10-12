@@ -11,4 +11,10 @@ assert.deepEqual(schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorI
 assert.throws(() => schemaFromNativeHeaders(schema, { ok: false, error: 'Нет якоря' }), /Нет якоря/);
 assert.throws(() => schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: [{ kind: 'field', fieldKey: 'power' }] }] }), /привязки/);
 assert.throws(() => schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: [{ kind: 'field', binding: { ...binding, anchorId: 'foreign' } }] }] }), /привязки/);
+const sheetSchema: OfficeHeaderSchema = { version: 1, anchors: [{ ...schema.anchors[0], kind: 'excel-range', sheetName: 'До', address: 'A1' }] };
+const moved = schemaFromNativeHeaders(sheetSchema, { ok: true, headers: [{ anchorId: id, sheetName: 'После', address: 'c4' }] }).anchors[0];
+assert.equal(moved.sheetName, 'После');
+assert.equal(moved.address, 'C4');
+assert.deepEqual(moved.parts, sheetSchema.anchors[0].parts);
+assert.throws(() => schemaFromNativeHeaders(sheetSchema, { ok: true, headers: [{ anchorId: id, sheetName: 'После', address: 'C0' }] }), /адрес/);
 console.log('✓ Native header order, explicit removal and unresolved binding rejection');

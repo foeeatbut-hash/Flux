@@ -106,6 +106,7 @@ void (async () => {
     check('DOCX and XLSX return empty versioned schema state and hashes', initialDocState.status === 200 && initialXlsxState.status === 200 && !!initialDocState.json?.baseHash && initialDocState.json?.schema?.version === 1 && !!initialXlsxState.json?.baseHash, [initialDocState.json, initialXlsxState.json]);
 
     const officeSchema = schema(data.json.revision);
+    officeSchema.anchors.forEach((anchor: any) => { anchor.documentPart = 'word/document.xml'; });
     const previewBody = { projectId: PROJECT_ID, baseHash: initialDocState.json.baseHash, sourceRevision: data.json.revision, selectedEntityIds: [fan.entityId], query, schema: officeSchema };
     const preview = await request('POST', `/api/project-data/files/${docId}/preview`, previewBody);
     check('preview maps selected row into Word and Excel anchor metadata', preview.status === 200 && !!preview.json?.planId && preview.json?.adds?.includes(fan.entityId) && preview.json?.writes?.some((item: any) => item.anchorId === 'word-header' && item.value === 'FAN_HIGH') && preview.json?.writes?.some((item: any) => item.anchorId === 'xlsx-header' && item.value === 1200 && item.unit === 'м³/ч'), preview.json);
@@ -120,6 +121,7 @@ void (async () => {
       && (await request('POST', `/api/project-data/files/${docId}/confirm`, { ...confirmBody, planId: 'stale-plan' })).status === 409);
     const savedDocState = await request('PUT', `/api/project-data/files/${docId}/office-state`, { baseHash: initialDocState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema });
     const readDocState = await request('GET', `/api/project-data/files/${docId}/office-state`);
+    check('DOCX state restores the editor document-part property after OOXML persistence', readDocState.json?.schema?.anchors?.every((anchor: any) => anchor.documentPart === 'word/document.xml' && !('part' in anchor)), readDocState.json?.schema);
     check('DOCX stores versioned schema metadata and changes its file hash', savedDocState.status === 200 && readDocState.json?.schema?.anchors?.length === 2 && readDocState.json?.baseHash !== initialDocState.json.baseHash, [savedDocState.json, readDocState.json]);
     check('DOCX schema metadata save rejects reuse of the prior hash', (await request('PUT', `/api/project-data/files/${docId}/office-state`, { baseHash: initialDocState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema })).status === 409);
     const repeatedRows = [
@@ -128,11 +130,12 @@ void (async () => {
       { entityId: 'manual:synthetic-row', entityType: 'manual', sourceId: '', sourceRevision: data.json.revision, anchorIds: ['word-header'], cells: { 'word-header': 'B4' }, values: { 'word-header': 'manual row' } },
     ];
     // В книге ссылки на ячейки относятся к якорям Excel, а не к закладкам Word.
-    const xlsxSchema = { ...officeSchema, anchors: officeSchema.anchors.map((anchor: any) => ({ ...anchor, kind: 'excel-range', sheetName: 'Sheet1', address: anchor.id === 'word-header' ? 'B1' : 'A1' })) };
+    const xlsxSchema = { ...officeSchema, anchors: officeSchema.anchors.map(({ documentPart: _part, ...anchor }: any) => ({ ...anchor, kind: 'excel-range', sheetName: 'Sheet1', address: anchor.id === 'word-header' ? 'B1' : 'A1' })) };
     const invalidState = await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema, rows: repeatedRows });
     check('state rejects Excel cell references attached to Word bookmark anchors', invalidState.status === 400);
     const savedState = await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: xlsxSchema, rows: repeatedRows });
     const readState = await request('GET', `/api/project-data/files/${xlsxId}/office-state`);
+    check('XLSX state restores editor sheet names and addresses after OOXML persistence', readState.json?.schema?.anchors?.every((anchor: any) => anchor.sheetName === 'Sheet1' && anchor.address === (anchor.id === 'word-header' ? 'B1' : 'A1') && !('sheet' in anchor)), readState.json?.schema);
     check('XLSX state save uses base hash compare-and-set', savedState.status === 200 && savedState.json?.ok && !!savedState.json?.baseHash, savedState.json);
     check('XLSX state keeps schema anchors, duplicate entity rows, cell references, values and manual metadata', readState.status === 200 && readState.json?.schema?.anchors?.length === 2 && readState.json?.rows?.length === 3 && readState.json?.rows?.[0]?.cells?.['xlsx-header'] === 'A2' && readState.json?.rows?.[0]?.values?.['xlsx-header'] === '1200 м³/ч' && readState.json?.rows?.[1]?.values?.['word-header'] === 'duplicate row' && readState.json?.rows?.[2]?.cells?.['word-header'] === 'B4' && readState.json?.rows?.[2]?.values?.['word-header'] === 'manual row', readState.json);
     check('XLSX state rejects stale hash', (await request('PUT', `/api/project-data/files/${xlsxId}/office-state`, { baseHash: initialXlsxState.json.baseHash, sourceRevision: data.json.revision, schema: officeSchema, rows: [] })).status === 409);

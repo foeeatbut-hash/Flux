@@ -157,7 +157,12 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const bindings = await readOfficeBindings(bytes);
       const projectId = await projectOfFile(String(file.id), String(file.projectId || ''));
       await requireProjectRead(req, projectId);
-      res.json({ baseHash: sha256(bytes), schema: bindings ? { version: bindings.schemaVersion, anchors: bindings.anchors } : { version: 1, anchors: [] }, rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) });
+      // В OOXML используются короткие имена; API возвращает модель редактора,
+      // иначе после сохранения теряется расположение привязанного заголовка.
+      const anchors = bindings?.anchors.map(({ part, sheet, ...anchor }) => ({
+        ...anchor, ...(part ? { documentPart: part } : {}), ...(sheet ? { sheetName: sheet } : {}),
+      })) || [];
+      res.json({ baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) });
     } catch (err: any) { sendError(res, err); }
   });
 

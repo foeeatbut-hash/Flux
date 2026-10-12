@@ -521,10 +521,12 @@ try {
     const rawComponentId = fanHigh?.entityId ? decodeURIComponent(String(fanHigh.entityId).split(':').at(-1) || '') : '';
     const updateSource = rawComponentId ? await api('POST', `/api/equipment/component/${encodeURIComponent(rawComponentId)}/override`, { group: 'Аэродинамика', key: 'Расход воздуха', value: '1500' }) : { status: 0, json: null };
     check('Word repeat source changed through actual project-data edit API', updateSource.status === 200, updateSource.json);
+    const refreshedSource = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', 'param:Аэродинамика|Расход воздуха'], filters: [], sort: [], limit: 20, excludedEntityIds: [] } });
+    const refreshedFanHigh = refreshedSource.json?.rows?.find((item: any) => item.values?.name?.value === 'FAN_HIGH');
+    check('Word repeat query returns the new source value 1500 before preview', refreshedSource.status === 200 && String(refreshedFanHigh?.values?.['param:Аэродинамика|Расход воздуха']?.value) === '1500', refreshedFanHigh?.values);
     await page.getByRole('button', { name: /1\. Выборка/ }).click();
     await panel.getByRole('button', { name: 'Обновить выборку' }).click();
-    const repeatSourceReady = await waitFor(async () => await panel.getByRole('row').filter({ hasText: 'FAN_HIGH' }).getByRole('gridcell').filter({ hasText: /1500/ }).count() > 0, 15000);
-    check('Word repeat preview uses the freshly queried FAN_HIGH source value', repeatSourceReady, await panel.getByRole('row').filter({ hasText: 'FAN_HIGH' }).innerText().catch(() => ''));
+    check('Word repeat selection refresh returns the updated FAN_HIGH row', await waitFor(async () => await panel.getByRole('row').filter({ hasText: 'FAN_HIGH' }).count() > 0, 15000), await panel.getByRole('grid').innerText().catch(() => ''));
     await panel.getByRole('checkbox', { name: 'Выбрать все строки' }).check();
     await page.getByRole('button', { name: /3\. Обновление/ }).click();
     const repeatPreviewButton = panel.getByRole('button', { name: 'Предпросмотр заполнения' });
@@ -534,7 +536,8 @@ try {
     const repeatConfirm = panel.getByRole('button', { name: 'Подтвердить и заполнить' });
     const repeatPreviewSettled = repeatPreviewEnabled && await waitFor(async () => await repeatConfirm.isVisible().catch(() => false) || await panel.getByRole('alert').count() > 0, 30000);
     const repeatPreviewVisible = await repeatConfirm.isVisible().catch(() => false);
-    check('Word repeat preview returns a confirmation or a visible error', repeatPreviewSettled, { visible: repeatPreviewVisible, alert: await panel.getByRole('alert').allTextContents().catch(() => []), status: await panel.getByRole('status').allTextContents().catch(() => []) });
+    const repeatPreviewAlerts = await panel.getByRole('alert').allTextContents().catch(() => []);
+    check('Word repeat preview resolves to a confirmation without an error', repeatPreviewSettled && repeatPreviewVisible && !repeatPreviewAlerts.some((alert: string) => alert.trim()), { visible: repeatPreviewVisible, alert: repeatPreviewAlerts, status: await panel.getByRole('status').allTextContents().catch(() => []) });
     const wordRepeatApply = repeatPreviewVisible ? await confirmPreview(page, panel, repeatConfirm, 'WORD_REPEAT') : { ok: false, details: { reason: 'Repeat preview did not return confirmation' } };
     if (wordRepeatApply.ok) await waitFor(async () => (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.rows?.length >= 2, 15000);
     wordState = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
