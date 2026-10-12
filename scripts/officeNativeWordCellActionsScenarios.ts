@@ -74,12 +74,19 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const second = editor.locator('table tr').first().locator('td,th').nth(1);
     const a = await first.boundingBox(); const b = await second.boundingBox();
     if (!a || !b) throw new Error('Word header cells have no native bounds');
-    await page().mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    // В центре ячейки стоит метка поля: жест от неё уходит во вторую строку и даёт выделение 2x2.
+    // Поэтому берём левое поле ячейки, где метки нет.
+    await page().mouse.move(a.x + 6, a.y + a.height / 2);
     await page().mouse.down();
-    await page().mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
+    await page().mouse.move(b.x + 6, b.y + b.height / 2, { steps: 5 });
     await page().mouse.up();
-    const selection = await editor.evaluate(() => (window as any).__fluxCtxRef?.current?.editor?.state?.selection?.constructor?.name || '');
-    check('real Word table gesture selects both neighboring cells as a CellSelection', /CellSelection/.test(selection), selection);
+    // constructor.name ломается минификацией, поэтому смотрим на тип в JSON и считаем ячейки.
+    const selection = await editor.evaluate(() => {
+      const sel = (window as any).__fluxCtxRef?.current?.editor?.state?.selection;
+      let cells = 0; sel?.forEachCell?.(() => { cells++; });
+      return { type: sel?.toJSON?.().type || '', cells };
+    });
+    check('real Word table gesture selects both neighboring cells as a CellSelection', selection.type === 'cell' && selection.cells === 2, JSON.stringify(selection));
     await second.click({ button: 'right' });
     const dialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
     await dialog.waitFor({ timeout: 10000 });

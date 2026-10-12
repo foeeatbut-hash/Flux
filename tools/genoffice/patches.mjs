@@ -326,6 +326,18 @@ export const PATCHES = [
     find: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}',
     replace: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}\n\n/* Copilot скрыт в оболочке Flux, поэтому лист занимает всё окно. */\n.sheet-body,\n.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: minmax(0, 1fr);\n}',
   },
+  {
+    // Univer при вставке и удалении строк и столбцов сам переписывает имена
+    // Excel (UpdateDefinedNameController), и журнал помечает их изменёнными.
+    // Во Flux метки полей и есть имена Excel, поэтому сохранение падало при
+    // любом удалении столбца и слиянии. Снимок имён применяется последним, уже
+    // после сдвигов, и отражает итоговую модель; номера листов меняет только
+    // sheetPlan, поэтому ошибка остаётся лишь для него.
+    id: 'flux-gateway-defined-names-with-row-col',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '    definedNamesState !== null &&\n    (structuralOps.some((sheet) => sheet.ops.length > 0) || sheetPlan !== undefined)\n  ) {',
+    replace: '    definedNamesState !== null &&\n    sheetPlan !== undefined\n  ) {',
+  },
 ];
 
 /** Внести правки; вернуть, что сделано. Не нашлось места — ошибка */
