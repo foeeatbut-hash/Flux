@@ -334,6 +334,15 @@ try {
   };
   await loginPage(page, BASE, fixture.admin, false);
 
+  // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
+  // создают свои файлы, и узкий прогон идёт в разы быстрее полного
+  if (process.env.FLUX_NATIVE_ONLY === 'cells') {
+    await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
+    await runNativeWordCellActions({ folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+    await context.close();
+    return;
+  }
+
   console.log('\n1. Native Word editor, table anchor, add-on, save and reopen');
   await navigateOffice(page, `/office-doc?file=${encodeURIComponent(docxId)}`);
   const docs = await openPanel(page, 'Flux Office — Документ');
@@ -755,13 +764,7 @@ try {
       rows: [{ entityId: 'manual:native-fixture-row', entityType: 'manual', sourceId: '', sourceRevision: seed.json?.revision || '', anchorIds: [anchor.id], cells: { [anchor.id]: 'A5' } }],
     });
     check('fixture records the unrelated physical manual row at its real OOXML address', seeded.status === 200 && seeded.json?.ok, seeded.json);
-    // Fixture API изменил байты книги вне редактора и завершил прежний сеанс.
-    // Открываем актуальный файл в одном новом окне, как после внешней правки.
-    await resetPage(false);
-    await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(xlsxId)}`);
-    sheets = await openPanel(page, 'Flux Office — Таблица');
-    sheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
-    check('manual-row fixture reopened from its actual file version', await waitForSheetFile(sheets));
+    // Запись схемы меняет только часть Flux: окно редактора остаётся тем же, переоткрывать не нужно.
     beforeRepeat = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
   } else check('Excel fixture anchor exists before seeding its manual row identity', false, beforeRepeat?.schema);
 
@@ -878,11 +881,7 @@ try {
     rows: [{ entityId: formulaEntity.entityId, entityType: 'element', sourceId: 'equipment', sourceRevision: entityQuery.json.revision, anchorIds: [formulaAnchor.id], cells: { [formulaAnchor.id]: 'A2' }, values: { [`param:Аэродинамика|Расход воздуха`]: 1200 } }],
   }) : { status: 0, json: null };
   check('formula test maps a real selected entity row to physical target A2', formulaSeed.status === 200 && formulaSeed.json?.ok, formulaSeed.json);
-  await resetPage(false);
-  await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(formulaId)}`);
-  const reopenedFormulaFrame = await openPanel(page, 'Flux Office — Таблица');
-  formulaPanel = page.getByRole('complementary', { name: 'Flux Office' });
-  check('formula fixture reopened after its external metadata write', await waitForSheetFile(reopenedFormulaFrame));
+  // Прямая запись строк сохранила файл без переоткрытия редактора: окно то же, хеш базы сервер сообщил открытым сеансам.
   await page.getByRole('button', { name: /1\. Выборка/ }).click();
   await formulaPanel.getByRole('button', { name: 'Обновить выборку' }).click();
   await waitFor(async () => (await formulaPanel.getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0);

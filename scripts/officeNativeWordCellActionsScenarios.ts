@@ -65,6 +65,17 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       }));
     };
     await bind(0, 'DrivePower');
+    if (suffix === 'conflict') {
+      // Привязка меняет только часть Flux, окно не переоткрывается: Ctrl+Z отменяет вставку метки в ячейке
+      const cellA1 = editor.locator('table tr').first().locator('td,th').nth(0);
+      const marks = () => cellA1.locator('[data-instr-field*="flux:"]').count();
+      check(`${suffix}: A1 holds the inserted Flux mark before undo`, await waitFor(async () => await marks() === 1));
+      await cellA1.click({ position: { x: 6, y: 6 } });
+      await page().keyboard.press('Control+z');
+      check(`${suffix}: native Word Ctrl+Z after binding removes the inserted mark`, await waitFor(async () => await marks() === 0), await cellA1.innerText());
+      await page().keyboard.press('Control+Shift+z');
+      check(`${suffix}: native Word redo returns the inserted mark`, await waitFor(async () => await marks() === 1));
+    }
     await bind(1, 'MotorPower');
     return { fileId, frame, editor };
   };
@@ -116,6 +127,25 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     return dialog;
   };
 
+  // Правый щелчок по левому полю ячейки, как в selectAndOpen: в центре стоит метка поля со своим меню.
+  // Сначала фокус левым щелчком и стабильные замеры (раскладка Word сдвигается после первого жеста),
+  // потом правый щелчок по свежему boundingBox.
+  const rightClickLeftEdge = async (cell: any) => {
+    await cell.scrollIntoViewIfNeeded();
+    await cell.click({ position: { x: 6, y: 6 } });
+    let prev = await cell.boundingBox();
+    for (let i = 0; i < 20; i++) {
+      await page().waitForTimeout(150);
+      const next = await cell.boundingBox();
+      const same = !!prev && !!next && JSON.stringify(prev) === JSON.stringify(next);
+      prev = next;
+      if (same) break;
+    }
+    const fresh = await cell.boundingBox();
+    if (!fresh) throw new Error('Word header cell has no native bounds');
+    await page().mouse.click(fresh.x + 6, fresh.y + fresh.height / 2, { button: 'right' });
+  };
+
   const conflict = await makeBoundDoc('conflict', true);
   const conflictBytes = await raw('GET', `/api/files/${encodeURIComponent(conflict.fileId)}/raw`);
   const conflictDialog = await selectAndOpen(conflict.editor);
@@ -160,7 +190,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
 
   const formula = await makeBoundDoc('formula', false);
   const first = formula.editor.locator('table tr').first().locator('td,th').nth(0);
-  await first.click({ button: 'right' });
+  await rightClickLeftEdge(first);
   const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await formulaDialog.waitFor();
   await formulaDialog.getByRole('button', { name: 'Редактировать формулу в ячейке' }).click();
@@ -169,7 +199,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   check('Word formula action inserts a real leading equals sign and retains its protected field mark', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && await nativeToken.count() === 1));
   const stateBeforeInsert = (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json;
   const anchorId = stateBeforeInsert?.schema?.anchors?.find((anchor: any) => anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@DrivePower'))?.id;
-  await first.click({ button: 'right' });
+  await rightClickLeftEdge(first);
   const insertDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await insertDialog.waitFor();
   await insertDialog.getByLabel('Параметр из каталога').selectOption({ label: 'MotorPower · equipment' });

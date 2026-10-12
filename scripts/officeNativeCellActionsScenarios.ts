@@ -89,15 +89,12 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     if (fileId) created.push(fileId);
     await resetPage(false);
     await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(fileId)}`);
-    let frame = await openPanel(page(), 'Flux Office — Таблица');
-    let panel = page().getByRole('complementary', { name: 'Flux Office' });
+    const frame = await openPanel(page(), 'Flux Office — Таблица');
+    const panel = page().getByRole('complementary', { name: 'Flux Office' });
     check(`${suffix}: actual merge workbook opened in native Sheets`, await waitForSheetFile(frame));
     await clickSheetGrid(frame);
     const nameBox = frame.locator('input.univer-box-border').first();
     const bind = async (address: string, alias: string) => {
-      // Привязка сохраняет схему и заново открывает книгу в новом окне редактора.
-      // Метка в старом окне исчезает вместе с ним: так отличаем его от нового.
-      await frame.locator('body').evaluate(() => { (window as any).__fluxBindMarker = true; });
       await nameBox.fill(address); await nameBox.press('Enter');
       await clickCell(frame, address);
       await page().getByRole('button', { name: /2\. Поля и шапка/ }).click();
@@ -108,10 +105,20 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       const boundOk = await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias)));
       if (!boundOk) console.error('BIND_DIAGNOSTIC', address, JSON.stringify({ state: (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema, toasts: await page().locator('[role="status"],[role="alert"]').allTextContents().catch(() => []), cell: await nativeCell(frame, address) }));
       check(`${suffix}: ${address} is bound to the real ${alias} alias`, boundOk);
-      await waitFor(async () => frame.locator('body').evaluate(() => !(window as any).__fluxBindMarker).catch(() => false), 15000);
+      // Привязка меняет только часть Flux: книга остаётся открытой в том же окне
       await waitForSheetFile(frame);
     };
     await bind('A1', 'DrivePower');
+    if (suffix === 'conflict') {
+      // Окно не переоткрывалось, и история «назад» цела: Ctrl+Z отменяет вставку метки в ячейке
+      check(`${suffix}: A1 holds the inserted alias label before undo`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
+      // Фокус — щелчком по соседней ячейке: повторный щелчок по уже выделенной метке открывает редактор ячейки
+      await clickCell(frame, 'D3');
+      await page().keyboard.press('Control+z');
+      check(`${suffix}: native Ctrl+Z after binding restores the cell text from before the label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power'), await nativeCell(frame, 'A1'));
+      await page().keyboard.press('Control+Shift+z');
+      check(`${suffix}: native redo returns the inserted label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
+    }
     await bind('B1', 'MotorPower');
     await page().keyboard.press('Control+s');
     await waitForSheetFile(frame);
@@ -124,12 +131,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       const stored = await api('PUT', `/api/project-data/files/${fileId}/office-state`, { baseHash: state.baseHash, sourceRevision: state.sourceRevision, schema: state.schema, rows: seededRows });
       check(`${suffix}: row identities map both native cells without changing the workbook`, stored.status === 200 && stored.json?.ok, stored.json);
       state = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
-      // Запись сервером сбрасывает сеанс открытого окна: переоткрываем файл.
-      await resetPage(false);
-      await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(fileId)}`);
-      frame = await openPanel(page(), 'Flux Office — Таблица');
-      panel = page().getByRole('complementary', { name: 'Flux Office' });
-      await waitForSheetFile(frame);
+      // Запись схемы и строк меняет только часть Flux: окно остаётся тем же и переоткрывать его не нужно.
     }
     return { fileId, frame, panel, state, a, b };
   };
@@ -192,10 +194,18 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     return anchor?.parts?.filter((part: any) => part.kind === 'field').length === 2 && anchor.parts.some((part: any) => part.kind === 'operator' && part.operator === '+') && await nativeCell(conflict.frame, 'A1') === '=DrivePower+MotorPower end';
   }));
   await page().keyboard.press('Control+s');
+  // Запись асинхронна: закрывать страницу можно, когда формула уже лежит в файле
+  await waitFor(async () => {
+    const zip = await JSZip.loadAsync((await raw('GET', `/api/files/${conflict.fileId}/raw`)).bytes);
+    return `${await zip.file('xl/sharedStrings.xml')?.async('string') || ''}${await zip.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`.includes('=DrivePower+MotorPower end');
+  });
   await resetPage(false);
   await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(conflict.fileId)}`);
   const reopenedFormulaFrame = await openPanel(page(), 'Flux Office — Таблица');
-  check('formula and protected alias parts survive save and actual native reopen', await waitForSheetFile(reopenedFormulaFrame) && await nativeCell(reopenedFormulaFrame, 'A1') === '=DrivePower+MotorPower end' && (await api('GET', `/api/project-data/files/${conflict.fileId}/office-state`)).json?.schema?.anchors?.find((item: any) => item.id === conflict.a?.id)?.parts?.filter((part: any) => part.kind === 'field').length === 2);
+  const reopenedLoaded = await waitForSheetFile(reopenedFormulaFrame);
+  const reopenedA1 = await nativeCell(reopenedFormulaFrame, 'A1');
+  const reopenedFields = (await api('GET', `/api/project-data/files/${conflict.fileId}/office-state`)).json?.schema?.anchors?.find((item: any) => item.id === conflict.a?.id)?.parts?.filter((part: any) => part.kind === 'field').length;
+  check('formula and protected alias parts survive save and actual native reopen', reopenedLoaded && reopenedA1 === '=DrivePower+MotorPower end' && reopenedFields === 2, { reopenedLoaded, reopenedA1, reopenedFields });
   const formulaPackage = await JSZip.loadAsync((await raw('GET', `/api/files/${conflict.fileId}/raw`)).bytes);
   const formulaParts = `${await formulaPackage.file('xl/sharedStrings.xml')?.async('string') || ''}${await formulaPackage.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`;
   check('saved XLSX XML retains formula text and the two source alias labels', formulaParts.includes('=DrivePower+MotorPower end') && formulaParts.includes('DrivePower') && formulaParts.includes('MotorPower'));
@@ -240,6 +250,8 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     check('native redo reapplies the confirmed merge as one operation', await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower / MotorPower' && await nativeCell(frame, 'A3') === 'MOTOR_ONLY' && !String(await nativeCell(frame, 'B1') || '')));
   }
   await page().keyboard.press('Control+s');
+  // Запись асинхронна: ждём, пока файл на сервере станет другим, а не читаем его сразу после нажатия
+  await waitFor(async () => hash((await raw('GET', `/api/files/${fileId}/raw`)).bytes) !== hash(premergeBytes.bytes));
   const saved = await raw('GET', `/api/files/${fileId}/raw`);
   check('saved XLSX serializes merged fallback values, other-column data, and formula', hash(saved.bytes) !== hash(premergeBytes.bytes) && (await nativeFormula(frame, 'C4')).replace(/^=/, '') === '1+1');
 
