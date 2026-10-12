@@ -425,6 +425,10 @@ function onCommand(ev: { id: string; type: number; params: unknown; options?: Re
   if (o.onlyLocal || o.fromCollab || o.fromChangeset || o.fromFormula || o.syncOnly) return
   // Подгрузка книги и служебная перестройка — не правки человека
   if (journalSuppression.active || LOCAL.test(ev.id)) return
+  // Текст, который человек набирает в окне редактирования ячейки, живёт в служебном документе Univer.
+  // В общую книгу уходит готовое значение ячейки, а не этот черновик: иначе журнал вечно «не сохранён»
+  // и выпуск ревизии отвечает «есть несохранённые общие правки»
+  if (String((ev.params as { unitId?: unknown } | null)?.unitId ?? '').startsWith('__INTERNAL_EDITOR__')) return
   let op: Op
   try { op = { id: ev.id, params: JSON.parse(JSON.stringify(ev.params ?? null)), sheets: sheetsOf(ev.params) } } catch { return }
   const local = ++localSeq
