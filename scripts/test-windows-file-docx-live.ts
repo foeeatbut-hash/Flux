@@ -45,6 +45,8 @@ async function main() {
     const frameToken = await child.evaluate(() => { (window as any).__localDocxFrameToken = crypto.randomUUID(); return (window as any).__localDocxFrameToken; });
     check('iframe готов и имеет ненулевой размер', initial.rect[0] > 0 && initial.rect[1] > 0, initial);
     await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+    await page.getByRole('button', { name: 'Источники и перевод' }).click();
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 });
     await page.evaluate(() => {
       (window as any).__insertEvents = [];

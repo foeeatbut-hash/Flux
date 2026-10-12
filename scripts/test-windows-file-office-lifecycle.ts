@@ -58,6 +58,8 @@ async function main() {
       const child = page.frames().find(item => item.url().includes(`/genoffice/${app}/index.html`));
       if (!child) throw new Error(`${app}: не найден iframe редактора`);
       await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+      // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+      await page.getByRole('button', { name: 'Источники и перевод' }).click();
       await page.getByRole('complementary', { name: 'Flux' }).waitFor();
       await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 10000 });
       const initial = await frame.evaluate(el => {

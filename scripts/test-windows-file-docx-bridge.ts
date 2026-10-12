@@ -40,6 +40,8 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
     const frame = page.frames().find((item) => item.url().includes('/genoffice/docs/index.html'));
     if (!frame) throw new Error('DOCX iframe failed to load');
     await frame.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+    await page.getByRole('button', { name: 'Источники и перевод' }).click();
     await page.getByRole('complementary', { name: 'Flux' }).waitFor();
     const panelBounds = await page.getByRole('complementary', { name: 'Flux' }).boundingBox();
     ok('Flux ribbon opens an in-window panel at narrow viewport', !!panelBounds && panelBounds.x + panelBounds.width <= 600);

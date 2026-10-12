@@ -139,8 +139,9 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     if (!ready) return !dirty.current;
     // Документ сообщает dirty через свой closeCheck; локальный dirty ref
     // отслеживает только PDF и Таблицу и не может решать за Word.
-    // Правку, внесённую панелью Flux программно, редактор Таблицы признаёт «изменённой» позже записи
-    if (app !== 'docs' && !dirty.current && !force) return true;
+    // Правку панели Flux редактор Таблицы признаёт «изменённой» позже записи: force считает её несохранённой
+    if (force && app !== 'docs') setDirtyState(true);
+    if (app !== 'docs' && !dirty.current) return true;
     const operation = (async () => {
       try {
         if (app === 'docs') {

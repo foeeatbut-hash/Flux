@@ -81,6 +81,8 @@ async function main() {
     const child = page.frames().find(frame => frame.url().includes('/genoffice/sheets/index.html'));
     if (!child) throw new Error('Не найден frame GenOffice Sheets');
     await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+    await page.getByRole('button', { name: 'Источники и перевод' }).click();
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 20000 });
     await page.getByRole('button', { name: 'Вставить все' }).click();
     await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor({ timeout: 20000 });

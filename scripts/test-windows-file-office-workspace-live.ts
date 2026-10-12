@@ -68,6 +68,8 @@ async function main() {
     const child = page.frames().find(frame => frame.url().includes('/genoffice/docs/index.html'));
     if (!child) throw new Error('Не найден frame GenOffice после восстановления активного окна');
     await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+    await page.getByRole('button', { name: 'Источники и перевод' }).click();
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 });
     await page.getByRole('button', { name: 'Вставить все' }).click();
     await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor({ timeout: 15000 });
@@ -93,6 +95,8 @@ async function main() {
     const secondFrame = page.frames().find(frame => frame.url().includes('/genoffice/docs/index.html'));
     if (!secondFrame) throw new Error('Не найден редактор соседнего документа после close');
     await secondFrame.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
+    await page.getByRole('button', { name: 'Источники и перевод' }).click();
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 }).catch(async error => {
       console.log('EXPORT PANEL DEBUG', await page.evaluate(() => ({ windows: (window as any).__windowStore.getState().windows.map((item: any) => ({ id: item.id, path: item.path, href: item.href, minimized: item.minimized })), sidebars: [...document.querySelectorAll('[aria-label="Flux"]')].length, editorFrames: [...document.querySelectorAll('iframe[title="Flux Office — Документ"]')].map((el: any) => ({ rect: [el.getBoundingClientRect().width, el.getBoundingClientRect().height], text: el.contentDocument?.body?.innerText.slice(-100) })) })), await secondFrame.evaluate(() => (window as any).__fluxBridge?.events));
       throw error;

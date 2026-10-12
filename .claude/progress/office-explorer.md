@@ -14,11 +14,12 @@ FluxOfficePanel (docx/xlsx, выбор проекта, прежняя панел
 - [x] 2. Оболочка: сеанс локальной книги переносит часть Flux при записи и принимает запись хоста (rebase)
 - [x] 3. Клиент: источник файла в fluxData/FluxOfficePanel, общий хук моста (useOfficeFluxBridge, OfficeHost/OfficeAppEditor на нём), LocalOfficeEditor (useLocalFluxBridge)
 - [x] 4a. Живой сценарий scripts/test-office-explorer-live.ts (guide-server --office-explorer): проходит
-- [ ] 4b. Проверки до/после (tsc, test-office-*, guide-server api/files/native, vite build, check:coverage), документ office.md
+- [~] 4b. Проверки до/после (tsc, test-office-*, guide-server api/files/native, vite build, check:coverage), документ office.md
 
 ## Проверки «до»
 - tsc: код выхода 0
 - native (guide-server --office-addon-native): 5 ✗ — Word Ctrl+Z; Word typing; Word formula persist; issued XLSX read-only; issued grid copy
   (в задании 6: «две проверки выпущенного XLSX», «три Word-формулы»; у меня на старте — см. native-before)
 ## Остановился
+Проверки «после» (кроме полного native): tsc 0; test-office-local, local-office-sessions, office-api, files/api через guide-server — зелёные; набор office/windows-file/local-office: после правок тестов старой панели те же падения, что и до (explorer-nav/shell-ui, sheets-blank-ui, owned-native). native-after.txt — идёт. Осталось: сверить native-after с native-before (5 ✗), npm run check:coverage, финальный коммит без файла хода, отчёт.
 Шаги 1-4a готовы и закоммичены. Осталось: базовый прогон проверок в worktree /tmp/cx-base (2f1a3e9) и сравнение, native-before.txt: 5 ✗; обновить office.md; check:coverage; отчёт. Негативные прогоны (без carry в сеансе, без carry в окне, без rebase) тест ловит.
