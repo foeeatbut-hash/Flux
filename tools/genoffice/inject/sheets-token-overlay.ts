@@ -34,8 +34,8 @@ export function createSheetsTokenOverlay(
     style.id = 'flux-sheet-token-style'
     style.textContent = `
 #flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;align-items:center;gap:5px;box-sizing:border-box;min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
-#flux-sheet-token-overlay .flux-sheet-token-edit{display:flex;align-items:center;gap:3px;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
-#flux-sheet-token-overlay .flux-sheet-token-chip{display:inline-flex;align-items:center;max-width:190px;padding:2px 7px;border:1px solid #bfdbfe;border-radius:999px;background:#eff6ff;color:#1e40af;white-space:nowrap;user-select:all}
+#flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+#flux-sheet-token-overlay .flux-sheet-token-chip{display:inline-block;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;margin:0 1px;max-width:190px;padding:2px 7px;border:1px solid #bfdbfe;border-radius:999px;background:#eff6ff;color:#1e40af;white-space:nowrap;user-select:all}
 #flux-sheet-token-overlay button{flex:none;border:0;border-radius:5px;padding:4px 7px;background:#f1f5f9;color:#334155;font:inherit;cursor:pointer}
 #flux-sheet-token-overlay button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu{position:fixed;z-index:1201;padding:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;box-shadow:0 5px 16px #0f172a33}
@@ -148,7 +148,15 @@ export function createSheetsTokenOverlay(
     active.parts.push(part)
     chip.dataset.partIndex = String(active.parts.length - 1)
     if (selection && active.host.contains(selection.startContainer)) {
-      selection.deleteContents()
+      // Правый щелчок по метке выделяет её: вставка не должна стирать защищённую
+      // метку, поэтому новая встаёт после выделения, а не вместо него.
+      // Выделение может лежать внутри самой метки (её текст нередактируем),
+      // тогда точку вставки переносим за метку.
+      const endNode = selection.endContainer
+      const owner = (endNode instanceof Element ? endNode : endNode.parentElement)?.closest('[data-flux-token="true"]') || null
+      if (owner) { selection.setStartAfter(owner); selection.collapse(true) }
+      else if (hasProtectedToken(selection)) selection.collapse(false)
+      else selection.deleteContents()
       selection.insertNode(chip)
     } else active.host.appendChild(chip)
     const after = document.createRange()
@@ -161,7 +169,9 @@ export function createSheetsTokenOverlay(
 
   const position = (): void => {
     if (!active) return
-    const canvas = document.getElementById('univer-sheet-main-canvas') as HTMLCanvasElement | null
+    // У холста id с идентификатором книги (univer-sheet-main-canvas_<id>): по точному
+    // id он не находился, и окно формулы оставалось вне видимой области.
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas"]') as HTMLCanvasElement | null
     if (!canvas || !canvas.isConnected) return
     try {
       const cell = active.range.getCellRect()
@@ -272,7 +282,8 @@ export function createSheetsTokenOverlay(
       else if (event.key === 'Enter' && !event.shiftKey && !composing) { event.preventDefault(); close(true) }
     })
     host.addEventListener('beforeinput', (event: InputEvent) => {
-      if (!event.inputType.startsWith('delete')) return
+      // Ввод поверх выделенной метки заменил бы её так же, как удаление.
+      if (!event.inputType.startsWith('delete') && !event.inputType.startsWith('insert')) return
       const selection = window.getSelection()
       if (selection?.rangeCount && touchesProtectedToken(selection.getRangeAt(0), event.inputType)) event.preventDefault()
     })

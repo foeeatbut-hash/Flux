@@ -144,6 +144,9 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('rejected conflicting merge leaves the saved XLSX bytes unchanged', hash(conflictBefore.bytes) === hash(conflictAfter.bytes));
   await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
+  // Правый щелчок внутри выделенной пары сохраняет пару, как в самом Univer:
+  // для одной ячейки сначала сворачиваем выделение обычным щелчком.
+  await clickCell(conflict.frame, 'A1');
   await clickCell(conflict.frame, 'A1', [], 'right');
   const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await formulaDialog.waitFor();
@@ -159,7 +162,11 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await formulaEditor.pressSequentially('=');
   await formulaEditor.press('ArrowRight');
   await formulaEditor.pressSequentially('+');
-  await formulaEditor.click({ button: 'right', position: { x: 3, y: 12 } });
+  // Правый щелчок в пустом месте за последним знаком ставит точку вставки в конец формулы (на последней строке, если текст перенесён).
+  const editorBox = await formulaEditor.boundingBox();
+  await formulaEditor.click({ button: 'right', position: { x: Math.max(1, (editorBox?.width || 8) - 4), y: Math.max(1, (editorBox?.height || 14) - 6) } });
+  // Правый щелчок в окне формулы открывает малое меню; диалог — его пункт.
+  await conflict.frame.getByRole('menuitem', { name: 'Действия заголовка' }).click();
   const insertDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await insertDialog.waitFor();
   check('right-click in the active formula overlay opens a separate dialog with the same cell and live field part', await insertDialog.getByText(/Активная ячейка.*A1/).count() > 0 && await insertDialog.getByText(/DrivePower · equipment/).count() > 0);
@@ -168,7 +175,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await formulaEditor.waitFor();
   await formulaEditor.pressSequentially(' end');
   const tokenTexts = await formulaEditor.locator('.flux-sheet-token-chip').allTextContents();
-  check('in-cell formula keeps two individually protected parameter aliases and operator/text around them', tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('DrivePower')) && tokenTexts.some((text: string) => text.includes('MotorPower')) && (await formulaEditor.innerText()).includes('=') && (await formulaEditor.innerText()).includes('+ end'), { tokenTexts, text: await formulaEditor.innerText() });
+  check('in-cell formula keeps two individually protected parameter aliases and operator/text around them', tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('DrivePower')) && tokenTexts.some((text: string) => text.includes('MotorPower')) && (await formulaEditor.innerText()).includes('=') && (await formulaEditor.innerText()).includes('+') && (await formulaEditor.innerText()).includes('end'), { tokenTexts, text: await formulaEditor.innerText() });
   await formulaEditor.locator('.flux-sheet-token-chip').first().click();
   await page().keyboard.type('BROKEN');
   check('keyboard text at a protected token cannot mutate the chip label', (await formulaEditor.locator('.flux-sheet-token-chip').allTextContents()).some((text: string) => text.includes('DrivePower')));

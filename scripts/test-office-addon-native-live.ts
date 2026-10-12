@@ -1020,6 +1020,7 @@ try {
     await page.screenshot({ path, fullPage: true }).catch(() => {});
     console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, browserErrors: browserErrors.slice(-30), screenshot: path }));
   }
+  console.error('NATIVE_SCENARIO_STACK', String(error?.stack || error).replace(/\u001b\[[0-9;]*m/g, ''));
   check('native Office add-on scenario completed', false, String(error?.stack || error));
 } finally {
   if (browser) await browser.close().catch(() => {});
