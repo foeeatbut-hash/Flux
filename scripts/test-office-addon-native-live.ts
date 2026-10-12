@@ -589,9 +589,12 @@ try {
   const mappedTemplateState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json;
     const anchor = state?.schema?.anchors?.[0];
-    return anchor?.id === targetAnchorId && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.anchorId === targetAnchorId);
+    const parts = anchor?.parts || [];
+    return anchor?.id === targetAnchorId && parts.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text' &&
+      parts[0]?.text === 'Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
+      parts[3]?.text === '2' && parts[4]?.text === ' м³/ч';
   });
-  check('cross-document template keeps the target UUID and rebinds its field to that UUID', templateReady && mappedTemplateState, (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema);
+  check('cross-document template applies all five header parts and rebinds its field to the target UUID', templateReady && mappedTemplateState, (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema);
   const targetXml = await archiveText(templateTargetId, 'word/document.xml');
   check('cross-document template persists the target bookmark and no source UUID in target OOXML', targetXml.includes(`FLUX_${targetAnchorId.replaceAll('-', '')}`) && !targetXml.includes(sourceAnchorId.replaceAll('-', '')));
   check('cross-document template writes its custom prefix, arithmetic, and field token into target Word XML', xmlText(targetXml).includes('Расход: ') && xmlText(targetXml).includes('*2 м³/ч') && /DOCPROPERTY\s+"flux:/.test(targetXml), xmlText(targetXml).slice(0, 700));
@@ -662,7 +665,7 @@ try {
     const state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === 'Расход: ';
   });
-  const expectedSheetHeader = 'Расход: Расход воздуха*2 м³/ч';
+  const expectedSheetHeader = 'Расход: Аэродинамика · Расход воздуха*2 м³/ч';
   check('Sheets schema persists ordered prefix, protected field, arithmetic, operand, and suffix', customSheetHeaderState && (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text');
   check('native Excel A1 displays the custom ordered header', await waitFor(async () => await sheetCell(sheets, 'A1') === expectedSheetHeader), await sheetCell(sheets, 'A1'));
   await page.keyboard.press('Control+s');
