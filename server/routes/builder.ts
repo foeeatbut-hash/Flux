@@ -384,6 +384,9 @@ export function registerBuilderRoutes(app: Express): void {
       } catch (e: any) {
         // Второе нажатие успело между проверкой и записью — индекс не дал задвоить
         if (e?.code === 'P2002' || /unique|duplicate/i.test(String(e?.message))) return res.status(409).json({ error: already });
+        // MariaDB при одновременной вставке иногда отвечает взаимоблокировкой,
+        // а не нарушением индекса: если ревизия уже записана, это то же двойное нажатие
+        if (await prisma.selectionIssue.findFirst({ where: { listId: list.id, rev } })) return res.status(409).json({ error: already });
         throw e;
       }
       await prisma.selectionItem.updateMany({ where: { listId: list.id, deletedAt: null }, data: { status: 'issued' } });
