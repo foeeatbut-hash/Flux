@@ -93,7 +93,7 @@ async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: Offic
   return { rows, sourceRevision, total: result.total - Math.max(0, result.rows.length - rows.length) };
 }
 
-async function requireProjectRead(req: Request, projectId: string): Promise<void> {
+export async function requireProjectRead(req: Request, projectId: string): Promise<void> {
   const actor = (req as any).authUser;
   if (!actor?.id || !(await canSeeProject(actor.id, projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект не найден'), { status: 404 });
 }
@@ -103,13 +103,15 @@ function schemaFromBody(value: any): OfficeHeaderSchema {
   return template.schema;
 }
 
-async function makePlan(req: Request, fileId: string, body: any) {
-  const file = await accessibleFile(req, fileId);
-  if (!file) throw Object.assign(new Error('Файл не найден'), { status: 404 });
-  const bytes = await fileBytes(file);
+/**
+ * План заполнения по байтам документа. Ядро общее для файла на сервере и для
+ * присланного содержимого (файлы Проводника): байты здесь только читаются,
+ * сервер их не хранит и не пишет.
+ */
+export async function planOfficeContent(req: Request, bytes: Buffer, planKey: string, resolveProject: () => Promise<string>, body: any) {
   const baseHash = sha256(bytes);
   if (!body?.baseHash || body.baseHash !== baseHash) throw Object.assign(new Error('Документ изменился после предпросмотра'), { status: 409 });
-  const projectId = await projectOfFile(String(file.id), String(body.projectId || file.projectId || ''));
+  const projectId = await resolveProject();
   await requireProjectRead(req, projectId);
   const schema = schemaFromBody(body.schema);
   const selectedEntityIds: string[] = Array.isArray(body.selectedEntityIds) ? [...new Set<string>(body.selectedEntityIds.map(String))].slice(0, 5000) : [];
@@ -123,8 +125,47 @@ async function makePlan(req: Request, fileId: string, body: any) {
     ...(Array.isArray(body.manualRows) ? body.manualRows.slice(0, 10000).map((row: any) => ({ rowId: String(row?.rowId || ''), manuallyEdited: true })) : []),
   ];
   const plan = planOfficeFill({ baseHash, sourceRevision: data.sourceRevision, selectedEntityIds, rows: data.rows, anchors: schema.anchors, existingRows });
-  const planId = digest({ fileId, plan, schema, query, projectId });
-  return { file, projectId, schema, query, plan, planId, sourceRevision: data.sourceRevision };
+  const planId = digest({ fileId: planKey, plan, schema, query, projectId });
+  return { projectId, schema, query, plan, planId, sourceRevision: data.sourceRevision };
+}
+
+async function makePlan(req: Request, fileId: string, body: any) {
+  const file = await accessibleFile(req, fileId);
+  if (!file) throw Object.assign(new Error('Файл не найден'), { status: 404 });
+  const bytes = await fileBytes(file);
+  const made = await planOfficeContent(req, bytes, fileId, () => projectOfFile(String(file.id), String(body?.projectId || file.projectId || '')), body);
+  return { file, ...made };
+}
+
+/** Состояние Flux в пакете: схема в модели редактора, строки и ревизия источника. */
+export async function officeStateOfContent(bytes: Buffer, projectId: string) {
+  const bindings = await readOfficeBindings(bytes);
+  // В OOXML используются короткие имена; API возвращает модель редактора,
+  // иначе после сохранения теряется расположение привязанного заголовка.
+  const anchors = bindings?.anchors.map(({ part, sheet, ...anchor }) => ({
+    ...anchor, ...(part ? { documentPart: part } : {}), ...(sheet ? { sheetName: sheet } : {}),
+  })) || [];
+  return { baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) };
+}
+
+/** Новые байты пакета со схемой и строками из тела запроса; запись выбирает вызывающий. */
+export async function rebindOfficeContent(before: Buffer, body: any) {
+  const schema = schemaFromBody(body?.schema);
+  const prior = await readOfficeBindings(before);
+  const anchors = new Set(schema.anchors.map((anchor) => anchor.id));
+  const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 100000).map((row: any) => ({
+    entityId: String(row?.entityId || '').slice(0, 300), entityType: String(row?.entityType || '').slice(0, 80),
+    sourceId: String(row?.sourceId || '').slice(0, 120), sourceRevision: String(row?.sourceRevision || body?.sourceRevision || '').slice(0, 120),
+    anchorIds: Array.isArray(row?.anchorIds) ? [...new Set<string>(row.anchorIds.map(String))].filter((id) => anchors.has(id)).slice(0, 1000) : [],
+    ...(row?.cells && typeof row.cells === 'object' ? { cells: Object.fromEntries(Object.entries(row.cells).filter(([id, value]) => anchors.has(id) && typeof value === 'string').slice(0, 1000).map(([id, value]) => [id, String(value).slice(0, 100)])) } : {}),
+    ...(row?.values && typeof row.values === 'object' ? { values: Object.fromEntries(Object.entries(row.values).filter(([id, value]) => anchors.has(id) && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))).slice(0, 1000).map(([id, value]) => [id, typeof value === 'string' ? value.slice(0, 32767) : value])) } : {}),
+  })) : prior?.rows || [];
+  const bindings: OfficePackageBindings = {
+    version: 1, schemaVersion: 1, sourceRevision: String(body?.sourceRevision || prior?.sourceRevision || ''),
+    anchors: schema.anchors.map((anchor) => ({ id: anchor.id, kind: anchor.kind, part: anchor.documentPart, sheet: anchor.sheetName, address: anchor.address, parts: anchor.parts })),
+    rows,
+  };
+  return { bytes: await writeOfficeBindings(before, bindings), anchorCount: bindings.anchors.length };
 }
 
 export function registerProjectOfficeRoutes(app: Express): void {
@@ -154,15 +195,9 @@ export function registerProjectOfficeRoutes(app: Express): void {
       if (!file) return res.status(404).json({ error: 'Файл не найден' });
       if (!/\.(docx|xlsx)$/i.test(file.name)) return res.status(400).json({ error: 'Flux работает с DOCX и XLSX' });
       const bytes = await fileBytes(file);
-      const bindings = await readOfficeBindings(bytes);
       const projectId = await projectOfFile(String(file.id), String(file.projectId || ''));
       await requireProjectRead(req, projectId);
-      // В OOXML используются короткие имена; API возвращает модель редактора,
-      // иначе после сохранения теряется расположение привязанного заголовка.
-      const anchors = bindings?.anchors.map(({ part, sheet, ...anchor }) => ({
-        ...anchor, ...(part ? { documentPart: part } : {}), ...(sheet ? { sheetName: sheet } : {}),
-      })) || [];
-      res.json({ baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) });
+      res.json(await officeStateOfContent(bytes, projectId));
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -176,25 +211,10 @@ export function registerProjectOfficeRoutes(app: Express): void {
       if (req.body?.baseHash !== baseHash) return res.status(409).json({ error: 'Документ изменился после чтения схемы', baseHash });
       const projectId = await projectOfFile(String(file.id), String(file.projectId || ''));
       await requireProjectRead(req, projectId);
-      const schema = schemaFromBody(req.body?.schema);
-      const prior = await readOfficeBindings(before);
-      const anchors = new Set(schema.anchors.map((anchor) => anchor.id));
-      const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 100000).map((row: any) => ({
-        entityId: String(row?.entityId || '').slice(0, 300), entityType: String(row?.entityType || '').slice(0, 80),
-        sourceId: String(row?.sourceId || '').slice(0, 120), sourceRevision: String(row?.sourceRevision || req.body?.sourceRevision || '').slice(0, 120),
-        anchorIds: Array.isArray(row?.anchorIds) ? [...new Set<string>(row.anchorIds.map(String))].filter((id) => anchors.has(id)).slice(0, 1000) : [],
-        ...(row?.cells && typeof row.cells === 'object' ? { cells: Object.fromEntries(Object.entries(row.cells).filter(([id, value]) => anchors.has(id) && typeof value === 'string').slice(0, 1000).map(([id, value]) => [id, String(value).slice(0, 100)])) } : {}),
-        ...(row?.values && typeof row.values === 'object' ? { values: Object.fromEntries(Object.entries(row.values).filter(([id, value]) => anchors.has(id) && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))).slice(0, 1000).map(([id, value]) => [id, typeof value === 'string' ? value.slice(0, 32767) : value])) } : {}),
-      })) : prior?.rows || [];
-      const bindings: OfficePackageBindings = {
-        version: 1, schemaVersion: 1, sourceRevision: String(req.body?.sourceRevision || prior?.sourceRevision || ''),
-        anchors: schema.anchors.map((anchor) => ({ id: anchor.id, kind: anchor.kind, part: anchor.documentPart, sheet: anchor.sheetName, address: anchor.address, parts: anchor.parts })),
-        rows,
-      };
-      const updated = await writeOfficeBindings(before, bindings);
+      const { bytes: updated, anchorCount } = await rebindOfficeContent(before, req.body);
       const saved = await writeOfficeFile({ fileId: file.id, body: updated, baseSha: baseHash, user: (req as any).authUser, server: true, fluxPartOnly: true });
       if (saved.status !== 200) return res.status(saved.status).json(saved.json);
-      res.json({ ok: true, baseHash: saved.json.sha256, schemaVersion: 1, anchorCount: bindings.anchors.length });
+      res.json({ ok: true, baseHash: saved.json.sha256, schemaVersion: 1, anchorCount });
     } catch (err: any) { res.status(err?.status || 400).json({ error: String(err?.message || err) }); }
   });
 

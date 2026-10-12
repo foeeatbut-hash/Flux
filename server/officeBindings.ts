@@ -1,11 +1,9 @@
 /** Скрытая схема Flux в ZIP-пакете DOCX/XLSX; значение ячеек остаётся обычным. */
 import JSZip from 'jszip';
+import { FLUX_PART, FLUX_PART_MAX_BYTES, carryFluxPart, putFluxPart } from '../office/fluxPart.js';
 
-const PART = 'customXml/itemFluxOffice.xml';
-const ROOT_RELS = '_rels/.rels';
-const CONTENT_TYPES = '[Content_Types].xml';
-const ROOT_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml';
-const MAX_BYTES = 2 * 1024 * 1024;
+const PART = FLUX_PART;
+const MAX_BYTES = FLUX_PART_MAX_BYTES;
 
 export interface OfficePackageBindings {
   version: 1;
@@ -54,24 +52,9 @@ export async function readOfficeBindings(bytes: Buffer): Promise<OfficePackageBi
   return value;
 }
 
-/** Кладёт готовый XML части Flux в пакет и при нужде добавляет связь и тип содержимого. */
+/** Кладёт готовый XML части Flux в пакет; сама работа с архивом общая (office/fluxPart.ts). */
 async function putPart(bytes: Buffer, xml: string): Promise<Buffer> {
-  const zip = await JSZip.loadAsync(bytes);
-  zip.file(PART, xml);
-  const rels = await zip.file(ROOT_RELS)?.async('string');
-  if (!rels) throw new Error('Пакет Office не содержит корневых связей');
-  if (!rels.includes(`Target="customXml/itemFluxOffice.xml"`)) {
-    const ids = [...rels.matchAll(/\bId="rId(\d+)"/g)].map((m) => Number(m[1]));
-    const id = `rId${Math.max(0, ...ids) + 1}`;
-    const relation = `<Relationship Id="${id}" Type="${ROOT_REL}" Target="customXml/itemFluxOffice.xml"/>`;
-    zip.file(ROOT_RELS, rels.replace('</Relationships>', `${relation}</Relationships>`));
-  }
-  const contentTypes = await zip.file(CONTENT_TYPES)?.async('string');
-  if (!contentTypes) throw new Error('Пакет Office не содержит типов содержимого');
-  if (!contentTypes.includes('PartName="/customXml/itemFluxOffice.xml"')) {
-    zip.file(CONTENT_TYPES, contentTypes.replace('</Types>', '<Override PartName="/customXml/itemFluxOffice.xml" ContentType="application/xml"/></Types>'));
-  }
-  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return Buffer.from(await putFluxPart(bytes, xml));
 }
 
 /** Записывает только валидированную схему и не затрагивает прочие части пакета. */
@@ -82,21 +65,8 @@ export async function writeOfficeBindings(bytes: Buffer, bindings: OfficePackage
   return putPart(bytes, xml);
 }
 
-/**
- * Часть Flux принадлежит серверу: редактор открыл пакет до записи схемы и
- * при сохранении вернул бы в файл её старую копию. Поэтому в тело сохранения
- * из редактора переносится та часть, что сейчас в файле на сервере — как есть,
- * без разбора. Нет части в файле, нет пакета или части равны — тело не трогаем
- * (тот же объект, без пережатия архива).
- */
+/** Перенос части Flux из файла на сервере в тело сохранения из редактора (office/fluxPart.ts). */
 export async function carryOfficeBindings(current: Buffer, incoming: Buffer): Promise<Buffer> {
-  // Имена частей лежат в архиве несжатыми: файлы без схемы не разбираем
-  if (!current.includes(PART)) return incoming;
-  try {
-    const have = await (await JSZip.loadAsync(current)).file(PART)?.async('string');
-    if (have === undefined || Buffer.byteLength(have, 'utf8') > MAX_BYTES) return incoming;
-    const mine = await (await JSZip.loadAsync(incoming)).file(PART)?.async('string');
-    if (mine === have) return incoming;
-    return await putPart(incoming, have);
-  } catch { return incoming; }
+  const carried = await carryFluxPart(current, incoming);
+  return carried === incoming ? incoming : Buffer.from(carried);
 }
