@@ -203,6 +203,8 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(conflict.fileId)}`);
   const reopenedFormulaFrame = await openPanel(page(), 'Flux Office — Таблица');
   const reopenedLoaded = await waitForSheetFile(reopenedFormulaFrame);
+  // Правки сеанса применяются к открытой книге с небольшой задержкой: ждём формулу, а не читаем сразу
+  await waitFor(async () => await nativeCell(reopenedFormulaFrame, 'A1') === '=DrivePower+MotorPower end');
   const reopenedA1 = await nativeCell(reopenedFormulaFrame, 'A1');
   const reopenedFields = (await api('GET', `/api/project-data/files/${conflict.fileId}/office-state`)).json?.schema?.anchors?.find((item: any) => item.id === conflict.a?.id)?.parts?.filter((part: any) => part.kind === 'field').length;
   check('formula and protected alias parts survive save and actual native reopen', reopenedLoaded && reopenedA1 === '=DrivePower+MotorPower end' && reopenedFields === 2, { reopenedLoaded, reopenedA1, reopenedFields });
