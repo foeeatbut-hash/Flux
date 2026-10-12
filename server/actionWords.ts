@@ -63,13 +63,7 @@ const SPECIAL: { test: (m: string, p: string[]) => boolean; what: string; route:
   { test: (m, p) => m === 'DELETE' && p[0] === 'updates', what: 'Отозвал релиз', route: '/settings?section=updates' },
   { test: (m, p) => m === 'POST' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => m === 'PUT' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
-  // Flux Play: в журнал попадает распоряжение администратора, а не игра
-  // сотрудника. Про игру см. isNoise ниже
-  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'platform', what: 'Переключил Flux Play', route: '/settings?section=play' },
-  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'maintenance', what: 'Переключил обслуживание Flux Play', route: '/settings?section=play' },
-  { test: (m, p) => m === 'POST' && p[0] === 'play' && p[1] === 'builds', what: 'Опубликовал сборку игры', route: '/settings?section=play' },
-  { test: (m, p) => m === 'PUT' && p[0] === 'play' && p[1] === 'publisher-key', what: 'Сменил ключ издателя сборок', route: '/settings?section=play' },
-  { test: (m, p) => m === 'POST' && p[0] === 'play' && p[1] === 'admin' && p[2] === 'cancel', what: 'Отменил зависший матч', route: '/settings?section=play' },
+
 ];
 
 /** Идентификатор из адреса, если он там есть: по нему запись и находят */
@@ -102,26 +96,15 @@ export function describeAction(method: string, path: string): ActionWords | null
 /** Адреса, которые в журнал не пишутся: они не действия человека */
 const SKIP = [
   'logs', 'presence', 'notifications', 'health', 'limits', 'license',
-  'assistant', 'insight', 'translate', 'project-data/fn', 'project-data/search',
+  'guide', 'assistant', 'insight', 'translate', 'project-data/fn', 'project-data/search',
   // Куски вложения: файл на сорок мегабайт — это полторы сотни запросов, и
   // каждый оставил бы в журнале действий свою строку. Само обращение при этом
   // в журнал попадает: оно одно на весь файл
   'feedback/uploads',
 ];
 
-/**
- * Распоряжения администратора платформы — единственное, что от Flux Play
- * попадает в журнал действий.
- *
- * Остальное там не нужно и вредно: один вечер игры втроём — это сотни команд
- * («готов», «не готов», «начать»), и журнал, в котором их больше, чем работы,
- * перестаёт отвечать на свой единственный вопрос — кто удалил ведомость.
- */
-const PLAY_WORTH_LOGGING = ['platform', 'maintenance', 'builds', 'publisher-key', 'admin'];
-
 export function isNoise(path: string): boolean {
   const parts = headOf(path);
   if (!parts.length) return true;
-  if (parts[0] === 'play') return !PLAY_WORTH_LOGGING.includes(parts[1] || '');
   return SKIP.includes(parts[0]) || SKIP.includes(`${parts[0]}/${parts[1]}`);
 }

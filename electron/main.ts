@@ -9,8 +9,6 @@ import { setupFeedbackCapture } from './feedbackCapture';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
-import { setupGames } from './games';
-import { playEnabled } from '../play/enabled';
 import { setupOwnerLogin } from './ownerLogin';
 import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
@@ -173,9 +171,6 @@ app.whenReady().then(async () => {
   // корзина и распознавание, и «приложить снимок» не должно их запускать
   setupFeedbackCapture();
 
-  // Локальный менеджер игр Flux Play: установка, сверка описи, запуск.
-  // Платформа отключена, менеджер ставится только при FLUX_PLAY=1
-  if (playEnabled()) setupGames(() => mainWindow);
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 

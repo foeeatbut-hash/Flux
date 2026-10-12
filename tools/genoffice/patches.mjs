@@ -14,6 +14,126 @@ import { join } from 'node:path';
 
 export const PATCHES = [
   {
+    // В подсказке параметра показываем действие, а не внутреннюю инструкцию DOCX.
+    id: 'flux-docs-parameter-hint',
+    file: 'apps/docs/src/renderer/editor/marks.ts',
+    find: "        title: t('editorFieldHint', { instr: instruction }),\n",
+    replace: "        title: /^\\s*DOCPROPERTY\\s+\"flux:[^\"]+\"\\s*$/i.test(instruction) ? 'Параметр Flux. Действия доступны по правой кнопке мыши.' : t('editorFieldHint', { instr: instruction }),\n",
+  },
+  {
+    // Метки параметров Flux выделены внутри ячейки; остальные поля Word сохраняют оформление.
+    id: 'flux-docs-inline-parameter-chip',
+    file: 'apps/docs/src/renderer/editor/marks.ts',
+    find: "        'data-instr-field': instruction,\n        class: `doc-ref-field${zoteroClass}`,\n",
+    replace: "        'data-instr-field': instruction,\n        'data-flux-parameter': /^\\s*DOCPROPERTY\\s+\"flux:[^\"]+\"\\s*$/i.test(instruction) ? 'true' : undefined,\n        contenteditable: /^\\s*DOCPROPERTY\\s+\"flux:[^\"]+\"\\s*$/i.test(instruction) ? 'false' : undefined,\n        class: `doc-ref-field${zoteroClass}${/^\\s*DOCPROPERTY\\s+\"flux:[^\"]+\"\\s*$/i.test(instruction) ? ' flux-parameter-chip' : ''}`,\n",
+  },
+  {
+    // Цвет берётся из темы бумаги; рамка и отступ ограничены только токенами дополнения.
+    id: 'flux-docs-inline-parameter-chip-style',
+    file: 'apps/docs/src/renderer/styles.css',
+    find: '.doc-ref-field:hover {\n  background: var(--docs-paper-field-bg);\n}',
+    replace: '.doc-ref-field:hover {\n  background: var(--docs-paper-field-bg);\n}\n\n.flux-parameter-chip {\n  display: inline-flex;\n  align-items: baseline;\n  padding: 0 0.28em;\n  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);\n  border-radius: 0.35em;\n  background: var(--docs-paper-field-bg);\n  color: inherit;\n  white-space: nowrap;\n  user-select: all;\n}',
+  },
+  {
+    // DOCPROPERTY-поля Flux должны остаться защищённой меткой при чтении DOCX.
+    // Остальные неизвестные поля сохраняют прежний режим отображения.
+    id: 'flux-docx-docproperty-field',
+    file: 'packages/docx-engine/src/parse-props.ts',
+    find: '  /^\\s*(DATE|TIME|CREATEDATE|SAVEDATE|NUMPAGES|FILENAME|AUTHOR|PAGE)\\b/\n',
+    prior: '  /^\\s*(?:(?:DATE|TIME|CREATEDATE|SAVEDATE|NUMPAGES|FILENAME|AUTHOR|PAGE)\\b|DOCPROPERTY\\s+"flux:[^"]+")/i\n',
+    replace: '  /^\\s*(?:(?:DATE|TIME|CREATEDATE|SAVEDATE|NUMPAGES|FILENAME|AUTHOR|PAGE)\\b|DOCPROPERTY\\s+"flux:[^"]+")/\n',
+  },
+  {
+    // Метки и номера строк Flux относятся к скрытым закладкам документа.
+    id: 'flux-docx-hidden-bookmarks',
+    file: 'packages/docx-engine/src/parse-props.ts',
+    find: "    const list = name.startsWith('_') ? hidden : names\n",
+    prior: "    const list = name.startsWith('_') || /^FLUX(?:_|$)/i.test(name) ? hidden : names\n",
+    replace: "    const list = name.startsWith('_') || /^FLUX_[0-9a-f]{32}$/i.test(name) || /^FLUX(?:ROW|TABLE)_/i.test(name) ? hidden : names\n",
+  },
+  {
+    // Табличная модель переносит только служебные закладки Flux.
+    id: 'flux-docx-table-bookmark-parser-helper',
+    file: 'packages/docx-engine/src/parse-props.ts',
+    find: `  }\n}\n\n/**\n * Exact <w:pPr>...</w:pPr> slice of a paragraph (depth-aware: pPrChange nests`,
+    replace: `  }\n}\n\n/** Возвращает только закладки Flux из абзаца таблицы. */\nexport function fluxTableBookmarkNamesOf(xml: string): string[] {\n  const { bookmarks, hiddenBookmarks } = bookmarkNamesOf(xml)\n  return [...(bookmarks ?? []), ...(hiddenBookmarks ?? [])].filter((name) => /^FLUX_[0-9a-f]{32}$/i.test(name) || /^FLUX(?:ROW|TABLE)_/i.test(name))\n}\n\n/**\n * Exact <w:pPr>...</w:pPr> slice of a paragraph (depth-aware: pPrChange nests`,
+  },
+  {
+    // DOCX parser keeps Flux anchors with rich table paragraph metadata.
+    id: 'flux-docx-table-bookmark-parse',
+    file: 'packages/docx-engine/src/parse.ts',
+    find: '  bookmarkNamesOf,\n',
+    replace: '  bookmarkNamesOf,\n  fluxTableBookmarkNamesOf,\n',
+  },
+  {
+    id: 'flux-docx-table-bookmark-model',
+    file: 'packages/docx-engine/src/parse.ts',
+    find: `    richParas.push({\n      ...format,\n      ...(cellStyleId ? { styleId: cellStyleId } : {}),\n      ...(emptySz ? { emptyRunSizeHalfPoints: emptySz } : {}),\n      ...(emptyFont ? { emptyRunFontFamily: emptyFont } : {}),\n      ...(list ? { list } : {}),\n      runs,\n    })`,
+    replace: `    const fluxBookmarks = fluxTableBookmarkNamesOf(stripTextboxes(serializeXNode(p)))\n    richParas.push({\n      ...format,\n      ...(cellStyleId ? { styleId: cellStyleId } : {}),\n      ...(emptySz ? { emptyRunSizeHalfPoints: emptySz } : {}),\n      ...(emptyFont ? { emptyRunFontFamily: emptyFont } : {}),\n      ...(list ? { list } : {}),\n      ...(fluxBookmarks.length ? { hiddenBookmarks: fluxBookmarks } : {}),\n      runs,\n    })`,
+  },
+  {
+    id: 'flux-docx-table-bookmark-type',
+    file: 'packages/docx-engine/src/types.ts',
+    find: '  runs: Run[]\n  /** w:pStyle of the cell paragraph (style CSS: fonts/spacing reach cell content) */',
+    replace: '  runs: Run[]\n  /** Скрытые закладки Flux в абзаце таблицы. */\n  hiddenBookmarks?: string[]\n  /** w:pStyle of the cell paragraph (style CSS: fonts/spacing reach cell content) */',
+  },
+  {
+    // Flux bookmarks travel through the Docs table display model only.
+    id: 'flux-docs-table-bookmark-convert',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: '/** cell paragraphs with nested tables (read-only atoms) spliced in at their anchors */\n',
+    replace: 'const fluxTableBookmarks = (value: unknown): string[] => Array.isArray(value) ? value.filter((name): name is string => typeof name === \'string\' && (/^FLUX_[0-9a-f]{32}$/i.test(name) || /^FLUX(?:ROW|TABLE)_/i.test(name))) : []\n\n/** cell paragraphs with nested tables (read-only atoms) spliced in at their anchors */\n',
+  },
+  {
+    id: 'flux-docs-table-bookmark-pm-model',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: '            runs: inlineToRuns(paragraph.content ?? []),\n',
+    replace: '            ...(fluxTableBookmarks(paragraph.attrs?.hiddenBookmarks).length ? { hiddenBookmarks: fluxTableBookmarks(paragraph.attrs?.hiddenBookmarks) } : {}),\n            runs: inlineToRuns(paragraph.content ?? []),\n',
+  },
+  {
+    id: 'flux-docs-table-bookmark-native-model',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: '            styleId,\n            kind: list.kind,',
+    prior: '            styleId,\n            ...(fluxTableBookmarks(paragraph.hiddenBookmarks).length ? { hiddenBookmarks: fluxTableBookmarks(paragraph.hiddenBookmarks) } : {}),\n            kind: list.kind,',
+    replace: '            styleId,\n            ...(fluxHiddenBookmarks.length ? { hiddenBookmarks: fluxHiddenBookmarks } : {}),\n            kind: list.kind,',
+  },
+  {
+    id: 'flux-docs-table-bookmark-native-model-paragraph',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: '  ).map((paragraph) => {\n    const list = \'list\' in paragraph ? paragraph.list : undefined\n    const styleId = (\'styleId\' in paragraph ? paragraph.styleId : undefined) ?? null\n',
+    replace: '  ).map((paragraph) => {\n    const list = \'list\' in paragraph ? paragraph.list : undefined\n    const styleId = (\'styleId\' in paragraph ? paragraph.styleId : undefined) ?? null\n    const fluxHiddenBookmarks = fluxTableBookmarks(\'hiddenBookmarks\' in paragraph ? paragraph.hiddenBookmarks : undefined)\n',
+  },
+  {
+    id: 'flux-docs-table-bookmark-native-model-paragraph-attrs',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: '          attrs: { ...formatAttrs(paragraph, paragraph.runs), styleId },\n',
+    prior: '          attrs: { ...formatAttrs(paragraph, paragraph.runs), styleId, ...(fluxTableBookmarks(paragraph.hiddenBookmarks).length ? { hiddenBookmarks: fluxTableBookmarks(paragraph.hiddenBookmarks) } : {}) },\n',
+    replace: '          attrs: { ...formatAttrs(paragraph, paragraph.runs), styleId, ...(fluxHiddenBookmarks.length ? { hiddenBookmarks: fluxHiddenBookmarks } : {}) },\n',
+  },
+  {
+    // Табличный генератор пишет только Flux-системные метки через тот же OOXML helper.
+    id: 'flux-docx-table-bookmark-generate',
+    file: 'packages/docx-engine/src/generate.ts',
+    find: '    const pPr = mergePPrFormat(`<w:pPr>${numPr}</w:pPr>`, paragraph)\n',
+    replace: '    const pPr = mergePPrFormat(`<w:pPr>${numPr}</w:pPr>`, paragraph)\n    const hiddenBookmarks = \'hiddenBookmarks\' in paragraph ? paragraph.hiddenBookmarks : undefined\n',
+  },
+  {
+    id: 'flux-docx-table-bookmark-generate-p',
+    file: 'packages/docx-engine/src/generate.ts',
+    find: '    return `<w:p>${pPr}${runsXml(paragraph.runs, null)}</w:p>`',
+    prior: '    return `<w:p>${pPr}${bookmarksXml(paragraph.hiddenBookmarks)}${runsXml(paragraph.runs, null)}</w:p>`',
+    replace: '    return `<w:p>${pPr}${bookmarksXml(hiddenBookmarks)}${runsXml(paragraph.runs, null)}</w:p>`',
+  },
+  {
+    // В подписи таблицы учитываются закладки абзацев, иначе оптимизатор
+    // повторно использует исходный XML и теряет только что добавленный якорь.
+    id: 'flux-docx-table-bookmark-signature',
+    file: 'apps/docs/src/renderer/editor/convert.ts',
+    find: `        cell.attrs?.cellRevision ?? null,\n      ]),`,
+    prior: `        cell.attrs?.cellRevision ?? null,\n        (cell.content ?? []).map((paragraph) => [\n          paragraph.attrs?.bookmarks ?? null,\n          paragraph.attrs?.hiddenBookmarks ?? null,\n        ]),\n      ]),`,
+    replace: `        cell.attrs?.cellRevision ?? null,\n        (cell.content ?? []).map((paragraph: PmNode) => {\n          const fluxBookmarks = (names: string[] | null | undefined) => (names ?? []).filter((name: string) => /^FLUX_[0-9a-f]{32}$/i.test(name) || /^FLUX(?:ROW|TABLE)_/i.test(name))\n          return [fluxBookmarks(paragraph.attrs?.bookmarks as string[] | undefined), fluxBookmarks(paragraph.attrs?.hiddenBookmarks as string[] | undefined)]\n        }),\n      ]),`,
+  },
+  {
     id: 'flux-sheet-copy-session-import',
     file: 'apps/sheets/src/main/sheets-main.ts',
     find: "import { createHash, randomUUID } from 'node:crypto'",

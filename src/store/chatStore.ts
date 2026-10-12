@@ -18,6 +18,8 @@ export interface ChatAttachment {
 export interface ChatMessage {
   id: string;
   content: string;
+  guideRequest?: boolean;
+  guideReply?: { projectId: string; kind: string } | null;
   createdAt: string;
   senderId: string;
   receiverId?: string | null;
@@ -46,6 +48,8 @@ export interface ChatMessage {
   replyTo?: {
     id: string;
     content: string;
+    senderId?: string;
+    receiverId?: string | null;
     sender?: { id: string; name: string } | null;
   } | null;
   editedAt?: string | null;
@@ -108,8 +112,9 @@ interface ChatState {
     linkedElementId?: string | null,
     linkedProjectId?: string | null,
     attachments?: { fileName: string; filePath: string; fileSize: number }[],
-    replyToId?: string | null
-  ) => Promise<void>;
+    replyToId?: string | null,
+    guideRequest?: boolean
+  ) => Promise<ChatMessage | null>;
   editMessage: (currentUserId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (currentUserId: string, messageId: string) => Promise<void>;
   reactToMessage: (currentUserId: string, messageId: string, emoji: string) => Promise<void>;
@@ -248,19 +253,38 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    /** Показать более раннее: расширяем окно и перечитываем */
+    /** Старую историю догружаем по курсору, не увеличивая каждый раз сетевой хвост. */
     loadEarlier: async (currentUserId) => {
-      set({ messageWindow: (get().messageWindow || 300) + 500 });
-      await get().fetchMessages(currentUserId);
+      const { activeReceiverId, activeGroupId, activeType, messages } = get();
+      const first = messages[0];
+      if (!first) return;
+      const mine = convToken;
+      const before = `before=${encodeURIComponent(first.createdAt)}&beforeId=${encodeURIComponent(first.id)}&limit=100`;
+      try {
+        const url = activeType === 'DIRECT'
+          ? activeReceiverId && `/api/chat/messages?senderId=${encodeURIComponent(currentUserId)}&receiverId=${encodeURIComponent(activeReceiverId)}&${before}`
+          : activeGroupId && `/api/chat/group-messages?groupId=${encodeURIComponent(activeGroupId)}&${before}`;
+        if (!url) return;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Не удалось загрузить раннюю историю');
+        const page = await response.json() as ChatMessage[];
+        if (mine !== convToken) return;
+        const current = get().messages;
+        const byId = new Map([...page, ...current].map((message) => [message.id, message]));
+        const merged = [...byId.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
+        set({ messages: merged, hasEarlier: page.length === 100 });
+      } catch (err) {
+        console.error('[ChatStore] Error loading earlier messages:', err);
+      }
     },
 
-    sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = [], replyToId = null) => {
+    sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = [], replyToId = null, guideRequest = false) => {
       const { activeReceiverId, activeGroupId, activeType } = get();
       const mine = convToken;
 
       try {
         if (activeType === 'DIRECT') {
-          if (!activeReceiverId) return;
+          if (!activeReceiverId) return null;
           const payload = {
             senderId: currentUserId,
             receiverId: activeReceiverId,
@@ -268,7 +292,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             linkedElementId,
             linkedProjectId,
             attachments,
-            replyToId
+            replyToId,
+            guideRequest
           };
           const res = await fetch(`/api/chat/messages`, {
             method: 'POST',
@@ -276,15 +301,16 @@ export const useChatStore = create<ChatState>((set, get) => {
             body: JSON.stringify(payload)
           });
           if (res.ok) {
-            const data = await res.json();
+            const data = await res.json() as ChatMessage;
             // Сервер сам рассылает chat:message_received через socket.io.
             // Если диалог успели сменить — в чужое окно сообщение не кладём
-            if (mine !== convToken) return;
-            set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
+            if (mine === convToken) set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
+            return data;
           }
+          throw new Error(`Не удалось отправить сообщение (${res.status})`);
         } else {
           // PROJECT Group
-          if (!activeGroupId) return;
+          if (!activeGroupId) return null;
           const payload = {
             senderId: currentUserId,
             groupId: activeGroupId,
@@ -292,7 +318,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             linkedElementId,
             linkedProjectId,
             attachments,
-            replyToId
+            replyToId,
+            guideRequest
           };
           const res = await fetch(`/api/chat/group-messages`, {
             method: 'POST',
@@ -300,15 +327,17 @@ export const useChatStore = create<ChatState>((set, get) => {
             body: JSON.stringify(payload)
           });
           if (res.ok) {
-            const data = await res.json();
-            if (mine !== convToken) return;
-            set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
+            const data = await res.json() as ChatMessage;
+            if (mine === convToken) set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
+            return data;
           }
+          throw new Error(`Не удалось отправить сообщение (${res.status})`);
         }
       } catch (err) {
         console.error('[ChatStore] Error sending message:', err);
         throw err;
       }
+      return null;
     },
 
     // Редактирование своего сообщения
@@ -510,7 +539,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       onReceived = (msg: ChatMessage) => {
         const { activeReceiverId, activeGroupId, activeType } = get();
         const mine = (activeType === 'DIRECT' && activeReceiverId
-            && (msg.senderId === activeReceiverId || msg.receiverId === activeReceiverId))
+            && (msg.senderId === activeReceiverId || msg.receiverId === activeReceiverId
+              || (msg.sender?.role === 'SERVICE' && msg.replyTo?.senderId && msg.replyTo?.receiverId
+                && [msg.replyTo.senderId, msg.replyTo.receiverId].includes(activeReceiverId))))
           || (activeType === 'PROJECT' && activeGroupId && msg.chatGroupId === activeGroupId);
         if (!mine) return;
         set((state) => ({ messages: [...state.messages.filter((m) => m.id !== msg.id), msg] }));

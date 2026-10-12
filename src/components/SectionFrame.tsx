@@ -22,7 +22,6 @@ import { PaneContext } from '../lib/paneTitle';
 import { featureById } from '../lib/permissions';
 import { sectionAccess } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
-import { playEntitlementById } from '../../play/features';
 
 export const asHref = (l: Location | { pathname: string; search?: string; hash?: string }) =>
   `${l.pathname}${l.search || ''}${l.hash || ''}`;
@@ -144,7 +143,7 @@ export default function SectionFrame({
   if (access === 'explain') {
     if (!visible) return null;
     const key = def.feature || def.entitlement || '';
-    const what = featureById(key)?.label || playEntitlementById(key)?.label || key;
+    const what = featureById(key)?.label || key;
     return (
       <div className="h-full">
         <div className="fx-empty">

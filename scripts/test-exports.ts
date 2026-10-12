@@ -60,7 +60,7 @@ console.log('Конструктор — бланк заказа');
 
 console.log('Помощник — «выгрузить в Excel/Word»');
 {
-  const table = src('src/assistant/tableExport.ts');
+  const table = src('src/guide/support/tableExport.ts');
   check('Excel собирается книгой (xlsx), а не CSV под её именем', /XLSX\.write\(/.test(table) && !/toCsv|text\/csv/.test(table));
   check('Word — настоящий .docx (buildDocx), а не HTML под .doc', /buildDocx\(/.test(table));
   check('HTML под видом .doc не осталось', !/application\/msword/.test(table) && !table.includes(".doc'"));

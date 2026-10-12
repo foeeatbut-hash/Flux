@@ -61,6 +61,38 @@ const sent = []
 const documentEvents = new Map()
 const windowEvents = new Map()
 const parent = { postMessage: (message) => sent.push(message) }
+// Имитируем узлы, которыми владеет React: удаление узла должно сразу ронять тест.
+const aiButton = {
+  nodeType: 1,
+  className: 'ai-entry',
+  attributes: { 'aria-label': 'Ask AI' },
+  style: { values: new Map(), setProperty(name, value, priority) { this.values.set(name, { value, priority }) } },
+  hidden: false,
+  inert: false,
+  disabled: false,
+  parentNode: { name: 'react-owned-menu' },
+  getAttribute(name) { return this.attributes[name] ?? null },
+  setAttribute(name, value) { this.attributes[name] = value },
+  closest(selector) { return this.matches(selector) ? this : null },
+  matches(selector) { return selector.includes('.ai-entry') || selector === 'button,[role="menuitem"],input,textarea' },
+  remove() { throw new Error('AI control must not be structurally removed from React-owned DOM') },
+}
+const normalButton = {
+  nodeType: 1,
+  className: 'save-entry',
+  attributes: { 'aria-label': 'Save' },
+  style: { values: new Map(), setProperty(name, value, priority) { this.values.set(name, { value, priority }) } },
+  hidden: false,
+  inert: false,
+  disabled: false,
+  parentNode: { name: 'react-owned-menu' },
+  getAttribute(name) { return this.attributes[name] ?? null },
+  setAttribute(name, value) { this.attributes[name] = value },
+  closest(selector) { return this.matches(selector) ? this : null },
+  matches(selector) { return selector === 'button,[role="menuitem"],input,textarea' },
+  remove() { throw new Error('Normal control must remain in React-owned DOM') },
+}
+const controls = [aiButton, normalButton]
 const window = {
   parent,
   location: { origin: 'null' },
@@ -71,8 +103,8 @@ const document = {
   documentElement: { appendChild() {} },
   head: null,
   createElement: () => ({ textContent: '' }),
-  addEventListener: (name, fn) => documentEvents.set(name, fn),
-  querySelectorAll: () => [],
+  addEventListener: (name, fn) => documentEvents.set(name, [...(documentEvents.get(name) || []), fn]),
+  querySelectorAll: (selector) => selector === 'button,[role="menuitem"],input,textarea' ? controls : controls.filter((node) => node.matches(selector)),
 };
 const context = {
   window,
@@ -90,6 +122,37 @@ vm.runInNewContext(
   { filename: 'electron-renderer.js' },
 );
 const api = context.__api;
+assert.equal(aiButton.parentNode.name, 'react-owned-menu', 'AI control lost its React-owned parent');
+assert.equal(aiButton.hidden, true, 'AI control remained visible');
+assert.equal(aiButton.inert, true, 'AI control remained interactive');
+assert.equal(aiButton.attributes['aria-hidden'], 'true', 'AI control remained in the accessibility tree');
+assert.equal(aiButton.attributes.tabindex, '-1', 'AI control remained keyboard-focusable');
+assert.equal(aiButton.disabled, true, 'AI button remained enabled');
+assert.deepEqual(aiButton.style.values.get('display'), { value: 'none', priority: 'important' });
+assert.equal(normalButton.hidden, false, 'normal control was hidden');
+assert.equal(normalButton.inert, false, 'normal control was made inert');
+assert.equal(normalButton.disabled, false, 'normal control was disabled');
+assert.equal(normalButton.attributes.tabindex, undefined, 'normal control lost its tab order');
+let aiClicks = 0;
+let normalClicks = 0;
+assert.equal(aiButton.closest('.ai-entry,.ai-dock,.copilot'), aiButton, 'fake AI button does not match the AI selector');
+assert.ok(documentEvents.get('click')?.length, 'renderer click guard was not installed');
+const dispatchClick = (target, onClick) => {
+  let prevented = false;
+  let stopped = false;
+  const event = { target, preventDefault() { prevented = true }, stopImmediatePropagation() { stopped = true } };
+  for (const listener of documentEvents.get('click')) listener(event);
+  if (!stopped) onClick();
+  return { prevented, stopped };
+};
+const blockedAiClick = dispatchClick(aiButton, () => { aiClicks += 1 });
+assert.equal(blockedAiClick.prevented, true, 'AI click was not cancelled');
+assert.equal(blockedAiClick.stopped, true, 'AI click reached application handlers');
+assert.equal(aiClicks, 0, 'AI click action ran');
+const allowedNormalClick = dispatchClick(normalButton, () => { normalClicks += 1 });
+assert.equal(allowedNormalClick.prevented, false, 'normal click was cancelled');
+assert.equal(allowedNormalClick.stopped, false, 'normal click propagation was stopped');
+assert.equal(normalClicks, 1, 'normal control click did not reach its handler');
 for (const channel of ['ai:chat', 'sheets:ai-generate-image', 'pdf:generate-image', 'ai:stream-chunk']) {
   const before = sent.length;
   let received = false;
@@ -116,7 +179,7 @@ windowEvents.get('message')({
 });
 assert.deepEqual(await save, { ok: true });
 const f7 = { key: 'F7', preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
-documentEvents.get('keydown')(f7);
+for (const listener of documentEvents.get('keydown')) listener(f7);
 assert.equal(f7.prevented, true, 'F7 reached the GenOffice proofreader');
 assert.equal(f7.stopped, true);
 let menuAction = null;
@@ -127,4 +190,4 @@ assert.equal(menuAction, 'save', 'normal Ctrl+S was intercepted as an AI action'
 assert.equal(ctrlS.prevented, true);
 assert.equal(ctrlS.stopped, true);
 
-console.log('GenOffice AI IPC and shortcuts are blocked; normal workbook save remains available.')
+console.log('GenOffice AI controls and IPC are blocked; React-owned DOM and normal controls remain intact.')

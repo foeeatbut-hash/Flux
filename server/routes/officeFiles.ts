@@ -28,6 +28,7 @@ import { collabShared } from '../officeCollab.js';
 import { officeBus } from '../officeBus.js';
 import { shareOf, authorizedShareWrite, ShareDenied } from '../fileSharing.js';
 import { oncePerDatabase } from '../schemaRuntime.js';
+import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from '../officeRevisions.js';
 import { cleanName, createFileFromBytes, deskHome, exportsHome, homeOfFile, homeOfFolder, type FileHome } from '../officeStore.js';
 
 export interface OfficeFileDeps {
@@ -111,6 +112,8 @@ export async function writeOfficeFile(a: {
   // Общее ядро записи для всех редакторов: чужой личный файл и файл закрытого
   // проекта для вошедшего «не найден», как и в Проводнике
   if (!(await canWriteFile(prisma, user, fileId))) return reply(404, { error: FILE_NOT_FOUND });
+  await ensureOfficeRevisionTable();
+  if (await isIssuedOfficeFile(prisma, fileId)) return reply(423, { error: immutableOfficeFileError().message, code: 'OFFICE_REVISION_ISSUED' });
   const shareAtStart = await shareOf(prisma, fileId);
   const denied = await deps.mayWrite({ authUser: user } as any, fileId);
   if (denied) return reply(403, { error: denied });
@@ -170,6 +173,8 @@ export async function writeOfficeFile(a: {
       data: { updatedAt: stamp },
     });
     if (!claimed.count) return null;
+    // Выпуск и запись захватывают одну строку: начатая раньше запись не обходит заморозку.
+    if (await isIssuedOfficeFile(tx, fileId)) throw immutableOfficeFileError();
     const last = await tx.fileVersion.findFirst({
       where: { fileId }, orderBy: { version: 'desc' }, select: { version: true, createdAt: true },
     });
@@ -242,10 +247,13 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       const bytes = await fileBytes(file);
       const folder = file.folderId ? await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } }) : null;
       const session = await officeBus.session(file.id).catch(() => null);
+      await ensureOfficeRevisionTable();
+      const issued = await isIssuedOfficeFile(prisma, file.id);
       res.json({
         id: file.id, name: file.name, folderId: file.folderId, projectId: folder?.projectId || null, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
-        canWrite: await canWriteFile(prisma, (req as any).authUser, file),
+        canWrite: !issued && await canWriteFile(prisma, (req as any).authUser, file),
+        issued,
         pendingSharedEdits: !!session && session.dataSeq > session.savedSeq,
       });
     } catch (err: any) { sendError(res, err); }

@@ -33,6 +33,18 @@ export async function makeDocx(): Promise<Buffer> {
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/** Настоящий DOCX с таблицей-якорем и соседним текстом для native Office UI. */
+export async function makeDocxWithTable(): Promise<Buffer> {
+  const bytes = await makeDocx();
+  const zip = await JSZip.loadAsync(bytes);
+  const path = 'word/document.xml';
+  const xml = await zip.file(path)!.async('string');
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="3600"/><w:gridCol w:w="3600"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="3600" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Слева до поля</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3600" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Ячейка заголовка</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:tcW w:w="3600" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Ручная строка</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3600" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Текст после поля</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`;
+  if (!xml.includes('<w:sectPr')) throw new Error('Исходный DOCX не содержит секции документа');
+  zip.file(path, xml.replace('<w:sectPr', `${table}<w:sectPr`));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 /** Войти в Flux в этой вкладке; лицензия подменяется только ответом проверки */
 export async function loginPage(page: any, base: string, login: { symbol: string; password: string }, dark = false): Promise<void> {
   // Лицензия проверяется подписью, приватного ключа в репозитории нет —
@@ -107,6 +119,30 @@ export async function makeXlsx(): Promise<Buffer> {
   return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/** Книга для нативного add-on fill: в таблице уже есть отдельная ручная строка. */
+export async function makeXlsxWithManualRow(): Promise<Buffer> {
+  const bytes = await makeXlsx();
+  const zip = await JSZip.loadAsync(bytes);
+  const path = 'xl/worksheets/sheet1.xml';
+  const xml = await zip.file(path)!.async('string');
+  const row = `<row r="5"><c r="A5" t="inlineStr"><is><t>MANUAL_KEEP</t></is></c><c r="B5"><v>41</v></c></row>`;
+  if (!xml.includes('</sheetData>')) throw new Error('Исходный XLSX не содержит sheetData');
+  zip.file(path, xml.replace('</sheetData>', `${row}</sheetData>`));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Книга для проверки защиты формулы, возвращающей пустую строку, в target ячейке. */
+export async function makeXlsxWithBlankFormula(): Promise<Buffer> {
+  const bytes = await makeXlsx();
+  const zip = await JSZip.loadAsync(bytes);
+  const path = 'xl/worksheets/sheet1.xml';
+  const xml = await zip.file(path)!.async('string');
+  const original = '<c r="A2" t="s"><v>2</v></c>';
+  if (!xml.includes(original)) throw new Error('Fixture target A2 is missing');
+  zip.file(path, xml.replace(original, '<c r="A2"><f>IF(FALSE,1,&quot;&quot;)</f><v></v></c>'));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 
 /**
  * Диалог «Сохранить мои правки рядом» следит за собой сам: он мог мелькнуть
@@ -142,6 +178,8 @@ function pgUrl(): string {
  * тогда пропускается, а не выдаётся за пройденную
  */
 export async function holdersInDb(fileId: string): Promise<null | { holders: any[]; peers: any[]; servers: number }> {
+  // Одноразовый SQLite fixture не должен читать конфигурацию рабочей базы.
+  if (process.env.FLUX_TEST_FIXTURE === '1' && !process.env.FLUX_PG) return null;
   const url = pgUrl();
   if (!url) return null;
   try {

@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import {
-  Bell, BellOff, Monitor, LayoutGrid, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
+  Bell, BellOff, Monitor, LayoutGrid, MessageCircleQuestion, ArrowUpCircle,
 } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { visibleSections } from '../lib/appPolicy';
@@ -25,7 +25,6 @@ import { useNotificationStore } from '../store/notificationStore';
 import { useFeedbackStore } from '../store/feedbackStore';
 import { useShellNotifyStore } from '../store/shellNotifyStore';
 import { isQuiet, untilLabel } from '../lib/notifCenter';
-import { useAssistantStore } from '../store/assistantStore';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
 import { useDesktopStore } from '../store/desktopStore';
@@ -73,8 +72,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const togglePanel = useNotificationStore((s) => s.togglePanel);
   const notifOpen = useNotificationStore((s) => s.panelOpen);
   const setNotifOpen = useNotificationStore((s) => s.setPanelOpen);
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
-  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const unreadByAccount = useMailStore((s) => s.unreadByAccount);
   const now = useNow();
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
@@ -234,22 +231,17 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
     }] : []),
   ] : [];
 
-  // Обе панели выезжают справа и заняли бы одно место — открываем по одной
-  // Помощник открывается, не закрывая уведомления: правая колонка держит обоих
-  // (components/RightDock), и терять начатое чтение при вопросе больше не надо
-  const openAssistant = () => setAssistantOpen(!assistantOpen);
-
-  /**
-   * Справка по тому разделу, где человек стоит, — то же, что F1. Помощник
-   * отвечает на вопрос словами, руководство объясняет раздел целиком: это
-   * разные нужды, поэтому и кнопки разные.
-   */
-  const openHandbook = () => {
-    const path = highlighted || '/';
-    if (path === '/handbook') return;
-    const href = `/handbook?for=${encodeURIComponent(path)}`;
-    rememberSectionUse('/handbook');
-    useWindowStore.getState().open(href);
+  // Кнопка Flux Guide в трее: открывает окно Guide на «Вопросах» — быстрый
+  // способ спросить, не отвлекаясь от текущего раздела (F1 остаётся для справки)
+  const openGuide = () => {
+    const st = useWindowStore.getState();
+    const win = st.windows.find((w) => w.path === '/guide' && w.desk === st.desk && !w.minimized);
+    if (win) {
+      // Уже открыто: поднимаем наверх вместо второго окна того же раздела
+      st.focus?.(win.id);
+      return;
+    }
+    st.open('/guide?tab=questions');
   };
 
   /**
@@ -491,23 +483,13 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
 
         <button
           type="button"
-          onClick={openAssistant}
-          title="Помощник: вопросы по проекту"
-          data-tour="assistant-btn"
-          style={{ width: BAR_BTN, height: BAR_BTN }}
-          className={trayBtn(assistantOpen)}
-        >
-          <MessageCircleQuestion size={BAR_ICON + 2} />
-        </button>
-
-        <button
-          type="button"
-          onClick={openHandbook}
-          title="Руководство по этому разделу (F1)"
+          onClick={openGuide}
+          title="Flux Guide: справка, вопросы и данные проекта"
+          data-tour="guide-btn"
           style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(false)}
         >
-          <LifeBuoy size={BAR_ICON + 2} />
+          <MessageCircleQuestion size={BAR_ICON + 2} />
         </button>
 
         {/* Обновление — как в системе: значок у часов светится, когда есть что

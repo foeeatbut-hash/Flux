@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { ensureTables, createTableSql, setDialect, type TableSpec } from '../server/ddl';
 import { registerSchemaClient, mariaDbSchemaCoordinator, postgresSchemaCoordinator } from '../server/schemaRuntime';
 import { ensureUserProfileSchema } from '../server/userProfileSchema';
-import { ensurePlayTables } from '../server/play/tables';
 import { ensureCatalog } from '../server/routes/catalog';
 import { syncCatalogSeed } from '../server/catalogSeed';
 import { seedCatalog, SEED_VERSION } from '../catalog/seed';
@@ -85,7 +84,6 @@ async function test(dialect: 'mysql' | 'postgresql', endpoint: string) {
     assert.equal(kept[0].state, 'ACTIVE');
     await assert.rejects(p.$executeRawUnsafe(`INSERT INTO ${q('SchemaFixture')} (${q('id')},${q('owner')}) VALUES ('duplicate','employee')`));
     await p.$executeRawUnsafe(`INSERT INTO ${q('SchemaFixture')} (${q('id')},${q('owner')},${q('state')}) VALUES ('closed','employee','CLOSED')`);
-    assert.deepEqual(await Promise.all([ensurePlayTables(p), ensurePlayTables(p)]), ['', '']);
     // Two server clients race through first seed; duplicate fallback preserves rows.
     await Promise.all([ensureCatalog(p), ensureCatalog(other)]);
     const seed = seedCatalog();
@@ -123,7 +121,7 @@ async function test(dialect: 'mysql' | 'postgresql', endpoint: string) {
       } finally { await probe.end(); }
       assert.ok(socketIds.size >= 3);
     }
-    console.log(`✓ ${dialect}: partial migrations preserve data, singleflight, conditional unique, full Play DDL, concurrent seed/manual catalog edits${mysql ? ', physical connection lock/release' : ''}`);
+    console.log(`✓ ${dialect}: partial migrations preserve data, singleflight, conditional unique, concurrent seed/manual catalog edits${mysql ? ', physical connection lock/release' : ''}`);
   } finally { await Promise.all([p.$disconnect(), other.$disconnect()]); }
 }
 

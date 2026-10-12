@@ -1,8 +1,8 @@
 import React from 'react';
 import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb, Play } from 'lucide-react';
 import type { HandbookArticle } from '../../handbook/model';
-import { toursForRoute } from '../../assistant/tours';
-import { useAssistantStore } from '../../store/assistantStore';
+import { toursForRoute } from '../../guide/support/tours';
+import { useGuideStore } from '../../guide/store';
 import { featureById } from '../../lib/permissions';
 import { thingRu, linkRu } from '../../handbook/names';
 
@@ -30,7 +30,7 @@ const Head = ({ id, icon: Icon, children }: { id: string; icon: any; children: R
  * две статьи, знает, где искать в третьей.
  */
 export default function HandbookArticleView({ article: a, onGoToSection, onOpen, titleOf }: Props) {
-  const startTour = useAssistantStore((s) => s.startTour);
+  const startTour = useGuideStore((s) => s.startTour);
   // Демонстрации того же раздела: словами объяснено выше, а показать — короче
   const tours = React.useMemo(() => toursForRoute(a.route || '').slice(0, 4), [a.route]);
 
@@ -52,7 +52,7 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
 
         {/* Показать вместо «читайте выше»: помощник подсветит кнопки прямо в
             разделе и подождёт нажатия. Демонстрации берутся из общего списка
-            (assistant/tours), а не переписаны рядом */}
+            (support/tours), а не переписаны рядом */}
         {tours.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
             <span className="text-2xs font-semibold text-slate-400 dark:text-slate-500 mr-0.5">

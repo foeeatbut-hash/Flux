@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { schemaFromNativeHeaders } from '../src/components/office/officeNativeSchema';
+import type { OfficeHeaderSchema } from '../src/lib/officeModel';
+
+const id = 'f513fb5a-0d9d-4e35-81d3-637a85b74445';
+const binding = { anchorId: id, sourceId: 'equipment', entityType: 'equipment', entityId: null, fieldKey: 'power', sourceRevision: '1' };
+const schema: OfficeHeaderSchema = { version: 1, anchors: [{ id, kind: 'word-row', parts: [{ kind: 'field', binding }] }] };
+const ordered = [{ kind: 'text', text: 'Итого: ' }, { kind: 'field', binding }, { kind: 'operator', operator: '+' }, { kind: 'field', binding }, { kind: 'text', text: ' кВт' }];
+assert.deepEqual(schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: ordered }] }).anchors[0].parts, ordered);
+assert.deepEqual(schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: [{ kind: 'text', text: 'Итого:  кВт' }] }] }).anchors[0].parts, [{ kind: 'text', text: 'Итого:  кВт' }]);
+assert.throws(() => schemaFromNativeHeaders(schema, { ok: false, error: 'Нет якоря' }), /Нет якоря/);
+assert.throws(() => schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: [{ kind: 'field', fieldKey: 'power' }] }] }), /привязки/);
+assert.throws(() => schemaFromNativeHeaders(schema, { ok: true, headers: [{ anchorId: id, parts: [{ kind: 'field', binding: { ...binding, anchorId: 'foreign' } }] }] }), /привязки/);
+const sheetSchema: OfficeHeaderSchema = { version: 1, anchors: [{ ...schema.anchors[0], kind: 'excel-range', sheetName: 'До', address: 'A1' }] };
+const moved = schemaFromNativeHeaders(sheetSchema, { ok: true, headers: [{ anchorId: id, sheetName: 'После', address: 'c4' }] }).anchors[0];
+assert.equal(moved.sheetName, 'После');
+assert.equal(moved.address, 'C4');
+assert.deepEqual(moved.parts, sheetSchema.anchors[0].parts);
+assert.throws(() => schemaFromNativeHeaders(sheetSchema, { ok: true, headers: [{ anchorId: id, sheetName: 'После', address: 'C0' }] }), /адрес/);
+console.log('✓ Native header order, explicit removal and unresolved binding rejection');

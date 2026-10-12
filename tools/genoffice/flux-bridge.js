@@ -175,9 +175,8 @@
     '.ProseMirror-yjs-selection{border-radius:2px}';
   (document.head || document.documentElement).appendChild(css);
 
-  // Keep GenOffice AI actions out of the live DOM, tab order and React event
-  // path. The IPC/provider boundary is independently denied in the Electron
-  // renderer shim for the editors that use IPC.
+  // Узлами ленты владеет React: удаление извне ломает его следующую отрисовку.
+  // Скрываем и отключаем ИИ-кнопки, сохраняя дерево; IPC заблокирован отдельно.
   var aiLabel = /\b(?:ai|gsk|genspark|copilot|ask\s*ai)\b|(?:^|[^\p{L}\p{N}_])ИИ(?:$|[^\p{L}\p{N}_])|искусственн[\p{L}\p{N}_]*\s+интеллект/iu;
   var aiControl = function (targetNode) {
     if (!targetNode || !targetNode.closest) return false;
@@ -186,17 +185,25 @@
     var labelText = control && [control.getAttribute('aria-label'), control.getAttribute('title'), control.getAttribute('data-tip')].filter(Boolean).join(' ');
     return aiLabel.test(labelText || '');
   };
+  var concealAiControl = function (node) {
+    node.hidden = true;
+    node.inert = true;
+    node.style.setProperty('display', 'none', 'important');
+    node.setAttribute('aria-hidden', 'true');
+    node.setAttribute('tabindex', '-1');
+    if ('disabled' in node) node.disabled = true;
+  };
   var removeAiControls = function (root) {
     if (!root || !root.querySelectorAll) return;
     var controls = '.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],.ctx-item:has(.copilot-badge),button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ribbon-group:has(.ai-entry)';
-    if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) root.remove();
-    root.querySelectorAll(controls).forEach(function (node) { node.remove(); });
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) concealAiControl(root);
+    root.querySelectorAll(controls).forEach(concealAiControl);
     var labelled = 'button,[role="menuitem"],input,textarea';
     var candidates = Array.prototype.slice.call(root.querySelectorAll(labelled));
     if (root.nodeType === Node.ELEMENT_NODE && root.matches(labelled)) candidates.unshift(root);
     candidates.forEach(function (node) {
       var labelText = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-tip')].filter(Boolean).join(' ');
-      if (aiLabel.test(labelText)) node.remove();
+      if (aiLabel.test(labelText)) concealAiControl(node);
     });
   };
   var stopAiControl = function (event) {

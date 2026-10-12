@@ -4,8 +4,12 @@ import type { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { getPrisma, notifyUser } from '../context.js';
 import { signLink, hardenFileResponse } from '../security.js';
-import { mayEditGroup, ownerForNewGroup } from '../projectAccess.js';
+import { mayEditGroup, ownerForNewGroup, isAdminActor } from '../projectAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
+import { sanitizeGuideReplies } from '../services/guideReplies.js';
+import { registerChatHistoryRoutes } from './chatHistory.js';
+import { actorId, canReadChatMessage, isChatParticipant, isDirectConversationMessage, isGroupMember, sanitizeProjectReferences } from '../services/chatAccess.js';
+import { SERVICE_USER_ID } from '../services/guideF.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -90,11 +94,18 @@ async function ensureProjectChatGroups() {
  * Кому адресовано событие чата: участникам диалога или членам группы.
  * Возвращает имена личных комнат сокетов.
  */
-async function chatRooms(msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<string[]> {
+async function chatRooms(msg: { senderId: string; receiverId: string | null; chatGroupId: string | null; replyToId?: string | null }): Promise<string[]> {
   const prisma = getPrisma();
   const ids = new Set<string>();
   if (msg.senderId) ids.add(String(msg.senderId));
   if (msg.receiverId) ids.add(String(msg.receiverId));
+  if (!msg.chatGroupId && msg.senderId === SERVICE_USER_ID && msg.replyToId) {
+    const request = await prisma.chatMessage.findUnique({ where: { id: msg.replyToId }, select: { senderId: true, receiverId: true, guideRequest: true, chatGroupId: true } });
+    if (request?.guideRequest && !request.chatGroupId) {
+      ids.add(request.senderId);
+      if (request.receiverId) ids.add(request.receiverId);
+    }
+  }
   if (msg.chatGroupId) {
     const g = await prisma.chatGroup.findUnique({
       where: { id: msg.chatGroupId },
@@ -120,6 +131,24 @@ async function chatRooms(msg: { senderId: string; receiverId: string | null; cha
 }
 
 /** Событие чата — только участникам, а не всей сети */
+
+/** ACL-06: пересылка сервисного ответа Flux Guide в разговор, где не у всех
+ *  участников есть доступ к проекту ответа, блокируется до публикации. */
+async function guardGuideReplyForward(prisma: any, content: string, memberIds: string[]): Promise<string | null> {
+  const clean = String(content || '').trim();
+  if (!clean.startsWith('F · Flux Guide')) return null;
+  const hit = await prisma.guideReply.findFirst({ where: { message: { content: clean } }, select: { projectId: true } });
+  if (!hit) return null;
+  if (!hit.projectId) return null; // непроектный ответ пересылать можно
+  for (const id of memberIds) {
+    const user = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+    if (!(await canSeeProject(id, hit.projectId, isAdminActor(user)))) {
+      return 'Пересылка недоступна: не у всех участников этого разговора есть доступ к проекту.';
+    }
+  }
+  return null;
+}
+
 async function emitChat(
   event: string,
   msg: { senderId: string; receiverId: string | null; chatGroupId: string | null },
@@ -128,7 +157,17 @@ async function emitChat(
   try {
     const rooms = await chatRooms(msg);
     if (!rooms.length) return;
-    io.to(rooms).emit(event, payload);
+    for (const room of rooms) {
+      const viewerId = room.slice('user:'.length);
+      const user = await getPrisma().user.findUnique({ where: { id: viewerId }, select: { id: true, role: true } });
+      let safePayload = payload;
+      if (payload && typeof payload === 'object' && payload.content !== undefined) {
+        const [guideSafe] = await sanitizeGuideReplies([payload], viewerId, isAdminActor(user));
+        const [projectSafe] = await sanitizeProjectReferences([guideSafe], viewerId, user);
+        safePayload = projectSafe;
+      }
+      io.to(room).emit(event, safePayload);
+    }
   } catch (err) {
     console.error('[Socket] не удалось разослать событие чата:', err);
   }
@@ -139,83 +178,36 @@ async function emitChat(
 // присланному клиентом, и любой вошедший сотрудник мог прочитать чужую
 // переписку, написать от чужого имени или удалить чужое сообщение — достаточно
 // было подставить идентификатор коллеги, а он виден в списке сотрудников.
-function actorId(req: Request): string {
-  return String((req as any).authUser?.id || '');
+
+async function canShareGuideReply(projectId: string, memberIds: string[]): Promise<boolean> {
+  if (!projectId) return true;
+  for (const id of [...new Set(memberIds)]) {
+    const user = await getPrisma().user.findUnique({ where: { id }, select: { role: true, isActive: true } });
+    if (!user || user.isActive === false || !(await canSeeProject(id, projectId, isAdminActor(user)))) return false;
+  }
+  return memberIds.length > 0;
 }
 
-/** Состоит ли сотрудник в группе (владелец тоже считается участником) */
-async function isGroupMember(userId: string, groupId: string): Promise<boolean> {
+async function audienceForTarget(groupId: string | null, peerId: string | null, actor: string): Promise<string[]> {
   const prisma = getPrisma();
-  if (!userId || !groupId) return false;
-  const g = await prisma.chatGroup.findUnique({
-    where: { id: String(groupId) },
-    select: { ownerId: true, projectId: true, members: { where: { id: userId }, select: { id: true } } },
-  });
-  if (!g || !(g.ownerId === userId || g.members.length > 0)) return false;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-  return !g.projectId || await canSeeProject(userId, g.projectId, isPrivilegedUser(user));
-}
-
-async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
-  const prisma = getPrisma();
-  if (!userId) return false;
-  if (msg.chatGroupId) return isGroupMember(userId, msg.chatGroupId);
-  return msg.senderId === userId || msg.receiverId === userId;
+  if (groupId) {
+    const group = await prisma.chatGroup.findUnique({ where: { id: groupId }, include: { members: { select: { id: true } } } });
+    return group ? [...new Set([actor, group.ownerId, ...(group.members || []).map((m: any) => m.id)].filter(Boolean) as string[])] : [];
+  }
+  return peerId ? [actor, peerId] : [];
 }
 
 export function registerChatRoutes(app: Express, deps: ChatDeps): void {
   io = deps.io;
   // --- CORPORATE MESSENGER CHAT API ---
 
-  // 1. Get messages between two users
-  app.get('/api/chat/messages', async (req: Request, res: Response) => {
-    const prisma = getPrisma();
-    try {
-      const { senderId, receiverId } = req.query;
-      if (!senderId || !receiverId) {
-        return res.status(400).json({ error: 'senderId and receiverId are required' });
-      }
-      // Читать переписку может только её участник
-      const me = actorId(req);
-      if (me !== String(senderId) && me !== String(receiverId)) {
-        return res.status(403).json({ error: 'Это чужая переписка' });
-      }
-
-      // Отдаём хвост переписки, а не всю целиком: клиент перечитывает её при
-      // каждом событии сокета и раз в 12 секунд страховочным опросом, и на
-      // многолетней переписке это заметная нагрузка на сервер, сеть и отрисовку.
-      // Берём последние N в обратном порядке и переворачиваем — так работает
-      // индекс по дате, в отличие от смещения от начала
-      const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
-      const tail = await prisma.chatMessage.findMany({
-        where: {
-          OR: [
-            { senderId: String(senderId), receiverId: String(receiverId) },
-            { senderId: String(receiverId), receiverId: String(senderId) }
-          ]
-        },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      });
-
-      res.json(tail.reverse());
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  registerChatHistoryRoutes(app);
 
   // 2. Send message
   app.post('/api/chat/messages', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
+      const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId, guideRequest } = req.body;
       if (!senderId || !receiverId) {
         return res.status(400).json({ error: 'senderId and receiverId are required' });
       }
@@ -223,17 +215,24 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (actorId(req) !== String(senderId)) {
         return res.status(403).json({ error: 'Сообщение можно отправить только от своего имени' });
       }
+      const recipient = await prisma.user.findUnique({ where: { id: String(receiverId) }, select: { id: true, role: true, isActive: true } });
+      if (!recipient || recipient.role === 'SERVICE' || recipient.isActive === false) return res.status(404).json({ error: 'Собеседник не найден' });
 
       if (replyToId) {
-        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) } });
-        if (!reply || !(await isChatParticipant(actorId(req), reply)) || reply.chatGroupId || ![reply.senderId, reply.receiverId].includes(String(receiverId))) return res.status(403).json({ error: 'Ответ должен ссылаться на сообщение этого диалога' });
+        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) }, include: { guideReply: true } });
+        if (!reply || !(await isChatParticipant(actorId(req), reply)) || !(await isDirectConversationMessage(reply, String(senderId), String(receiverId)))) return res.status(403).json({ error: 'Ответ должен ссылаться на сообщение этого диалога' });
+        if (reply.guideReply && !(await canShareGuideReply(reply.guideReply.projectId, [String(senderId), String(receiverId)]))) return res.status(403).json({ error: 'Цитата недоступна: у собеседника нет доступа к проекту ответа.' });
       }
 
-      const msg = await prisma.chatMessage.create({
+            const fwdBlock = await guardGuideReplyForward(prisma, String(content || ''), [String(senderId), String(receiverId)]);
+      if (fwdBlock) return res.status(403).json({ error: fwdBlock });
+
+const msg = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
           receiverId: String(receiverId),
           content: String(content || ''),
+          guideRequest: guideRequest === true,
           linkedElementId: linkedElementId ? String(linkedElementId) : null,
           linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
           replyToId: replyToId ? String(replyToId) : null,
@@ -260,8 +259,9 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
+          guideReply: { select: { projectId: true, kind: true } },
           linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+          replyTo: { select: { id: true, content: true, senderId: true, receiverId: true, chatGroupId: true, guideReply: { select: { projectId: true, kind: true } }, sender: { select: { id: true, name: true } } } }
         }
       });
 
@@ -291,6 +291,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (msg.senderId !== actorId(req)) {
         return res.status(403).json({ error: 'Можно редактировать только свои сообщения' });
       }
+      if (msg.guideRequest) return res.status(409).json({ error: 'Вопрос Guide нельзя редактировать после отправки' });
       const updated = await prisma.chatMessage.update({
         where: { id },
         data: { content: String(content || ''), editedAt: new Date() },
@@ -298,8 +299,9 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
+          guideReply: { select: { projectId: true, kind: true } },
           linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+          replyTo: { select: { id: true, content: true, senderId: true, receiverId: true, chatGroupId: true, guideReply: { select: { projectId: true, kind: true } }, sender: { select: { id: true, name: true } } } }
         }
       });
       await emitChat('chat:message_updated', updated as any, updated);
@@ -388,15 +390,14 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       const me = (req as any).authUser;
       const filePath = String(req.query.path || '');
       if (!me || !filePath.startsWith('/chat_files/')) return res.status(400).json({ error: 'Не указан файл' });
-      const att = await prisma.chatAttachment.findMany({
+      const attachments = await prisma.chatAttachment.findMany({
         where: { filePath },
-        select: { message: { select: { senderId: true, receiverId: true, chatGroup: { select: { members: { select: { id: true } } } } } } },
+        include: { message: { include: { guideReply: true } } },
         take: 20,
       });
-      const mine = att.some((a: any) =>
-        a.message.senderId === me.id || a.message.receiverId === me.id ||
-        (a.message.chatGroup?.members || []).some((m: any) => m.id === me.id));
-      if (!mine && !isPrivilegedUser(me)) return res.status(404).json({ error: 'Файл не найден' });
+      let allowed = false;
+      for (const att of attachments as any[]) if (await canReadChatMessage(String(me.id), me, att.message)) { allowed = true; break; }
+      if (!allowed) return res.status(404).json({ error: 'Файл не найден' });
       res.json({ url: signLink(filePath) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -410,6 +411,12 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (!node || node.type !== 'CHAT_FILE' || !node.content) {
         return res.status(404).json({ error: 'Файл не найден' });
       }
+      const me = String((req as any).authUser?.id || '');
+      if (!me) return res.status(404).json({ error: 'Файл не найден' });
+      const attachments = await prisma.chatAttachment.findMany({ where: { filePath: { startsWith: `/chat_files/${node.id}/` } }, include: { message: { include: { guideReply: true } } }, take: 20 });
+      let allowed = false;
+      for (const att of attachments as any[]) if (await canReadChatMessage(me, (req as any).authUser, att.message)) { allowed = true; break; }
+      if (!allowed) return res.status(404).json({ error: 'Файл не найден' });
       const buffer = Buffer.from(node.content, 'base64');
       const ext = path.extname(node.name).toLowerCase();
       const type = CHAT_MIME[ext] || 'application/octet-stream';
@@ -730,7 +737,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       }
       const src = await prisma.chatMessage.findUnique({
         where: { id: String(messageId) },
-        include: { sender: { select: { name: true } }, attachments: true },
+        include: { sender: { select: { name: true } }, attachments: true, guideReply: true },
       });
       if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
       const me = actorId(req);
@@ -741,6 +748,14 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         const target = await prisma.chatGroup.findUnique({ where: { id: String(toGroupId) } });
         if (target?.type === 'CHANNEL' && target.ownerId && target.ownerId !== me && !isPrivilegedUser((req as any).authUser)) return res.status(403).json({ error: 'В канал может писать только владелец или администратор' });
       }
+      const audience = await audienceForTarget(toGroupId ? String(toGroupId) : null, toReceiverId ? String(toReceiverId) : null, me);
+      const sourceProject = String(src.guideReply?.projectId || src.linkedProjectId || '');
+      if (sourceProject && !(await canShareGuideReply(sourceProject, audience))) return res.status(403).json({ error: 'Пересылка недоступна: не у всех получателей есть доступ к проекту ответа.' });
+      if (toReceiverId) {
+        const target = await prisma.user.findUnique({ where: { id: String(toReceiverId) }, select: { id: true, role: true, isActive: true } });
+        // Убедиться, что прямой адресат существует и сообщение не уходит сервисной учётной записи.
+        if (!target || target.role === 'SERVICE' || target.isActive === false) return res.status(404).json({ error: 'Собеседник не найден' });
+      }
       const created = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
@@ -750,6 +765,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
           linkedElementId: src.linkedElementId,
           linkedProjectId: src.linkedProjectId,
           forwardedFrom: src.forwardedFrom || src.sender?.name || 'Сообщение',
+          ...(src.guideReply ? { guideReply: { create: { projectId: src.guideReply.projectId, kind: src.guideReply.kind } } } : {}),
           // Вложения пересылаются вместе с текстом (файл на диске общий — копируем записи)
           attachments: src.attachments.length ? {
             create: src.attachments.map((a: any) => ({ fileName: a.fileName, filePath: a.filePath, fileSize: a.fileSize })),
@@ -762,6 +778,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
+          guideReply: { select: { projectId: true, kind: true } },
           linkedElement: true,
           replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
         },
@@ -813,18 +830,27 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       }
       // Как и в личной переписке — только хвост: групповые чаты живут дольше всех
       const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+      const before = req.query.before ? new Date(String(req.query.before)) : null;
+      const beforeId = String(req.query.beforeId || '');
+      if (before && Number.isNaN(before.getTime())) return res.status(400).json({ error: 'Некорректный курсор истории' });
+      const cursor = before ? { OR: [{ createdAt: { lt: before } }, ...(beforeId ? [{ createdAt: before, id: { lt: beforeId } }] : [])] } : null;
       const tail = await prisma.chatMessage.findMany({
-        where: { chatGroupId: String(groupId) },
+        where: { AND: [{ chatGroupId: String(groupId) }, ...(cursor ? [cursor] : [])] },
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
+          guideReply: { select: { projectId: true, kind: true } },
           linkedElement: true,
           replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
       });
-      res.json(tail.reverse());
+      // F-ACL-03: сервисные ответы Guide, привязанные к проекту, при каждом
+      // чтении пере-авторизуются; лишённому доступа возвращается access_revoked
+      const guideSafe = await sanitizeGuideReplies(tail as any[], actorId(req), isAdminActor((req as any).authUser));
+      const safeTail = await sanitizeProjectReferences(guideSafe as any[], actorId(req), (req as any).authUser);
+      res.json((safeTail as any[]).slice().reverse());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -834,7 +860,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
   app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
+      const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId, guideRequest } = req.body;
       if (!senderId || !groupId) {
         return res.status(400).json({ error: 'senderId and groupId are required' });
       }
@@ -856,15 +882,22 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       }
 
       if (replyToId) {
-        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) } });
+        const reply = await prisma.chatMessage.findUnique({ where: { id: String(replyToId) }, include: { guideReply: true } });
         if (!reply || !(await isChatParticipant(actorId(req), reply)) || reply.chatGroupId !== String(groupId)) return res.status(403).json({ error: 'Ответ должен ссылаться на сообщение этой группы' });
+        const audience = await audienceForTarget(String(groupId), null, actorId(req));
+        if (reply.guideReply && !(await canShareGuideReply(reply.guideReply.projectId, audience))) return res.status(403).json({ error: 'Цитата недоступна: не у всех участников есть доступ к проекту ответа.' });
       }
 
-      const msg = await prisma.chatMessage.create({
+            const fwdMembers = (await prisma.chatGroup.findUnique({ where: { id: String(groupId) }, include: { members: { select: { id: true } } } }))?.members?.map((m: any) => m.id) || [];
+      const fwdBlock = await guardGuideReplyForward(prisma, String(content || ''), fwdMembers);
+      if (fwdBlock) return res.status(403).json({ error: fwdBlock });
+
+const msg = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
           chatGroupId: String(groupId),
           content: String(content || ''),
+          guideRequest: guideRequest === true,
           linkedElementId: linkedElementId ? String(linkedElementId) : null,
           linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
           replyToId: replyToId ? String(replyToId) : null,
@@ -889,8 +922,9 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
+          guideReply: { select: { projectId: true, kind: true } },
           linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+          replyTo: { select: { id: true, content: true, senderId: true, receiverId: true, chatGroupId: true, guideReply: { select: { projectId: true, kind: true } }, sender: { select: { id: true, name: true } } } }
         }
       });
 

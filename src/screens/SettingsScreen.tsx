@@ -11,18 +11,14 @@ import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Languages, Globe, Gamepad2,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Languages, Globe,
 } from 'lucide-react';
 import { isTopAdmin } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
 import LicenseSection from '../components/settings/LicenseSection';
-import PlayPlatform from '../components/settings/PlayPlatform';
 import TagRules from '../components/settings/TagRules';
-import { canManagePlay } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { SectionHead } from '../components/ui';
-import { PLAY_ADMIN } from '../../play/features';
-import { playEnabled } from '../../play/enabled';
 import ManagementSection from '../components/settings/ManagementSection';
 import BackupSection from '../components/settings/BackupSection';
 import EquipmentSection from '../components/settings/EquipmentSection';
@@ -38,7 +34,7 @@ import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settings
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'play' | 'tagrules';
+type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -86,8 +82,6 @@ const SECTIONS: Array<{
   // управление, — и видит даже при выключенной платформе: иначе выключатель
   // отнимал бы право, которым его двигают
   // Главному администратору лист виден всегда: включить платформу больше некому
-  // Платформа отключена: лист есть только при FLUX_PLAY=1 (play/enabled.ts)
-  ...(playEnabled() ? [{ id: 'play' as const, label: 'Flux Play', icon: Gamepad2, desc: 'Игровая платформа', scope: 'global' as const, entitlement: PLAY_ADMIN, orTop: true }] : []),
   // Своё в каждом проекте
   // Правила тегов: алфавит и приставки. Своё в каждом проекте — в одном
   // заказчик требует кириллицу, в другом её запрещает, и общее правило
@@ -119,12 +113,10 @@ export default function SettingsScreen() {
   // только ему, и список настроек это учитывает, а не показывает всем
   const topAdmin = isTopAdmin(user);
   // Листы встроенных программ: должность их не открывает, только выданное право
-  const policyCtx = useAppContext();
-  const mayManagePlay = canManagePlay(policyCtx);
   const allows = React.useCallback(
     (def: { id?: string; entitlement?: string; orTop?: boolean; ownerOnly?: boolean; adminFeature?: string }) =>
-      (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.id || canSeeSettingsSection(def.id, user)) && (!def.entitlement || mayManagePlay || (!!def.orTop && topAdmin)),
-    [topAdmin, mayManagePlay, user],
+      (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.id || canSeeSettingsSection(def.id, user)),
+    [topAdmin, user],
   );
 
   // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
@@ -217,7 +209,6 @@ export default function SettingsScreen() {
         {displayedSection === 'database' && <DatabaseSection />}
         {displayedSection === 'backup' && <BackupSection isAdmin={isAdmin} mayRun={canAdmin(user, 'admin.backup.run')} addToast={addToast} />}
         {displayedSection === 'logs' && <LogsSection addLog={addLog} />}
-        {playEnabled() && displayedSection === 'play' && <PlayPlatform addToast={addToast} />}
         {displayedSection === 'tagrules' && <TagRules addToast={addToast} />}
       </div>
       </div>

@@ -21,6 +21,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { shareOf } from '../fileSharing.js';
 import { FILE_NOT_FOUND, canReadFile, canWriteFile } from '../fileAccess.js';
+import { isIssuedOfficeFile, immutableOfficeFileError } from '../officeRevisions.js';
 
 export interface FileChunkDeps {
   /** Размер куска под предел пакета этой базы */
@@ -86,10 +87,14 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
       if (!data) return res.status(400).json({ error: 'Пустой кусок' });
       const bytes = Buffer.from(data, 'base64');
 
-      await prisma.fileChunk.upsert({
-        where: { fileId_idx: { fileId, idx } },
-        create: { fileId, idx, data: bytes },
-        update: { data: bytes },
+      await prisma.$transaction(async (tx: any) => {
+        const file = await tx.fileNode.findUnique({ where: { id: fileId } });
+        if (!file) throw Object.assign(new Error(FILE_NOT_FOUND), { status: 404 });
+        const claim = await tx.fileNode.updateMany({ where: { id: fileId, updatedAt: file.updatedAt, deletedAt: null }, data: { updatedAt: new Date(Math.max(Date.now(), file.updatedAt.getTime() + 1)) } });
+        if (!claim.count) throw Object.assign(new Error('Файл изменился во время записи'), { status: 409 });
+        // Выпуск захватывает эту же строку: кусок не может попасть в замороженный файл.
+        if (await isIssuedOfficeFile(tx, fileId)) throw immutableOfficeFileError();
+        await tx.fileChunk.upsert({ where: { fileId_idx: { fileId, idx } }, create: { fileId, idx, data: bytes }, update: { data: bytes } });
       });
       res.json({ ok: true, idx, bytes: bytes.length });
     } catch (err: any) { sendError(res, err); }
@@ -115,17 +120,25 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
       // нового конца — хвост старого файла. Без этой уборки склеилось бы новое
       // начало со старым концом, и книга перестала бы открываться. Число кусков
       // приходит от окна; без него (прежние окна) ничего не трогаем
+      const result = await prisma.$transaction(async (tx: any) => {
+        const current = await tx.fileNode.findUnique({ where: { id: fileId } });
+        if (!current) throw Object.assign(new Error(FILE_NOT_FOUND), { status: 404 });
+        const claim = await tx.fileNode.updateMany({ where: { id: fileId, updatedAt: current.updatedAt, deletedAt: null }, data: { updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)) } });
+        if (!claim.count) throw Object.assign(new Error('Файл изменился во время записи'), { status: 409 });
+        if (await isIssuedOfficeFile(tx, fileId)) throw immutableOfficeFileError();
       const count = Number(req.body?.count);
       if (Number.isInteger(count) && count >= 0) {
-        await prisma.fileChunk.deleteMany({ where: { fileId, idx: { gte: count } } });
+        await tx.fileChunk.deleteMany({ where: { fileId, idx: { gte: count } } });
       }
-      const rows = await prisma.fileChunk.findMany({ where: { fileId }, select: { data: true } });
+      const rows = await tx.fileChunk.findMany({ where: { fileId }, select: { data: true } });
       const size = rows.reduce((n: number, r: any) => n + Buffer.from(r.data).length, 0);
-      const file = await prisma.fileNode.update({
+      const savedFile = await tx.fileNode.update({
         where: { id: fileId },
         data: { size, content: null },
       });
-      res.json({ file, size, chunks: rows.length });
+      return { file: savedFile, size, chunks: rows.length };
+      });
+      res.json(result);
     } catch (err: any) { sendError(res, err); }
   });
 

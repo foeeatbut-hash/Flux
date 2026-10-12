@@ -1,11 +1,7 @@
-import { IconBtn, Avatar, Btn } from '../components/ui';
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { useAssistantStore } from '../store/assistantStore';
-import { useAssistantCall } from '../components/chat/useAssistantCall';
-import AssistantEntry from '../components/chat/AssistantEntry';
-import { matchUsers, matchGroups } from '../lib/chatSearch';
+import ChatSidebar, { ChatIndexRow, HistorySearchResult, MessengerSection, ChatFilter } from '../components/chat/ChatSidebar';
 import { canvasAttachment } from '../lib/chatDrawing';
 import { useToastStore } from '../store/toastStore';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
@@ -17,17 +13,19 @@ import { openInProject } from '../lib/projectScope';
 import { hasAdminRole } from '../lib/permissions';
 import { useTagNavigationStore } from '../store/tagNavigationStore';
 import MessageBubble, { DayDivider } from '../components/chat/MessageBubble';
+import ChatInfoPanel, { ChatInfoTab } from '../components/chat/ChatInfoPanel';
+import { parseGuideMessage } from '../components/chat/guideMessage';
 import { markGroups } from '../components/chat/grouping';
 import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
 import { Link2 } from 'lucide-react';
 import {
+  ArrowLeft,
   MessageSquare, 
   Search, 
   Paperclip, 
   Settings, 
   Send, 
   File, 
-  Download, 
   ChevronRight, 
   ChevronLeft, 
   User, 
@@ -45,7 +43,6 @@ import {
   CornerUpRight,
   Pin,
   PinOff,
-  Plus,
   Users,
   Radio,
   MoreVertical,
@@ -113,15 +110,6 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
   return <span className="whitespace-pre-wrap leading-relaxed select-text font-sans">{parts.length > 0 ? parts : text}</span>;
 };
 
-/** Счётчик непрочитанного у строки диалога */
-function UnreadDot({ n }: { n: number }) {
-  return (
-    <span className="fx-badge fx-badge-accent shrink-0" title={`Непрочитанных: ${n}`}>
-      {n > 99 ? '99+' : n}
-    </span>
-  );
-}
-
 export default function ChatManagement() {
   const { user, activeProject, setActiveProject } = useStore(useShallow((s: ReturnType<typeof useStore.getState>) => ({ user: s.user, activeProject: s.activeProject, setActiveProject: s.setActiveProject })));
   // Непрочитанное по каждому диалогу — считает хранилище уведомлений
@@ -159,6 +147,18 @@ export default function ChatManagement() {
     hasEarlier,
     loadEarlier
   } = useChatStore();
+
+  const refreshChatIndex = async () => {
+    try {
+      const res = await fetch('/api/chat/index');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      setChatIndex(Array.isArray(body?.chats) ? body.chats : []);
+      setChatIndexReady(true);
+    } catch (err) {
+      console.error('[ChatManagement] Не удалось обновить список разговоров:', err);
+    }
+  };
   const setFocusTarget = useShareStore(s => s.setFocusTarget);
 
   // Переход по «поделиться-ссылке» в сообщении.
@@ -178,6 +178,18 @@ export default function ChatManagement() {
   };
 
   const [messageText, setMessageText] = useState('');
+  const [chatIndex, setChatIndex] = useState<ChatIndexRow[]>([]);
+  const [chatIndexReady, setChatIndexReady] = useState(false);
+  const [historySearchOpen, setHistorySearchOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyResults, setHistoryResults] = useState<HistorySearchResult[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
+  const [historySearchLoading, setHistorySearchLoading] = useState(false);
+  const [historySearchError, setHistorySearchError] = useState('');
+  const [searchOpenedMessage, setSearchOpenedMessage] = useState<ChatMessage | null>(null);
+  const searchNavigationToken = useRef(0);
+  const searchOpenedMessageRef = useRef<HTMLDivElement>(null);
 
   // Приём логов из виджета: выбрать группу «Ошибки» и вставить текст в поле ввода
   useEffect(() => {
@@ -209,6 +221,9 @@ export default function ChatManagement() {
   }, [activeReceiverId, activeGroupId, user?.id]);
 
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
+  // Режим F: сообщение становится запросом Flux Guide, ответ приходит в этот
+  // же разговор. Сбрасывается при переходе к другому разговору (ТЗ Messenger §9.1)
+  const [guideMode, setGuideMode] = useState(false);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [conversationSearch, setConversationSearch] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -236,7 +251,11 @@ export default function ChatManagement() {
   };
 
   // UI state
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<ChatInfoTab>('overview');
+  const [guideNoticeDismissed, setGuideNoticeDismissed] = useState(() => localStorage.getItem('flux-guide-chat-visibility-seen') === '1');
+  const [messengerSection, setMessengerSection] = useState<MessengerSection>('chats');
+  const [chatFilter, setChatFilter] = useState<ChatFilter>('all');
   const [reactPickerFor, setReactPickerFor] = useState<string | null>(null); // id сообщения для выбора реакции
   const [forwardFor, setForwardFor] = useState<ChatMessage | null>(null);     // сообщение для пересылки
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -276,7 +295,57 @@ export default function ChatManagement() {
   useEffect(() => {
     fetchUsers();
     fetchGroups();
+    void refreshChatIndex();
+    const timer = window.setInterval(() => { void refreshChatIndex(); }, 20000);
+    return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const query = historyQuery.trim();
+    if (!historySearchOpen || !query) {
+      setHistoryResults([]);
+      setHistoryTotal(0);
+      setHistoryTruncated(false);
+      setHistorySearchLoading(false);
+      setHistorySearchError('');
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setHistorySearchLoading(true);
+        const res = await fetch(`/api/chat/search?q=${encodeURIComponent(query)}&limit=30&offset=0`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        setHistoryResults(Array.isArray(body?.results) ? body.results : []);
+        setHistoryTotal(Number(body?.total) || 0);
+        setHistoryTruncated(!!body?.truncated);
+        setHistorySearchError('');
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') setHistorySearchError('Поиск по истории сейчас недоступен.');
+      } finally {
+        if (!controller.signal.aborted) setHistorySearchLoading(false);
+      }
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [historyQuery, historySearchOpen]);
+
+  const loadMoreHistoryResults = async () => {
+    if (historySearchLoading || !historyQuery.trim()) return;
+    setHistorySearchLoading(true);
+    try {
+      const query = historyQuery.trim();
+      const res = await fetch(`/api/chat/search?q=${encodeURIComponent(query)}&limit=30&offset=${historyResults.length}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      setHistoryResults((current) => [...current, ...(Array.isArray(body?.results) ? body.results : [])]);
+      setHistoryTotal(Number(body?.total) || 0);
+      setHistoryTruncated(!!body?.truncated);
+      setHistorySearchError('');
+    } catch {
+      setHistorySearchError('Не удалось загрузить следующие результаты.');
+    } finally { setHistorySearchLoading(false); }
+  };
 
   // Debounced tags/components autocomplete search
   useEffect(() => {
@@ -404,9 +473,6 @@ export default function ChatManagement() {
   }, [isAnnotating, screenshotData]);
 
   // Поиск по людям и группам одной строкой — src/lib/chatSearch.ts
-  const filteredUsers = matchUsers(users, user?.id, searchQuery);
-  const filteredGroups = matchGroups(groups, searchQuery);
-
   const activePeer = users.find(u => u.id === activeReceiverId);
   const activeGroup = groups.find(g => g.id === activeGroupId);
 
@@ -451,14 +517,8 @@ export default function ChatManagement() {
     }
   };
 
-  // Вызов помощника через «@» — components/chat/useAssistantCall: там же и
-  // правило приватности, по которому он видит только заданный вопрос
-  const maybeAskAssistant = useAssistantCall({
-    me: user,
-    projectId: activeProject?.id || null,
-    say: (userId, text, projectId) => sendMessage(userId, text, null, projectId, [], null),
-    toast: (text, kind) => addToast(text, kind),
-  });
+  const activeConversationKey = activeType === 'DIRECT' ? activeReceiverId : activeGroupId;
+  React.useEffect(() => { setGuideMode(false); }, [activeConversationKey]);
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -470,17 +530,19 @@ export default function ChatManagement() {
 
     setIsSendingMessage(true);
     try {
+      let sentMessage: ChatMessage | null = null;
       if (editingMessage) {
         await editMessage(user.id, editingMessage.id, messageText);
         setEditingMessage(null);
       } else {
-        await sendMessage(
+        sentMessage = await sendMessage(
           user.id,
           messageText,
           selectedElementId,
           activeProject?.id || null,
           stagedAttachments,
-          replyTarget?.id || null
+          replyTarget?.id || null,
+          guideMode
         );
         setReplyTarget(null);
       }
@@ -489,9 +551,36 @@ export default function ChatManagement() {
       setStagedAttachments([]);
       setSelectedElementId(null);
       setSelectedElementName(null);
+      void refreshChatIndex();
 
-      // Сообщение, начатое с «@помощник», кроме собеседников уходит и ему
-      void maybeAskAssistant(messageText, !!editingMessage);
+      // Режим F: вопрос адресован Flux Guide. Ответ строит СЕРВЕР (права всех
+      // получателей проверяются там же) и публикуется от сервисного отправителя
+      // «Flux Guide» в этот же разговор, с цитатой запроса (ТЗ Messenger §9.5;
+      // Next_Steps §1). Клиент только запрашивает публикацию.
+      if (guideMode && !editingMessage && messageText.trim()) {
+        try {
+          const requestId = sentMessage?.id || null;
+          if (!requestId) throw new Error('запрос не сохранился');
+          const isGroup = activeType !== 'DIRECT';
+          const res = await fetch('/api/guide/chat-reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: isGroup ? 'GROUP' : 'DIRECT',
+              conversationId: isGroup ? activeGroupId : activeReceiverId,
+              requestMessageId: requestId,
+              question: messageText,
+              projectId: activeProject?.id || undefined,
+            }),
+          });
+          const body = await res.json().catch(() => ({} as any));
+          if (!res.ok) throw new Error(body?.error || `сервер ответил ${res.status}`);
+          if (body?.refusal) addToast('Flux Guide: ответ не опубликован — проверьте доступ участников к проекту', 'info');
+          void refreshChatIndex();
+        } catch (err: any) {
+          addToast('Flux Guide не ответил: ' + (err?.message || err), 'error');
+        }
+      }
       // Возвращаем фокус в поле — чтобы можно было сразу печатать дальше
       requestAnimationFrame(() => messageInputRef.current?.focus());
     } catch (err: any) {
@@ -646,6 +735,31 @@ export default function ChatManagement() {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('flux-hb-flash');
     window.setTimeout(() => el.classList.remove('flux-hb-flash'), 2000);
+  };
+
+  useEffect(() => {
+    if (searchOpenedMessage) searchOpenedMessageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [searchOpenedMessage]);
+
+  const openHistoryResult = async (result: HistorySearchResult) => {
+    if (result.type === 'GROUP' && result.groupId) setActiveGroupId(result.groupId);
+    else if (result.type === 'DIRECT' && result.peerId) setActiveReceiverId(result.peerId);
+    else return;
+    setHistorySearchOpen(false);
+    setSearchOpenedMessage(null);
+    const token = ++searchNavigationToken.current;
+    try {
+      const response = await fetch(`/api/chat/messages/${encodeURIComponent(result.messageId)}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const message = await response.json();
+      const current = useChatStore.getState();
+      const sameConversation = result.type === 'GROUP'
+        ? current.activeGroupId === result.groupId
+        : current.activeReceiverId === result.peerId;
+      if (token === searchNavigationToken.current && sameConversation) setSearchOpenedMessage(message as ChatMessage);
+    } catch {
+      if (token === searchNavigationToken.current) addToast('Не удалось открыть найденное сообщение: доступ мог измениться.', 'info');
+    }
   };
 
   /**
@@ -834,110 +948,27 @@ export default function ChatManagement() {
   };
 
   return (
-    <div className="h-full flex overflow-hidden bg-[var(--flux-surface)] text-[13px] leading-5">
+    <div className="relative h-full flex overflow-hidden bg-[var(--flux-surface)] text-[13px] leading-5">
       
-      {/* LEFT PANEL: Users List & Automated Project Rooms */}
-      <div className="fx-side w-44 @[700px]:w-56 @[900px]:w-72 flex flex-col shrink-0 select-none">
-        
-        {/* Top Header & Fast Search bar */}
-        {/* Шапка списка: название и главное действие, под ней поиск */}
-        <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[15px] font-semibold text-slate-900 dark:text-white">Мессенджер</h2>
-            <IconBtn label="Создать группу или канал" onClick={() => setShowCreateGroup(true)}>
-              <Plus className="w-4 h-4" />
-            </IconBtn>
-          </div>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Найти собеседника по ФИО"
-              aria-label="Найти собеседника"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="fx-input w-full pl-7"
-            />
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          </div>
-        </div>
-
-        {/* Categories channels scrolling container */}
-        <div data-tour="chat-peers" className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
-
-          {/* Помощник — закреплённый первым разговор, а не программа, в которую
-              надо идти (components/chat/AssistantEntry) */}
-          <AssistantEntry />
-
-          {/* Section 1: Groups & Channels */}
-          <div className="space-y-1">
-            <div className="px-2 py-1 fx-label">Группы и каналы</div>
-            {groups.length === 0 ? (
-              <p className="text-xs px-2 py-1 text-slate-500 dark:text-slate-400">Групп пока нет — создайте кнопкой «+» вверху.</p>
-            ) : filteredGroups.length === 0 ? (
-              // Группы есть, но поиск их не нашёл — молча пустеть список не должен
-              <p className="text-xs px-2 py-1 text-slate-500 dark:text-slate-400">По запросу групп не найдено.</p>
-            ) : (
-              filteredGroups.map((g) => {
-                const active = g.id === activeGroupId;
-                const unread = chatUnreadByKey[`group=${g.id}`] || 0;
-                const isCh = g.type === 'CHANNEL';
-                const isProj = g.type === 'PROJECT';
-                const subtitle = isCh ? 'Канал' : isProj ? 'Группа проекта' : `Группа · ${g.members?.length || 0} уч.`;
-                return (
-                  <button type="button"
-                    key={g.id}
-                    onClick={() => setActiveGroupId(g.id)}
-                    aria-current={active || undefined}
-                    className="fx-li h-10"
-                  >
-                    {isCh ? <Radio /> : <Users />}
-                    <div className="flex-1 min-w-0">
-                      <span className="block truncate leading-5">{g.name}</span>
-                      <span className="block truncate text-xs leading-4 text-slate-500 dark:text-slate-400">{subtitle}</span>
-                    </div>
-                    {unread > 0 && !active && <UnreadDot n={unread} />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* Section 2: Direct Messages (Личные диалоги) */}
-          <div className="space-y-1">
-            <div className="px-2 py-1 fx-label">Личные диалоги</div>
-            {filteredUsers.length === 0 ? (
-              <div className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400">
-                {searchQuery.trim() ? 'По запросу сотрудников не найдено' : 'Пока нет других сотрудников'}
-              </div>
-            ) : (
-              filteredUsers.map((u) => {
-                const active = u.id === activeReceiverId;
-                const unread = chatUnreadByKey[`from=${u.id}`] || 0;
-                return (
-                  <button type="button"
-                    key={u.id}
-                    onClick={() => setActiveReceiverId(u.id)}
-                    aria-current={active || undefined}
-                    className="fx-li h-10"
-                  >
-                    {/* Точка «в сети» на самом кружке: её видно боковым
-                        зрением, не читая */}
-                    <Avatar name={u.name} online={onlineIds.includes(u.id)} />
-                    <div className="flex-1 min-w-0">
-                      <span className={`block truncate leading-5 ${unread > 0 && !active ? 'font-semibold' : ''}`}>{u.name}</span>
-                      <span className="block truncate text-xs leading-4 text-slate-500 dark:text-slate-400">
-                        {u.symbol} · {u.role.replace('ENGINEER_', '')}
-                      </span>
-                    </div>
-                    {unread > 0 && !active && <UnreadDot n={unread} />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-        </div>
-      </div>
+      <ChatSidebar
+        users={users} groups={groups} currentUserId={user?.id}
+        hiddenOnMobile={!!(activePeer || activeGroup)}
+        activeReceiverId={activeReceiverId} activeGroupId={activeGroupId}
+        unreadByKey={chatUnreadByKey} onlineIds={onlineIds}
+        chatIndex={chatIndex} chatIndexReady={chatIndexReady}
+        section={messengerSection} onSectionChange={setMessengerSection}
+        filter={chatFilter} onFilterChange={setChatFilter}
+        query={searchQuery} onQueryChange={setSearchQuery}
+        onCreateGroup={() => setShowCreateGroup(true)}
+        onOpenDirect={setActiveReceiverId} onOpenGroup={setActiveGroupId}
+        historySearchOpen={historySearchOpen} onHistorySearchOpenChange={setHistorySearchOpen}
+        historyQuery={historyQuery} onHistoryQueryChange={setHistoryQuery}
+        historyResults={historyResults} historyTotal={historyTotal}
+        historyHasMore={historyTruncated || historyResults.length < historyTotal}
+        historyLoading={historySearchLoading} onLoadMoreHistory={() => void loadMoreHistoryResults()}
+        historySearchError={historySearchError}
+        onOpenSearchResult={openHistoryResult}
+      />
 
       {/* CENTRAL PANEL: Messages Area stream */}
       <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900 relative">
@@ -946,6 +977,7 @@ export default function ChatManagement() {
             {/* Thread Header Info bar */}
             <div className="fx-head shrink-0 select-none justify-between">
               <div className="flex items-center gap-3">
+                <button type="button" aria-label="Назад к чатам" title="Назад к чатам" onClick={() => setActiveReceiverId(null)} className="fx-ibtn shrink-0 @[700px]:hidden"><ArrowLeft className="w-4 h-4" /></button>
                 {activeType === 'DIRECT' && activePeer ? (
                   <>
                     <div className="relative">
@@ -966,7 +998,7 @@ export default function ChatManagement() {
                       </h3>
                       {/* «В сети» стоит первым: прежде чем писать, человек
                           решает, ждать ли ответа сейчас */}
-                      <p className="text-xs leading-snug mt-0.5">
+                      <p className="hidden @[700px]:block text-xs leading-snug mt-0.5">
                         <span className={peerOnline
                           ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
                           : 'text-slate-400'}>
@@ -983,7 +1015,7 @@ export default function ChatManagement() {
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
                         {activeGroup.name}
                       </h3>
-                      <p className="text-xs text-slate-400 leading-snug mt-0.5 truncate max-w-lg">
+                      <p className="hidden @[700px]:block text-xs text-slate-400 leading-snug mt-0.5 truncate max-w-lg">
                         Группа проекта · все участники проекта
                       </p>
                     </div>
@@ -993,7 +1025,7 @@ export default function ChatManagement() {
               
               <div className="flex items-center gap-2">
                 {/* Поиск по сообщениям текущей переписки */}
-                <div className="relative">
+                <div className="relative hidden @[700px]:block">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
@@ -1084,6 +1116,25 @@ export default function ChatManagement() {
                   </span>
                 </div>
               )}
+              {searchOpenedMessage && (
+                <article ref={searchOpenedMessageRef} className="sticky top-1 z-10 mb-3 border-l-2 border-emerald-600 dark:border-emerald-400 bg-white dark:bg-slate-850 px-3 py-2">
+                  {(() => {
+                    const guide = parseGuideMessage(searchOpenedMessage.content, {
+                      guideRequest: searchOpenedMessage.guideRequest,
+                      guideReply: !!searchOpenedMessage.guideReply && searchOpenedMessage.sender.role === 'SERVICE',
+                    });
+                    return <>
+                      <div className="mb-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="min-w-0 flex-1 truncate">Найденное сообщение · {searchOpenedMessage.sender.name}</span>
+                        {guide.kind && <span>{guide.kind === 'reply' ? 'F · Flux Guide' : 'Запрос Flux Guide'}</span>}
+                        <button type="button" className="fx-btn fx-btn-sm" onClick={() => setSearchOpenedMessage(null)}>Скрыть</button>
+                      </div>
+                      <div className="text-xs text-slate-800 dark:text-slate-100"><FormattedMessage text={guide.text} onTagClick={handleTagClick} onShareClick={handleShareClick} /></div>
+                      {(searchOpenedMessage.attachments || []).map((file) => <button key={file.id} type="button" onClick={() => openFile(file.filePath)} className="fx-btn fx-btn-sm mr-1 mt-2">{file.fileName}</button>)}
+                    </>;
+                  })()}
+                </article>
+              )}
               {visibleMessages.length === 0 && !conversationSearch.trim() ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
@@ -1132,7 +1183,10 @@ export default function ChatManagement() {
                         onJumpTo={jumpToMessage}
                         formatBytes={formatBytes}
                       >
-                        <FormattedMessage text={msg.content} onTagClick={handleTagClick} onShareClick={handleShareClick} />
+                        <FormattedMessage text={parseGuideMessage(msg.content, {
+                          guideRequest: (msg as ChatMessage & { guideRequest?: boolean }).guideRequest,
+                          guideReply: !!(msg as ChatMessage & { guideReply?: unknown }).guideReply && msg.sender.role === 'SERVICE',
+                        }).text} onTagClick={handleTagClick} onShareClick={handleShareClick} />
                       </MessageBubble>
                     </React.Fragment>
                   );
@@ -1144,7 +1198,7 @@ export default function ChatManagement() {
                 <div className="sticky bottom-1 z-10 flex justify-end pointer-events-none">
                   <button type="button"
                     onClick={scrollToBottom}
-                    className="pointer-events-auto w-9 h-9 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-lg flex items-center justify-center text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer transition-colors"
+                    className="pointer-events-auto w-9 h-9 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer transition-colors"
                     title="К последним сообщениям"
                   >
                     <ChevronDown className="w-5 h-5" />
@@ -1259,6 +1313,14 @@ export default function ChatManagement() {
                 </div>
               )}
 
+              {/* Режим F: спокойная подсказка о видимости ответа (ТЗ Messenger §9.1) */}
+              {guideMode && !guideNoticeDismissed && (
+                <div className="px-1 pb-1 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 select-none">
+                  <span className="min-w-0 truncate">Ответ Flux Guide увидят {activeType === 'DIRECT' ? 'оба собеседника' : 'участники разговора'}</span>
+                  <button type="button" className="fx-btn fx-btn-sm" onClick={() => { localStorage.setItem('flux-guide-chat-visibility-seen', '1'); setGuideNoticeDismissed(true); }} title="Понятно">Понятно</button>
+                </div>
+              )}
+
               {/* Controls bar layout */}
               <div className="flex items-center gap-2">
                 <input 
@@ -1324,14 +1386,17 @@ export default function ChatManagement() {
                   )}
                 </div>
 
-                {/* Rich-поле ввода: ссылки-теги отображаются чипами ещё до отправки */}
+
+                {/* Rich-поле ввода: ссылки-теги отображаются чипами ещё до отправки.
+                    В режиме F — заметная изумрудная рамка 2px (ТЗ Messenger §3.2) */}
+                <div className={`relative flex-1 min-w-0 rounded-xl ${guideMode ? 'ring-2 ring-emerald-500 dark:ring-emerald-400' : ''}`}>
                 <RichChatInput
                   ref={messageInputRef}
                   value={messageText}
                   onChange={setMessageText}
                   onCaretWord={handleCaretWord}
                   onSend={() => handleSend()}
-                  placeholder="Напишите сообщение... (# — вставить тег, Shift+Enter — новая строка)"
+                  placeholder={guideMode ? 'Спросите Flux Guide…' : 'Напишите сообщение... (# — вставить тег, Shift+Enter — новая строка)'}
                   onKeyDown={(e) => {
                     if (autocompleteSuggestions.length > 0) {
                       if (e.key === 'ArrowDown') {
@@ -1357,6 +1422,18 @@ export default function ChatManagement() {
                     }
                   }}
                 />
+                </div>
+
+                {/* Кнопка F перед «Отправить»: обычное сообщение ↔ вопрос Flux Guide */}
+                <button
+                  type="button"
+                  onClick={() => setGuideMode(v => !v)}
+                  aria-pressed={guideMode}
+                  title={guideMode ? 'Выключить Flux Guide: сообщение уйдёт как обычное' : 'Спросить Flux Guide: ответ придёт в этот же разговор'}
+                  className={`fx-ibtn shrink-0 font-bold text-xs ${guideMode ? '!bg-emerald-600 !text-white hover:!bg-emerald-500' : ''}`}
+                >
+                  F
+                </button>
 
                 <button
                   type="submit"
@@ -1382,183 +1459,24 @@ export default function ChatManagement() {
         )}
       </div>
 
-      {/* RIGHT PANEL: Collapsible Active Peer Profile / Dynamic TAG Card File History list */}
-      {(activePeer || activeGroup) && isRightPanelOpen && (
-        <div className="hidden @[1000px]:flex w-72 border-l border-slate-200 dark:border-slate-800 flex-col bg-slate-50/50 dark:bg-slate-900/40 select-none shrink-0 overflow-y-auto">
-          
-          {selectedTagElement ? (
-            /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */
-            <div className="flex-1 flex flex-col h-full select-none">
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-emerald-50/55 dark:bg-emerald-950/25">
-                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 font-sans">
-                  ⚙️ Карточка тега
-                </span>
-                <button type="button" 
-                  onClick={() => setSelectedTagElement(null)}
-                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-800 dark:hover:text-white cursor-pointer transition-colors"
-                  title="Вернуться к диалогу"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4 text-left">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-semibold text-slate-800 dark:text-white leading-snug">
-                    {selectedTagElement.name}
-                  </h4>
-                  <p className="text-xs font-mono text-slate-400">
-                    Код узла: {selectedTagElement.itemCode}
-                  </p>
-                </div>
-
-                <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
-                  <div>
-                    <span className="fx-label block">Тип оборудования</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
-                      {selectedTagElement.type || 'Спецификация MAX'}
-                    </span>
-                  </div>
-
-                  {selectedTagElement.monoblock && (
-                    <div>
-                      <span className="fx-label block">Моноблок</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
-                        📦 {selectedTagElement.monoblock.name}
-                      </span>
-                    </div>
-                  )}
-
-                  {selectedTagElement.monoblock?.system && (
-                    <div>
-                      <span className="fx-label block">Система</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
-                        🌐 {selectedTagElement.monoblock.system.name}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Technical specifications */}
-                <div className="space-y-1.5">
-                  <h5 className="text-xs font-semibold text-slate-400">
-                    Технические параметры
-                  </h5>
-                  <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-900 overflow-hidden text-xs shadow-3xs">
-                    {(() => {
-                      try {
-                        const specs = typeof selectedTagElement.specs === 'string'
-                          ? JSON.parse(selectedTagElement.specs)
-                          : selectedTagElement.specs;
-
-                        if (specs && typeof specs === 'object' && Object.keys(specs).length > 0) {
-                          return Object.entries(specs).map(([k, v]: [string, any]) => (
-                            <div key={k} className="flex justify-between p-2">
-                              <span className="text-slate-400">{k}:</span>
-                              <span className="font-mono font-medium text-slate-705 dark:text-slate-300 text-xs">{String(v)}</span>
-                            </div>
-                          ));
-                        }
-                      } catch (e) {}
-                      return (
-                        <div className="p-3 text-center text-slate-400 text-xs">
-                          Спецификации загружены из файла Excel
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* Project Explorer switcher */}
-                <button type="button"
-                  onClick={() => {
-                    addToast('Перенаправление в Проводник...', 'success');
-                    navigate(`/equipment?elementId=${selectedTagElement.id}`);
-                  }}
-                  className="fx-btn fx-btn-primary w-full justify-center"
-                >
-                  <LinkIcon className="w-3.5 h-3.5" />
-                  Открыть в Проводнике
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* STANDARD PROFILE DIRECT / GROUP SECTION */
-            <>
-              {activeType === 'DIRECT' && activePeer ? (
-                <div className="p-5 text-center border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex justify-center mb-2"><Avatar name={activePeer.name} className="!w-10 !h-10 !text-sm" /></div>
-                  <h4 className="text-[13px] font-semibold text-slate-900 dark:text-white leading-5 truncate">
-                    {activePeer.name}
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {activePeer.role}
-                  </p>
-                  
-                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
-                    <dt className="text-slate-500 dark:text-slate-400">Табель</dt><dd className="text-slate-700 dark:text-slate-300 truncate">{activePeer.symbol}</dd>
-                    <dt className="text-slate-500 dark:text-slate-400">Переписка</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Личная</dd>
-                  </dl>
-                </div>
-              ) : activeGroup ? (
-                <div className="p-5 text-center border-b border-slate-200 dark:border-slate-800">
-                  <Users className="w-6 h-6 text-slate-400 mx-auto mb-2" />
-                  <h4 className="text-[13px] font-semibold text-slate-900 dark:text-white leading-5 truncate">
-                    {activeGroup.name}
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Группа проекта
-                  </p>
-                  
-                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
-                    <dt className="text-slate-500 dark:text-slate-400">Участники</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Все сотрудники</dd>
-                    <dt className="text-slate-500 dark:text-slate-400">Переписка</dt><dd className="text-slate-700 dark:text-slate-300 truncate">Групповая</dd>
-                  </dl>
-                </div>
-              ) : null}
-
-              {/* Shared Files attachment listings */}
-              <div className="flex-1 p-4 text-left">
-                <h5 className="text-xs font-semibold text-slate-400 mb-2.5 flex items-center gap-1.5">
-                  <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                  История вложений ({allHistoryAttachments.length})
-                </h5>
-
-                {allHistoryAttachments.length === 0 ? (
-                  <div className="py-2 text-slate-500 dark:text-slate-400 text-xs">
-                    Вложений пока нет
-                  </div>
-                ) : (
-                  <div className="space-y-1 max-h-[350px] overflow-y-auto pr-1">
-                    {allHistoryAttachments.map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => openFile(f.filePath)}
-                        className="w-full text-left flex items-center justify-between p-2 hover:bg-slate-100/80 dark:hover:bg-slate-800 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer group transition-ui"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <File className="w-3.5 h-3.5 text-slate-450 shrink-0 group-hover:text-emerald-600" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-emerald-400">
-                              {f.fileName}
-                            </p>
-                            <p className="text-xs text-slate-400 font-mono">
-                              {formatBytes(f.fileSize)}
-                            </p>
-                          </div>
-                        </div>
-                        <Download className="w-3 h-3 text-slate-400 hover:text-slate-700" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-        </div>
-      )}
+      <ChatInfoPanel
+        open={isRightPanelOpen}
+        sidebarHiddenOnMobile={!!(activePeer || activeGroup)}
+        peer={activePeer || null}
+        group={activeGroup || null}
+        tab={rightPanelTab}
+        onTabChange={setRightPanelTab}
+        selectedTag={selectedTagElement}
+        onClearTag={() => setSelectedTagElement(null)}
+        onOpenTag={handleTagClick}
+        onOpenEquipment={handleEquipmentClick}
+        conversationId={activeReceiverId || activeGroupId || ''}
+        conversationType={activeGroupId ? 'GROUP' : 'DIRECT'}
+        onlineIds={onlineIds}
+        onOpenFile={openFile}
+        formatBytes={formatBytes}
+        onClose={() => setIsRightPanelOpen(false)}
+      />
 
       {/* EQUIPMENT SELECTION PIE SYSTEM ATTACH DIALOG */}
       <AnimatePresence>

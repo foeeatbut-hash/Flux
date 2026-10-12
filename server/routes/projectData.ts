@@ -29,6 +29,7 @@ import {
 } from '../projectSlice.js';
 import { projectOfFile, resolveKeys, searchProject, signersOf, setSigner } from '../projectFields.js';
 import { fillDocxMarkers, listDocxMarkers, listDocxFields, listXlsxAnchors, updateDocxFields, updateXlsxFields, writeXlsxBlock, type FieldValue } from '../officeFields.js';
+import { registerProjectOfficeRoutes } from './projectOffice.js';
 
 export interface ProjectDataDeps {
   /** Можно ли этому человеку писать в файл: '' — да, иначе — почему нет */
@@ -415,6 +416,7 @@ export function registerProjectDataRoutes(app: Express, deps: ProjectDataDeps): 
   app.post('/api/project-data/fn', fn);
   app.get('/api/project-data/fingerprint', fingerprint);
   app.post('/api/project-data/query', query);
+  registerProjectOfficeRoutes(app);
 
   /** Проект, в котором разрешать поля: у файла — его проект */
   const ctxOf = async (src: any) => {

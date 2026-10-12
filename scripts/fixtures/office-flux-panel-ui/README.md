@@ -1,17 +1,18 @@
-# Flux Office side panel fixture
+# Flux Office add-on fixture
 
-This standalone fixture mounts the real `FluxPanel` with mocked project and source API responses. It needs no database.
+This browser fixture mounts the real Flux Office add-on panel beside a stand-in GenOffice canvas. Its project-data API routes return the same catalog, query, file-state, preview, confirm, and template shapes used by the server. The editor callbacks record the native bridge requests, so the browser checks field binding, schema editing, preview/confirm, and apply flow without replacing or mocking the add-on UI.
 
-Start it from the repository root:
+Run the self-starting browser test from the repository root:
+
+```sh
+npx tsx scripts/test-office-addon-ui.ts
+```
+
+The runner chooses an available port, waits for Vite, runs the browser check, and closes the fixture. For manual inspection, start Vite and run the check separately:
 
 ```sh
 npx vite --config scripts/fixtures/office-flux-panel-ui/vite.config.ts --host 127.0.0.1 --port 4190
-```
-
-In another terminal, run the interaction, width and theme checks:
-
-```sh
 node scripts/fixtures/office-flux-panel-ui/check.mjs
 ```
 
-Set `FLUX_CHROME` to the Chromium executable when it is not `/usr/bin/chromium`. The check saves four screenshots under `/tmp` and verifies the 320 px and 460 px panel widths, both themes, switching to another project, and changing the export source.
+Set `FLUX_CHROME` if Chromium is installed outside `/usr/bin/chromium`. The check writes light/dark screenshots for 390, 760, and 1280 px viewports, plus loaded selection, field schema, and fill plan views. `OFFICE_ADDON_UI_DIR` selects the screenshot directory. It verifies query/template contracts, schema operations, editor callbacks, and the optimistic preview/confirm request.

@@ -11,8 +11,6 @@
       "sources": [
         "src/screens/ChatManagement.tsx",
         "src/components/chat/MessageBubble.tsx",
-        "src/components/chat/AssistantEntry.tsx",
-        "src/components/chat/useAssistantCall.ts",
         "src/components/RichChatInput.tsx",
         "src/lib/chatSearch.ts",
         "src/lib/chatDrawing.ts",
@@ -109,27 +107,6 @@
       ]
     },
     {
-      "id": "assistant",
-      "label": "Помощник",
-      "routes": [
-        "/assistant"
-      ],
-      "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/Chat.tsx",
-        "src/components/assistant/ChatHistory.tsx",
-        "src/components/assistant/CatalogAnswer.tsx",
-        "src/components/chat/AssistantEntry.tsx",
-        "src/assistant/context.ts",
-        "src/assistant/resolve.ts",
-        "src/assistant/answers.ts",
-        "src/assistant/handbookAnswers.ts",
-        "src/assistant/sections.ts",
-        "src/store/assistantStore.ts",
-        "src/store/assistantChatsStore.ts"
-      ]
-    },
-    {
       "id": "translate",
       "label": "Переводчик",
       "routes": [
@@ -166,13 +143,31 @@
       ]
     },
     {
-      "id": "handbook",
-      "label": "Руководство",
+      "id": "guide",
+      "label": "Flux Guide: справочник, вопросы и демонстрации",
       "routes": [
-        "/handbook"
+        "/guide"
       ],
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
+        "src/components/guide/AnswerView.tsx",
+        "src/components/guide/ProjectSelector.tsx",
+        "src/components/guide/HistoryPanel.tsx",
+        "src/components/guide/QuestionsPane.tsx",
+        "src/components/guide/HandbookPane.tsx",
+        "src/components/guide/GuideSpotlight.tsx",
+        "src/guide/engine.ts",
+        "src/guide/questionParser.ts",
+        "src/guide/projects.ts",
+        "src/guide/store.ts",
+        "src/guide/types.ts",
+        "src/guide/support/inputRepair.ts",
+        "src/guide/support/handbookAnswers.ts",
+        "src/guide/support/knowledge.ts",
+        "src/guide/support/nlp.ts",
+        "src/guide/support/queryWords.ts",
+        "src/guide/support/tableExport.ts",
+        "src/guide/support/tours.ts",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx",
         "src/handbook/registry.ts",
@@ -194,6 +189,31 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-chat-screen-ui",
+      "path": "scripts/test-chat-screen-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "browser:chromium",
+        "vite-port:5173"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_UI_URL"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-screen.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-screen.tsx"
+        }
+      ],
       "timeoutMs": 900000
     },
     {
@@ -237,11 +257,27 @@
         "api:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -256,11 +292,27 @@
         "api:fixture"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -281,8 +333,14 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [
-        { "kind": "file", "path": "src/store/mailStore.ts" },
-        { "kind": "file", "path": "src/screens/Mail.tsx" }
+        {
+          "kind": "file",
+          "path": "src/store/mailStore.ts"
+        },
+        {
+          "kind": "file",
+          "path": "src/screens/Mail.tsx"
+        }
       ],
       "timeoutMs": 900000
     },
@@ -531,11 +589,27 @@
         "browser:exclusive"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -552,11 +626,27 @@
         "browser:exclusive"
       ],
       "prerequisites": [
-        { "kind": "env", "name": "FLUX_TEST_FIXTURE", "value": "1" },
-        { "kind": "env", "name": "FLUX_API" },
-        { "kind": "env", "name": "FLUX_USER" },
-        { "kind": "env", "name": "FLUX_PASS" },
-        { "kind": "file", "path": "scripts/testCredentials.ts" }
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE",
+          "value": "1"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_API"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_USER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_PASS"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/testCredentials.ts"
+        }
       ],
       "timeoutMs": 900000,
       "external": true
@@ -580,8 +670,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-query",
-      "path": "scripts/test-assistant.ts",
+      "id": "collab-guide-engine",
+      "path": "scripts/test-guide-engine.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -589,8 +679,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-context",
-      "path": "scripts/test-assistant-context.ts",
+      "id": "collab-guide-store",
+      "path": "scripts/test-guide-store.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -598,8 +688,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-links",
-      "path": "scripts/test-assistant-links.ts",
+      "id": "collab-guide-parser",
+      "path": "scripts/test-guide-parser.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -607,8 +697,8 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-history-contract",
-      "path": "scripts/test-assistant-chats.ts",
+      "id": "collab-guide-tour-runtime",
+      "path": "scripts/test-guide-tour-runtime.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
@@ -616,43 +706,54 @@
       "timeoutMs": 900000
     },
     {
-      "id": "collab-assistant-privacy-api",
-      "path": "scripts/test-assistant-privacy.ts",
-      "layer": "api-db",
+      "id": "collab-guide-tours-full-app",
+      "path": "scripts/test-guide-tours-native-live.ts",
+      "layer": "browser-live",
       "platform": "any",
       "resources": [
-        "flux-test-api",
+        "browser:chromium",
+        "vite-port:dynamic",
         "api:fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-guide-history-acl",
+      "path": "scripts/test-guide-server.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "collab-guide-ui",
+      "path": "scripts/test-guide-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "vite-port:dynamic",
+        "browser:chromium"
       ],
       "prerequisites": [
         {
-          "kind": "env",
-          "name": "FLUX_TEST_FIXTURE",
-          "value": "1"
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/index.html"
         },
         {
-          "kind": "env",
-          "name": "FLUX_API"
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/main.tsx"
         },
         {
-          "kind": "env",
-          "name": "FLUX_USER"
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/fixture.css"
         },
         {
-          "kind": "env",
-          "name": "FLUX_PASS"
+          "kind": "file",
+          "path": "scripts/fixtures/guide-ui/vite.config.ts"
         }
       ],
-      "timeoutMs": 900000,
-      "external": true
-    },
-    {
-      "id": "collab-assistant-catalog-query",
-      "path": "scripts/test-catalog-query.ts",
-      "layer": "unit",
-      "platform": "any",
-      "resources": [],
-      "prerequisites": [],
       "timeoutMs": 900000
     },
     {
@@ -756,6 +857,38 @@
           ]
         }
       ]
+    },
+    {
+      "id": "chat.screen-history-and-details",
+      "program": "chat",
+      "label": "Найти разговор, открыть сведения и вызвать Guide",
+      "sources": [
+        "src/screens/ChatManagement.tsx",
+        "src/components/chat/ChatSidebar.tsx",
+        "src/components/chat/ChatInfoPanel.tsx",
+        "src/components/chat/MessageBubble.tsx",
+        "src/components/RichChatInput.tsx"
+      ],
+      "triggers": [
+        "input",
+        "tab",
+        "button",
+        "responsive-layout"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Поиск сотрудников, фильтр непрочитанных, сведения чата и кнопка F доступны на настоящем экране; служебный профиль Guide не появляется в каталоге сотрудников"
+      ],
+      "checks": [
+        {
+          "suite": "collab-chat-screen-ui",
+          "layer": "component",
+          "claims": [
+            "Настоящий ChatManagement показывает поиск, фильтр, сведения, проверенную метку ответа Guide и мобильную раскладку"
+          ]
+        }
+      ],
+      "manual": []
     },
     {
       "id": "chat.create.group-channel",
@@ -1985,13 +2118,14 @@
       ]
     },
     {
-      "id": "assistant.ask-contextual",
-      "program": "assistant",
+      "id": "guide.ask-project-data",
+      "program": "guide",
       "label": "Задать вопрос о работе, открытом документе или проекте",
       "sources": [
-        "src/components/assistant/Chat.tsx",
-        "src/assistant/context.ts",
-        "src/store/assistantStore.ts"
+        "src/guide/engine.ts",
+        "src/guide/projects.ts",
+        "src/guide/questionParser.ts",
+        "src/guide/store.ts"
       ],
       "triggers": [
         "input",
@@ -2005,17 +2139,17 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-query",
+          "suite": "collab-guide-engine",
           "layer": "unit",
           "claims": [
-            "Синтетические запросы разрешаются в ожидаемые действия и ответы помощника"
+            "Вопросы разрешаются в точные ответы Flux Guide, источники и связанные действия"
           ]
         },
         {
-          "suite": "collab-assistant-context",
+          "suite": "collab-guide-parser",
           "layer": "unit",
           "claims": [
-            "Подсказка контекста соответствует переднему открытому элементу; недоступный контекст не выдумывается"
+            "Парсер выделяет намерения, точные коды, оборудование и поля без подмены сущностей"
           ]
         }
       ],
@@ -2030,13 +2164,14 @@
       ]
     },
     {
-      "id": "assistant.history-list-search",
-      "program": "assistant",
-      "label": "Показать историю, искать, открыть и переименовать разговор",
+      "id": "guide.history-archive-restore",
+      "program": "guide",
+      "label": "Искать, открыть, архивировать и восстановить разговор Guide",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/ChatHistory.tsx",
-        "src/store/assistantChatsStore.ts"
+        "src/screens/FluxGuide.tsx",
+        "src/components/guide/HistoryPanel.tsx",
+        "src/guide/store.ts",
+        "src/guide/projects.ts"
       ],
       "triggers": [
         "button",
@@ -2046,28 +2181,35 @@
       ],
       "risk": "normal",
       "expected": [
-        "История содержит сохранённые разговоры проекта и позволяет открыть нужный разговор"
+        "Личная история сохраняется, архивируется, ищется и восстанавливается с проверкой доступа"
       ],
       "checks": [
         {
-          "suite": "collab-assistant-history-contract",
+          "suite": "collab-guide-store",
           "layer": "unit",
           "claims": [
-            "Чистые функции истории задают заголовок, поиск по тексту, группировку по дню и фильтр пустых разговоров"
+            "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
           ]
         },
         {
-          "suite": "collab-assistant-privacy-api",
+          "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
-            "История разговоров закрыта от другого пользователя и администратора"
+            "Сервер повторно проверяет владельца разговора и ACL проекта на чтении и записи"
+          ]
+        },
+        {
+          "suite": "collab-guide-ui",
+          "layer": "component",
+          "claims": [
+            "В настоящем экране Guide открываются режим вопросов, вкладка архива и статья руководства"
           ]
         }
       ],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Создать разговор, дождаться автосохранения, переименовать, найти по тексту реплики и открыть снова",
+          "scenario": "Создать разговор, дождаться автосохранения, переключить проект, открыть его и отправить в архив",
           "expected": [
             "После переключения проекта показана история выбранного проекта; чужие данные отсутствуют"
           ]
@@ -2075,12 +2217,45 @@
       ]
     },
     {
-      "id": "assistant.clear-view",
-      "program": "assistant",
+      "id": "guide.screen-questions-table",
+      "program": "guide",
+      "label": "Показать проектный ответ и полный просмотр таблицы в Flux Guide",
+      "sources": [
+        "src/screens/FluxGuide.tsx",
+        "src/components/guide/QuestionsPane.tsx",
+        "src/components/guide/AnswerView.tsx",
+        "src/components/guide/HistoryPanel.tsx",
+        "src/components/guide/HandbookPane.tsx"
+      ],
+      "triggers": [
+        "input",
+        "enter",
+        "button",
+        "resize",
+        "theme"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Вопрос, ответ, выбор строк и полный просмотр доступны на мобильной и широкой раскладке в обеих темах"
+      ],
+      "checks": [
+        {
+          "suite": "collab-guide-ui",
+          "layer": "component",
+          "claims": [
+            "Реальный FluxGuide проходит проверки ширины 390, 760 и 1280 пикселей в светлой и тёмной теме"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "guide.clear-view",
+      "program": "guide",
       "label": "Очистить содержимое экрана разговора",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/Chat.tsx"
+        "src/screens/FluxGuide.tsx",
+        "src/guide/engine.ts"
       ],
       "triggers": [
         "button"
@@ -2101,49 +2276,42 @@
       ]
     },
     {
-      "id": "assistant.catalog-search",
-      "program": "assistant",
-      "label": "Искать по опубликованному Каталогу из помощника",
+      "id": "guide.open-catalog",
+      "program": "guide",
+      "label": "Перейти из Guide в раздел Каталог",
       "sources": [
-        "src/screens/AssistantScreen.tsx",
-        "src/components/assistant/CatalogAnswer.tsx"
+        "src/screens/FluxGuide.tsx",
+        "src/guide/engine.ts"
       ],
       "triggers": [
-        "button",
         "input",
-        "form"
+        "enter",
+        "button"
       ],
       "risk": "normal",
       "expected": [
-        "Ответ содержит совпавшие записи и источники опубликованного каталога"
+        "Запрос открыть Каталог даёт переход в реальный раздел Каталог; Guide не выполняет здесь поиск по его записям"
       ],
-      "checks": [
-        {
-          "suite": "collab-assistant-catalog-query",
-          "layer": "unit",
-          "claims": [
-            "Поиск по опубликованному каталогу возвращает детерминированные соответствия и источники"
-          ]
-        }
-      ],
+      "checks": [],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Найти синтетическое изделие, отсутствующий термин и закрытый источник",
+          "scenario": "Попросить открыть Каталог и нажать на предложенный переход",
           "expected": [
-            "Совпадение сопровождается источником; пустой результат не выдумывается"
+            "Открывается раздел Каталог с его собственным экраном и проверками доступа"
           ]
         }
       ]
     },
     {
-      "id": "assistant.background-autosave",
-      "program": "assistant",
+      "id": "guide.background-autosave",
+      "program": "guide",
       "label": "Автоматически сохранять разговор и загружать проектный контекст",
       "sources": [
-        "src/store/assistantChatsStore.ts",
-        "src/store/assistantStore.ts",
-        "src/screens/AssistantScreen.tsx"
+        "src/guide/store.ts",
+        "src/guide/projects.ts",
+        "src/guide/engine.ts",
+        "src/screens/FluxGuide.tsx"
       ],
       "triggers": [
         "background",
@@ -2156,10 +2324,17 @@
       ],
       "checks": [
         {
-          "suite": "collab-assistant-privacy-api",
+          "suite": "collab-guide-store",
+          "layer": "unit",
+          "claims": [
+            "Project switches and actor changes isolate in-flight replies; transient save failures preserve unsaved state"
+          ]
+        },
+        {
+          "suite": "collab-guide-history-acl",
           "layer": "api-db",
           "claims": [
-            "API отклоняет чтение, изменение и удаление чужих разговоров"
+            "API проверяет владельца истории и ACL для каждого проектного сообщения"
           ]
         }
       ],
@@ -2555,10 +2730,10 @@
     },
     {
       "id": "handbook.search-article",
-      "program": "handbook",
+      "program": "guide",
       "label": "Искать статью и открыть её",
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
         "src/components/handbook/HandbookNav.tsx",
         "src/handbook/registry.ts"
       ],
@@ -2600,10 +2775,10 @@
     },
     {
       "id": "handbook.toc-follow-anchor",
-      "program": "handbook",
+      "program": "guide",
       "label": "Показать оглавление, переключить следование, перейти к заголовку статьи",
       "sources": [
-        "src/screens/Handbook.tsx",
+        "src/screens/FluxGuide.tsx",
         "src/components/handbook/HandbookNav.tsx",
         "src/components/handbook/HandbookArticleView.tsx"
       ],
@@ -2629,7 +2804,7 @@
     },
     {
       "id": "handbook.open-program-route",
-      "program": "handbook",
+      "program": "guide",
       "label": "Открыть программу по ссылке из статьи",
       "sources": [
         "src/components/handbook/HandbookArticleView.tsx",
@@ -2658,6 +2833,50 @@
           "scenario": "Открыть программу из карточки справки, вернуться и открыть статью через поиск",
           "expected": [
             "Маршрут открыт и статья остаётся доступной"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "guide.run-tour",
+      "program": "guide",
+      "label": "Запустить демонстрацию Guide",
+      "sources": [
+        "src/guide/support/tours.ts",
+        "src/guide/tourRuntime.ts",
+        "src/components/guide/GuideSpotlight.tsx"
+      ],
+      "triggers": [
+        "tour-step",
+        "tour-target-action",
+        "tour-navigation"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Демонстрация ведёт по реальным разделам и целям; подтверждаемые шаги требуют действия на целевом элементе."
+      ],
+      "checks": [
+        {
+          "suite": "collab-guide-tour-runtime",
+          "layer": "unit",
+          "claims": [
+            "Правила шагов, целей, условий продолжения и переходов демонстрации проверяются без интерфейса."
+          ]
+        },
+        {
+          "suite": "collab-guide-tours-full-app",
+          "layer": "browser-live",
+          "claims": [
+            "В полном приложении проверены запуск демонстраций, реальные цели, переходы, пауза, назад и отсутствие нежелательных записей."
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Запустить основные демонстрации Guide в приложении и пройти шаги с целевыми действиями.",
+          "expected": [
+            "Подсветка совпадает с доступной целью, переходы и подтверждение шага соответствуют текущему экрану."
           ]
         }
       ]
@@ -2826,32 +3045,23 @@
       ]
     },
     {
-      "id": "assistant.to-catalog",
-      "from": "assistant",
+      "id": "guide.to-catalog",
+      "from": "guide",
       "to": "catalog",
       "status": "implemented",
       "sources": [
-        "src/components/assistant/CatalogAnswer.tsx",
-        "catalog/query.ts"
+        "src/guide/engine.ts"
       ],
       "expected": [
-        "Помощник отвечает только по опубликованному снимку Каталога и показывает найденные источники"
+        "Guide предлагает перейти в раздел Каталог по запросу открыть его; поиск записей выполняется в самом Каталоге"
       ],
-      "checks": [
-        {
-          "suite": "collab-assistant-catalog-query",
-          "layer": "unit",
-          "claims": [
-            "Точное и частичное совпадение каталога содержит ссылку на источник записи"
-          ]
-        }
-      ],
+      "checks": [],
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "Задать вопрос о синтетической записи и проверить указанное издание/страницу источника",
+          "scenario": "Попросить Guide открыть Каталог и выбрать предложенный переход",
           "expected": [
-            "Ответ не использует черновые неопубликованные данные"
+            "Открывается раздел Каталог; содержание и поиск принадлежат его экрану"
           ]
         }
       ]
@@ -2935,7 +3145,7 @@
     },
     {
       "id": "handbook.to-section",
-      "from": "handbook",
+      "from": "guide",
       "to": "settings",
       "status": "implemented",
       "sources": [

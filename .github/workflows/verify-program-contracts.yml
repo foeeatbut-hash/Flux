@@ -23,6 +23,18 @@ jobs:
           npx prisma generate --schema=prisma/schema.mariadb.prisma
       - name: Типы
         run: npm run lint
+      - name: Guide, демонстрации, мессенджер и модель дополнения Office
+        run: |
+          set -euo pipefail
+          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-native-schema test-office-revisions test-office-cell-actions test-office-reply-queue test-office-ui-contract; do
+            node --import tsx "scripts/$check.ts"
+          done
+      - name: История Guide и F в одноразовом сервере SQLite
+        run: node --import tsx scripts/test-guide-server.ts
+      - name: Дополнение Office и сохранение файлов в одноразовом сервере SQLite
+        run: |
+          node --import tsx scripts/test-guide-server.ts --office-addon-api
+          node --import tsx scripts/test-guide-server.ts --office-files
       - name: Все маршруты, управляющие элементы и паспорта
         run: npm run check:coverage -- --report "${{ runner.temp }}/flux-source-inventory.json"
       - name: Сам механизм проверок и новые регрессии
@@ -38,8 +50,6 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_UI_URL: http://127.0.0.1:5173
-          # Flux Play отключён без признака (play/enabled.ts); Vite подставляет его в окно
-          FLUX_PLAY: '1'
         run: |
           set -euo pipefail
           vite_log="${{ runner.temp }}/flux-ui-vite.log"
@@ -75,12 +85,20 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-play-match-frame-ui test-import-file-chooser-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui; do
             node --import tsx "scripts/$check.ts"
           done
-          for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-play-ui; do
+          for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
             node --import tsx "scripts/$check.ts"
           done
+      - name: Guide и демонстрации в узком и широком окне
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: |
+          node --import tsx scripts/test-guide-ui.ts
+          node --import tsx scripts/test-guide-spotlight-ui.ts
+          node --import tsx scripts/test-office-addon-ui.ts
+          node --import tsx scripts/test-office-cell-actions-ui.ts
       - name: Перенос ID в интерфейсе и локальные связи XML
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -98,4 +116,47 @@ jobs:
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png
             /tmp/flux-desktop-*.png
+          if-no-files-found: warn
+
+  office-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости
+        run: npm ci
+      - name: Rust для движка Excel
+        run: rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: .cache/genoffice/apps/sheets/native/xlsx-engine/target
+          key: genoffice-sidecar-${{ runner.os }}-${{ hashFiles('tools/genoffice/build.mjs', 'tools/genoffice/patches.mjs', 'tools/genoffice/inject/**', 'tools/genoffice/shims/**') }}
+      - name: Настоящие редакторы и приложение
+        run: |
+          node tools/genoffice/build.mjs all
+          npm run build
+          node scripts/test-office-no-ai.cjs
+      - name: Заполнение Word и Excel в одноразовом проекте
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-server.ts --office-addon-native
+      - name: Совместимость прежних режимов Word, Sheets и совместной правки
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-server.ts --office-docs --office-sheets --office-collab
+      - name: Демонстрации Guide в полном приложении
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-tours-native-live.ts
+      - name: Снимки настоящих редакторов и демонстраций
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-native-office-guide-evidence
+          path: |
+            /tmp/office-addon-native-*.png
+            /tmp/guide-tours-native-*.png
           if-no-files-found: warn

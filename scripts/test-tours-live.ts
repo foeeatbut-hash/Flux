@@ -18,11 +18,15 @@ import { testCredentials } from './testCredentials';
  *   npx tsx server.ts > /tmp/srv.log 2>&1 &
  *   npx tsx scripts/test-tours-live.ts
  */
-import { TOURS } from '../src/assistant/tours';
+import { TOURS } from '../src/guide/support/tours';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// Путь браузера: FLUX_CHROME → переменная среды PLAYWRIGHT_BROWSERS_PATH не
+// используется у playwright-core, поэтому на Windows по умолчанию берём
+// установленный Edge (msedge.exe есть на любой целевой машине)
+const CHROME = process.env.FLUX_CHROME
+  || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

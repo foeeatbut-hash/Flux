@@ -106,11 +106,12 @@ const call = async (method: string, url: string, body?: any) => {
     ok(`${name}: 200`, r.status === 200 && r.json !== null, { status: r.status, body: r.text.slice(0, 120) });
   }
 
-  console.log('4. Помощник и чат');
+  console.log('4. Flux Guide и чат');
   {
-    const a = await call('GET', `/api/assistant/data?projectId=${projectId}`);
-    ok('данные помощника собираются', a.status === 200 && !!a.json, a.status);
-    ok('помощник отдаёт теги и оборудование', Array.isArray(a.json?.tags) && Array.isArray(a.json?.components), Object.keys(a.json || {}));
+    const guide = await call('GET', '/api/guide/projects');
+    ok('Flux Guide отдаёт проекты через ACL маршрут', guide.status === 200 && Array.isArray(guide.json?.projects), guide.status);
+    const retiredAssistant = await call('GET', `/api/assistant/data?projectId=${projectId}`);
+    ok('старый агрегатор Assistant больше не доступен', retiredAssistant.status === 404, retiredAssistant.status);
 
     // Личная переписка требует обе стороны: без них ответа быть не должно,
     // иначе кто угодно вычитал бы чужие сообщения одним запросом

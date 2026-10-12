@@ -128,6 +128,26 @@ const ok = (n: string, c: boolean, d?: unknown) =>
     PATCHES.filter((p: any) => /isChangeOrigin/.test(p.replace)).length >= 5);
   ok('после записи в сеансе файл не перечитывается',
     PATCHES.some((p: any) => p.id === 'flux-no-reparse' && /__fluxCollab\?\.active/.test(p.replace)));
+  const fluxFieldPatch = PATCHES.find((p: any) => p.id === 'flux-docx-docproperty-field');
+  const fieldRegexLiteral = fluxFieldPatch?.replace.trim() || '';
+  const fieldRegexEnd = fieldRegexLiteral.lastIndexOf('/');
+  const fieldRegex = new RegExp(fieldRegexLiteral.slice(1, fieldRegexEnd), fieldRegexLiteral.slice(fieldRegexEnd + 1));
+  ok('DOCX сохраняет Flux DOCPROPERTY как настоящее поле при повторном чтении',
+    fluxFieldPatch?.file === 'packages/docx-engine/src/parse-props.ts'
+      && fieldRegex.test('DOCPROPERTY "flux:element.identifier"')
+      && !fieldRegex.test('DOCPROPERTY "other:property"')
+      && !fieldRegex.test('date'));
+  ok('DOCX считает закладки Flux скрытыми и включает их в подпись таблицы',
+    PATCHES.some((p: any) => p.id === 'flux-docx-hidden-bookmarks' && /FLUX/.test(p.replace))
+      && PATCHES.some((p: any) => p.id === 'flux-docx-table-bookmark-signature'
+        && /paragraph\.attrs\?\.hiddenBookmarks/.test(p.replace)));
+  const fluxTableBookmarkSteps = new Set(PATCHES.map((p: any) => p.id));
+  ok('DOCX переносит служебные закладки через parser, table model и OOXML writer',
+    ['flux-docx-table-bookmark-parser-helper', 'flux-docx-table-bookmark-parse', 'flux-docx-table-bookmark-model',
+      'flux-docx-table-bookmark-type', 'flux-docs-table-bookmark-convert', 'flux-docs-table-bookmark-pm-model',
+      'flux-docs-table-bookmark-native-model', 'flux-docs-table-bookmark-native-model-paragraph',
+      'flux-docs-table-bookmark-native-model-paragraph-attrs', 'flux-docx-table-bookmark-generate', 'flux-docx-table-bookmark-generate-p']
+      .every((id) => fluxTableBookmarkSteps.has(id)));
 
   console.log('\n6. PDF и Таблица: preload в браузере, главный процесс на сервере');
   const shim = readFileSync('tools/genoffice/shims/electron-renderer.js', 'utf8');

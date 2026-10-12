@@ -51,7 +51,7 @@ const ELECTRON = walk('electron');
 // Общий код в корне: договоры, которые читают и окно, и сервер, и оболочка.
 // Он лежит вне src/, server/ и electron/ — и потому раньше не попадал ни под
 // планку размера, ни под проверку на внешние сервисы
-const SHARED = [...walk('catalog'), ...walk('diagnostics'), ...walk('equipment'), ...walk('feedback'), ...walk('office'), ...walk('play'), ...walk('license')];
+const SHARED = [...walk('catalog'), ...walk('diagnostics'), ...walk('equipment'), ...walk('feedback'), ...walk('office'), ...walk('shared'), ...walk('license')];
 
 console.log('1. Разделы рабочего стола независимы друг от друга');
 // Раздел — экран, зарегистрированный в SECTIONS. Файлы screens/, которых там
@@ -59,8 +59,8 @@ console.log('1. Разделы рабочего стола независимы 
 const sectionsSrc = read('src/workspace/sections.tsx');
 const sectionNames = new Set(
   // Разделы лежат в src/screens/, а встроенные программы — своей папкой
-  // (src/play/): экран платформы не один файл, а рама со вкладками
-  [...sectionsSrc.matchAll(/import\(['"]\.\.\/(?:screens|play)\/([A-Za-z0-9_]+)['"]\)/g)].map((m) => m[1]),
+  // Общие рамки экранов проверяются по реестру разделов
+  [...sectionsSrc.matchAll(/import\(['"]\.\.\/screens\/([A-Za-z0-9_]+)['"]\)/g)].map((m) => m[1]),
 );
 ok('реестр разделов прочитан', sectionNames.size >= 10, sectionNames.size);
 for (const file of SRC.filter((p) => p.startsWith('src/screens/'))) {
@@ -82,9 +82,9 @@ for (const file of SRC.filter((p) => p.startsWith('src/store/'))) {
 }
 
 console.log('3. Логические модули не зависят от React и состояния');
-// capture / import / assistant разбирают текст и данные. Их держим пригодными
+// capture / import / guide разбирают текст и данные. Их держим пригодными
 // для запуска в скрипте и в тесте — без React, без хранилищ, без сети.
-for (const dir of ['src/capture', 'src/import', 'src/assistant', 'src/translate']) {
+for (const dir of ['src/capture', 'src/import', 'src/guide/support', 'src/translate']) {
   for (const file of SRC.filter((p) => p.startsWith(dir + '/') && !p.endsWith('.tsx'))) {
     const bad = importsOf(file).filter((i) => /(^|\/)(screens|components|store)\//.test(i) || i === 'react');
     ok(`${relative(dir, file)} чист`, bad.length === 0, bad);
@@ -387,15 +387,12 @@ const REACHABLE_ELSEWHERE: Record<string, string> = {
   '/': 'кнопка «Главная» в подвале Пуска',
   '/settings': 'кнопка «шестерёнка» в подвале Пуска',
   '/logs': 'карточки на Главной',
-  '/handbook': 'кнопка «Справка» в трее панели задач и F1',
+  '/guide': 'кнопка Flux Guide в трее панели задач и F1',
   // Чертёж открывается двойным нажатием по файлу PDF в Проводнике. В меню его
   // нет намеренно: без файла показывать нечего, а пустой раздел «Чертёж» —
   // это обещание, которое некому исполнить
   '/pdf': 'двойное нажатие по файлу PDF в Проводнике',
-  // Помощник открывается кнопкой в трее, строкой Ctrl+K и кнопкой «Открыть
-  // окном» в самой панели. В левом меню его нет намеренно: он нужен поверх
-  // работы, а не вместо неё
-  '/assistant': 'кнопка помощника в трее, строка Ctrl+K, «Открыть окном» в панели',
+
 };
 {
   // Единственное меню разделов — Пуск. Он раскладывает их по объявленной
@@ -467,14 +464,14 @@ console.log('\n8. Область данных раздела');
 console.log('\n9. Храповик дизайна (docs/methodology/01-design.md)');
 {
   const DESIGN_CAP: Record<string, number> = {
-    'жирный 700 (font-bold/extrabold/black)': 34,
+    'жирный 700 (font-bold/extrabold/black)': 10,
     'ЗАГЛАВНЫЕ (uppercase)': 0,
     'разрядка (tracking-wide/wider/widest)': 0,
     'курсив (italic)': 2,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
     'крупная тень (shadow-lg/xl/2xl)': 38,
-    'половинные оттенки (slate-503, emerald-995…)': 457,
+    'половинные оттенки (slate-503, emerald-995…)': 420,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   const PATTERNS: Record<string, RegExp> = {

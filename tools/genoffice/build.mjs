@@ -136,11 +136,18 @@ async function buildOne(which, src) {
   // Правки patches.mjs вносятся во все редакторы разом — и модули совместной
   // правки кладутся во все, чтобы подключённый правкой импорт всегда находился
   for (const [dir, file] of [
-    ['apps/docs', 'docs-collab.ts'], ['apps/docs', 'editor-readiness.ts'],
-    ['apps/sheets', 'sheets-collab.ts'], ['apps/sheets', 'editor-readiness.ts'],
+    ['apps/docs', 'docs-collab.ts'], ['apps/docs', 'docs-header-merge.ts'], ['apps/docs', 'editor-readiness.ts'],
+    ['apps/sheets', 'sheets-collab.ts'], ['apps/sheets', 'sheets-token-overlay.ts'], ['apps/sheets', 'editor-readiness.ts'],
   ]) {
     mkdirSync(join(src, dir, 'src', 'renderer', 'flux'), { recursive: true });
     cpSync(join(injectDir, file), join(src, dir, 'src', 'renderer', 'flux', file));
+  }
+  if (which === 'sheets') {
+    // Главный процесс использует только узкое расширение Electron-заглушки;
+    // обычные типы редактора остаются из установленного electron-пакета.
+    const typesDir = join(src, 'apps/sheets/src/types');
+    mkdirSync(typesDir, { recursive: true });
+    cpSync(join(injectDir, 'flux-electron.d.ts'), join(typesDir, 'flux-electron.d.ts'));
   }
 
   // Правки Flux — до сборки (tools/genoffice/patches.mjs)

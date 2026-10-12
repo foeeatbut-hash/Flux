@@ -10,6 +10,8 @@ interface Props {
   hits: HandbookHit[];
   onQuery: (q: string) => void;
   onOpen: (id: string) => void;
+  /** Поиск живёт в нижней строке Guide — внутреннее поле не дублируем */
+  hideSearch?: boolean;
 }
 
 /**
@@ -18,12 +20,12 @@ interface Props {
  * Пока в поле поиска что-то есть, дерево уступает место находкам — держать на
  * экране и то и другое значит показывать два ответа на один вопрос.
  */
-export default function HandbookNav({ articles, openId, query, hits, onQuery, onOpen }: Props) {
+export default function HandbookNav({ articles, openId, query, hits, onQuery, onOpen, hideSearch }: Props) {
   const searching = query.trim().length >= 2;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="shrink-0 p-2.5 border-b border-slate-200 dark:border-slate-800">
+      <div className={`shrink-0 p-2.5 border-b border-slate-200 dark:border-slate-800 ${hideSearch ? 'hidden' : ''}`}>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           <input
@@ -81,9 +83,14 @@ export default function HandbookNav({ articles, openId, query, hits, onQuery, on
             if (!list.length) return null;
             return (
               <section key={g.id} className="px-1.5 pb-3">
-                <h3 className="px-2.5 pt-2 pb-1 text-xs font-semibold text-slate-400 dark:text-slate-500">
-                  {g.title}
-                </h3>
+                {/* Заголовок группы не дублирует единственную статью с тем же
+                    названием (BUG-03): «С чего начать» над статьёй «С чего начать»
+                    читалось как повтор */}
+                {!(list.length === 1 && list[0].title === g.title) && (
+                  <h3 className="px-2.5 pt-2 pb-1 text-xs font-semibold text-slate-400 dark:text-slate-500">
+                    {g.title}
+                  </h3>
+                )}
                 <ul className="flex flex-col gap-0.5">
                   {list.map((a) => (
                     <li key={a.id}>

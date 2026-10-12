@@ -201,17 +201,26 @@
     var labelText = control && [control.getAttribute('aria-label'), control.getAttribute('title'), control.getAttribute('data-tip')].filter(Boolean).join(' ');
     return aiLabel.test(labelText || '');
   };
+  // Сохраняем React-дерево ленты: внешнее удаление ломает повторную отрисовку.
+  var concealAiControl = function (node) {
+    node.hidden = true;
+    node.inert = true;
+    node.style.setProperty('display', 'none', 'important');
+    node.setAttribute('aria-hidden', 'true');
+    node.setAttribute('tabindex', '-1');
+    if ('disabled' in node) node.disabled = true;
+  };
   var removeAiControls = function (root) {
     if (!root || !root.querySelectorAll) return;
     var controls = '.ai-entry,.ai-dock,.copilot,.ai-rail,.ai-ask-trigger,.ai-ask-pop,[data-ai],.ctx-item:has(.copilot-badge),button:has(.ai-feature-icon),[role="menuitem"]:has(.ai-feature-icon),.ribbon-group:has(.ai-entry)';
-    if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) root.remove();
-    root.querySelectorAll(controls).forEach(function (node) { node.remove(); });
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches(controls)) concealAiControl(root);
+    root.querySelectorAll(controls).forEach(concealAiControl);
     var labelled = 'button,[role="menuitem"],input,textarea';
     var candidates = Array.prototype.slice.call(root.querySelectorAll(labelled));
     if (root.nodeType === Node.ELEMENT_NODE && root.matches(labelled)) candidates.unshift(root);
     candidates.forEach(function (node) {
       var labelText = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-tip')].filter(Boolean).join(' ');
-      if (aiLabel.test(labelText)) node.remove();
+      if (aiLabel.test(labelText)) concealAiControl(node);
     });
   };
   var stopAiControl = function (event) {

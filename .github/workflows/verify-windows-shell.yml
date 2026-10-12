@@ -15,6 +15,13 @@ on:
       - scripts/test-*windows*.ts
       - scripts/test-desktop-shell-native.ts
       - scripts/test-remaining-*.ts
+      - scripts/test-guide-*.ts
+      - scripts/test-office-model.ts
+      - scripts/test-office-bindings.ts
+      - scripts/test-chat-ux.ts
+      - src/guide/**
+      - src/lib/officeModel.ts
+      - server/officeBindings.ts
       - verification/**
       - .github/workflows/verify-windows-shell.yml
 
@@ -37,6 +44,13 @@ jobs:
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
           $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          foreach ($check in $checks) {
+            node --import tsx "scripts/$check.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Guide и модель дополнения Office на Windows
+        run: |
+          $checks = @('test-guide-parser', 'test-guide-engine', 'test-guide-store', 'test-guide-tour-runtime', 'test-chat-ux', 'test-office-model', 'test-office-bindings', 'test-office-data', 'test-office-template-store', 'test-office-template-permissions', 'test-office-ui-contract')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

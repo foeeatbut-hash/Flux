@@ -59,7 +59,7 @@ console.log('Чего в журнале быть не должно');
   check('присутствие — шум', isNoise('/api/presence'));
   check('сам журнал — шум', isNoise('/api/logs'));
   check('проверка здоровья — шум', isNoise('/api/health'));
-  check('разговор с помощником в журнал не пишется', isNoise('/api/assistant/chats'));
+  check('история Guide в журнал не пишется', isNoise('/api/guide/chats'));
   check('а работа с файлами — не шум', !isNoise('/api/files'));
   check('и с тегами тоже', !isNoise('/api/tags'));
 }

@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useInsightStore } from '../store/insightStore';
-import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
 import { useToastStore } from '../store/toastStore';
 import { useReminderStore } from '../store/reminderStore';
@@ -36,9 +35,9 @@ import { KindIcon } from './insight/parts';
 const GROUP_TITLE: Record<BarGroup, string> = {
   команда: 'Команда',
   раздел: 'Программы',
-  справка: 'Руководство',
+  справка: 'Flux Guide · справочник',
   проект: 'В проекте',
-  помощник: 'Помощник',
+  помощник: 'Flux Guide · вопросы',
 };
 
 function ItemIcon({ icon, name }: { icon: string; name?: string }) {
@@ -72,8 +71,11 @@ export default function CommandBar() {
   const activeProject = useStore((s) => s.activeProject);
   const user = useStore((s) => s.user);
   const ctx = useAppContext();
-  const askAssistant = useAssistantStore((s) => s.ask);
-  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
+  const openGuideAsk = (query: string) => {
+    // Вопрос уходит в Flux Guide со своим контекстом: окно открывается на
+    // «Вопросах», и ответ строится по явно выбранному проекту Guide
+    useWindowStore.getState().open(`/guide?tab=questions&ask=${encodeURIComponent(query)}`);
+  };
   const addToast = useToastStore((s) => s.addToast);
   const addReminder = useReminderStore((s) => s.add);
   const navigate = useNavigate();
@@ -168,8 +170,8 @@ export default function CommandBar() {
         close();
         useWindowStore.getState().openAnother(r.route);
         return;
-      case 'handbook': close(); navigate(`/handbook?article=${encodeURIComponent(r.articleId)}`); return;
-      case 'ask': close(); setAssistantOpen(true); askAssistant(r.query); return;
+      case 'handbook': close(); navigate(`/guide?article=${encodeURIComponent(r.articleId)}`); return;
+      case 'ask': close(); openGuideAsk(r.query); return;
       case 'check': close(); openCheck(); return;
       case 'changes': close(); openChanges(); return;
       case 'note': close(); navigate(`/notes?new=${encodeURIComponent(r.text || 'Новая заметка')}`); return;

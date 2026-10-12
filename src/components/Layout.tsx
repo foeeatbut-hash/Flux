@@ -9,7 +9,7 @@ import ModalProvider from './ModalProvider';
 import CaptureReview from './CaptureReview';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
-import { useAssistantStore } from '../store/assistantStore';
+import { hydrateGuideUser } from '../guide/store';
 import RightDock from './RightDock';
 import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
@@ -136,14 +136,14 @@ export default function Layout() {
        * приходилось по памяти о том, что было на экране.
        */
       const st = useWindowStore.getState();
-      const shown = st.windows.filter((w) => !w.minimized && w.desk === st.desk && w.path !== '/handbook');
+      const shown = st.windows.filter((w) => !w.minimized && w.desk === st.desk && w.path !== '/guide');
       const top = shown.length ? shown.reduce((a, b) => (b.z > a.z ? b : a)) : null;
       const path = top?.path || '/';
-      st.open(`/handbook?for=${encodeURIComponent(path)}`);
+      st.open(`/guide?for=${encodeURIComponent(path)}`);
       // Ставим справку в правую половину, а раздел — в левую: половина на
       // половину и есть «рядом». Уже стоявшее окно не двигаем второй раз
       const win = useWindowStore.getState().windows
-        .filter((w) => w.path === '/handbook' && w.desk === st.desk)
+        .filter((w) => w.path === '/guide' && w.desk === st.desk)
         .reduce<any>((a, b) => (!a || b.z > a.z ? b : a), null);
       if (win) useWindowStore.getState().putInShare(win.id, { x: 0.5, y: 0, w: 0.5, h: 1 });
       if (top) useWindowStore.getState().putInShare(top.id, { x: 0, y: 0, w: 0.5, h: 1 });
@@ -152,10 +152,10 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   // Вход пользователя: восстанавливаем его сохранённую раскладку рабочего стола
-  // и даём помощнику имя — он заводится раньше, чем становится известен вход
+  // и сообщаем Flux Guide, кто вошёл, — его списки хранятся по пользователю
   React.useEffect(() => {
     useWorkspaceStore.getState().bindUser(user?.id || null);
-    useAssistantStore.getState().greet(user as any);
+    if (user) hydrateGuideUser(user.id);
   }, [user?.id, user?.name]);
 
   /**
