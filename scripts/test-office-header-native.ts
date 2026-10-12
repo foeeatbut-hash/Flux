@@ -20,7 +20,7 @@ const between = (source: string, start: string, end: string): string => {
 const wordRead = between(docs, "p.on('getFluxHeaderSchema'", "p.on('syncFluxHeaderSchema'");
 const wordSync = between(docs, "p.on('syncFluxHeaderSchema'", "p.on('applyFluxPlan'");
 const wordBuilder = between(docs, 'function wordParagraphForSchema(', 'function validateHeaderSchema(');
-const sheetRead = between(sheets, "link.on('flux:get-header-schema'", "link.on('flux:sync-header-schema'");
+const sheetRead = between(sheets, 'headerSchemaReader = (request: any) => {', "link.on('flux:sync-header-schema'");
 const sheetSync = between(sheets, "link.on('flux:sync-header-schema'", "link.on('flux:insert-table'");
 const readOnlyGuard = between(sheets, 'commandService.beforeCommandExecuted((command: any) => {', '// Загрузка из файла');
 const gate = /if \((fluxReadOnly && !trusted && command\.type === MUTATION)\)/.exec(readOnlyGuard)?.[1];
