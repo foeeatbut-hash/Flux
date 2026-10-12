@@ -30,10 +30,9 @@ import React, { forwardRef, useImperativeHandle, useCallback, useEffect, useRef,
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Btn, Empty } from '../ui';
 import FluxPanel from './FluxPanel';
-import FluxOfficePanel, { type FluxOfficeAnchorSelection } from './FluxOfficePanel';
-import { officeDataApi, type OfficeAnchorRow } from './fluxData';
-import { schemaFromNativeHeaders, type HeaderSchemaSyncOptions } from './officeNativeSchema';
-import type { OfficeBinding, OfficeFillPlan, OfficeHeaderSchema } from '../../lib/officeModel';
+import FluxOfficePanel from './FluxOfficePanel';
+import { officeDataApi } from './fluxData';
+import { sheetsEditorLink, useOfficeFluxBridge } from './useOfficeFluxBridge';
 import { openEditorTag } from '../../lib/editorTag';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { sheetName, cellValue } from '../../../office/fieldKeys';
@@ -92,7 +91,6 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const savePending = useRef<Promise<boolean> | null>(null);
   const savedHashRef = useRef('');
   const closeWait = useRef<((ok: boolean) => void) | null>(null);
-  const inlineEditingRef = useRef(false);
   const fieldWait = useRef<((r: { ok: boolean; cell?: string; error?: string } | null) => void) | null>(null);
   const commandWaits = useRef(new Map<string, (r: any) => void>());
   const officeEventWaits = useRef(new Map<string, (payload: any) => void>());
@@ -104,7 +102,6 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   });
   const [dataOpen, setDataOpen] = useState(false);
   const [legacyPanelOpen, setLegacyPanelOpen] = useState(false);
-  const [activeFluxAnchor, setActiveFluxAnchor] = useState<FluxOfficeAnchorSelection | null>(null);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const themeRef = useRef(theme);
@@ -370,16 +367,6 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     void pending.finally(() => { if (savePending.current === pending) savePending.current = null; });
     return pending;
   }, [app, send]);
-  const saveAndReadOfficeState = async () => {
-    // Хеш относится к байтам открытого сеанса или его последней записи.
-    // Не стираем подтверждение, если редактор уже сохранил книгу автоматически.
-    if (!(await saveNow(Date.now(), true))) throw new Error('Изменения не записаны. Повторите сохранение.');
-    const savedHash = savedHashRef.current;
-    if (!savedHash) throw new Error('Редактор не подтвердил версию файла после сохранения. Повторите действие.');
-    const current = await officeDataApi.state(fileId);
-    if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите его и повторите действие.');
-    return { ...current, baseHash: savedHash };
-  };
   const insertField = (f: { key: string; title: string; value: string }) => new Promise<void>((resolve) => {
     fieldWait.current = (r) => {
       if (r?.ok) addToast(`Поле «${f.title}» — в ячейке ${r.cell}`, 'success');
@@ -399,42 +386,27 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       setTimeout(() => finish(null), timeout);
     }));
   };
-  const requestOfficeState = useCallback(async () => {
-    if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) throw new Error('Книга не записана. Сначала сохраните правки.');
-    const current = await officeDataApi.state(fileId);
-    if (!current.schema.anchors.length) return current;
-    const native = await callFluxEvent('flux:get-header-schema', { schema: current.schema }, 'flux:header-schema-read');
-    return { ...current, schema: schemaFromNativeHeaders(current.schema, native) };
-  }, [fileId, saveNow, send]);
-  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => {
-    const safeAnchor = anchor.anchorId.replace(/[^A-Za-z0-9_]/g, '_');
-    const response = await callFluxEvent('flux:insert-field', { name: `FLUX_ANCHOR_${safeAnchor}`, value: displayText, anchorId: anchor.anchorId, binding }, 'flux:field-inserted');
-    if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
-    inlineEditingRef.current = response.inlineEditing === true;
-    if (response.anchorId) setActiveFluxAnchor({ ...anchor, anchorId: response.anchorId });
-    return true;
-  };
-  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows: OfficeAnchorRow[]) => {
-    if (collabKey.current && !holdingRef.current) throw new Error('Только держатель общей книги может завершить заполнение.');
-    const response = await callFluxEvent('flux:apply-office-plan', { writes: plan.writes, schema, rows, sourceRevision: plan.sourceRevision }, 'flux:office-plan-applied', 30_000);
-    if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
-    if (!Array.isArray(response.rows)) throw new Error('Редактор не вернул сведения о заполненных строках. Сохраните книгу и проверьте результат.');
-    const current = await saveAndReadOfficeState();
-    const stored = await officeDataApi.updateState(fileId, { baseHash: current.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
-    // Сервер изменил только часть Flux: книга остаётся открытой, чтобы не терять
-    // историю «назад»; хеш для следующего сохранения — из ответа записи
-    savedHashRef.current = stored.baseHash;
-    return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: Array.isArray(response.manualRows) ? response.manualRows.map(String) : [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
-  };
-  const updateOfficeSchema = async (schema: OfficeHeaderSchema, options: HeaderSchemaSyncOptions = {}) => {
-    if (collabKey.current && !holdingRef.current) throw new Error('Только держатель общей книги может записать схему; запросите запись у держателя.');
-    const response = await callFluxEvent(options.captureNative ? 'flux:get-header-schema' : 'flux:sync-header-schema', { schema, ...options }, options.captureNative ? 'flux:header-schema-read' : 'flux:header-schema-synced');
-    const syncedSchema = schemaFromNativeHeaders(schema, response);
-    const current = await saveAndReadOfficeState();
-    const stored = await officeDataApi.updateState(fileId, { baseHash: current.baseHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
-    savedHashRef.current = stored.baseHash;
-    return await officeDataApi.state(fileId);
-  };
+  const flux = useOfficeFluxBridge(sheetsEditorLink(callFluxEvent), {
+    state: () => officeDataApi.state(fileId),
+    updateState: (body) => officeDataApi.updateState(fileId, body),
+    // В общей книге записывает держатель: у соавтора всё уже у него
+    flush: async () => (!!collabKey.current && !holdingRef.current) || saveNow(),
+    committed: async () => {
+      // Хеш относится к байтам открытого сеанса или его последней записи.
+      // Не стираем подтверждение, если редактор уже сохранил книгу автоматически.
+      if (!(await saveNow(Date.now(), true))) throw new Error('Изменения не записаны. Повторите сохранение.');
+      const savedHash = savedHashRef.current;
+      if (!savedHash) throw new Error('Редактор не подтвердил версию файла после сохранения. Повторите действие.');
+      const current = await officeDataApi.state(fileId);
+      if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите его и повторите действие.');
+      return { current, savedHash };
+    },
+    remember: (hash) => { savedHashRef.current = hash; },
+    writeBlocked: (kind) => collabKey.current && !holdingRef.current
+      ? (kind === 'plan' ? 'Только держатель общей книги может завершить заполнение.' : 'Только держатель общей книги может записать схему; запросите запись у держателя.') : '',
+    messages: { notSaved: 'Книга не записана. Сначала сохраните правки.', rowsMissing: 'Редактор не вернул сведения о заполненных строках. Сохраните книгу и проверьте результат.' },
+  }, fileId);
+  const { activeAnchor: activeFluxAnchor, setActiveAnchor: setActiveFluxAnchor, inlineEditingRef, requestState: requestOfficeState, insertBinding: insertOfficeBinding, applyWrites: applyOfficeWrites, updateSchema: updateOfficeSchema } = flux;
   const cellActions = useFluxCellActions({ fileId, projectId: activeProjectId,
     readOnly: issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together)),
     requestState: requestOfficeState, updateSchema: updateOfficeSchema, insertBinding: insertOfficeBinding, isInlineEditing: () => inlineEditingRef.current,

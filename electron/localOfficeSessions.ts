@@ -117,7 +117,7 @@ export class LocalOfficeSessions {
     // data, so diagnostics receive only the tightly validated channel token.
     const unknownChannel = typeof candidate === 'string' && !isOfficeOperation(candidate) ? candidate : undefined;
     const emit = (fields: Partial<OfficeHostDiagnostic>) => {
-      if ((app !== 'pdf' && app !== 'sheets') || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
+      if ((app !== 'pdf' && app !== 'sheets') || action === 'rebase' || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
       try { this.options.onDiagnostic?.({ app, action, operation, ...(unknownChannel ? { unknownChannel } : {}), phase: 'start', ...fields }); } catch { /* Запись не влияет на документ. */ }
     };
     emit({ phase: 'start' });

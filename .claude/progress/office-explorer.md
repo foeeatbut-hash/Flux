@@ -11,13 +11,14 @@ FluxOfficePanel (docx/xlsx, выбор проекта, прежняя панел
 
 ## Шаги
 - [x] 1. Сервер: office/fluxPart.ts (общий перенос части Flux), маршруты office-local/*, test-office-local.ts
-- [ ] 2. Оболочка: сеанс локальной книги переносит часть Flux при записи и принимает запись хоста (rebase)
-- [ ] 3. Клиент: источник файла в fluxData/FluxOfficePanel, общий хук моста, LocalOfficeEditor
-- [ ] 4. Живой сценарий для Проводника (docx и xlsx), проверки, документ
+- [x] 2. Оболочка: сеанс локальной книги переносит часть Flux при записи и принимает запись хоста (rebase)
+- [x] 3. Клиент: источник файла в fluxData/FluxOfficePanel, общий хук моста (useOfficeFluxBridge, OfficeHost/OfficeAppEditor на нём), LocalOfficeEditor (useLocalFluxBridge)
+- [x] 4a. Живой сценарий scripts/test-office-explorer-live.ts (guide-server --office-explorer): проходит
+- [ ] 4b. Проверки до/после (tsc, test-office-*, guide-server api/files/native, vite build, check:coverage), документ office.md
 
 ## Проверки «до»
 - tsc: код выхода 0
 - native (guide-server --office-addon-native): 5 ✗ — Word Ctrl+Z; Word typing; Word formula persist; issued XLSX read-only; issued grid copy
   (в задании 6: «две проверки выпущенного XLSX», «три Word-формулы»; у меня на старте — см. native-before)
 ## Остановился
-Шаг 1 готов, дальше шаг 2.
+Шаги 1-4a готовы и закоммичены. Осталось: базовый прогон проверок в worktree /tmp/cx-base (2f1a3e9) и сравнение, native-before.txt: 5 ✗; обновить office.md; check:coverage; отчёт. Негативные прогоны (без carry в сеансе, без carry в окне, без rebase) тест ловит.

@@ -8,7 +8,8 @@ import FluxTemplateControls from './FluxTemplateControls';
 import FluxRevisionPanel from './FluxRevisionPanel';
 import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, type OfficeTemplatePending } from './officeTemplateMapping';
 import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
-import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
+import { dataService } from '../../services/dataService';
+import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeFileSource, type OfficeLocalSource, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
 import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
 
 type Tab = 'selection' | 'fields' | 'update';
@@ -22,6 +23,10 @@ export interface FluxOfficeAnchorSelection {
 }
 interface Props {
   fileId: string;
+  /** Файл Проводника: содержимое уходит на сервер только в запросе, «Выпустить» недоступно. */
+  localSource?: OfficeLocalSource;
+  /** Есть обработчик — в шапке выбор проекта (у файла Проводника проекта нет). */
+  onProjectChange?: (projectId: string) => void;
   projectId: string;
   fileName: string;
   editorKind: 'docs' | 'sheets';
@@ -68,6 +73,18 @@ export default function FluxOfficePanel(props: Props) {
   const [templateError, setTemplateError] = useState('');
   const sourceId = query.sources[0] || '';
   const activeAnchor = props.activeAnchor;
+  const fileSource: OfficeFileSource = props.localSource ?? props.fileId;
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!props.onProjectChange) return;
+    let alive = true;
+    dataService.getProjects()
+      .then((list: any[]) => { if (alive) setProjects((list || []).map((project) => ({ id: String(project.id), name: String(project.name || 'Без названия') }))); })
+      .catch(() => { /* без списка остаётся текущий проект */ });
+    return () => { alive = false; };
+  }, [!!props.onProjectChange]);
+  // Другой проект — другая выборка: строки и план прежнего проекта к нему не относятся
+  useEffect(() => { setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null); setSelectedField(null); }, [props.projectId]);
 
   useEffect(() => {
     const saved = Number(localStorage.getItem('flux-office-panel-width'));
@@ -93,7 +110,7 @@ export default function FluxOfficePanel(props: Props) {
   }, [props.requestState]);
 
   useEffect(() => {
-    if (!props.projectId) { setFields([]); setError('К файлу не привязан проект.'); return; }
+    if (!props.projectId) { setFields([]); setError(props.onProjectChange ? 'Выберите проект, чтобы загрузить его данные.' : 'К файлу не привязан проект.'); return; }
     let alive = true;
     setError('');
     Promise.all([officeDataApi.catalog(props.projectId), officeDataApi.templates(), props.requestState()])
@@ -187,20 +204,20 @@ export default function FluxOfficePanel(props: Props) {
       setOfficeState(current);
       const previewSchema = templateSchema || current.schema;
       const queryBody = toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
-      const next = await officeDataApi.preview(props.fileId, {
+      const next = await officeDataApi.preview(fileSource, {
         projectId: props.projectId, baseHash: current.baseHash, sourceRevision: result.revision,
         selectedEntityIds: selectedIds, query: queryBody, schema: previewSchema,
       });
       setPlan(next); setPlanSchema(previewSchema); setPlanQuery(queryBody); setTab('update');
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [officeState, schema, templateSchema, templatePending.length, result, selectedIds, props.fileId, props.projectId, props.requestState, query, sourceFields]);
+  }, [officeState, schema, templateSchema, templatePending.length, result, selectedIds, fileSource, props.projectId, props.requestState, query, sourceFields]);
 
   const applyPlan = useCallback(async () => {
     if (!plan || !planSchema || !planQuery || props.readOnly) return;
     setBusy(true); setError('');
     try {
-      const confirmed = await officeDataApi.confirm(props.fileId, {
+      const confirmed = await officeDataApi.confirm(fileSource, {
         projectId: props.projectId, planId: plan.planId, baseHash: plan.baseHash,
         sourceRevision: plan.sourceRevision, selectedEntityIds: plan.selectedEntityIds, query: planQuery, schema: planSchema,
       });
@@ -212,7 +229,7 @@ export default function FluxOfficePanel(props: Props) {
       else await refreshState();
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
-  }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, props.fileId, props.applyWrites, refreshState]);
+  }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, fileSource, props.applyWrites, refreshState]);
 
   const saveTemplate = async (name: string, scope: OfficeTemplate['scope']) => {
     if (!schema || !name.trim() || templatePending.length) return;
@@ -258,7 +275,13 @@ export default function FluxOfficePanel(props: Props) {
         onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth((width) => Math.min(850, width + 24)); if (event.key === 'ArrowRight') setPanelWidth((width) => Math.max(320, width - 24)); }}
         className="absolute -left-1 top-0 z-10 hidden h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 md:block" />
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
-        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">Flux · {props.fileName || 'Office'}</h2><p className="truncate text-xs text-slate-500 dark:text-slate-400">{activeProject?.name || 'Выборка, поля и обновление'}</p></div>
+        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">Flux · {props.fileName || 'Office'}</h2>{props.onProjectChange
+          ? <select aria-label="Проект для данных Flux" value={props.projectId} onChange={(event) => props.onProjectChange?.(event.target.value)} className="fx-input mt-1 w-full max-w-[16rem] text-xs">
+            <option value="">Выберите проект</option>
+            {props.projectId && !projects.some((project) => project.id === props.projectId) && <option value={props.projectId}>{activeProject?.id === props.projectId ? activeProject.name : 'Текущий проект'}</option>}
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          : <p className="truncate text-xs text-slate-500 dark:text-slate-400">{activeProject?.name || 'Выборка, поля и обновление'}</p>}</div>
         <button type="button" onClick={props.onOpenLegacy} className="shrink-0 rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" title="Все источники, переводчик и экспорт">Источники и перевод</button>
         <button type="button" onClick={props.onClose} aria-label="Закрыть Flux" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
       </header>
@@ -303,7 +326,7 @@ export default function FluxOfficePanel(props: Props) {
       {!props.projectId && <p className="shrink-0 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">Сначала привяжите документ к проекту.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={setQuery} onRun={() => void runQuery()} onSelectionChange={setSelectedIds} />}
       {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
-      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
+      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
         const current = await props.requestState();
         if (!current?.baseHash) return false;
         setOfficeState(current);
@@ -340,9 +363,9 @@ function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOn
     </section>}
     {readOnly && <p className="mt-4 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
     <div className="sr-only" aria-live="polite">{busy ? 'Flux выполняет запрос' : 'Flux готов'}</div>
-    <div className="mt-5 border-t border-slate-200 pt-4 dark:border-dark-border">
+    {fileId && <div className="mt-5 border-t border-slate-200 pt-4 dark:border-dark-border">
       <FluxRevisionPanel fileId={fileId} fileName={fileName} beforeIssue={beforeRevisionIssue} onIssued={onIssued} onDraftCreated={onDraftCreated} readOnly={readOnly} />
-    </div>
+    </div>}
   </div>;
 }
 
