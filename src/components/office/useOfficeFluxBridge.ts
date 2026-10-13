@@ -80,6 +80,9 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     return { ...current, schema: schemaFromNativeHeaders(current.schema, native) };
   }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Состояние файла как записано, без записи правок редактора: лента спрашивает его, пока панель закрыта. */
+  const peekState = useCallback(() => live.current.file.state(), []);
+
   const insertBinding = useCallback(async (anchor: FluxOfficeAnchorSelection | FluxCellActionAnchor, binding: OfficeBinding, displayText: string) => {
     const response = await live.current.editor.insertField(anchor as FluxOfficeAnchorSelection, binding, displayText);
     if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
@@ -118,5 +121,5 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     return await fl.state();
   }, []);
 
-  return { activeAnchor, setActiveAnchor, inlineEditingRef, requestState, insertBinding, applyWrites, updateSchema };
+  return { activeAnchor, setActiveAnchor, inlineEditingRef, requestState, peekState, insertBinding, applyWrites, updateSchema };
 }

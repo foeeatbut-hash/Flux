@@ -12,6 +12,11 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Прежняя одна кнопка Flux: кэш уже патченного исходника обновляется до вкладки (поле prior). */
+const OPEN_PANEL_CLICK = "window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, (window.location.origin === 'null' || window.location.origin === 'file://' ? '*' : window.location.origin))";
+const FLUX_TAB_BUTTON_OLD_DOCS = `        <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => ${OPEN_PANEL_CLICK}}>Flux</button>\n        <span className="ribbon-tabs-spacer" />\n        {trailingActions}`;
+const FLUX_TAB_BUTTON_OLD_SHEETS = `          <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => ${OPEN_PANEL_CLICK}}>Flux</button>\n          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"`;
+
 export const PATCHES = [
   {
     // В подсказке параметра показываем действие, а не внутреннюю инструкцию DOCX.
@@ -269,20 +274,49 @@ export const PATCHES = [
       "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
       "    // a throwing construction",
   },
-  // ── Кнопка Flux открывает панель оболочки из любой ленты редактора ──
+  // ── Вкладка Flux в ленте Word и Таблицы (inject/flux-ribbon.tsx) ──
+  // Раньше здесь была одна кнопка; теперь настоящая вкладка с группами
+  // «Переводчик», «Данные», «Шаблоны», «Документ». Каждая кнопка шлёт окну Flux
+  // одно сообщение flux:open-panel с полем command.
+  {
+    id: 'flux-ribbon-docs-import',
+    file: 'apps/docs/src/renderer/components/Ribbon.tsx',
+    find: "} from './ribbon-tabs'\n",
+    replace: "} from './ribbon-tabs'\nimport { FluxRibbonTab } from '../flux/flux-ribbon'\n",
+  },
   {
     id: 'flux-ribbon-docs',
     file: 'apps/docs/src/renderer/components/Ribbon.tsx',
     find: '        <span className="ribbon-tabs-spacer" />\n        {trailingActions}',
-    replace: '        <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => window.parent.postMessage({ flux: \'office\', op: \'flux:open-panel\' }, (window.location.origin === \'null\' || window.location.origin === \'file://\' ? \'*\' : window.location.origin))}>Flux</button>\n' +
+    prior: FLUX_TAB_BUTTON_OLD_DOCS,
+    replace: '        <button type="button" className={`ribbon-tab ${(tab as string) === \'flux\' ? \'active\' : \'\'}`} aria-label="Flux" title="Flux" onClick={() => { collapse.onTabPress((tab as string) === \'flux\'); setTab(\'flux\' as never); setDropdown(null) }}>Flux</button>\n' +
       '        <span className="ribbon-tabs-spacer" />\n        {trailingActions}',
+  },
+  {
+    id: 'flux-ribbon-docs-body',
+    file: 'apps/docs/src/renderer/components/Ribbon.tsx',
+    find: "        {tab === 'shapeFormat' && inShape ? (",
+    replace: "        {(tab as string) === 'flux' ? (\n          <FluxRibbonTab variant=\"docs\" />\n        ) : tab === 'shapeFormat' && inShape ? (",
+  },
+  {
+    id: 'flux-ribbon-sheets-import',
+    file: 'apps/sheets/src/renderer/ExcelShell.tsx',
+    find: "import { isGridKeyTarget, shouldInterceptClearSelection } from './clear-selection-keyboard'\n",
+    replace: "import { isGridKeyTarget, shouldInterceptClearSelection } from './clear-selection-keyboard'\nimport { FluxRibbonTab } from './flux/flux-ribbon'\n",
   },
   {
     id: 'flux-ribbon-sheets',
     file: 'apps/sheets/src/renderer/ExcelShell.tsx',
     find: '          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"',
-    replace: '          <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => window.parent.postMessage({ flux: \'office\', op: \'flux:open-panel\' }, (window.location.origin === \'null\' || window.location.origin === \'file://\' ? \'*\' : window.location.origin))}>Flux</button>\n' +
+    prior: FLUX_TAB_BUTTON_OLD_SHEETS,
+    replace: '          <button type="button" className={`ribbon-tab ${(activeTab as string) === \'Flux\' ? \'active\' : \'\'}`} aria-label="Flux" title="Flux" onClick={() => { collapse.onTabPress((activeTab as string) === \'Flux\'); setActiveTab(\'Flux\' as never) }}>Flux</button>\n' +
       '          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"',
+  },
+  {
+    id: 'flux-ribbon-sheets-body',
+    file: 'apps/sheets/src/renderer/ExcelShell.tsx',
+    find: "  if (activeTab === 'Chart Design') {\n    const canConvert",
+    replace: "  if ((activeTab as string) === 'Flux') return <FluxRibbonTab variant=\"sheets\" />\n  if (activeTab === 'Chart Design') {\n    const canConvert",
   },
   {
     id: 'flux-ribbon-pdf',

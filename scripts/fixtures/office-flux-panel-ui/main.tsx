@@ -33,7 +33,7 @@ function Fixture() {
         return { appliedCount: plan.writes.length, manualRows: ['e-old'] };
       }}
       updateSchema={async (schema: OfficeHeaderSchema) => { ops.push({ type: 'save-schema', schema }); await persistMetadata(schema); return structuredClone(state); }}
-      onOpenLegacy={() => ops.push({ type: 'open-legacy' })} onClose={() => ops.push({ type: 'close' })} />
+      onClose={() => ops.push({ type: 'close' })} />
   </div>;
 }
 

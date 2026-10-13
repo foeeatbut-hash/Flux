@@ -1,18 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LoaderCircle, X } from 'lucide-react';
 import { useStore } from '../../store/store';
+import { useModalStore } from '../../store/modalStore';
 import { Btn } from '../ui';
 import FluxFieldsPanel from './FluxFieldsPanel';
 import FluxSelectionPanel from './FluxSelectionPanel';
-import FluxTemplateControls from './FluxTemplateControls';
+import FluxTemplateControls, { canManageTemplate } from './FluxTemplateControls';
 import FluxRevisionPanel from './FluxRevisionPanel';
+import FluxExportDialog from './FluxExportDialog';
+import TextTranslationPanel from './TextTranslationPanel';
+import { useOfficeTemplates } from './useOfficeTemplates';
+import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
+import type { RibbonCommand } from './useFluxRibbon';
 import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, type OfficeTemplatePending } from './officeTemplateMapping';
 import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
 import { dataService } from '../../services/dataService';
-import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeFileSource, type OfficeLocalSource, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
+import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAppliedTemplate, type OfficeFileSource, type OfficeLocalSource, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
 import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
 
 type Tab = 'selection' | 'fields' | 'update';
+type View = 'data' | 'translator';
+type Dialog = 'templates' | 'pinned' | 'save-template' | 'export' | null;
 interface OfficeApplySummary { appliedCount: number; manualRows: string[]; state?: OfficeState }
 export interface FluxOfficeAnchorSelection {
   anchorId: string;
@@ -40,7 +48,15 @@ interface Props {
   isInlineEditing?: () => boolean;
   onIssued?: (fileId: string, revisionId: string) => void;
   onDraftCreated?: (fileId: string) => void;
-  onOpenLegacy: () => void;
+  /** Команда ленты «Flux»: что открыть или сделать (useFluxRibbon). */
+  command?: RibbonCommand | null;
+  /** Вставка таблицы в документ (Word — таблица, Таблица — диапазон); нет — кнопки «Вставить все» нет. */
+  onInsertTable?: (rows: TableCell[][]) => Promise<boolean>;
+  /** Переводчик: прочитать выделение редактора и вставить результат. */
+  onReadText?: () => Promise<string>;
+  onInsertText?: (text: string) => Promise<void> | void;
+  /** Шаблон, применённый к файлу, изменился: лента включает или выключает «Исходную шапку». */
+  onTemplateChange?: (template: OfficeAppliedTemplate | null) => void;
   onClose: () => void;
 }
 
@@ -68,9 +84,13 @@ export default function FluxOfficePanel(props: Props) {
   const [appliedSummary, setAppliedSummary] = useState<OfficeApplySummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [panelWidth, setPanelWidth] = useState(580);
-  const [templates, setTemplates] = useState<OfficeTemplate[]>([]);
-  const [pinnedTemplates, setPinnedTemplates] = useState<string[]>([]);
-  const [templateError, setTemplateError] = useState('');
+  const tpl = useOfficeTemplates();
+  const userId = useStore((state) => state.user?.id || '');
+  const [view, setView] = useState<View>('data');
+  const [dialog, setDialog] = useState<Dialog>(null);
+  /** Шаблон, который открыли, но ещё не сохранили в файл: при сохранении схемы он становится применённым. */
+  const [openedTemplate, setOpenedTemplate] = useState<OfficeTemplate | null>(null);
+  const [actionMessage, setActionMessage] = useState('');
   const sourceId = query.sources[0] || '';
   const activeAnchor = props.activeAnchor;
   const fileSource: OfficeFileSource = props.localSource ?? props.fileId;
@@ -113,13 +133,11 @@ export default function FluxOfficePanel(props: Props) {
     if (!props.projectId) { setFields([]); setError(props.onProjectChange ? 'Выберите проект, чтобы загрузить его данные.' : 'К файлу не привязан проект.'); return; }
     let alive = true;
     setError('');
-    Promise.all([officeDataApi.catalog(props.projectId), officeDataApi.templates(), props.requestState()])
-      .then(([catalog, templateResult, state]) => {
+    Promise.all([officeDataApi.catalog(props.projectId), props.requestState()])
+      .then(([catalog, state]) => {
         if (!alive) return;
         const available = fieldsFromCatalog(catalog);
         setFields(available);
-        setTemplates(templateResult.templates || []);
-        setPinnedTemplates(templateResult.pinned || []);
         if (state) setOfficeState(state);
         const firstSource = available.some((field) => field.sourceId === 'equipment') ? 'equipment' : available[0]?.sourceId || '';
         setQuery((current) => ({ ...current, projectId: props.projectId, sources: firstSource ? [firstSource] : [] }));
@@ -231,22 +249,60 @@ export default function FluxOfficePanel(props: Props) {
     finally { setBusy(false); }
   }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, fileSource, props.applyWrites, refreshState]);
 
-  const saveTemplate = async (name: string, scope: OfficeTemplate['scope']) => {
-    if (!schema || !name.trim() || templatePending.length) return;
-    setTemplateError('');
-    try {
-      const { template } = await officeDataApi.saveTemplate({ name: name.trim(), scope, schema, query: toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) }) });
-      setTemplates((items) => [template, ...items.filter((item) => item.id !== template.id)]);
-    } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
+  const currentTemplateQuery = () => toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
+  /** Шаблон файла: тот, что применён к нему (снимок в файле), либо только что открытый. */
+  const fileTemplate = openedTemplate || tpl.templates.find((item) => item.id === officeState?.template?.templateId) || null;
+
+  // Лента узнаёт, применён ли к файлу шаблон («Исходная шапка»)
+  useEffect(() => { props.onTemplateChange?.(officeState ? officeState.template ?? null : null); }, [officeState?.template, !!officeState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveTemplateAs = async (input: { name: string; description: string; scope: OfficeTemplate['scope']; pin: boolean }) => {
+    if (!schema || templatePending.length) return false;
+    const made = await tpl.create({ ...input, schema, query: currentTemplateQuery() });
+    if (made) setActionMessage(`Шаблон «${made.name}» сохранён.`);
+    return !!made;
+  };
+  /** «Обновить шаблон»: записать текущую шапку в шаблон файла, если его создал этот сотрудник. */
+  const updateFileTemplate = async () => {
+    if (!schema || templatePending.length || !fileTemplate) return;
+    if (!canManageTemplate(fileTemplate, userId)) { tpl.setError('Этот шаблон создал другой сотрудник: сохраните свою копию кнопкой «Сохранить как».'); setDialog('templates'); return; }
+    const current = await props.requestState();
+    if (!current) { tpl.setError('Состояние документа недоступно. Повторите действие.'); return; }
+    const updated = await tpl.update(fileTemplate, { schema: current.schema, query: currentTemplateQuery() });
+    if (updated) setActionMessage(`Шаблон «${updated.name}» обновлён.`);
+    else setDialog('templates');
   };
   const saveSchema = async (nextSchema: OfficeState['schema'], options?: { displayLabels?: Record<string, string> }) => {
     if (templatePending.length) throw new Error('Сначала уточните все связи выбранного шаблона.');
-    const updated = await props.updateSchema(nextSchema, options);
-    if (updated) { setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null); }
+    // Сохранение сопоставленного шаблона и есть его применение: в файл ложатся templateId и снимок схемы
+    const link = templateSchema && openedTemplate ? { templateId: openedTemplate.id, name: openedTemplate.name } : undefined;
+    const updated = await props.updateSchema(nextSchema, { ...options, ...(link ? { template: link } : {}) });
+    if (updated) { setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null); if (link) setOpenedTemplate(null); }
     return !!updated;
   };
+  /** «Исходная шапка»: та же запись схемы, что и у остальных действий, значения в строках не трогаются. */
+  const resetHeader = async () => {
+    setError(''); setActionMessage('');
+    const snapshot = officeState?.template;
+    if (!snapshot) { setError('У файла нет шаблона.'); return; }
+    const ok = await useModalStore.getState().openConfirm('Вернуть исходную шапку?', `Шапка вернётся к шаблону${snapshot.name ? ` «${snapshot.name}»` : ''}, правки шапки после его применения будут отброшены. Данные в строках не изменятся.`, { confirmLabel: 'Вернуть' });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const current = await props.requestState();
+      if (!current) throw new Error('Состояние документа недоступно. Повторите действие.');
+      const keep = new Set(snapshot.schema.anchors.map((anchor) => anchor.id));
+      const removedAnchorIds = current.schema.anchors.map((anchor) => anchor.id).filter((id) => !keep.has(id));
+      const labels = Object.fromEntries(fields.map((field) => [`${field.sourceId}:${field.fieldKey}`, field.displayName]));
+      const saved = await props.updateSchema(snapshot.schema, { displayLabels: labels, ...(removedAnchorIds.length ? { removedAnchorIds } : {}) });
+      if (!saved) throw new Error('Редактор не подтвердил возврат шапки.');
+      setOfficeState(saved); setTemplateSourceSchema(null); setTemplateTargetSchema(null); setOpenedTemplate(null);
+      setActionMessage('Шапка возвращена к исходной.');
+    } catch (reason: any) { setError(String(reason?.message || reason)); }
+    finally { setBusy(false); }
+  };
   const openTemplate = async (template: OfficeTemplate) => {
-    setTemplateError('');
+    tpl.setError('');
     try {
       const savedQuery = templateQuery(template, props.projectId);
       const valid = new Set(fields.filter((field) => field.sourceId === savedQuery.sources[0]).map((field) => field.fieldKey));
@@ -259,15 +315,84 @@ export default function FluxOfficePanel(props: Props) {
       setTemplateTargetSchema(target);
       setTemplateAnchorSelections({}); setTemplateFieldSelections({});
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
-    } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
+      setOpenedTemplate(template); setView('data'); setTab('fields');
+    } catch (reason: any) { tpl.setError(String(reason?.message || reason)); setDialog('templates'); }
   };
-  const pinTemplate = async (template: OfficeTemplate) => {
+  const copyTemplate = async (template: OfficeTemplate) => { const made = await tpl.copy(template); if (made) setActionMessage(`Копия «${made.name}» сохранена.`); };
+  const deleteTemplate = async (template: OfficeTemplate) => {
+    if (!(await useModalStore.getState().openConfirm('Удалить шаблон?', `Шаблон «${template.name}» исчезнет у всех, кто им пользуется. Документы с применённым шаблоном сохранят свой снимок.`, { confirmLabel: 'Удалить', tone: 'danger' }))) return;
+    await tpl.remove(template);
+  };
+
+  // Таблица из выборки: выбранные строки, иначе все; столбцы — поля источника
+  const exportSourceId = query.sources[0] || '';
+  const allColumns = useMemo(() => tableColumns(fields, exportSourceId), [fields, exportSourceId]);
+  const insertAll = async () => {
+    if (!props.onInsertTable || !result || props.readOnly) return;
+    const rows = tableRows(result, allColumns, selectedIds);
+    if (!rows.length) return;
+    setBusy(true); setActionMessage('');
     try {
-      const pinned = !pinnedTemplates.includes(template.id);
-      const response = await officeDataApi.pinTemplate(template.id, pinned);
-      setPinnedTemplates(response.pinned || []);
-    } catch (reason: any) { setTemplateError(String(reason?.message || reason)); }
+      const { table, truncated } = insertTable(allColumns, rows);
+      setActionMessage(insertMessage(await props.onInsertTable(table), truncated));
+    } catch (reason: any) { setActionMessage(String(reason?.message || 'Не удалось вставить таблицу.')); }
+    finally { setBusy(false); }
   };
+
+  const insertButton = props.onInsertTable ? <Btn disabled={busy || props.readOnly || !result?.rows.length} onClick={() => void insertAll()} title="Вставить таблицу выбранных строк в документ">{selectedIds.length ? `Вставить выбранные (${selectedIds.length})` : 'Вставить все'}</Btn> : null;
+
+  /** «Обновить данные»: выборка по строкам, уже стоящим в документе, → предпросмотр → подтверждение. */
+  const refreshData = async () => {
+    setView('data'); setTab('update'); setError(''); setActionMessage('');
+    setBusy(true);
+    try {
+      const current = await props.requestState();
+      if (!current) throw new Error('Состояние документа недоступно. Повторите действие.');
+      setOfficeState(current);
+      const placed = [...new Set((current.rows || []).map((row) => row.entityId))];
+      if (!placed.length) { setActionMessage('В документе ещё нет заполненных строк: выберите строки во вкладке «Выборка» и нажмите «Предпросмотр заполнения».'); return; }
+      const source = (current.rows || [])[0]?.sourceId;
+      const data = await officeDataApi.query({ ...query, sources: source ? [source] : query.sources, columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [], limit: 50000, sourceRevision: undefined });
+      const known = new Set(data.rows.map((row) => row.entityId));
+      const ids = placed.filter((id) => known.has(id));
+      setResult(data); setSelectedIds(ids);
+      if (!ids.length) { setActionMessage('Строки документа не найдены в источнике: возможно, они удалены.'); return; }
+      const queryBody = toProjectQuery({ ...query, sources: source ? [source] : query.sources, filters: [], sort: [], types: [], excludedEntityIds: [], columns: fields.filter((field) => field.sourceId === (source || sourceId)).map((field) => field.fieldKey) });
+      const next = await officeDataApi.preview(fileSource, {
+        projectId: props.projectId, baseHash: current.baseHash, sourceRevision: data.revision,
+        selectedEntityIds: ids, query: queryBody, schema: current.schema,
+      });
+      setPlan(next); setPlanSchema(current.schema); setPlanQuery(queryBody); setAppliedSummary(null);
+    } catch (reason: any) { setError(String(reason?.message || reason)); }
+    finally { setBusy(false); }
+  };
+
+  // Команды ленты: каждая кнопка вкладки Flux приходит сюда ровно один раз
+  const handledCommand = useRef(0);
+  useEffect(() => {
+    const command = props.command;
+    if (!command || command.seq === handledCommand.current) return;
+    handledCommand.current = command.seq;
+    setActionMessage('');
+    switch (command.name) {
+      case 'translator': setView('translator'); break;
+      case 'source-equipment': case 'source-tags': {
+        const source = command.name === 'source-tags' ? 'tags' : 'equipment';
+        setView('data'); setTab('selection');
+        setQuery((current) => current.sources[0] === source ? current : { ...current, sources: [source], columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [] });
+        setResult(null); setSelectedIds([]);
+        break;
+      }
+      case 'templates': setDialog('templates'); break;
+      case 'pinned': setDialog('pinned'); break;
+      case 'save-template': setDialog('save-template'); break;
+      case 'update-template': void updateFileTemplate(); break;
+      case 'refresh': void refreshData(); break;
+      case 'issue': setView('data'); setTab('update'); break;
+      case 'reset-header': void resetHeader(); break;
+      case 'export': setDialog('export'); break;
+    }
+  }, [props.command]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside aria-label="Flux Office" style={{ '--flux-office-panel-width': `${panelWidth}px` } as React.CSSProperties} className="relative z-20 flex h-full w-[var(--flux-office-panel-width)] shrink-0 flex-col border-l border-slate-200 bg-white max-[760px]:absolute max-[760px]:inset-y-0 max-[760px]:right-0 max-[760px]:z-50 max-[760px]:w-full dark:border-dark-border dark:bg-dark-surface">
@@ -275,20 +400,16 @@ export default function FluxOfficePanel(props: Props) {
         onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth((width) => Math.min(850, width + 24)); if (event.key === 'ArrowRight') setPanelWidth((width) => Math.max(320, width - 24)); }}
         className="absolute -left-1 top-0 z-10 hidden h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 md:block" />
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
-        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">Flux · {props.fileName || 'Office'}</h2>{props.onProjectChange
+        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">{view === 'translator' ? 'Переводчик' : 'Данные для таблицы'} · {props.fileName || 'Office'}</h2>{view === 'translator' ? <p className="truncate text-xs text-slate-500 dark:text-slate-400">Перевод текста документа</p> : props.onProjectChange
           ? <select aria-label="Проект для данных Flux" value={props.projectId} onChange={(event) => props.onProjectChange?.(event.target.value)} className="fx-input mt-1 w-full max-w-[16rem] text-xs">
             <option value="">Выберите проект</option>
             {props.projectId && !projects.some((project) => project.id === props.projectId) && <option value={props.projectId}>{activeProject?.id === props.projectId ? activeProject.name : 'Текущий проект'}</option>}
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
           : <p className="truncate text-xs text-slate-500 dark:text-slate-400">{activeProject?.name || 'Выборка, поля и обновление'}</p>}</div>
-        <button type="button" onClick={props.onOpenLegacy} className="shrink-0 rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" title="Все источники, переводчик и экспорт">Источники и перевод</button>
         <button type="button" onClick={props.onClose} aria-label="Закрыть Flux" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
       </header>
 
-      <div className="min-w-0 shrink-0 overflow-x-auto border-b border-slate-200 px-3 py-2 dark:border-dark-border">
-        <FluxTemplateControls templates={templates} pinnedIds={pinnedTemplates} canSave={!!schema && !props.readOnly && !templatePending.length} busy={busy} error={templateError || undefined} onSave={saveTemplate} onOpen={openTemplate} onPin={pinTemplate} />
-      </div>
       {templatePending.length > 0 && <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
         <p>Шаблон ожидает уточнения: {templatePending.length}.</p>
         <div className="mt-2 space-y-2">
@@ -315,6 +436,8 @@ export default function FluxOfficePanel(props: Props) {
         </div>
       </div>}
 
+      {view === 'translator' && <div className="min-h-0 flex-1 overflow-auto"><TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} /></div>}
+      {view === 'data' && <>
       <nav className="flex shrink-0 border-b border-slate-200 dark:border-dark-border" aria-label="Этап Flux">
         {([['selection', 'Выборка'], ['fields', 'Поля и шапка'], ['update', 'Обновление']] as const).map(([key, label], index) => <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'step' : undefined}
           className={`flex-1 border-b-2 px-2 py-2 text-xs font-semibold ${tab === key ? 'border-emerald-600 text-emerald-700 dark:text-emerald-300' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}>
@@ -342,6 +465,18 @@ export default function FluxOfficePanel(props: Props) {
         {plan ? <Btn tone="primary" disabled={busy || props.readOnly || plan.errors.length > 0 || plan.conflicts.length > 0} onClick={() => void applyPlan()}>{busy ? 'Проверка…' : 'Подтвердить и заполнить'}</Btn>
           : <Btn tone="primary" disabled={busy || props.readOnly || !selectedIds.length || !officeState} onClick={() => void buildPlan()}>{busy ? 'Строим план…' : 'Предпросмотр заполнения'}</Btn>}
       </div>}
+      {tab === 'selection' && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 dark:border-dark-border">
+        <span className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400">{result ? `В таблицу попадёт ${(selectedIds.length || result.rows.length).toLocaleString('ru-RU')} позиций` : 'Задайте источник и обновите выборку'}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {insertButton}
+          <Btn tone="primary" disabled={busy || props.readOnly || !selectedIds.length || !officeState} onClick={() => void buildPlan()}>{busy ? 'Строим план…' : 'Предпросмотр заполнения'}</Btn>
+        </span>
+      </div>}
+      {actionMessage && <p role="status" className="shrink-0 border-t border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-dark-border dark:text-slate-300">{actionMessage}</p>}
+      </>}
+      {dialog && dialog !== 'export' && <FluxTemplateControls mode={dialog === 'pinned' ? 'pinned' : dialog === 'save-template' ? 'save' : 'library'} templates={tpl.templates} pinnedIds={tpl.pinned} userId={userId}
+        canSave={!!schema && !props.readOnly && !templatePending.length} busy={tpl.busy || busy} error={tpl.error || undefined} onSave={saveTemplateAs} onOpen={openTemplate} onPin={tpl.togglePin} onCopy={copyTemplate} onDelete={deleteTemplate} onClose={() => { setDialog(null); tpl.setError(''); }} />}
+      {dialog === 'export' && <FluxExportDialog sourceId={exportSourceId} columns={allColumns} result={result} selectedIds={selectedIds} query={query} onClose={() => setDialog(null)} />}
     </aside>
   );
 }

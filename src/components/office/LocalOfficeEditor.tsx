@@ -2,15 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { base64ToBytes, type WindowsFileContent, type WindowsFileRef } from '../../lib/windowsFiles';
 import { isOfficeMsg, isOfficeEditorReadyMessage, fromOwnFrame, targetOrigin, pathOf } from '../../lib/officeBridge';
 import { localAnswer } from './OfficeAppEditor';
-import FluxPanel, { type FluxTableRow, type ProjectField } from './FluxPanel';
+import FluxPanel, { type FluxTableRow } from './FluxPanel';
 import FluxOfficePanel from './FluxOfficePanel';
 import { docsEditorLink, sheetsEditorLink } from './useOfficeFluxBridge';
 import { useLocalFluxBridge } from './useLocalFluxBridge';
+import { useFluxRibbon } from './useFluxRibbon';
 import { useFluxCellActions } from './useFluxCellActions';
 import { queueOfficeReply } from './officeReplyQueue';
 import { carryFluxPart } from '../../../office/fluxPart';
 import { openEditorTag } from '../../lib/editorTag';
-import { sheetName, cellValue } from '../../../office/fieldKeys';
 import { useStore } from '../../store/store';
 import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
@@ -54,9 +54,6 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const lifecycleSequence = useRef(0);
   const frameLoadCount = useRef(0);
   const lifecycleState = useRef({ ready: false, dirtyKnown: false, dirty: false });
-  const [panelOpen, setPanelOpen] = useState(false);
-  // Новая панель — по умолчанию для Word и Таблицы; прежняя нужна, пока её возможности не перенесены
-  const [legacyPanel, setLegacyPanel] = useState(false);
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
   const flowProjectId = pickedProjectId ?? activeProjectId;
   /** Последнее известное содержимое файла: из него берётся часть Flux при сохранении из редактора. */
@@ -206,7 +203,10 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     },
     onError: message => toast(message, 'error') });
   // Обработчик сообщений редактора живёт дольше одной отрисовки и берёт свежее отсюда
-  const fluxHost = useRef({ flux, cellActions }); fluxHost.current = { flux, cellActions };
+  // Выпуск ревизий для файлов Проводника — отдельный этап позже (решение владельца)
+  const ribbon = useFluxRibbon({ send, peek: flux.peekState, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже' });
+  const panelOpen = ribbon.open;
+  const fluxHost = useRef({ flux, cellActions, ribbon }); fluxHost.current = { flux, cellActions, ribbon };
   useEffect(() => {
     const receive = async (event: MessageEvent) => {
       if (!fromOwnFrame(event.source, frame.current?.contentWindow, event.origin, window.location.origin) || !isOfficeMsg(event.data)) return;
@@ -215,7 +215,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
         if (!lifecycleState.current.ready) { lifecycleState.current.ready = true; logLifecycle('editor-ready'); }
         setReady(true); return;
       }
-      if (m.op === 'flux:open-panel') { setLegacyPanel(false); setPanelOpen(true); return; }
+      if (fluxHost.current.ribbon.handle(m)) return;
       if (m.op === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, m.payload); return; }
       if (m.op === 'flux:cell-actions') { void fluxHost.current.cellActions.open(m.payload); return; }
       if (m.op === 'flux:header-schema-edited') { void fluxHost.current.cellActions.edited(m.payload); return; }
@@ -324,18 +324,6 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     if (app === 'sheets') return !!(await command('flux:insert-table', { rows }))?.ok;
     return false;
   };
-  const insertField = async (field: ProjectField) => {
-    if (app !== 'sheets') return;
-    const answer = new Promise<any>(resolve => {
-      let timer: ReturnType<typeof setTimeout>;
-      const done = (value: any) => { clearTimeout(timer); if (waits.current.get('flux:field-inserted') === done) waits.current.delete('flux:field-inserted'); resolve(value); };
-      waits.current.set('flux:field-inserted', done);
-      timer = setTimeout(() => done(null), 8000);
-    });
-    send({ event: 'ipc', payload: { channel: 'flux:insert-field', args: [{ name: sheetName(field.key), value: cellValue(field.value === '—' ? '' : field.value) }] } });
-    const result = await answer;
-    if (!result?.ok) toast(result?.error || 'Поле не вставлено.', 'error');
-  };
   const insertText = async (text: string) => {
     if (app !== 'docs') return;
     const result = await ask('insertText', 'flux:text-inserted', text);
@@ -345,12 +333,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
       <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
-      {panelOpen && app !== 'pdf' && !legacyPanel && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
+      {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
         readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
         requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
-        onOpenLegacy={() => setLegacyPanel(true)} onClose={() => setPanelOpen(false)} />}
+        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
       {cellActions.dialog}
-      {panelOpen && (app === 'pdf' || legacyPanel) && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
+      {panelOpen && app === 'pdf' && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
           event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
         }} onPointerMove={event => {
@@ -363,7 +351,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
           event.preventDefault(); resizePanel(visiblePanelWidth + (event.key === 'ArrowLeft' ? 20 : -20));
         }} />
-        <div className="min-h-0 min-w-0 flex-1"><FluxPanel fileId="" fileName={file.name} projectId={flowProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={() => setPanelOpen(false)} onInsertTable={app === 'pdf' ? undefined : insertTable} onInsertField={app === 'sheets' ? insertField : undefined} onInsertText={app === 'docs' ? insertText : undefined} /></div>
+        <div className="min-h-0 min-w-0 flex-1"><FluxPanel fileId="" fileName={file.name} projectId={flowProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={ribbon.close} /></div>
       </div>}
     </div>
     {!ready && <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">Открывается локальный редактор…</div>}

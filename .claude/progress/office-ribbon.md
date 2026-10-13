@@ -6,8 +6,8 @@
 ## Шаги
 - [x] 1. Права шаблонов на сервере (общий создаёт любой, правит/удаляет только создатель) + тест
 - [x] 2. «Исходная шапка»: templateId + снимок схемы в части Flux (сервер, state, updateState) + тест
-- [ ] 3. Лента Flux в патчах GenOffice (docs/sheets): группы и сообщения flux:open-panel + command
-- [ ] 4. Хосты и панель: команды ленты, шаблоны (FluxTemplateControls как окно), переводчик, исходная шапка
+- [x] 3. Лента Flux в патчах GenOffice (docs/sheets): группы и сообщения flux:open-panel + command
+- [x] 4.(код; проверять в браузере) Хосты и панель: команды ленты, шаблоны (FluxTemplateControls как окно), переводчик, исходная шапка
 - [ ] 5. Перенос «Вставить все», XLSX/CSV/«Книга Flux» в новую панель + сверка со старой
 - [ ] 6. Удаление FluxPanel из Word/Excel (OfficeHost, OfficeAppEditor, LocalOfficeEditor), перевод тестов
 - [ ] 7. Потолки OfficeHost/OfficeAppEditor в test-architecture.ts, снимки, полные проверки
@@ -20,3 +20,11 @@
 - сообщения ленты: {flux:'office', op:'flux:open-panel', command:'<id>'}; состояние для кнопки «Исходная шапка» хост шлёт событием fluxRibbonState
 - снимок шаблона: поле template {templateId,name,appliedAt,anchors} в OfficePackageBindings; state возвращает template.schema
 - inject/flux-ribbon.tsx в GenOffice (docs/sheets), сборка GENOFFICE_SRC=/tmp/cx/.cache/genoffice
+
+## Сделано после шага 2
+- inject/flux-ribbon.tsx + patches (flux-ribbon-docs/-sheets/-body/-import), build.mjs копирует; собрано docs и sheets (GENOFFICE_SRC=/tmp/cx/.cache/genoffice node tools/genoffice/build.mjs docs|sheets) — после правки inject пересобрать оба
+- useFluxRibbon.ts (хост), FluxTemplateControls.tsx (окна шаблонов), useOfficeTemplates.ts, fluxTable.ts, FluxExportDialog.tsx; FluxOfficePanel: команды ленты, переводчик, исходная шапка, обновить данные, вставить все
+- Хосты: OfficeHost, OfficeAppEditor, LocalOfficeEditor переведены; FluxPanel остаётся для pdf (OfficeAppEditor, LocalOfficeEditor)
+## Дальше
+- пересобрать genoffice, сверить ленту в браузере (снимки), тесты: сверка старой/новой выгрузки (шаг 5), перевод тестов «Источники и перевод» (шаг 6)
+- в test-architecture потолков OfficeHost/OfficeAppEditor НЕТ (лимит 1200) — сообщить в отчёте
