@@ -25,6 +25,7 @@ export interface WindowsFilesDependencies {
   /** Запускает перетаскивание файлов наружу из окна owner. Пути отдаются только main-процессу. */
   startDrag?: (owner: number, files: string[]) => void | Promise<void>;
   fileDetails?: (paths: string[]) => Promise<{ hidden: boolean }[]>;
+  isNetworkFolder?: (filename: string) => Promise<boolean>;
 }
 /** Общие параметры изменяющих команд: группа отмены и «не записывать в журнал» (внутренние вызовы одной операции). */
 export interface OpOptions { group?: string; silent?: boolean }
@@ -77,7 +78,8 @@ export class WindowsFilesService {
   private locks = new Map<string, Promise<unknown>>();
   private parentSearch = new Map<string, { expires: number; ref: WindowsFileRef | null }>();
   private watchers = new Map<string, { watcher: FSWatcher; timer?: ReturnType<typeof setTimeout>; ref: WindowsFileRef; owners: Set<number> }>();
-  private listNames = new Map<string, { mtimeMs: number; names: string[] }>();
+  private listNames = new Map<string, { mtimeMs: number; at: number; names: string[]; kinds: Map<string, WindowsFileEntry['kind']>; hydrated: Map<string, WindowsFileEntry> }>();
+  private hydrating = new Set<string>();
   private constructor(private deps: WindowsFilesDependencies, readonly state: WindowsFilesState, readonly journal: UndoJournal) {}
   static async create(deps: WindowsFilesDependencies) {
     const state = await WindowsFilesState.load(deps.userData);
@@ -153,8 +155,8 @@ export class WindowsFilesService {
     ref = this.resolveRef(ref);
     const root = this.state.root(ref.rootId);
     const filename = allowLink && !ref.draftId ? path.join(root.path, ...ref.relativePath.split('/')) : await this.filename(ref);
-    const stat = await fs.lstat(filename);
-    return { name: path.posix.basename(ref.relativePath) || path.basename(filename), relativePath: ref.relativePath, storage: ref.draftId ? 'flux' : 'windows', ...(ref.draftId ? { draftId: ref.draftId } : {}), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other', fileId: ref.draftId ? this.draftFileId(ref.draftId) : await this.identity(filename), size: stat.size, modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), rootId: ref.rootId, linked: stat.isSymbolicLink() };
+    const stat = await fs.lstat(filename, { bigint: true });
+    return { name: path.posix.basename(ref.relativePath) || path.basename(filename), relativePath: ref.relativePath, storage: ref.draftId ? 'flux' : 'windows', ...(ref.draftId ? { draftId: ref.draftId } : {}), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other', fileId: ref.draftId ? this.draftFileId(ref.draftId) : this.identityFromStat(filename, stat), size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), rootId: ref.rootId, linked: stat.isSymbolicLink() };
   }
   async roots() {
     return Promise.all(this.state.data.roots.map(async root => ({ id: root.id, name: root.name, kind: root.kind, network:await isNetworkFolder(root.path), available: await fs.stat(root.path).then(stat => stat.isDirectory()).catch(() => false) })));
@@ -209,43 +211,94 @@ export class WindowsFilesService {
     if (filename && !(await fs.stat(filename)).isDirectory()) throw new WindowsFilesError('NOT_DIRECTORY', 'Откройте папку.');
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new WindowsFilesError('INVALID_RANGE', 'Некорректный диапазон списка.');
     const names: string[] = [];
+    let network = false;
+    let cached: ReturnType<typeof this.listNames.get>;
     if (filename) {
       const mtimeMs = (await fs.stat(filename)).mtimeMs;
-      const cached = this.listNames.get(filename);
-      if (cached?.mtimeMs === mtimeMs) names.push(...cached.names);
+      cached = this.listNames.get(filename);
+      if (cached?.mtimeMs === mtimeMs && Date.now() - cached.at < 3000) names.push(...cached.names);
       else {
+        const kinds = new Map<string, WindowsFileEntry['kind']>();
         const directory = await fs.opendir(filename);
         for await (const item of directory) {
           if (/^\.flux-(?:write-[0-9a-f]{64}\.lock|replace-[0-9a-f-]{36}\.tmp)$/u.test(item.name)) continue;
-          names.push(item.name); if (names.length >= MAX_LIST) break;
+          names.push(item.name); kinds.set(item.name, item.isSymbolicLink() ? 'link' : item.isDirectory() ? 'directory' : item.isFile() ? 'file' : 'other'); if (names.length >= MAX_LIST) break;
         }
         if (this.listNames.size >= 32) this.listNames.delete(this.listNames.keys().next().value!);
-        this.listNames.set(filename, { mtimeMs, names: [...names] });
+        this.listNames.set(filename, { mtimeMs, at: Date.now(), names: [...names], kinds, hydrated: new Map() });
+        cached = this.listNames.get(filename);
       }
+      network = await (this.deps.isNetworkFolder || isNetworkFolder)(filename);
     }
     for (const draft of Object.values(this.state.data.drafts)) if (!draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId) await this.reconcileDraftParent(draft).catch(() => undefined);
     const virtual = this.draftsIn(ref);
     const candidates = [...names.map(name => ({ name, draftId: undefined as string | undefined })), ...virtual.map(draft => ({ name: draft.name, draftId: draft.id }))];
     candidates.sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' }));
-    const entries: WindowsFileEntry[] = [];
     let unreadableCount = 0;
-    for (const item of candidates.slice(offset, offset + limit)) {
-      try { validateWindowsName(item.name); entries.push(await this.entry({ rootId: ref.rootId, relativePath: joinRelative(ref.relativePath, item.name), ...(item.draftId ? { draftId: item.draftId } : {}) }, true)); }
+    const rows = await Promise.all(candidates.slice(offset, offset + limit).map(async item => {
+      try {
+        validateWindowsName(item.name);
+        if (network && filename && !item.draftId) {
+          const kind = cached?.kinds.get(item.name) || 'file';
+          const absolute = path.join(this.state.root(ref.rootId).path, ...joinRelative(ref.relativePath, item.name).split('/'));
+          const fileId = hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:path:${absolute}`));
+          return { name: item.name, relativePath: joinRelative(ref.relativePath, item.name), storage: 'windows' as const, kind, fileId, size: 0, modifiedAt: '', linked: kind === 'link', rootId: ref.rootId, detailsPending: true };
+        }
+        return await this.entry({ rootId: ref.rootId, relativePath: joinRelative(ref.relativePath, item.name), ...(item.draftId ? { draftId: item.draftId } : {}) }, true);
+      }
       catch (error: any) {
-        if (error.code === 'ENOENT' || error.code === 'INVALID_NAME') continue;
+        if (error.code === 'ENOENT' || error.code === 'INVALID_NAME') return null;
         // Один объект с отдельным ACL не должен скрывать соседей. Ошибка stat/opendir
         // самой папки выше по-прежнему прерывает запрос и не выглядит пустым списком.
-        if (error.code === 'EACCES' || error.code === 'EPERM') { unreadableCount++; continue; }
+        if (error.code === 'EACCES' || error.code === 'EPERM') { unreadableCount++; return null; }
         throw error;
+      }
+    }));
+    let entries = rows.filter((entry): entry is WindowsFileEntry => entry !== null);
+    if (network && filename && cached) {
+      entries = entries.map(entry => cached!.hydrated.get(entry.name) || entry);
+      const pending = entries.filter(entry => entry.detailsPending && !this.hydrating.has(`${ref.rootId}\0${entry.relativePath}`));
+      if (pending.length) {
+        const keys = pending.map(entry => `${ref.rootId}\0${entry.relativePath}`);
+        keys.forEach(key => this.hydrating.add(key));
+        void this.hydrateNetworkBatch(ref, pending, cached).finally(() => keys.forEach(key => this.hydrating.delete(key)));
       }
     }
     for (const entry of entries) { const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] }; }
-    if (this.deps.fileDetails && filename) {
+    if (!network && this.deps.fileDetails && filename) {
       const physical = entries.filter(entry => !entry.draftId);
       const details = await this.deps.fileDetails(physical.map(entry => path.join(filename, entry.name))).catch(() => []);
       physical.forEach((entry, index) => { if (details[index]) entry.hidden = details[index].hidden; });
     }
-    return { root: (await this.roots()).find(root => root.id === ref.rootId), relativePath: ref.relativePath, entries, unreadableCount, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
+    const root = this.state.root(ref.rootId);
+    return { root: { id: root.id, name: root.name, kind: root.kind, available: true, network }, relativePath: ref.relativePath, entries, unreadableCount, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
+  }
+  private async hydrateNetworkBatch(ref: WindowsFileRef, entries: WindowsFileEntry[], cache: { hydrated: Map<string, WindowsFileEntry> }) {
+    for (let start = 0; start < entries.length; start += 32) {
+      const rows = await Promise.all(entries.slice(start, start + 32).map(async provisional => {
+        const filename = path.join(this.state.root(ref.rootId).path, ...provisional.relativePath.split('/'));
+        try {
+          const stat = await fs.lstat(filename, { bigint: true });
+          const identity = stat.ino !== 0n ? `${stat.dev}:${stat.ino}:${stat.birthtimeNs}` : `path:${filename}`;
+          const identityKey = hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:${identity}`));
+          this.state.data.identity[identityKey] = provisional.fileId;
+          return { filename, entry: { ...provisional, kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
+        } catch (error: any) {
+          if (['ENOENT', 'EACCES', 'EPERM'].includes(error?.code)) return { filename: '', entry: { ...provisional, detailsPending: false } };
+          return null;
+        }
+      }));
+      const good = rows.filter((row): row is NonNullable<typeof row> => row !== null);
+      const physical = good.filter(row => row.filename && !row.entry.linked);
+      if (this.deps.fileDetails && physical.length) {
+        const details = await this.deps.fileDetails(physical.map(row => row.filename)).catch(() => []);
+        physical.forEach((row, index) => { if (typeof details[index]?.hidden === 'boolean') row.entry.hidden = details[index].hidden; });
+      }
+      const hydrated = good.map(row => row.entry);
+      for (const entry of hydrated) cache.hydrated.set(entry.name, entry);
+      await this.state.save().catch(() => undefined);
+      if (hydrated.length) this.deps.onChanged?.({ rootId: ref.rootId, relativePath: ref.relativePath, entries: hydrated });
+    }
   }
   async read(ref: WindowsFileRef) {
     ref = this.resolveRef(ref);

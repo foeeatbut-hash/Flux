@@ -29,17 +29,21 @@ const COLUMN_LABEL = Object.fromEntries(FOLDER_COLUMNS.map((column) => [column.i
 const THUMB_CACHE_LIMIT = 256;
 const METADATA_CACHE_LIMIT = 512;
 const THUMB_CONCURRENCY = 4;
-type ThumbJob = { key: string; ref: WindowsFileRef; size: number; resolve: (url: string | null) => void };
+type ThumbJob = { key: string; ref: WindowsFileRef; size: number; resolve: (url: string | null) => void; signal?: AbortSignal };
 type SystemProperties = { author: string; createdAt: string; hidden: boolean };
-type SystemJob = { key: string; ref: WindowsFileRef; resolve: (value: SystemProperties | null) => void };
+type SystemJob = { key: string; ref: WindowsFileRef; resolve: (value: SystemProperties | null) => void; signal?: AbortSignal };
 const thumbnailCache = new Map<string, Promise<string | null>>();
 const metadataCache = new Map<string, WindowsFileMetadata>();
 const metadataPending = new Map<string, Promise<WindowsFileMetadata | null>>();
 const metadataQueue: Array<{ key: string; ref: WindowsFileRef; resolve: (value: WindowsFileMetadata | null) => void }> = [];
 const systemPropertiesCache = new Map<string, SystemProperties>();
 const systemPropertiesPending = new Map<string, Promise<SystemProperties | null>>();
+const systemControllers = new Map<string, AbortController>();
+const systemSubscribers = new Map<string, Map<AbortSignal, () => void>>();
 const systemPropertiesQueue: SystemJob[] = [];
 const thumbnailQueue: ThumbJob[] = [];
+const thumbnailControllers = new Map<string, AbortController>();
+const thumbnailSubscribers = new Map<string, Map<AbortSignal, () => void>>();
 let activeThumbnails = 0;
 let activeMetadata = 0;
 let activeSystemProperties = 0;
@@ -75,25 +79,29 @@ function pumpMetadata() {
   }
 }
 
-function requestSystemProperties(key: string, ref: WindowsFileRef): Promise<SystemProperties | null> {
+function requestSystemProperties(key: string, ref: WindowsFileRef, signal?: AbortSignal): Promise<SystemProperties | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const cached = systemPropertiesCache.get(key);
   if (cached) return Promise.resolve(cached);
   const pending = systemPropertiesPending.get(key);
-  if (pending) return pending;
+  if (pending) { subscribe(key, signal, systemControllers, systemSubscribers, pending); return pending; }
+  const controller = new AbortController(); systemControllers.set(key, controller);
   const result = new Promise<SystemProperties | null>((resolve) => {
-    systemPropertiesQueue.push({ key, ref, resolve });
+    systemPropertiesQueue.push({ key, ref, resolve, signal: controller.signal });
     pumpSystemProperties();
   });
   systemPropertiesPending.set(key, result);
-  void result.finally(() => systemPropertiesPending.delete(key));
+  subscribe(key, signal, systemControllers, systemSubscribers, result);
+  void result.finally(() => { systemPropertiesPending.delete(key); systemControllers.delete(key); systemSubscribers.delete(key); });
   return result;
 }
 
 function pumpSystemProperties() {
   while (activeSystemProperties < 4 && systemPropertiesQueue.length) {
     const job = systemPropertiesQueue.shift()!;
+    if (job.signal?.aborted) { job.resolve(null); continue; }
     activeSystemProperties++;
-    void windowsFilesRequest<SystemProperties>({ action: 'systemProperties', ref: job.ref }).then((answer) => {
+    void windowsFilesRequest<SystemProperties>({ action: 'systemProperties', ref: job.ref }, { signal: job.signal }).then((answer) => {
       const value = answer.ok ? answer.data : null;
       if (value) {
         systemPropertiesCache.set(job.key, value);
@@ -104,11 +112,26 @@ function pumpSystemProperties() {
   }
 }
 
+function subscribe<T>(key: string, signal: AbortSignal | undefined, controllers: Map<string, AbortController>, subscribers: Map<string, Map<AbortSignal, () => void>>, promise: Promise<T>) {
+  if (!signal || signal.aborted || !controllers.has(key)) return;
+  let listeners = subscribers.get(key);
+  if (!listeners) { listeners = new Map(); subscribers.set(key, listeners); }
+  if (listeners.has(signal)) return;
+  const release = () => {
+    signal.removeEventListener('abort', release);
+    const current = subscribers.get(key); current?.delete(signal);
+    if (current && !current.size) { subscribers.delete(key); controllers.get(key)?.abort(); }
+  };
+  listeners.set(signal, release); signal.addEventListener('abort', release, { once: true });
+  void promise.finally(() => { signal.removeEventListener('abort', release); const current = subscribers.get(key); current?.delete(signal); if (current && !current.size) subscribers.delete(key); });
+}
+
 function pumpThumbnails() {
   while (activeThumbnails < THUMB_CONCURRENCY && thumbnailQueue.length) {
     const job = thumbnailQueue.shift()!;
+    if (job.signal?.aborted) { thumbnailCache.delete(job.key); job.resolve(null); continue; }
     activeThumbnails++;
-    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size }).then((answer) => {
+    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size }, { signal: job.signal }).then((answer) => {
       const value = answer.ok && answer.data.dataUrl.startsWith('data:image/') ? answer.data.dataUrl : null;
       if (!value && thumbnailCache.get(job.key)) thumbnailCache.delete(job.key);
       job.resolve(value);
@@ -116,15 +139,19 @@ function pumpThumbnails() {
   }
 }
 
-function requestThumbnail(ref: WindowsFileRef, size: number, modifiedAt: string): Promise<string | null> {
+function requestThumbnail(ref: WindowsFileRef, size: number, modifiedAt: string, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const key = `${ref.rootId}\0${ref.relativePath}\0${ref.draftId || ''}\0${modifiedAt}\0${size}`;
   const cached = thumbnailCache.get(key);
-  if (cached) return cached;
+  if (cached) { subscribe(key, signal, thumbnailControllers, thumbnailSubscribers, cached); return cached; }
+  const controller = new AbortController(); thumbnailControllers.set(key, controller);
   let resolve!: (url: string | null) => void;
   const result = new Promise<string | null>((done) => { resolve = done; });
   thumbnailCache.set(key, result);
   if (thumbnailCache.size > THUMB_CACHE_LIMIT) thumbnailCache.delete(thumbnailCache.keys().next().value!);
-  thumbnailQueue.push({ key, ref, size, resolve });
+  thumbnailQueue.push({ key, ref, size, resolve, signal: controller.signal });
+  subscribe(key, signal, thumbnailControllers, thumbnailSubscribers, result);
+  void result.finally(() => { thumbnailControllers.delete(key); thumbnailSubscribers.delete(key); });
   pumpThumbnails();
   return result;
 }
@@ -134,11 +161,12 @@ function Thumbnail({ entry, rootId, size }: { entry: WindowsFileEntry; rootId: s
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     setUrl(null);
-    if (entry.kind !== 'file') return () => { alive = false; };
-    void requestThumbnail({ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, size, entry.modifiedAt)
+    if (entry.kind !== 'file') return () => { alive = false; controller.abort(); };
+    void requestThumbnail({ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, size, entry.modifiedAt, controller.signal)
       .then((value) => { if (alive) setUrl(value); });
-    return () => { alive = false; };
+    return () => { alive = false; controller.abort(); };
   }, [entry.kind, entry.modifiedAt, entry.relativePath, entry.draftId, actualRootId, size]);
   return url
     ? <img src={url} alt="" draggable={false} width={size} height={size} className="shrink-0 rounded-sm object-contain" />
@@ -219,6 +247,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   const [metadataValues, setMetadataValues] = useState<Record<string, WindowsFileMetadata | null>>({});
   const [systemValues, setSystemValues] = useState<Record<string, SystemProperties | null>>({});
+  const systemValuesRef = useRef(systemValues); systemValuesRef.current = systemValues;
   const wantsMetadata = view.layout === 'details' && view.columns.some((column) => ['tags', 'project', 'revision', 'responsible'].includes(column));
   const wantsSystemProperties = view.layout === 'details' && view.columns.some((column) => ['created', 'author'].includes(column));
   useEffect(() => {
@@ -235,15 +264,18 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   useEffect(() => {
     if (!wantsSystemProperties) return;
+    const controllers: AbortController[] = [];
     for (const virtualRow of visibleRows) for (const item of rows[virtualRow.index] || []) {
       if (item.kind !== 'entry') continue;
       const entry = item.entry;
       const key = entryMetadataKey(rootId, entry);
-      if (systemPropertiesCache.has(key) || systemValues[key] !== undefined || (entry.author && entry.createdAt)) continue;
-      void requestSystemProperties(key, { rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) })
-        .then((properties) => setSystemValues((current) => current[key] === properties ? current : { ...current, [key]: properties }));
+      if (systemPropertiesCache.has(key) || systemValuesRef.current[key] !== undefined || (entry.author && entry.createdAt)) continue;
+      const controller = new AbortController(); controllers.push(controller);
+      void requestSystemProperties(key, { rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, controller.signal)
+        .then((properties) => { if (!controller.signal.aborted) setSystemValues((current) => current[key] === properties ? current : { ...current, [key]: properties }); });
     }
-  }, [wantsSystemProperties, visibleRows, rows, rootId, systemValues]);
+    return () => controllers.forEach((controller) => controller.abort());
+  }, [wantsSystemProperties, visibleRows, rows, rootId]);
 
   const choose = (entry: WindowsFileEntry, event: React.MouseEvent | React.PointerEvent) => selection.click(entry, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey });
   const renderName = (entry: WindowsFileEntry, large = false) => <span className={`flex min-w-0 items-center ${large ? 'flex-col justify-center gap-2 text-center' : 'gap-2'}`}>

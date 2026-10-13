@@ -58,7 +58,7 @@ export class ExplorerBridge {
   registerDrop(owner: number, ticket: unknown, paths: unknown) { this.drops.register(owner, ticket, paths); }
   closeOwner(owner: number) { this.search.closeOwner(owner); this.drops.closeOwner(owner); this.deps.shell.closeOwner(owner); }
 
-  async handle(request: WindowsFilesRequest, owner: number): Promise<unknown> {
+  async handle(request: WindowsFilesRequest, owner: number, signal?: AbortSignal): Promise<unknown> {
     const { service, shell, viewState } = this.deps;
     const r = request as any;
     switch (request.action) {
@@ -68,10 +68,10 @@ export class ExplorerBridge {
       case 'quickAccess': return shell.quickAccess();
       case 'quickAccessPin': return shell.pin(ref(r.ref), r.pinned);
       case 'cloudRoots': return shell.cloudRoots();
-      case 'systemProperties': return shell.fileProperties(ref(r.ref));
+      case 'systemProperties': return shell.fileProperties(ref(r.ref), signal);
       case 'resolveAddress': return service.resolveAddress(r.text);
       case 'placeIcon': return shell.placeIcon(r.place, r.size);
-      case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true);
+      case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true, signal);
       case 'openWithList': return shell.openWithList(owner, ref(r.ref));
       case 'openWith': return shell.openWith(owner, ref(r.ref), r.handlerId);
       case 'shellMenu': return shell.shellMenu(owner, refs(r.refs), r.extended === true);

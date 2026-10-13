@@ -13,6 +13,7 @@ import NoteEditorHost from './NoteEditorHost';
 import { useWindowTitle } from '../lib/paneTitle';
 import { rememberDoc } from '../store/recentStore';
 import { Empty } from '../components/ui';
+import { fetchFileMetadata, invalidateFileMetadata } from '../services/fileMetadataCache';
 
 export default function MdFileHost() {
   const [params] = useSearchParams();
@@ -26,8 +27,7 @@ export default function MdFileHost() {
   useEffect(() => {
     let cancelled = false;
     setFailure('');
-    fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d?.error || `сервер ответил ${r.status}`); return d; })
+    fetchFileMetadata(fileId)
       .then((d) => { if (!cancelled) { setName(String(d.name || '')); sha.current = String(d.sha256 || ''); } })
       .catch((e) => { if (!cancelled) setFailure(String(e.message || e)); });
     return () => { cancelled = true; };
@@ -52,6 +52,7 @@ export default function MdFileHost() {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d?.error || `сервер ответил ${r.status}`);
+    invalidateFileMetadata(fileId);
     if (d?.sha256) sha.current = String(d.sha256);
   }, [fileId]);
 

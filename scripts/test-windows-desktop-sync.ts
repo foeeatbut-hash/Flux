@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { desktopClickSelection, desktopMarqueeSelection, desktopSelectAll } from '../src/components/desktop/desktopSelection';
+import { mergeDesktopEntries } from '../src/components/desktop/desktopEntries';
+import type { WindowsFileEntry } from '../filesystem/contracts';
+const entry = (fileId: string, name: string, size = 1): WindowsFileEntry => ({ fileId, name, relativePath: name, storage: 'windows', kind: 'file', size, modifiedAt: '2026-10-13T10:00:00.000Z', linked: false, rootId: 'desktop' });
+const previous = [entry('a', 'a.txt'), entry('b', 'b.txt')];
+const merged = mergeDesktopEntries(previous, [entry('a', 'a.txt'), entry('b', 'b.txt'), entry('c', 'c.txt'), entry('duplicate', 'c.txt')]);
+assert.equal(merged.length, 3); assert.equal(merged[0], previous[0], 'unchanged row keeps object identity');
+const old = entry('a', 'a.txt'); assert.notEqual(mergeDesktopEntries([old], [entry('a', 'a.txt', 2)])[0], old, 'changed row refreshes');
+assert.equal(mergeDesktopEntries(merged, [entry('a', 'a.txt')]).length, 1, 'removed row disappears after a complete scan');
+const one = desktopClickSelection({ ids: [], anchor: null }, ['a', 'b', 'c'], 'a', {});
+assert.deepEqual(desktopClickSelection(one, ['a', 'b', 'c'], 'c', { shift: true }).ids, ['a', 'b', 'c']);
+assert.deepEqual(desktopClickSelection(one, ['a', 'b', 'c'], 'b', { ctrl: true }).ids, ['a', 'b']);
+assert.deepEqual(desktopMarqueeSelection(one, ['b', 'c'], { ctrl: true }).ids, ['a', 'b', 'c']);
+assert.deepEqual(desktopSelectAll(['a', 'b', 'c']).ids, ['a', 'b', 'c']);
+console.log('✓ desktop merge, persistent identities, Ctrl/Shift, marquee, and Ctrl+A');

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { SHELL_DESKTOP_SNAPSHOT, SHELL_DESKTOP_OPEN, SHELL_DESKTOP_CHANGED } from '../filesystem/shellDesktop';
 import { NATIVE_APP_OPEN, NATIVE_APP_LIST, NATIVE_APP_ACTION, NATIVE_APP_CHANGED, NATIVE_APP_CLOSE_REQUEST, NATIVE_APP_CLOSE_REPLY, NATIVE_APP_LOCATION } from '../workspace/nativeApps';
 import { WINDOWS_NOTIFICATIONS_SNAPSHOT, WINDOWS_NOTIFICATIONS_CONSENT, WINDOWS_NOTIFICATIONS_CHANGED } from '../filesystem/windowsNotifications';
@@ -83,7 +84,13 @@ contextBridge.exposeInMainWorld('electron', {
       const result = await ipcRenderer.invoke('windows-files:invoke', { action: 'icon', ref });
       return result?.ok === true && typeof result.data === 'string' ? result.data : null;
     },
-    invoke: (request: unknown) => ipcRenderer.invoke('windows-files:invoke', request),
+    invoke: (request: unknown, signal?: AbortSignal) => {
+      const cancelId = signal ? randomUUID() : undefined;
+      const abort = () => { if (cancelId) ipcRenderer.send('windows-files:cancel', cancelId); };
+      signal?.addEventListener('abort', abort, { once: true });
+      return ipcRenderer.invoke('windows-files:invoke', cancelId ? { ...(request as object), __cancelId: cancelId } : request)
+        .finally(() => signal?.removeEventListener('abort', abort));
+    },
     onChanged: (callback: (change: unknown) => void) => {
       const listener = (_event: unknown, change: unknown) => callback(change);
       ipcRenderer.on('windows-files:changed', listener);
