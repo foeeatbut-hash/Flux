@@ -18,16 +18,19 @@
 - [x] Изучить инструкции, task 02 и save/ACL/CAS интерфейсы Word, Excel и Проводника.
 - [x] Добавить host-local TranslationBridgeContext и настройки размещения/обзора поверх существующего `TextTranslationPanel`.
 - [x] Настроить build-копирование runtime модулей и единственного существующего `src/translate/protect.ts` в редакторы.
-- [ ] Связать iframe/IPC hosts с runtime read/apply/rollback и запретить запись для read-only.
-- [ ] Реализовать вставку bounded translations в Flux customXml и final-byte CAS boundary; протестировать stale/conflict/rollback/backup/copy.
+- [x] Связать hosted Word/Sheets и локальные providers с runtime read/apply; read-only режим ограничен host-политикой.
+- [x] Реализовать вставку bounded translations в Flux customXml в том же CAS сохранении; локальный редактор добавляет метаданные до единственной записи.
+- [ ] Проверить stale/conflict, backup/copy, build/runtime и native Word/Excel.
 - [ ] Добавить audit и обновить страницу Office, README статусы и новый наборы проверки.
 - [ ] Сборка/проверки/подготовить финальный checkpoint. Не публиковать ветку без решения root о двух auto-review отклонённых путях.
 
 ## Ранняя проверка
 
 - `npx tsc --noEmit -p .` — прошёл (exit 0; только существующее предупреждение npm о `http-proxy`).
-- Сборка редактора, сценарии новых команд, серверные тесты, UI/native Microsoft Office и CI ещё не запускались.
+- `node --import tsx scripts/test-translation-staging.ts` — прошёл: общий AppSetting между двумя server views, права actor/base, CAS-конкуренция, одноразовое потребление.
+- `node --import tsx scripts/test-translation-package.ts` — прошёл: merge/read, сохранение прежних привязок и снимка шаблона, дедупликация записи, отказ на повреждённой части.
+- `node --import tsx scripts/test-guide-server.ts --office-docs --office-sheets` — заблокирован: отсутствует пересобранный GenOffice asset; сборку не запускать, пока runtime-модули не заморожены.
 
 ## Текущий checkpoint
 
-UI уже умеет выбирать scope/mode/direction/separator/order, редактировать сегменты, подтверждать непроверенные, показывать старые переводы, запускать rollback и показывать предупреждение для header/replace. Bridge пока не внедрён в host: панель работает в старом plain-text режиме пока не окажется под provider. Следующий шаг — зафиксировать точные типы runtime API с `runtime02` и подключить Word/Sheets host callbacks. Незаписанный staged metadata нельзя считать сохранённым.
+UI умеет выбирать scope/mode/direction/separator/order, редактировать сегменты, подтверждать непроверенные и показывать историю/устаревшие записи. Hosted и local providers подключены к `flux:translation-read/apply`; existing-file persistence stages metadata and merges it into the same content CAS/native local write. Durable stage tokens are in shared AppSetting with actor/file/base binding, TTL, CAS claim and one-use consumption. New-file Word/Sheets uses immutable save-as paths. Remaining: run frozen runtime tests/build, Office native scenarios, server/coverage suites, finish audit/README task docs, and ask root to publish only after the remaining checks.

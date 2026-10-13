@@ -26,7 +26,8 @@ import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWrit
 import { fileBytes } from './fileChunks.js';
 import { collabShared } from '../officeCollab.js';
 import { officeBus } from '../officeBus.js';
-import { carryOfficeBindings } from '../officeBindings.js';
+import { carryOfficeBindings, mergeOfficeTranslations, readOfficeBindings, type OfficeTranslationDelta } from '../officeBindings.js';
+import { claimStagedOfficeTranslation, stageOfficeTranslation } from '../officeTranslationStaging.js';
 import { shareOf, authorizedShareWrite, ShareDenied } from '../fileSharing.js';
 import { oncePerDatabase } from '../schemaRuntime.js';
 import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from '../officeRevisions.js';
@@ -110,6 +111,10 @@ export async function writeOfficeFile(a: {
    * меняют содержимое, и сеанс в них действительно устаревает.
    */
   fluxPartOnly?: boolean;
+  /** Translation delta is merged after carrying the current Flux part and before the single CAS. */
+  translationDelta?: OfficeTranslationDelta;
+  /** Incoming bytes already contain a host-generated, validated Flux part. */
+  preserveFluxPart?: boolean;
 }): Promise<{ status: number; json: any }> {
   const deps = routeDeps;
   if (!deps) return { status: 500, json: { error: 'Хранилище файлов Flux Office не подключено' } };
@@ -160,7 +165,15 @@ export async function writeOfficeFile(a: {
   }
   // Часть Flux принадлежит серверу: редактор открыл пакет до записи схемы, и его
   // тело несёт её старую копию. Переносим текущую, чтобы сохранение не откатывало схему
-  if (!a.server && /\.(docx|xlsx)$/i.test(file.name)) body = await carryOfficeBindings(before, body);
+  if (!a.server && /\.(docx|xlsx)$/i.test(file.name) && !a.preserveFluxPart) body = await carryOfficeBindings(before, body);
+  if (a.preserveFluxPart) {
+    if (!/\.(docx|xlsx)$/i.test(file.name)) return reply(400, { error: 'Связи перевода поддерживаются только в DOCX и XLSX' });
+    await readOfficeBindings(body);
+  }
+  if (a.translationDelta) {
+    if (!/\.(docx|xlsx)$/i.test(file.name)) return reply(400, { error: 'Связи перевода поддерживаются только в DOCX и XLSX' });
+    body = await mergeOfficeTranslations(body, a.translationDelta);
+  }
   const afterSha = sha256(body);
   if (afterSha === beforeSha) return reply(200, { sha256: afterSha, size: body.length, unchanged: true });
 
@@ -320,17 +333,99 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
     express.raw({ type: () => true, limit: LIMIT }),
     async (req: Request, res: Response) => {
       try {
-        const r = await writeOfficeFile({
-          fileId: String(req.params.id),
-          body: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
-          baseSha: String(req.header('x-base-sha256') || ''),
-          user: (req as any).authUser || null,
-          autosave: String(req.header('x-autosave') || '') === '1',
-          sessionKey: String(req.header('x-office-session') || ''),
-        });
-        res.status(r.status).json(r.json);
+        const fileId = String(req.params.id);
+        const baseSha = String(req.header('x-base-sha256') || '');
+        const translationToken = String(req.header('x-flux-translation-token') || '');
+        const user = (req as any).authUser || null;
+        if (translationToken && String(req.header('x-autosave') || '') === '1') return res.status(409).json({ error: 'Перевод записывается только явным сохранением' });
+        const claim = translationToken && user?.id ? await claimStagedOfficeTranslation(getPrisma(), translationToken, fileId, user.id, baseSha) : null;
+        if (translationToken && !claim) return res.status(409).json({ error: 'Подготовленные сведения перевода устарели, уже используются или уже сохранены. Перечитайте документ и повторите операцию.' });
+        try {
+          const r = await writeOfficeFile({
+            fileId,
+            body: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
+            baseSha,
+            user,
+            autosave: String(req.header('x-autosave') || '') === '1',
+            sessionKey: String(req.header('x-office-session') || ''),
+            preserveFluxPart: String(req.header('x-flux-translation-part') || '') === '1',
+            translationDelta: claim?.delta,
+          });
+          await claim?.finish(r.status === 200);
+          res.status(r.status).json(r.json);
+        } catch (error) { await claim?.finish(false); throw error; }
       } catch (err: any) { sendError(res, err); }
     });
+
+  /** Метаданные перевода хранятся в том же OOXML Flux part, что и связи шапки. */
+  app.post('/api/office/files/:id/translations/stage', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const fileId = String(req.params.id);
+      const user = (req as any).authUser;
+      if (!user?.id || !(await canWriteFile(prisma, user, fileId))) return res.status(user?.id ? 404 : 401).json({ error: FILE_NOT_FOUND });
+      const file = await prisma.fileNode.findUnique({ where: { id: fileId } });
+      if (!file || !/\.(docx|xlsx)$/i.test(file.name)) return res.status(400).json({ error: 'Переводы доступны только для DOCX и XLSX' });
+      const bytes = await fileBytes(file);
+      const baseHash = sha256(bytes);
+      if (String(req.body?.baseHash || '') !== baseHash) return res.status(409).json({ error: 'Файл изменился после чтения переводов', baseHash });
+      const input = req.body?.delta;
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Buffer.byteLength(JSON.stringify(input), 'utf8') > 1_000_000) {
+        return res.status(400).json({ error: 'Сведения перевода пусты или превышают допустимый размер' });
+      }
+      const delta: OfficeTranslationDelta = {
+        records: Array.isArray(input.records) ? input.records.slice(0, 5000) : [],
+        removeRecords: Array.isArray(input.removeRecords) ? input.removeRecords.slice(0, 5000) : [],
+        ...(input.headerSchema ? { headerSchema: input.headerSchema } : {}),
+        ...(input.displayLabels ? { displayLabels: input.displayLabels } : {}),
+        ...(Array.isArray(input.bindings) ? { bindings: input.bindings.slice(0, 10000) } : {}),
+      };
+      // Run the same package validators now, before issuing a one-use token.
+      await mergeOfficeTranslations(bytes, delta);
+      const token = await stageOfficeTranslation(prisma, { fileId, userId: user.id, baseSha: baseHash, delta });
+      res.json({ ok: true, token, baseHash });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.get('/api/office/files/:id/translations', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
+      if (!file || !(await canReadFile(prisma, (req as any).authUser, file.id))) return res.status(404).json({ error: FILE_NOT_FOUND });
+      if (!/\.(docx|xlsx)$/i.test(file.name)) return res.status(400).json({ error: 'Переводы доступны только для DOCX и XLSX' });
+      const bytes = await fileBytes(file);
+      const bindings = await readOfficeBindings(bytes);
+      res.json({
+        baseHash: sha256(bytes),
+        translations: bindings?.translations || [], bindings: bindings?.translationBindings || [], displayLabels: bindings?.displayLabels || {},
+        headerSchema: { version: bindings?.schemaVersion || 1, anchors: (bindings?.anchors || []).map(({ part, sheet, ...anchor }) => ({ ...anchor, ...(part ? { documentPart: part } : {}), ...(sheet ? { sheetName: sheet } : {}) })) },
+      });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  /** Метаданные отдельно также пишутся только с CAS и версией отката. */
+  app.put('/api/office/files/:id/translations', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const file = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
+      if (!file || !(await canWriteFile(prisma, (req as any).authUser, file.id))) return res.status(404).json({ error: FILE_NOT_FOUND });
+      if (!/\.(docx|xlsx)$/i.test(file.name)) return res.status(400).json({ error: 'Переводы доступны только для DOCX и XLSX' });
+      const before = await fileBytes(file);
+      const baseHash = sha256(before);
+      if (String(req.body?.baseHash || '') !== baseHash) return res.status(409).json({ error: 'Файл изменился после чтения переводов', baseHash });
+      const delta: OfficeTranslationDelta = {
+        records: Array.isArray(req.body?.records) ? req.body.records.slice(0, 5000) : [],
+        removeRecords: Array.isArray(req.body?.removeRecords) ? req.body.removeRecords.slice(0, 5000) : [],
+        ...(req.body?.headerSchema ? { headerSchema: req.body.headerSchema } : {}),
+        ...(req.body?.displayLabels ? { displayLabels: req.body.displayLabels } : {}),
+        ...(Array.isArray(req.body?.bindings) ? { bindings: req.body.bindings.slice(0, 10000) } : {}),
+      };
+      const updated = await mergeOfficeTranslations(before, delta);
+      const saved = await writeOfficeFile({ fileId: file.id, body: updated, baseSha: baseHash, user: (req as any).authUser, server: true, fluxPartOnly: true });
+      if (saved.status !== 200) return res.status(saved.status).json(saved.json);
+      res.json({ ok: true, baseHash: saved.json.sha256 });
+    } catch (err: any) { sendError(res, err); }
+  });
 
   /**
    * «Сохранить как» и «Сохранить мою копию рядом»: новый файл в той же папке.

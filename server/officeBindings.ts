@@ -22,6 +22,18 @@ export interface OfficePackageBindings {
   anchors: OfficePackageAnchor[];
   template?: OfficeTemplateSnapshot;
   rows: Array<{ entityId: string; entityType: string; sourceId: string; sourceRevision: string; anchorIds: string[]; cells?: Record<string, string>; values?: Record<string, string | number> }>;
+  /** Ограниченный журнал источника/назначения для переводов в самом файле. */
+  translations?: OfficePackageTranslationRecord[];
+  translationBindings?: OfficeTranslationBinding[];
+  displayLabels?: Record<string, string>;
+}
+
+export interface OfficePackageTranslationRecord {
+  sourceId: string; key: string; destination: string; revision: string; time: number;
+  mode: string; scope: string; targetLocation: Record<string, unknown>; targetText: string; sourceText: string;
+}
+export interface OfficeTranslationBinding {
+  sourceId: string; key: string; targetText: string; targetLocation?: Record<string, unknown>;
 }
 
 const escXml = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -48,6 +60,21 @@ function validBindings(value: any): value is OfficePackageBindings {
       snapshotIds.add(anchor.id);
     }
   }
+  if (value.translations !== undefined) {
+    if (!Array.isArray(value.translations) || value.translations.length > 5000) return false;
+    for (const record of value.translations) {
+      if (!record || typeof record.sourceId !== 'string' || record.sourceId.length > 300 || typeof record.key !== 'string' || record.key.length > 300 ||
+          typeof record.destination !== 'string' || record.destination.length > 300 || typeof record.revision !== 'string' || record.revision.length > 200 ||
+          !Number.isFinite(record.time) || typeof record.mode !== 'string' || record.mode.length > 40 || typeof record.scope !== 'string' || record.scope.length > 20 ||
+          !record.targetLocation || typeof record.targetLocation !== 'object' || typeof record.targetText !== 'string' || record.targetText.length > 32767 ||
+          typeof record.sourceText !== 'string' || record.sourceText.length > 32767) return false;
+    }
+  }
+  if (value.translationBindings !== undefined && (!Array.isArray(value.translationBindings) || value.translationBindings.length > 10000 || value.translationBindings.some((item) =>
+    !item || typeof item.sourceId !== 'string' || item.sourceId.length > 300 || typeof item.key !== 'string' || item.key.length > 300 ||
+    typeof item.targetText !== 'string' || item.targetText.length > 32767 || (item.targetLocation !== undefined && (!item.targetLocation || typeof item.targetLocation !== 'object'))))) return false;
+  if (value.displayLabels !== undefined && (!value.displayLabels || typeof value.displayLabels !== 'object' || Array.isArray(value.displayLabels) || Object.entries(value.displayLabels).length > 10000 ||
+    Object.entries(value.displayLabels).some(([key, label]) => key.length > 300 || typeof label !== 'string' || label.length > 2000))) return false;
   for (const row of value.rows) {
     if (!row || !['string'].includes(typeof row.entityId) || !row.entityId || typeof row.entityType !== 'string' || typeof row.sourceId !== 'string' || typeof row.sourceRevision !== 'string' || !Array.isArray(row.anchorIds)) return false;
     if (row.anchorIds.some((id: unknown) => typeof id !== 'string' || !ids.has(id))) return false;
@@ -85,6 +112,37 @@ export async function writeOfficeBindings(bytes: Buffer, bindings: OfficePackage
   const xml = `<fluxOffice xmlns="urn:flux:office:v1">${escXml(JSON.stringify(bindings))}</fluxOffice>`;
   if (Buffer.byteLength(xml, 'utf8') > MAX_BYTES) throw new Error('Скрытая схема Flux слишком велика');
   return putPart(bytes, xml);
+}
+
+export interface OfficeTranslationDelta {
+  records?: OfficePackageTranslationRecord[];
+  removeRecords?: OfficePackageTranslationRecord[];
+  headerSchema?: { anchors?: Array<Record<string, any>> };
+  displayLabels?: Record<string, string>;
+  bindings?: OfficeTranslationBinding[];
+}
+
+/** Меняет только связи перевода в актуальной части Flux, сохраняя строки и шаблон. */
+export async function mergeOfficeTranslations(bytes: Buffer, delta: OfficeTranslationDelta): Promise<Buffer> {
+  const current = await readOfficeBindings(bytes) || { version: 1 as const, schemaVersion: 1 as const, sourceRevision: '', anchors: [], rows: [] };
+  const key = (record: OfficePackageTranslationRecord) => `${record.sourceId}\u0000${record.key}\u0000${record.destination}\u0000${record.revision}\u0000${record.time}`;
+  const removed = new Set((delta.removeRecords || []).map(key));
+  const translations = (current.translations || []).filter((record) => !removed.has(key(record)));
+  const identities = new Set(translations.map(key));
+  for (const record of delta.records || []) if (!identities.has(key(record))) { identities.add(key(record)); translations.push(record); }
+  const anchors = delta.headerSchema?.anchors
+    ? delta.headerSchema.anchors.map((anchor: any) => ({ id: String(anchor.id || ''), kind: anchor.kind, ...(anchor.documentPart || anchor.part ? { part: anchor.documentPart || anchor.part } : {}), ...(anchor.sheetName || anchor.sheet ? { sheet: anchor.sheetName || anchor.sheet } : {}), ...(anchor.address ? { address: anchor.address } : {}), parts: Array.isArray(anchor.parts) ? anchor.parts : [] }))
+    : current.anchors;
+  const byBinding = new Map((current.translationBindings || []).map((binding) => [`${binding.sourceId}\u0000${binding.key}\u0000${JSON.stringify(binding.targetLocation || {})}`, binding]));
+  for (const binding of delta.bindings || []) byBinding.set(`${binding.sourceId}\u0000${binding.key}\u0000${JSON.stringify(binding.targetLocation || {})}`, binding);
+  const merged: OfficePackageBindings = {
+    ...current,
+    anchors,
+    translations: translations.slice(-5000),
+    translationBindings: [...byBinding.values()].slice(-10000),
+    ...(delta.displayLabels ? { displayLabels: { ...(current.displayLabels || {}), ...delta.displayLabels } } : {}),
+  };
+  return writeOfficeBindings(bytes, merged);
 }
 
 /** Перенос части Flux из файла на сервере в тело сохранения из редактора (office/fluxPart.ts). */
