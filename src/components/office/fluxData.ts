@@ -116,9 +116,10 @@ const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Cont
 
 export function toProjectQuery(query: OfficeQuery): Record<string, unknown> {
   const source = query.sources[0];
-  if (!['equipment', 'tags', 'management', 'e3flux'].includes(source)) throw new Error(`Источник «${source || 'не выбран'}» пока не поддерживается в запросе Office`);
+  if (source !== 'equipment' && source !== 'tags' && source !== 'management' && source !== 'e3flux') throw new Error(`Источник «${source || 'не выбран'}» пока не поддерживается в запросе Office`);
   return {
-    entity: ({ equipment: 'element', tags: 'tag', management: query.types.includes('vdr') ? 'vdr' : 'procurement', e3flux: 'e3' } as Record<string, string>)[source],
+    entity: source === 'equipment' ? 'element' : source === 'tags' ? 'tag' : source,
+    ...((source === 'management' || source === 'e3flux') ? { types: query.types } : {}),
     columns: query.columns || [],
     filters: query.filters.map((filter) => ({
       field: filter.fieldKey,
@@ -153,11 +154,7 @@ const withContent = <T extends object>(source: OfficeLocalSource, body: T) => ({
 export interface OfficeStateWritten { ok: true; baseHash: string; schemaVersion: number; anchorCount: number; /** Только у локального источника: байты, которые должен записать вызывающий. */ base64?: string }
 
 export const officeDataApi = {
-  catalog: async (projectId: string) => {
-    const extra = await request<Record<string, unknown>>(`/api/project-data/office/catalog?projectId=${encodeURIComponent(projectId)}`);
-    const base = await request<Record<string, unknown>>(`/api/project-data/catalog?projectId=${encodeURIComponent(projectId)}`);
-    return { ...base, ...extra };
-  },
+  catalog: (projectId: string) => request<Record<string, unknown>>(`/api/project-data/catalog?projectId=${encodeURIComponent(projectId)}`),
   query: (query: OfficeQuery) => request<OfficeQueryResult>('/api/project-data/office/query', json({
     projectId: query.projectId,
     sourceRevision: query.sourceRevision,
@@ -192,8 +189,7 @@ export function fieldsFromCatalog(catalog: Record<string, any>): OfficeField[] {
   for (const param of catalog.params || []) fields.push({ fieldKey: `param:${param.group}|${param.key}`, sourceId: 'equipment', entityType: 'element', displayName: `${param.group} · ${param.key}`, unit: param.unit || undefined, kind: 'number' });
   for (const field of catalog.aliases || []) fields.push({ fieldKey: String(field.path), sourceId: 'equipment', entityType: 'element', displayName: String(field.title || field.path), unit: field.unit || undefined, kind: 'number' });
   for (const field of catalog.metaKeys || []) fields.push({ fieldKey: `meta:${field.key}`, sourceId: 'tags', entityType: 'tag', displayName: String(field.key), kind: 'text' });
-  for (const sourceId of ['management', 'e3flux']) {
-    for (const field of catalog[`${sourceId}Fields`] || []) fields.push({ fieldKey: String(field.path), sourceId, entityType: field.entityType, displayName: String(field.title || field.path), kind: field.kind, unit: field.unit });
-  }
+  for (const field of catalog.managementFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'management', entityType: field.entityType, displayName: String(field.title || field.path), kind: field.type || 'text', unit: field.unit || undefined });
+  for (const field of catalog.e3fluxFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'e3flux', entityType: field.entityType, displayName: String(field.title || field.path), kind: field.type || 'text', unit: field.unit || undefined });
   return fields;
 }

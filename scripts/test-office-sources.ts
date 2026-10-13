@@ -1,123 +1,221 @@
+/** Живой контракт источников Office на отдельной SQLite-базе. */
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
-import { setPrisma } from '../server/context.js';
-import { registerProjectOfficeRoutes } from '../server/routes/projectOffice.js';
-import { registerSchemaClient } from '../server/schemaRuntime.js';
-import { putCatalogSetting } from '../server/catalogWorkspace.js';
+import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
+import net from 'node:net';
+import { toProjectQuery } from '../src/components/office/fluxData.js';
 
-const { PrismaClient } = require('../prisma-clients/client-sqlite');
-const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
+const cwd = process.cwd();
+let port = 0, base = '';
+let dataDir = '', dbPath = '';
+let child: ChildProcess | null = null, db: any = null, serverLog = '';
+const stamp = crypto.randomBytes(5).toString('hex');
+const projectId = `office_src_project_${stamp}`;
+const user = { id: `office_src_user_${stamp}`, symbol: `OS${stamp}`, password: crypto.randomBytes(16).toString('hex') };
+const outsider = { id: `office_src_out_${stamp}`, symbol: `OX${stamp}`, password: crypto.randomBytes(16).toString('hex') };
+const now = new Date().toISOString();
+let failures = 0;
+const pass = (label: string, condition: unknown, detail?: unknown) => {
+  if (condition) console.log(`  ✓ ${label}`);
+  else { failures++; console.error(`  ✗ ${label}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 300)); }
+};
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const handlers = new Map<string, Function>();
-const app = {
-  get: (route: string, handler: Function) => handlers.set(`GET ${route}`, handler),
-  post: (route: string, handler: Function) => handlers.set(`POST ${route}`, handler),
-  put: (route: string, handler: Function) => handlers.set(`PUT ${route}`, handler),
-  delete: (route: string, handler: Function) => handlers.set(`DELETE ${route}`, handler),
-} as any;
-
-function route(method: string, pathName: string, actor: any, options: any = {}) {
-  const handler = handlers.get(`${method} ${pathName}`);
-  assert.ok(handler, `зарегистрирован маршрут ${method} ${pathName}`);
-  const result: any = { statusCode: 200, body: undefined };
-  const response = { status(code: number) { result.statusCode = code; return this; }, json(body: any) { result.body = body; return this; } };
-  return Promise.resolve(handler({ authUser: actor, params: {}, query: {}, body: {}, ...options }, response)).then(() => result);
+function hashPassword(password: string) {
+  const salt = crypto.randomBytes(16);
+  return `scrypt$${salt.toString('hex')}$${crypto.scryptSync(password, salt, 64).toString('hex')}`;
 }
 
-function value(row: any, key: string): any {
-  const cell = row?.values?.[key];
-  return cell && typeof cell === 'object' && 'value' in cell ? cell.value : cell;
+async function availablePort(): Promise<number> {
+  const probe = net.createServer();
+  await new Promise<void>((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve); });
+  const address = probe.address();
+  if (!address || typeof address === 'string') throw new Error('Не удалось получить порт одноразового сервера');
+  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  return address.port;
+}
+
+async function waitHealthy() {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${base}/api/health`);
+      if (response.ok) {
+        const probe = new Database(dbPath, { readonly: true, fileMustExist: true });
+        const found = !!probe.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get();
+        probe.close();
+        if (found) return;
+      }
+    } catch { }
+    if (child?.exitCode !== null && child?.exitCode !== undefined) throw new Error(`Одноразовый сервер завершился с кодом ${child.exitCode}\n${serverLog}`);
+    await wait(250);
+  }
+  throw new Error('Одноразовый сервер не стал доступен за 30 секунд');
+}
+
+function launch(): ChildProcess {
+  const proc = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], { cwd, env: {
+    ...process.env, VENT_APP_DATA: dataDir, PORT: String(port), FLUX_LISTEN_HOST: '127.0.0.1', FLUX_API_ONLY: '1',
+    FLUX_TEST_LICENSE: '1', FLUX_TEST_LICENSE_AUTO: '1', NODE_ENV: 'test',
+  }, stdio: ['ignore', 'ignore', 'pipe'] });
+  proc.stderr?.on('data', (chunk) => { serverLog += String(chunk); });
+  return proc;
+}
+
+async function stop() {
+  if (!child) return;
+  const current = child; child = null;
+  if (current.exitCode !== null) return;
+  current.kill('SIGTERM');
+  await Promise.race([new Promise<void>((resolve) => current.once('exit', () => resolve())), wait(5000)]);
+  if (current.exitCode === null) current.kill('SIGKILL');
+}
+
+async function request(token: string, method: string, route: string, body?: unknown) {
+  const response = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await response.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch { }
+  return { status: response.status, json, text };
+}
+
+function seed() {
+  const insertUser = db.prepare('INSERT INTO User (id, symbol, password, name, role, isActive, createdAt) VALUES (?, ?, ?, ?, ?, 1, ?)');
+  db.transaction(() => {
+    insertUser.run(user.id, user.symbol, hashPassword(user.password), 'Office Sources Member', 'ENGINEER_VENT', now);
+    insertUser.run(outsider.id, outsider.symbol, hashPassword(outsider.password), 'Office Sources Outsider', 'ENGINEER_VENT', now);
+    db.prepare('INSERT INTO Project (id, name, createdAt) VALUES (?, ?, ?)').run(projectId, 'Office Sources Fixture', now);
+    db.prepare('INSERT INTO ProjectMember (id, projectId, userId, addedBy, addedAt) VALUES (?, ?, ?, ?, ?)').run(`membership_${stamp}`, projectId, user.id, user.id, now);
+    db.prepare('INSERT INTO EquipmentSystem (id, name, projectId, category, createdAt) VALUES (?, ?, ?, ?, ?)').run(`sys_${stamp}`, 'П1', projectId, 'AHU', now);
+    db.prepare('INSERT INTO Monoblock (id, name, systemId, createdAt) VALUES (?, ?, ?, ?)').run(`mono_${stamp}`, 'МБ-1', `sys_${stamp}`, now);
+    db.prepare('INSERT INTO ComponentElement (id, name, itemCode, monoblockId, specs, equipType, status, hasConflict, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)')
+      .run(`element_${stamp}`, 'Узел E3', 'EQ-1', `mono_${stamp}`, '{}', 'КЛАПАН', 'OK', now, now);
+    db.prepare('INSERT INTO Tag (id, identifier, projectId, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(`tag_${stamp}`, 'TAG-1', projectId, JSON.stringify({ procurement: { stage: 'ordered', supplier: 'Поставщик 1', qty: '2', note: 'Срочно', stageLog: { ordered: { at: now, by: user.id } } } }), now, now);
+    db.prepare('INSERT INTO E3Project (id, fluxProjectId, key, name, path, e3Version, partsDb, lastSeenAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(`e3p_${stamp}`, projectId, `key-${stamp}`, 'Схема-1', '', '', '', now, now);
+    db.prepare('INSERT INTO E3Binding (id, e3ProjectId, elementId, solutionId, answersJson, manualSolution, designation, sheet, sentVersion, sentAttrsJson, overridesJson, state, lastExportId, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(`e3b_${stamp}`, `e3p_${stamp}`, `element_${stamp}`, 'SOL-1', JSON.stringify({}), 0, 'XV-1', 'Лист 1', 'v1', JSON.stringify({ '|MOTOR_POWER': '4 kW' }), JSON.stringify({ '|MOTOR_POWER': '5 kW' }), 'PLACED', '', now);
+    db.prepare('INSERT INTO DocRegister (id, projectId, name, vendor, contractor, owner, poNumber, revision, revisions, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(`reg_${stamp}`, projectId, 'ВДР 1', 'Поставщик 1', 'Подрядчик 1', 'Владелец 1', 'PO-1', 'B', JSON.stringify([{ revision: 'A' }, { revision: 'B' }]), now, now);
+    db.prepare('INSERT INTO DocRegisterItem (id, registerId, projectId, contractorNo, titleRu, titleEn, vdrCode, revision, equipmentTags, status, remarks, reviewCode, dueDate, extra, meta, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(`doc_${stamp}`, `reg_${stamp}`, projectId, 'C-1', 'Паспорт', 'Passport', 'C01', '2', JSON.stringify(['TAG-1']), 'READY', 'Замечание', 'A', '2027-01-01', JSON.stringify({ CustomColumn: 'X' }), JSON.stringify({ flag: 'Y' }), now, now);
+    db.prepare('INSERT INTO AppSetting (id, key, userId, value, updatedAt) VALUES (?, ?, NULL, ?, ?)')
+      .run(`setting-stage-${stamp}`, 'procurement_stages', JSON.stringify([{ id: 'ordered', label: 'Заказан' }, { id: 'purchased', label: 'Куплен' }]), now);
+    db.prepare('INSERT INTO AppSetting (id, key, userId, value, updatedAt) VALUES (?, ?, NULL, ?, ?)')
+      .run(`setting-attr-${stamp}`, 'e3_attributes', JSON.stringify({ version: 1, items: [{ name: 'MOTOR_POWER', title: 'Мощность', removed: false }] }), now);
+    db.prepare('INSERT INTO AppSetting (id, key, userId, value, updatedAt) VALUES (?, ?, NULL, ?, ?)')
+      .run(`setting-solution-${stamp}`, 'e3_solutions', JSON.stringify({ version: 1, solutions: [{ id: 'SOL-1', name: 'Клапан с приводом', mainClass: 'VALVE', features: {}, recipeOverride: [{ role: 'Привод', row: { group: 'Приводы', name: 'Пружинный' }, count: 2 }] }], ioTable: [{ id: 'io-spring', group: 'Приводы', name: 'Пружинный', code: 'SP', di: 1, do: 2, ai: 0, ao: 0 }], ioRules: [] }), now);
+    const addTag = db.prepare('INSERT INTO Tag (id, identifier, projectId, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)');
+    for (let i = 0; i < 1001; i++) addTag.run(`bulk_${stamp}_${String(i).padStart(4, '0')}`, `BULK-${String(i).padStart(4, '0')}`, projectId, JSON.stringify({ procurement: { supplier: 'Bulk Supplier', qty: String(i) } }), now, now);
+  })();
 }
 
 async function main() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-office-sources-'));
-  const dbPath = path.join(dir, 'sources.sqlite');
-  const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${dbPath}`, timeout: 15000 }) });
-  try {
-    const schema = fs.readFileSync(path.join(process.cwd(), 'prisma/schema.prisma'), 'utf8');
-    await bootstrapLocalDatabase(dbPath, prisma, schema, () => {});
-    registerSchemaClient(prisma, 'sqlite');
-    setPrisma(prisma);
-    registerProjectOfficeRoutes(app);
+  port = await availablePort();
+  base = `http://127.0.0.1:${port}`;
+  dataDir = await mkdtemp(path.join(os.tmpdir(), 'flux-office-sources-'));
+  dbPath = path.join(dataDir, 'database.sqlite');
+  child = launch();
+  await waitHealthy();
+  db = new Database(dbPath);
+  seed();
+  const login = async (who: typeof user) => (await request('', 'POST', '/api/login', { symbol: who.symbol, password: who.password })).json?.token || '';
+  const token = await login(user), outsiderToken = await login(outsider);
+  pass('member and outsider authenticate to disposable API', !!token && !!outsiderToken);
+  assert(token && outsiderToken, 'Fixture login failed');
 
-    await prisma.project.create({ data: { id: 'project-1', name: 'Тестовый проект' } });
-    await prisma.project.create({ data: { id: 'project-hidden', name: 'Закрытый проект' } });
-    await prisma.projectMember.create({ data: { id: 'membership-1', projectId: 'project-1', userId: 'owner' } });
-    await prisma.projectMember.create({ data: { id: 'membership-2', projectId: 'project-hidden', userId: 'other' } });
+  console.log('1. Management catalogue and rows');
+  const catalog = await request(token, 'GET', `/api/project-data/catalog?projectId=${projectId}`);
+  const managementPaths = new Set((catalog.json?.managementFields || []).map((field: any) => field.path));
+  pass('catalog describes stored procurement and VDR fields', catalog.status === 200 && managementPaths.has('procurement.stageHistory') && managementPaths.has('vdr.titleRu') && managementPaths.has('vdr.extra.CustomColumn'), catalog.json);
+  const mgmtQuery = { entity: 'management', columns: ['tag.identifier', 'procurement.stage', 'procurement.stageName', 'procurement.supplier', 'procurement.qty'], filters: [], sort: [{ field: 'procurement.supplier', dir: 'asc' }], limit: 20, excludedEntityIds: [] };
+  const management = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
+  const procurement = management.json?.rows?.find((row: any) => row.entityType === 'procurement' && row.tag === 'TAG-1');
+  pass('procurement row uses the persistent tag ID and returns canonical numeric quantity', management.status === 200 && procurement?.sourceId === 'management' && procurement?.values?.['procurement.stage']?.value === 'ordered' && procurement?.values?.['procurement.stageName']?.value === 'Заказан' && procurement?.values?.['procurement.qty']?.value === 2, procurement);
+  const vdrQuery = { entity: 'management', types: ['vdr'], columns: ['vdr.register', 'vdr.vendor', 'vdr.titleRu', 'vdr.tags', 'vdr.extra.CustomColumn'], filters: [], sort: [], limit: 10 };
+  const vdr = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: vdrQuery });
+  const doc = vdr.json?.rows?.find((row: any) => row.entityType === 'vdr');
+  pass('VDR rows expose stored document fields and match tags by identifier', vdr.status === 200 && doc?.values?.['vdr.titleRu']?.value === 'Паспорт' && doc?.values?.['vdr.tags']?.value === 'TAG-1' && doc?.values?.['vdr.extra.CustomColumn']?.value === 'X', vdr);
+  const numericGuard = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { entity: 'management', columns: ['procurement.qty'], filters: [{ field: 'procurement.qty', op: 'gte', value: '0' }], sort: [], limit: 2000 } });
+  pass('numeric comparison ignores missing values instead of treating them as zero', numericGuard.status === 200 && numericGuard.json?.total === 1002 && numericGuard.json.rows.every((row: any) => row.entityType === 'procurement'), { total: numericGuard.json?.total, types: [...new Set((numericGuard.json?.rows || []).map((row: any) => row.entityType))] });
 
-    const blankCatalog = await route('GET', '/api/project-data/office/catalog', { id: 'owner', role: 'ENGINEER' }, { query: { projectId: 'project-1' } });
-    assert.equal(blankCatalog.statusCode, 200, 'пустой проект отдаёт каталог');
-    assert.ok(blankCatalog.body.managementFields && blankCatalog.body.e3fluxFields, 'каталог содержит оба источника');
-    const blankRows = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier', 'supplier', 'qty', 'stage', 'note', 'stageLog'], filters: [], sort: [], limit: 10 } } });
-    assert.equal(blankRows.statusCode, 200, 'пустая закупка возвращается успешно');
-    assert.deepEqual(blankRows.body.rows, []);
-    assert.equal(typeof blankRows.body.revision, 'string', 'пустая выборка имеет ревизию источника');
+  console.log('2. E3Flux positions, attributes and IO');
+  const e3CatalogFields = new Set((catalog.json?.e3fluxFields || []).map((field: any) => field.path));
+  pass('catalog includes configured E3 attributes and IO fields', e3CatalogFields.has('e3.attr:|MOTOR_POWER') && e3CatalogFields.has('e3.io:io-spring|di'), [...e3CatalogFields]);
+  const e3Query = { entity: 'e3flux', columns: ['element.itemCode', 'element.name', 'e3.sheet', 'e3.solutionName', 'e3.designation', 'e3.attr:|MOTOR_POWER', 'e3.override:|MOTOR_POWER', 'e3.devices', 'e3.di', 'e3.do', 'e3.io:io-spring|di'], filters: [], sort: [], limit: 20 };
+  const e3 = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  const position = e3.json?.rows?.[0];
+  pass('E3 row is joined by element ID and returns stored attributes plus calculated recipe IO', e3.status === 200 && position?.entityType === 'e3' && position?.values?.['element.itemCode']?.value === 'EQ-1' && position?.values?.['e3.solutionName']?.value === 'Клапан с приводом' && position?.values?.['e3.attr:|MOTOR_POWER']?.value === '4 kW' && position?.values?.['e3.override:|MOTOR_POWER']?.value === '5 kW' && position?.values?.['e3.di']?.value === 2 && position?.values?.['e3.do']?.value === 4 && position?.values?.['e3.io:io-spring|di']?.value === 2, position);
+  const e3Revision = e3.json?.revision;
+  db.prepare('UPDATE E3Binding SET sheet = ?, updatedAt = ? WHERE id = ?').run('Лист 2', new Date(Date.now() + 1000).toISOString(), `e3b_${stamp}`);
+  const changedBinding = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  pass('E3 revision changes when binding sheet changes', changedBinding.status === 200 && changedBinding.json?.revision !== e3Revision && changedBinding.json?.rows?.[0]?.values?.['e3.sheet']?.value === 'Лист 2', changedBinding.json);
+  db.prepare('UPDATE ComponentElement SET name = ?, updatedAt = ? WHERE id = ?').run('Узел переименован', new Date(Date.now() + 2000).toISOString(), `element_${stamp}`);
+  const changedElement = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  pass('E3 revision changes when Flux element name changes', changedElement.status === 200 && changedElement.json?.revision !== changedBinding.json?.revision && changedElement.json?.rows?.[0]?.values?.['element.name']?.value === 'Узел переименован', changedElement.json);
+  const solutionSettingId = `setting-solution-${stamp}`;
+  const originalSolutionBook = db.prepare('SELECT value FROM AppSetting WHERE id = ?').get(solutionSettingId)?.value;
+  const duplicateSolutionBook = JSON.parse(originalSolutionBook);
+  duplicateSolutionBook.solutions.push({ ...duplicateSolutionBook.solutions[0], name: 'Дубликат ID' });
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(JSON.stringify(duplicateSolutionBook), solutionSettingId);
+  const ambiguousSolution = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  pass('duplicate E3 solution IDs return an explicit conflict', ambiguousSolution.status === 409 && /неоднозначный ID типового решения/i.test(ambiguousSolution.json?.error || ''), ambiguousSolution.json);
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(originalSolutionBook, solutionSettingId);
+  const adapter = toProjectQuery({ projectId, sources: ['e3flux'], types: ['e3'], filters: [], sort: [{ fieldKey: 'element.name', direction: 'desc' }], excludedEntityIds: ['skip-me'], limit: 17, columns: ['element.name'] });
+  pass('client adapter forwards source types and query options for E3Flux', adapter.entity === 'e3flux' && JSON.stringify(adapter.types) === JSON.stringify(['e3']) && adapter.limit === 17 && Array.isArray(adapter.excludedEntityIds) && (adapter.excludedEntityIds as string[])[0] === 'skip-me', adapter);
 
-    await prisma.tag.create({ data: { id: 'tag-a', projectId: 'project-1', identifier: 'P-10', metadata: JSON.stringify({ procurement: { supplier: 'Поставщик А', qty: '4', stage: 'ordered', note: 'Срочно', stageLog: { ordered: { at: '2026-01-01', by: 'Иван' } } } }) } });
-    await prisma.tag.create({ data: { id: 'tag-b', projectId: 'project-1', identifier: 'P-20', metadata: JSON.stringify({ procurement: { supplier: 'Поставщик Б', qty: '2', stage: 'draft' } }) } });
-    await prisma.docRegister.create({ data: { id: 'vdr-1', projectId: 'project-1', name: 'ВДР тест', vendor: 'Поставщик А', items: { create: [{ id: 'vdr-item-1', projectId: 'project-1', vendorNo: 'V-10', titleRu: 'Насос', vdrCode: 'C01', revision: 'A', status: 'READY' }] } } });
-    await prisma.e3Project.create({ data: { id: 'e3-project-1', fluxProjectId: 'project-1', key: 'key-1', name: 'Электропроект' } });
-    await prisma.e3Binding.create({ data: { id: 'binding-1', e3ProjectId: 'e3-project-1', elementId: 'element-1', designation: 'M-10', sheet: 'Лист 1' } });
-    const solutionBook = { version: 1, solutions: [{ id: 'solution-1', name: 'Решение насоса', short: 'Насос', mainClass: 'M', subclass: 'P' }], ioTable: [{ id: 'io-1', group: 'DI', name: 'Авария', code: 'DI-1', di: 1, do: 0, ai: 0, ao: 0, notes: { di: 'Сигнал', do: '', ai: '', ao: '' } }] };
-    const attributeBook = { items: [{ name: 'FLUX_TAG', title: 'Тег Flux', carrier: 'component', class: 'M', source: 'flux' }] };
-    await putCatalogSetting(prisma, 'e3_solutions', solutionBook);
-    await putCatalogSetting(prisma, 'e3_attributes', attributeBook);
+  console.log('3. Filters, ordering, empty and ambiguous source data');
+  const before = Date.now();
+  const large = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { entity: 'management', columns: ['tag.identifier'], filters: [{ field: 'procurement.qty', op: 'gte', value: '1000' }], sort: [{ field: 'procurement.qty', dir: 'desc' }], limit: 1001 } });
+  const elapsed = Date.now() - before;
+  pass('1,000-plus query filters and sorts without hanging', large.status === 200 && large.json?.total === 1 && elapsed < 10000, { elapsed, total: large.json?.total });
+  const multipleSort = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { entity: 'management', types: ['procurement'], columns: ['tag.identifier', 'procurement.qty'], filters: [{ field: 'procurement.supplier', op: 'equals', value: 'Bulk Supplier' }], sort: [{ field: 'procurement.qty', dir: 'desc' }, { field: 'tag.identifier', dir: 'asc' }], limit: 2 } });
+  pass('query applies type filter and multiple stable sort keys', multipleSort.status === 200 && multipleSort.json?.total === 1001 && multipleSort.json?.rows?.[0]?.values?.['procurement.qty']?.value === 1000 && multipleSort.json?.rows?.[1]?.values?.['procurement.qty']?.value === 999, multipleSort.json);
+  const excluded = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { ...mgmtQuery, columns: ['tag.identifier'], limit: 2, excludedEntityIds: [procurement.entityId] } });
+  pass('excluded stable entity IDs do not consume the page limit', excluded.status === 200 && excluded.json?.rows?.length === 2 && !excluded.json.rows.some((row: any) => row.entityId === procurement.entityId) && excluded.json.total >= 1001, excluded.json);
+  const emptyProject = `office_src_empty_${stamp}`;
+  db.prepare('INSERT INTO Project (id, name, createdAt) VALUES (?, ?, ?)').run(emptyProject, 'Empty project', now);
+  db.prepare('INSERT INTO ProjectMember (id, projectId, userId, addedBy, addedAt) VALUES (?, ?, ?, ?, ?)').run(`membership_empty_${stamp}`, emptyProject, user.id, user.id, now);
+  const empty = await request(token, 'POST', '/api/project-data/office/query', { projectId: emptyProject, query: { entity: 'e3flux', columns: ['e3.solutionId'], filters: [], sort: [], limit: 20 } });
+  pass('empty E3 project returns an empty result with a source revision', empty.status === 200 && empty.json?.total === 0 && empty.json?.rows?.length === 0 && !!empty.json?.revision, empty.json);
+  db.prepare('INSERT INTO Tag (id, identifier, projectId, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run(`tag_dup_${stamp}`, 'DUP', projectId, '{}', now, now);
+  db.prepare('INSERT INTO Tag (id, identifier, projectId, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run(`tag_dup2_${stamp}`, 'DUP', projectId, '{}', now, now);
+  db.prepare('INSERT INTO DocRegisterItem (id, registerId, projectId, contractorNo, equipmentTags, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`doc_amb_${stamp}`, `reg_${stamp}`, projectId, 'C-2', JSON.stringify(['DUP']), now, now);
+  const ambiguous = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: vdrQuery });
+  pass('ambiguous VDR tag mapping fails explicitly', ambiguous.status === 409 && /неоднозначное сопоставление/i.test(ambiguous.json?.error || ''), ambiguous.json);
 
-    const procurement = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier', 'supplier', 'qty', 'stage', 'note', 'stageLog'], filters: [{ field: 'supplier', op: 'contains', value: 'Поставщик А' }], sort: [{ field: 'identifier', dir: 'asc' }], limit: 20, excludedEntityIds: [] } } });
-    assert.equal(procurement.statusCode, 200, 'закупки читаются через офисный маршрут');
-    assert.equal(procurement.body.rows.length, 1, 'фильтр по поставщику отбирает позицию');
-    const pRow = procurement.body.rows[0];
-    assert.equal(value(pRow, 'supplier'), 'Поставщик А');
-    assert.equal(value(pRow, 'qty'), '4');
-    assert.equal(value(pRow, 'stage'), 'ordered');
-    assert.ok(pRow.entityId && pRow.sourceId && pRow.entityType, 'строка закупки имеет стабильную идентичность источника');
-    const sortedProcurement = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier'], filters: [], sort: [{ field: 'identifier', dir: 'desc' }], limit: 10 } } });
-    assert.deepEqual(sortedProcurement.body.rows.map((row: any) => value(row, 'identifier')), ['P-20', 'P-10'], 'сортировка применяется к стабильному идентификатору тега');
-
-    const vdr = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'vdr', columns: ['vdr.titleRu', 'vdr.vendorNo', 'vdr.status'], filters: [{ field: 'vdr.titleRu', op: 'contains', value: 'Насос' }], sort: [], limit: 20 } } });
-    assert.equal(vdr.statusCode, 200, 'ВДР читается через офисный маршрут');
-    assert.equal(vdr.body.rows.length, 1);
-    assert.equal(value(vdr.body.rows[0], 'vdr.titleRu'), 'Насос');
-    assert.equal(value(vdr.body.rows[0], 'vdr.vendorNo'), 'V-10');
-
-    const e3 = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'e3', columns: ['e3.kind', 'e3.designation', 'e3.sheet', 'e3.projectName', 'e3.solutionName', 'e3.title'], filters: [], sort: [], limit: 20 } } });
-    assert.equal(e3.statusCode, 200, 'связанные данные E3 читаются через офисный маршрут');
-    assert.ok(e3.body.rows.some((row: any) => value(row, 'e3.kind') === 'binding' && value(row, 'e3.designation') === 'M-10'));
-    assert.ok(e3.body.rows.some((row: any) => value(row, 'e3.kind') === 'solution'));
-    assert.ok(e3.body.rows.some((row: any) => value(row, 'e3.kind') === 'attribute' && value(row, 'e3.title') === 'Тег Flux'));
-    assert.ok(e3.body.rows.some((row: any) => value(row, 'e3.kind') === 'io'));
-
-    const excluded = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier'], filters: [], sort: [], limit: 20, excludedEntityIds: [pRow.entityId] } } });
-    assert.equal(excluded.statusCode, 200);
-    assert.equal(excluded.body.rows.some((row: any) => row.entityId === pRow.entityId), false, 'исключённая сущность не попадает в результат');
-
-    const deniedCatalog = await route('GET', '/api/project-data/office/catalog', { id: 'intruder', role: 'ENGINEER' }, { query: { projectId: 'project-1' } });
-    const deniedQuery = await route('POST', '/api/project-data/office/query', { id: 'intruder', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier'], filters: [], sort: [], limit: 10 } } });
-    assert.equal(deniedCatalog.statusCode, 404, 'каталог закрытого проекта скрыт от постороннего');
-    assert.equal(deniedQuery.statusCode, 404, 'выборка закрытого проекта скрыта от постороннего');
-
-    await putCatalogSetting(prisma, 'e3_solutions', { solutions: [{ id: 'duplicate', name: 'A' }, { id: 'duplicate', name: 'B' }], ioTable: [] });
-    const ambiguous = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'e3', columns: ['e3.kind'], filters: [], sort: [], limit: 20 } } });
-    assert.equal(ambiguous.statusCode, 409, 'неоднозначные ID решений дают явный конфликт');
-    await putCatalogSetting(prisma, 'e3_solutions', solutionBook);
-
-    const bulk = Array.from({ length: 1005 }, (_, index) => ({ id: `bulk-${index}`, projectId: 'project-1', identifier: `B-${String(index).padStart(4, '0')}`, metadata: JSON.stringify({ procurement: { supplier: 'Массовый', qty: '1', stage: 'ordered' } }) }));
-    await prisma.tag.createMany({ data: bulk });
-    const started = Date.now();
-    const many = await route('POST', '/api/project-data/office/query', { id: 'owner', role: 'ENGINEER' }, { body: { projectId: 'project-1', query: { entity: 'procurement', columns: ['identifier', 'supplier'], filters: [], sort: [{ field: 'identifier', dir: 'asc' }], limit: 2000 } } });
-    assert.equal(many.statusCode, 200, 'выборка более тысячи записей завершается');
-    assert.ok(many.body.rows.length >= 1007, 'выборка не обрезана на тысяче записей');
-    assert.ok(Date.now() - started < 10000, 'выборка более тысячи записей не зависает');
-
-    console.log('✓ office sources: каталоги, закупки, ВДР, E3, права, фильтры, исключения и 1000+ строк');
-  } finally {
-    setPrisma(null);
-    await prisma.$disconnect();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  console.log('4. Project permissions');
+  const denied = await request(outsiderToken, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
+  const deniedE3 = await request(outsiderToken, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  const deniedCatalog = await request(outsiderToken, 'GET', `/api/project-data/catalog?projectId=${projectId}`);
+  pass('outsider cannot read either Office source or its field catalog', [403, 404].includes(denied.status) && [403, 404].includes(deniedE3.status) && [403, 404].includes(deniedCatalog.status), [denied.status, deniedE3.status, deniedCatalog.status]);
+  pass('source revision is checked on reads', (await request(token, 'POST', '/api/project-data/office/query', { projectId, sourceRevision: 'stale', query: mgmtQuery })).status === 409);
+  db.prepare('INSERT INTO E3Project (id, fluxProjectId, key, name, path, e3Version, partsDb, lastSeenAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(`e3p2_${stamp}`, projectId, `key2-${stamp}`, 'Схема-2', '', '', '', now, now);
+  db.prepare('INSERT INTO E3Binding (id, e3ProjectId, elementId, solutionId, answersJson, manualSolution, designation, sheet, sentVersion, sentAttrsJson, overridesJson, state, lastExportId, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(`e3b2_${stamp}`, `e3p2_${stamp}`, `element_${stamp}`, 'SOL-1', '{}', 0, 'XV-1', 'Лист 2', 'v1', '{}', '{}', 'PLACED', '', now);
+  const duplicateE3 = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
+  pass('two E3 project bindings for one Flux element fail explicitly', duplicateE3.status === 409 && /несколько привязок E3/i.test(duplicateE3.json?.error || ''), duplicateE3.json);
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+void (async () => {
+  try {
+    await main();
+    console.log(`\nOffice source API: ${failures} провалено`);
+    process.exitCode = failures ? 1 : 0;
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  } finally {
+    await stop();
+    db?.close();
+    if (dataDir) await rm(dataDir, { recursive: true, force: true });
+  }
+})();

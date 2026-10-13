@@ -1,118 +1,327 @@
-/** Источники Office читают сохранённые данные, без вызовов COM и связей по номеру строки. */
 import { createHash } from 'node:crypto';
-import { parseRuNumber } from './normalize.js';
-import { catalogSetting } from './catalogWorkspace.js';
-import { parseJsonSafe, applyFilter } from './projectSlice.js';
-import { officeEntityId, type OfficeEntityRow } from '../src/lib/officeModel.js';
+import { getPrisma } from './context.js';
+import { officeEntityId } from '../src/lib/officeModel.js';
+import { isPlainNumber, parseRuNumber } from './normalize.js';
+import { buildRecipeFor } from '../e3/recipe.js';
+import type { E3Position, E3SolutionBook } from '../e3/solutionTypes.js';
 
-const fail = (message: string, status = 400): never => { throw Object.assign(new Error(message), { status }); };
-type Field = { path: string; title: string; kind: 'text' | 'number'; entityType: string };
-const fields = (entityType: string, prefix: string, labels: Record<string, string>, numbers: string[] = []): Field[] =>
-  Object.entries(labels).map(([key, title]) => ({ path: prefix + key, title, kind: numbers.includes(key) ? 'number' : 'text', entityType }));
-export const managementFields = [
-  ...fields('procurement', '', { identifier: 'Тег', brand: 'Марка', department: 'Отдел', wbs: 'WBS', fluid: 'Среда', supplier: 'Поставщик', qty: 'Количество (как введено)', stage: 'Этап закупки', stageLog: 'История этапов', templateId: 'Шаблон этапов', note: 'Примечание закупки', orderedAt: 'Заказано: дата', orderedBy: 'Заказано: сотрудник', approvedAt: 'Согласовано: дата', approvedBy: 'Согласовано: сотрудник', purchasedAt: 'Закуплено: дата', purchasedBy: 'Закуплено: сотрудник' }),
-  ...fields('vdr', 'vdr.', { kind: 'Вид записи ВДР', name: 'Название реестра', vendor: 'Поставщик ВДР', contractor: 'Подрядчик', owner: 'Заказчик', poNumber: 'Номер заказа', revision: 'Ревизия', titleRu: 'Название документа (RU)', titleEn: 'Название документа (EN)', contractorNo: 'Номер подрядчика', ownerNo: 'Номер заказчика', vendorNo: 'Номер поставщика', vdrCode: 'Код ВДР', issueDate: 'Дата выпуска', reasonForIssue: 'Цель выпуска', language: 'Язык', equipmentTags: 'Теги оборудования', status: 'Статус документа', remarks: 'Замечания', reviewCode: 'Код рассмотрения', dueDate: 'Срок', docId: 'ID документа', fileNodeId: 'ID файла замечаний', extra: 'Дополнительные колонки' }),
+export interface OfficeSourceField {
+  path: string;
+  title: string;
+  type?: 'text' | 'number';
+  unit?: string;
+  entityType: 'procurement' | 'vdr' | 'e3';
+}
+
+export interface OfficeSourceRow {
+  entityId: string;
+  entityType: 'procurement' | 'vdr' | 'e3';
+  sourceId: 'management' | 'e3flux';
+  values: Record<string, string | number | null>;
+}
+
+const MANAGEMENT_FIELDS: OfficeSourceField[] = [
+  { path: 'tag.identifier', title: 'Тег', entityType: 'procurement' },
+  { path: 'procurement.stage', title: 'Этап закупки (код)', entityType: 'procurement' },
+  { path: 'procurement.stageName', title: 'Этап закупки', entityType: 'procurement' },
+  { path: 'procurement.stageSince', title: 'Дата этапа закупки', entityType: 'procurement' },
+  { path: 'procurement.stageHistory', title: 'История этапов закупки', entityType: 'procurement' },
+  { path: 'procurement.supplier', title: 'Поставщик', entityType: 'procurement' },
+  { path: 'procurement.qty', title: 'Количество', entityType: 'procurement', type: 'number' },
+  { path: 'procurement.note', title: 'Примечание закупки', entityType: 'procurement' },
+  { path: 'procurement.templateId', title: 'Шаблон этапов закупки (ID)', entityType: 'procurement' },
+  { path: 'vdr.register', title: 'Реестр ВДР', entityType: 'vdr' },
+  { path: 'vdr.vendor', title: 'Поставщик в реестре ВДР', entityType: 'vdr' },
+  { path: 'vdr.contractor', title: 'Подрядчик в реестре ВДР', entityType: 'vdr' },
+  { path: 'vdr.owner', title: 'Владелец в реестре ВДР', entityType: 'vdr' },
+  { path: 'vdr.poNumber', title: 'Номер заказа в реестре ВДР', entityType: 'vdr' },
+  { path: 'vdr.ownerProjectNo', title: 'Номер проекта владельца', entityType: 'vdr' },
+  { path: 'vdr.contractorProjectNo', title: 'Номер проекта подрядчика', entityType: 'vdr' },
+  { path: 'vdr.materialRequisition', title: 'Заявка на материалы ВДР', entityType: 'vdr' },
+  { path: 'vdr.equipmentTitle', title: 'Название оборудования ВДР', entityType: 'vdr' },
+  { path: 'vdr.registerContractorDocNo', title: 'Номер ВДР подрядчика', entityType: 'vdr' },
+  { path: 'vdr.registerOwnerDocNo', title: 'Номер ВДР владельца', entityType: 'vdr' },
+  { path: 'vdr.registerVendorDocNo', title: 'Номер ВДР поставщика', entityType: 'vdr' },
+  { path: 'vdr.registerRevision', title: 'Ревизия реестра ВДР', entityType: 'vdr' },
+  { path: 'vdr.registerRevisions', title: 'История ревизий реестра ВДР', entityType: 'vdr' },
+  { path: 'vdr.standardId', title: 'Стандарт ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.preparedBy', title: 'Подготовил реестр ВДР', entityType: 'vdr' },
+  { path: 'vdr.preparedById', title: 'Подготовил реестр ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.checkedBy', title: 'Проверил реестр ВДР', entityType: 'vdr' },
+  { path: 'vdr.checkedById', title: 'Проверил реестр ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.approvedBy', title: 'Утвердил реестр ВДР', entityType: 'vdr' },
+  { path: 'vdr.approvedById', title: 'Утвердил реестр ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.managerId', title: 'Ответственный за реестр ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.contractorNo', title: 'Номер документа у подрядчика', entityType: 'vdr' },
+  { path: 'vdr.ownerNo', title: 'Номер документа у владельца', entityType: 'vdr' },
+  { path: 'vdr.vendorNo', title: 'Номер документа у поставщика', entityType: 'vdr' },
+  { path: 'vdr.titleRu', title: 'Документ (русское название)', entityType: 'vdr' },
+  { path: 'vdr.titleEn', title: 'Документ (английское название)', entityType: 'vdr' },
+  { path: 'vdr.code', title: 'Тип документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.revision', title: 'Ревизия документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.issueDate', title: 'Дата выпуска документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.reasonForIssue', title: 'Причина выпуска документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.language', title: 'Язык документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.status', title: 'Статус документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.remarks', title: 'Замечания к документу ВДР', entityType: 'vdr' },
+  { path: 'vdr.reviewCode', title: 'Код рассмотрения документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.dueDate', title: 'Срок документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.assigneeId', title: 'Исполнитель документа ВДР (ID)', entityType: 'vdr' },
+  { path: 'vdr.docId', title: 'ID документа Конструктора', entityType: 'vdr' },
+  { path: 'vdr.fileNodeId', title: 'ID файла замечаний', entityType: 'vdr' },
+  { path: 'vdr.itemRevisionHistory', title: 'История ревизий документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.tags', title: 'Теги документа ВДР', entityType: 'vdr' },
 ];
-export const e3fluxFields = fields('e3', 'e3.', {
-  kind: 'Вид записи E3Flux', name: 'Наименование', designation: 'Обозначение', elementId: 'ID позиции Flux', projectName: 'Проект E3', projectKey: 'Ключ проекта E3', sheet: 'Лист схемы', x: 'Координата X', y: 'Координата Y', rotation: 'Поворот', state: 'Состояние связи', solutionId: 'ID решения', solutionName: 'Название решения', mainClass: 'Основной класс', subclass: 'Подкласс', short: 'Краткое обозначение', description: 'Описание', items: 'Изделия решения', symbols: 'Символы', pdf: 'PDF решения', e3p: 'Файл E3P', sentVersion: 'Отправленная версия', sentAttrs: 'Отправленные атрибуты', title: 'Описание атрибута', carrier: 'Носитель атрибута', attrClass: 'Класс атрибута', source: 'Источник атрибута', group: 'Группа IO', code: 'Код IO', component: 'Справка об изделии IO', di: 'DI', do: 'DO', ai: 'AI', ao: 'AO', notes: 'Описание сигналов',
-}, ['x', 'y', 'rotation', 'di', 'do', 'ai', 'ao']);
-const scalar = (v: any): string | number | null => v == null ? null : v instanceof Date ? v.toISOString() : typeof v === 'number' ? v : typeof v === 'object' ? JSON.stringify(v) : String(v);
-const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
-export async function officeSourceCatalog(_db: any, _projectId: string) {
-  return { managementFields, e3fluxFields };
+const E3_FIELDS: OfficeSourceField[] = [
+  { path: 'element.itemCode', title: 'Код позиции Flux', entityType: 'e3' },
+  { path: 'element.name', title: 'Наименование позиции Flux', entityType: 'e3' },
+  { path: 'element.tag', title: 'Тег позиции Flux', entityType: 'e3' },
+  { path: 'e3.project', title: 'Проект E3', entityType: 'e3' },
+  { path: 'e3.version', title: 'Версия E3.series', entityType: 'e3' },
+  { path: 'e3.partsDb', title: 'База изделий E3', entityType: 'e3' },
+  { path: 'e3.path', title: 'Путь проекта E3', entityType: 'e3' },
+  { path: 'e3.solutionId', title: 'ID типового решения', entityType: 'e3' },
+  { path: 'e3.solutionName', title: 'Типовое решение', entityType: 'e3' },
+  { path: 'e3.solutionClass', title: 'Класс типового решения', entityType: 'e3' },
+  { path: 'e3.designation', title: 'Обозначение в E3', entityType: 'e3' },
+  { path: 'e3.sheet', title: 'Лист E3', entityType: 'e3' },
+  { path: 'e3.state', title: 'Состояние связи E3', entityType: 'e3' },
+  { path: 'e3.sentVersion', title: 'Версия позиции при выгрузке', entityType: 'e3' },
+  { path: 'e3.manualSolution', title: 'Решение выбрано вручную', entityType: 'e3' },
+  { path: 'e3.devices', title: 'Изделия E3 в составе решения', entityType: 'e3' },
+  { path: 'e3.di', title: 'Сумма DI по решению', entityType: 'e3', type: 'number' },
+  { path: 'e3.do', title: 'Сумма DO по решению', entityType: 'e3', type: 'number' },
+  { path: 'e3.ai', title: 'Сумма AI по решению', entityType: 'e3', type: 'number' },
+  { path: 'e3.ao', title: 'Сумма AO по решению', entityType: 'e3', type: 'number' },
+];
+
+const json = (raw: unknown): any => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(String(raw)); } catch { return {}; }
+};
+const scalar = (value: unknown): string | number | null => {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
+  return JSON.stringify(value);
+};
+const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32);
+const tagEntityId = (tagId: string) => officeEntityId('management', 'procurement', tagId);
+const vdrEntityId = (itemId: string) => officeEntityId('management', 'vdr', itemId);
+const e3EntityId = (elementId: string) => officeEntityId('e3flux', 'e3', elementId);
+
+function stageName(stageId: string, stages: any[]): string {
+  return String(stages.find((stage) => String(stage?.id) === stageId)?.label || stageId || '');
 }
 
-type RecordRow = { id: string; type: 'procurement' | 'vdr' | 'e3'; data: Record<string, any> };
-function unique(items: any[], idOf: (row: any) => string, what: string) {
-  const seen = new Set<string>();
-  for (const item of items) {
-    const id = idOf(item);
-    if (!id || seen.has(id)) fail(`Неоднозначный источник ${what}: повторяющийся или пустой ID «${id}»`, 409);
-    seen.add(id);
-  }
+function dateValue(value: unknown): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10);
 }
-async function management(db: any, projectId: string, entity: string): Promise<RecordRow[]> {
-  if (entity === 'procurement') {
-    const tags = await db.tag.findMany({ where: { projectId }, orderBy: { id: 'asc' } });
-    return tags.map((tag: any) => ({ id: String(tag.id), type: 'procurement', data: {
-      ...Object.fromEntries(['identifier', 'brand', 'department', 'wbs', 'fluid'].map(k => [k, tag[k]])),
-      ...Object.fromEntries(managementFields.filter(f => f.entityType === 'procurement' && !['identifier', 'brand', 'department', 'wbs', 'fluid'].includes(f.path)).map(f => [f.path, parseJsonSafe(tag.metadata)?.procurement?.[f.path]])),
-    } }));
+
+function managementRows(tags: any[], registers: any[], stages: any[], revisions: any[]): OfficeSourceRow[] {
+  const rows: OfficeSourceRow[] = tags.map((tag) => {
+    const metadata = json(tag.metadata);
+    const procurement = json(metadata.procurement);
+    const stageId = String(procurement.stage || '');
+    const stageLog = json(procurement.stageLog);
+    for (const [id, atKey, byKey] of [['ordered', 'orderedAt', 'orderedBy'], ['approved', 'approvedAt', 'approvedBy'], ['purchased', 'purchasedAt', 'purchasedBy']]) {
+      if (procurement[atKey] && !stageLog[id]) stageLog[id] = { at: procurement[atKey], by: procurement[byKey] || '' };
+    }
+    const stageSince = stageId ? json(stageLog[stageId]).at : null;
+    const history = Object.entries(stageLog).map(([id, record]: [string, any]) => ({ id, label: stageName(id, stages), at: String(record?.at || ''), by: String(record?.by || '') }));
+    return {
+      entityId: tagEntityId(String(tag.id)), entityType: 'procurement', sourceId: 'management',
+      values: {
+        'tag.identifier': String(tag.identifier || ''),
+        'procurement.stage': stageId || null,
+        'procurement.stageName': stageId ? stageName(stageId, stages) : null,
+        'procurement.stageSince': dateValue(stageSince),
+        'procurement.stageHistory': history.length ? JSON.stringify(history) : null,
+        'procurement.supplier': scalar(procurement.supplier),
+        'procurement.qty': typeof procurement.qty === 'number' || isPlainNumber(procurement.qty) ? parseRuNumber(procurement.qty) : scalar(procurement.qty),
+        'procurement.note': scalar(procurement.note),
+        'procurement.templateId': scalar(procurement.templateId),
+      },
+    };
+  });
+
+  const tagByIdentifier = new Map<string, any[]>();
+  for (const tag of tags) {
+    const key = String(tag.identifier || '').trim().toLocaleLowerCase('ru-RU');
+    if (!key) continue;
+    tagByIdentifier.set(key, [...(tagByIdentifier.get(key) || []), tag]);
   }
-  const [registers, items] = await Promise.all([
-    db.docRegister.findMany({ where: { projectId }, orderBy: { id: 'asc' } }),
-    db.docRegisterItem.findMany({ where: { projectId }, orderBy: { id: 'asc' } }),
+  for (const register of registers) for (const item of register.items || []) {
+    const tagCodes: string[] = (() => {
+      const parsed = json(item.equipmentTags);
+      return Array.isArray(parsed) ? parsed.map((value: any) => String(value).trim()).filter(Boolean) : [];
+    })();
+    const matchedTags = tagCodes.flatMap((code) => tagByIdentifier.get(code.toLocaleLowerCase('ru-RU')) || []);
+    const ambiguous = [...new Set(tagCodes.filter((code) => (tagByIdentifier.get(code.toLocaleLowerCase('ru-RU')) || []).length > 1))];
+    if (ambiguous.length) throw Object.assign(new Error(`Неоднозначное сопоставление ВДР по тегу: ${ambiguous.join(', ')}`), { status: 409 });
+    const extra = json(item.extra);
+    const meta = json(item.meta);
+    rows.push({
+      entityId: vdrEntityId(String(item.id)), entityType: 'vdr', sourceId: 'management',
+      values: {
+        'vdr.register': String(register.name || ''),
+        'vdr.vendor': String(register.vendor || ''), 'vdr.contractor': String(register.contractor || ''), 'vdr.owner': String(register.owner || ''),
+        'vdr.poNumber': String(register.poNumber || ''), 'vdr.ownerProjectNo': String(register.ownerProjectNo || ''),
+        'vdr.contractorProjectNo': String(register.contractorProjectNo || ''), 'vdr.materialRequisition': String(register.materialRequisition || ''),
+        'vdr.equipmentTitle': String(register.equipmentTitle || ''), 'vdr.registerContractorDocNo': String(register.contractorDocNo || ''),
+        'vdr.registerOwnerDocNo': String(register.ownerDocNo || ''), 'vdr.registerVendorDocNo': String(register.vendorDocNo || ''),
+        'vdr.registerRevision': String(register.revision || ''), 'vdr.registerRevisions': scalar(register.revisions),
+        'vdr.standardId': register.standardId || null,
+        'vdr.preparedBy': String(register.preparedBy || ''), 'vdr.checkedBy': String(register.checkedBy || ''),
+        'vdr.approvedBy': String(register.approvedBy || ''), 'vdr.managerId': register.managerId || null,
+        'vdr.preparedById': register.preparedById || null, 'vdr.checkedById': register.checkedById || null, 'vdr.approvedById': register.approvedById || null,
+        'vdr.contractorNo': String(item.contractorNo || ''), 'vdr.ownerNo': String(item.ownerNo || ''), 'vdr.vendorNo': String(item.vendorNo || ''),
+        'vdr.titleRu': String(item.titleRu || ''), 'vdr.titleEn': String(item.titleEn || ''), 'vdr.code': String(item.vdrCode || ''),
+        'vdr.revision': String(item.revision || ''), 'vdr.issueDate': dateValue(item.issueDate), 'vdr.reasonForIssue': String(item.reasonForIssue || ''),
+        'vdr.language': String(item.language || ''), 'vdr.status': String(item.status || ''), 'vdr.remarks': String(item.remarks || ''),
+        'vdr.reviewCode': String(item.reviewCode || ''), 'vdr.dueDate': dateValue(item.dueDate), 'vdr.assigneeId': item.assigneeId || null,
+        'vdr.docId': item.docId || null, 'vdr.fileNodeId': item.fileNodeId || null,
+        'vdr.itemRevisionHistory': scalar(revisions.filter((revision) => revision.itemId === item.id).map(({ id, itemId, ...revision }) => revision)),
+        'vdr.tags': matchedTags.map((tag) => String(tag.identifier || '')).join('; ') || (tagCodes.length ? tagCodes.join('; ') : null),
+        ...Object.fromEntries(Object.entries(extra).map(([key, value]) => [`vdr.extra.${key}`, scalar(value)])),
+        ...Object.fromEntries(Object.entries(meta).map(([key, value]) => [`vdr.meta.${key}`, scalar(value)])),
+      },
+    });
+  }
+  return rows;
+}
+
+function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3SolutionBook): OfficeSourceRow[] {
+  const solutionIds = new Set<string>();
+  for (const solution of book.solutions || []) {
+    const id = String(solution.id || '');
+    if (id && solutionIds.has(id)) throw Object.assign(new Error(`В каталоге E3 неоднозначный ID типового решения: ${id}`), { status: 409 });
+    if (id) solutionIds.add(id);
+  }
+  const byElement = new Map<string, { project: any; binding: any }[]>();
+  for (const binding of bindings) {
+    const project = projects.find((item) => item.id === binding.e3ProjectId);
+    if (!project) continue;
+    byElement.set(binding.elementId, [...(byElement.get(binding.elementId) || []), { project, binding }]);
+  }
+  const elementsById = new Map(elements.map((item) => [String(item.id), item]));
+  const elementById = elementsById;
+  for (const [elementId, matches] of byElement) {
+    if (matches.length > 1) throw Object.assign(new Error(`У позиции ${elementId} несколько привязок E3 в проекте Flux`), { status: 409 });
+  }
+  return [...byElement.entries()].flatMap(([elementId, matches]) => {
+    const element = elementsById.get(elementId);
+    if (!element) return [];
+    const { project, binding } = matches[0];
+    const tagCodes = (element.tags || []).map((tag: any) => String(tag.identifier || '')).filter(Boolean);
+    const attrs = json(binding.sentAttrsJson);
+    const overrides = json(binding.overridesJson);
+    const solution = (book.solutions || []).find((item) => item.id === String(binding.solutionId || ''));
+    const features = { ...(solution?.features || {}), ...json(binding.answersJson) };
+    const elementTag = (item: any) => (item.tags || []).map((tag: any) => String(tag.identifier || '')).find(Boolean) || '';
+    const parentTag = (item: any) => {
+      const parent = elementById.get(String(item.parentElementId || ''));
+      return parent ? elementTag(parent) : '';
+    };
+    const recipe = solution ? buildRecipeFor({ ...solution, features }, {
+      id: String(element.id), cls: String(element.equipClass || element.equipType || ''), role: String(element.role || ''),
+      tag: tagCodes[0] || '', parentElementId: element.parentElementId || undefined, parentTag: parentTag(element), read: () => '',
+    } as E3Position, elements.map((item) => ({
+      id: String(item.id), cls: String(item.equipClass || item.equipType || ''), role: String(item.role || ''),
+      tag: elementTag(item), parentElementId: item.parentElementId || undefined, parentTag: parentTag(item), read: () => '',
+    } as E3Position)), book) : null;
+    const values: Record<string, string | number | null> = {
+      'element.itemCode': String(element.itemCode || ''), 'element.name': String(element.name || ''), 'element.tag': tagCodes.join('; '),
+      'e3.project': String(project.name || ''), 'e3.version': String(project.e3Version || ''), 'e3.partsDb': String(project.partsDb || ''), 'e3.path': String(project.path || ''),
+      'e3.solutionId': String(binding.solutionId || ''), 'e3.solutionName': solution?.name || null,
+      'e3.solutionClass': solution?.mainClass || null, 'e3.designation': String(binding.designation || ''),
+      'e3.sheet': String(binding.sheet || ''), 'e3.state': String(binding.state || ''), 'e3.sentVersion': String(binding.sentVersion || ''),
+      'e3.manualSolution': binding.manualSolution ? 'Да' : 'Нет',
+      'e3.devices': recipe?.items.length ? recipe.items.map((item) => {
+        const io = (book.ioTable || []).find((row) => row.id === item.ioRowId);
+        return `${item.role}: ${io?.name || io?.code || item.ioRowId || 'изделие'}${item.component ? ` (${item.component})` : ''}`;
+      }).join('; ') : null,
+      'e3.di': recipe?.total.di ?? null, 'e3.do': recipe?.total.do ?? null, 'e3.ai': recipe?.total.ai ?? null, 'e3.ao': recipe?.total.ao ?? null,
+    };
+    for (const [key, value] of Object.entries(attrs)) values[`e3.attr:${key}`] = scalar(value);
+    for (const [key, value] of Object.entries(overrides)) values[`e3.override:${key}`] = scalar(value);
+    if (recipe) for (const io of book.ioTable || []) {
+      const count = recipe.items.filter((item) => item.ioRowId === io.id).length;
+      if (count) for (const signal of ['di', 'do', 'ai', 'ao'] as const) values[`e3.io:${io.id}|${signal}`] = io[signal] * count;
+    }
+    return [{ entityId: e3EntityId(elementId), entityType: 'e3' as const, sourceId: 'e3flux' as const, values }];
+  });
+}
+
+export async function officeSourceCatalog(projectId: string) {
+  const db = getPrisma();
+  const [attributeSetting, solutionSetting, registers, projects] = await Promise.all([
+    db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }),
+    db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }),
+    db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }),
+    db.e3Project.findMany({ where: { fluxProjectId: projectId }, select: { id: true, name: true } }),
   ]);
-  const byId = new Map(registers.map((r: any) => [r.id, r]));
-  const result: RecordRow[] = registers.map((r: any) => ({ id: `register:${r.id}`, type: 'vdr', data: { ...r, kind: 'register' } }));
-  for (const item of items) {
-    const register: any = byId.get(item.registerId);
-    if (!register) fail(`У документа ВДР «${item.id}» нет реестра в проекте`, 409);
-    result.push({ id: `item:${item.id}`, type: 'vdr', data: { ...register, ...item, name: register.name, kind: 'document' } });
+  const attributes = json(attributeSetting?.value).items || [];
+  const solutions = json(solutionSetting?.value);
+  const extras = registers.flatMap((register: any) => (register.items || []).map((item: any) => ({ extra: json(item.extra), meta: json(item.meta) })));
+  const dynamicVdr = extras.flatMap((record) => [
+    ...Object.keys(record.extra).map((key) => ({ path: `vdr.extra.${key}`, title: `ВДР · ${key}`, entityType: 'vdr' as const })),
+    ...Object.keys(record.meta).map((key) => ({ path: `vdr.meta.${key}`, title: `ВДР · ${key}`, entityType: 'vdr' as const })),
+  ]);
+  const attrKeys = new Set<string>(), overrideKeys = new Set<string>();
+  const bindings = projects.length ? await db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((project: any) => project.id) } }, select: { sentAttrsJson: true, overridesJson: true } }) : [];
+  for (const binding of bindings) {
+    for (const key of Object.keys(json(binding.sentAttrsJson))) attrKeys.add(key);
+    for (const key of Object.keys(json(binding.overridesJson))) overrideKeys.add(key);
   }
-  return result;
+  const configured = attributes.filter((item: any) => !item.removed).map((item: any) => ({ path: `e3.attr:|${item.name}`, title: `E3 · ${item.title || item.name}`, entityType: 'e3' as const }));
+  const dynamicAttrs = [...attrKeys].map((key) => ({ path: `e3.attr:${key}`, title: `E3 · ${key}`, entityType: 'e3' as const }));
+  const dynamicOverrides = [...overrideKeys].map((key) => ({ path: `e3.override:${key}`, title: `E3 · ручная правка · ${key}`, entityType: 'e3' as const }));
+  const ioFields = (solutions.ioTable || []).flatMap((io: any) => [
+    { path: `e3.io:${io.id}|di`, title: `E3 IO · ${io.group} · ${io.name} · DI`, type: 'number' as const, entityType: 'e3' as const },
+    { path: `e3.io:${io.id}|do`, title: `E3 IO · ${io.group} · ${io.name} · DO`, type: 'number' as const, entityType: 'e3' as const },
+    { path: `e3.io:${io.id}|ai`, title: `E3 IO · ${io.group} · ${io.name} · AI`, type: 'number' as const, entityType: 'e3' as const },
+    { path: `e3.io:${io.id}|ao`, title: `E3 IO · ${io.group} · ${io.name} · AO`, type: 'number' as const, entityType: 'e3' as const },
+  ]);
+  const e3Fields = [...E3_FIELDS, ...configured, ...dynamicAttrs, ...dynamicOverrides, ...ioFields];
+  return {
+    managementFields: [...new Map([...MANAGEMENT_FIELDS, ...dynamicVdr].map((field) => [field.path, field])).values()],
+    e3fluxFields: [...new Map(e3Fields.map((field) => [field.path, field])).values()],
+  };
 }
-async function e3(db: any, projectId: string): Promise<RecordRow[]> {
-  const [projects, solutions, attributes] = await Promise.all([
+
+export async function queryOfficeSource(projectId: string, sourceId: 'management' | 'e3flux'): Promise<{ rows: OfficeSourceRow[]; revision: string }> {
+  const db = getPrisma();
+  if (sourceId === 'management') {
+    const [tags, registers, setting] = await Promise.all([
+      db.tag.findMany({ where: { projectId }, orderBy: { id: 'asc' } }),
+      db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }),
+      db.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } }),
+    ]);
+    const stages = json(setting?.value);
+    const itemIds = registers.flatMap((register: any) => (register.items || []).map((item: any) => item.id));
+    const revisions = itemIds.length ? await db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] }) : [];
+    const rows = managementRows(tags, registers, Array.isArray(stages) ? stages : [], revisions);
+    return { rows, revision: digest({ projectId, stages, tags: tags.map((tag: any) => [tag.id, tag.updatedAt, tag.metadata]), registers: registers.map((register: any) => [register.id, register.updatedAt, register.items]), revisions }) };
+  }
+  const [projects, elements, attrSetting, solutionSetting] = await Promise.all([
     db.e3Project.findMany({ where: { fluxProjectId: projectId }, orderBy: { id: 'asc' } }),
-    catalogSetting(db, 'e3_solutions', { solutions: [], ioTable: [] }),
-    catalogSetting(db, 'e3_attributes', { items: [] }),
+    db.componentElement.findMany({ where: { monoblock: { system: { projectId } } }, include: { tags: { select: { identifier: true } } }, orderBy: { id: 'asc' } }),
+    db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }),
+    db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }),
   ]);
-  const bindings = await db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((p: any) => p.id) } }, orderBy: { id: 'asc' } });
-  unique(solutions.solutions || [], r => String(r.id || ''), 'типовых решений');
-  unique(attributes.items || [], r => String(r.name || ''), 'атрибутов');
-  unique(solutions.ioTable || [], r => String(r.id || ''), 'IO');
-  unique(bindings, r => `${r.e3ProjectId}:${r.elementId}`, 'связей E3');
-  const projectMap = new Map(projects.map((p: any) => [p.id, p]));
-  const solutionMap = new Map((solutions.solutions || []).map((s: any) => [s.id, s]));
-  const records: RecordRow[] = bindings.map((b: any) => {
-    const project: any = projectMap.get(b.e3ProjectId), solution: any = solutionMap.get(b.solutionId);
-    return { id: `binding:${b.id}`, type: 'e3', data: { ...b, kind: 'binding', projectName: project?.name, projectKey: project?.key, solutionName: solution?.name, sentAttrs: parseJsonSafe(b.sentAttrsJson) } };
-  });
-  for (const s of solutions.solutions || []) records.push({ id: `solution:${s.id}`, type: 'e3', data: { ...s, kind: 'solution', solutionId: s.id, solutionName: s.name } });
-  for (const a of attributes.items || []) records.push({ id: `attribute:${a.name}`, type: 'e3', data: { ...a, kind: 'attribute' } });
-  for (const io of solutions.ioTable || []) records.push({ id: `io:${io.id}`, type: 'e3', data: { ...io, kind: 'io' } });
-  return records;
+  const bindings = projects.length
+    ? await db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((item: any) => item.id) } }, orderBy: { id: 'asc' } })
+    : [];
+  const attributes = json(attrSetting?.value).items || [];
+  const book = { solutions: [], features: [], ioTable: [], ioRules: [], ...json(solutionSetting?.value) } as E3SolutionBook;
+  return { rows: e3Rows(elements, projects, bindings, book), revision: digest({ projectId, projects, bindings, attributes, book, elements }) };
 }
 
-/** Строгая проверка полей не позволяет опечатке превратить фильтр в выбор всего проекта. */
-export async function queryOfficeSource(db: any, projectId: string, body: any) {
-  const entity = String(body?.entity || '');
-  if (!['procurement', 'vdr', 'e3'].includes(entity)) fail(`Источник «${entity}» не поддерживается`);
-  const sourceId = entity === 'e3' ? 'e3flux' : 'management';
-  const known = (entity === 'e3' ? e3fluxFields : managementFields.filter(f => f.entityType === entity));
-  const fieldMap = new Map(known.map(f => [f.path, f]));
-  const columns: string[] = Array.isArray(body.columns) ? body.columns.map(String) : known.map(f => f.path);
-  const filters = Array.isArray(body.filters) ? body.filters : [];
-  const sort = Array.isArray(body.sort) ? body.sort : [];
-  for (const key of [...columns, ...filters.map((f: any) => f.field), ...sort.map((s: any) => s.field)]) if (!fieldMap.has(key)) fail(`Поле «${key}» отсутствует в источнике ${sourceId}`);
-  const ops = ['contains', 'ncontains', 'eq', 'neq', 'in', 'empty', 'nempty', 'gt', 'gte', 'lt', 'lte'];
-  if (filters.some((f: any) => !ops.includes(f.op))) fail('Оператор фильтра не поддерживается');
-  let records = entity === 'e3' ? await e3(db, projectId) : await management(db, projectId, entity);
-  unique(records, r => r.id, sourceId);
-  // Ревизия зависит от всех исходных полей, даже если их нет в текущей выборке.
-  const sourceRevision = hash(records);
-  const value = (row: RecordRow, field: string) => scalar(row.data[field.replace(/^(vdr|e3)\./, '')]);
-  for (const f of filters) records = records.filter(r => {
-    if (f.op === 'gte' || f.op === 'lte') {
-      const a = parseRuNumber(String(value(r, f.field) ?? '')), b = parseRuNumber(String(f.value ?? ''));
-      return a != null && b != null && (f.op === 'gte' ? a >= b : a <= b);
-    }
-    return applyFilter(String(value(r, f.field) ?? ''), f.op, f.value);
-  });
-  const excluded = new Set(Array.isArray(body.excludedEntityIds) ? body.excludedEntityIds.map(String) : []);
-  records = records.filter(r => !excluded.has(officeEntityId(sourceId, r.type, r.id)));
-  records.sort((a, b) => {
-    for (const s of sort) {
-      const av = value(a, s.field), bv = value(b, s.field);
-      const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av ?? '').localeCompare(String(bv ?? ''), 'ru', { numeric: true });
-      if (cmp) return s.dir === 'desc' ? -cmp : cmp;
-    }
-    return a.id.localeCompare(b.id);
-  });
-  const limit = Math.max(1, Math.min(Number(body.limit) || 50000, 50000));
-  const rows: OfficeEntityRow[] = records.slice(0, limit).map(r => ({ entityId: officeEntityId(sourceId, r.type, r.id), entityType: r.type, sourceId,
-    values: Object.fromEntries(columns.map(key => [key, { value: value(r, key), revision: sourceRevision }])) }));
-  return { rows, sourceRevision, total: records.length };
+export function sourceFields(sourceId: 'management' | 'e3flux', catalog: { managementFields: OfficeSourceField[]; e3fluxFields: OfficeSourceField[] }): OfficeSourceField[] {
+  return sourceId === 'management' ? catalog.managementFields : catalog.e3fluxFields;
 }
