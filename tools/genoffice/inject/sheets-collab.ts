@@ -29,6 +29,9 @@ import { waitForEditor } from './editor-readiness'
 import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
+import { createSheetsIdleChips } from './sheets-idle-chips'
+import { installSheetsHistoryMarks } from './sheets-history-marks'
+import { partChipLabel } from './parameter-chip-style'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -254,6 +257,42 @@ function selectedHeaderCells(wb: any): Array<{ anchorId: string; kind: 'excel-ra
   } catch { return null }
 }
 
+/** Привязана ли ячейка к шапке Flux: id якоря по имени FLUX_ANCHOR_*, которое ссылается на неё */
+function boundAnchorIdAt(wb: any, sheetName: string, address: string): string | null {
+  try {
+    const quoted = sheetName.replace(/'/g, "''")
+    for (const defined of wb?.getDefinedNames?.() || []) {
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(String(defined?.getName?.() || ''))
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+      if (!match) continue
+      const refSheet = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+      if ((refSheet === sheetName || refSheet === quoted) && `${match[3]!}${match[4]!}`.toUpperCase() === address) return anchor[1]!.replaceAll('_', '-')
+    }
+  } catch { /* книга ещё не готова */ }
+  return null
+}
+
+/** Все привязанные ячейки шапки: якорь, лист и адрес */
+function boundHeaderCells(wb: any): Array<{ anchorId: string; sheetName: string; address: string }> {
+  const out: Array<{ anchorId: string; sheetName: string; address: string }> = []
+  try {
+    for (const defined of wb?.getDefinedNames?.() || []) {
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(String(defined?.getName?.() || ''))
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+      if (!match) continue
+      out.push({ anchorId: anchor[1]!.replaceAll('_', '-'), sheetName: (match[1] ?? match[2] ?? '').replace(/''/g, "'"), address: `${match[3]!}${match[4]!}`.toUpperCase() })
+    }
+  } catch { /* книга ещё не готова */ }
+  return out
+}
+
+/** Части привязанных ячеек, о которых редактору сказало окно Flux (схема, правка ячейки) */
+const knownHeaderParts = new Map<string, any[]>()
+
 function protectFluxHeaderCells(): void {
   const runtime = hooks()?.univerRef.current
   if (!runtime?.univer || guardedRuntimes.has(runtime)) return
@@ -374,6 +413,8 @@ function setAnchorName(wb: any, name: string, ref: string): void {
   if (plain(existing.getRef?.() ?? existing.getFormulaOrRefString?.()) === plain(ref)) return
   existing.setRef(ref)
 }
+
+function columnLetters(col: number): string { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
 
 function columnNumber(letters: string): number {
   let result = 0
@@ -582,7 +623,17 @@ async function exportCommands(): Promise<void> {
     event.stopImmediatePropagation()
     void api()?.redo?.()
   }, true)
-  headerTokenOverlay = createSheetsTokenOverlay(link, (anchorId) => {
+  // Правка ячейки завершена: плашки покоя берут её части без ожидания ответа окна Flux
+  const overlayLink = {
+    send: (channel: string, ...args: unknown[]) => {
+      const edited = args[0] as any
+      if (channel === 'flux:header-schema-edited' && edited?.anchorId && Array.isArray(edited.parts)) knownHeaderParts.set(String(edited.anchorId), edited.parts)
+      link.send(channel, ...args)
+    },
+    on: (channel: string, fn: (e: unknown, ...a: any[]) => void) => link.on(channel, fn),
+    invoke: (channel: string, ...args: unknown[]) => link.invoke(channel, ...args),
+  }
+  headerTokenOverlay = createSheetsTokenOverlay(overlayLink, (anchorId) => {
     const wb = workbook()
     const name = fluxAnchorName(anchorId)
     const defined = wb?.getDefinedNames?.().find((item: any) => String(item.getName()) === name)
@@ -600,6 +651,54 @@ async function exportCommands(): Promise<void> {
     applyingFlux = true
     try { range.setValues([[{ v: value }]]); return true } catch { return false } finally { applyingFlux = prior }
   }, () => !fluxReadOnly)
+  createSheetsIdleChips({
+    workbook,
+    bound: () => boundHeaderCells(workbook()),
+    parts: (anchorId) => knownHeaderParts.get(anchorId) || null,
+    isEditing: (anchorId) => !!headerTokenOverlay?.isEditing(anchorId),
+  })
+  // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
+  const historyMarks = installSheetsHistoryMarks(() => hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
+  link.on('flux:mark-history', (_e, request: any) => {
+    const message = request?.payload ?? request ?? {}
+    link.send('flux:history-marked', { ok: true, marked: historyMarks.mark(String(message.id || ''), Number(message.since) || 0) })
+  })
+  link.on('flux:edit-header-formula', (_e, request: any) => {
+    const message = request?.payload ?? request ?? {}
+    const anchor = message.schema?.anchors?.find((item: any) => item?.id === message.anchorId)
+    if (anchor && Array.isArray(anchor.parts)) knownHeaderParts.set(String(anchor.id), anchor.parts)
+  })
+  // Ввод в привязанной ячейке шапки идёт прямо в ней: собственный редактор Univer для неё
+  // не открываем (метки в нём были бы обычным текстом), а окно ввода Flux ставим поверх ячейки.
+  let typedKey = ''
+  let typedKeyTimer: ReturnType<typeof setTimeout> | undefined
+  document.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement | null
+    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || target?.closest?.('input, textarea, .flux-sheet-token-edit')) return
+    typedKey = event.key
+    clearTimeout(typedKeyTimer)
+    typedKeyTimer = setTimeout(() => { typedKey = '' }, 400)
+  }, true)
+  api().addEvent(api().Event.BeforeSheetEditStart, (params: any) => {
+    if (fluxReadOnly || params.isZenEditor || headerTokenOverlay?.isEditing()) return
+    const address = `${columnLetters(Number(params.column))}${Number(params.row) + 1}`
+    const sheetName = String(params.worksheet?.getSheetName?.() || '')
+    const anchorId = sheetName ? boundAnchorIdAt(workbook(), sheetName, address) : null
+    if (!anchorId) return
+    params.cancel = true
+    const initialText = typedKey
+    typedKey = ''
+    // Части ячейки уже известны редактору (схема прочитана панелью): окно ввода открываем сразу,
+    // без обращения к окну Flux, иначе набор успевает уйти мимо него. Иначе спрашиваем окно.
+    const known = knownHeaderParts.get(anchorId)
+    if (known) {
+      const cellText = String(params.worksheet?.getRange?.(address)?.getValue?.() ?? '')
+      const single = known.filter((part: any) => part.kind === 'field' || part.kind === 'union').length === 1 && known.length === 1
+      const parts = known.map((part: any) => part.kind === 'field' && !part.binding?.displayName ? { ...part, binding: { ...part.binding, displayName: partChipLabel(part, single, cellText) } } : part)
+      if (headerTokenOverlay?.openWith(anchorId, parts, initialText)) return
+    }
+    link.send('flux:begin-cell-edit', { anchorId, initialText })
+  })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
   document.addEventListener('contextmenu', (event) => {
     if (event.button !== 2 || !(event.target instanceof HTMLCanvasElement)) return
@@ -657,6 +756,7 @@ async function exportCommands(): Promise<void> {
       })
       result = { ok: true, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    if (result?.ok) for (const header of result.headers || []) if (Array.isArray(header.parts)) knownHeaderParts.set(String(header.anchorId), header.parts)
     link.send('flux:header-schema-read', result)
   }
   // Запросы, пришедшие до готовности книги, обрабатываем теперь.

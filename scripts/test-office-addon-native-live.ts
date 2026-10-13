@@ -395,11 +395,11 @@ try {
   await headerPanel.getByLabel('Текст заголовка 4').fill(' м³/ч');
   await headerPanel.getByRole('button', { name: 'Текст', exact: true }).click();
   for (let part = 5; part > 1; part--) await headerPanel.getByRole('button', { name: `Переместить часть ${part} выше` }).click();
-  await headerPanel.getByLabel('Текст заголовка 1').fill('Расход: ');
+  await headerPanel.getByLabel('Текст заголовка 1').fill('=Расход: ');
   await headerPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const customHeaderState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
-    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === 'Расход: ';
+    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === '=Расход: ';
   });
   const customHeaderXml = await archiveText(docxId, 'word/document.xml');
   const customHeaderText = xmlText(customHeaderXml);
@@ -438,6 +438,8 @@ try {
   if (renderedFieldCount) {
     const editorTextBeforeBackspace = await editor.innerText();
     await renderedField.click();
+    // Щелчок выделяет метку целиком, и Backspace её удалил бы (второе нажатие); каретка после метки — первое нажатие
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Backspace');
     const liveMarkerSurvivesBackspace = await waitFor(async () => await renderedField.count() > 0, 3000);
     const editorTextAfterBackspace = await editor.innerText();
@@ -634,7 +636,7 @@ try {
     const anchor = state?.schema?.anchors?.[0];
     const parts = anchor?.parts || [];
     return anchor?.id === targetAnchorId && parts.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text' &&
-      parts[0]?.text === 'Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
+      parts[0]?.text === '=Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
       parts[3]?.text === '2' && parts[4]?.text === ' м³/ч';
   });
   check('cross-document template applies all five header parts and rebinds its field to the target UUID', templateReady && mappedTemplateState, (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema);
@@ -732,12 +734,18 @@ try {
   await sheets.locator('input.univer-box-border').first().fill('A1');
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
-  await page.keyboard.type('FORBIDDEN_HEADER'); await page.keyboard.press('Enter');
+  // Набор в привязанной ячейке идёт в окне ввода поверх неё: метка защищена, текст рядом свободный
+  await page.keyboard.type('FORBIDDEN_HEADER');
+  const inCellInput = await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  const inCellChips = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-chip').count() : 0;
+  const inCellText = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').innerText() : '';
+  await page.keyboard.press('Escape');
+  await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
   const headerAfterEdit = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
   });
-  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader, { protectedHeader, headerAfterEdit });
+  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
   await page.keyboard.press('Escape');
   await sheetPanel.getByRole('button', { name: 'Удалить привязку поля' }).click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();

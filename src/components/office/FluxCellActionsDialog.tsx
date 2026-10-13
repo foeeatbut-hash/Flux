@@ -45,12 +45,11 @@ interface Props {
   onPreviewMerge: (request: FluxCellMergeRequest) => Promise<FluxCellMergeResponse>;
   onConfirmMerge: (request: FluxCellMergeConfirmation) => Promise<FluxCellMergeResponse>;
   onInsertField?: (field: OfficeField, targetAnchorId: string) => Promise<boolean | void>;
-  onEditFormula?: (anchorId: string) => void;
   onComplete?: (response: FluxCellMergeResponse) => void;
 }
 
 /** Позволяет подготовить объединение, а изменение документа оставляет нативному редактору. */
-export default function FluxCellActionsDialog({ open, selectedAnchors, fields, readOnly, busy = false, onCancel, onPreviewMerge, onConfirmMerge, onInsertField, onEditFormula, onComplete }: Props) {
+export default function FluxCellActionsDialog({ open, selectedAnchors, fields, readOnly, busy = false, onCancel, onPreviewMerge, onConfirmMerge, onInsertField, onComplete }: Props) {
   const selectionKey = selectedAnchors.map((anchor) => `${anchor.anchorId}:${JSON.stringify(anchor.parts)}:${anchor.manualConflict || ''}`).join('|');
   const target = selectedAnchors[0];
   const source = selectedAnchors[1];
@@ -165,11 +164,6 @@ export default function FluxCellActionsDialog({ open, selectedAnchors, fields, r
           {anchor.manualConflict && <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">{anchor.manualConflict}</p>}
         </div>)}
       </section>
-
-      {selectedAnchors.length === 1 && <div className="flex flex-wrap items-center gap-2">
-        <Btn disabled={!mutationsAllowed || !target || !onEditFormula} onClick={() => target && onEditFormula?.(target.anchorId)}>Редактировать формулу в ячейке</Btn>
-        <span className="text-xs text-slate-500 dark:text-slate-400">Закроем окно и передадим фокус нативной ячейке.</span>
-      </div>}
 
       {selectedAnchors.length === 2 && <section className="space-y-2" aria-label="Варианты параметра для выходной ячейки">
         <h4 className="text-xs font-semibold text-slate-800 dark:text-dark-text-main">Одна выходная колонка</h4>
