@@ -182,7 +182,7 @@ export default function FluxOfficePanel(props: Props) {
     const available = new Set(sourceFields.map((field) => field.fieldKey));
     const columns = query.columns?.length ? query.columns.filter((key) => available.has(key)) : sourceFields.map((field) => field.fieldKey);
     if (!columns.length) { setError('Для источника сервер не вернул полей.'); return; }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setActionMessage('');
     try {
       const data = await officeDataApi.query({ ...query, columns });
       setResult(data);
@@ -196,7 +196,7 @@ export default function FluxOfficePanel(props: Props) {
 
   const bindSelectedField = useCallback(async () => {
     if (!selectedField || !activeAnchor || !officeState) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setActionMessage('');
     try {
       const current = await props.requestState();
       if (!current) throw new Error('Состояние документа недоступно. Повторите проверку.');
@@ -232,7 +232,7 @@ export default function FluxOfficePanel(props: Props) {
     if (templatePending.length) { setError('Сначала уточните все связи выбранного шаблона.'); return; }
     if (templateSchema) { setError('Сохраните схему шаблона во вкладке «Поля и шапка», затем создайте предпросмотр.'); return; }
     if (!officeState || !schema || !result || !selectedIds.length) { setError('Выберите строки и дождитесь загрузки состояния документа.'); return; }
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setActionMessage('');
     try {
       setAppliedSummary(null);
       // Обычная ручная правка меняет хеш файла вне панели. Для нового
@@ -254,7 +254,7 @@ export default function FluxOfficePanel(props: Props) {
 
   const applyPlan = useCallback(async () => {
     if (!plan || !planSchema || !planQuery || props.readOnly) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setActionMessage('');
     try {
       const confirmed = await officeDataApi.confirm(fileSource, {
         projectId: props.projectId, planId: plan.planId, baseHash: plan.baseHash,
