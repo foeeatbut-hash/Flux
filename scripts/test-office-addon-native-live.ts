@@ -349,6 +349,9 @@ try {
     return;
   }
 
+  // FLUX_NATIVE_ONLY=issued — только раздел 5 (выпущенная книга только для просмотра); разделы 1–4 готовят ему
+  // лишь файл, который он сам создаёт заново
+  if (process.env.FLUX_NATIVE_ONLY !== 'issued') {
   console.log('\n1. Native Word editor, table anchor, add-on, save and reopen');
   await navigateOffice(page, `/office-doc?file=${encodeURIComponent(docxId)}`);
   const docs = await openPanel(page, 'Flux Office — Документ');
@@ -968,6 +971,8 @@ try {
   const originalFinal = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
   check('editing the new draft never mutates the issued source document', sha256(originalFinal.bytes) === sourceSha);
 
+  } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
+
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
   const xlsxSourceSha = sha256(xlsxBeforeIssue.bytes);
@@ -997,7 +1002,9 @@ try {
   await issuedNameBox.fill('A5'); await issuedNameBox.press('Enter');
   await issuedSheetFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   await page.keyboard.press('Control+c');
-  const copiedManualCell = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+  // Univer кладёт текст в буфер асинхронно: чтение сразу после Ctrl+C видит пустой буфер, хотя копирование работает
+  let copiedManualCell = '';
+  await waitFor(async () => { copiedManualCell = await page.evaluate(() => navigator.clipboard.readText()).catch(() => ''); return copiedManualCell.includes('MANUAL_KEEP'); }, 5000);
   check('issued grid still supports cell navigation and copying manual content', String(activeRange).includes('B1') && copiedManualCell.includes('MANUAL_KEEP'), { activeRange, copiedManualCell });
   const xlsxDraftResult = await api('POST', `/api/office/revisions/${encodeURIComponent(xlsxId)}/draft`, { revisionId: xlsxRevision?.id, sourceSha: xlsxRevision?.sha256 });
   const xlsxDraftId = String(xlsxDraftResult.json?.fileId || '');

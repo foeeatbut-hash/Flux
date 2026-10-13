@@ -493,6 +493,8 @@ export default function FluxOfficePanel(props: Props) {
 
       {error && <p role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p>}
       {!props.projectId && <p className="shrink-0 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">Сначала привяжите документ к проекту.</p>}
+      {/* Остальные вкладки показывают это сами (поля, обновление); на «Выборке» выпущенный файл иначе не объявил бы запрет */}
+      {props.readOnly && tab === 'selection' && <p className="shrink-0 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={setQuery} onRun={() => void runQuery()} onSelectionChange={setSelectedIds} />}
       {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
       {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
