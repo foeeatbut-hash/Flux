@@ -24,7 +24,7 @@ page.route('**/api/project-data/**', async (route) => {
     elementFields: [{ path: 'identifier', title: 'Обозначение' }, { path: 'name', title: 'Наименование' }, { path: 'equipType', title: 'Тип' }],
     params: [{ group: 'Основные', key: 'Масса', unit: 'кг' }], aliases: [], metaKeys: [],
   };
-  else if (endpoint === '/api/project-data/office/templates') body = { templates: [{ id: 'template-1', name: 'Рабочая выборка', scope: 'PERSONAL', ownerId: 'user-1', schema: { version: 1, anchors: [] }, query: { entity: 'element', columns: ['identifier', 'name'], filters: [{ field: 'equipType', op: 'in', value: 'pump|valve' }, { field: 'name', op: 'contains', value: 'P' }], sort: [{ field: 'name', dir: 'desc' }], excludedEntityIds: ['e-2'], limit: 1000 } }], pinned: ['template-1'] };
+  else if (endpoint === '/api/project-data/office/templates' && request.method() === 'GET') body = { templates: [{ id: 'template-1', name: 'Рабочая выборка', scope: 'PERSONAL', ownerId: 'user-1', schema: { version: 1, anchors: [] }, query: { entity: 'element', columns: ['identifier', 'name'], filters: [{ field: 'equipType', op: 'in', value: 'pump|valve' }, { field: 'name', op: 'contains', value: 'P' }], sort: [{ field: 'name', dir: 'desc' }], excludedEntityIds: ['e-2'], limit: 1000 } }], pinned: ['template-1'] };
   else if (endpoint.endsWith('/office-state')) {
     if (request.method() === 'PUT') { requests.push({ endpoint: 'office-state-put', body: request.postDataJSON() }); body = { ok: true, baseHash: 'fixture-hash-put', schemaVersion: 1, anchorCount: 1 }; }
     else body = { baseHash: 'fixture-hash-1', sourceRevision: 'fixture-rev-1', schema: { version: 1, anchors: [{ kind: 'excel-range', id: 'anchor-a1', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'text', text: 'Позиция ' }, { kind: 'field', binding: { fieldKey: 'identifier', sourceId: 'equipment', entityType: 'element', entityId: null, sourceRevision: 'fixture-rev-1', anchorId: 'anchor-a1' } }] }] } };
@@ -54,7 +54,7 @@ page.route('**/api/office/revisions/**', async (route) => {
 try {
   const fixtureUrl = process.env.OFFICE_ADDON_UI_URL || process.env.FLUX_UI_URL || process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4190';
   await page.goto(`${fixtureUrl}${fixtureUrl.includes('?') ? '&' : '?'}kind=${kind}`);
-  await page.getByRole('heading', { name: kind === 'docs' ? 'Flux · Пробный документ.docx' : 'Flux · Пробная книга.xlsx' }).waitFor();
+  await page.getByRole('heading', { name: kind === 'docs' ? 'Данные для таблицы · Пробный документ.docx' : 'Данные для таблицы · Пробная книга.xlsx' }).waitFor();
   await page.waitForTimeout(150);
   for (const width of [390, 760, 1280]) {
     await page.setViewportSize({ width, height: 820 });
@@ -67,7 +67,24 @@ try {
     }
   }
 
-  await page.getByRole('button', { name: 'Рабочая выборка', exact: true }).click();
+  // Шаблоны — только по команде ленты, в панели их больше нет
+  if (await page.getByRole('button', { name: 'Рабочая выборка', exact: true }).count()) throw new Error('template controls must not stay inside the panel');
+  await page.evaluate(() => window.__fluxFixture.command('templates'));
+  const library = page.getByRole('dialog', { name: 'Шаблоны шапки' });
+  await library.getByText('Рабочая выборка').waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+    await page.waitForTimeout(300);
+    if (theme === 'dark') {
+      const color = await library.locator('li span.truncate').first().evaluate((element) => getComputedStyle(element).color);
+      const brightness = (value) => (value.match(/\d+/g)?.slice(0, 3).map(Number) || [0, 0, 0]).reduce((sum, item) => sum + item, 0) / 3;
+      if (brightness(color) < 100) throw new Error(`dark-mode template name contrast too low: ${color}`);
+    }
+    const outputFile = path.join(outputDir, `${screenshotPrefix}-templates-${theme}.png`);
+    await page.screenshot({ path: outputFile, fullPage: true }); screenshotPaths.push(outputFile);
+  }
+  await library.getByRole('button', { name: 'Открыть' }).click();
   await page.getByRole('button', { name: '1. Выборка' }).click();
   await page.getByRole('button', { name: 'Обновить выборку' }).click();
   await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).waitFor();
@@ -81,10 +98,10 @@ try {
       if (theme === 'dark') {
         const colors = await page.evaluate(() => {
           const get = (selector) => getComputedStyle(document.querySelector(selector)).color;
-          return { template: get('button.text-slate-800'), header: get('[role="columnheader"]'), row: get('[role="gridcell"]') };
+          return { header: get('[role="columnheader"]'), row: get('[role="gridcell"]') };
         });
         const brightness = (color) => { const rgb = color.match(/\d+/g)?.slice(0, 3).map(Number) || [0, 0, 0]; return rgb.reduce((sum, value) => sum + value, 0) / 3; };
-        if (brightness(colors.template) < 100 || brightness(colors.header) < 100 || brightness(colors.row) < 100) throw new Error(`dark-mode text contrast too low: ${JSON.stringify(colors)}`);
+        if (brightness(colors.header) < 100 || brightness(colors.row) < 100) throw new Error(`dark-mode text contrast too low: ${JSON.stringify(colors)}`);
       }
     }
   }
@@ -132,6 +149,58 @@ try {
   if (!data.some((item) => item.type === 'apply-plan' && item.plan.writes[0].entityId === 'e-1' && item.rows?.[0]?.entityId === 'e-old')) throw new Error(`editor apply callback missing or prior binding rows absent: ${JSON.stringify({ data, requests })}`);
   if (metadataWrites.length !== 3 || metadataWrites[0].rows?.[0]?.entityId !== 'e-old' || metadataWrites[1].rows?.[0]?.entityId !== 'e-old' || !metadataWrites[2].rows?.some((row) => row.entityId === 'e-1' && row.values?.['anchor-a1'] === 'P-101')) throw new Error(`metadata writes did not preserve existing bindings and persist applied rows: ${JSON.stringify(metadataWrites)}`);
   if (!(await page.getByRole('status').getByText('Без замены оставлены строки с ручными правками: 1').count())) throw new Error('native bridge manual-row response was not shown to the user');
+
+  // ── Команды ленты «Flux»: окна шаблонов, выгрузка, переводчик, «Исходная шапка» ──
+  const shotBoth = async (name) => {
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => window.__fluxFixture.setTheme(value), theme);
+      await page.waitForTimeout(300); // кнопки плавно меняют цвет: снимок сразу после смены темы поймал бы середину перехода
+      const outputFile = path.join(outputDir, `${screenshotPrefix}-${name}-${theme}.png`);
+      await page.screenshot({ path: outputFile, fullPage: true }); screenshotPaths.push(outputFile);
+    }
+  };
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.evaluate(() => window.__fluxFixture.command('save-template'));
+  const saveDialog = page.getByRole('dialog', { name: 'Сохранить шапку как шаблон' });
+  await saveDialog.getByLabel('Название шаблона').fill('Общая шапка');
+  await saveDialog.getByLabel('Для всех').check();
+  await shotBoth('save-template');
+  await saveDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await saveDialog.waitFor({ state: 'detached' });
+  const savedTemplate = requests.filter((item) => item.endpoint === 'template-save').at(-1)?.body;
+  if (savedTemplate?.scope !== 'SHARED' || savedTemplate?.name !== 'Общая шапка' || !savedTemplate?.schema?.anchors?.length) throw new Error(`shared template save request wrong: ${JSON.stringify(savedTemplate)}`);
+  await page.evaluate(() => window.__fluxFixture.command('pinned'));
+  await page.getByRole('dialog', { name: 'Закреплённые шаблоны' }).getByText('Рабочая выборка').waitFor();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__fluxFixture.command('export'));
+  const exportDialog = page.getByRole('dialog', { name: /Выгрузить:/ });
+  await exportDialog.waitFor();
+  await shotBoth('export');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__fluxFixture.command('translator'));
+  await page.getByRole('heading', { name: /Переводчик/ }).waitFor();
+  await shotBoth('translator');
+  await page.evaluate(() => window.__fluxFixture.command('source-equipment'));
+  await page.getByRole('button', { name: '1. Выборка' }).waitFor();
+  // «Вставить все» отдаёт хосту таблицу «заголовки + строки»
+  await page.getByRole('button', { name: 'Обновить выборку' }).click();
+  await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).waitFor();
+  await page.getByRole('button', { name: 'Вставить все' }).click();
+  await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor();
+  const inserted = (await page.evaluate(() => window.__fluxFixture.ops)).filter((item) => item.type === 'insert-table').at(-1);
+  if (!inserted || inserted.rows.length !== 3 || inserted.rows[1][0] !== 'P-101') throw new Error(`insert-all table wrong: ${JSON.stringify(inserted)}`);
+  // «Исходная шапка»: без шаблона файла — сообщение, с шаблоном — запись снимка той же записью схемы
+  await page.evaluate(() => window.__fluxFixture.command('reset-header'));
+  await page.getByText('У файла нет шаблона.').waitFor();
+  await page.evaluate(() => { window.__fluxFixture.ops.length = 0; window.__fluxFixture.setTemplate({ templateId: 'template-1', name: 'Рабочая выборка', appliedAt: '2026-10-12T10:00:00.000Z', schema: { version: 1, anchors: [{ kind: 'excel-range', id: 'anchor-a1', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'text', text: 'Исходный заголовок' }] }] } }); });
+  await page.getByRole('button', { name: '3. Обновление' }).click();
+  await page.getByRole('button', { name: 'Проверить' }).click();
+  await page.waitForFunction(() => window.__fluxFixture.ops.some((item) => item.type === 'template-change' && item.template?.templateId === 'template-1'));
+  await page.evaluate(() => window.__fluxFixture.command('reset-header'));
+  await page.getByRole('button', { name: 'Вернуть', exact: true }).click();
+  await page.waitForFunction(() => window.__fluxFixture.ops.some((item) => item.type === 'save-schema'));
+  const restore = (await page.evaluate(() => window.__fluxFixture.ops)).filter((item) => item.type === 'save-schema').at(-1);
+  if (restore.schema.anchors[0].parts[0].text !== 'Исходный заголовок') throw new Error(`reset-header did not write the snapshot schema: ${JSON.stringify(restore)}`);
   if (failures.length) throw new Error(`browser errors: ${failures.join('; ')}`);
   console.log(JSON.stringify({ editorKind: kind, viewports: [390, 760, 1280], themes: ['light', 'dark'], verified: ['template restoration', 'query/exclusions', 'field binding bridge', 'text/operator/union schema save', 'preview/confirm optimistic contract', 'editor apply callback', 'schema+row metadata CAS writes'], apiRequests: requests.map(({ endpoint, body }) => ({ endpoint, body })), editorActions: data.map((item) => item.type), screenshots: screenshotPaths }, null, 2));
 } finally { await browser.close(); }

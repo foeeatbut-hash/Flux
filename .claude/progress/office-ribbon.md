@@ -28,3 +28,9 @@
 ## Дальше
 - пересобрать genoffice, сверить ленту в браузере (снимки), тесты: сверка старой/новой выгрузки (шаг 5), перевод тестов «Источники и перевод» (шаг 6)
 - в test-architecture потолков OfficeHost/OfficeAppEditor НЕТ (лимит 1200) — сообщить в отчёте
+
+## Состояние (после шагов 3-4)
+- test-office-explorer-live (guide-server --office-explorer) проходит целиком: лента, шаблоны, исходная шапка, вставить все, выгрузка; test-office-addon-ui (фикстура панели) проходит
+- ВАЖНО: чужие файлы inject (sheets-token-overlay, sheets-collab, docs-collab, docs-header-merge) не трогать (их правит другой исполнитель в /tmp/cx2)
+- Осталось: шаг 5 сверка старой/новой выгрузки (compare-фикстура), шаг 6 перевод тестов test-windows-file-* и удаление FluxPanel из Word/Excel (код уже удалён из хостов, проверить тесты), шаг 7 проверки и снимки
+- Ленту/снимки: /tmp/office-explorer-ribbon-*.png (FLUX_EXPLORER_DARK=1 для тёмной)

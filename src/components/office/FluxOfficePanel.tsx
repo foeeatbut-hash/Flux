@@ -264,7 +264,8 @@ export default function FluxOfficePanel(props: Props) {
   };
   /** «Обновить шаблон»: записать текущую шапку в шаблон файла, если его создал этот сотрудник. */
   const updateFileTemplate = async () => {
-    if (!schema || templatePending.length || !fileTemplate) return;
+    if (!schema || templatePending.length) return;
+    if (!fileTemplate) { setActionMessage('У файла нет шаблона: сохраните шапку кнопкой «Сохранить как».'); return; }
     if (!canManageTemplate(fileTemplate, userId)) { tpl.setError('Этот шаблон создал другой сотрудник: сохраните свою копию кнопкой «Сохранить как».'); setDialog('templates'); return; }
     const current = await props.requestState();
     if (!current) { tpl.setError('Состояние документа недоступно. Повторите действие.'); return; }
@@ -352,12 +353,15 @@ export default function FluxOfficePanel(props: Props) {
       const placed = [...new Set((current.rows || []).map((row) => row.entityId))];
       if (!placed.length) { setActionMessage('В документе ещё нет заполненных строк: выберите строки во вкладке «Выборка» и нажмите «Предпросмотр заполнения».'); return; }
       const source = (current.rows || [])[0]?.sourceId;
-      const data = await officeDataApi.query({ ...query, sources: source ? [source] : query.sources, columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [], limit: 50000, sourceRevision: undefined });
+      const useSource = source || sourceId;
+      const columns = fields.filter((field) => field.sourceId === useSource).map((field) => field.fieldKey);
+      const fresh: OfficeQuery = { ...query, sources: [useSource], columns, filters: [], sort: [], types: [], excludedEntityIds: [], limit: 50000, sourceRevision: undefined };
+      const data = await officeDataApi.query(fresh);
       const known = new Set(data.rows.map((row) => row.entityId));
       const ids = placed.filter((id) => known.has(id));
-      setResult(data); setSelectedIds(ids);
+      setResult(data); setSelectedIds(ids); setQuery({ ...fresh, limit: query.limit, sourceRevision: data.revision });
       if (!ids.length) { setActionMessage('Строки документа не найдены в источнике: возможно, они удалены.'); return; }
-      const queryBody = toProjectQuery({ ...query, sources: source ? [source] : query.sources, filters: [], sort: [], types: [], excludedEntityIds: [], columns: fields.filter((field) => field.sourceId === (source || sourceId)).map((field) => field.fieldKey) });
+      const queryBody = toProjectQuery(fresh);
       const next = await officeDataApi.preview(fileSource, {
         projectId: props.projectId, baseHash: current.baseHash, sourceRevision: data.revision,
         selectedEntityIds: ids, query: queryBody, schema: current.schema,
@@ -372,6 +376,9 @@ export default function FluxOfficePanel(props: Props) {
   useEffect(() => {
     const command = props.command;
     if (!command || command.seq === handledCommand.current) return;
+    // Команде, которой нужно состояние документа и поля источника, даём их дождаться: панель только открылась
+    const needsState = command.name === 'refresh' || command.name === 'reset-header' || command.name === 'update-template';
+    if (needsState && (!officeState || (!fields.length && props.projectId && !error))) return;
     handledCommand.current = command.seq;
     setActionMessage('');
     switch (command.name) {
@@ -392,7 +399,7 @@ export default function FluxOfficePanel(props: Props) {
       case 'reset-header': void resetHeader(); break;
       case 'export': setDialog('export'); break;
     }
-  }, [props.command]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.command, officeState, fields.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside aria-label="Flux Office" style={{ '--flux-office-panel-width': `${panelWidth}px` } as React.CSSProperties} className="relative z-20 flex h-full w-[var(--flux-office-panel-width)] shrink-0 flex-col border-l border-slate-200 bg-white max-[760px]:absolute max-[760px]:inset-y-0 max-[760px]:right-0 max-[760px]:z-50 max-[760px]:w-full dark:border-dark-border dark:bg-dark-surface">

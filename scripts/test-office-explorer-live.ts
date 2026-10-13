@@ -84,6 +84,8 @@ void (async () => {
       catch (error: any) { return { ok: false, error: { code: error?.code || 'NATIVE_ERROR', message: String(error?.message || error) } }; }
     });
     await page.exposeFunction('__fluxLocalOfficeEvents', async () => pending.splice(0));
+    // Имена скачиваемых файлов: headless-Chromium стенда отдаёт «download» вместо кириллического имени, поэтому смотрим на атрибут ссылки
+    await page.addInitScript(`(() => { const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) (window.__downloadNames = window.__downloadNames || []).push(this.download); return click.call(this); }; })();`);
     // Строкой: tsx добавляет в функции служебные вызовы, которых нет в странице
     await page.addInitScript(`window.electron = {
       windowsFiles: { invoke: (request) => window.__fluxWindowsFiles(request), onChanged: () => () => undefined },
@@ -100,12 +102,21 @@ void (async () => {
   };
 
   const panel = () => page.getByRole('complementary', { name: 'Flux Office' });
+  const ribbonButton = (frame: any, command: string) => frame.locator(`[data-flux-command="${command}"]`);
+  /** Нажать кнопку ленты; если редактор переключил вкладку (курсор в таблице), сначала выбрать вкладку Flux */
+  const ribbonClick = async (frame: any, command: string) => {
+    if (await ribbonButton(frame, command).count() === 0) await frame.locator('button.ribbon-tab[aria-label="Flux"], .ribbon-tabs button[aria-label="Flux"]').first().evaluate((el: any) => el.click());
+    // Узкая лента (рядом открыта панель) прячет часть кнопок под полосой прокрутки: нажимаем средствами DOM, а мышью — в open() и в снимке ленты
+    await ribbonButton(frame, command).evaluate((el: any) => el.click());
+  };
   const open = async (name: string, title: string) => {
     await page.goto(`${BASE}/#/windows-file?root=${encodeURIComponent(rootId)}&path=${encodeURIComponent(name)}`, { waitUntil: 'domcontentloaded' });
     const frame = page.frameLocator(`iframe[title="${title}"]`);
     await frame.locator('body').waitFor({ state: 'visible', timeout: 60000 });
     await page.getByText('Открывается локальный редактор…').waitFor({ state: 'detached', timeout: 90000 });
-    await frame.locator('body').evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    // Панель открывает настоящая вкладка Flux ленты редактора: «Оборудование» — источник по умолчанию
+    await frame.getByRole('button', { name: 'Flux', exact: true }).click();
+    await ribbonClick(frame, 'source-equipment');
     await panel().waitFor({ timeout: 15000 });
     return frame;
   };
@@ -135,12 +146,100 @@ void (async () => {
     check(`${label}: ошибок панели нет`, (await panel().getByRole('alert').count()) === 0, await panel().getByRole('alert').allTextContents());
   };
 
+  /** Группы и кнопки вкладки Flux (ТЗ §3): состав, порядок и серые «Скоро» */
+  const checkRibbon = async (frame: any, label: string) => {
+    // Без панели ленте хватает ширины; в таблице Word сам переключает вкладку на «Макет», поэтому вкладку выбираем явно
+    await page.getByRole('button', { name: 'Закрыть Flux' }).click();
+    await frame.getByRole('button', { name: 'Flux', exact: true }).click();
+    const groups = await frame.locator('[data-flux-group]').evaluateAll((els: any[]) => els.map((el) => ({
+      name: el.getAttribute('data-flux-group'),
+      buttons: [...el.querySelectorAll('[data-flux-command]')].map((b: any) => ({ id: b.getAttribute('data-flux-command'), label: b.getAttribute('aria-label'), disabled: b.disabled, soon: !!b.querySelector('.flux-soon') })),
+    })));
+    check(`${label}: группы ленты — Переводчик, Данные, Шаблоны, Документ`, JSON.stringify(groups.map((g: any) => g.name)) === JSON.stringify(['Переводчик', 'Данные', 'Шаблоны', 'Документ']), groups.map((g: any) => g.name));
+    const labels = groups.flatMap((g: any) => g.buttons.map((b: any) => b.label));
+    check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Оборудование', 'Теги', 'Менеджмент', 'E3Flux', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
+    const byId = Object.fromEntries(groups.flatMap((g: any) => g.buttons).map((b: any) => [b.id, b]));
+    check(`${label}: Менеджмент и E3Flux серые с подписью «Скоро»`, byId['source-management']?.disabled && byId['source-management']?.soon && byId['source-e3']?.disabled && byId['source-e3']?.soon, [byId['source-management'], byId['source-e3']]);
+    check(`${label}: «Исходная шапка» неактивна без шаблона, подсказка «У файла нет шаблона»`, byId['reset-header']?.disabled === true && (await ribbonButton(frame, 'reset-header').getAttribute('title')) === 'У файла нет шаблона');
+    check(`${label}: «Выпустить» для файла Проводника неактивна`, byId['issue']?.disabled === true);
+    check(`${label}: на ленте нет строки операторов`, (await frame.locator('[data-flux-command]').count()) === labels.length);
+    await shot('ribbon');
+    await ribbonClick(frame, 'source-equipment');
+    await panel().waitFor({ timeout: 15000 });
+  };
+  const dialog = (name: string) => page.getByRole('dialog', { name });
+  /** «Сохранить как» → «Шаблоны» → «Открыть» → сохранить схему → «Исходная шапка» */
+  const templateFlow = async (frame: any, label: string, file: string) => {
+    await ribbonClick(frame, 'save-template');
+    await dialog('Сохранить шапку как шаблон').getByLabel('Название шаблона').fill(`Шапка ${label}`);
+    await dialog('Сохранить шапку как шаблон').getByLabel('Для всех').check();
+    await dialog('Сохранить шапку как шаблон').getByRole('button', { name: 'Сохранить', exact: true }).click();
+    check(`${label}: «Сохранить как» создаёт общий шаблон`, await waitFor(async () => (await dialog('Сохранить шапку как шаблон').count()) === 0) && await waitFor(async () => (await panel().getByRole('status').filter({ hasText: `Шаблон «Шапка ${label}» сохранён` }).count()) > 0), await panel().allTextContents());
+    await ribbonClick(frame, 'templates');
+    check(`${label}: в окне «Шаблоны» виден общий шаблон`, await waitFor(async () => (await dialog('Шаблоны шапки').getByText(`Шапка ${label}`).count()) > 0) && (await dialog('Шаблоны шапки').getByText('Общий').count()) > 0);
+    await shot(`templates-${label}`);
+    await dialog('Шаблоны шапки').locator('li', { hasText: `Шапка ${label}` }).getByRole('button', { name: 'Открыть' }).click();
+    check(`${label}: шаблон сопоставлен с документом и ждёт сохранения схемы`, await waitFor(async () => (await panel().getByText(/Шаблон сопоставлен с этим документом/).count()) > 0, 20000), await panel().allTextContents());
+    await panel().getByRole('button', { name: /Сохранить схему/ }).click();
+    const applied = await waitFor(async () => !!(await readOfficeBindings(await disk(file)))?.template, 45000);
+    const bindings = await readOfficeBindings(await disk(file));
+    check(`${label}: в части Flux файла лежат templateId и снимок схемы с датой`, applied && !!bindings?.template?.templateId && !Number.isNaN(Date.parse(bindings!.template!.appliedAt)) && bindings!.template!.anchors.length === bindings!.anchors.length, bindings?.template);
+    check(`${label}: «Исходная шапка» стала активной`, await waitFor(async () => (await ribbonButton(frame, 'reset-header').isEnabled())), await ribbonButton(frame, 'reset-header').getAttribute('title'));
+    // Правка шапки после шаблона: текст рядом с меткой, записанный той же записью схемы
+    await panel().getByRole('button', { name: /2\. Поля и шапка/ }).click();
+    await panel().getByRole('button', { name: 'Добавить текст после части 1' }).first().click();
+    await panel().getByLabel('Текст заголовка 2').first().fill('ПРАВКА_ПОСЛЕ_ШАБЛОНА');
+    await panel().getByRole('button', { name: /Сохранить схему/ }).click();
+    const edited = await waitFor(async () => JSON.stringify((await readOfficeBindings(await disk(file)))?.anchors) !== JSON.stringify(bindings?.anchors), 45000);
+    const fileText = async () => file.endsWith('.docx') ? diskText(file, 'word/document.xml') : diskXml(file);
+    check(`${label}: текст правки попал в документ`, await waitFor(async () => (await fileText()).includes('ПРАВКА_ПОСЛЕ_ШАБЛОНА'), 30000));
+    check(`${label}: правка шапки после шаблона записана, снимок шаблона не изменился`, edited && JSON.stringify((await readOfficeBindings(await disk(file)))?.template?.anchors) === JSON.stringify(bindings?.template?.anchors));
+    // «Исходная шапка»: возврат к снимку без переоткрытия
+    const frameBefore = await page.locator('iframe').first().evaluate((el: any) => { el.__same = true; return true; });
+    await ribbonClick(frame, 'reset-header');
+    await page.getByRole('button', { name: 'Вернуть', exact: true }).click();
+    const restored = await waitFor(async () => { const b = await readOfficeBindings(await disk(file)); return !!b && JSON.stringify(b.anchors) === JSON.stringify(b.template?.anchors); }, 45000);
+    const after = await readOfficeBindings(await disk(file));
+    check(`${label}: «Исходная шапка» вернула шапку к снимку шаблона, шаблон остался применённым`, restored && after?.template?.templateId === bindings?.template?.templateId, { anchors: after?.anchors, snapshot: after?.template?.anchors });
+    check(`${label}: правка шапки после шаблона отброшена и в самом документе`, await waitFor(async () => !(await fileText()).includes('ПРАВКА_ПОСЛЕ_ШАБЛОНА'), 30000));
+    check(`${label}: возврат не переоткрывал редактор и не тронул данные в строках`, frameBefore && await page.locator('iframe').first().evaluate((el: any) => el.__same === true) && (after?.rows.length || 0) === (bindings?.rows.length || 0) && JSON.stringify(after?.rows) === JSON.stringify(bindings?.rows));
+    return bindings;
+  };
+
+  /** «Вставить все» и выгрузка XLSX / CSV из выборки (перенос возможностей старой панели) */
+  const insertAndExport = async (frame: any, label: string, where: () => Promise<void>, inserted: () => Promise<boolean>) => {
+    await where();
+    await ribbonClick(frame, 'source-equipment');
+    await panel().getByRole('button', { name: /1\. Выборка/ }).click();
+    await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+    await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).first().waitFor({ timeout: 30000 });
+    await page.evaluate(() => { (window as any).__cmdResults = []; window.addEventListener('message', (e) => { const m: any = e.data; if (m?.payload?.channel === 'flux:command-result') (window as any).__cmdResults.push(m.payload.args[0]); }); });
+    await panel().getByRole('button', { name: 'Вставить все' }).click();
+    check(`${label}: «Вставить все» вставила таблицу выборки в документ`, await waitFor(async () => (await panel().getByRole('status').filter({ hasText: 'Таблица вставлена' }).count()) > 0, 30000) && await waitFor(inserted, 30000), { status: await panel().getByRole('status').allTextContents(), results: await page.evaluate(() => (window as any).__cmdResults), toast: ((await page.locator('body').innerText()).match(/[^\n]*(Выделите|только для чтения|Допускается|не вставлена|не ответил)[^\n]*/g) || []), cell: await frame.locator('body').evaluate(() => { const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.(); return wb?.getActiveCell?.()?.getA1Notation?.() ?? 'нет активной ячейки'; }).catch((e: any) => String(e)) });
+    await ribbonClick(frame, 'export');
+    const exportDialog = dialog('Выгрузить: Оборудование');
+    await exportDialog.waitFor({ timeout: 10000 });
+    const [xlsx] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), exportDialog.getByRole('button', { name: 'XLSX', exact: true }).click()]);
+    const namesAfterXlsx: string[] = await page.evaluate(() => (window as any).__downloadNames || []);
+    check(`${label}: выгрузка XLSX скачала файл «Flux — Оборудование — <дата>.xlsx»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.xlsx$/.test(namesAfterXlsx.at(-1) || ''), namesAfterXlsx);
+    const xlsxZip = await JSZip.loadAsync(await readFile((await xlsx.path())!));
+    // SheetJS кладёт строки либо в sharedStrings, либо в сам лист — смотрим оба места
+    const sharedStrings = `${await xlsxZip.file('xl/sharedStrings.xml')?.async('string') || ''}${await xlsxZip.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`;
+    check(`${label}: в XLSX выгрузки есть данные оборудования`, sharedStrings.includes('FAN_HIGH') && sharedStrings.includes('FAN_LOW'), { files: Object.keys(xlsxZip.files), strings: sharedStrings.slice(0, 300) });
+    const [csv] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), exportDialog.getByRole('button', { name: 'CSV', exact: true }).click()]);
+    const csvText = await readFile((await csv.path())!, 'utf8');
+    const namesAfterCsv: string[] = await page.evaluate(() => (window as any).__downloadNames || []);
+    check(`${label}: выгрузка CSV названа «Flux — Оборудование — <дата>.csv»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.csv$/.test(namesAfterCsv.at(-1) || ''), namesAfterCsv);
+    check(`${label}: в CSV заголовки и строки оборудования`, csvText.split('\n').filter(Boolean).length >= 3 && csvText.includes('FAN_HIGH') && csvText.includes('FAN_LOW'), { lines: csvText.split('\n').length, tail: csvText.slice(-300) });
+    await exportDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  };
+
   try {
     await freshPage();
 
     console.log('\n1. DOCX из Проводника: новая панель Flux, привязка, предпросмотр, заполнение');
     const docs = await open('one.docx', 'Flux Office — Документ');
-    check('открыта новая панель Flux Office (не прежняя)', await panel().count() === 1 && await panel().getByRole('button', { name: 'Источники и перевод' }).count() === 1);
+    check('открыта новая панель Flux Office (не прежняя)', await panel().count() === 1 && await panel().getByRole('button', { name: 'Источники и перевод' }).count() === 0);
     check('кнопки выпуска ревизии в панели нет', await panel().getByRole('button', { name: /Выпустить/ }).count() === 0);
     await chooseProject();
     const editor = docs.locator('.ProseMirror').first();
@@ -158,6 +257,10 @@ void (async () => {
     check('предпросмотр не меняет файл на диске', before.equals(await disk('one.docx')));
     await applied(confirm, 'DOCX');
     await shot('docx');
+
+    console.log('\n1а. Лента Flux, шаблоны, «Исходная шапка», «Вставить все», выгрузка (DOCX из Проводника)');
+    await checkRibbon(docs, 'DOCX');
+    await templateFlow(docs, 'DOCX', 'one.docx');
     check('байты DOCX на диске содержат значения источника 900 и 1200 (панель записала их сама)', await waitFor(async () => { const xml = await diskText('one.docx', 'word/document.xml'); return /900/.test(xml) && /1200/.test(xml); }, 30000));
     // Правка после схемы: редактор сохраняет пакет, открытый до записи схемы, и без переноса часть Flux пропала бы
     await docs.locator('.ProseMirror').first().click();
@@ -168,11 +271,13 @@ void (async () => {
     check('сохранение из редактора не потеряло схему и строки Flux', (wordBindings?.anchors.length || 0) > 0 && (wordBindings?.rows.length || 0) >= 2, wordBindings && { anchors: wordBindings.anchors.length, rows: wordBindings.rows.length });
     const wordXml = await diskText('one.docx', 'word/document.xml');
     check('ручная строка и текст рядом с таблицей сохранены', wordXml.includes('Ручная строка') && wordXml.includes('Текст после поля'));
+    await insertAndExport(docs, 'DOCX', async () => { await docs.locator('.ProseMirror').first().click(); await page.keyboard.press('Control+End'); },
+      async () => (await docs.locator('.ProseMirror').first().innerText()).includes('FAN_HIGH'));
 
     console.log('\n2. XLSX из Проводника: сеанс локальной книги, привязка, заполнение, сохранение');
     await freshPage();
     const sheets = await open('one.xlsx', 'Flux Office — Таблица');
-    check('открыта новая панель Flux Office', await panel().count() === 1 && await panel().getByRole('button', { name: 'Источники и перевод' }).count() === 1);
+    check('открыта новая панель Flux Office', await panel().count() === 1 && await panel().getByRole('button', { name: 'Источники и перевод' }).count() === 0);
     check('кнопки выпуска ревизии в панели нет', await panel().getByRole('button', { name: /Выпустить/ }).count() === 0);
     await chooseProject();
     check('книга загружена в редактор', await waitFor(async () => sheets.locator('body').evaluate(() => {
@@ -193,6 +298,8 @@ void (async () => {
     const xlsxConfirm = await fillFromProject('XLSX');
     await applied(xlsxConfirm, 'XLSX');
     await shot('xlsx');
+    await checkRibbon(sheets, 'XLSX');
+    await templateFlow(sheets, 'XLSX', 'one.xlsx');
     check('байты XLSX на диске содержат значения источника 900 и 1200 и ручную ячейку (панель записала их сама)', await waitFor(async () => { const xml = await diskXml('one.xlsx'); return /900/.test(xml) && /1200/.test(xml) && xml.includes('MANUAL_KEEP'); }, 45000));
     // Правка после схемы: сеанс книги пишет свою копию и не должен потерять часть Flux
     await nameBox.fill('H9'); await nameBox.press('Enter');
@@ -207,6 +314,11 @@ void (async () => {
       await page.waitForTimeout(1500);
       return (await page.getByText(/Файл изменён вне этого окна/).count()) === 0;
     })());
+    await insertAndExport(sheets, 'XLSX', async () => { await nameBox.fill('A30'); await nameBox.press('Enter'); },
+      async () => sheets.locator('body').evaluate(() => {
+        const sheet = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.();
+        return JSON.stringify(sheet?.getRange(0, 0, 80, 26).getValues?.() || []).includes('FAN_HIGH');
+      }));
 
     console.log('\n3. Общее');
     check('ничего не создано на сервере как файл проекта', !serverCalls.some((call) => /POST \/api\/files|office-state/.test(call)), serverCalls);

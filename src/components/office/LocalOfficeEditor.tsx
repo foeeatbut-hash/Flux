@@ -204,7 +204,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     onError: message => toast(message, 'error') });
   // Обработчик сообщений редактора живёт дольше одной отрисовки и берёт свежее отсюда
   // Выпуск ревизий для файлов Проводника — отдельный этап позже (решение владельца)
-  const ribbon = useFluxRibbon({ send, peek: flux.peekState, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже' });
+  const ribbon = useFluxRibbon({ send, peek: flowProjectId ? flux.peekState : undefined, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже' });
   const panelOpen = ribbon.open;
   const fluxHost = useRef({ flux, cellActions, ribbon }); fluxHost.current = { flux, cellActions, ribbon };
   useEffect(() => {
@@ -320,9 +320,10 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   }, [send, closeSession]);
   useEffect(() => { if (ready) send({ event: 'theme', payload: theme }); }, [theme, ready, send]);
   const insertTable = async (rows: FluxTableRow[]) => {
-    if (app === 'docs') return !!(await ask('insertTable', 'flux:table-inserted', { rows }))?.ok;
-    if (app === 'sheets') return !!(await command('flux:insert-table', { rows }))?.ok;
-    return false;
+    const result = app === 'docs' ? await ask('insertTable', 'flux:table-inserted', { rows }) : app === 'sheets' ? await command('flux:insert-table', { rows }) : null;
+    // Причину отказа редактора (нет выделенной ячейки, только чтение) видит сотрудник, а не только «не смог»
+    if (app !== 'pdf' && !result?.ok) toast(result?.error || 'Таблица не вставлена', 'error');
+    return !!result?.ok;
   };
   const insertText = async (text: string) => {
     if (app !== 'docs') return;
