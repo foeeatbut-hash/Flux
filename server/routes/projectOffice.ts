@@ -29,8 +29,15 @@ export function templateScopeAllowed(template: OfficeHeaderTemplate, actor: any)
   return template.scope === 'SHARED' || template.ownerId === actor?.id;
 }
 
-export function canManageOfficeTemplate(template: OfficeHeaderTemplate, actor: any, privileged: boolean): boolean {
-  return template.scope === 'PERSONAL' ? template.ownerId === actor?.id : template.createdById === actor?.id || privileged;
+/**
+ * Править и удалять шаблон может только создатель — решение владельца
+ * (12.10.2026): администратор тоже не правит чужой общий шаблон, он его
+ * использует или копирует себе. Параметр privileged остался в сигнатуре ради
+ * вызывающих, но права не расширяет.
+ */
+export function canManageOfficeTemplate(template: OfficeHeaderTemplate, actor: any, _privileged = false): boolean {
+  if (!actor?.id) return false;
+  return template.scope === 'PERSONAL' ? template.ownerId === actor.id : template.createdById === actor.id;
 }
 
 async function readTemplates(userId: string) {
@@ -251,7 +258,6 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const actor = (req as any).authUser;
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
       const scope = req.body?.scope === 'SHARED' ? 'SHARED' : 'PERSONAL';
-      if (scope === 'SHARED' && !isPrivilegedUser(actor)) return res.status(403).json({ error: 'Создавать общие шаблоны может администратор' });
       const { templates } = await readTemplates(actor.id);
       const template = cleanOfficeTemplate({ ...req.body, scope }, actor.id);
       if (scope === 'SHARED') {
@@ -269,7 +275,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const { templates } = await readTemplates(String(actor?.id || ''));
       const current = templates.find((item) => item.id === String(req.params.id));
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
-      if (!current || !canManageOfficeTemplate(current, actor, isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
+      if (!current || !canManageOfficeTemplate(current, actor)) return res.status(404).json({ error: 'Шаблон не найден' });
       const updated = cleanOfficeTemplate({ ...req.body, scope: current.scope }, actor.id, current);
       await writeTemplates(actor.id, current.scope, (items) => items.filter((item) => item.id !== current.id).concat(updated));
       res.json({ template: updated });
@@ -282,7 +288,7 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const { templates } = await readTemplates(String(actor?.id || ''));
       const current = templates.find((item) => item.id === String(req.params.id));
       if (!actor?.id) return res.status(401).json({ error: 'Требуется вход в систему' });
-      if (!current || !canManageOfficeTemplate(current, actor, isPrivilegedUser(actor))) return res.status(404).json({ error: 'Шаблон не найден' });
+      if (!current || !canManageOfficeTemplate(current, actor)) return res.status(404).json({ error: 'Шаблон не найден' });
       await writeTemplates(actor.id, current.scope, (items) => items.filter((item) => item.id !== current.id));
       await writePins(actor.id, (items) => items.filter((id) => id !== current.id));
       res.json({ deleted: true });

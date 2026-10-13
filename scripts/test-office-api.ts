@@ -89,10 +89,25 @@ void (async () => {
   assert.deepEqual(pinned.body.pinned, [personal.body.template.id]);
   const otherPin = await call('POST', '/api/project-data/office/templates/:id/pin', { params: { id: personal.body.template.id }, authUser: { id: 'other', role: 'ENGINEER' }, body: { pinned: true } });
   assert.equal(otherPin.statusCode, 404);
-  const sharedDenied = await call('POST', '/api/project-data/office/templates', { body: { name: 'Shared', scope: 'SHARED', schema, query } });
-  assert.equal(sharedDenied.statusCode, 403);
-  const shared = await call('POST', '/api/project-data/office/templates', { authUser: { id: 'admin', role: 'ADMIN' }, body: { name: 'Shared', scope: 'SHARED', schema, query } });
+  // Решение владельца: общий шаблон создаёт любой сотрудник
+  const shared = await call('POST', '/api/project-data/office/templates', { body: { name: 'Shared', scope: 'SHARED', schema, query } });
   assert.equal(shared.statusCode, 200);
+  assert.equal(shared.body.template.scope, 'SHARED');
+  // Править и удалять его не может никто, кроме создателя, в том числе администратор
+  for (const actor of [{ id: 'other', role: 'ENGINEER' }, { id: 'admin', role: 'ADMIN' }]) {
+    const edit = await call('PUT', '/api/project-data/office/templates/:id', { params: { id: shared.body.template.id }, authUser: actor, body: { name: 'Чужая правка', schema, query } });
+    assert.equal(edit.statusCode, 404, `${actor.id} не правит чужой общий шаблон`);
+    const remove = await call('DELETE', '/api/project-data/office/templates/:id', { params: { id: shared.body.template.id }, authUser: actor });
+    assert.equal(remove.statusCode, 404, `${actor.id} не удаляет чужой общий шаблон`);
+  }
+  const stillThere = await call('GET', '/api/project-data/office/templates', { authUser: { id: 'other', role: 'ENGINEER' } });
+  assert.equal(stillThere.body.templates.find((template: any) => template.id === shared.body.template.id)?.name, 'Shared');
+  const ownEdit = await call('PUT', '/api/project-data/office/templates/:id', { params: { id: shared.body.template.id }, body: { name: 'Shared 2', schema, query } });
+  assert.equal(ownEdit.statusCode, 200);
+  // Другой сотрудник может сохранить свою копию (личную или общую), оригинал не меняется
+  const copy = await call('POST', '/api/project-data/office/templates', { authUser: { id: 'other', role: 'ENGINEER' }, body: { name: 'Копия', scope: 'SHARED', schema, query } });
+  assert.equal(copy.statusCode, 200);
+  assert.notEqual(copy.body.template.id, shared.body.template.id);
   const visibleShared = await call('GET', '/api/project-data/office/templates', { authUser: { id: 'other', role: 'ENGINEER' } });
   assert.equal(visibleShared.body.templates.some((template: any) => template.id === shared.body.template.id), true);
   const unauthorizedUpdate = await call('PUT', '/api/project-data/office/templates/:id', { params: { id: personal.body.template.id }, authUser: { id: 'other', role: 'ENGINEER' }, body: { name: 'Stolen', schema, query: {} } });

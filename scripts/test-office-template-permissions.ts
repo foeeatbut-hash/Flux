@@ -10,9 +10,19 @@ assert.equal(templateScopeAllowed(personal, { id: 'other' }), false);
 assert.equal(templateScopeAllowed(shared, { id: 'other' }), true);
 assert.equal(canManageOfficeTemplate(personal, { id: 'other' }, false), false);
 assert.equal(canManageOfficeTemplate(personal, { id: 'owner' }, false), true);
+// Общий шаблон: создатель правит и удаляет, остальные (в том числе администратор) только используют
 assert.equal(canManageOfficeTemplate(shared, { id: 'other' }, false), false);
 assert.equal(canManageOfficeTemplate(shared, { id: 'admin' }, false), true);
-assert.equal(canManageOfficeTemplate(shared, { id: 'other' }, true), true);
+assert.equal(canManageOfficeTemplate(shared, { id: 'other' }, true), false);
+assert.equal(canManageOfficeTemplate(shared, { id: 'boss' }, true), false);
+assert.equal(canManageOfficeTemplate(shared, null, true), false);
+// Общий шаблон может создать любой сотрудник, создателем становится он
+const byEmployee = cleanOfficeTemplate({ name: 'Общий сотрудника', scope: 'SHARED', schema, query: {} }, 'employee');
+assert.equal(byEmployee.scope, 'SHARED');
+assert.equal(byEmployee.createdById, 'employee');
+assert.equal(canManageOfficeTemplate(byEmployee, { id: 'employee' }), true);
+assert.equal(canManageOfficeTemplate(byEmployee, { id: 'admin' }, true), false);
+assert.equal(templateScopeAllowed(byEmployee, { id: 'admin' }), true);
 assert.equal(JSON.stringify(personal).includes('private-row'), false);
 assert.deepEqual(personal.query.excludedEntityIds, ['tags:tag:excluded']);
 console.log('Права владельца, общего доступа и чистка шаблонов проверены');
