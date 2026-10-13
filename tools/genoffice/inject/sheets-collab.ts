@@ -667,7 +667,7 @@ async function exportCommands(): Promise<void> {
   let typedKeyTimer: ReturnType<typeof setTimeout> | undefined
   document.addEventListener('keydown', (event) => {
     const target = event.target as HTMLElement | null
-    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || target?.closest?.('input, textarea, [contenteditable="true"]')) return
+    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || target?.closest?.('input, textarea, .flux-sheet-token-edit')) return
     typedKey = event.key
     clearTimeout(typedKeyTimer)
     typedKeyTimer = setTimeout(() => { typedKey = '' }, 400)

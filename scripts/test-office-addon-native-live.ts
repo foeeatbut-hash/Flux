@@ -721,12 +721,18 @@ try {
   await sheets.locator('input.univer-box-border').first().fill('A1');
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
-  await page.keyboard.type('FORBIDDEN_HEADER'); await page.keyboard.press('Enter');
+  // Набор в привязанной ячейке идёт в окне ввода поверх неё: метка защищена, текст рядом свободный
+  await page.keyboard.type('FORBIDDEN_HEADER');
+  const inCellInput = await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  const inCellChips = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-chip').count() : 0;
+  const inCellText = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').innerText() : '';
+  await page.keyboard.press('Escape');
+  await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
   const headerAfterEdit = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
   });
-  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader, { protectedHeader, headerAfterEdit });
+  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
   await page.keyboard.press('Escape');
   await sheetPanel.getByRole('button', { name: 'Удалить привязку поля' }).click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
