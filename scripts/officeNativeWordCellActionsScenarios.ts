@@ -124,7 +124,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     await page().mouse.click(fresh.x + 6, fresh.y + fresh.height / 2, { button: 'right' });
     const mergeItem = page().getByRole('button', { name: 'Объединить', exact: true });
     await mergeItem.waitFor({ timeout: 10000 });
-    check('native right-click on two selected Word cells opens a small menu with one Merge item and no dialog', await page().getByRole('dialog').count() === 0);
+    check('native right-click on two selected Word cells opens a small menu with one Merge item and no dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
     return mergeItem;
   };
 

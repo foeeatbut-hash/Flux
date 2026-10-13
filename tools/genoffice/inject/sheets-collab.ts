@@ -27,6 +27,7 @@ import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
 import { waitForEditor } from './editor-readiness'
 import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
+import { IContextMenuService } from '@univerjs/ui'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
@@ -708,6 +709,12 @@ async function exportCommands(): Promise<void> {
     // Для обычных ячеек и прочих диапазонов меню Univer остаётся.
     event.preventDefault()
     event.stopImmediatePropagation()
+    // Univer открывает своё меню уже при нажатии правой кнопки (до contextmenu): закрываем его, иначе оно
+    // осталось бы под меню и плашкой Flux
+    const hideOwnMenu = () => { try { hooks()?.univerRef.current?.univer?.__getInjector?.().get(IContextMenuService)?.hideContextMenu() } catch { /* меню Univer уже закрыто */ } }
+    hideOwnMenu()
+    // Меню Univer рисуется на следующем кадре: повторяем закрытие, пока оно не успело появиться
+    for (const delay of [0, 50, 150]) setTimeout(hideOwnMenu, delay)
     link.send('flux:cell-actions', {
       editorKind: 'sheets',
       anchors,

@@ -184,7 +184,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await clickCell(conflict.frame, 'B1', [], 'right');
   const mergeItem = page().getByRole('button', { name: 'Объединить', exact: true });
   await mergeItem.waitFor();
-  check('native Ctrl-click selection and right-click open a small menu with one Merge item and no dialog', await page().getByRole('dialog').count() === 0);
+  check('native Ctrl-click selection and right-click open a small menu with one Merge item and no dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
   await mergeItem.click();
   // Разные ручные значения в обеих колонках: объяснение без записи, как и раньше
   const conflictDialog = page().getByRole('dialog', { name: 'Объединение не выполнено' });
@@ -281,7 +281,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     sheet?.getRange('C6')?.setValue('STALE_PREVIEW_KEEP');
   });
   await page().getByRole('button', { name: 'Объединить', exact: true }).waitFor();
-  check('merge menu lists the single Merge item without a name window', await page().getByRole('dialog').count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
+  check('merge menu lists the single Merge item without a name window', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
   await page().getByRole('button', { name: 'Объединить', exact: true }).click();
   check('confirmed native merge keeps only the output anchor and stores prioritized alias bindings', await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
@@ -310,7 +310,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('"Брать MotorPower" stores the order and the resolved mark in the union and hides the badge', await waitFor(async () => {
     const part = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.[0];
     return part?.kind === 'union' && part.resolved === true && part.alternatives?.slice().sort((x: any, y: any) => x.priority - y.priority)[0]?.fieldKey === 'param:@MotorPower';
-  }) && await badge.count() === 0);
+  }) && await waitFor(async () => await badge.count() === 0));
   // «Обновить данные» берёт у каждой позиции выбранный параметр: теперь это MotorPower (95), а не DrivePower (120)
   const planFor = async (fid: string, state: any) => {
     const query = { entity: 'element', columns: ['param:@DrivePower', 'param:@MotorPower'], filters: [], sort: [], limit: 1000, excludedEntityIds: [] };
@@ -358,18 +358,33 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await clickCell(named.frame, 'D3');
   const chipTexts = () => named.frame.locator('body').evaluate(() => [...document.querySelectorAll('#flux-sheet-chip-layer')].flatMap((layer) => [...layer.children].map((box: any) => ({ chips: [...box.querySelectorAll('.flux-sheet-idle-chip')].map((chip) => chip.textContent), title: box.dataset.title }))));
   check('the idle chip shows the own name and its tooltip holds the programmatic one', await waitFor(async () => (await chipTexts()).some((box: any) => box.chips.includes('Мощность привода, кВт') && /DrivePower · equipment/.test(String(box.title)))), await chipTexts());
+  // Снимок: ячейка A1 в поле зрения, указатель над плашкой — видна подсказка с программным именем
+  await named.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getRange?.('A1')?.activate?.(); });
+  await clickCell(named.frame, 'A1');
+  await page().waitForTimeout(400);
+  await named.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
+  await page().waitForTimeout(300);
   await page().screenshot({ path: '/tmp/chip-rename.png' });
+  await clickCell(named.frame, 'D3');
   const renamedPlan = await planFor(named.fileId, (await api('GET', `/api/project-data/files/${named.fileId}/office-state`)).json);
   check('refresh plan still takes data by the key after the rename', (renamedPlan?.writes || []).filter((write: any) => write.anchorId === named.a?.id).length === 2 && (renamedPlan.writes as any[]).filter((write: any) => write.anchorId === named.a?.id).every((write: any) => /^120\b/.test(String(write.value))), renamedPlan);
+  // «Сбросить имя» возвращает программное имя в схему и в текст шапки; затем имя задаётся снова и идёт на сохранение
+  await clickCell(named.frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: 'Сбросить имя', exact: true }).click();
+  check('reset returns the programmatic name to the schema and the header cell', await waitFor(async () => await labelOf(named.fileId) === undefined && await nativeCell(named.frame, 'A1') === 'DrivePower'), await nativeCell(named.frame, 'A1'));
+  await clickCell(named.frame, 'D3');
+  await clickCell(named.frame, 'A1');
+  await clickCell(named.frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: 'Переименовать', exact: true }).click();
+  await renameDialog.getByLabel('Отображаемое имя').fill('Мощность привода, кВт');
+  await renameDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await waitFor(async () => await labelOf(named.fileId) === 'Мощность привода, кВт' && await nativeCell(named.frame, 'A1') === 'Мощность привода, кВт');
   await page().keyboard.press('Control+s');
   await page().waitForTimeout(2500);
   await resetPage(false);
   await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(named.fileId)}`);
   const reopenedRename = await openPanel(page(), 'Flux Office — Таблица');
   check('own name survives save and actual reopen: schema, header cell and chip', await waitForSheetFile(reopenedRename) && await labelOf(named.fileId) === 'Мощность привода, кВт' && await waitFor(async () => await nativeCell(reopenedRename, 'A1') === 'Мощность привода, кВт'), await nativeCell(reopenedRename, 'A1'));
-  await clickCell(reopenedRename, 'D3');
-  await clickCell(reopenedRename, 'A1');
-  await clickCell(reopenedRename, 'A1', [], 'right');
-  await page().getByRole('button', { name: 'Сбросить имя', exact: true }).click();
-  check('reset returns the programmatic name to the schema and the header cell', await waitFor(async () => await labelOf(named.fileId) === undefined && await nativeCell(reopenedRename, 'A1') === 'DrivePower'), await nativeCell(reopenedRename, 'A1'));
+  const reopenedPlan = await planFor(named.fileId, (await api('GET', `/api/project-data/files/${named.fileId}/office-state`)).json);
+  check('refresh plan after reopen still takes data by the key', (reopenedPlan?.writes || []).filter((write: any) => write.anchorId === named.a?.id).length === 2, reopenedPlan);
 }

@@ -173,12 +173,12 @@ export function useFluxCellActions(options: Options) {
     const part = schema.anchors.find((anchor) => anchor.id === anchorId)?.parts[index];
     return part?.kind === 'union' ? part : null;
   };
-  /** Правка схемы одним действием: документ и файл меняются вместе, а «назад» возвращает обе. */
+  /** Правка схемы одним действием: документ и файл меняются вместе, а «назад» возвращает обе. Схема уходит в редактор (без captureNative), иначе текст шапки не обновится. */
   const commit = async (schema: OfficeHeaderSchema): Promise<boolean> => {
     if (options.readOnly) { options.onError('Документ открыт только для просмотра.'); return false; }
     setBusy(true);
     try {
-      const next = await options.updateSchema(labeled(schema), { captureNative: true, displayLabels: labelsOf() });
+      const next = await options.updateSchema(labeled(schema), { displayLabels: labelsOf() });
       if (!next) return false;
       setState(next);
       return true;

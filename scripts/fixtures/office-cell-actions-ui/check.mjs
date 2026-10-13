@@ -23,8 +23,8 @@ try {
       const geometry = await page.evaluate(() => ({ body: document.documentElement.scrollWidth, viewport: innerWidth, dialog: document.querySelector('[role=dialog]')?.getBoundingClientRect().width }));
       if (geometry.body > width || geometry.dialog > width) throw new Error(`dialog overflow at ${width}px/${theme}: ${JSON.stringify(geometry)}`);
       await dialog.getByText(/Активная ячейка/).first().waitFor();
-      await dialog.getByText('DrivePower · equipment', {exact:true}).waitFor();
-      await dialog.getByText('MotorPower · equipment', {exact:true}).waitFor();
+      await dialog.getByText(/DrivePower · equipment/).first().waitFor();
+      await dialog.getByText(/MotorPower · equipment/).first().waitFor();
       const screenshot = path.join(output, `${width}-${theme}-editable.png`);
       await page.screenshot({ path: screenshot, fullPage: true });
       await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
