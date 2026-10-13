@@ -30,6 +30,7 @@ import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
+import { partChipLabel } from './parameter-chip-style'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -680,6 +681,15 @@ async function exportCommands(): Promise<void> {
     params.cancel = true
     const initialText = typedKey
     typedKey = ''
+    // Части ячейки уже известны редактору (схема прочитана панелью): окно ввода открываем сразу,
+    // без обращения к окну Flux, иначе набор успевает уйти мимо него. Иначе спрашиваем окно.
+    const known = knownHeaderParts.get(anchorId)
+    if (known) {
+      const cellText = String(params.worksheet?.getRange?.(address)?.getValue?.() ?? '')
+      const single = known.filter((part: any) => part.kind === 'field' || part.kind === 'union').length === 1 && known.length === 1
+      const parts = known.map((part: any) => part.kind === 'field' && !part.binding?.displayName ? { ...part, binding: { ...part.binding, displayName: partChipLabel(part, single, cellText) } } : part)
+      if (headerTokenOverlay?.openWith(anchorId, parts, initialText)) return
+    }
     link.send('flux:begin-cell-edit', { anchorId, initialText })
   })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });

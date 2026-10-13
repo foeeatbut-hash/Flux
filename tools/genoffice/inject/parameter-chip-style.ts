@@ -19,3 +19,14 @@ export function installParameterChipStyle(): void {
   style.textContent = CSS
   document.head.appendChild(style)
 }
+
+/**
+ * Название параметра на плашке. Сохранённые привязки displayName не хранят: у ячейки с одним
+ * параметром это её текст, иначе — читаемая часть ключа («param:Группа|Имя» → «Имя»).
+ */
+export function partChipLabel(part: Record<string, any>, single: boolean, cellText: string): string {
+  const readable = (key: unknown): string => String(key || '').replace(/^param:@?/, '').split('|').pop() || ''
+  if (part.kind === 'union') return String(part.label || part.alternatives?.map((item: Record<string, any>) => item.displayName || readable(item.fieldKey)).join(' / ') || 'Параметр')
+  const binding = part.binding || {}
+  return String(binding.displayName || (single && cellText) || readable(binding.fieldKey) || 'Параметр')
+}

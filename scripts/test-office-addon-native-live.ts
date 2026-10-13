@@ -386,11 +386,11 @@ try {
   await headerPanel.getByLabel('Текст заголовка 4').fill(' м³/ч');
   await headerPanel.getByRole('button', { name: 'Текст', exact: true }).click();
   for (let part = 5; part > 1; part--) await headerPanel.getByRole('button', { name: `Переместить часть ${part} выше` }).click();
-  await headerPanel.getByLabel('Текст заголовка 1').fill('Расход: ');
+  await headerPanel.getByLabel('Текст заголовка 1').fill('=Расход: ');
   await headerPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const customHeaderState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
-    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === 'Расход: ';
+    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === '=Расход: ';
   });
   const customHeaderXml = await archiveText(docxId, 'word/document.xml');
   const customHeaderText = xmlText(customHeaderXml);
@@ -426,6 +426,8 @@ try {
   if (renderedFieldCount) {
     const editorTextBeforeBackspace = await editor.innerText();
     await renderedField.click();
+    // Щелчок выделяет метку целиком, и Backspace её удалил бы (второе нажатие); каретка после метки — первое нажатие
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Backspace');
     const liveMarkerSurvivesBackspace = await waitFor(async () => await renderedField.count() > 0, 3000);
     const editorTextAfterBackspace = await editor.innerText();
@@ -621,7 +623,7 @@ try {
     const anchor = state?.schema?.anchors?.[0];
     const parts = anchor?.parts || [];
     return anchor?.id === targetAnchorId && parts.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text' &&
-      parts[0]?.text === 'Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
+      parts[0]?.text === '=Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
       parts[3]?.text === '2' && parts[4]?.text === ' м³/ч';
   });
   check('cross-document template applies all five header parts and rebinds its field to the target UUID', templateReady && mappedTemplateState, (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema);

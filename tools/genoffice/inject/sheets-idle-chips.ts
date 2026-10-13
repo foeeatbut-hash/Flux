@@ -5,7 +5,7 @@
  * как для обычной ячейки), следует за прокруткой, масштабом, шириной столбцов и сменой листа
  * и прячется под окном ввода, пока ячейка правится.
  */
-import { installParameterChipStyle } from './parameter-chip-style'
+import { installParameterChipStyle, partChipLabel } from './parameter-chip-style'
 
 type Part = Record<string, any>
 
@@ -43,18 +43,12 @@ export function createSheetsIdleChips(deps: Deps) {
   const dark = (): boolean => document.documentElement.getAttribute('data-theme') === 'dark'
     || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia?.('(prefers-color-scheme: dark)').matches)
 
-  const labelOf = (part: Part, single: boolean, cellText: string): string => {
-    if (part.kind === 'union') return String(part.label || part.alternatives?.map((item: Part) => item.displayName || String(item.fieldKey).replace(/^param:@/, '')).join(' / ') || 'Параметр')
-    const binding = part.binding || {}
-    return String(binding.displayName || (single && cellText) || String(binding.fieldKey || '').replace(/^param:@/, '') || 'Параметр')
-  }
-
   const render = (box: HTMLDivElement, anchorId: string, cellText: string): string => {
     const parts = deps.parts(anchorId)
     const fieldCount = parts ? parts.filter((part) => part.kind === 'field' || part.kind === 'union').length : 0
     const pieces: Array<{ chip: boolean; text: string }> = parts?.length
       ? parts.map((part) => part.kind === 'field' || part.kind === 'union'
-        ? { chip: true, text: labelOf(part, fieldCount === 1 && parts.length === 1, cellText) }
+        ? { chip: true, text: partChipLabel(part, fieldCount === 1 && parts.length === 1, cellText) }
         : { chip: false, text: part.kind === 'operator' && OPERATORS.has(part.operator) ? part.operator : String(part.text || '') })
       : cellText ? [{ chip: true, text: cellText }] : []
     const signature = JSON.stringify(pieces)

@@ -459,6 +459,11 @@ export function createSheetsTokenOverlay(
       addPart({ kind: 'field', binding: copied })
       return true
     },
+    /** Открыть ввод в ячейке по уже известным частям (без схемы от окна Flux) */
+    openWith(anchorId: string, parts: Part[], initialText = ''): boolean {
+      const ok = open(anchorId, { anchors: [{ id: anchorId, parts }] }, initialText)
+      return ok
+    },
     isEditing(anchorId?: string): boolean { return !!active && (!anchorId || active.anchorId === anchorId) },
     getLiveParts(anchorId: string): Part[] | null { return active?.anchorId === anchorId ? partsFromHost() : null },
   }

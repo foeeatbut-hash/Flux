@@ -252,6 +252,8 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
         if (m.op === 'ipc-send') {
           if (channel === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, args[0]); return; }
           if (channel === 'flux:cell-actions') { void fluxHost.current.cellActions.open(args[0]); return; }
+          if (channel === 'flux:header-formula-edit-started' && args[0]?.ok) fluxHost.current.flux.inlineEditingRef.current = true;
+          if (channel === 'flux:header-formula-edit-cancelled') { fluxHost.current.flux.inlineEditingRef.current = false; return; }
           if (channel === 'flux:begin-cell-edit') { void fluxHost.current.cellActions.beginEdit(args[0]); return; }
           if (channel === 'flux:header-schema-edited') { fluxHost.current.flux.inlineEditingRef.current = false; void fluxHost.current.cellActions.edited(args[0]); return; }
           if (channel === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(args[0] || null); return; }
