@@ -53,7 +53,7 @@ export function createSheetsTokenOverlay(
     document.head.appendChild(style)
   }
 
-  const label = (part: Part): string => String(part?.binding?.displayName || part?.binding?.fieldKey || part?.label || part?.alternatives?.map((item: Part) => item?.displayName || item?.fieldKey).filter(Boolean).join(' / ') || 'Параметр')
+  const label = (part: Part): string => String(part?.binding?.label || part?.binding?.displayName || part?.binding?.fieldKey || part?.label || part?.alternatives?.map((item: Part) => item?.label || item?.displayName || item?.fieldKey).filter(Boolean).join(' / ') || 'Параметр')
   const renderText = (parts: Part[]): string => parts.map((part) => {
     if (part?.kind === 'text') return String(part.text || '')
     if (part?.kind === 'operator') return String(part.operator || '')
@@ -370,6 +370,7 @@ export function createSheetsTokenOverlay(
         menu.remove()
         ipc.send('flux:cell-actions', {
           editorKind: 'sheets',
+          source: 'formula',
           anchors: [{ anchorId: state.anchorId, kind: 'excel-range', sheetName: state.sheetName, address: state.address, parts: partsFromHostFor(state.host, state.parts) }],
           position: { x: event.clientX, y: event.clientY },
         })

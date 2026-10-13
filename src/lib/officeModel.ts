@@ -14,13 +14,29 @@ export interface OfficeBinding {
   sourceRevision: string;
   unit?: string;
   anchorId: string;
+  /** Своё отображаемое имя параметра (плашка и текст шапки); данные по-прежнему берутся по fieldKey. */
+  label?: string;
 }
 
 export type OfficePart =
   | { kind: 'text'; text: string }
   | { kind: 'field'; binding: OfficeBinding }
   | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' }
-  | { kind: 'union'; mode: 'first-match'; label?: string; alternatives: Array<OfficeBinding & { priority: number }> };
+  | OfficeUnionPart;
+
+/**
+ * Объединение двух параметров в одну колонку. `picks` — исключения по позициям
+ * (entityId → fieldKey): там берётся не первый по приоритету, а названный параметр.
+ * `resolved` — выбор «если заполнены оба» сделан, плашка с вопросом больше не нужна.
+ */
+export interface OfficeUnionPart {
+  kind: 'union';
+  mode: 'first-match';
+  label?: string;
+  alternatives: Array<OfficeBinding & { priority: number }>;
+  picks?: Record<string, string>;
+  resolved?: boolean;
+}
 
 export interface OfficeHeaderAnchor {
   kind: 'word-row' | 'excel-range';
@@ -127,11 +143,15 @@ function readPartValue(part: Extract<OfficePart, { kind: 'field' | 'union' }>, r
     const value = row.values[part.binding.fieldKey];
     return value ? { value: { ...value, unit: value.unit || part.binding.unit } } : {};
   }
+  const picked = part.picks?.[row.entityId];
   const candidates = part.alternatives
     .filter((binding) => (!binding.sourceId || binding.sourceId === row.sourceId) && (!binding.entityType || binding.entityType === row.entityType))
     .map((binding) => ({ binding, value: row.values[binding.fieldKey] }))
     .filter((x) => x.value?.value !== null && x.value?.value !== undefined && x.value?.value !== '')
     .sort((a, b) => a.binding.priority - b.binding.priority || a.binding.fieldKey.localeCompare(b.binding.fieldKey));
+  // Исключение по позиции: выбранный параметр идёт вперёд, если у позиции он заполнен
+  const forced = picked ? candidates.find((x) => x.binding.fieldKey === picked) : undefined;
+  if (forced?.value) return { value: { ...forced.value, unit: forced.value.unit || forced.binding.unit } };
   const tied = candidates.filter((x) => x.binding.priority === candidates[0]?.binding.priority);
   if (tied.length > 1) return { conflict: tied.map((x) => `${x.binding.sourceId}:${x.binding.entityType}:${x.binding.fieldKey}`) };
   const selected = candidates[0];

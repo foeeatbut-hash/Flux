@@ -430,6 +430,7 @@ function wordParagraphForSchema(editor: Editor, paragraph: any, anchor: any, lab
   const fieldMarkType = editor.state.schema.marks.instrField
   const appendText = (value: string, marks?: any[]): void => { if (value) parts.push(editor.schema.text(value, marks || existingTextMarks.get(value) || plainMarks)) }
   const labelFor = (binding: any): string => {
+    if (typeof binding.label === 'string' && binding.label) return binding.label
     const label = labels[`${binding.sourceId}:${binding.fieldKey}`] ?? labels[binding.fieldKey]
     return typeof label === 'string' ? label : existingFields.get(`${binding.sourceId}\u0000${binding.fieldKey}`)?.text || existingFields.get(`\u0000${binding.fieldKey}`)?.text || binding.fieldKey
   }
@@ -690,6 +691,21 @@ async function installFluxFields(): Promise<void> {
   const headerActions = createWordHeaderActions(editor, { validateHeaderSchema, wordParagraphForSchema, readNativeHeader, anchorIdFromBookmark, isFluxField })
   installFluxFieldGuard(editor)
   installParameterChipStyle()
+  // Программные имена параметров (название · источник) приходят вместе со схемой; на плашке
+  // с чужим именем они видны во всплывающей подсказке, данные при этом берутся по ключу
+  const programmaticNames = new Map<string, string>()
+  const onChipHover = (event: MouseEvent) => {
+    const chip = event.target instanceof Element ? event.target.closest('[data-flux-parameter]') : null
+    if (!chip) return
+    const instr = chip.getAttribute('data-instr-field') || ''
+    const identity = /flux:([^"]+)"/.exec(instr)?.[1] || ''
+    const key = identity.startsWith('v1:') ? decodeURIComponent(identity.split(':').slice(2).join(':')) : identity
+    const technical = [...programmaticNames].find(([id]) => id.endsWith(`:${key}`) || id === key)?.[1]
+    if (technical && !technical.startsWith(`${chip.textContent} · `)) chip.setAttribute('title', technical)
+    else chip.removeAttribute('title')
+  }
+  editor.view.dom.addEventListener('mouseover', onChipHover)
+  editor.on('destroy', () => editor.view.dom.removeEventListener('mouseover', onChipHover))
     const report = () => p.tell('flux:anchor-selected', docAnchor(editor))
   // Текст, набранный в ячейке-формуле между метками, надо донести до схемы: после паузы в наборе
   // сообщаем окну Flux, и оно сверяет схему с ячейкой (в ячейке без «=» ничего не делаем)
@@ -811,6 +827,7 @@ async function installFluxFields(): Promise<void> {
       const displayLabels = request?.displayLabels && typeof request.displayLabels === 'object' ? request.displayLabels : {}
       if (!validateHeaderSchema(schema) || !Array.isArray(removed) || removed.length > 500 || removed.some((id: any) => !/^[0-9a-f-]{36}$/i.test(String(id)))) throw new Error('Схема заголовков имеет неверный формат')
       if (Object.values(displayLabels).some((label: any) => typeof label !== 'string' || label.length > 2000)) throw new Error('Подписи заголовков имеют неверный формат')
+      for (const [id, name] of Object.entries(displayLabels)) if (id.includes(':')) programmaticNames.set(id, `${String(name)} · ${id.split(':')[0]}`)
       const anchors = new Map<string, any>(schema.anchors.map((anchor: any) => [String(anchor.id), anchor]))
       if (new Set(removed.map(String)).size !== removed.length || removed.some((id: any) => anchors.has(String(id)))) throw new Error('Изменение схемы повторно удаляет или одновременно сохраняет якорь')
       const targets = new Map<string, { pos: number; paragraph: any }>()

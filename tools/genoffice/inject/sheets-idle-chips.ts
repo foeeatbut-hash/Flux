@@ -54,7 +54,14 @@ export function createSheetsIdleChips(deps: Deps) {
     const signature = JSON.stringify(pieces)
     if (box.dataset.signature === signature) return signature
     box.dataset.signature = signature
-    box.dataset.title = pieces.map((piece) => piece.text).join('')
+    // Подсказка: у переименованной плашки — программное имя (название · источник), иначе просто текст
+    const technical = (parts || []).flatMap((part) => {
+      if (part.kind === 'field') return part.binding?.label && part.binding.displayName && part.binding.label !== part.binding.displayName ? [`${part.binding.displayName} · ${part.binding.sourceId}`] : []
+      // Объединение: имя колонки своё, а программные имена — это названия обоих параметров
+      const names = part.kind === 'union' ? (part.alternatives || []).map((item: Part) => item.displayName ? `${item.displayName} · ${item.sourceId}` : '').filter(Boolean) : []
+      return names.length ? [names.join(' / ')] : []
+    })
+    box.dataset.title = `${pieces.map((piece) => piece.text).join('')}${technical.length ? ` (${technical.join('; ')})` : ''}`
     box.replaceChildren(...pieces.map((piece) => {
       const node = document.createElement('span')
       node.textContent = piece.text

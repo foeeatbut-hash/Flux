@@ -26,7 +26,7 @@ export function installParameterChipStyle(): void {
  */
 export function partChipLabel(part: Record<string, any>, single: boolean, cellText: string): string {
   const readable = (key: unknown): string => String(key || '').replace(/^param:@?/, '').split('|').pop() || ''
-  if (part.kind === 'union') return String(part.label || part.alternatives?.map((item: Record<string, any>) => item.displayName || readable(item.fieldKey)).join(' / ') || 'Параметр')
+  if (part.kind === 'union') return String(part.label || part.alternatives?.map((item: Record<string, any>) => item.label || item.displayName || readable(item.fieldKey)).join(' / ') || 'Параметр')
   const binding = part.binding || {}
-  return String(binding.displayName || (single && cellText) || readable(binding.fieldKey) || 'Параметр')
+  return String(binding.label || binding.displayName || (single && cellText) || readable(binding.fieldKey) || 'Параметр')
 }

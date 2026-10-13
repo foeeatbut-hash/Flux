@@ -27,6 +27,7 @@ import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
 import { waitForEditor } from './editor-readiness'
 import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
+import { IContextMenuService } from '@univerjs/ui'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
@@ -77,7 +78,7 @@ const workbook = () => { try { return api()?.getActiveWorkbook() || null } catch
 
 /** Детерминированная подпись частей для нативной ячейки заголовка. */
 function renderHeaderParts(parts: any[]): string {
-  const labelFor = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+  const labelFor = (binding: any): string => String(binding?.label || binding?.displayName || binding?.fieldKey || '')
   return parts.map((part: any) => {
     if (part?.kind === 'text') return String(part.text || '')
     if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
@@ -708,6 +709,12 @@ async function exportCommands(): Promise<void> {
     // Для обычных ячеек и прочих диапазонов меню Univer остаётся.
     event.preventDefault()
     event.stopImmediatePropagation()
+    // Univer открывает своё меню уже при нажатии правой кнопки (до contextmenu): закрываем его, иначе оно
+    // осталось бы под меню и плашкой Flux
+    const hideOwnMenu = () => { try { hooks()?.univerRef.current?.univer?.__getInjector?.().get(IContextMenuService)?.hideContextMenu() } catch { /* меню Univer уже закрыто */ } }
+    hideOwnMenu()
+    // Меню Univer рисуется на следующем кадре: повторяем закрытие, пока оно не успело появиться
+    for (const delay of [0, 50, 150]) setTimeout(hideOwnMenu, delay)
     link.send('flux:cell-actions', {
       editorKind: 'sheets',
       anchors,
@@ -776,7 +783,7 @@ async function exportCommands(): Promise<void> {
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]))
       const validBinding = (binding: any, anchorId: string): boolean => !!binding && typeof binding.fieldKey === 'string' && binding.fieldKey.length > 0 && binding.fieldKey.length <= 200 && typeof binding.sourceId === 'string' && binding.sourceId.length > 0 && binding.sourceId.length <= 200 && typeof binding.entityType === 'string' && binding.entityType.length > 0 && binding.entityType.length <= 200 && String(binding.anchorId || anchorId) === anchorId
       const columnLetters = (col: number): string => { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
-      const labelFor = (binding: any): string => String(labels[`${binding?.sourceId || ''}:${binding?.fieldKey || ''}`] ?? labels[binding?.fieldKey || ''] ?? binding?.displayName ?? binding?.fieldKey ?? '')
+      const labelFor = (binding: any): string => String(binding?.label || labels[`${binding?.sourceId || ''}:${binding?.fieldKey || ''}`] || labels[binding?.fieldKey || ''] || binding?.displayName || binding?.fieldKey || '')
       const renderParts = (parts: any[]): string => parts.map((part: any) => {
         if (part?.kind === 'text') return String(part.text || '')
         if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
@@ -832,6 +839,9 @@ async function exportCommands(): Promise<void> {
         }
         throw error
       } finally { undoBatch.dispose(); applyingFlux = priorApplying }
+      // Плашки покоя берут части новой схемы сразу: переименование видно без повторного чтения
+      for (const anchor of schema.anchors) knownHeaderParts.set(String(anchor.id), anchor.parts)
+      for (const id of removed) knownHeaderParts.delete(String(id))
       result = { ok: true, schemaVersion: schema.version, headers: targets.map(({ id, sheet, address, value }) => ({ anchorId: id, kind: 'excel-range', sheetName: sheet.getSheetName(), address, displayText: value })) }
     } catch (err: any) { applyingFlux = priorApplying; result = { ok: false, error: String(err?.message || err) } }
     link.send('flux:header-schema-synced', result)
@@ -950,7 +960,7 @@ async function exportCommands(): Promise<void> {
       const headerCell = sheet.getRange(target.row, target.col, 1, 1)
       const oldHeader = { value: headerCell.getValues?.()?.[0]?.[0], formula: String(headerCell.getFormulas?.()?.[0]?.[0] || '') }
       if (oldHeader.formula) throw new Error('Заголовок выхода содержит формулу; сначала замените её обычной подписью')
-      const bindingLabel = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+      const bindingLabel = (binding: any): string => String(binding?.label || binding?.displayName || binding?.fieldKey || '')
       const outputLabel = String(targetAnchor.label || targetAnchor.parts?.find((part: any) => part?.kind === 'union')?.label || targetAnchor.parts?.map((part: any) => {
         if (part?.kind === 'text') return String(part.text || '')
         if (part?.kind === 'operator') return String(part.operator || '')
@@ -1022,7 +1032,7 @@ async function exportCommands(): Promise<void> {
       }) }
       const headerResponse = updatedSchema.anchors.map((anchor: any) => {
         const parts = Array.isArray(anchor.parts) ? anchor.parts : []
-        const displayText = String(anchor.label || parts.map((part: any) => part?.kind === 'text' ? String(part.text || '') : part?.kind === 'operator' ? String(part.operator || '') : part?.kind === 'field' ? String(part.binding?.displayName || part.binding?.fieldKey || '') : part?.kind === 'union' ? String(part.label || part.alternatives?.map((item: any) => item?.displayName || item?.fieldKey).join(' / ') || '') : '').join(''))
+        const displayText = String(anchor.label || parts.map((part: any) => part?.kind === 'text' ? String(part.text || '') : part?.kind === 'operator' ? String(part.operator || '') : part?.kind === 'field' ? String(part.binding?.label || part.binding?.displayName || part.binding?.fieldKey || '') : part?.kind === 'union' ? String(part.label || part.alternatives?.map((item: any) => item?.label || item?.displayName || item?.fieldKey).join(' / ') || '') : '').join(''))
         return { anchorId: anchor.id, kind: 'excel-range', sheetName: anchor.sheetName, address: anchor.address, displayText, parts }
       })
       const originalRows = Array.isArray(payload.rows) ? payload.rows : []

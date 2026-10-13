@@ -56,6 +56,13 @@ eq('union не выбирает кандидата из другого source/ty
 eq('обычное поле также проверяет sourceId и entityType', evaluateOfficeParts([
   { kind: 'field', binding: { ...binding('p'), sourceId: 'tags', entityType: 'tag' } },
 ], row), { error: 'Источник не вернул значение' });
+// Оба параметра у позиции заполнены: порядок решает, исключение по позиции перекрывает порядок
+const bothRow: OfficeEntityRow = { entityId: 'EQ-9', entityType: 'element', sourceId: 'equipment', values: { p: { value: '10', unit: 'кВт' }, q: { value: '20', unit: 'кВт' } } };
+const twoParams = (extra: Record<string, unknown> = {}) => [{ kind: 'union' as const, mode: 'first-match' as const, alternatives: [{ ...binding('p'), priority: 0 }, { ...binding('q'), priority: 1 }], ...extra }];
+eq('объединение: у позиции заполнены оба — берётся первый по порядку', evaluateOfficeParts(twoParams(), bothRow), { value: { value: '10', unit: 'кВт' } });
+eq('объединение: исключение по позиции берёт названный параметр', evaluateOfficeParts(twoParams({ picks: { 'EQ-9': 'q' } }), bothRow), { value: { value: '20', unit: 'кВт' } });
+eq('объединение: исключение чужой позиции ничего не меняет', evaluateOfficeParts(twoParams({ picks: { 'EQ-1': 'q' } }), bothRow), { value: { value: '10', unit: 'кВт' } });
+eq('объединение: исключение на пустой параметр не отнимает значения', evaluateOfficeParts(twoParams({ picks: { 'EQ-1': 'zz' } }), row), evaluateOfficeParts(twoParams(), row));
 const anchor: OfficeHeaderAnchor = { kind: 'excel-range', id: 'power-column', sheetName: 'Ведомость', address: 'C2', parts: [{ kind: 'field', binding: binding('p') }] };
 const plan = planOfficeFill({ baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1', 'EQ-2'], rows: [row], anchors: [anchor], existingRows: [{ rowId: 'r1', entityId: 'EQ-1' }, { rowId: 'r-manual', manuallyEdited: true }] });
 eq('повторная привязка обновляет ту же сущность, а не добавляет дубль', [plan.adds, plan.replaces], [[], ['EQ-1']]);
