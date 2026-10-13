@@ -12,6 +12,7 @@ import { OFFICE_TEMPLATE_KEY, OFFICE_TEMPLATE_PINS_KEY, cleanOfficeTemplate, par
 import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings, type OfficeTemplateSnapshot } from '../officeBindings.js';
 import { writeOfficeFile } from './officeFiles.js';
 import { resolveOfficeUnit } from '../officeData.js';
+import { officeSourceCatalog, queryOfficeSource } from '../officeSources.js';
 import { mutateOfficeSettingArray } from '../officeTemplateStore.js';
 import { canApplyOfficePlan, officeEntityId, planOfficeFill, type OfficeEntityRow, type OfficeHeaderSchema } from '../../src/lib/officeModel.js';
 
@@ -74,6 +75,7 @@ async function writePins(userId: string, change: (current: string[]) => string[]
 
 async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: OfficeEntityRow[]; sourceRevision: string; total: number }> {
   const requestedEntity = queryBody?.entity;
+  if (['procurement', 'vdr', 'e3'].includes(requestedEntity)) return queryOfficeSource(getPrisma(), projectId, queryBody);
   if (requestedEntity && requestedEntity !== 'tag' && requestedEntity !== 'element') {
     throw Object.assign(new Error(`Источник «${String(requestedEntity)}» не поддерживается в текущем API Office`), { status: 400 });
   }
@@ -191,6 +193,13 @@ export async function rebindOfficeContent(before: Buffer, body: any) {
 }
 
 export function registerProjectOfficeRoutes(app: Express): void {
+  app.get('/api/project-data/office/catalog', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      await requireProjectRead(req, projectId);
+      res.json(await officeSourceCatalog(getPrisma(), projectId));
+    } catch (err: any) { res.status(err?.status || 400).json({ error: String(err?.message || err) }); }
+  });
   app.get('/api/project-data/office/query', async (req: Request, res: Response) => {
     try {
       const projectId = await resolveProjectId(String(req.query.projectId || ''));
