@@ -116,8 +116,12 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       await clickCell(frame, 'D3');
       await page().keyboard.press('Control+z');
       check(`${suffix}: native Ctrl+Z after binding restores the cell text from before the label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power'), await nativeCell(frame, 'A1'));
+      // «Назад» возвращает и схему в файле: привязки A1 в office-state больше нет
+      const a1Bound = async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === 'A1' && anchor.parts?.some((part: any) => part.kind === 'field'));
+      check(`${suffix}: Ctrl+Z after binding also takes the binding out of office-state`, await waitFor(async () => !(await a1Bound())));
       await page().keyboard.press('Control+Shift+z');
       check(`${suffix}: native redo returns the inserted label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
+      check(`${suffix}: redo returns the binding to office-state`, await waitFor(async () => !!(await a1Bound())));
     }
     await bind('B1', 'MotorPower');
     await page().keyboard.press('Control+s');
@@ -155,6 +159,13 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     return { area, chips };
   });
   const insideA1 = (g: any) => !!g && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).length > 0 && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).every((c: any) => c.left >= g.area.left - 3 && c.right <= g.area.right + 3 && c.top >= g.area.top - 3 && c.bottom <= g.area.bottom + 3);
+  await clickCell(conflict.frame, 'D3');
+  // Узкий столбец: название не теряется (читается из подсказки), а слой закрывает перелив исходного текста ячейки
+  const columnWidth = await conflict.frame.locator('body').evaluate(() => { const ws = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.(); const was = ws?.getColumnWidth?.(0); ws?.setColumnWidth?.(0, 36); return was; });
+  await conflict.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
+  check('hovering a chip in a narrow column shows the full parameter name', await waitFor(async () => /DrivePower/.test(await conflict.frame.locator('#flux-sheet-chip-tip').textContent().catch(() => '') || '') && await conflict.frame.locator('#flux-sheet-chip-tip').isVisible()));
+  await page().screenshot({ path: '/tmp/chips-after.png' });
+  await conflict.frame.locator('body').evaluate((was) => { (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.setColumnWidth?.(0, was || 73); }, columnWidth);
   await clickCell(conflict.frame, 'D3');
   const restGeometry = await waitFor(async () => insideA1(await chipGeometry()));
   const rest = await chipGeometry();
@@ -301,8 +312,11 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await page().keyboard.press('Control+z');
   const mergeUndone = await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower' && await nativeCell(frame, 'B1') === 'MotorPower' && ((await nativeCell(frame, 'A3')) ?? '') === '' && await nativeCell(frame, 'B3') === 'MOTOR_ONLY');
   check('one native Ctrl+Z restores both original header columns and their cell values', mergeUndone, { a1: await nativeCell(frame, 'A1'), b1: await nativeCell(frame, 'B1'), a3: await nativeCell(frame, 'A3'), b3: await nativeCell(frame, 'B3') });
+  // Схема в файле возвращается вместе с таблицей: снова два якоря
+  check('Ctrl+Z after the merge returns both anchors to office-state', await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.length === 2));
   if (mergeUndone) {
     await page().keyboard.press('Control+Shift+z');
+    check('Ctrl+Shift+Z returns the merged schema to office-state', await waitFor(async () => { const anchors = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors; return anchors?.length === 1 && anchors[0].parts?.[0]?.kind === 'union'; }));
     check('native redo reapplies the confirmed merge as one operation', await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower / MotorPower' && await nativeCell(frame, 'A3') === 'MOTOR_ONLY' && !String(await nativeCell(frame, 'B1') || '')));
   }
   await page().keyboard.press('Control+s');

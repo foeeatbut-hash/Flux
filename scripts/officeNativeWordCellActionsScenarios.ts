@@ -73,7 +73,10 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       await cellA1.click({ position: { x: 6, y: 6 } });
       await page().keyboard.press('Control+z');
       check(`${suffix}: native Word Ctrl+Z after binding removes the inserted mark`, await waitFor(async () => await marks() === 0), await cellA1.innerText());
+      const bound = async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.parts?.some((part: any) => part.kind === 'field'));
+      check(`${suffix}: native Word Ctrl+Z after binding also takes the binding out of office-state`, await waitFor(async () => !(await bound())));
       await page().keyboard.press('Control+Shift+z');
+      check(`${suffix}: native Word redo returns the binding to office-state`, await waitFor(async () => !!(await bound())));
       check(`${suffix}: native Word redo returns the inserted mark`, await waitFor(async () => await marks() === 1));
     }
     await bind(1, 'MotorPower');
@@ -156,11 +159,15 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const cells = table.match(/<w:tc>/g)?.length || 0;
     return cells === 4 && /SOURCE_ONLY/.test(document) && /TARGET_ONLY/.test(document) && /SAME_KEEP/.test(document) && !/Motor Power/.test(document);
   }));
+  // Фокус — в документе, как у человека: после подтверждения он остаётся на странице, и сочетание клавиш до редактора не дошло бы
+  await success.editor.locator('table tr').first().locator('td,th').first().click({ position: { x: 6, y: 6 }, force: true });
   await page().keyboard.press('Control+z');
   const mergeUndo = await waitFor(async () => await success.editor.locator('table tr').first().locator('td,th').count() === 2);
   check('one native Word Ctrl+Z restores the removed source header cell', mergeUndo);
+  check('Word Ctrl+Z after the merge returns both anchors to office-state', await waitFor(async () => (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json?.schema?.anchors?.length === 2));
   if (mergeUndo) {
     await page().keyboard.press('Control+Shift+z');
+    check('Word Ctrl+Shift+Z returns the merged schema to office-state', await waitFor(async () => { const anchors = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json?.schema?.anchors; return anchors?.length === 1 && anchors[0].parts?.[0]?.kind === 'union'; }));
     check('native Word redo reapplies the single-column merge', await waitFor(async () => await success.editor.locator('table tr').first().locator('td,th').count() === 1));
   }
   await page().keyboard.press('Control+s');

@@ -1,3 +1,4 @@
+import { startHistoryAction } from './useOfficeFluxBridge';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import FluxCellActionsDialog, { type FluxCellActionAnchor, type FluxCellMergeRequest, type FluxCellMergeConfirmation } from './FluxCellActionsDialog';
 import { fieldsFromCatalog, officeDataApi, type OfficeState, type OfficeField } from './fluxData';
@@ -62,6 +63,7 @@ export function useFluxCellActions(options: Options) {
     const schema: OfficeHeaderSchema = { ...state.schema, anchors: state.schema.anchors.filter((anchor) => !request.sourceAnchorIds.includes(anchor.id)).map((anchor) => anchor.id === target.id ? {
       ...anchor, parts: [{ kind: 'union', mode: 'first-match', label: request.outputLabel.trim(), alternatives: request.alternatives.map((binding) => ({ ...binding, anchorId: target.id })) }],
     } : anchor) };
+    if (confirm) startHistoryAction();
     const response = await options.requestNative('merge', { schema, sourceSchema: state.schema, rows: state.rows || [], targetAnchorId: target.id, sourceAnchorIds: request.sourceAnchorIds,
       ...(confirm ? { confirm: true, previewToken: (request as FluxCellMergeConfirmation).previewToken } : { previewOnly: true }) });
     if (!response?.ok) return response || { ok: false, error: 'Редактор не ответил.' };

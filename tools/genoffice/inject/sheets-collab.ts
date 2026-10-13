@@ -658,10 +658,10 @@ async function exportCommands(): Promise<void> {
     isEditing: (anchorId) => !!headerTokenOverlay?.isEditing(anchorId),
   })
   // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
-  const historyMarks = installSheetsHistoryMarks(hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
+  const historyMarks = installSheetsHistoryMarks(() => hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
   link.on('flux:mark-history', (_e, request: any) => {
     const message = request?.payload ?? request ?? {}
-    link.send('flux:history-marked', { ok: true, marked: historyMarks?.mark(String(message.id || ''), Number(message.since) || 0) ?? 0 })
+    link.send('flux:history-marked', { ok: true, marked: historyMarks.mark(String(message.id || ''), Number(message.since) || 0) })
   })
   link.on('flux:edit-header-formula', (_e, request: any) => {
     const message = request?.payload ?? request ?? {}

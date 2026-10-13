@@ -29,8 +29,12 @@ export interface OfficeEditorLink {
 }
 
 /** Время первого обращения к редактору в текущем действии Flux: с него шаги считаются шагами действия. */
+// Один на страницу: ссылка на редактор пересоздаётся при каждой отрисовке, а действие Flux
+// (объединение, затем запись схемы) проходит через несколько таких ссылок подряд.
+let since = 0;
+/** Начало действия Flux, которое идёт мимо ссылки на редактор (объединение колонок): окно меток отсчитывается заново. */
+export function startHistoryAction() { since = Date.now() - 20; }
 function withActionClock(link: Omit<OfficeEditorLink, 'markHistory'>, mark: (id: string, since: number) => Promise<any>): OfficeEditorLink {
-  let since = 0;
   const touch = () => { if (!since) since = Date.now() - 20; };
   return {
     readHeaders: link.readHeaders,

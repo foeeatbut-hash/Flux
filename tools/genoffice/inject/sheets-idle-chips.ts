@@ -92,6 +92,7 @@ export function createSheetsIdleChips(deps: Deps) {
     if (!hit || !hit.dataset.title) { if (tip) tip.style.display = 'none'; return }
     if (!tip || !tip.isConnected) {
       tip = document.createElement('div')
+      tip.id = 'flux-sheet-chip-tip'
       tip.style.cssText = 'position:fixed;z-index:101;pointer-events:none;padding:3px 8px;border-radius:4px;font:12px/1.3 system-ui,sans-serif;background:#0f172a;color:#f8fafc;max-width:420px;box-shadow:0 2px 8px rgba(0,0,0,.3)'
       document.body.appendChild(tip)
     }
