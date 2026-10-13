@@ -254,6 +254,23 @@ function selectedHeaderCells(wb: any): Array<{ anchorId: string; kind: 'excel-ra
   } catch { return null }
 }
 
+/** Привязана ли ячейка к шапке Flux: id якоря по имени FLUX_ANCHOR_*, которое ссылается на неё */
+function boundAnchorIdAt(wb: any, sheetName: string, address: string): string | null {
+  try {
+    const quoted = sheetName.replace(/'/g, "''")
+    for (const defined of wb?.getDefinedNames?.() || []) {
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(String(defined?.getName?.() || ''))
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+      if (!match) continue
+      const refSheet = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+      if ((refSheet === sheetName || refSheet === quoted) && `${match[3]!}${match[4]!}`.toUpperCase() === address) return anchor[1]!.replaceAll('_', '-')
+    }
+  } catch { /* книга ещё не готова */ }
+  return null
+}
+
 function protectFluxHeaderCells(): void {
   const runtime = hooks()?.univerRef.current
   if (!runtime?.univer || guardedRuntimes.has(runtime)) return
@@ -374,6 +391,8 @@ function setAnchorName(wb: any, name: string, ref: string): void {
   if (plain(existing.getRef?.() ?? existing.getFormulaOrRefString?.()) === plain(ref)) return
   existing.setRef(ref)
 }
+
+function columnLetters(col: number): string { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
 
 function columnNumber(letters: string): number {
   let result = 0
@@ -600,6 +619,28 @@ async function exportCommands(): Promise<void> {
     applyingFlux = true
     try { range.setValues([[{ v: value }]]); return true } catch { return false } finally { applyingFlux = prior }
   }, () => !fluxReadOnly)
+  // Ввод в привязанной ячейке шапки идёт прямо в ней: собственный редактор Univer для неё
+  // не открываем (метки в нём были бы обычным текстом), а окно ввода Flux ставим поверх ячейки.
+  let typedKey = ''
+  let typedKeyTimer: ReturnType<typeof setTimeout> | undefined
+  document.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement | null
+    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || target?.closest?.('input, textarea, [contenteditable="true"]')) return
+    typedKey = event.key
+    clearTimeout(typedKeyTimer)
+    typedKeyTimer = setTimeout(() => { typedKey = '' }, 400)
+  }, true)
+  api().addEvent(api().Event.BeforeSheetEditStart, (params: any) => {
+    if (fluxReadOnly || params.isZenEditor || headerTokenOverlay?.isEditing()) return
+    const address = `${columnLetters(Number(params.column))}${Number(params.row) + 1}`
+    const sheetName = String(params.worksheet?.getSheetName?.() || '')
+    const anchorId = sheetName ? boundAnchorIdAt(workbook(), sheetName, address) : null
+    if (!anchorId) return
+    params.cancel = true
+    const initialText = typedKey
+    typedKey = ''
+    link.send('flux:begin-cell-edit', { anchorId, initialText })
+  })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
   document.addEventListener('contextmenu', (event) => {
     if (event.button !== 2 || !(event.target instanceof HTMLCanvasElement)) return

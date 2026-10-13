@@ -27,10 +27,10 @@ export function useFluxCellActions(options: Options) {
   const [busy, setBusy] = useState(false);
   // Сохранённые привязки не хранят displayName, а окно формулы подписывает метку им,
   // иначе вместо «DrivePower» в ячейку попадает ключ «param:@DrivePower».
-  const labeled = (schema: OfficeHeaderSchema): OfficeHeaderSchema => {
+  const labeled = (schema: OfficeHeaderSchema, known: OfficeField[] = fields): OfficeHeaderSchema => {
     const fill = (binding: OfficeBinding): OfficeBinding => {
       if ((binding as any).displayName) return binding;
-      const field = fields.find((item) => item.sourceId === binding.sourceId && item.fieldKey === binding.fieldKey);
+      const field = known.find((item) => item.sourceId === binding.sourceId && item.fieldKey === binding.fieldKey);
       return field ? { ...binding, displayName: field.displayName } as OfficeBinding : binding;
     };
     return { ...schema, anchors: schema.anchors.map((anchor) => ({ ...anchor, parts: anchor.parts.map((part: any) => part.kind === 'field' ? { ...part, binding: fill(part.binding) }
@@ -93,12 +93,19 @@ export function useFluxCellActions(options: Options) {
     setSelection([]);
     return !!next;
   };
-  const editFormula = async (anchorId: string) => {
-    if (!state || options.readOnly) return;
+  // Ввод прямо в ячейке шапки: редактор сообщает о начале правки привязанной ячейки,
+  // и окно формулы открывается поверх неё без промежуточного диалога.
+  const beginEdit = async (payload: any) => {
+    const anchorId = String(payload?.anchorId || '');
+    if (options.readOnly || !anchorId) return;
     try {
-      const result = await options.requestNative('formula', { anchorId, schema: labeled(state.schema) });
-      if (!result?.ok) throw new Error(result?.error || 'Редактор не открыл формулу.');
-      setSelection([]);
+      const current = await options.requestState();
+      if (!current) throw new Error('Схема документа недоступна.');
+      if (!current.schema.anchors.some((anchor) => anchor.id === anchorId)) throw new Error('Сначала привяжите параметр к ячейке шапки.');
+      const known = fieldsFromCatalog(await officeDataApi.catalog(options.projectId));
+      setState(current); setFields(known);
+      const result = await options.requestNative('formula', { anchorId, schema: labeled(current.schema, known), initialText: typeof payload?.initialText === 'string' ? payload.initialText : '' });
+      if (!result?.ok) throw new Error(result?.error || 'Редактор не открыл ячейку.');
     } catch (reason: any) { options.onError(String(reason?.message || reason)); }
   };
   const edited = async (payload: any) => {
@@ -118,6 +125,6 @@ export function useFluxCellActions(options: Options) {
     setSelection([]);
     if (anchorId && state && options.isInlineEditing?.()) requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: labeled(state.schema) }).catch((reason) => options.onError(String(reason?.message || reason))); });
   };
-  return { open, edited, dialog: <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy}
-    onCancel={cancel} onPreviewMerge={(request) => merge(request, false)} onConfirmMerge={(request) => merge(request, true)} onInsertField={insert} onEditFormula={editFormula} /> };
+  return { open, beginEdit, edited, dialog: <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy}
+    onCancel={cancel} onPreviewMerge={(request) => merge(request, false)} onConfirmMerge={(request) => merge(request, true)} onInsertField={insert} /> };
 }

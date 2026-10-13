@@ -152,14 +152,29 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('rejected conflicting merge leaves the saved XLSX bytes unchanged', hash(conflictBefore.bytes) === hash(conflictAfter.bytes));
   await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-  // Правый щелчок внутри выделенной пары сохраняет пару, как в самом Univer:
-  // для одной ячейки сначала сворачиваем выделение обычным щелчком.
+  // Ввод идёт прямо в ячейке шапки: Enter на выделенной привязанной ячейке открывает окно ввода
+  // поверх неё, без диалога. Для одной ячейки сначала сворачиваем выделение обычным щелчком.
   await clickCell(conflict.frame, 'A1');
-  await clickCell(conflict.frame, 'A1', [], 'right');
-  const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
-  await formulaDialog.waitFor();
-  await formulaDialog.getByRole('button', { name: 'Редактировать формулу в ячейке' }).click();
+  await page().keyboard.press('Enter');
   const formulaEditor = conflict.frame.locator('#flux-sheet-token-overlay .flux-sheet-token-edit');
+  await formulaEditor.waitFor();
+  check('Enter on a bound header cell opens in-cell input over it without any dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await formulaEditor.locator('.flux-sheet-token-chip').count() === 1);
+  // Backspace у метки: первое нажатие выделяет её, второе удаляет; Escape возвращает ячейку как была
+  await formulaEditor.evaluate((host: HTMLElement) => {
+    const chip = host.querySelector('.flux-sheet-token-chip');
+    if (!chip) return;
+    const range = document.createRange(); range.setStartAfter(chip); range.collapse(true);
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  });
+  await page().keyboard.press('Backspace');
+  check('first Backspace at a label selects it and keeps it in the cell', await formulaEditor.locator('.flux-sheet-token-chip').count() === 1 && await formulaEditor.evaluate(() => window.getSelection()?.toString() === 'DrivePower'));
+  await page().keyboard.press('Backspace');
+  check('second Backspace removes the selected label', await formulaEditor.locator('.flux-sheet-token-chip').count() === 0);
+  await page().keyboard.press('Escape');
+  await formulaEditor.waitFor({ state: 'detached' });
+  check('Escape after deleting the label leaves the native cell unchanged', await nativeCell(conflict.frame, 'A1') === 'DrivePower');
+  await clickCell(conflict.frame, 'A1');
+  await page().keyboard.press('Enter');
   await formulaEditor.waitFor();
   await formulaEditor.evaluate((host: HTMLElement) => {
     const chip = host.querySelector('.flux-sheet-token-chip');

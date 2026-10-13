@@ -79,7 +79,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const theme = useStore((s) => s.theme);
   const addToast = useToastStore((s) => s.addToast);
   const frame = useRef<HTMLIFrameElement>(null);
-  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
+  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
   const obsoleteFrames = useRef(new WeakSet<object>());
   const [phase, setPhase] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [name, setName] = useState('');
@@ -208,6 +208,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       const args = Array.isArray(m.payload?.args) ? m.payload.args : [];
       if (m.op === 'ipc-send' && channel.startsWith('flux:')) {
         if (channel === 'flux:cell-actions') { void cellActionsRef.current?.open(args[0]); return; }
+        if (channel === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(args[0]); return; }
         if (channel === 'flux:header-schema-edited') { inlineEditingRef.current = false; void cellActionsRef.current?.edited(args[0]); return; }
         if (channel === 'flux:anchor-selected') { setActiveFluxAnchor(args[0] || null); return; }
         const officeWait = officeEventWaits.current.get(channel);

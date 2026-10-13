@@ -29,7 +29,7 @@ import {
 import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { createWordHeaderActions } from './docs-header-merge'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
@@ -181,6 +181,36 @@ function selectionTouchesFluxField(state: any, key: string): boolean {
 }
 
 /**
+ * Границы поля Flux, к которому относится Backspace/Delete: при пустом выделении — поле
+ * рядом с кареткой, при непустом — оно же, если выделение лежит внутри одного поля.
+ */
+function fluxFieldRange(state: any, key: string): { from: number; to: number } | null {
+  const { from, to, empty } = state.selection
+  const probe = empty ? (key === 'Backspace' ? from - 1 : from) : from
+  if (probe < 0 || probe >= state.doc.content.size) return null
+  const $probe = state.doc.resolve(probe)
+  const parent = $probe.parent
+  const start = $probe.start()
+  let range: { from: number; to: number } | null = null
+  let cursor = start
+  let run: { from: number; to: number; instr: string } | null = null
+  parent.forEach((child: any) => {
+    const mark = child.isText ? (child.marks || []).find(isFluxField) : null
+    const end = cursor + child.nodeSize
+    if (mark) {
+      const instr = String(mark.attrs?.instr || '')
+      if (run && run.instr === instr && run.to === cursor) run.to = end
+      else run = { from: cursor, to: end, instr }
+      if (!range && probe >= run.from && probe < end) range = run
+    } else run = null
+    cursor = end
+  })
+  const found = range as { from: number; to: number } | null
+  if (!found) return null
+  return empty || (from >= found.from && to <= found.to) ? { from: found.from, to: found.to } : null
+}
+
+/**
  * Любая регистрация плагина пересобирает виды всех плагинов; вид yUndo при
  * уничтожении отключает UndoManager от документа Yjs, а новый вид его не
  * подключает обратно. Если сеанс совместной правки уже привязан, отмена
@@ -231,9 +261,18 @@ function installFluxFieldGuard(editor: Editor): void {
     props: {
       handleKeyDown(view, event) {
         if (event.key !== 'Backspace' && event.key !== 'Delete') return false
-        // Поле нельзя стереть случайным Backspace; сначала его явно выбирают
-        // и удаляют командой Flux, чтобы таблица не теряла привязку незаметно.
-        return selectionTouchesFluxField(view.state, event.key)
+        if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return selectionTouchesFluxField(view.state, event.key)
+        // Поле не стирается случайно: первое нажатие выделяет его целиком, второе
+        // удаляет (как чип). Остальные случаи у поля по-прежнему блокируются.
+        const range = fluxFieldRange(view.state, event.key)
+        if (!range) return selectionTouchesFluxField(view.state, event.key)
+        const { from, to } = view.state.selection
+        if (from === range.from && to === range.to) {
+          view.dispatch(view.state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+        } else if (view.state.selection.empty) {
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+        } else return true
+        return true
       },
     },
   }))
@@ -261,6 +300,7 @@ function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; docume
 type NativeOfficePart = { kind: 'text'; text: string } | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' } | { kind: 'field'; binding: any } | { kind: 'union'; mode: 'first-match'; alternatives: any[] }
 
 function splitNativeText(text: string, followsField: boolean): NativeOfficePart[] {
+  // Арифметика считается только в ячейке, начинающейся с «=»; иначе «Т/А» и «№-1» остаются текстом
   const number = '(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)'
   const prefixOperator = new RegExp(`^(\\s*)([+*\\-/])\\s*(${number})(.*)$`).exec(text)
   if (prefixOperator && (followsField || prefixOperator[2] === '*' || prefixOperator[2] === '/')) {
@@ -323,7 +363,16 @@ function readNativeHeader(editor: Editor, anchorId: string, schemaAnchor?: any):
     })
     const schemaTokenCount = schemaParts.filter((part: any) => part.kind === 'field' || part.kind === 'union').length
     const hasExactKnownSchema = claimed.size === schemaTokenCount && assigned.every((entry, index) => !native[index].identity || !!entry) && renderedSchema.every((part: string | null) => part !== null) && renderedSchema.join('') === nativeText
-    if (hasExactKnownSchema) { found = schemaParts; return }
+    const isFormula = nativeText.trimStart().startsWith('=')
+    // Без ведущего «=» знаки — обычный текст, даже если в схеме они остались операторами
+    const plainText = (list: NativeOfficePart[]): NativeOfficePart[] => isFormula ? list : list.reduce<NativeOfficePart[]>((out, part) => {
+      const piece: NativeOfficePart = part.kind === 'operator' ? { kind: 'text', text: part.operator } : part
+      const prior = out[out.length - 1]
+      if (piece.kind === 'text' && prior?.kind === 'text') out[out.length - 1] = { kind: 'text', text: prior.text + piece.text }
+      else out.push(piece)
+      return out
+    }, [])
+    if (hasExactKnownSchema) { found = plainText(schemaParts); return }
     const parts: NativeOfficePart[] = []
     let followsField = false
     const emittedUnions = new Set<number>()
@@ -334,11 +383,11 @@ function readNativeHeader(editor: Editor, anchorId: string, schemaAnchor?: any):
         if (!emittedUnions.has(match.schemaIndex)) { parts.push(match.part); emittedUnions.add(match.schemaIndex) }
         followsField = true; return
       }
-      const textParts = splitNativeText(item.text, followsField)
+      const textParts = isFormula ? splitNativeText(item.text, followsField) : (item.text ? [{ kind: 'text', text: item.text } as NativeOfficePart] : [])
       parts.push(...textParts)
       followsField = false
     })
-    found = parts
+    found = plainText(parts)
   })
   return found
 }
