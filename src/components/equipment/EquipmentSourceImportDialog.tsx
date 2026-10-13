@@ -94,7 +94,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       const uniqueNames = Array.from(new Set(names));
       clearReviewSelections();
       setXmlTagChoices(uniqueNames);
-      setFile(picked); setTagIdentifier(uniqueNames.length === 1 ? uniqueNames[0] : ''); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
+      const suggestedTag = picked.suggestedTag && uniqueNames.includes(picked.suggestedTag) ? picked.suggestedTag : '';
+      setFile(picked); setTagIdentifier(suggestedTag || (uniqueNames.length === 1 ? uniqueNames[0] : '')); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
     } catch (reason) { if (operation === operationRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current) setBusy(false); }
   };

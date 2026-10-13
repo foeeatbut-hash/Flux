@@ -216,9 +216,9 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const rows = await prisma.equipmentXmlSource.findMany({ where: { projectId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
       const tags = await prisma.tag.findMany({ where: { id: { in: rows.map((row: any) => row.tagId).filter(Boolean) }, projectId } });
       const byId = new Map(tags.map((tag: any) => [tag.id, tag]));
-      const recentCandidates = rows.length ? await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: { in: rows.map((row: any) => row.id) } }, orderBy: { updatedAt: 'desc' }, select: { id: true, sourceId: true, revision: true, fileName: true, status: true, changes: true, decisions: true, expectedVersions: true, updatedAt: true } }) : [];
+      const recentCandidates = rows.length ? await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: { in: rows.map((row: any) => row.id) } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], select: { id: true, sourceId: true, revision: true, fileName: true, status: true, changes: true, decisions: true, expectedVersions: true, parsedSpecs: true, updatedAt: true } }) : [];
       const latest = new Map<string, any>();
-      for (const candidate of recentCandidates) if (!latest.has(candidate.sourceId)) latest.set(candidate.sourceId, { id: candidate.id, revision: candidate.revision, fileName: candidate.fileName, status: candidate.status, changes: parseJson(candidate.changes, []), decisions: parseJson(candidate.decisions, {}), expectedVersions: parseJson(candidate.expectedVersions, {}), updatedAt: candidate.updatedAt });
+      for (const candidate of recentCandidates) if (!latest.has(candidate.sourceId)) latest.set(candidate.sourceId, { id: candidate.id, revision: candidate.revision, fileName: candidate.fileName, status: candidate.status, changes: parseJson(candidate.changes, []), structuralCount: parseJson(candidate.parsedSpecs, {}).structuralActions?.length || 0, decisions: parseJson(candidate.decisions, {}), expectedVersions: parseJson(candidate.expectedVersions, {}), updatedAt: candidate.updatedAt });
       const targetElementIds = [...new Set([...latest.values()].flatMap(candidate => Object.keys(candidate.expectedVersions || {})))];
       const targetElements = targetElementIds.length ? await prisma.componentElement.findMany({ where: { id: { in: targetElementIds } }, include: { tags: true } }) : [];
       const targetTags = new Map(targetElements.map((element: any) => [element.id, (element.tags || []).map((tag: any) => tag.id)]));
@@ -312,8 +312,58 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
   app.get('/api/equipment/projects/:projectId/sources/:sourceId/candidates', async (req, res) => {
     try {
       const { prisma, source, renamed, tag } = await sourceInProject(req, false);
-      const candidates = await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: source.id }, orderBy: { createdAt: 'asc' }, include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, select: { batchId: true } } } });
+      const candidates = await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: source.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, select: { batchId: true } } } });
       res.json({ renamed, currentIdentifier: tag?.identifier || null, candidates: candidates.map((candidate: any) => ({ ...candidate, structuralActions: parseJson(candidate.parsedSpecs, {}).structuralActions || [], expectedVersions: parseJson(candidate.expectedVersions, {}), parsedSpecs: undefined, changes: parseJson(candidate.changes, []), decisions: parseJson(candidate.decisions, {}), undoBatchId: candidate.applications?.[0]?.batchId || null, applications: undefined })) });
+    } catch (err: any) { sendError(res, err, err.status || 500); }
+  });
+
+  // Массовая перепривязка обновляет только серверные привязки и делает
+  // ожидающие сравнения устаревшими; локальные capability-пути остаются у клиента.
+  app.post('/api/equipment/projects/:projectId/sources/rebind-folder', async (req, res) => {
+    try {
+      const prisma = getPrisma(); const projectId = String(req.params.projectId || '');
+      const actor = await access(req, projectId);
+      const expectedRows = Array.isArray(req.body?.sources) ? req.body.sources : [];
+      if (!expectedRows.length || expectedRows.length > 250) return res.status(400).json({ error: 'Выберите от 1 до 250 источников для перепривязки.' });
+      const ids = expectedRows.map((item: any) => String(item?.sourceId || ''));
+      if (ids.some((id: string) => !id || id.length > 100) || new Set(ids).size !== ids.length) return res.status(400).json({ error: 'Список источников пуст или содержит повторы.' });
+      const byId = new Map(expectedRows.map((item: any) => [String(item.sourceId), item]));
+      const changed = await prisma.$transaction(async (tx: any) => {
+        const sources = await tx.equipmentXmlSource.findMany({ where: { id: { in: ids }, projectId, deletedAt: null } });
+        if (sources.length !== ids.length) throw Object.assign(new Error('Один или несколько источников уже удалены или недоступны в проекте.'), { status: 409 });
+        const result: any[] = [];
+        for (const source of sources) {
+          const expected = byId.get(source.id) as any;
+          const expectedSourceUpdatedAt = new Date(String(expected?.updatedAt || ''));
+          if (!Number.isFinite(expectedSourceUpdatedAt.getTime()) || expectedSourceUpdatedAt.getTime() !== new Date(source.updatedAt).getTime()) throw Object.assign(new Error('Источник XML изменился после предпросмотра. Обновите список и повторите.'), { status: 409 });
+          const element = await tx.componentElement.findFirst({ where: { id: source.elementId, monoblock: { system: { projectId } } }, include: { tags: true, monoblock: { include: { system: true } } } });
+          if (!element) throw Object.assign(new Error('Позиция источника больше не находится в этом проекте.'), { status: 409 });
+          const tag = source.tagId ? await tx.tag.findFirst({ where: { id: source.tagId, projectId } }) : null;
+          if (source.tagId && (!tag || !(element.tags || []).some((item: any) => item.id === source.tagId) || String(tag.identifier) !== String(source.tagIdentifier))) throw Object.assign(new Error('Тег или связь позиции изменились после предпросмотра.'), { status: 409 });
+          if (source.targetType === 'system' && (!source.systemId || element.itemCode !== '__unit__' || element.monoblock?.system?.id !== source.systemId || (tag && element.monoblock?.system?.name !== tag.identifier))) throw Object.assign(new Error('Источник установки больше не соответствует выбранной позиции.'), { status: 409 });
+          if (source.targetType === 'component' && source.systemId) throw Object.assign(new Error('Источник компонента содержит недопустимую связь с установкой.'), { status: 409 });
+          const latest = await tx.equipmentXmlCandidate.findFirst({ where: { sourceId: source.id }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }] });
+          if (latest) {
+            const candidateExpected = expected?.latestCandidate;
+            if (!candidateExpected || String(candidateExpected.id || '') !== latest.id || String(candidateExpected.revision || '') !== latest.revision || new Date(String(candidateExpected.updatedAt || '')).getTime() !== new Date(latest.updatedAt).getTime()) throw Object.assign(new Error('Последний кандидат XML изменился после предпросмотра. Обновите список и повторите.'), { status: 409 });
+          } else if (expected?.latestCandidate) throw Object.assign(new Error('Кандидат XML изменился после предпросмотра. Обновите список и повторите.'), { status: 409 });
+          const updatedAt = new Date(Math.max(Date.now(), new Date(source.updatedAt).getTime() + 1));
+          const claimed = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, updatedAt: source.updatedAt, tagId: source.tagId, tagIdentifier: source.tagIdentifier, elementId: source.elementId, targetType: source.targetType, systemId: source.systemId, selectedRule: source.selectedRule, xmlTargetIdentity: source.xmlTargetIdentity ?? null }, data: { updatedAt } });
+          if (claimed.count !== 1) throw Object.assign(new Error('Источник параллельно перепривязали. Ничего не изменено; обновите список.'), { status: 409 });
+          if (latest && ['pending', 'partial'].includes(latest.status)) {
+            let history: any[];
+            try { history = JSON.parse(latest.decisionHistory || '[]'); } catch { throw Object.assign(new Error('История решений повреждена; перепривязка отменена.'), { status: 409 }); }
+            if (!Array.isArray(history)) throw Object.assign(new Error('История решений имеет неверный формат; перепривязка отменена.'), { status: 409 });
+            history.push({ decisions: parseJson(latest.decisions, {}), status: latest.status, invalidatedByRebindAt: updatedAt.toISOString(), actorId: String(actor.id) });
+            const invalidated = await tx.equipmentXmlCandidate.updateMany({ where: { id: latest.id, revision: latest.revision, updatedAt: latest.updatedAt, status: latest.status }, data: { status: 'stale', decisionHistory: JSON.stringify(history) } });
+            if (invalidated.count !== 1) throw Object.assign(new Error('Кандидат параллельно изменился. Перепривязка отменена; обновите список.'), { status: 409 });
+          }
+          result.push({ sourceId: source.id, updatedAt });
+        }
+        return result;
+      });
+      for (const item of changed) emitSourceChanged(projectId, item.sourceId);
+      res.json({ ok: true, sources: changed });
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
 
@@ -380,11 +430,16 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           if (!Array.isArray(history)) throw Object.assign(new Error('История решений повреждена; кандидат оставлен без изменений.'), { status: 409 });
           history.push({ expectedVersion: existing.expectedVersion, changes: oldChanges, decisions: oldDecisions, status: existing.status, at: new Date().toISOString() });
           const status = sourceDecisionStatus(changes, rebasedDecisions, review.structuralActions);
-          const claimed = await prisma.equipmentXmlCandidate.updateMany({
-            where: { id: existing.id, expectedVersion: existing.expectedVersion, updatedAt: existing.updatedAt },
-            data: { revision, fileName, parsedSpecs: JSON.stringify(parsedTargetSpecs), changes: JSON.stringify(changes), decisions: JSON.stringify(rebasedDecisions), decisionHistory: JSON.stringify(history), status, expectedVersion: Number(element.version || 1), expectedVersions: JSON.stringify(expectedVersions) },
+          await prisma.$transaction(async (tx: any) => {
+            const sourceUpdatedAt = new Date(Math.max(Date.now(), new Date(source.updatedAt).getTime() + 1));
+            const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, updatedAt: source.updatedAt, tagId: source.tagId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, xmlTargetIdentity: source.xmlTargetIdentity ?? null }, data: { updatedAt: sourceUpdatedAt } });
+            if (sourceClaim.count !== 1) throw Object.assign(new Error('Источник XML изменился во время сравнения. Повторите сканирование.'), { status: 409 });
+            const claimed = await tx.equipmentXmlCandidate.updateMany({
+              where: { id: existing.id, expectedVersion: existing.expectedVersion, updatedAt: existing.updatedAt },
+              data: { revision, fileName, parsedSpecs: JSON.stringify(parsedTargetSpecs), changes: JSON.stringify(changes), decisions: JSON.stringify(rebasedDecisions), decisionHistory: JSON.stringify(history), status, expectedVersion: Number(element.version || 1), expectedVersions: JSON.stringify(expectedVersions) },
+            });
+            if (claimed.count !== 1) throw Object.assign(new Error('Кандидат параллельно обновили. Повторите сравнение.'), { status: 409 });
           });
-          if (claimed.count !== 1) throw Object.assign(new Error('Кандидат параллельно обновили. Повторите сравнение.'), { status: 409 });
           candidate = { ...existing, revision, fileName, parsedSpecs: JSON.stringify(parsedTargetSpecs), changes: JSON.stringify(changes), decisions: JSON.stringify(rebasedDecisions), decisionHistory: JSON.stringify(history), status, expectedVersion: Number(element.version || 1), expectedVersions: JSON.stringify(expectedVersions) };
           emitSourceChanged(projectId, source.id);
           return res.json({ candidate: { id: candidate.id, sourceId: source.id, revision, fileName, sha256: digest, status, changes, decisions: rebasedDecisions, structuralActions: review.structuralActions, expectedVersion: candidate.expectedVersion, expectedVersions, createdAt: candidate.createdAt, undoBatchId: existing.applications?.[0]?.batchId || null }, reused: true, rebased: true });
@@ -396,7 +451,12 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
         id: randomUUID(), sourceId: source.id, projectId, revision, fileName, sha256: digest,
         parsedSpecs: JSON.stringify(parsedTargetSpecs), changes: JSON.stringify(changes), decisions: '{}', status: 'pending', expectedVersion: Number(element.version || 1), expectedVersions: JSON.stringify(expectedVersions), uploadedById: String(actor.id),
       };
-      const candidate = await prisma.equipmentXmlCandidate.create({ data: candidateData });
+      const candidate = await prisma.$transaction(async (tx: any) => {
+        const updatedAt = new Date(Math.max(Date.now(), new Date(source.updatedAt).getTime() + 1));
+        const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, updatedAt: source.updatedAt, tagId: source.tagId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, xmlTargetIdentity: source.xmlTargetIdentity ?? null }, data: { updatedAt } });
+        if (sourceClaim.count !== 1) throw Object.assign(new Error('Источник XML изменился во время проверки. Повторите сканирование.'), { status: 409 });
+        return tx.equipmentXmlCandidate.create({ data: candidateData });
+      });
       emitSourceChanged(projectId, source.id);
       res.status(201).json({ candidate: { id: candidate.id, sourceId: source.id, revision, fileName, sha256: digest, status: candidate.status, changes, decisions: {}, structuralActions: review.structuralActions, expectedVersion: candidate.expectedVersion, expectedVersions, createdAt: candidate.createdAt }, reused: false });
     } catch (err: any) { sendError(res, err, err.status || 500); }

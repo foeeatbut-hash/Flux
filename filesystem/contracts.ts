@@ -1,7 +1,7 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
 export type WindowsEquipmentSourcePick =
   | { canceled: true }
-  | { canceled: false; selectedFile: { ref: WindowsFileRef; name: string }; sourceFolder: WindowsFileRef };
+  | { canceled: false; selectedFile: { ref: WindowsFileRef; name: string }; sourceFolder: WindowsFileRef; suggestedTag?: string };
 export type WindowsEquipmentSourceFolderPick =
   | { canceled: true }
   | { canceled: false; folder: WindowsFileRef };
