@@ -10,6 +10,7 @@ import type { WindowsFileRef } from '../filesystem/contracts';
 import { createLocalOfficeWorkerHost } from './localOfficeWorkerHost';
 import { isOfficeOperation, type OfficeHostDiagnostic } from '../diagnostics/officeOperations';
 import { safeError } from '../diagnostics/event';
+import { carryFluxPart } from '../office/fluxPart';
 
 export type LocalOfficeApp = 'pdf' | 'sheets';
 export interface LocalOfficeHost {
@@ -28,6 +29,8 @@ export type LocalOfficeRequest =
   | { action: 'invoke'; session: number; channel: string; args?: unknown[]; copyName?: string }
   | { action: 'send'; session: number; channel: string; args?: unknown[] }
   | { action: 'copy'; session: number; name: string }
+  /** Хост записал в файл только часть Flux: сеанс принимает новую версию файла за свою. */
+  | { action: 'rebase'; session: number; sha256: string }
   | { action: 'close'; session: number };
 export interface LocalOfficeEvent { session: number; channel: string; args: unknown[] }
 export interface LocalOfficeAuthorization {
@@ -114,7 +117,7 @@ export class LocalOfficeSessions {
     // data, so diagnostics receive only the tightly validated channel token.
     const unknownChannel = typeof candidate === 'string' && !isOfficeOperation(candidate) ? candidate : undefined;
     const emit = (fields: Partial<OfficeHostDiagnostic>) => {
-      if ((app !== 'pdf' && app !== 'sheets') || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
+      if ((app !== 'pdf' && app !== 'sheets') || action === 'rebase' || !['open', 'invoke', 'send', 'copy', 'close'].includes(action)) return;
       try { this.options.onDiagnostic?.({ app, action, operation, ...(unknownChannel ? { unknownChannel } : {}), phase: 'start', ...fields }); } catch { /* Запись не влияет на документ. */ }
     };
     emit({ phase: 'start' });
@@ -150,6 +153,13 @@ export class LocalOfficeSessions {
       await s.host.send(s.nativeId, request.channel, args); return { sent: true };
     }
     if (request.action === 'copy') return this.pdfCopy(s, request.name, auth);
+    if (request.action === 'rebase') {
+      if (s.app !== 'sheets' || typeof request.sha256 !== 'string') fail('INVALID_REQUEST', 'Некорректная команда редактора.');
+      // В очереди сохранений: рядом с идущей записью книги хеш сеанса менять нельзя
+      const promise = s.queue.catch(() => undefined).then(() => this.rebase(s, request.sha256, auth));
+      s.queue = promise; s.inFlight.add(promise);
+      try { return await promise; } finally { s.inFlight.delete(promise); }
+    }
     if (request.action !== 'invoke') fail('INVALID_ACTION', 'Команда локального редактора неизвестна.');
     const targetCopy = s.app === 'pdf' && request.channel === 'pdf:save' &&
       request.args?.[0] && typeof request.args[0] === 'object' &&
@@ -224,10 +234,26 @@ export class LocalOfficeSessions {
     this.alive(s); await this.writePermission(auth); this.alive(s);
     const current = await this.options.files.read(s.ref);
     if (current.fileId !== s.fileId || current.sha256 !== s.sha) fail('CONFLICT', 'Файл изменён вне этого окна. Сохраните правки отдельной копией.');
-    const bytes = await this.privateBytes(s.path);
+    // Редактор открыл книгу до записи схемы Flux и вернул бы в файл её старую
+    // часть (или никакой): часть, что сейчас в файле, переносится как есть.
+    const edited = await this.privateBytes(s.path);
+    const bytes = s.app === 'sheets' ? Buffer.from(await carryFluxPart(Buffer.from(current.base64, 'base64'), edited)) : edited;
     await this.writePermission(auth); this.alive(s);
     const saved = await this.options.files.write(s.ref, bytes.toString('base64'), s.sha);
     s.sha = saved.sha256;
+  }
+  /**
+   * Панель Flux пишет в файл часть со схемой связей сама (через файловый мост),
+   * а книга остаётся открытой. Хеш файла после этого новый; сеанс принимает его
+   * только если он совпадает с тем, что хост получил в ответ на свою запись, —
+   * правка файла вне Flux по-прежнему даёт CONFLICT при сохранении.
+   */
+  private async rebase(s: Session, sha256: string, auth: LocalOfficeAuthorization) {
+    this.alive(s); await this.writePermission(auth); this.alive(s);
+    const current = await this.options.files.read(s.ref);
+    if (current.fileId !== s.fileId || current.sha256 !== sha256) fail('CONFLICT', 'Файл изменён вне этого окна. Сохраните правки отдельной копией.');
+    s.sha = current.sha256;
+    return { ok: true };
   }
   private copyName(s: Session, value: string): string {
     if (typeof value !== 'string') fail('INVALID_NAME', 'Укажите имя копии.');

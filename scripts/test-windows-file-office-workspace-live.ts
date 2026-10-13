@@ -1,5 +1,6 @@
 /** Проверяет GenOffice в настоящем слое окон при двух открытых DOCX. */
 import { createServer } from 'vite';
+import { mockFluxPanelApi, openTagsSelection, ribbonCommand } from './officeLocalPanelMocks';
 import { makeDocx, makeXlsx } from './officeHarness';
 
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -24,6 +25,7 @@ async function main() {
     let exported = 0;
     page.on('pageerror', error => errors.push(error.message));
     page.on('framenavigated', frame => { if (frame.url().includes('/genoffice/')) allOfficeNavigations.push(frame.url()); if (frame.url().includes('/genoffice/docs/index.html')) navigations.push(frame.url()); });
+    await mockFluxPanelApi(page, [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }]);
     await page.route('**/api/projects/local-project/tags', route => route.fulfill({ json: { tags: [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }] } }));
     await page.route('**/api/office/files/new?*', route => { exported++; return route.fulfill({ json: { id: `export-${exported}`, name: `tags-${exported}.xlsx`, sha256: `sha-${exported}`, size: 1024, folderId: null } }); });
     const docx = await makeDocx();
@@ -67,7 +69,7 @@ async function main() {
     await page.evaluate((id: string) => (window as any).__windowStore.getState().focus(id), first);
     const child = page.frames().find(frame => frame.url().includes('/genoffice/docs/index.html'));
     if (!child) throw new Error('Не найден frame GenOffice после восстановления активного окна');
-    await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    await openTagsSelection(page, child, 'TAG-42');
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 });
     await page.getByRole('button', { name: 'Вставить все' }).click();
     await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor({ timeout: 15000 });
@@ -92,7 +94,7 @@ async function main() {
     await page.evaluate((id: string) => (window as any).__windowStore.getState().focus(id), second);
     const secondFrame = page.frames().find(frame => frame.url().includes('/genoffice/docs/index.html'));
     if (!secondFrame) throw new Error('Не найден редактор соседнего документа после close');
-    await secondFrame.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    await openTagsSelection(page, secondFrame, 'TAG-42');
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 }).catch(async error => {
       console.log('EXPORT PANEL DEBUG', await page.evaluate(() => ({ windows: (window as any).__windowStore.getState().windows.map((item: any) => ({ id: item.id, path: item.path, href: item.href, minimized: item.minimized })), sidebars: [...document.querySelectorAll('[aria-label="Flux"]')].length, editorFrames: [...document.querySelectorAll('iframe[title="Flux Office — Документ"]')].map((el: any) => ({ rect: [el.getBoundingClientRect().width, el.getBoundingClientRect().height], text: el.contentDocument?.body?.innerText.slice(-100) })) })), await secondFrame.evaluate(() => (window as any).__fluxBridge?.events));
       throw error;
@@ -101,8 +103,10 @@ async function main() {
     await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor({ timeout: 15000 });
     await page.waitForFunction((id: string) => [...document.querySelectorAll<HTMLIFrameElement>(`[data-win="${id}"] iframe[title="Flux Office — Документ"]`)].some(el => el.contentDocument?.body?.innerText.includes('TAG-42')), second, { timeout: 15000 });
     check('до выгрузки исходный Docs содержит незаписанную вставку Flux', await frameFor(second).evaluate(el => (el as HTMLIFrameElement).contentDocument?.body?.innerText.includes('TAG-42')));
-    await page.locator('#flux-section-picker').selectOption('export');
-    await page.getByRole('button', { name: 'Книга Flux', exact: true }).waitFor({ timeout: 15000 });
+    // Выгрузка — команда ленты «Выгрузить»: окно с форматами, «Книга Flux» сохраняет файл и открывает его
+    await ribbonCommand(secondFrame, 'export');
+    const exportDialog = page.getByRole('dialog', { name: /Выгрузить:/ });
+    await exportDialog.getByRole('button', { name: 'Книга Flux', exact: true }).waitFor({ timeout: 15000 });
     const sourceWasErrorFreeBeforeHandoff = errors.length === 0;
     check('до handoff исходный Docs не выдаёт ошибок', sourceWasErrorFreeBeforeHandoff, errors);
     await page.evaluate(() => {
@@ -115,7 +119,7 @@ async function main() {
     });
     const exportFrameBefore = await frameFor(second).evaluate(el => { const node=el as HTMLIFrameElement; (window as any).__exportSourceFrame=node; return { src:node.getAttribute('src'), body:node.contentDocument?.body?.innerText.slice(0,120), token:(node.contentWindow as any).__workspaceSourceToken || ((node.contentWindow as any).__workspaceSourceToken=crypto.randomUUID()) }; });
     const readCountBeforeExport = await page.evaluate(() => (window as any).__workspaceFileCalls.filter((call: any) => call.action === 'read').map((call: any) => String(call.ref?.relativePath || '').split('/').pop()));
-    await page.getByRole('button', { name: 'Книга Flux', exact: true }).click();
+    await exportDialog.getByRole('button', { name: 'Книга Flux', exact: true }).click();
     await page.waitForFunction(() => (window as any).__windowStore.getState().windows.some((item: any) => item.href === '/windows-file?root=mock-root&path=copy.xlsx'), null, { timeout: 15000 }).catch(async error => { console.log('HANDOFF DEBUG', await page.evaluate(() => ({ hash: location.hash, log: (window as any).__workspaceHandoffUrl, windows: (window as any).__windowStore.getState().windows.map((item: any) => item.href) }))); throw error; });
     const exportState = await page.evaluate((id: string) => ({ windows: (window as any).__windowStore.getState().windows.map((item: any) => ({ id: item.id, path: item.path, href: item.href })), sourceKept: (window as any).__windowStore.getState().windows.some((item: any) => item.id === id && item.path === '/windows-file') }), second);
     await page.waitForTimeout(2000);

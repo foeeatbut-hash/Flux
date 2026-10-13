@@ -12,6 +12,11 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Прежняя одна кнопка Flux: кэш уже патченного исходника обновляется до вкладки (поле prior). */
+const OPEN_PANEL_CLICK = "window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, (window.location.origin === 'null' || window.location.origin === 'file://' ? '*' : window.location.origin))";
+const FLUX_TAB_BUTTON_OLD_DOCS = `        <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => ${OPEN_PANEL_CLICK}}>Flux</button>\n        <span className="ribbon-tabs-spacer" />\n        {trailingActions}`;
+const FLUX_TAB_BUTTON_OLD_SHEETS = `          <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => ${OPEN_PANEL_CLICK}}>Flux</button>\n          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"`;
+
 export const PATCHES = [
   {
     // В подсказке параметра показываем действие, а не внутреннюю инструкцию DOCX.
@@ -269,20 +274,49 @@ export const PATCHES = [
       "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
       "    // a throwing construction",
   },
-  // ── Кнопка Flux открывает панель оболочки из любой ленты редактора ──
+  // ── Вкладка Flux в ленте Word и Таблицы (inject/flux-ribbon.tsx) ──
+  // Раньше здесь была одна кнопка; теперь настоящая вкладка с группами
+  // «Переводчик», «Данные», «Шаблоны», «Документ». Каждая кнопка шлёт окну Flux
+  // одно сообщение flux:open-panel с полем command.
+  {
+    id: 'flux-ribbon-docs-import',
+    file: 'apps/docs/src/renderer/components/Ribbon.tsx',
+    find: "} from './ribbon-tabs'\n",
+    replace: "} from './ribbon-tabs'\nimport { FluxRibbonTab } from '../flux/flux-ribbon'\n",
+  },
   {
     id: 'flux-ribbon-docs',
     file: 'apps/docs/src/renderer/components/Ribbon.tsx',
     find: '        <span className="ribbon-tabs-spacer" />\n        {trailingActions}',
-    replace: '        <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => window.parent.postMessage({ flux: \'office\', op: \'flux:open-panel\' }, (window.location.origin === \'null\' || window.location.origin === \'file://\' ? \'*\' : window.location.origin))}>Flux</button>\n' +
+    prior: FLUX_TAB_BUTTON_OLD_DOCS,
+    replace: '        <button type="button" className={`ribbon-tab ${(tab as string) === \'flux\' ? \'active\' : \'\'}`} aria-label="Flux" title="Flux" onClick={() => { collapse.onTabPress((tab as string) === \'flux\'); setTab(\'flux\' as never); setDropdown(null) }}>Flux</button>\n' +
       '        <span className="ribbon-tabs-spacer" />\n        {trailingActions}',
+  },
+  {
+    id: 'flux-ribbon-docs-body',
+    file: 'apps/docs/src/renderer/components/Ribbon.tsx',
+    find: "        {tab === 'shapeFormat' && inShape ? (",
+    replace: "        {(tab as string) === 'flux' ? (\n          <FluxRibbonTab variant=\"docs\" />\n        ) : tab === 'shapeFormat' && inShape ? (",
+  },
+  {
+    id: 'flux-ribbon-sheets-import',
+    file: 'apps/sheets/src/renderer/ExcelShell.tsx',
+    find: "import { isGridKeyTarget, shouldInterceptClearSelection } from './clear-selection-keyboard'\n",
+    replace: "import { isGridKeyTarget, shouldInterceptClearSelection } from './clear-selection-keyboard'\nimport { FluxRibbonTab } from './flux/flux-ribbon'\n",
   },
   {
     id: 'flux-ribbon-sheets',
     file: 'apps/sheets/src/renderer/ExcelShell.tsx',
     find: '          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"',
-    replace: '          <button type="button" className="ribbon-tab" aria-label="Flux" title="Flux" onClick={() => window.parent.postMessage({ flux: \'office\', op: \'flux:open-panel\' }, (window.location.origin === \'null\' || window.location.origin === \'file://\' ? \'*\' : window.location.origin))}>Flux</button>\n' +
+    prior: FLUX_TAB_BUTTON_OLD_SHEETS,
+    replace: '          <button type="button" className={`ribbon-tab ${(activeTab as string) === \'Flux\' ? \'active\' : \'\'}`} aria-label="Flux" title="Flux" onClick={() => { collapse.onTabPress((activeTab as string) === \'Flux\'); setActiveTab(\'Flux\' as never) }}>Flux</button>\n' +
       '          <span className="ribbon-tabs-spacer" />\n          <span className="workbook-status"',
+  },
+  {
+    id: 'flux-ribbon-sheets-body',
+    file: 'apps/sheets/src/renderer/ExcelShell.tsx',
+    find: "  if (activeTab === 'Chart Design') {\n    const canConvert",
+    replace: "  if ((activeTab as string) === 'Flux') return <FluxRibbonTab variant=\"sheets\" />\n  if (activeTab === 'Chart Design') {\n    const canConvert",
   },
   {
     id: 'flux-ribbon-pdf',
@@ -325,6 +359,63 @@ export const PATCHES = [
     file: 'apps/sheets/src/renderer/styles.css',
     find: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}',
     replace: '.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: 34px minmax(0, 1fr);\n}\n\n/* Copilot скрыт в оболочке Flux, поэтому лист занимает всё окно. */\n.sheet-body,\n.app-shell.copilot-collapsed .sheet-body {\n  grid-template-columns: minmax(0, 1fr);\n}',
+  },
+  {
+    // Univer при вставке и удалении строк и столбцов сам переписывает имена
+    // Excel (UpdateDefinedNameController), и журнал помечает их изменёнными.
+    // Во Flux метки полей и есть имена Excel, поэтому сохранение падало при
+    // любом удалении столбца и слиянии. Снимок имён применяется последним, уже
+    // после сдвигов, и отражает итоговую модель; номера листов меняет только
+    // sheetPlan, поэтому ошибка остаётся лишь для него.
+    id: 'flux-gateway-defined-names-with-row-col',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '    definedNamesState !== null &&\n    (structuralOps.some((sheet) => sheet.ops.length > 0) || sheetPlan !== undefined)\n  ) {',
+    replace: '    definedNamesState !== null &&\n    sheetPlan !== undefined\n  ) {',
+  },
+  {
+    // Когда есть снимок имён, applyDefinedNamesState всё равно выбросит все
+    // обычные имена (метки полей), оставив встроенные, скрытые и перечисленные
+    // в preserveNames. Сдвигать выбрасываемое бессмысленно, а метка удалённого
+    // столбца падала с «A formula references the deleted range». Поэтому тот же
+    // фильтр вынесен в общую функцию и применяется до сдвига.
+    id: 'flux-gateway-drop-modeled-names-before-shift-fn',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-defined-names.ts',
+    find: "  // Drop every modeled entry from the existing section, keeping built-ins,\n  // hidden names, and preserve-listed ones in place.\n  const xml = workbookXml.replace(\n    /<definedName\\b[^>]*>[\\s\\S]*?<\\/definedName>|<definedName\\b[^>]*\\/>/g,\n    (element) => {\n      const name = /\\bname=\"([^\"]*)\"/.exec(element)?.[1] ?? ''\n      const unescaped = unescapeXml(name)\n      const keep =\n        unescaped.startsWith('_xlnm') ||\n        /\\bhidden=\"(?:1|true)\"/.test(element) ||\n        preserved.has(unescaped)\n      return keep ? element : ''\n    },\n  )\n",
+    replace: "  // Drop every modeled entry from the existing section, keeping built-ins,\n  // hidden names, and preserve-listed ones in place.\n  const xml = dropModeledDefinedNames(workbookXml, preserved)\n",
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-decl',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-defined-names.ts',
+    find: 'export function applyDefinedNamesState(',
+    replace: "/** Убрать из workbook.xml имена, которые заменит снимок: все обычные, кроме\n *  встроенных `_xlnm*`, скрытых и сохраняемых (preserve). */\nexport function dropModeledDefinedNames(workbookXml: string, preserved: ReadonlySet<string>): string {\n  return workbookXml.replace(\n    /<definedName\\b[^>]*>[\\s\\S]*?<\\/definedName>|<definedName\\b[^>]*\\/>/g,\n    (element) => {\n      const name = /\\bname=\"([^\"]*)\"/.exec(element)?.[1] ?? ''\n      const unescaped = unescapeXml(name)\n      const keep =\n        unescaped.startsWith('_xlnm') ||\n        /\\bhidden=\"(?:1|true)\"/.test(element) ||\n        preserved.has(unescaped)\n      return keep ? element : ''\n    },\n  )\n}\n\nexport function applyDefinedNamesState(",
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-import',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '  applyDefinedNamesState,\n  DefinedNameError,',
+    replace: '  applyDefinedNamesState,\n  dropModeledDefinedNames,\n  DefinedNameError,',
+  },
+  {
+    id: 'flux-gateway-drop-modeled-names-before-shift-call',
+    file: 'packages/xlsx-gateway/src/gateway/xlsx-gateway.ts',
+    find: '    const shiftedWorkbook = shiftDefinedNames(workbookXml, sheetName, ops)\n',
+    replace: '    // Имена, которые потом заменит снимок, не сдвигаем: метка удалённого\n    // столбца иначе роняет сдвиг (StructuralShiftError).\n    if (definedNamesState !== null) {\n      const kept = dropModeledDefinedNames(workbookXml, new Set(definedNamesState.preserveNames))\n      if (kept !== workbookXml) {\n        workbookXml = kept\n        pkg.write(workbookPath, workbookXml)\n        touchedEntries.add(workbookPath)\n      }\n    }\n    const shiftedWorkbook = shiftDefinedNames(workbookXml, sheetName, ops)\n',
+  },
+  {
+    // Шлюз теперь принимает снимок имён вместе со сдвигом строк и столбцов
+    // (он отбрасывает обычные имена до сдвига), поэтому откладывать имена на
+    // вторую фазу нужно только при операциях над листами, где шлюз по-прежнему
+    // отказывает. Иначе первая фаза сдвигала метки удалённого столбца и падала.
+    id: 'flux-save-defined-names-with-row-col',
+    file: 'apps/sheets/src/renderer/save-actions.ts',
+    find: '  const heldNames = hasShifts ? definedNamesState : null\n',
+    replace: '  const heldNames = sheetOps.length > 0 ? definedNamesState : null\n',
+  },
+  {
+    id: 'flux-save-defined-names-first-phase',
+    file: 'apps/sheets/src/renderer/save-actions.ts',
+    find: '      definedNamesState: splitSave ? null : definedNamesState,\n',
+    replace: '      definedNamesState: heldNames !== null ? null : definedNamesState,\n',
   },
 ];
 

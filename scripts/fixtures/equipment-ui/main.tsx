@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import Equipment from '../../../src/screens/Equipment';
-import ExportBuilder from '../../../src/components/equipment/ExportBuilder';
 import { PaneContext } from '../../../src/lib/paneTitle';
 import { useStore } from '../../../src/store/store';
-import { useToastStore } from '../../../src/store/toastStore';
-import { buildExportSources, type ExportSystem } from '../../../src/lib/exportWorkspace';
+import { type ExportSystem } from '../../../src/lib/exportWorkspace';
 import './fixture.css';
 
 type FixtureComponent = ExportSystem['monoblocks'][number]['components'][number] & {
@@ -35,28 +33,12 @@ const systems: FixtureSystem[] = [
   ] }] },
 ];
 
-const sources = buildExportSources(systems, [
-  { id: 'AHU', label: 'Центральные кондиционеры' },
-  { id: 'FAN', label: 'Радиальные вентиляторы' },
-  { id: 'VALVE', label: 'Клапаны' },
-  { id: 'CURTAIN', label: 'Воздушные завесы' },
-]);
 useStore.setState({ user: { id: 'equipment-fixture', name: 'Проверка', symbol: 'TEST', role: 'ADMIN' } as any, activeProject: { id: fixtureProjectId, name: 'Пробный проект' } as any });
 
 function Fixture() {
-  const [screen, setScreen] = useState<'equipment' | 'export'>('equipment');
-  const say = useToastStore((state) => state.addToast);
   return <MemoryRouter initialEntries={['/equipment']}><PaneContext.Provider value="win:equipment-fixture">
     <div className="flex h-full min-h-0 flex-col bg-white text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-      <nav className="flex h-9 shrink-0 items-center gap-2 border-b border-slate-200 px-3 dark:border-slate-800" aria-label="Экран пробы">
-        <button type="button" aria-pressed={screen === 'equipment'} onClick={() => setScreen('equipment')} className="fx-btn fx-btn-sm">Оборудование</button>
-        <button type="button" aria-pressed={screen === 'export'} onClick={() => setScreen('export')} className="fx-btn fx-btn-sm">Выгрузка</button>
-      </nav>
-      <div className="min-h-0 flex-1">
-        {screen === 'equipment'
-          ? <Equipment />
-          : <ExportBuilder projectId={fixtureProjectId} projectName="Пробный проект" initialScope="all" scopes={sources.scopes} rowsOf={sources.rows} say={say} onClose={() => setScreen('equipment')} />}
-      </div>
+      <div className="min-h-0 flex-1"><Equipment /></div>
     </div>
   </PaneContext.Provider></MemoryRouter>;
 }

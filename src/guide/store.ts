@@ -419,9 +419,6 @@ export const useGuideStore = create<GuideState>((set, get) => ({
         } catch { /* приватный режим */ }
         openWindow('/equipment');
         return;
-      case 'open-export':
-        openWindow('/equipment-export');
-        return;
       case 'export-table':
       case 'clarify':
         return;

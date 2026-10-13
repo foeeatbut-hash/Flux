@@ -148,7 +148,6 @@ console.log('\n8. Поиск находит то, что должен');
 {
   eq('«корзина» ведёт в Проводник', search('корзина')[0]?.article.id, 'explorer');
   eq('«Файлы Windows» ведёт в единый Проводник', search('Файлы Windows')[0]?.article.id, 'explorer');
-  eq('«экспорт оборудования» ведёт в выгрузку данных', search('экспорт оборудования')[0]?.article.id, 'equipment-export');
   eq('«пароль приложения» ведёт в Почту', search('пароль приложения')[0]?.article.id, 'mail');
   eq('«бэкап» ведёт в резервные копии', search('бэкап')[0]?.article.id, 'backup');
   eq('«кто что может» ведёт в права', search('кто что может')[0]?.article.id, 'access');
@@ -163,7 +162,6 @@ console.log('\n9. Вход из раздела');
 {
   eq('у Почты есть своя статья', forRoute('/mail')?.id, 'mail');
   eq('у Тегов есть своя статья', forRoute('/registry')?.id, 'registry');
-  eq('у выгрузки есть своя статья', forRoute('/equipment-export')?.id, 'equipment-export');
   eq('старый адрес Проводника Windows ведёт в общую статью программы', forRoute('/windows-files')?.id, 'explorer');
   eq('внутренняя папка общего доступа открывает статью места', forRoute('/explorer?view=shared')?.id, 'shared-files');
   eq('у локального файла Windows есть своя статья', forRoute('/windows-file')?.id, 'windows-file');

@@ -173,32 +173,8 @@ try {
     }
   }
 
-  await page.getByRole('button', { name: 'Выгрузка', exact: true }).click();
-  await page.getByRole('tab', { name: 'Столбцы', exact: true }).click();
-  const search = page.getByPlaceholder('Мощность, расход…');
-  await search.fill('Расход воздуха');
-  const airGroup = page.locator('details').filter({ has: page.getByText('Аэродинамика', { exact: true }) }).first();
-  if ((await airGroup.getAttribute('open')) === null) throw new Error('search did not open the matching characteristic section');
-  const amount = page.getByRole('button', { name: /Расход воздуха/ }).first();
-  await amount.click();
-  if (!await page.getByLabel('Заголовок столбца').last().inputValue()) throw new Error('selecting a parameter did not add a column');
-
-  const sheetWidths = {};
-  for (const width of [720, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 1000 });
-    for (const theme of ['light', 'dark']) {
-      await page.evaluate((value) => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
-      const geometry = await noOverflow('export', width);
-      if (geometry.canvasWidth < 500 && width === 720) throw new Error(`sheet canvas is too narrow at 720px: ${JSON.stringify(geometry)}`);
-      sheetWidths[`${width}-${theme}`] = geometry.canvasWidth;
-      await page.screenshot({ path: path.join('/tmp', `flux-equipment-ui-export-${width}-${theme}.png`) });
-    }
-  }
-  await page.getByRole('tab', { name: 'Данные', exact: true }).click();
-  await page.getByRole('button', { name: /Радиальные вентиляторы/ }).click();
-  if (!await page.getByText('Радиальные вентиляторы', { exact: true }).last().isVisible()) throw new Error('equipment category scope could not be selected');
   if (errors.length) throw new Error(`browser errors: ${errors.join('; ')}`);
-  console.log(JSON.stringify({ categoryChange: 'passed', blockCard: 'passed', exportGroupSearchAndPick: 'passed', sheetWidths, themes: ['light', 'dark'], unitScreenshots: [720, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-unit-${w}-${t}.png`)), screenshots: [1024, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-ui-equipment-${w}-${t}.png`)).concat([720, 1024, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-ui-export-${w}-${t}.png`))) }, null, 2));
+  console.log(JSON.stringify({ categoryChange: 'passed', blockCard: 'passed', themes: ['light', 'dark'], unitScreenshots: [720, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-unit-${w}-${t}.png`)), screenshots: [1024, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-ui-equipment-${w}-${t}.png`)).concat([720, 1024, 1440].flatMap((w) => ['light', 'dark'].map((t) => `/tmp/flux-equipment-ui-export-${w}-${t}.png`))) }, null, 2));
 } finally {
   await browser.close();
 }

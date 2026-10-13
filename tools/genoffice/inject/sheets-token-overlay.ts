@@ -1,4 +1,6 @@
 /** Дополнение к canvas-редактору: формула редактируется поверх настоящей ячейки. */
+import { installParameterChipStyle } from './parameter-chip-style'
+
 type Part = Record<string, any>
 
 interface Ipc {
@@ -29,20 +31,19 @@ export function createSheetsTokenOverlay(
   ipc.on('app:theme-changed', (_event, theme: unknown) => setTheme(theme))
 
   const installStyle = (): void => {
+    installParameterChipStyle()
     if (document.getElementById('flux-sheet-token-style')) return
     const style = document.createElement('style')
     style.id = 'flux-sheet-token-style'
     style.textContent = `
 #flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;align-items:center;gap:5px;box-sizing:border-box;min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
-#flux-sheet-token-overlay .flux-sheet-token-edit{display:flex;align-items:center;gap:3px;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
-#flux-sheet-token-overlay .flux-sheet-token-chip{display:inline-flex;align-items:center;max-width:190px;padding:2px 7px;border:1px solid #bfdbfe;border-radius:999px;background:#eff6ff;color:#1e40af;white-space:nowrap;user-select:all}
+#flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 #flux-sheet-token-overlay button{flex:none;border:0;border-radius:5px;padding:4px 7px;background:#f1f5f9;color:#334155;font:inherit;cursor:pointer}
 #flux-sheet-token-overlay button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu{position:fixed;z-index:1201;padding:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;box-shadow:0 5px 16px #0f172a33}
 #flux-sheet-token-menu button{border:0;border-radius:4px;padding:6px 9px;background:transparent;color:#334155;font:12px system-ui,sans-serif;cursor:pointer}
 #flux-sheet-token-menu button:hover{background:#f1f5f9}
 #flux-sheet-token-overlay[data-theme=dark]{border-color:#475569;background:#111827;color:#e2e8f0;box-shadow:0 8px 24px #0009}
-#flux-sheet-token-overlay[data-theme=dark] .flux-sheet-token-chip{border-color:#1d4ed8;background:#172554;color:#bfdbfe}
 #flux-sheet-token-overlay[data-theme=dark] button{background:#334155;color:#e2e8f0}
 #flux-sheet-token-overlay[data-theme=dark] button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu[data-theme=dark]{border-color:#475569;background:#111827;box-shadow:0 5px 16px #0009}
@@ -52,7 +53,7 @@ export function createSheetsTokenOverlay(
     document.head.appendChild(style)
   }
 
-  const label = (part: Part): string => String(part?.binding?.displayName || part?.binding?.fieldKey || part?.label || part?.alternatives?.map((item: Part) => item?.displayName || item?.fieldKey).filter(Boolean).join(' / ') || 'Параметр')
+  const label = (part: Part): string => String(part?.binding?.label || part?.binding?.displayName || part?.binding?.fieldKey || part?.label || part?.alternatives?.map((item: Part) => item?.label || item?.displayName || item?.fieldKey).filter(Boolean).join(' / ') || 'Параметр')
   const renderText = (parts: Part[]): string => parts.map((part) => {
     if (part?.kind === 'text') return String(part.text || '')
     if (part?.kind === 'operator') return String(part.operator || '')
@@ -100,38 +101,72 @@ export function createSheetsTokenOverlay(
     return adjacent instanceof HTMLElement && adjacent.dataset.fluxToken === 'true'
   }
 
-  const partsFromHost = (): Part[] => {
+  const partsFromHost = (): Part[] => active ? partsFromHostFor(active.host, active.parts) : []
+
+  /** Метка, занимающая выделение целиком (выделена первым нажатием Backspace или щелчком). */
+  const selectedToken = (range: Range): HTMLElement | null => {
+    if (range.collapsed || range.startContainer !== range.endContainer || range.endOffset - range.startOffset !== 1) return null
+    const child = range.startContainer.childNodes[range.startOffset]
+    return child instanceof HTMLElement && child.dataset.fluxToken === 'true' ? child : null
+  }
+
+  const removeToken = (token: HTMLElement): void => {
     const state = active
-    if (!state) return []
-    const raw: Part[] = []
-    const text = (value: string): void => {
-      let ordinary = ''
-      const flush = (): void => { if (ordinary) raw.push({ kind: 'text', text: ordinary }); ordinary = '' }
-      for (const character of value) {
-        const operator = character === '×' ? '*' : character === '÷' ? '/' : character === '−' ? '-' : character
-        if (['+', '-', '*', '/', '(', ')'].includes(operator)) { flush(); raw.push({ kind: 'operator', operator }) }
-        else ordinary += character
+    if (!state) return
+    const index = Number(token.dataset.partIndex)
+    const caret = document.createRange()
+    caret.setStartBefore(token)
+    caret.collapse(true)
+    token.remove()
+    if (Number.isInteger(index)) {
+      state.parts.splice(index, 1)
+      for (const chip of Array.from(state.host.querySelectorAll<HTMLElement>('[data-flux-token="true"]'))) {
+        const oldIndex = Number(chip.dataset.partIndex)
+        if (oldIndex > index) chip.dataset.partIndex = String(oldIndex - 1)
       }
-      flush()
     }
-    const visit = (node: Node): void => {
-      if (node.nodeType === Node.TEXT_NODE) { text(node.textContent || ''); return }
-      if (!(node instanceof HTMLElement)) return
-      if (node.dataset.fluxToken === 'true') {
-        const index = Number(node.dataset.partIndex)
-        const part = Number.isInteger(index) ? state.parts[index] : null
-        if (part?.kind === 'field' || part?.kind === 'union') raw.push(part)
-        return
-      }
-      for (const child of Array.from(node.childNodes)) visit(child)
+    state.caret = caret.cloneRange()
+    writeCaret(caret)
+  }
+
+  /**
+   * Backspace/Delete у метки: первое нажатие выделяет её, второе удаляет (как чип).
+   * Рядом с обычным текстом клавиши работают как всегда.
+   */
+  const stepOverToken = (event: KeyboardEvent): void => {
+    const state = active
+    const selection = window.getSelection()
+    if (!state || !selection?.rangeCount) return
+    const range = selection.getRangeAt(0)
+    const selected = selectedToken(range)
+    if (selected) { event.preventDefault(); removeToken(selected); return }
+    if (!range.collapsed) return
+    const backward = event.key === 'Backspace'
+    // Сосед метки: ближайший узел по ходу удаления; края текста и обёрток проходим вверх
+    let neighbour: Node | null = null
+    let node: Node | null = range.startContainer
+    let at = range.startOffset
+    const indexIn = (child: Node): number => Array.prototype.indexOf.call(child.parentNode?.childNodes || [], child)
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = (node.textContent || '').length
+      if (backward ? at > 0 : at < length) return
+      at = indexIn(node) + (backward ? 0 : 1)
+      node = node.parentNode
     }
-    for (const child of Array.from(state.host.childNodes)) visit(child)
-    return raw.reduce<Part[]>((result, part) => {
-      const prior = result[result.length - 1]
-      if (part.kind === 'text' && prior?.kind === 'text') prior.text += part.text
-      else result.push(part)
-      return result
-    }, [])
+    while (node && state.host.contains(node)) {
+      const sibling: Node | undefined = node.childNodes[backward ? at - 1 : at]
+      if (sibling && sibling.nodeType === Node.TEXT_NODE && !(sibling.textContent || '').length) { at += backward ? -1 : 1; continue }
+      if (sibling) { neighbour = sibling; break }
+      if (node === state.host) break
+      at = indexIn(node) + (backward ? 0 : 1)
+      node = node.parentNode
+    }
+    if (!(neighbour instanceof HTMLElement) || neighbour.dataset.fluxToken !== 'true') return
+    event.preventDefault()
+    const around = document.createRange()
+    around.selectNode(neighbour)
+    writeCaret(around)
+    state.caret = around.cloneRange()
   }
 
   const addPart = (part: Part): void => {
@@ -148,7 +183,15 @@ export function createSheetsTokenOverlay(
     active.parts.push(part)
     chip.dataset.partIndex = String(active.parts.length - 1)
     if (selection && active.host.contains(selection.startContainer)) {
-      selection.deleteContents()
+      // Правый щелчок по метке выделяет её: вставка не должна стирать защищённую
+      // метку, поэтому новая встаёт после выделения, а не вместо него.
+      // Выделение может лежать внутри самой метки (её текст нередактируем),
+      // тогда точку вставки переносим за метку.
+      const endNode = selection.endContainer
+      const owner = (endNode instanceof Element ? endNode : endNode.parentElement)?.closest('[data-flux-token="true"]') || null
+      if (owner) { selection.setStartAfter(owner); selection.collapse(true) }
+      else if (hasProtectedToken(selection)) selection.collapse(false)
+      else selection.deleteContents()
       selection.insertNode(chip)
     } else active.host.appendChild(chip)
     const after = document.createRange()
@@ -161,7 +204,9 @@ export function createSheetsTokenOverlay(
 
   const position = (): void => {
     if (!active) return
-    const canvas = document.getElementById('univer-sheet-main-canvas') as HTMLCanvasElement | null
+    // У холста id с идентификатором книги (univer-sheet-main-canvas_<id>): по точному
+    // id он не находился, и окно формулы оставалось вне видимой области.
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas"]') as HTMLCanvasElement | null
     if (!canvas || !canvas.isConnected) return
     try {
       const cell = active.range.getCellRect()
@@ -199,7 +244,7 @@ export function createSheetsTokenOverlay(
     state.root.remove()
   }
 
-  const open = (anchorId: string, schema: any): boolean => {
+  const open = (anchorId: string, schema: any, initialText = ''): boolean => {
     if (!canEdit()) return false
     if (active?.anchorId === anchorId) {
       // Root may reopen the formula editor after a parameter picker closes.
@@ -270,9 +315,11 @@ export function createSheetsTokenOverlay(
     host.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') { event.preventDefault(); close(false) }
       else if (event.key === 'Enter' && !event.shiftKey && !composing) { event.preventDefault(); close(true) }
+      else if ((event.key === 'Backspace' || event.key === 'Delete') && !composing && !event.ctrlKey && !event.metaKey && !event.altKey) stepOverToken(event)
     })
     host.addEventListener('beforeinput', (event: InputEvent) => {
-      if (!event.inputType.startsWith('delete')) return
+      // Ввод поверх выделенной метки заменил бы её так же, как удаление.
+      if (!event.inputType.startsWith('delete') && !event.inputType.startsWith('insert')) return
       const selection = window.getSelection()
       if (selection?.rangeCount && touchesProtectedToken(selection.getRangeAt(0), event.inputType)) event.preventDefault()
     })
@@ -312,19 +359,7 @@ export function createSheetsTokenOverlay(
         menu.appendChild(button)
       }
       if (token && host.contains(token)) addMenuItem('Удалить параметр', () => {
-        const index = Number(token.dataset.partIndex)
-        if (!Number.isInteger(index)) return
-        const caret = document.createRange()
-        caret.setStartBefore(token)
-        caret.collapse(true)
-        token.remove()
-        state.parts.splice(index, 1)
-        for (const chip of Array.from(host.querySelectorAll<HTMLElement>('[data-flux-token="true"]'))) {
-          const oldIndex = Number(chip.dataset.partIndex)
-          if (oldIndex > index) chip.dataset.partIndex = String(oldIndex - 1)
-        }
-        state.caret = caret.cloneRange()
-        writeCaret(caret)
+        removeToken(token)
         state.menu = null
         menu.remove()
         host.focus()
@@ -335,6 +370,7 @@ export function createSheetsTokenOverlay(
         menu.remove()
         ipc.send('flux:cell-actions', {
           editorKind: 'sheets',
+          source: 'formula',
           anchors: [{ anchorId: state.anchorId, kind: 'excel-range', sheetName: state.sheetName, address: state.address, parts: partsFromHostFor(state.host, state.parts) }],
           position: { x: event.clientX, y: event.clientY },
         })
@@ -353,34 +389,51 @@ export function createSheetsTokenOverlay(
     end.collapse(false)
     writeCaret(end)
     state.caret = end.cloneRange()
+    // Первый набранный знак (ввод начат с клавиатуры) попал бы в закрытый редактор Univer
+    if (initialText) {
+      const typed = document.createTextNode(initialText)
+      host.appendChild(typed)
+      end.setStartAfter(typed)
+      end.collapse(true)
+      writeCaret(end)
+      state.caret = end.cloneRange()
+    }
     ipc.send('flux:header-formula-edit-started', { ok: true, anchorId })
     return true
   }
 
+  /**
+   * Части ячейки из разметки. Знаки действий становятся операторами только в ячейке,
+   * которая начинается с «=» (как в Excel): без него «Т/А» и «№-1» остаются текстом.
+   */
   const partsFromHostFor = (host: HTMLElement, original: Part[]): Part[] => {
-    const raw: Part[] = []
-    const text = (value: string): void => {
-      let ordinary = ''
-      const flush = (): void => { if (ordinary) raw.push({ kind: 'text', text: ordinary }); ordinary = '' }
-      for (const character of value) {
-        const operator = character === '×' ? '*' : character === '÷' ? '/' : character === '−' ? '-' : character
-        if (['+', '-', '*', '/', '(', ')'].includes(operator)) { flush(); raw.push({ kind: 'operator', operator }) }
-        else ordinary += character
-      }
-      flush()
-    }
+    const pieces: Array<string | Part> = []
     const visit = (node: Node): void => {
-      if (node.nodeType === Node.TEXT_NODE) { text(node.textContent || ''); return }
+      if (node.nodeType === Node.TEXT_NODE) { pieces.push(node.textContent || ''); return }
       if (!(node instanceof HTMLElement)) return
       if (node.dataset.fluxToken === 'true') {
         const index = Number(node.dataset.partIndex)
         const part = Number.isInteger(index) ? original[index] : null
-        if (part?.kind === 'field' || part?.kind === 'union') raw.push(part)
+        if (part?.kind === 'field' || part?.kind === 'union') pieces.push(part)
         return
       }
       for (const child of Array.from(node.childNodes)) visit(child)
     }
     for (const child of Array.from(host.childNodes)) visit(child)
+    const firstMeaningful = pieces.find((piece) => typeof piece !== 'string' || piece.trim() !== '')
+    const formula = typeof firstMeaningful === 'string' && firstMeaningful.trimStart().startsWith('=')
+    const raw: Part[] = []
+    for (const piece of pieces) {
+      if (typeof piece !== 'string') { raw.push(piece); continue }
+      let ordinary = ''
+      const flush = (): void => { if (ordinary) raw.push({ kind: 'text', text: ordinary }); ordinary = '' }
+      for (const character of piece) {
+        const operator = character === '×' ? '*' : character === '÷' ? '/' : character === '−' ? '-' : character
+        if (formula && ['+', '-', '*', '/', '(', ')'].includes(operator)) { flush(); raw.push({ kind: 'operator', operator }) }
+        else ordinary += character
+      }
+      flush()
+    }
     return raw.reduce<Part[]>((result, part) => {
       const prior = result[result.length - 1]
       if (part.kind === 'text' && prior?.kind === 'text') prior.text += part.text
@@ -391,7 +444,7 @@ export function createSheetsTokenOverlay(
 
   ipc.on('flux:edit-header-formula', (_event, request: any) => {
     const message = request?.payload ?? request ?? {}
-    const ok = open(String(message.anchorId || ''), message.schema)
+    const ok = open(String(message.anchorId || ''), message.schema, typeof message.initialText === 'string' ? message.initialText.slice(0, 8) : '')
     if (!ok) ipc.send('flux:header-formula-edit-started', { ok: false, anchorId: String(message.anchorId || ''), error: 'Ячейка заголовка больше не существует' })
   })
   ipc.on('flux:close-header-formula', (_event, request: any) => {
@@ -406,6 +459,11 @@ export function createSheetsTokenOverlay(
       if (displayName && !copied.displayName) copied.displayName = displayName
       addPart({ kind: 'field', binding: copied })
       return true
+    },
+    /** Открыть ввод в ячейке по уже известным частям (без схемы от окна Flux) */
+    openWith(anchorId: string, parts: Part[], initialText = ''): boolean {
+      const ok = open(anchorId, { anchors: [{ id: anchorId, parts }] }, initialText)
+      return ok
     },
     isEditing(anchorId?: string): boolean { return !!active && (!anchorId || active.anchorId === anchorId) },
     getLiveParts(anchorId: string): Part[] | null { return active?.anchorId === anchorId ? partsFromHost() : null },

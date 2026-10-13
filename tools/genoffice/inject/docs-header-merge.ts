@@ -348,6 +348,14 @@ function focusHeaderFormula(editor: Editor, request: any): boolean {
     editor.view.dispatch(tr)
     tr = editor.state.tr
   }
+  // Курсор, уже стоящий в этой ячейке (после вставки метки в его позицию), не трогаем:
+  // перенос в конец ломал бы ввод посреди формулы. Выделение ячеек или чужой абзац — в конец.
+  const current = editor.state.selection
+  const inside = current instanceof TextSelection && current.from > pos && current.to <= pos + 1 + paragraph.content.size
+  if (preserveText && inside) {
+    editor.view.focus()
+    return true
+  }
   const nextPos = preserveText ? pos + 1 + paragraph.content.size : pos + 2
   const selection = TextSelection.create(tr.doc, Math.min(nextPos, tr.doc.content.size))
   editor.view.dispatch(tr.setSelection(selection).scrollIntoView())

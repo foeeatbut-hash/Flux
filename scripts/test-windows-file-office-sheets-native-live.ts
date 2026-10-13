@@ -1,5 +1,6 @@
 /** Реальный WindowsFileHost + WindowsLayer + GenOffice Sheets и Native XLSX sidecar. */
 import assert from 'node:assert/strict';
+import { mockFluxPanelApi, openTagsSelection, ribbonCommand } from './officeLocalPanelMocks';
 import { createServer } from 'vite';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,6 +58,7 @@ async function main() {
       (window as any).__localOfficeEndpoint = endpoint;
       (window as any).__workspaceRoot = root;
     }, { seed: base64, endpoint: `${base}/__local-office`, root: rootId });
+    await mockFluxPanelApi(page, [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }]);
     await page.route('**/api/projects/local-project/tags', route => route.fulfill({ json: { tags: [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }] } }));
     await page.route('**/api/office/files/new?*', route => route.fulfill({ json: { id: 'export-1', name: 'tags-1.xlsx', sha256: 'sha-export-1', size: 1024, folderId: null } }));
     await page.goto(`${base}/scripts/fixtures/windows-file-office-workspace.html?app=sheets&root=${encodeURIComponent(rootId)}#/`);
@@ -80,7 +82,7 @@ async function main() {
     check('локальная книга открылась в реальном GenOffice с листами и площадью', loaded.rect[0] > 0 && loaded.rect[1] > 0 && loaded.names.includes('Перечень') && loaded.names.includes('Справка'), loaded);
     const child = page.frames().find(frame => frame.url().includes('/genoffice/sheets/index.html'));
     if (!child) throw new Error('Не найден frame GenOffice Sheets');
-    await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
+    await openTagsSelection(page, child, 'TAG-42', 20000);
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 20000 });
     await page.getByRole('button', { name: 'Вставить все' }).click();
     await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor({ timeout: 20000 });
@@ -115,11 +117,13 @@ async function main() {
     const errorsBeforeExport = errors.length;
     check('до handoff исходный Sheets не выдаёт ошибок', errorsBeforeExport === 0, errors);
     const sheetsFrameLoadsBeforeExport = navigations.length;
-    await page.locator('#flux-section-picker').selectOption('export');
-    await page.getByRole('button', { name: 'Книга Flux', exact: true }).waitFor({ timeout: 15000 });
+    // Выгрузка — команда ленты «Выгрузить»: окно с форматами, «Книга Flux» сохраняет файл и открывает его
+    await ribbonCommand(child, 'export');
+    const exportDialog = page.getByRole('dialog', { name: /Выгрузить:/ });
+    await exportDialog.getByRole('button', { name: 'Книга Flux', exact: true }).waitFor({ timeout: 15000 });
     const beforeExport = await iframe.evaluate(el => { (window as any).__workspaceSheetExportFrame = el; const node=el as HTMLIFrameElement, win=node.contentWindow as any; win.__sheetExportToken ||= crypto.randomUUID(); return { rect:[node.getBoundingClientRect().width,node.getBoundingClientRect().height], token:win.__sheetExportToken }; });
     const hadTagBeforeExport = await hasTag();
-    await page.getByRole('button', { name: 'Книга Flux', exact: true }).click();
+    await exportDialog.getByRole('button', { name: 'Книга Flux', exact: true }).click();
     await page.waitForFunction(() => (window as any).__windowStore.getState().windows.some((item: any) => item.path === '/office-sheet'), null, { timeout: 15000 });
     await page.waitForTimeout(1000);
     const afterExport = await iframe.evaluate(el => { const node=el as HTMLIFrameElement; return { sameNode:node===(window as any).__workspaceSheetExportFrame, rect:[node.getBoundingClientRect().width,node.getBoundingClientRect().height], book:!!(node.contentWindow as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook(), token:(node.contentWindow as any).__sheetExportToken }; });

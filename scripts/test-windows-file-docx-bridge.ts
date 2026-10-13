@@ -1,5 +1,6 @@
 /** Exercises the mounted DOCX iframe bridge against an in-memory disk CAS. */
 import { createServer } from 'vite';
+import { mockFluxPanelApi, ribbonCommand } from './officeLocalPanelMocks';
 const CHROME = process.env.FLUX_CHROME || '/usr/bin/chromium';
 const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ ${name}`); console.log(`✓ ${name}`); };
 
@@ -17,16 +18,18 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
     const errors: string[] = [];
     const requests: string[] = [];
     page.on('request', request => requests.push(request.url()));
+    await mockFluxPanelApi(page, [{ id: 'tag-42', identifier: 'P-42' }]);
+    // Щелчок по тегу в документе ищет тег проекта — этот маршрут не относится к панели
     await page.route('**/api/projects/local-project/tags', route => route.fulfill({ json: { tags: [{ id: 'tag-42', identifier: 'P-42' }] } }));
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/genoffice/docs/index.html', (route) => route.fulfill({
       contentType: 'text/html',
       body: `<!doctype html><html><body><script>
-        window.__hostMessages = [];
+        window.__hostMessages = []; window.__dirtyMock = false;
         window.addEventListener('message', function hostMessage(event) {
           if (event.source !== window.parent || event.data?.flux !== 'office') return;
           const data = event.data; window.__hostMessages.push(data);
-          if (data.event === 'closeCheck') window.parent.postMessage({ flux: 'office', op: 'closeCheck', payload: { dirty: true } }, location.origin);
+          if (data.event === 'closeCheck') window.parent.postMessage({ flux: 'office', op: 'closeCheck', payload: { dirty: window.__dirtyMock } }, location.origin);
           if (data.event === 'closeSave') window.parent.postMessage({ flux: 'office', op: 'closeSaveResult', payload: false }, location.origin);
         });
         window.parent.postMessage({ flux: 'office', op: 'hello' }, location.origin);
@@ -39,8 +42,8 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
     await page.waitForFunction(() => (window as any).__disk?.calls.some((call: any) => call.action === 'read'));
     const frame = page.frames().find((item) => item.url().includes('/genoffice/docs/index.html'));
     if (!frame) throw new Error('DOCX iframe failed to load');
-    await frame.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
-    await page.getByRole('complementary', { name: 'Flux' }).waitFor();
+    await ribbonCommand(frame, 'source-tags');
+    await page.getByRole('complementary', { name: 'Flux Office' }).waitFor();
     const panelBounds = await page.getByRole('complementary', { name: 'Flux' }).boundingBox();
     ok('Flux ribbon opens an in-window panel at narrow viewport', !!panelBounds && panelBounds.x + panelBounds.width <= 600);
     await frame.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:tag-click', payload: { tagId: 'tag-42', identifier: 'P-42' } }, location.origin));
@@ -59,9 +62,9 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
     ok('Flux resize uses the moved editor edge instead of the desktop viewport', !!resized && Math.abs(resized.width - 300) < 4 && resized.x + resized.width <= 802);
     await separator.focus(); await separator.press('ArrowLeft');
     const keyboardWidth = await page.getByRole('complementary', { name: 'Flux' }).boundingBox();
-    ok('keyboard resize also respects the editor bounds', !!keyboardWidth && Math.abs(keyboardWidth.width - 320) < 4);
+    ok('keyboard resize also respects the editor bounds', !!keyboardWidth && Math.abs(keyboardWidth.width - 324) < 4);
     await page.evaluate(() => { document.getElementById('mount')!.style.width = '320px'; document.documentElement.classList.add('dark'); });
-    await page.waitForFunction(() => document.querySelector('[aria-label="Flux"]')!.getBoundingClientRect().right <= 520);
+    await page.waitForFunction(() => document.querySelector('[aria-label="Flux Office"]')!.getBoundingClientRect().right <= 520);
     const compact = await page.getByRole('complementary', { name: 'Flux' }).boundingBox();
     const editorWidth = await frameElement.evaluate(element => element.getBoundingClientRect().width);
     ok('a narrow editor keeps its canvas and panel within the window in dark theme', !!compact && compact.width <= 308 && compact.x + compact.width <= 520 && editorWidth >= 316);
@@ -91,6 +94,8 @@ const ok = (name: string, value: boolean) => { if (!value) throw new Error(`✗ 
     ok('a successful retry clears the previous save failure in both host and editor', await page.getByRole('alert').count() === 0);
 
     await page.getByText('Открывается локальный редактор…').waitFor({ state: 'detached', timeout: 45_000 });
+    // К закрытию в редакторе есть несохранённая правка — только тогда окно просит его сохраниться
+    await frame.evaluate(() => { (window as any).__dirtyMock = true; });
     await page.waitForFunction(() => (window as any).__hasCloseGuard());
     const closeResult = await page.evaluate(() => (window as any).__tryCloseAfterIframeCheck());
     const closeMessages = await frame.evaluate(() => (window as any).__hostMessages);

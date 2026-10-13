@@ -71,9 +71,6 @@ const SKIP = new Set([
   // test-office-sheets-live.ts вместе с настоящими файлами
   '/office-doc',
   '/office-sheet',
-  // Выгрузка требует установки и книги: настоящую геометрию и формулы
-  // проверяет test-export-workspace-live.ts на шести ширинах в обеих темах.
-  '/equipment-export',
   // Браузер не имеет файлового моста: раскладка Проводника проверяется
   // test-windows-explorer-ui.ts, редактор — test-windows-file-docx-bridge.ts.
   '/windows-file',

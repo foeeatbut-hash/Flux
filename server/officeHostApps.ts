@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto';
 import { getPrisma } from './context.js';
 import { canReadFile } from './fileAccess.js';
 import { fileBytes } from './routes/fileChunks.js';
-import { writeOfficeFile, isCollaborativeFile, copyOfficeFile } from './routes/officeFiles.js';
+import { writeOfficeFile, isCollaborativeFile, copyOfficeFile, onOfficeFluxPartWritten } from './routes/officeFiles.js';
 import { shareOf } from './fileSharing.js';
 import { sheetShared } from './officeSheetCollab.js';
 import { officeBus } from './officeBus.js';
@@ -68,6 +68,15 @@ const SAVES: Record<HostApp, (channel: string) => boolean> = {
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const hosts = new Map<HostApp, Host>();
 const sessions = new Map<number, Session>();
+
+/**
+ * Сервер записал в файл только часть Flux: открытые над ним окна продолжают с
+ * новым хешем (окно, у которого хеш уже другой, правило сверки поймает как обычно)
+ */
+export function rebaseHostSessions(fileId: string, oldSha: string, newSha: string): void {
+  for (const s of sessions.values()) if (s.fileId === fileId && s.sha === oldSha) s.sha = newSha;
+}
+onOfficeFluxPartWritten(rebaseHostSessions);
 export function officeHostFileId(socketId: string, session: unknown): string {
   const s = sessions.get(Number(session));
   return s?.socketId === socketId ? s.fileId : '';

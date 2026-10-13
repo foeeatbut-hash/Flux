@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, ChevronRight, ExternalLink, MapPin, Play, Table2 } from 'lucide-react';
+import { ArrowRight, BookOpen, ChevronRight, ExternalLink, MapPin, Play } from 'lucide-react';
 import { useGuideStore } from '../../guide/store';
 import type { GuideAction, GuideCard, GuideMessage, GuideTable } from '../../guide/types';
 import { exportTableToExcel, exportTableToWord } from '../../guide/support/tableExport';
@@ -9,7 +9,6 @@ import { editorHref, saveNewFile } from '../../lib/officeFiles';
 
 function ActionChip({ action, onRun }: { action: GuideAction; onRun: (a: GuideAction) => void }) {
   const icon = action.kind === 'tour' ? <Play className="w-3 h-3" />
-    : action.kind === 'open-export' ? <Table2 className="w-3 h-3" />
     : action.kind === 'navigate' ? <ArrowRight className="w-3 h-3" />
     : action.kind === 'open-article' ? <BookOpen className="w-3 h-3" />
     : action.kind === 'focus-tag' || action.kind === 'focus-equipment' ? <MapPin className="w-3 h-3" />

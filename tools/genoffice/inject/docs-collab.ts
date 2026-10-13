@@ -21,6 +21,7 @@
  *   - после записи файл не перечитывается (правка в file-actions.ts):
  *     перечитывание заменило бы документ у всех и сменило исходник.
  */
+import { createDocsHistoryMarks } from './docs-history-marks'
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import {
@@ -29,8 +30,9 @@ import {
 import { UndoRedo } from '@tiptap/extensions'
 import type { Editor } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { createWordHeaderActions } from './docs-header-merge'
+import { installParameterChipStyle } from './parameter-chip-style'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
 
@@ -180,6 +182,55 @@ function selectionTouchesFluxField(state: any, key: string): boolean {
   return !!node?.isText && (node.marks || []).some(isFluxField)
 }
 
+/**
+ * Границы поля Flux, к которому относится Backspace/Delete: при пустом выделении — поле
+ * рядом с кареткой, при непустом — оно же, если выделение лежит внутри одного поля.
+ */
+function fluxFieldRange(state: any, key: string): { from: number; to: number } | null {
+  const { from, to, empty } = state.selection
+  const probe = empty ? (key === 'Backspace' ? from - 1 : from) : from
+  if (probe < 0 || probe >= state.doc.content.size) return null
+  const $probe = state.doc.resolve(probe)
+  const parent = $probe.parent
+  const start = $probe.start()
+  let range: { from: number; to: number } | null = null
+  let cursor = start
+  let run: { from: number; to: number; instr: string } | null = null
+  parent.forEach((child: any) => {
+    const mark = child.isText ? (child.marks || []).find(isFluxField) : null
+    const end = cursor + child.nodeSize
+    if (mark) {
+      const instr = String(mark.attrs?.instr || '')
+      if (run && run.instr === instr && run.to === cursor) run.to = end
+      else run = { from: cursor, to: end, instr }
+      if (!range && probe >= run.from && probe < end) range = run
+    } else run = null
+    cursor = end
+  })
+  const found = range as { from: number; to: number } | null
+  if (!found) return null
+  return empty || (from >= found.from && to <= found.to) ? { from: found.from, to: found.to } : null
+}
+
+/**
+ * Любая регистрация плагина пересобирает виды всех плагинов; вид yUndo при
+ * уничтожении отключает UndoManager от документа Yjs, а новый вид его не
+ * подключает обратно. Если сеанс совместной правки уже привязан, отмена
+ * молча перестаёт собирать правки (гонка с приходом y-state). Поэтому
+ * плагин отмены снимаем и ставим заново: состояние поля тогда создаётся с
+ * новым UndoManager.
+ */
+function reviveUndoManager(editor: Editor): void {
+  const plugins = editor.state.plugins
+  const index = plugins.findIndex((plugin) => (plugin as unknown as { key: string }).key === 'y-undo$')
+  if (index < 0) return
+  const without = plugins.filter((_, i) => i !== index)
+  editor.view.updateState(editor.state.reconfigure({ plugins: without }))
+  editor.view.updateState(editor.state.reconfigure({ plugins: [
+    ...without.slice(0, index), yUndoPlugin({ protectedNodes: new Set(['docParagraph']) }), ...without.slice(index),
+  ] }))
+}
+
 function installFluxFieldGuard(editor: Editor): void {
   try { editor.unregisterPlugin(fieldGuardKey) } catch { /* первый запуск */ }
   editor.registerPlugin(new Plugin({
@@ -210,14 +261,41 @@ function installFluxFieldGuard(editor: Editor): void {
       return !blocked
     },
     props: {
-      handleKeyDown(view, event) {
-        if (event.key !== 'Backspace' && event.key !== 'Delete') return false
-        // Поле нельзя стереть случайным Backspace; сначала его явно выбирают
-        // и удаляют командой Flux, чтобы таблица не теряла привязку незаметно.
-        return selectionTouchesFluxField(view.state, event.key)
+      // Через событие DOM, а не handleKeyDown: при выделенном поле Backspace раньше нас
+      // перехватывает клавиатурная карта редактора (deleteSelection), и поле не удалялось бы.
+      handleDOMEvents: {
+        keydown(view, event) {
+          // Текст у края или между полей: браузер не ставит каретку между двумя нередактируемыми
+          // метками, а набранный знак унаследовал бы метку поля и был бы заблокирован защитой.
+          // Поэтому знак вставляем сами обычным текстом: так пишутся «(», «+», «)» вокруг полей.
+          if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+            const { state } = view
+            const { from, to } = state.selection
+            if (from !== to || !(state.selection instanceof TextSelection)) return false
+            const $pos = state.doc.resolve(from)
+            const nextToField = [$pos.nodeBefore, $pos.nodeAfter].some((node: any) => node?.isText && (node.marks || []).some(isFluxField))
+            if (!nextToField || !view.editable) return false
+            const marks = ($pos.marks() || []).filter((mark: any) => !isFluxField(mark))
+            view.dispatch(state.tr.replaceWith(from, to, state.schema.text(event.key, marks)).setMeta('fluxFieldCommand', true).scrollIntoView())
+            event.preventDefault()
+            return true
+          }
+          if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+          const stop = (): true => { event.preventDefault(); return true }
+          if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return selectionTouchesFluxField(view.state, event.key) ? stop() : false
+          // Поле не стирается случайно: первое нажатие выделяет его целиком, второе
+          // удаляет (как чип). Остальные случаи у поля по-прежнему блокируются.
+          const range = fluxFieldRange(view.state, event.key)
+          if (!range) return selectionTouchesFluxField(view.state, event.key) ? stop() : false
+          const { from, to, empty } = view.state.selection
+          if (from === range.from && to === range.to) view.dispatch(view.state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+          else if (empty) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+          return stop()
+        },
       },
     },
   }))
+  reviveUndoManager(editor)
 }
 
 function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; documentPart: string } | null {
@@ -241,6 +319,7 @@ function docAnchor(editor: Editor): { kind: 'word-row'; anchorId: string; docume
 type NativeOfficePart = { kind: 'text'; text: string } | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' } | { kind: 'field'; binding: any } | { kind: 'union'; mode: 'first-match'; alternatives: any[] }
 
 function splitNativeText(text: string, followsField: boolean): NativeOfficePart[] {
+  // Арифметика считается только в ячейке, начинающейся с «=»; иначе «Т/А» и «№-1» остаются текстом
   const number = '(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)'
   const prefixOperator = new RegExp(`^(\\s*)([+*\\-/])\\s*(${number})(.*)$`).exec(text)
   if (prefixOperator && (followsField || prefixOperator[2] === '*' || prefixOperator[2] === '/')) {
@@ -303,7 +382,16 @@ function readNativeHeader(editor: Editor, anchorId: string, schemaAnchor?: any):
     })
     const schemaTokenCount = schemaParts.filter((part: any) => part.kind === 'field' || part.kind === 'union').length
     const hasExactKnownSchema = claimed.size === schemaTokenCount && assigned.every((entry, index) => !native[index].identity || !!entry) && renderedSchema.every((part: string | null) => part !== null) && renderedSchema.join('') === nativeText
-    if (hasExactKnownSchema) { found = schemaParts; return }
+    const isFormula = nativeText.trimStart().startsWith('=')
+    // Без ведущего «=» знаки — обычный текст, даже если в схеме они остались операторами
+    const plainText = (list: NativeOfficePart[]): NativeOfficePart[] => isFormula ? list : list.reduce<NativeOfficePart[]>((out, part) => {
+      const piece: NativeOfficePart = part.kind === 'operator' ? { kind: 'text', text: part.operator } : part
+      const prior = out[out.length - 1]
+      if (piece.kind === 'text' && prior?.kind === 'text') out[out.length - 1] = { kind: 'text', text: prior.text + piece.text }
+      else out.push(piece)
+      return out
+    }, [])
+    if (hasExactKnownSchema) { found = plainText(schemaParts); return }
     const parts: NativeOfficePart[] = []
     let followsField = false
     const emittedUnions = new Set<number>()
@@ -314,11 +402,11 @@ function readNativeHeader(editor: Editor, anchorId: string, schemaAnchor?: any):
         if (!emittedUnions.has(match.schemaIndex)) { parts.push(match.part); emittedUnions.add(match.schemaIndex) }
         followsField = true; return
       }
-      const textParts = splitNativeText(item.text, followsField)
+      const textParts = isFormula ? splitNativeText(item.text, followsField) : (item.text ? [{ kind: 'text', text: item.text } as NativeOfficePart] : [])
       parts.push(...textParts)
       followsField = false
     })
-    found = parts
+    found = plainText(parts)
   })
   return found
 }
@@ -342,6 +430,7 @@ function wordParagraphForSchema(editor: Editor, paragraph: any, anchor: any, lab
   const fieldMarkType = editor.state.schema.marks.instrField
   const appendText = (value: string, marks?: any[]): void => { if (value) parts.push(editor.schema.text(value, marks || existingTextMarks.get(value) || plainMarks)) }
   const labelFor = (binding: any): string => {
+    if (typeof binding.label === 'string' && binding.label) return binding.label
     const label = labels[`${binding.sourceId}:${binding.fieldKey}`] ?? labels[binding.fieldKey]
     return typeof label === 'string' ? label : existingFields.get(`${binding.sourceId}\u0000${binding.fieldKey}`)?.text || existingFields.get(`\u0000${binding.fieldKey}`)?.text || binding.fieldKey
   }
@@ -601,7 +690,35 @@ async function installFluxFields(): Promise<void> {
   let liveHeaderSchema: any = null
   const headerActions = createWordHeaderActions(editor, { validateHeaderSchema, wordParagraphForSchema, readNativeHeader, anchorIdFromBookmark, isFluxField })
   installFluxFieldGuard(editor)
+  installParameterChipStyle()
+  // Программные имена параметров (название · источник) приходят вместе со схемой; на плашке
+  // с чужим именем они видны во всплывающей подсказке, данные при этом берутся по ключу
+  const programmaticNames = new Map<string, string>()
+  const onChipHover = (event: MouseEvent) => {
+    const chip = event.target instanceof Element ? event.target.closest('[data-flux-parameter]') : null
+    if (!chip) return
+    const instr = chip.getAttribute('data-instr-field') || ''
+    const identity = /flux:([^"]+)"/.exec(instr)?.[1] || ''
+    const key = identity.startsWith('v1:') ? decodeURIComponent(identity.split(':').slice(2).join(':')) : identity
+    const technical = [...programmaticNames].find(([id]) => id.endsWith(`:${key}`) || id === key)?.[1]
+    if (technical && !technical.startsWith(`${chip.textContent} · `)) chip.setAttribute('title', technical)
+    else chip.removeAttribute('title')
+  }
+  editor.view.dom.addEventListener('mouseover', onChipHover)
+  editor.on('destroy', () => editor.view.dom.removeEventListener('mouseover', onChipHover))
     const report = () => p.tell('flux:anchor-selected', docAnchor(editor))
+  // Текст, набранный в ячейке-формуле между метками, надо донести до схемы: после паузы в наборе
+  // сообщаем окну Flux, и оно сверяет схему с ячейкой (в ячейке без «=» ничего не делаем)
+  let formulaTimer: ReturnType<typeof setTimeout> | undefined
+  const reportFormulaEdit = () => {
+    clearTimeout(formulaTimer)
+    formulaTimer = setTimeout(() => {
+      const parent = editor.state.selection.$from.parent
+      if (parent.textContent.trimStart().startsWith('=') && docAnchor(editor)) p.tell('flux:formula-edited', {})
+    }, 1500)
+  }
+  editor.on('update', reportFormulaEdit)
+  editor.on('destroy', () => { clearTimeout(formulaTimer); editor.off('update', reportFormulaEdit) })
   editor.on('selectionUpdate', report)
   editor.on('destroy', () => editor.off('selectionUpdate', report))
   const onHeaderContextMenu = (event: MouseEvent) => {
@@ -679,6 +796,13 @@ async function installFluxFields(): Promise<void> {
     const range = ranges[0]
     if (range) view.dispatch(state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
   })
+  // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
+  const historyMarks = createDocsHistoryMarks(() => yUndoPluginKey.getState(editor.state)?.undoManager as any, (step) => p.tell('flux:history-step', step))
+  editor.on('transaction', historyMarks.attach)
+  editor.on('destroy', () => editor.off('transaction', historyMarks.attach))
+  p.on('markFluxHistory', (request: any) => {
+    p.tell('flux:history-marked', { ok: true, marked: historyMarks.mark(String(request?.id || ''), Number(request?.since) || 0) })
+  })
   p.on('getFluxHeaderSchema', (request: any) => {
     let result: any
     try {
@@ -703,6 +827,7 @@ async function installFluxFields(): Promise<void> {
       const displayLabels = request?.displayLabels && typeof request.displayLabels === 'object' ? request.displayLabels : {}
       if (!validateHeaderSchema(schema) || !Array.isArray(removed) || removed.length > 500 || removed.some((id: any) => !/^[0-9a-f-]{36}$/i.test(String(id)))) throw new Error('Схема заголовков имеет неверный формат')
       if (Object.values(displayLabels).some((label: any) => typeof label !== 'string' || label.length > 2000)) throw new Error('Подписи заголовков имеют неверный формат')
+      for (const [id, name] of Object.entries(displayLabels)) if (id.includes(':')) programmaticNames.set(id, `${String(name)} · ${id.split(':')[0]}`)
       const anchors = new Map<string, any>(schema.anchors.map((anchor: any) => [String(anchor.id), anchor]))
       if (new Set(removed.map(String)).size !== removed.length || removed.some((id: any) => anchors.has(String(id)))) throw new Error('Изменение схемы повторно удаляет или одновременно сохраняет якорь')
       const targets = new Map<string, { pos: number; paragraph: any }>()

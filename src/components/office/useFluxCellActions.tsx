@@ -1,7 +1,11 @@
+import { startHistoryAction } from './useOfficeFluxBridge';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import FluxCellActionsDialog, { type FluxCellActionAnchor, type FluxCellMergeRequest, type FluxCellMergeConfirmation } from './FluxCellActionsDialog';
+import FluxCellActionsDialog, { collectOfficeCellMergeAlternatives, type FluxCellActionAnchor, type FluxCellMergeRequest, type FluxCellMergeConfirmation } from './FluxCellActionsDialog';
+import ContextMenu, { type MenuItem } from '../ContextMenu';
+import { MergeBadge, MergeConflictDialog, PriorityDialog, RenameDialog } from './FluxMergeParts';
+import { applyUnionChoice, bindingName, bothFilledPositions, defaultUnionLabel, namedParts, partName, renamePart, replacePart, takeFirst, technicalName, type MergePosition } from './fluxMergeChoice';
 import { fieldsFromCatalog, officeDataApi, type OfficeState, type OfficeField } from './fluxData';
-import type { OfficeBinding, OfficeHeaderSchema } from '../../lib/officeModel';
+import type { OfficeBinding, OfficeHeaderSchema, OfficeUnionPart } from '../../lib/officeModel';
 import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
 
 interface Options {
@@ -20,11 +24,28 @@ interface Options {
 /** Контекстное окно принадлежит дополнению: обычное меню редактора остаётся его собственным. */
 export function useFluxCellActions(options: Options) {
   const generation = useRef(0);
-  useEffect(() => { generation.current++; setSelection([]); setState(null); setFields([]); }, [options.fileId]);
+  useEffect(() => { generation.current++; setSelection([]); setState(null); setFields([]); setMenu(null); setBadge(null); setPriority(null); setRename(null); setConflicts(null); }, [options.fileId]);
   const [selection, setSelection] = useState<FluxCellActionAnchor[]>([]);
   const [state, setState] = useState<OfficeState | null>(null);
   const [fields, setFields] = useState<OfficeField[]>([]);
   const [busy, setBusy] = useState(false);
+  // Меню по правому щелчку, плашка «оба заполнены», окна имени и приоритета: всё это окна Flux поверх редактора
+  const [menu, setMenu] = useState<{ anchors: FluxCellActionAnchor[]; x: number; y: number } | null>(null);
+  const [badge, setBadge] = useState<{ anchorId: string; index: number; positions: MergePosition[]; x: number; y: number } | null>(null);
+  const [priority, setPriority] = useState<{ anchorId: string; index: number; positions: MergePosition[] } | null>(null);
+  const [rename, setRename] = useState<{ anchorId: string; index: number } | null>(null);
+  const [conflicts, setConflicts] = useState<Array<{ rowIndex: number; targetText: string; sourceText: string }> | null>(null);
+  // Сохранённые привязки не хранят displayName, а окно формулы подписывает метку им,
+  // иначе вместо «DrivePower» в ячейку попадает ключ «param:@DrivePower».
+  const labeled = (schema: OfficeHeaderSchema, known: OfficeField[] = fields): OfficeHeaderSchema => {
+    const fill = (binding: OfficeBinding): OfficeBinding => {
+      if ((binding as any).displayName) return binding;
+      const field = known.find((item) => item.sourceId === binding.sourceId && item.fieldKey === binding.fieldKey);
+      return field ? { ...binding, displayName: field.displayName } as OfficeBinding : binding;
+    };
+    return { ...schema, anchors: schema.anchors.map((anchor) => ({ ...anchor, parts: anchor.parts.map((part: any) => part.kind === 'field' ? { ...part, binding: fill(part.binding) }
+      : part.kind === 'union' ? { ...part, alternatives: part.alternatives.map(fill) } : part) })) };
+  };
   const open = useCallback(async (payload: any) => {
     if (!Array.isArray(payload?.anchors) || !payload.anchors.length || payload.anchors.length > 2) return;
     const openedGeneration = generation.current;
@@ -39,7 +60,12 @@ export function useFluxCellActions(options: Options) {
         return { ...anchor, ...stored, anchorId: stored.id, parts: Array.isArray(anchor.parts) && anchor.parts.length ? anchor.parts : stored.parts };
       });
       if (openedGeneration !== generation.current) return;
-      setState(current); setFields(fieldsFromCatalog(catalog)); setSelection(selected);
+      setState(current); setFields(fieldsFromCatalog(catalog));
+      // Из окна формулы приходит вставка параметра, остальное — меню: объединение и имя идут без окон
+      if (payload.source === 'formula') { setSelection(selected); return; }
+      // Позиция щелчка дана в координатах редактора; окно редактора лежит в странице Flux со своим смещением
+      const frame = document.querySelector('iframe[src*="genoffice/"]')?.getBoundingClientRect();
+      setMenu({ anchors: selected, x: (frame?.left || 0) + Number(payload.position?.x || 0), y: (frame?.top || 0) + Number(payload.position?.y || 0) });
     } catch (reason: any) { options.onError(String(reason?.message || reason)); }
     finally { setBusy(false); }
   }, [options.fileId, options.projectId, options.requestState]);
@@ -51,6 +77,7 @@ export function useFluxCellActions(options: Options) {
     const schema: OfficeHeaderSchema = { ...state.schema, anchors: state.schema.anchors.filter((anchor) => !request.sourceAnchorIds.includes(anchor.id)).map((anchor) => anchor.id === target.id ? {
       ...anchor, parts: [{ kind: 'union', mode: 'first-match', label: request.outputLabel.trim(), alternatives: request.alternatives.map((binding) => ({ ...binding, anchorId: target.id })) }],
     } : anchor) };
+    if (confirm) startHistoryAction();
     const response = await options.requestNative('merge', { schema, sourceSchema: state.schema, rows: state.rows || [], targetAnchorId: target.id, sourceAnchorIds: request.sourceAnchorIds,
       ...(confirm ? { confirm: true, previewToken: (request as FluxCellMergeConfirmation).previewToken } : { previewOnly: true }) });
     if (!response?.ok) return response || { ok: false, error: 'Редактор не ответил.' };
@@ -73,22 +100,57 @@ export function useFluxCellActions(options: Options) {
     // Во время ввода в ячейке метка остаётся в буфере до Enter; сохранение не прерывает курсор.
     if (options.isInlineEditing?.()) {
       setSelection([]);
-      requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: state.schema }).catch((reason) => options.onError(String(reason?.message || reason))); });
+      requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: labeled(state.schema) }).catch((reason) => options.onError(String(reason?.message || reason))); });
       return true;
     }
     const schema: OfficeHeaderSchema = { ...state.schema, anchors: state.schema.anchors.map((item) => item.id === anchorId ? { ...item, parts: [...item.parts, { kind: 'field', binding }] } : item) };
     const next = await options.updateSchema(schema, { captureNative: true });
-    if (next) { setState(next); options.resumeFocus?.(anchorId, next.schema); }
+    if (next) { setState(next); options.resumeFocus?.(anchorId, labeled(next.schema)); }
     setSelection([]);
     return !!next;
   };
-  const editFormula = async (anchorId: string) => {
-    if (!state || options.readOnly) return;
+  // Ввод прямо в ячейке шапки: редактор сообщает о начале правки привязанной ячейки,
+  // и окно формулы открывается поверх неё без промежуточного диалога.
+  const beginEdit = async (payload: any) => {
+    const anchorId = String(payload?.anchorId || '');
+    if (options.readOnly || !anchorId) return;
     try {
-      const result = await options.requestNative('formula', { anchorId, schema: state.schema });
-      if (!result?.ok) throw new Error(result?.error || 'Редактор не открыл формулу.');
-      setSelection([]);
+      const current = await options.requestState();
+      if (!current) throw new Error('Схема документа недоступна.');
+      if (!current.schema.anchors.some((anchor) => anchor.id === anchorId)) throw new Error('Сначала привяжите параметр к ячейке шапки.');
+      const known = fieldsFromCatalog(await officeDataApi.catalog(options.projectId));
+      setState(current); setFields(known);
+      const result = await options.requestNative('formula', { anchorId, schema: labeled(current.schema, known), initialText: typeof payload?.initialText === 'string' ? payload.initialText : '' });
+      if (!result?.ok) throw new Error(result?.error || 'Редактор не открыл ячейку.');
     } catch (reason: any) { options.onError(String(reason?.message || reason)); }
+  };
+  // Текст, набранный в ячейке Word между метками, живёт в документе; в схему он попадает
+  // при записи файла: сверяем схему с тем, что прочитано из ячеек, и пишем, если разошлись.
+  const syncing = useRef(false);
+  const syncAgain = useRef(false);
+  const syncFromNative = async () => {
+    if (options.readOnly || options.isInlineEditing?.()) return;
+    // Набор продолжился, пока схема сверялась: после сверки повторяем, чтобы не потерять хвост
+    if (syncing.current) { syncAgain.current = true; return; }
+    syncing.current = true;
+    try {
+      const live = await options.requestState();
+      const stored = await officeDataApi.state(options.fileId);
+      if (!live || !stored.schema.anchors.length) return;
+      // Только формулы (ячейка начинается с «=»): обычную подпись рядом с меткой схема не хранит,
+      // и перезапись таких ячеек сбивала бы выделение. Сравниваем состав частей, а не служебные поля.
+      const shape = (parts: OfficeHeaderSchema['anchors'][number]['parts']) => parts.map((part: any) => part.kind === 'field' ? `f:${part.binding.sourceId}:${part.binding.fieldKey}` : part.kind === 'union' ? `u:${part.alternatives.map((item: any) => item.fieldKey).join(',')}` : part.kind === 'operator' ? `o:${part.operator}` : `t:${part.text}`).join('|');
+      const changed = new Map<string, OfficeHeaderSchema['anchors'][number]['parts']>();
+      for (const anchor of live.schema.anchors) {
+        const first: any = anchor.parts[0];
+        const before = stored.schema.anchors.find((item) => item.id === anchor.id);
+        if (before && first?.kind === 'text' && first.text.trimStart().startsWith('=') && shape(anchor.parts) !== shape(before.parts)) changed.set(anchor.id, anchor.parts);
+      }
+      if (!changed.size) return;
+      await options.updateSchema({ ...stored.schema, anchors: stored.schema.anchors.map((anchor) => changed.has(anchor.id) ? { ...anchor, parts: changed.get(anchor.id)! } : anchor) }, { storeOnly: true });
+    } catch (reason: any) { options.onError(String(reason?.message || reason)); }
+    finally { syncing.current = false; }
+    if (syncAgain.current) { syncAgain.current = false; await syncFromNative(); }
   };
   const edited = async (payload: any) => {
     if (options.readOnly) return;
@@ -105,8 +167,115 @@ export function useFluxCellActions(options: Options) {
   const cancel = () => {
     const anchorId = selection[0]?.anchorId;
     setSelection([]);
-    if (anchorId && state && options.isInlineEditing?.()) requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: state.schema }).catch((reason) => options.onError(String(reason?.message || reason))); });
+    if (anchorId && state && options.isInlineEditing?.()) requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: labeled(state.schema) }).catch((reason) => options.onError(String(reason?.message || reason))); });
   };
-  return { open, edited, dialog: <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy}
-    onCancel={cancel} onPreviewMerge={(request) => merge(request, false)} onConfirmMerge={(request) => merge(request, true)} onInsertField={insert} onEditFormula={editFormula} /> };
+  /** Подписи каталога для редактора: он ставит программное имя в подсказку и текст шапки без своего имени. */
+  const labelsOf = (): Record<string, string> => Object.fromEntries(fields.map((field) => [`${field.sourceId}:${field.fieldKey}`, field.displayName]));
+  const unionAt = (schema: OfficeHeaderSchema, anchorId: string, index: number): OfficeUnionPart | null => {
+    const part = schema.anchors.find((anchor) => anchor.id === anchorId)?.parts[index];
+    return part?.kind === 'union' ? part : null;
+  };
+  /** Правка схемы одним действием: документ и файл меняются вместе, а «назад» возвращает обе. Схема уходит в редактор (без captureNative), иначе текст шапки не обновится. */
+  const commit = async (schema: OfficeHeaderSchema): Promise<boolean> => {
+    if (options.readOnly) { options.onError('Документ открыт только для просмотра.'); return false; }
+    setBusy(true);
+    try {
+      const next = await options.updateSchema(labeled(schema), { displayLabels: labelsOf() });
+      if (!next) return false;
+      setState(next);
+      return true;
+    } catch (reason: any) { options.onError(String(reason?.message || reason)); return false; }
+    finally { setBusy(false); }
+  };
+  const nameOf = (anchorId: string, index: number): string => {
+    const part = state?.schema.anchors.find((anchor) => anchor.id === anchorId)?.parts[index];
+    return part ? partName(part, fields) : '';
+  };
+
+  // Объединение двумя щелчками: предпросмотр и проверка устаревания идут внутри одного действия.
+  const mergeNow = async (anchors: FluxCellActionAnchor[], at: { x: number; y: number }) => {
+    const plan = collectOfficeCellMergeAlternatives(anchors);
+    if (plan.error) { options.onError(plan.error); return; }
+    const [target, source] = anchors;
+    const request: FluxCellMergeRequest = { targetAnchorId: target.anchorId, sourceAnchorIds: [source.anchorId], alternatives: plan.alternatives, outputLabel: defaultUnionLabel(plan.alternatives, fields) };
+    setBusy(true);
+    try {
+      const preview = await merge(request, false);
+      if (!preview.ok || preview.conflicts?.length) {
+        // Разные ручные значения в обеих колонках: объяснение без записи, как и прежде
+        if (preview.conflicts?.length) setConflicts(preview.conflicts); else options.onError(preview.error || 'Редактор не подготовил объединение.');
+        return;
+      }
+      if (!preview.previewToken) throw new Error('Редактор не вернул токен предварительного просмотра. Повторите объединение.');
+      const done = await merge({ ...request, previewToken: preview.previewToken } as FluxCellMergeConfirmation, true);
+      if (!done.ok) {
+        if (done.conflicts?.length) setConflicts(done.conflicts); else options.onError(done.error || 'Редактор не подтвердил объединение.');
+        return;
+      }
+      // Позиции, где заполнены оба параметра, не останавливают объединение: о них спрашивает плашка
+      try {
+        const rows = (await options.requestState())?.rows;
+        const positions = await bothFilledPositions(options.projectId, rows, plan.alternatives);
+        if (positions.length) setBadge({ anchorId: target.anchorId, index: 0, positions, x: at.x, y: at.y });
+      } catch { /* без данных плашки нет: приоритет остаётся доступным через меню */ }
+    } catch (reason: any) { options.onError(String(reason?.message || reason)); }
+    finally { setBusy(false); }
+  };
+  const decide = async (anchorId: string, index: number, choose: (part: OfficeUnionPart) => OfficeUnionPart) => {
+    const part = state && unionAt(state.schema, anchorId, index);
+    if (!state || !part) return false;
+    return commit(replacePart(state.schema, anchorId, index, choose(part)));
+  };
+  const openPriority = async (anchorId: string, index: number) => {
+    const part = state && unionAt(state.schema, anchorId, index);
+    if (!state || !part) return;
+    setBusy(true);
+    try {
+      const current = (await options.requestState()) || state;
+      setPriority({ anchorId, index, positions: await bothFilledPositions(options.projectId, current.rows, part.alternatives) });
+    } catch (reason: any) { options.onError(String(reason?.message || reason)); }
+    finally { setBusy(false); }
+  };
+
+  const menuItems = (): MenuItem[] => {
+    if (!menu || !state) return [];
+    const items: MenuItem[] = [];
+    if (menu.anchors.length === 2) items.push({ label: 'Объединить', disabled: options.readOnly, onClick: () => void mergeNow(menu.anchors, menu) });
+    else {
+      const stored = state.schema.anchors.find((anchor) => anchor.id === menu.anchors[0]?.anchorId);
+      const named = stored ? namedParts(stored.parts) : [];
+      for (const { index, part } of named) {
+        const suffix = named.length > 1 ? ` «${partName(part, fields)}»` : '';
+        const anchorId = stored!.id;
+        items.push({ label: `Переименовать${suffix}`, disabled: options.readOnly, onClick: () => setRename({ anchorId, index }) });
+        // Сброс — только там, где имя действительно своё
+        if (part.kind === 'field' && part.binding.label) items.push({ label: `Сбросить имя${suffix}`, disabled: options.readOnly, onClick: () => void commit(renamePart(state.schema, anchorId, index, null, fields)) });
+        if (part.kind === 'union') items.push({ label: `Приоритет объединения${suffix}`, disabled: options.readOnly, onClick: () => void openPriority(anchorId, index) });
+      }
+    }
+    items.push({ label: 'Вставить параметр…', separated: items.length > 0, disabled: options.readOnly, onClick: () => setSelection(menu.anchors) });
+    return items;
+  };
+  const renaming = rename && state ? state.schema.anchors.find((anchor) => anchor.id === rename.anchorId)?.parts[rename.index] : undefined;
+  const choiceNames = (part: OfficeUnionPart) => [...part.alternatives].sort((a, b) => a.priority - b.priority).map((item) => ({ fieldKey: item.fieldKey, name: bindingName(item, fields) }));
+  const badgePart = badge && state ? unionAt(state.schema, badge.anchorId, badge.index) : null;
+  const priorityPart = priority && state ? unionAt(state.schema, priority.anchorId, priority.index) : null;
+  const overlays = <>
+    {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+    {badge && badgePart && !badgePart.resolved && <MergeBadge count={badge.positions.length} alternatives={choiceNames(badgePart)} left={Math.min(badge.x, window.innerWidth - 300)} top={badge.y + 8} busy={busy}
+      onTake={(fieldKey) => void decide(badge.anchorId, badge.index, (part) => takeFirst(part, fieldKey)).then((ok) => { if (ok) setBadge(null); })}
+      onEach={() => { setPriority({ anchorId: badge.anchorId, index: badge.index, positions: badge.positions }); setBadge(null); }} onClose={() => setBadge(null)} />}
+    {priority && priorityPart && <PriorityDialog alternatives={choiceNames(priorityPart)} positions={priority.positions} picks={priorityPart.picks || {}} busy={busy}
+      onSave={(order, picks) => void decide(priority.anchorId, priority.index, (part) => applyUnionChoice(part, order, picks)).then((ok) => { if (ok) { setPriority(null); setBadge(null); } })} onClose={() => setPriority(null)} />}
+    {rename && renaming && renaming.kind !== 'text' && renaming.kind !== 'operator' && <RenameDialog current={nameOf(rename.anchorId, rename.index)}
+      technical={renaming.kind === 'field' ? technicalName(renaming.binding, fields) : renaming.alternatives.map((item) => technicalName(item, fields)).join(' / ')}
+      custom={renaming.kind === 'field' ? !!renaming.binding.label : !!renaming.label && renaming.label !== defaultUnionLabel(renaming.alternatives, fields)} busy={busy}
+      onSave={(name) => void commit(renamePart(state!.schema, rename.anchorId, rename.index, name, fields)).then((ok) => { if (ok) setRename(null); })}
+      onReset={() => void commit(renamePart(state!.schema, rename.anchorId, rename.index, null, fields)).then((ok) => { if (ok) setRename(null); })} onClose={() => setRename(null)} />}
+    {conflicts && <MergeConflictDialog conflicts={conflicts} onClose={() => setConflicts(null)} />}
+  </>;
+  return { open, beginEdit, syncFromNative, edited, dialog: <>
+    <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy} onCancel={cancel} onInsertField={insert} />
+    {overlays}
+  </> };
 }

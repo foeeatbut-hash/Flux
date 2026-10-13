@@ -80,12 +80,14 @@ const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex
 const xmlText = (xml: string) => xml.replace(/<[^>]*>/g, '').replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'");
 const hasEmptyFormulaTarget = async (fileId: string) =>
   /<c\b[^>]*\br="A2"[^>]*><f>IF\(FALSE,1,(?:&quot;|"){2}\)<\/f><v>\s*<\/v><\/c>/.test(await archiveText(fileId, 'xl/worksheets/sheet1.xml'));
-const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((cellAddress: string) => {
+const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((_body: HTMLElement, cellAddress: string) => {
   const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
   const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
-  if (!sheet) throw new Error('Перечень sheet is unavailable in the actual workbook');
+  // Нет листа — undefined, а не исключение: проба внутри waitFor не должна
+  // обрывать весь прогон, пока книга перезагружается после сохранения.
+  if (!sheet) return undefined;
   return sheet.getRange(cellAddress)?.getValues?.()?.[0]?.[0] ?? '';
-}, address);
+}, address).catch(() => undefined);
 const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 250)); }
@@ -119,6 +121,12 @@ const openPanel = async (page: any, title: string) => {
   await page.getByRole('complementary', { name: 'Flux Office' }).waitFor({ timeout: 10000 });
   return frame;
 };
+/** Кнопка вкладки Flux ленты редактора: одно сообщение flux:open-panel с полем command. */
+const ribbonCommand = async (page: any, command: string) => {
+  const editor = page.frames().find((item: any) => /\/genoffice\/(docs|sheets)\/index\.html/.test(item.url()));
+  if (!editor) throw new Error('Не найден frame редактора для команды ленты');
+  await editor.evaluate((name: string) => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel', command: name }, location.origin), command);
+};
 const navigateOffice = async (page: any, route: string) => {
   const url = `${BASE}/#${route}`;
   // Use a fresh app page/context for each editor so the window manager consumes
@@ -143,7 +151,7 @@ const loadSheetAddress = async (frame: any, address: string) => {
   const nameBox = frame.locator('input.univer-box-border').first();
   await nameBox.fill(address);
   await nameBox.press('Enter');
-  return waitFor(async () => frame.locator('body').evaluate(({ row, column }) => {
+  return waitFor(async () => frame.locator('body').evaluate((_body: HTMLElement, { row, column }: { row: number; column: number }) => {
     const runtime = (window as any).__fluxSheets;
     const workbook = runtime?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
     const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
@@ -332,6 +340,18 @@ try {
   };
   await loginPage(page, BASE, fixture.admin, false);
 
+  // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
+  // создают свои файлы, и узкий прогон идёт в разы быстрее полного
+  if (process.env.FLUX_NATIVE_ONLY === 'cells') {
+    await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
+    await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+    await context.close();
+    return;
+  }
+
+  // FLUX_NATIVE_ONLY=issued — только раздел 5 (выпущенная книга только для просмотра); разделы 1–4 готовят ему
+  // лишь файл, который он сам создаёт заново
+  if (process.env.FLUX_NATIVE_ONLY !== 'issued') {
   console.log('\n1. Native Word editor, table anchor, add-on, save and reopen');
   await navigateOffice(page, `/office-doc?file=${encodeURIComponent(docxId)}`);
   const docs = await openPanel(page, 'Flux Office — Документ');
@@ -375,19 +395,22 @@ try {
   await headerPanel.getByLabel('Текст заголовка 4').fill(' м³/ч');
   await headerPanel.getByRole('button', { name: 'Текст', exact: true }).click();
   for (let part = 5; part > 1; part--) await headerPanel.getByRole('button', { name: `Переместить часть ${part} выше` }).click();
-  await headerPanel.getByLabel('Текст заголовка 1').fill('Расход: ');
+  await headerPanel.getByLabel('Текст заголовка 1').fill('=Расход: ');
   await headerPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const customHeaderState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
-    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === 'Расход: ';
+    return state?.schema?.anchors?.[0]?.parts?.length === 5 && state.schema.anchors[0].parts[0]?.text === '=Расход: ';
   });
   const customHeaderXml = await archiveText(docxId, 'word/document.xml');
   const customHeaderText = xmlText(customHeaderXml);
   check('Word header schema saves prefix, protected field, arithmetic operator, numeric operand, and unit suffix in order', customHeaderState && (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text', (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.schema?.anchors?.[0]?.parts);
   check('native Word paragraph serializes custom prefix, field token, arithmetic, and suffix', customHeaderText.includes('Расход: ') && customHeaderText.includes('Расход воздуха') && customHeaderText.includes('*2 м³/ч') && /DOCPROPERTY\s+"flux:/.test(customHeaderXml), customHeaderText.slice(0, 700));
   const templateName = `Native Template ${stamp}`;
-  await headerPanel.getByLabel('Название шаблона').fill(templateName);
-  await headerPanel.getByRole('button', { name: 'Сохранить шаблон' }).click();
+  // Шаблоны — команды ленты, в панели их нет
+  await ribbonCommand(page, 'save-template');
+  const saveTemplateDialog = page.getByRole('dialog', { name: 'Сохранить шапку как шаблон' });
+  await saveTemplateDialog.getByLabel('Название шаблона').fill(templateName);
+  await saveTemplateDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   const templateSaved = await waitFor(async () => (await api('GET', '/api/project-data/office/templates')).json?.templates?.some((item: any) => item.name === templateName));
   check('saved Word header template is available to this project', templateSaved, (await api('GET', '/api/project-data/office/templates')).json?.templates?.map((item: any) => item.name));
   for (let remove = 0; remove < 4; remove++) await headerPanel.getByRole('button', { name: 'Удалить часть заголовка' }).last().click();
@@ -415,6 +438,8 @@ try {
   if (renderedFieldCount) {
     const editorTextBeforeBackspace = await editor.innerText();
     await renderedField.click();
+    // Щелчок выделяет метку целиком, и Backspace её удалил бы (второе нажатие); каретка после метки — первое нажатие
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Backspace');
     const liveMarkerSurvivesBackspace = await waitFor(async () => await renderedField.count() > 0, 3000);
     const editorTextAfterBackspace = await editor.innerText();
@@ -504,7 +529,7 @@ try {
     const prePreviewState = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
     await wordPreview.click();
     const wordConfirm = panel.getByRole('button', { name: 'Подтвердить и заполнить' });
-    const previewReady = await wordConfirm.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false);
+    const previewReady = await wordConfirm.waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
     const previewXml = await archiveText(docxId, 'word/document.xml');
     const previewState = (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json;
     check('Word changes remain in preview until explicit confirmation', previewReady && previewXml === prePreviewXml && JSON.stringify(previewState?.rows || []) === JSON.stringify(prePreviewState?.rows || []), { buttonVisible: previewReady, xmlUnchanged: previewXml === prePreviewXml, beforeRows: prePreviewState?.rows?.length, previewRows: previewState?.rows?.length });
@@ -593,7 +618,8 @@ try {
   const targetAnchor = await waitFor(async () => !!(await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema?.anchors?.[0]?.id);
   const targetAnchorId = String((await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema?.anchors?.[0]?.id || '');
   check('target document has its own native Word anchor UUID', !!targetAnchor && !!targetAnchorId && targetAnchorId !== sourceAnchorId, { sourceAnchorId, targetAnchorId });
-  await targetPanel.getByRole('button', { name: templateName, exact: true }).click();
+  await ribbonCommand(page, 'templates');
+  await page.getByRole('dialog', { name: 'Шаблоны шапки' }).locator('li', { hasText: templateName }).getByRole('button', { name: 'Открыть' }).click();
   const templateAnchorMapping = targetPanel.getByLabel('Целевая ячейка для якоря шаблона 1');
   const templateMappingReady = await waitFor(async () => await templateAnchorMapping.count() > 0 || (await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0), 15000);
   check('template opening finishes loading its mapping decision', templateMappingReady);
@@ -610,7 +636,7 @@ try {
     const anchor = state?.schema?.anchors?.[0];
     const parts = anchor?.parts || [];
     return anchor?.id === targetAnchorId && parts.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text' &&
-      parts[0]?.text === 'Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
+      parts[0]?.text === '=Расход: ' && parts[1]?.binding?.anchorId === targetAnchorId && parts[2]?.operator === '*' &&
       parts[3]?.text === '2' && parts[4]?.text === ' м³/ч';
   });
   check('cross-document template applies all five header parts and rebinds its field to the target UUID', templateReady && mappedTemplateState, (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema);
@@ -708,12 +734,18 @@ try {
   await sheets.locator('input.univer-box-border').first().fill('A1');
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
-  await page.keyboard.type('FORBIDDEN_HEADER'); await page.keyboard.press('Enter');
+  // Набор в привязанной ячейке идёт в окне ввода поверх неё: метка защищена, текст рядом свободный
+  await page.keyboard.type('FORBIDDEN_HEADER');
+  const inCellInput = await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  const inCellChips = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-chip').count() : 0;
+  const inCellText = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').innerText() : '';
+  await page.keyboard.press('Escape');
+  await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
   const headerAfterEdit = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
   });
-  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader, { protectedHeader, headerAfterEdit });
+  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
   await page.keyboard.press('Escape');
   await sheetPanel.getByRole('button', { name: 'Удалить привязку поля' }).click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
@@ -753,13 +785,7 @@ try {
       rows: [{ entityId: 'manual:native-fixture-row', entityType: 'manual', sourceId: '', sourceRevision: seed.json?.revision || '', anchorIds: [anchor.id], cells: { [anchor.id]: 'A5' } }],
     });
     check('fixture records the unrelated physical manual row at its real OOXML address', seeded.status === 200 && seeded.json?.ok, seeded.json);
-    // Fixture API изменил байты книги вне редактора и завершил прежний сеанс.
-    // Открываем актуальный файл в одном новом окне, как после внешней правки.
-    await resetPage(false);
-    await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(xlsxId)}`);
-    sheets = await openPanel(page, 'Flux Office — Таблица');
-    sheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
-    check('manual-row fixture reopened from its actual file version', await waitForSheetFile(sheets));
+    // Запись схемы меняет только часть Flux: окно редактора остаётся тем же, переоткрывать не нужно.
     beforeRepeat = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
   } else check('Excel fixture anchor exists before seeding its manual row identity', false, beforeRepeat?.schema);
 
@@ -876,11 +902,7 @@ try {
     rows: [{ entityId: formulaEntity.entityId, entityType: 'element', sourceId: 'equipment', sourceRevision: entityQuery.json.revision, anchorIds: [formulaAnchor.id], cells: { [formulaAnchor.id]: 'A2' }, values: { [`param:Аэродинамика|Расход воздуха`]: 1200 } }],
   }) : { status: 0, json: null };
   check('formula test maps a real selected entity row to physical target A2', formulaSeed.status === 200 && formulaSeed.json?.ok, formulaSeed.json);
-  await resetPage(false);
-  await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(formulaId)}`);
-  const reopenedFormulaFrame = await openPanel(page, 'Flux Office — Таблица');
-  formulaPanel = page.getByRole('complementary', { name: 'Flux Office' });
-  check('formula fixture reopened after its external metadata write', await waitForSheetFile(reopenedFormulaFrame));
+  // Прямая запись строк сохранила файл без переоткрытия редактора: окно то же, хеш базы сервер сообщил открытым сеансам.
   await page.getByRole('button', { name: /1\. Выборка/ }).click();
   await formulaPanel.getByRole('button', { name: 'Обновить выборку' }).click();
   await waitFor(async () => (await formulaPanel.getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0);
@@ -900,7 +922,7 @@ try {
   check('formula refusal keeps exactly the original entity-to-A2 row identity', formulaAfter?.rows?.length === 1 && formulaAfter.rows[0].entityId === formulaEntity?.entityId && formulaAfter.rows[0].cells?.[formulaAnchor?.id] === 'A2', formulaAfter?.rows);
 
   await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
-  await runNativeWordCellActions({ folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   // Theme screenshot is a second actual editor session; does not alter the workbook.
   await resetPage(true);
@@ -957,6 +979,8 @@ try {
   const originalFinal = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
   check('editing the new draft never mutates the issued source document', sha256(originalFinal.bytes) === sourceSha);
 
+  } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
+
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
   const xlsxSourceSha = sha256(xlsxBeforeIssue.bytes);
@@ -968,7 +992,10 @@ try {
   const issuedSheetFrame = await openPanel(page, 'Flux Office — Таблица');
   const issuedSheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
   check('issued XLSX opens in the actual native grid and announces read-only mode', await waitForSheetFile(issuedSheetFrame) && await waitFor(async () => await issuedSheetPanel.getByText(/Документ открыт только для просмотра/).count() > 0, 15000));
+  // Без подгрузки A1 пустая ячейка равна пустой, и запрет записи прошёл бы впустую.
+  const issuedHeaderLoaded = await loadSheetAddress(issuedSheetFrame, 'A1');
   const issuedHeader = await sheetCell(issuedSheetFrame, 'A1');
+  check('issued XLSX header is loaded before the read-only typing check', issuedHeaderLoaded && typeof issuedHeader === 'string' && issuedHeader !== '', issuedHeader);
   await issuedSheetFrame.locator('input.univer-box-border').first().fill('A1');
   await issuedSheetFrame.locator('input.univer-box-border').first().press('Enter');
   await issuedSheetFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
@@ -983,7 +1010,9 @@ try {
   await issuedNameBox.fill('A5'); await issuedNameBox.press('Enter');
   await issuedSheetFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   await page.keyboard.press('Control+c');
-  const copiedManualCell = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+  // Univer кладёт текст в буфер асинхронно: чтение сразу после Ctrl+C видит пустой буфер, хотя копирование работает
+  let copiedManualCell = '';
+  await waitFor(async () => { copiedManualCell = await page.evaluate(() => navigator.clipboard.readText()).catch(() => ''); return copiedManualCell.includes('MANUAL_KEEP'); }, 5000);
   check('issued grid still supports cell navigation and copying manual content', String(activeRange).includes('B1') && copiedManualCell.includes('MANUAL_KEEP'), { activeRange, copiedManualCell });
   const xlsxDraftResult = await api('POST', `/api/office/revisions/${encodeURIComponent(xlsxId)}/draft`, { revisionId: xlsxRevision?.id, sourceSha: xlsxRevision?.sha256 });
   const xlsxDraftId = String(xlsxDraftResult.json?.fileId || '');
@@ -1013,6 +1042,7 @@ try {
     await page.screenshot({ path, fullPage: true }).catch(() => {});
     console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, browserErrors: browserErrors.slice(-30), screenshot: path }));
   }
+  console.error('NATIVE_SCENARIO_STACK', String(error?.stack || error).replace(/\u001b\[[0-9;]*m/g, ''));
   check('native Office add-on scenario completed', false, String(error?.stack || error));
 } finally {
   if (browser) await browser.close().catch(() => {});

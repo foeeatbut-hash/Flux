@@ -1,7 +1,7 @@
 import type { Tour, TourExpectedResult, TourStep } from './support/tours';
 
 const PROJECT_TOURS = new Set([
-  'add-tag', 'generate-tag', 'link-tags', 'delete-tag', 'export-data',
+  'add-tag', 'generate-tag', 'link-tags', 'delete-tag',
   'assign-tag-file', 'import-equipment', 'view-equipment', 'resolve-conflict',
   'create-dictionary', 'import-dictionary', 'tag-template', 'import-blank-preview',
   'procurement-stages', 'procurement-templates', 'equipment-tag-link',

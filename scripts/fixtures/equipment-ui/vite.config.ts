@@ -11,7 +11,6 @@ export default defineConfig({
   root: fixtureDir,
   plugins: [react(), tailwindcss()],
   define: { __APP_VERSION__: JSON.stringify('fixture') },
-  resolve: { alias: [{ find: './ExportWorkbook', replacement: path.join(fixtureDir, 'export-workbook-mock.tsx') }] },
   server: { fs: { allow: [projectDir, fixtureDir] } },
   optimizeDeps: { entries: [path.join(fixtureDir, 'index.html')] },
 });

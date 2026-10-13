@@ -27,8 +27,12 @@ import { journalSuppression } from '../univer-state'
 import { ensureLazyRangeLoaded } from '../univer-sync'
 import { waitForEditor } from './editor-readiness'
 import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
+import { IContextMenuService } from '@univerjs/ui'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
+import { createSheetsIdleChips } from './sheets-idle-chips'
+import { installSheetsHistoryMarks } from './sheets-history-marks'
+import { partChipLabel } from './parameter-chip-style'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -74,7 +78,7 @@ const workbook = () => { try { return api()?.getActiveWorkbook() || null } catch
 
 /** Детерминированная подпись частей для нативной ячейки заголовка. */
 function renderHeaderParts(parts: any[]): string {
-  const labelFor = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+  const labelFor = (binding: any): string => String(binding?.label || binding?.displayName || binding?.fieldKey || '')
   return parts.map((part: any) => {
     if (part?.kind === 'text') return String(part.text || '')
     if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
@@ -254,6 +258,42 @@ function selectedHeaderCells(wb: any): Array<{ anchorId: string; kind: 'excel-ra
   } catch { return null }
 }
 
+/** Привязана ли ячейка к шапке Flux: id якоря по имени FLUX_ANCHOR_*, которое ссылается на неё */
+function boundAnchorIdAt(wb: any, sheetName: string, address: string): string | null {
+  try {
+    const quoted = sheetName.replace(/'/g, "''")
+    for (const defined of wb?.getDefinedNames?.() || []) {
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(String(defined?.getName?.() || ''))
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+      if (!match) continue
+      const refSheet = (match[1] ?? match[2] ?? '').replace(/''/g, "'")
+      if ((refSheet === sheetName || refSheet === quoted) && `${match[3]!}${match[4]!}`.toUpperCase() === address) return anchor[1]!.replaceAll('_', '-')
+    }
+  } catch { /* книга ещё не готова */ }
+  return null
+}
+
+/** Все привязанные ячейки шапки: якорь, лист и адрес */
+function boundHeaderCells(wb: any): Array<{ anchorId: string; sheetName: string; address: string }> {
+  const out: Array<{ anchorId: string; sheetName: string; address: string }> = []
+  try {
+    for (const defined of wb?.getDefinedNames?.() || []) {
+      const anchor = /^FLUX_ANCHOR_([0-9a-f_]{36}|[0-9a-f-]{36})$/i.exec(String(defined?.getName?.() || ''))
+      if (!anchor) continue
+      const ref = String(defined?.getRef?.() ?? defined?.getFormulaOrRefString?.() ?? '').trim().replace(/^=/, '')
+      const match = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref)
+      if (!match) continue
+      out.push({ anchorId: anchor[1]!.replaceAll('_', '-'), sheetName: (match[1] ?? match[2] ?? '').replace(/''/g, "'"), address: `${match[3]!}${match[4]!}`.toUpperCase() })
+    }
+  } catch { /* книга ещё не готова */ }
+  return out
+}
+
+/** Части привязанных ячеек, о которых редактору сказало окно Flux (схема, правка ячейки) */
+const knownHeaderParts = new Map<string, any[]>()
+
 function protectFluxHeaderCells(): void {
   const runtime = hooks()?.univerRef.current
   if (!runtime?.univer || guardedRuntimes.has(runtime)) return
@@ -275,6 +315,10 @@ function protectFluxHeaderCells(): void {
       // Загрузка из файла и разрешённые правки соавтора восстанавливают ячейки.
       // Блокируем обычное редактирование, а не внутреннюю загрузку книги.
       if (journalSuppression.active || applying || applyingFlux || /^.*(?:undo|redo).*$/i.test(String(command.id))) return
+      // «Назад» и «вперёд» воспроизводят уже разрешённые правки, в том числе вставку метки Flux в
+      // защищённую ячейку: мутации внутри них не блокируем, иначе отмена привязки упирается в её же защиту
+      const replaying = (commandService as unknown as { _commandExecutionStack?: Array<{ id?: string }> })._commandExecutionStack
+      if (replaying?.some((item) => item?.id === 'univer.command.undo' || item?.id === 'univer.command.redo')) return
       const id = String(command.id || '')
       if (!/sheet\.(?:command|mutation)\.set-range-values$/i.test(id)) return
       const wb = workbook()
@@ -320,6 +364,58 @@ function protectFluxHeaderCells(): void {
     })
   } catch (error) { console.warn('[flux] защита меток Таблиц не установлена', error) }
 }
+
+/**
+ * Имена меток Flux (FLUX_ANCHOR_*) — реестр привязок, а не правка человека: в «назад» их не кладём.
+ * Каждая замена имени получает новый внутренний номер, и отмена по старому номеру оставляла бы
+ * в книге два одинаковых имени (сохранение падает: «имя определено дважды»).
+ */
+function withoutHistory<T>(wb: any, run: () => T): T {
+  type Step = { undoMutations: unknown[]; redoMutations: unknown[] }
+  const service = hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService) as { _undoStacks?: Map<string, Step[]> } | undefined
+  const stack = service?._undoStacks?.get(wb.getId())
+  const before = stack?.length ?? 0
+  // Внутри группы (__tempBatchingUndoRedo) новая запись не добавляет шаг, а дописывается в верхний
+  const top = before ? stack![before - 1]! : null
+  const undoLength = top?.undoMutations.length ?? 0
+  const redoLength = top?.redoMutations.length ?? 0
+  try { return run() } finally {
+    if (stack && stack.length > before) stack.length = before
+    if (top) { top.undoMutations.length = undoLength; top.redoMutations.length = redoLength }
+  }
+}
+
+/**
+ * Команды Univer над колонками и строками сами записывают в «назад» восстановление имён с их внутренними
+ * номерами. После сохранения книга пересоздаётся из файла, номера имён меняются, и отмена возвращала бы
+ * метку Flux вторым именем рядом с живым (сохранение падает: «имя определено дважды»). Метки Flux в
+ * историю не входят — выбрасываем их из верхнего шага.
+ */
+function dropAnchorNamesFromHistory(wb: any): void {
+  type Mutation = { id?: string; params?: { name?: string } }
+  const service = hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService) as { _undoStacks?: Map<string, Array<{ undoMutations: Mutation[]; redoMutations: Mutation[] }>> } | undefined
+  const stack = service?._undoStacks?.get(wb.getId())
+  const top = stack?.[stack.length - 1]
+  if (!top) return
+  const isAnchorName = (mutation: Mutation): boolean => /^formula\.mutation\.(?:set|remove)-defined-name$/.test(String(mutation.id)) && String(mutation.params?.name ?? '').startsWith('FLUX_ANCHOR_')
+  top.undoMutations = top.undoMutations.filter((mutation) => !isAnchorName(mutation))
+  top.redoMutations = top.redoMutations.filter((mutation) => !isAnchorName(mutation))
+}
+
+/**
+ * Имя метки: существующее обновляем на месте, а не удаляем и создаём заново. У имени есть внутренний
+ * номер, и записи «назад» (например, удаления колонки) хранят его: новое имя с новым номером при отмене
+ * оставило бы в книге два одинаковых имени.
+ */
+function setAnchorName(wb: any, name: string, ref: string): void {
+  const existing = wb.getDefinedName?.(name)
+  if (!existing) { wb.insertDefinedName(name, ref); return }
+  const plain = (value: unknown): string => String(value ?? '').replace(/^=/, '').replace(/'/g, '')
+  if (plain(existing.getRef?.() ?? existing.getFormulaOrRefString?.()) === plain(ref)) return
+  existing.setRef(ref)
+}
+
+function columnLetters(col: number): string { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
 
 function columnNumber(letters: string): number {
   let result = 0
@@ -371,6 +467,10 @@ function onCommand(ev: { id: string; type: number; params: unknown; options?: Re
   if (o.onlyLocal || o.fromCollab || o.fromChangeset || o.fromFormula || o.syncOnly) return
   // Подгрузка книги и служебная перестройка — не правки человека
   if (journalSuppression.active || LOCAL.test(ev.id)) return
+  // Текст, который человек набирает в окне редактирования ячейки, живёт в служебном документе Univer.
+  // В общую книгу уходит готовое значение ячейки, а не этот черновик: иначе журнал вечно «не сохранён»
+  // и выпуск ревизии отвечает «есть несохранённые общие правки»
+  if (String((ev.params as { unitId?: unknown } | null)?.unitId ?? '').startsWith('__INTERNAL_EDITOR__')) return
   let op: Op
   try { op = { id: ev.id, params: JSON.parse(JSON.stringify(ev.params ?? null)), sheets: sheetsOf(ev.params) } } catch { return }
   const local = ++localSeq
@@ -467,18 +567,19 @@ async function fields(): Promise<void> {
       else {
         applyingFlux = true
         const a1 = String(cell.getA1Notation()).split(':')[0] ?? ''
+        // Подпись ячейки — обычный шаг «назад»; имя метки в историю не попадает
         cell.setValue(m.value ?? '')
         const ref = `'${String(sheet.getSheetName()).replace(/'/g, "''")}'!${absolute(a1)}`
         const anchorId = /^[0-9a-f-]{36}$/i.test(String(m.anchorId || '')) ? String(m.anchorId) : ''
-        if (anchorId) {
-        const anchorName = fluxAnchorName(anchorId)
-          try { wb.deleteDefinedName?.(anchorName) } catch { /* новой ячейке ещё не назначено имя */ }
-          wb.insertDefinedName(anchorName, ref)
-        } else if (m.name) {
-          // Существующие источники Flux используют это имя при обновлении полей.
-          try { wb.deleteDefinedName?.(m.name) } catch { /* прежней метки могло не быть */ }
-          wb.insertDefinedName(m.name, ref)
-        }
+        withoutHistory(wb, () => {
+          if (anchorId) {
+            setAnchorName(wb, fluxAnchorName(anchorId), ref)
+          } else if (m.name) {
+            // Существующие источники Flux используют это имя при обновлении полей.
+            try { wb.deleteDefinedName?.(m.name) } catch { /* прежней метки могло не быть */ }
+            wb.insertDefinedName(m.name, ref)
+          }
+        })
         result = { ok: true, cell: `${sheet.getSheetName()}!${a1}` }
       }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
@@ -493,13 +594,47 @@ void fields()
 /** Вставка таблиц и обновление выгрузки: адреса держатся именами Excel. */
 async function exportCommands(): Promise<void> {
   const link = ipc(); if (!link) return;
-  const ready = await waitForEditor(() => {
+  const readyPromise = waitForEditor(() => {
     const lazy = hooks()?.lazyWorkbookRef.current
     return workbook() && lazy && (!lazy.flags || lazy.flags.preloadComplete === true) ? lazy : null
   }, 40_000, 100)
-  if (!ready) return
+  // Панель Flux спрашивает схему заголовков сразу после открытия файла, пока
+  // книга ещё догружается. Обработчик, поставленный только после готовности,
+  // терял этот запрос: хост ждал ответа до таймаута и показывал пустую панель.
+  // Поэтому слушаем с самого начала и отвечаем, когда книга готова.
+  let headerSchemaReader: ((request: any) => void) | null = null
+  const earlyHeaderRequests: any[] = []
+  link.on('flux:get-header-schema', (_e, request: any) => {
+    if (headerSchemaReader) headerSchemaReader(request)
+    else earlyHeaderRequests.push(request)
+  })
+  const ready = await readyPromise
+  if (!ready) {
+    for (let i = 0; i < earlyHeaderRequests.length; i++) link.send('flux:header-schema-read', { ok: false, error: 'Книга не загрузилась. Повторите действие' })
+    return
+  }
   protectFluxHeaderCells()
-  headerTokenOverlay = createSheetsTokenOverlay(link, (anchorId) => {
+  // «Вперёд» по Ctrl+Shift+Z, как в Word и в Excel: Univer знает только Ctrl+Y. В полях ввода
+  // (имя ячейки, поиск) и в окне формулы заголовка клавиши остаются браузеру
+  document.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.code !== 'KeyZ') return
+    const target = event.target as HTMLElement | null
+    if (target?.closest?.('input, textarea, .flux-sheet-token-edit')) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    void api()?.redo?.()
+  }, true)
+  // Правка ячейки завершена: плашки покоя берут её части без ожидания ответа окна Flux
+  const overlayLink = {
+    send: (channel: string, ...args: unknown[]) => {
+      const edited = args[0] as any
+      if (channel === 'flux:header-schema-edited' && edited?.anchorId && Array.isArray(edited.parts)) knownHeaderParts.set(String(edited.anchorId), edited.parts)
+      link.send(channel, ...args)
+    },
+    on: (channel: string, fn: (e: unknown, ...a: any[]) => void) => link.on(channel, fn),
+    invoke: (channel: string, ...args: unknown[]) => link.invoke(channel, ...args),
+  }
+  headerTokenOverlay = createSheetsTokenOverlay(overlayLink, (anchorId) => {
     const wb = workbook()
     const name = fluxAnchorName(anchorId)
     const defined = wb?.getDefinedNames?.().find((item: any) => String(item.getName()) === name)
@@ -515,8 +650,56 @@ async function exportCommands(): Promise<void> {
     if (fluxReadOnly) return false
     const prior = applyingFlux
     applyingFlux = true
-    try { range.setValue(value); return true } catch { return false } finally { applyingFlux = prior }
+    try { range.setValues([[{ v: value }]]); return true } catch { return false } finally { applyingFlux = prior }
   }, () => !fluxReadOnly)
+  createSheetsIdleChips({
+    workbook,
+    bound: () => boundHeaderCells(workbook()),
+    parts: (anchorId) => knownHeaderParts.get(anchorId) || null,
+    isEditing: (anchorId) => !!headerTokenOverlay?.isEditing(anchorId),
+  })
+  // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
+  const historyMarks = installSheetsHistoryMarks(() => hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
+  link.on('flux:mark-history', (_e, request: any) => {
+    const message = request?.payload ?? request ?? {}
+    link.send('flux:history-marked', { ok: true, marked: historyMarks.mark(String(message.id || ''), Number(message.since) || 0) })
+  })
+  link.on('flux:edit-header-formula', (_e, request: any) => {
+    const message = request?.payload ?? request ?? {}
+    const anchor = message.schema?.anchors?.find((item: any) => item?.id === message.anchorId)
+    if (anchor && Array.isArray(anchor.parts)) knownHeaderParts.set(String(anchor.id), anchor.parts)
+  })
+  // Ввод в привязанной ячейке шапки идёт прямо в ней: собственный редактор Univer для неё
+  // не открываем (метки в нём были бы обычным текстом), а окно ввода Flux ставим поверх ячейки.
+  let typedKey = ''
+  let typedKeyTimer: ReturnType<typeof setTimeout> | undefined
+  document.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement | null
+    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || target?.closest?.('input, textarea, .flux-sheet-token-edit')) return
+    typedKey = event.key
+    clearTimeout(typedKeyTimer)
+    typedKeyTimer = setTimeout(() => { typedKey = '' }, 400)
+  }, true)
+  api().addEvent(api().Event.BeforeSheetEditStart, (params: any) => {
+    if (fluxReadOnly || params.isZenEditor || headerTokenOverlay?.isEditing()) return
+    const address = `${columnLetters(Number(params.column))}${Number(params.row) + 1}`
+    const sheetName = String(params.worksheet?.getSheetName?.() || '')
+    const anchorId = sheetName ? boundAnchorIdAt(workbook(), sheetName, address) : null
+    if (!anchorId) return
+    params.cancel = true
+    const initialText = typedKey
+    typedKey = ''
+    // Части ячейки уже известны редактору (схема прочитана панелью): окно ввода открываем сразу,
+    // без обращения к окну Flux, иначе набор успевает уйти мимо него. Иначе спрашиваем окно.
+    const known = knownHeaderParts.get(anchorId)
+    if (known) {
+      const cellText = String(params.worksheet?.getRange?.(address)?.getValue?.() ?? '')
+      const single = known.filter((part: any) => part.kind === 'field' || part.kind === 'union').length === 1 && known.length === 1
+      const parts = known.map((part: any) => part.kind === 'field' && !part.binding?.displayName ? { ...part, binding: { ...part.binding, displayName: partChipLabel(part, single, cellText) } } : part)
+      if (headerTokenOverlay?.openWith(anchorId, parts, initialText)) return
+    }
+    link.send('flux:begin-cell-edit', { anchorId, initialText })
+  })
   const reply = (id: string, result: any) => link.send('flux:command-result', { id, ...result });
   document.addEventListener('contextmenu', (event) => {
     if (event.button !== 2 || !(event.target instanceof HTMLCanvasElement)) return
@@ -526,6 +709,12 @@ async function exportCommands(): Promise<void> {
     // Для обычных ячеек и прочих диапазонов меню Univer остаётся.
     event.preventDefault()
     event.stopImmediatePropagation()
+    // Univer открывает своё меню уже при нажатии правой кнопки (до contextmenu): закрываем его, иначе оно
+    // осталось бы под меню и плашкой Flux
+    const hideOwnMenu = () => { try { hooks()?.univerRef.current?.univer?.__getInjector?.().get(IContextMenuService)?.hideContextMenu() } catch { /* меню Univer уже закрыто */ } }
+    hideOwnMenu()
+    // Меню Univer рисуется на следующем кадре: повторяем закрытие, пока оно не успело появиться
+    for (const delay of [0, 50, 150]) setTimeout(hideOwnMenu, delay)
     link.send('flux:cell-actions', {
       editorKind: 'sheets',
       anchors,
@@ -538,7 +727,7 @@ async function exportCommands(): Promise<void> {
     fluxReadOnly = readOnly
     link.send('flux:read-only-changed', { ok: true, readOnly })
   })
-  link.on('flux:get-header-schema', (_e, request: any) => {
+  headerSchemaReader = (request: any) => {
     let result: any
     try {
       const wb = workbook(); const schema = request?.schema
@@ -574,8 +763,11 @@ async function exportCommands(): Promise<void> {
       })
       result = { ok: true, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
+    if (result?.ok) for (const header of result.headers || []) if (Array.isArray(header.parts)) knownHeaderParts.set(String(header.anchorId), header.parts)
     link.send('flux:header-schema-read', result)
-  })
+  }
+  // Запросы, пришедшие до готовности книги, обрабатываем теперь.
+  for (const request of earlyHeaderRequests.splice(0)) headerSchemaReader(request)
   link.on('flux:sync-header-schema', async (_e, request: any) => {
     const payload = request?.payload ?? request ?? {}
     const priorApplying = applyingFlux
@@ -591,7 +783,7 @@ async function exportCommands(): Promise<void> {
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]))
       const validBinding = (binding: any, anchorId: string): boolean => !!binding && typeof binding.fieldKey === 'string' && binding.fieldKey.length > 0 && binding.fieldKey.length <= 200 && typeof binding.sourceId === 'string' && binding.sourceId.length > 0 && binding.sourceId.length <= 200 && typeof binding.entityType === 'string' && binding.entityType.length > 0 && binding.entityType.length <= 200 && String(binding.anchorId || anchorId) === anchorId
       const columnLetters = (col: number): string => { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
-      const labelFor = (binding: any): string => String(labels[`${binding?.sourceId || ''}:${binding?.fieldKey || ''}`] ?? labels[binding?.fieldKey || ''] ?? binding?.displayName ?? binding?.fieldKey ?? '')
+      const labelFor = (binding: any): string => String(binding?.label || labels[`${binding?.sourceId || ''}:${binding?.fieldKey || ''}`] || labels[binding?.fieldKey || ''] || binding?.displayName || binding?.fieldKey || '')
       const renderParts = (parts: any[]): string => parts.map((part: any) => {
         if (part?.kind === 'text') return String(part.text || '')
         if (part?.kind === 'operator') return ['+', '-', '*', '/', '(', ')'].includes(part.operator) ? part.operator : ''
@@ -632,13 +824,14 @@ async function exportCommands(): Promise<void> {
       const undoBatch = syncRuntime?.univer?.__getInjector?.().get(IUndoRedoService)?.__tempBatchingUndoRedo(wb.getId())
       if (!undoBatch) { applyingFlux = priorApplying; throw new Error('Не удалось сгруппировать изменения схемы для отмены') }
       try {
-        for (const target of targets) {
-          target.sheet.getRange(target.row, target.col, 1, 1).setValues([[{ v: target.value }]])
-          const existing = definitions.get(target.name)
-          if (existing) wb.deleteDefinedName(target.name)
-          wb.insertDefinedName(target.name, target.ref)
-        }
-        for (const id of removed) wb.deleteDefinedName?.(fluxAnchorName(String(id)))
+        for (const target of targets) target.sheet.getRange(target.row, target.col, 1, 1).setValues([[{ v: target.value }]])
+        // Группировка нужна подписям ячеек; имена меток вне истории (см. withoutHistory) и вне группы:
+        // иначе их запись склеилась бы с предыдущим шагом человека
+        undoBatch.dispose()
+        withoutHistory(wb, () => {
+          for (const target of targets) setAnchorName(wb, target.name, target.ref)
+          for (const id of removed) wb.deleteDefinedName?.(fluxAnchorName(String(id)))
+        })
       } catch (error) {
         for (const old of oldCells.reverse()) { try { old.sheet.getRange(old.row, old.col, 1, 1).setValues([[old.value]]) } catch { /* best-effort rollback */ } }
         for (const [name, ref] of oldNames) {
@@ -646,6 +839,9 @@ async function exportCommands(): Promise<void> {
         }
         throw error
       } finally { undoBatch.dispose(); applyingFlux = priorApplying }
+      // Плашки покоя берут части новой схемы сразу: переименование видно без повторного чтения
+      for (const anchor of schema.anchors) knownHeaderParts.set(String(anchor.id), anchor.parts)
+      for (const id of removed) knownHeaderParts.delete(String(id))
       result = { ok: true, schemaVersion: schema.version, headers: targets.map(({ id, sheet, address, value }) => ({ anchorId: id, kind: 'excel-range', sheetName: sheet.getSheetName(), address, displayText: value })) }
     } catch (err: any) { applyingFlux = priorApplying; result = { ok: false, error: String(err?.message || err) } }
     link.send('flux:header-schema-synced', result)
@@ -764,7 +960,7 @@ async function exportCommands(): Promise<void> {
       const headerCell = sheet.getRange(target.row, target.col, 1, 1)
       const oldHeader = { value: headerCell.getValues?.()?.[0]?.[0], formula: String(headerCell.getFormulas?.()?.[0]?.[0] || '') }
       if (oldHeader.formula) throw new Error('Заголовок выхода содержит формулу; сначала замените её обычной подписью')
-      const bindingLabel = (binding: any): string => String(binding?.displayName || binding?.fieldKey || '')
+      const bindingLabel = (binding: any): string => String(binding?.label || binding?.displayName || binding?.fieldKey || '')
       const outputLabel = String(targetAnchor.label || targetAnchor.parts?.find((part: any) => part?.kind === 'union')?.label || targetAnchor.parts?.map((part: any) => {
         if (part?.kind === 'text') return String(part.text || '')
         if (part?.kind === 'operator') return String(part.operator || '')
@@ -800,9 +996,14 @@ async function exportCommands(): Promise<void> {
           }
         }
         headerCell.setValues([[{ v: outputLabel }]])
-        for (const item of namesToMove) { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.newRef) }
-        wb.deleteDefinedName?.(sourceName)
+        // Метки Flux вне истории (см. withoutHistory); чужие имена Excel возвращаются вместе с колонкой
+        const moveName = (item: { name: string; newRef: string }) => { wb.deleteDefinedName?.(item.name); wb.insertDefinedName(item.name, item.newRef) }
+        for (const item of namesToMove) {
+          if (item.name.startsWith('FLUX_ANCHOR_')) withoutHistory(wb, () => setAnchorName(wb, item.name, item.newRef)); else moveName(item)
+        }
+        withoutHistory(wb, () => wb.deleteDefinedName?.(sourceName))
         sheet.deleteColumn(source.col)
+        dropAnchorNamesFromHistory(wb)
       } catch (error) {
         // До удаления колонки восстанавливаем только те выходные ячейки,
         // которые были заполнены данными исходной колонки.
@@ -831,7 +1032,7 @@ async function exportCommands(): Promise<void> {
       }) }
       const headerResponse = updatedSchema.anchors.map((anchor: any) => {
         const parts = Array.isArray(anchor.parts) ? anchor.parts : []
-        const displayText = String(anchor.label || parts.map((part: any) => part?.kind === 'text' ? String(part.text || '') : part?.kind === 'operator' ? String(part.operator || '') : part?.kind === 'field' ? String(part.binding?.displayName || part.binding?.fieldKey || '') : part?.kind === 'union' ? String(part.label || part.alternatives?.map((item: any) => item?.displayName || item?.fieldKey).join(' / ') || '') : '').join(''))
+        const displayText = String(anchor.label || parts.map((part: any) => part?.kind === 'text' ? String(part.text || '') : part?.kind === 'operator' ? String(part.operator || '') : part?.kind === 'field' ? String(part.binding?.label || part.binding?.displayName || part.binding?.fieldKey || '') : part?.kind === 'union' ? String(part.label || part.alternatives?.map((item: any) => item?.label || item?.displayName || item?.fieldKey).join(' / ') || '') : '').join(''))
         return { anchorId: anchor.id, kind: 'excel-range', sheetName: anchor.sheetName, address: anchor.address, displayText, parts }
       })
       const originalRows = Array.isArray(payload.rows) ? payload.rows : []

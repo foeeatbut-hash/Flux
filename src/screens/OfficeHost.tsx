@@ -29,14 +29,12 @@ import { useDocCollab } from '../components/collab/useDocCollab';
 import OfficePresence from '../components/collab/OfficePresence';
 import { rememberDoc } from '../store/recentStore';
 import { editorHref } from '../lib/officeFiles';
-import FluxPanel from '../components/office/FluxPanel';
-import FluxOfficePanel, { type FluxOfficeAnchorSelection } from '../components/office/FluxOfficePanel';
+import { useFluxRibbon } from '../components/office/useFluxRibbon';
+import FluxOfficePanel from '../components/office/FluxOfficePanel';
 import { officeDataApi } from '../components/office/fluxData';
-import { schemaFromNativeHeaders, type HeaderSchemaSyncOptions } from '../components/office/officeNativeSchema';
-import type { OfficeAnchorRow } from '../components/office/fluxData';
-import type { OfficeBinding, OfficeFillPlan, OfficeHeaderSchema } from '../lib/officeModel';
+import { docsEditorLink, useOfficeFluxBridge } from '../components/office/useOfficeFluxBridge';
+import type { OfficeHeaderSchema } from '../lib/officeModel';
 import { openEditorTag } from '../lib/editorTag';
-import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -64,7 +62,7 @@ export default function OfficeHost() {
 
   const frame = useRef<HTMLIFrameElement>(null);
   const pendingCellFocus = useRef<{ anchorId: string; schema: OfficeHeaderSchema } | null>(null);
-  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
+  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; syncFromNative: () => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [name, setName] = useState('');
   const [frameKey, setFrameKey] = useState(0);
@@ -214,7 +212,7 @@ export default function OfficeHost() {
     }
     if (res.ok) {
       base.current.set(id, data.sha256);
-      if (id === fileId && !data.unchanged) room.saved(data.sha256);
+      if (id === fileId && !data.unchanged) { room.saved(data.sha256); }
       return { ok: true };
     }
     if (together && res.status !== 409) {
@@ -250,9 +248,12 @@ export default function OfficeHost() {
       const m = e.data;
       if (!isOfficeMsg(m)) return;
       if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
-      if (m.op === 'flux:open-panel') { setLegacyPanelOpen(false); setDataOpen(true); return; }
+      if (ribbonRef.current?.handle(m)) return;
       if (m.op === 'flux:cell-actions') { void cellActionsRef.current?.open(m.payload); return; }
+      if (m.op === 'flux:formula-edited') { void cellActionsRef.current?.syncFromNative(); return; }
+      if (m.op === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(m.payload); return; }
       if (m.op === 'flux:header-schema-edited') { void cellActionsRef.current?.edited(m.payload); return; }
+      if (m.op === 'flux:history-step') { void flux.historyStep(m.payload); return; }
       if (m.op === 'flux:anchor-selected') { setActiveFluxAnchor(m.payload || null); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);
@@ -393,19 +394,8 @@ export default function OfficeHost() {
   const reopenRef = useRef(reopen);
   reopenRef.current = reopen;
 
-  // Данные проекта: метка {{ключ}} в место курсора; «Обновить поля» — записать
-  // свои правки, дать серверу превратить метки в поля и подставить значения,
-  // открыть файл заново (server/routes/projectData.ts)
-  const [dataOpen, setDataOpen] = useState(false);
-  const [legacyPanelOpen, setLegacyPanelOpen] = useState(false);
-  const [activeFluxAnchor, setActiveFluxAnchor] = useState<FluxOfficeAnchorSelection | null>(null);
-  const insertField = async (f: { key: string; title: string }) => {
-    const result = await askFrame<{ ok: boolean; error?: string }>(
-      'insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`,
-    );
-    if (result?.ok) addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
-    else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
-  };
+  // Лента Flux и правая панель (useFluxRibbon); обработчик сообщений читает её из ref
+  const ribbonRef = useRef<ReturnType<typeof useFluxRibbon> | null>(null);
   // Сервер читает файл с диска — сперва туда должно лечь то, что на экране
   const saveBeforeServer = useCallback(async (): Promise<boolean> => {
     if (collabFileRef.current) {
@@ -414,65 +404,53 @@ export default function OfficeHost() {
     const state = await askFrame<{ dirty: boolean }>('closeCheck', 'closeCheck', 4000);
     return !state?.dirty || (await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) === true;
   }, [askFrame]);
-  const requestOfficeState = useCallback(async () => {
-    // Во время повторного открытия правки ещё невозможны: читаем записанную
-    // схему, а не посылаем запрос уничтожаемому или ещё не готовому фрейму.
-    if (phaseRef.current !== 'ready') return officeDataApi.state(fileId);
-    if (!(await saveBeforeServer())) throw new Error('Документ не записан. Сначала сохраните правки.');
-    const current = await officeDataApi.state(fileId);
-    if (phaseRef.current !== 'ready') return current;
-    if (!current.schema.anchors.length) return current;
-    const native = await askFrame<any>('getFluxHeaderSchema', 'flux:header-schema-read', 15_000, { schema: current.schema });
-    return { ...current, schema: schemaFromNativeHeaders(current.schema, native) };
-  }, [saveBeforeServer, fileId, askFrame]);
-  const insertOfficeBinding = async (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => {
-    const response = await askFrame<{ ok: boolean; anchorId?: string; error?: string }>('insertFluxField', 'flux:field-inserted', 8_500, {
-      fieldKey: binding.fieldKey, displayText, anchorId: anchor.anchorId, binding,
-    });
-    if (!response?.ok) throw new Error(response?.error || 'Редактор не вставил поле.');
-    if (response.anchorId) setActiveFluxAnchor({ ...anchor, anchorId: response.anchorId });
-    return true;
-  };
-  const applyOfficeWrites = async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows: OfficeAnchorRow[]) => {
-    if (collabFileRef.current && !room.holding) throw new Error('Только держатель общей версии может завершить заполнение.');
-    const response = await askFrame<{ ok: boolean; rows?: OfficeAnchorRow[]; appliedCount?: number; manualRows?: string[]; error?: string }>('applyFluxPlan', 'flux:office-plan-applied', 30_000, { writes: plan.writes, schema, rows, sourceRevision: plan.sourceRevision });
-    if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
-    if (!response.rows) throw new Error('Редактор не вернул сведения о заполненных строках. Сохраните файл и проверьте результат.');
-    if (!(await saveBeforeServer())) throw new Error('Изменения внесены, но документ не записан. Сохраните его через редактор.');
-    const savedHash = base.current.get(fileId);
-    if (!savedHash) throw new Error('Не удалось подтвердить сохранённую версию документа. Повторите заполнение.');
-    const current = await officeDataApi.state(fileId);
-    if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите состояние и повторите заполнение.');
-    const stored = await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
-    reopen(fileId);
-    return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: response.manualRows || [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
-  };
-  const updateOfficeSchema = async (schema: OfficeHeaderSchema, options: HeaderSchemaSyncOptions = {}) => {
-    if (collabFileRef.current && !room.holding) throw new Error('Только держатель общей версии может записать схему; запросите запись у держателя.');
-    const response = await askFrame<any>(options.captureNative ? 'getFluxHeaderSchema' : 'syncFluxHeaderSchema', options.captureNative ? 'flux:header-schema-read' : 'flux:header-schema-synced', 15_000, { schema, ...options });
-    const syncedSchema = schemaFromNativeHeaders(schema, response);
-    if (!(await saveBeforeServer())) throw new Error('Документ не записан.');
-    const savedHash = base.current.get(fileId);
-    if (!savedHash) throw new Error('Не удалось подтвердить сохранённую версию документа. Повторите сохранение.');
-    const current = await officeDataApi.state(fileId);
-    if (current.baseHash !== savedHash) throw new Error('Документ изменился после сохранения. Обновите его и повторите попытку.');
-    await officeDataApi.updateState(fileId, { baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
-    const next = await officeDataApi.state(fileId);
-    reopen(fileId);
-    return next;
+  const flux = useOfficeFluxBridge(docsEditorLink(askFrame), {
+    state: () => officeDataApi.state(fileId),
+    updateState: (body) => officeDataApi.updateState(fileId, body),
+    flush: saveBeforeServer,
+    committed: async (kind) => {
+      const words = kind === 'plan'
+        ? { notSaved: 'Изменения внесены, но документ не записан. Сохраните его через редактор.', noHash: 'Не удалось подтвердить сохранённую версию документа. Повторите заполнение.', changed: 'Документ изменился после сохранения. Обновите состояние и повторите заполнение.' }
+        : { notSaved: 'Документ не записан.', noHash: 'Не удалось подтвердить сохранённую версию документа. Повторите сохранение.', changed: 'Документ изменился после сохранения. Обновите его и повторите попытку.' };
+      if (!(await saveBeforeServer())) throw new Error(words.notSaved);
+      const savedHash = base.current.get(fileId);
+      if (!savedHash) throw new Error(words.noHash);
+      const current = await officeDataApi.state(fileId);
+      if (current.baseHash !== savedHash) throw new Error(words.changed);
+      return { current, savedHash };
+    },
+    remember: (hash) => { base.current.set(fileId, hash); },
+    notReady: () => phaseRef.current !== 'ready',
+    writeBlocked: (kind) => collabFileRef.current && !room.holding
+      ? (kind === 'plan' ? 'Только держатель общей версии может завершить заполнение.' : 'Только держатель общей версии может записать схему; запросите запись у держателя.') : '',
+    messages: { notSaved: 'Документ не записан. Сначала сохраните правки.', rowsMissing: 'Редактор не вернул сведения о заполненных строках. Сохраните файл и проверьте результат.' },
+  }, fileId);
+  const { activeAnchor: activeFluxAnchor, setActiveAnchor: setActiveFluxAnchor, requestState: requestOfficeState, insertBinding: insertOfficeBinding, applyWrites: applyOfficeWrites, updateSchema: updateOfficeSchema } = flux;
+  const ribbon = useFluxRibbon({ send, peek: flux.peekState, issueAvailable: true });
+  ribbonRef.current = ribbon;
+  const issuedRef = useRef(issued);
+  issuedRef.current = issued;
+  // Курсор возвращается в ячейку сразу после записи схемы: окно больше не переоткрывается, и ждать
+  // готовности нового редактора не нужно. Если окно всё же открывается заново (выпуск, восстановление),
+  // то же делает эффект ниже, когда редактор снова готов
+  const resumeCellFocus = () => {
+    if (phaseRef.current !== 'ready' || !editableRef.current || issuedRef.current || !pendingCellFocus.current) return;
+    const pending = pendingCellFocus.current; pendingCellFocus.current = null;
+    void askFrame<any>('editFluxHeaderFormula', 'flux:header-formula-edit-started', 15_000, { ...pending, caret: 'end', preserveText: true }).then((result) => { if (!result?.ok) addToast(result?.error || 'Не удалось вернуть курсор в ячейку.', 'error'); });
   };
   const cellActions = useFluxCellActions({ fileId, projectId: activeProjectId, readOnly: phase !== 'ready' || issued || !editable || (collabFileRef.current && !room.holding),
-    requestState: requestOfficeState, updateSchema: updateOfficeSchema, insertBinding: insertOfficeBinding, resumeFocus: (anchorId, schema) => { pendingCellFocus.current = { anchorId, schema }; },
+    requestState: requestOfficeState, updateSchema: updateOfficeSchema, insertBinding: insertOfficeBinding, resumeFocus: (anchorId, schema) => { pendingCellFocus.current = { anchorId, schema }; resumeCellFocus(); },
     requestNative: (operation, payload) => askFrame<any>(operation === 'merge' ? 'mergeFluxHeaderColumns' : 'editFluxHeaderFormula', operation === 'merge' ? 'flux:header-columns-merged' : 'flux:header-formula-edit-started', 30_000, payload),
     onError: (message) => addToast(message, 'error'),
   });
   cellActionsRef.current = cellActions;
-  useEffect(() => {
-    if (phase !== 'ready' || !editable || issued || !pendingCellFocus.current) return;
-    const pending = pendingCellFocus.current; pendingCellFocus.current = null;
-    void askFrame<any>('editFluxHeaderFormula', 'flux:header-formula-edit-started', 15_000, { ...pending, caret: 'end', preserveText: true }).then((result) => { if (!result?.ok) addToast(result?.error || 'Не удалось вернуть курсор в ячейку.', 'error'); });
-  }, [phase, editable, issued, askFrame, addToast]);
-  const [englishOpen, setEnglishOpen] = useState(false);
+  useEffect(() => { resumeCellFocus(); }, [phase, editable, issued]); // eslint-disable-line react-hooks/exhaustive-deps
+  // «Поля проекта» ленты: метка {{ключ}} в курсор; «Обновить поля» — сервер превращает метки в поля
+  const insertField = async (f: { key: string; title: string }) => {
+    const result = await askFrame<{ ok: boolean; error?: string }>('insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`);
+    if (result?.ok) addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+    else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
+  };
   const updateFields = async () => {
     if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
     const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
@@ -525,15 +503,13 @@ export default function OfficeHost() {
         </div>
       )}
       </div>
-      {dataOpen && (
-        legacyPanelOpen ? <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={phase !== 'ready' || !editable || issued} onClose={() => setDataOpen(false)}
-          onInsertField={insertField} onUpdateFields={updateFields}
-          onInsertTable={async rows => { const r = await askFrame<{ok: boolean; error?: string}>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
-          beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} />
-          : <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={phase !== 'ready' || !editable || issued} activeAnchor={activeFluxAnchor}
-            onIssued={() => { markIssued(); reopen(fileId); }} onDraftCreated={(id) => reopen(id)} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
-            schemaWriteAvailable={phase === 'ready' && !issued && editable && (!collabFileRef.current || room.holding)}
-            onOpenLegacy={() => setLegacyPanelOpen(true)} onClose={() => setDataOpen(false)} />
+      {ribbon.open && (
+        <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={phase !== 'ready' || !editable || issued} activeAnchor={activeFluxAnchor}
+          onIssued={() => { markIssued(); reopen(fileId); }} onDraftCreated={(id) => reopen(id)} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
+          schemaWriteAvailable={phase === 'ready' && !issued && editable && (!collabFileRef.current || room.holding)}
+          command={ribbon.command} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close}
+          onInsertTable={async (rows) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
+          onInsertText={async (text) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertText', 'flux:text-inserted', 8_500, text); if (!r?.ok) addToast(r?.error || 'Редактор ещё загружается — текст не вставлен', 'error'); }} />
       )}
       </div>
       {cellActions.dialog}

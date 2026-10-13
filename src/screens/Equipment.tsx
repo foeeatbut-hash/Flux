@@ -1,6 +1,6 @@
 import { SectionHead, Btn, IconBtn, Dialog } from '../components/ui';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useInsightStore } from '../store/insightStore';
 import { useEntityChanged } from '../lib/entityWatch';
 import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport';
@@ -97,7 +97,6 @@ export default function Equipment() {
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
   const [showSourceImport, setShowSourceImport] = useState(false);
-  const navigate = useNavigate();
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -631,7 +630,6 @@ export default function Equipment() {
           {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
               «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
           <Btn tone="ghost" onClick={() => { setShowOps(true); loadOps(); }} title="Центр операций: что ввозится в фоне и чем кончилось недавнее"><List />Центр операций</Btn>
-          <Btn onClick={() => navigate(`/equipment-export?projectId=${encodeURIComponent(pid)}&scope=${encodeURIComponent(selectedUnitId ? `unit:${selectedUnitId}` : `cat:${activeCat}`)}`)} title="Выгрузка по шаблону: типы, столбцы, порядок — в Excel, CSV, буфер или таблицу Flux Office"><Download />Выгрузка данных</Btn>
           {canManageEquipment && <Btn tone="ghost" onClick={() => setShowSourceImport(true)} title="Выбрать XML в Проводнике, проверить установку и импортировать ревизию"><Upload />Импорт XML установки</Btn>}
           <Btn tone="primary" data-tour="equipment-import-btn" onClick={() => setShowDocImport(true)}
             title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"><ScanLine />Импорт из документов</Btn>

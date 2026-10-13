@@ -243,6 +243,23 @@ async function main() {
     return;
   }
 
+  // Файлы Проводника: панель Flux над локальным DOCX/XLSX, байты пишет редактор
+  if (process.argv.includes('--office-explorer')) {
+    await assertNativeOfficeAssets();
+    const fixturePath = await writeFixtureMetadata(users, projectId, systemId);
+    const office = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-explorer-live.ts', fixturePath], {
+      cwd,
+      env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
+      stdio: 'inherit',
+    });
+    const [code] = await once(office, 'exit');
+    await stop();
+    db?.close();
+    await rm(dataDir, { recursive: true, force: true });
+    process.exitCode = typeof code === 'number' ? code : 1;
+    return;
+  }
+
   if (process.argv.includes('--office-addon-native')) {
     await assertNativeOfficeAssets();
     const fixturePath = await writeFixtureMetadata(users, projectId, systemId);

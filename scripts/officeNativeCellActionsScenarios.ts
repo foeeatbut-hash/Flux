@@ -36,21 +36,21 @@ async function makeMergeWorkbook(conflict: boolean): Promise<Buffer> {
 }
 
 async function nativeCell(frame: any, address: string): Promise<any> {
-  return frame.locator('body').evaluate((a1: string) => {
+  return frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((sheet: any) => sheet.getSheetName() === 'Перечень')?.getRange(a1)?.getValues?.()?.[0]?.[0];
   }, address).catch(() => undefined);
 }
 
 async function nativeFormula(frame: any, address: string): Promise<string> {
-  return frame.locator('body').evaluate((a1: string) => {
+  return frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return String(api?.getActiveWorkbook?.()?.getSheets?.().find((sheet: any) => sheet.getSheetName() === 'Перечень')?.getRange(a1)?.getFormulas?.()?.[0]?.[0] || '');
   }, address).catch(() => '');
 }
 
-async function clickCell(frame: any, address: string, modifiers: string[] = [], button: 'left' | 'right' = 'left'): Promise<void> {
-  const point = await frame.locator('body').evaluate((a1: string) => {
+async function clickCell(frame: any, address: string, modifiers: string[] = [], button: 'left' | 'right' = 'left', clickCount = 1): Promise<void> {
+  const point = await frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
     const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
@@ -60,7 +60,7 @@ async function clickCell(frame: any, address: string, modifiers: string[] = [], 
     return { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height };
   }, address);
   if (!point) throw new Error(`Could not locate native grid cell ${address}`);
-  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: point, modifiers, button, timeout: 10000 });
+  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: point, modifiers, button, clickCount, timeout: 10000 });
 }
 
 export async function runNativeSheetCellActions(options: SuiteOptions): Promise<void> {
@@ -99,12 +99,30 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       await clickCell(frame, address);
       await page().getByRole('button', { name: /2\. Поля и шапка/ }).click();
       await panel.getByLabel('Найти поле Flux').fill(alias);
-      await panel.getByRole('button', { name: new RegExp(alias) }).first().click();
+      await panel.getByRole('button', { name: new RegExp(`^${alias}(\\s|$)`) }).click();
       await waitFor(async () => panel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
       await panel.getByRole('button', { name: 'Привязать поле' }).click();
-      check(`${suffix}: ${address} is bound to the real ${alias} alias`, await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias))));
+      const boundOk = await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias)));
+      if (!boundOk) console.error('BIND_DIAGNOSTIC', address, JSON.stringify({ state: (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema, toasts: await page().locator('[role="status"],[role="alert"]').allTextContents().catch(() => []), cell: await nativeCell(frame, address) }));
+      check(`${suffix}: ${address} is bound to the real ${alias} alias`, boundOk);
+      // Привязка меняет только часть Flux: книга остаётся открытой в том же окне
+      await waitForSheetFile(frame);
     };
     await bind('A1', 'DrivePower');
+    if (suffix === 'conflict') {
+      // Окно не переоткрывалось, и история «назад» цела: Ctrl+Z отменяет вставку метки в ячейке
+      check(`${suffix}: A1 holds the inserted alias label before undo`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
+      // Фокус — щелчком по соседней ячейке: повторный щелчок по уже выделенной метке открывает редактор ячейки
+      await clickCell(frame, 'D3');
+      await page().keyboard.press('Control+z');
+      check(`${suffix}: native Ctrl+Z after binding restores the cell text from before the label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power'), await nativeCell(frame, 'A1'));
+      // «Назад» возвращает и схему в файле: привязки A1 в office-state больше нет
+      const a1Bound = async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === 'A1' && anchor.parts?.some((part: any) => part.kind === 'field'));
+      check(`${suffix}: Ctrl+Z after binding also takes the binding out of office-state`, await waitFor(async () => !(await a1Bound())));
+      await page().keyboard.press('Control+Shift+z');
+      check(`${suffix}: native redo returns the inserted label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
+      check(`${suffix}: redo returns the binding to office-state`, await waitFor(async () => !!(await a1Bound())));
+    }
     await bind('B1', 'MotorPower');
     await page().keyboard.press('Control+s');
     await waitForSheetFile(frame);
@@ -117,31 +135,98 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       const stored = await api('PUT', `/api/project-data/files/${fileId}/office-state`, { baseHash: state.baseHash, sourceRevision: state.sourceRevision, schema: state.schema, rows: seededRows });
       check(`${suffix}: row identities map both native cells without changing the workbook`, stored.status === 200 && stored.json?.ok, stored.json);
       state = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
+      // Запись схемы и строк меняет только часть Flux: окно остаётся тем же и переоткрывать его не нужно.
     }
     return { fileId, frame, panel, state, a, b };
   };
 
   const conflict = await prepare('conflict', true);
+  // В покое привязанная ячейка показывает плашки с названием поверх A1 и держит их над ней при масштабе и прокрутке
+  const chipGeometry = () => conflict.frame.locator('body').evaluate(() => {
+    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
+    const cell = sheet?.getRange('A1')?.getCellRect?.();
+    const bounds = canvas?.getBoundingClientRect();
+    if (!canvas || !cell || !bounds) return null;
+    const sx = bounds.width / canvas.width, sy = bounds.height / canvas.height;
+    const area = { left: bounds.left + Number(cell.left) * sx, top: bounds.top + Number(cell.top) * sy, right: bounds.left + (Number(cell.left) + Number(cell.width)) * sx, bottom: bounds.top + (Number(cell.top) + Number(cell.height)) * sy };
+    const chips = [...document.querySelectorAll('#flux-sheet-chip-layer .flux-sheet-idle-chip')].map((chip) => {
+      const box = chip.getBoundingClientRect();
+      const layer = chip.closest('#flux-sheet-chip-layer')!.getBoundingClientRect();
+      return { text: chip.textContent, visible: box.width > 0 && box.height > 0 && box.bottom > layer.top && box.top < layer.bottom && box.right > layer.left && box.left < layer.right, left: box.left, top: box.top, right: box.right, bottom: box.bottom, radius: getComputedStyle(chip).borderTopLeftRadius, background: getComputedStyle(chip).backgroundColor };
+    });
+    return { area, chips };
+  });
+  const insideA1 = (g: any) => !!g && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).length > 0 && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).every((c: any) => c.left >= g.area.left - 3 && c.right <= g.area.right + 3 && c.top >= g.area.top - 3 && c.bottom <= g.area.bottom + 3);
+  await clickCell(conflict.frame, 'D3');
+  // Узкий столбец: название не теряется (читается из подсказки), а слой закрывает перелив исходного текста ячейки
+  const columnWidth = await conflict.frame.locator('body').evaluate(() => { const ws = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.(); const was = ws?.getColumnWidth?.(0); ws?.setColumnWidth?.(0, 36); return was; });
+  await conflict.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
+  check('hovering a chip in a narrow column shows the full parameter name', await waitFor(async () => /DrivePower/.test(await conflict.frame.locator('#flux-sheet-chip-tip').textContent().catch(() => '') || '') && await conflict.frame.locator('#flux-sheet-chip-tip').isVisible()));
+  await page().screenshot({ path: '/tmp/chips-after.png' });
+  await conflict.frame.locator('body').evaluate((was) => { (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.setColumnWidth?.(0, was || 73); }, columnWidth);
+  await clickCell(conflict.frame, 'D3');
+  const restGeometry = await waitFor(async () => insideA1(await chipGeometry()));
+  const rest = await chipGeometry();
+  check('at rest A1 shows a rounded parameter chip with the label over the cell', restGeometry && rest.chips.some((c: any) => /DrivePower/.test(String(c.text)) && c.visible && c.radius === '4px' && c.background !== 'rgba(0, 0, 0, 0)'), rest);
+  await page().screenshot({ path: '/tmp/office-sheet-chip-light.png' });
+  await conflict.frame.locator('body').evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });
+  await page().waitForTimeout(300);
+  await page().screenshot({ path: '/tmp/office-sheet-chip-dark.png' });
+  await conflict.frame.locator('body').evaluate(() => { document.documentElement.removeAttribute('data-theme'); });
+  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1.5); });
+  const zoomed = await waitFor(async () => { const g = await chipGeometry(); return insideA1(g) && g.area.right - g.area.left > 0; });
+  check('after zoom the chips stay over the same A1 cell', zoomed, await chipGeometry());
+  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1); });
+  await conflict.frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().hover({ position: { x: 300, y: 200 } });
+  await page().mouse.wheel(0, 60);
+  await page().waitForTimeout(400);
+  const scrolled = await chipGeometry();
+  check('after scrolling the chips either follow A1 or leave with it', !scrolled || scrolled.chips.every((c: any) => !c.visible) || insideA1(scrolled), scrolled);
+  await page().mouse.wheel(0, -200);
+  await waitFor(async () => insideA1(await chipGeometry()));
+  // Масштаб и прокрутка сохраняются в книге с задержкой: ждём запись, чтобы она не попала в замер байтов ниже
+  await page().keyboard.press('Control+s');
+  await page().waitForTimeout(2500);
   const conflictBefore = await raw('GET', `/api/files/${conflict.fileId}/raw`);
   await clickCell(conflict.frame, 'A1');
   await clickCell(conflict.frame, 'B1', ['Control']);
   await clickCell(conflict.frame, 'B1', [], 'right');
-  const conflictDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
+  const mergeItem = page().getByRole('button', { name: 'Объединить', exact: true });
+  await mergeItem.waitFor();
+  check('native Ctrl-click selection and right-click open a small menu with one Merge item and no dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
+  await mergeItem.click();
+  // Разные ручные значения в обеих колонках: объяснение без записи, как и раньше
+  const conflictDialog = page().getByRole('dialog', { name: 'Объединение не выполнено' });
   await conflictDialog.waitFor();
-  check('native Ctrl-click selection opens the separate Flux dialog with both selected aliases', await conflictDialog.getByText(/DrivePower · equipment/).count() > 0 && await conflictDialog.getByText(/MotorPower · equipment/).count() > 0);
-  await conflictDialog.getByLabel('Имя выходного заголовка').fill('Power');
-  await conflictDialog.getByRole('button', { name: 'Проверить объединение' }).click();
   const conflictVisible = await waitFor(async () => await conflictDialog.getByRole('alert').filter({ hasText: /конфликт|разные непустые/i }).count() > 0);
-  check('two different nonempty native rows are reported as conflicts and confirmation is blocked', conflictVisible && !await conflictDialog.getByRole('button', { name: 'Подтвердить объединение' }).isEnabled());
+  check('two different nonempty native rows are reported with an explanation and nothing is written', conflictVisible && await page().getByRole('button', { name: /Подтвердить объединение|Проверить объединение/ }).count() === 0);
   const conflictAfter = await raw('GET', `/api/files/${conflict.fileId}/raw`);
   check('rejected conflicting merge leaves the saved XLSX bytes unchanged', hash(conflictBefore.bytes) === hash(conflictAfter.bytes));
   await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-  await clickCell(conflict.frame, 'A1', [], 'right');
-  const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
-  await formulaDialog.waitFor();
-  await formulaDialog.getByRole('button', { name: 'Редактировать формулу в ячейке' }).click();
+  // Ввод идёт прямо в ячейке шапки: Enter на выделенной привязанной ячейке открывает окно ввода
+  // поверх неё, без диалога. Для одной ячейки сначала сворачиваем выделение обычным щелчком.
+  await clickCell(conflict.frame, 'A1', [], 'left', 2);
   const formulaEditor = conflict.frame.locator('#flux-sheet-token-overlay .flux-sheet-token-edit');
+  await formulaEditor.waitFor();
+  check('Double-click on a bound header cell opens in-cell input over it without any dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await formulaEditor.locator('.flux-sheet-token-chip').count() === 1);
+  // Backspace у метки: первое нажатие выделяет её, второе удаляет; Escape возвращает ячейку как была
+  await formulaEditor.evaluate((host: HTMLElement) => {
+    const chip = host.querySelector('.flux-sheet-token-chip');
+    if (!chip) return;
+    const range = document.createRange(); range.setStartAfter(chip); range.collapse(true);
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  });
+  await page().keyboard.press('Backspace');
+  check('first Backspace at a label selects it and keeps it in the cell', await formulaEditor.locator('.flux-sheet-token-chip').count() === 1 && await formulaEditor.evaluate(() => window.getSelection()?.toString() === 'DrivePower'));
+  await page().keyboard.press('Backspace');
+  check('second Backspace removes the selected label', await formulaEditor.locator('.flux-sheet-token-chip').count() === 0);
+  await page().keyboard.press('Escape');
+  await formulaEditor.waitFor({ state: 'detached' });
+  check('Escape after deleting the label leaves the native cell unchanged', await nativeCell(conflict.frame, 'A1') === 'DrivePower');
+  await clickCell(conflict.frame, 'A1', [], 'left', 2);
   await formulaEditor.waitFor();
   await formulaEditor.evaluate((host: HTMLElement) => {
     const chip = host.querySelector('.flux-sheet-token-chip');
@@ -152,7 +237,11 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await formulaEditor.pressSequentially('=');
   await formulaEditor.press('ArrowRight');
   await formulaEditor.pressSequentially('+');
-  await formulaEditor.click({ button: 'right', position: { x: 3, y: 12 } });
+  // Правый щелчок в пустом месте за последним знаком ставит точку вставки в конец формулы (на последней строке, если текст перенесён).
+  const editorBox = await formulaEditor.boundingBox();
+  await formulaEditor.click({ button: 'right', position: { x: Math.max(1, (editorBox?.width || 8) - 4), y: Math.max(1, (editorBox?.height || 14) - 6) } });
+  // Правый щелчок в окне формулы открывает малое меню; диалог — его пункт.
+  await conflict.frame.getByRole('menuitem', { name: 'Действия заголовка' }).click();
   const insertDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await insertDialog.waitFor();
   check('right-click in the active formula overlay opens a separate dialog with the same cell and live field part', await insertDialog.getByText(/Активная ячейка.*A1/).count() > 0 && await insertDialog.getByText(/DrivePower · equipment/).count() > 0);
@@ -161,7 +250,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await formulaEditor.waitFor();
   await formulaEditor.pressSequentially(' end');
   const tokenTexts = await formulaEditor.locator('.flux-sheet-token-chip').allTextContents();
-  check('in-cell formula keeps two individually protected parameter aliases and operator/text around them', tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('DrivePower')) && tokenTexts.some((text: string) => text.includes('MotorPower')) && (await formulaEditor.innerText()).includes('=') && (await formulaEditor.innerText()).includes('+ end'), { tokenTexts, text: await formulaEditor.innerText() });
+  check('in-cell formula keeps two individually protected parameter aliases and operator/text around them', tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('DrivePower')) && tokenTexts.some((text: string) => text.includes('MotorPower')) && (await formulaEditor.innerText()).includes('=') && (await formulaEditor.innerText()).includes('+') && (await formulaEditor.innerText()).includes('end'), { tokenTexts, text: await formulaEditor.innerText() });
   await formulaEditor.locator('.flux-sheet-token-chip').first().click();
   await page().keyboard.type('BROKEN');
   check('keyboard text at a protected token cannot mutate the chip label', (await formulaEditor.locator('.flux-sheet-token-chip').allTextContents()).some((text: string) => text.includes('DrivePower')));
@@ -172,10 +261,20 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     return anchor?.parts?.filter((part: any) => part.kind === 'field').length === 2 && anchor.parts.some((part: any) => part.kind === 'operator' && part.operator === '+') && await nativeCell(conflict.frame, 'A1') === '=DrivePower+MotorPower end';
   }));
   await page().keyboard.press('Control+s');
+  // Запись асинхронна: закрывать страницу можно, когда формула уже лежит в файле
+  await waitFor(async () => {
+    const zip = await JSZip.loadAsync((await raw('GET', `/api/files/${conflict.fileId}/raw`)).bytes);
+    return `${await zip.file('xl/sharedStrings.xml')?.async('string') || ''}${await zip.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`.includes('=DrivePower+MotorPower end');
+  });
   await resetPage(false);
   await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(conflict.fileId)}`);
   const reopenedFormulaFrame = await openPanel(page(), 'Flux Office — Таблица');
-  check('formula and protected alias parts survive save and actual native reopen', await waitForSheetFile(reopenedFormulaFrame) && await nativeCell(reopenedFormulaFrame, 'A1') === '=DrivePower+MotorPower end' && (await api('GET', `/api/project-data/files/${conflict.fileId}/office-state`)).json?.schema?.anchors?.find((item: any) => item.id === conflict.a?.id)?.parts?.filter((part: any) => part.kind === 'field').length === 2);
+  const reopenedLoaded = await waitForSheetFile(reopenedFormulaFrame);
+  // Правки сеанса применяются к открытой книге с небольшой задержкой: ждём формулу, а не читаем сразу
+  await waitFor(async () => await nativeCell(reopenedFormulaFrame, 'A1') === '=DrivePower+MotorPower end');
+  const reopenedA1 = await nativeCell(reopenedFormulaFrame, 'A1');
+  const reopenedFields = (await api('GET', `/api/project-data/files/${conflict.fileId}/office-state`)).json?.schema?.anchors?.find((item: any) => item.id === conflict.a?.id)?.parts?.filter((part: any) => part.kind === 'field').length;
+  check('formula and protected alias parts survive save and actual native reopen', reopenedLoaded && reopenedA1 === '=DrivePower+MotorPower end' && reopenedFields === 2, { reopenedLoaded, reopenedA1, reopenedFields });
   const formulaPackage = await JSZip.loadAsync((await raw('GET', `/api/files/${conflict.fileId}/raw`)).bytes);
   const formulaParts = `${await formulaPackage.file('xl/sharedStrings.xml')?.async('string') || ''}${await formulaPackage.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`;
   check('saved XLSX XML retains formula text and the two source alias labels', formulaParts.includes('=DrivePower+MotorPower end') && formulaParts.includes('DrivePower') && formulaParts.includes('MotorPower'));
@@ -186,24 +285,15 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   await clickCell(frame, 'A1');
   await clickCell(frame, 'B1', ['Control']);
   await clickCell(frame, 'B1', [], 'right');
-  const dialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
-  await dialog.waitFor();
-  check('native merge dialog preserves selected anchor priority and alternatives', await dialog.getByText(/Выходная ячейка.*A1/).count() > 0 && await dialog.getByText(/Вторая ячейка.*B1/).count() > 0 && await dialog.getByText(/DrivePower · equipment/).count() > 0 && await dialog.getByText(/MotorPower · equipment/).count() > 0);
-  await dialog.getByLabel('Имя выходного заголовка').fill('DrivePower / MotorPower');
-  await dialog.getByRole('button', { name: 'Проверить объединение' }).click();
-  check('native merge preview confirms one-sided fallback rows are transferable', await waitFor(async () => await dialog.getByRole('status').filter({ hasText: /Конфликтов ручных значений не найдено/ }).count() > 0));
-
+  // Ручная правка постороннего столбца до объединения: после сдвига колонок она должна остаться на месте
   await frame.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
     sheet?.getRange('C6')?.setValue('STALE_PREVIEW_KEEP');
   });
-  await dialog.getByRole('button', { name: 'Подтвердить объединение' }).click();
-  check('stale native preview is rejected after an underlying manual cell edit', await waitFor(async () => await dialog.getByRole('alert').filter({ hasText: /изменил|повторите/i }).count() > 0) && await nativeCell(frame, 'B1') === 'Motor Power' && await nativeCell(frame, 'A3') === '');
-
-  await dialog.getByRole('button', { name: 'Проверить объединение' }).click();
-  await waitFor(async () => await dialog.getByRole('button', { name: 'Подтвердить объединение' }).isEnabled());
-  await dialog.getByRole('button', { name: 'Подтвердить объединение' }).click();
+  await page().getByRole('button', { name: 'Объединить', exact: true }).waitFor();
+  check('merge menu lists the single Merge item without a name window', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await page().getByLabel('Имя выходного заголовка').count() === 0);
+  await page().getByRole('button', { name: 'Объединить', exact: true }).click();
   check('confirmed native merge keeps only the output anchor and stores prioritized alias bindings', await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
     return state?.schema?.anchors?.length === 1 && state.schema.anchors[0].id === a?.id && state.schema.anchors[0].parts?.[0]?.kind === 'union' && state.schema.anchors[0].parts[0].alternatives?.map((item: any) => item.fieldKey).join(',') === 'param:@DrivePower,param:@MotorPower';
@@ -212,15 +302,103 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('native fallback copies source-only data and retains unrelated text and formula cells', await nativeCell(frame, 'A2') === 'DRIVE_ONLY' && await nativeCell(frame, 'A3') === 'MOTOR_ONLY' && await nativeCell(frame, 'B2') === 'OTHER_KEEP' && await nativeCell(frame, 'B3') === 'MANUAL_KEEP' && await nativeCell(frame, 'B6') === 'STALE_PREVIEW_KEEP' && (await nativeFormula(frame, 'C4')).replace(/^=/, '') === '1+1');
   const mergedState = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
   check('stored row identities lose only the removed anchor and retain transferred values', mergedState?.rows?.length === 2 && mergedState.rows.every((row: any) => row.anchorIds?.length === 1 && row.anchorIds[0] === a?.id && !row.cells?.[b?.id] && !row.values?.[b?.id]) && mergedState.rows.find((row: any) => row.entityId === entities[0].entityId)?.values?.[a?.id] === 'DRIVE_ONLY' && mergedState.rows.find((row: any) => row.entityId === entities[1].entityId)?.values?.[a?.id] === 'MOTOR_ONLY', mergedState?.rows);
+  // Позиции, где заполнены оба параметра, не останавливают объединение: рядом с ячейкой короткая плашка с выбором
+  const badge = page().getByRole('group', { name: 'Приоритет объединения' });
+  await badge.waitFor();
+  check('merge went through and a short badge says both parameters are filled for 2 positions', /У 2 позиций заполнены оба параметра/.test(await badge.innerText())
+    && await badge.getByRole('button', { name: 'Брать DrivePower' }).count() === 1 && await badge.getByRole('button', { name: 'Брать MotorPower' }).count() === 1 && await badge.getByRole('button', { name: 'Выбрать по каждой' }).count() === 1, await badge.innerText());
+  await page().screenshot({ path: '/tmp/merge-badge.png' });
+  await clickCell(frame, 'D3');
   await page().keyboard.press('Control+z');
-  const mergeUndone = await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power' && await nativeCell(frame, 'B1') === 'Motor Power' && await nativeCell(frame, 'A3') === '' && await nativeCell(frame, 'B3') === 'MOTOR_ONLY');
+  const mergeUndone = await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower' && await nativeCell(frame, 'B1') === 'MotorPower' && ((await nativeCell(frame, 'A3')) ?? '') === '' && await nativeCell(frame, 'B3') === 'MOTOR_ONLY');
   check('one native Ctrl+Z restores both original header columns and their cell values', mergeUndone, { a1: await nativeCell(frame, 'A1'), b1: await nativeCell(frame, 'B1'), a3: await nativeCell(frame, 'A3'), b3: await nativeCell(frame, 'B3') });
+  // Схема в файле возвращается вместе с таблицей: снова два якоря
+  check('Ctrl+Z after the merge returns both anchors to office-state', await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.length === 2));
   if (mergeUndone) {
     await page().keyboard.press('Control+Shift+z');
+    check('Ctrl+Shift+Z returns the merged schema to office-state', await waitFor(async () => { const anchors = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors; return anchors?.length === 1 && anchors[0].parts?.[0]?.kind === 'union'; }));
     check('native redo reapplies the confirmed merge as one operation', await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower / MotorPower' && await nativeCell(frame, 'A3') === 'MOTOR_ONLY' && !String(await nativeCell(frame, 'B1') || '')));
   }
+  // «Брать MotorPower»: параметр идёт первым во всех позициях, плашка уходит, выбор хранится в объединении
+  await badge.getByRole('button', { name: 'Брать MotorPower' }).click();
+  check('"Брать MotorPower" stores the order and the resolved mark in the union and hides the badge', await waitFor(async () => {
+    const part = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.[0];
+    return part?.kind === 'union' && part.resolved === true && part.alternatives?.slice().sort((x: any, y: any) => x.priority - y.priority)[0]?.fieldKey === 'param:@MotorPower';
+  }) && await waitFor(async () => await badge.count() === 0));
+  // «Обновить данные» берёт у каждой позиции выбранный параметр: теперь это MotorPower (95), а не DrivePower (120)
+  const planFor = async (fid: string, state: any) => {
+    const query = { entity: 'element', columns: ['param:@DrivePower', 'param:@MotorPower'], filters: [], sort: [], limit: 1000, excludedEntityIds: [] };
+    const data = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query });
+    const preview = await api('POST', `/api/project-data/files/${fid}/preview`, { projectId: fixture.projectId, baseHash: state.baseHash, sourceRevision: data.json?.revision, selectedEntityIds: entities.map((entity: any) => entity.entityId), query, schema: state.schema });
+    return preview.json;
+  };
+  const unionState = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json;
+  const unionPlan = await planFor(fileId, unionState);
+  const unionWrites = (unionPlan?.writes || []).filter((write: any) => write.anchorId === a?.id);
+  check('refresh plan takes the chosen parameter for every position', unionWrites.length === 2 && unionWrites.every((write: any) => /^95\b/.test(String(write.value))), unionPlan);
+  // Переименование объединённой колонки: имя на плашке и в тексте шапки, данные по-прежнему по ключам
+  await clickCell(frame, 'D3');
+  await clickCell(frame, 'A1');
+  await clickCell(frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: /^Переименовать/ }).click();
+  const unionRename = page().getByRole('dialog', { name: 'Переименовать' });
+  await unionRename.getByLabel('Отображаемое имя').fill('Мощность, кВт');
+  await unionRename.getByRole('button', { name: 'Сохранить' }).click();
+  check('renamed merged column keeps the new name in the schema and in the header cell', await waitFor(async () => {
+    const part = (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.[0];
+    return part?.label === 'Мощность, кВт' && part.resolved === true && await nativeCell(frame, 'A1') === 'Мощность, кВт';
+  }), await nativeCell(frame, 'A1'));
+  check('renamed merged column is read back by key: refresh plan still writes 95', ((await planFor(fileId, (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json))?.writes || []).filter((write: any) => write.anchorId === a?.id).every((write: any) => /^95\b/.test(String(write.value))));
   await page().keyboard.press('Control+s');
+  // Запись асинхронна: ждём, пока файл на сервере станет другим, а не читаем его сразу после нажатия
+  await waitFor(async () => hash((await raw('GET', `/api/files/${fileId}/raw`)).bytes) !== hash(premergeBytes.bytes));
   const saved = await raw('GET', `/api/files/${fileId}/raw`);
   check('saved XLSX serializes merged fallback values, other-column data, and formula', hash(saved.bytes) !== hash(premergeBytes.bytes) && (await nativeFormula(frame, 'C4')).replace(/^=/, '') === '1+1');
 
+
+  // Своё имя параметра: плашка, текст шапки и подсказка; переживает сохранение и повторное открытие, данные идут по ключу
+  const named = await prepare('rename', false);
+  await clickCell(named.frame, 'D3');
+  await clickCell(named.frame, 'A1');
+  await clickCell(named.frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: 'Переименовать', exact: true }).click();
+  const renameDialog = page().getByRole('dialog', { name: 'Переименовать' });
+  await renameDialog.waitFor();
+  check('rename window shows the programmatic name next to the display name', await renameDialog.getByText(/Программное имя: DrivePower · equipment/).count() > 0 && await renameDialog.getByRole('button', { name: 'Сбросить имя' }).count() === 0);
+  await renameDialog.getByLabel('Отображаемое имя').fill('Мощность привода, кВт');
+  await renameDialog.getByRole('button', { name: 'Сохранить' }).click();
+  const labelOf = async (fid: string) => (await api('GET', `/api/project-data/files/${fid}/office-state`)).json?.schema?.anchors?.find((anchor: any) => anchor.id === named.a?.id)?.parts?.[0]?.binding?.label;
+  check('own name is stored in the binding label and shown in the header cell', await waitFor(async () => await labelOf(named.fileId) === 'Мощность привода, кВт' && await nativeCell(named.frame, 'A1') === 'Мощность привода, кВт'), await nativeCell(named.frame, 'A1'));
+  await clickCell(named.frame, 'D3');
+  const chipTexts = () => named.frame.locator('body').evaluate(() => [...document.querySelectorAll('#flux-sheet-chip-layer')].flatMap((layer) => [...layer.children].map((box: any) => ({ chips: [...box.querySelectorAll('.flux-sheet-idle-chip')].map((chip) => chip.textContent), title: box.dataset.title }))));
+  check('the idle chip shows the own name and its tooltip holds the programmatic one', await waitFor(async () => (await chipTexts()).some((box: any) => box.chips.includes('Мощность привода, кВт') && /DrivePower · equipment/.test(String(box.title)))), await chipTexts());
+  // Снимок: ячейка A1 в поле зрения, указатель над плашкой — видна подсказка с программным именем
+  await named.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getRange?.('A1')?.activate?.(); });
+  await clickCell(named.frame, 'A1');
+  await page().waitForTimeout(400);
+  await named.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
+  await page().waitForTimeout(300);
+  await page().screenshot({ path: '/tmp/chip-rename.png' });
+  await clickCell(named.frame, 'D3');
+  const renamedPlan = await planFor(named.fileId, (await api('GET', `/api/project-data/files/${named.fileId}/office-state`)).json);
+  check('refresh plan still takes data by the key after the rename', (renamedPlan?.writes || []).filter((write: any) => write.anchorId === named.a?.id).length === 2 && (renamedPlan.writes as any[]).filter((write: any) => write.anchorId === named.a?.id).every((write: any) => /^120\b/.test(String(write.value))), renamedPlan);
+  // «Сбросить имя» возвращает программное имя в схему и в текст шапки; затем имя задаётся снова и идёт на сохранение
+  await clickCell(named.frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: 'Сбросить имя', exact: true }).click();
+  check('reset returns the programmatic name to the schema and the header cell', await waitFor(async () => await labelOf(named.fileId) === undefined && await nativeCell(named.frame, 'A1') === 'DrivePower'), await nativeCell(named.frame, 'A1'));
+  await clickCell(named.frame, 'D3');
+  await clickCell(named.frame, 'A1');
+  await clickCell(named.frame, 'A1', [], 'right');
+  await page().getByRole('button', { name: 'Переименовать', exact: true }).click();
+  await renameDialog.getByLabel('Отображаемое имя').fill('Мощность привода, кВт');
+  await renameDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await waitFor(async () => await labelOf(named.fileId) === 'Мощность привода, кВт' && await nativeCell(named.frame, 'A1') === 'Мощность привода, кВт');
+  await page().keyboard.press('Control+s');
+  await page().waitForTimeout(2500);
+  await resetPage(false);
+  await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(named.fileId)}`);
+  const reopenedRename = await openPanel(page(), 'Flux Office — Таблица');
+  check('own name survives save and actual reopen: schema, header cell and chip', await waitForSheetFile(reopenedRename) && await labelOf(named.fileId) === 'Мощность привода, кВт' && await waitFor(async () => await nativeCell(reopenedRename, 'A1') === 'Мощность привода, кВт'), await nativeCell(reopenedRename, 'A1'));
+  const reopenedPlan = await planFor(named.fileId, (await api('GET', `/api/project-data/files/${named.fileId}/office-state`)).json);
+  check('refresh plan after reopen still takes data by the key', (reopenedPlan?.writes || []).filter((write: any) => write.anchorId === named.a?.id).length === 2, reopenedPlan);
 }

@@ -1,10 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { base64ToBytes, type WindowsFileContent, type WindowsFileRef } from '../../lib/windowsFiles';
 import { isOfficeMsg, isOfficeEditorReadyMessage, fromOwnFrame, targetOrigin, pathOf } from '../../lib/officeBridge';
 import { localAnswer } from './OfficeAppEditor';
-import FluxPanel, { type FluxTableRow, type ProjectField } from './FluxPanel';
+import FluxPanel, { type FluxTableRow } from './FluxPanel';
+import FluxOfficePanel from './FluxOfficePanel';
+import { docsEditorLink, sheetsEditorLink } from './useOfficeFluxBridge';
+import { useLocalFluxBridge } from './useLocalFluxBridge';
+import { useFluxRibbon } from './useFluxRibbon';
+import { useFluxCellActions } from './useFluxCellActions';
+import { queueOfficeReply } from './officeReplyQueue';
+import { carryFluxPart } from '../../../office/fluxPart';
 import { openEditorTag } from '../../lib/editorTag';
-import { sheetName, cellValue } from '../../../office/fieldKeys';
 import { useStore } from '../../store/store';
 import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
@@ -48,7 +54,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const lifecycleSequence = useRef(0);
   const frameLoadCount = useRef(0);
   const lifecycleState = useRef({ ready: false, dirtyKnown: false, dirty: false });
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
+  const flowProjectId = pickedProjectId ?? activeProjectId;
+  /** Последнее известное содержимое файла: из него берётся часть Flux при сохранении из редактора. */
+  const latest = useRef(file); latest.current = file;
+  const fluxEventWaits = useRef(new Map<string, (payload: any) => void>());
+  const fluxReplyQueue = useRef(new Map<string, Promise<unknown>>());
   const [panelWidth, setPanelWidth] = useState(360);
   const editorArea = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(0);
@@ -90,14 +101,14 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     dirty.current = value;
     logLifecycle('dirty-state');
   }, [logLifecycle]);
-  const ask = useCallback((event: string, answer: string, payload?: unknown) => new Promise<any>(resolve => {
+  const ask = useCallback((event: string, answer: string, payload?: unknown, ms = 30_000) => new Promise<any>(resolve => {
     let timer: ReturnType<typeof setTimeout>;
     const done = (value: any) => { clearTimeout(timer); if (waits.current.get(answer) === done) waits.current.delete(answer); resolve(value); };
     waits.current.set(answer, done);
     timer = setTimeout(() => {
       if (event === 'closeCheck' || event === 'closeSave') logLifecycle(event === 'closeCheck' ? 'close-check-timeout' : 'close-save-timeout', { outcome: 'error', timeout: true });
       done(null);
-    }, 30_000);
+    }, ms);
     send({ event, payload });
   }), [send, logLifecycle]);
   const command = useCallback((channel: string, payload: unknown) => new Promise<any>(resolve => {
@@ -120,11 +131,13 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     }).catch(e => { session.current = null; throw e; });
     return session.current;
   }, [app, fileRef.rootId, fileRef.relativePath, fileRef.draftId, closeSession]);
-  const save = useCallback(async () => {
+  const save = useCallback(async (force = false) => {
     if (busySave.current) return busySave.current;
     if (!ready) return !dirty.current;
     // Документ сообщает dirty через свой closeCheck; локальный dirty ref
     // отслеживает только PDF и Таблицу и не может решать за Word.
+    // Правку панели Flux редактор Таблицы признаёт «изменённой» позже записи: force считает её несохранённой
+    if (force && app !== 'docs') setDirtyState(true);
     if (app !== 'docs' && !dirty.current) return true;
     const operation = (async () => {
       try {
@@ -148,7 +161,8 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     busySave.current = operation;
     try { return await operation; } finally { if (busySave.current === operation) busySave.current = null; }
   }, [ready, app, ask, send, logLifecycle, setDirtyState]);
-  useEffect(() => { saveHandle.current = save; return () => { if (saveHandle.current === save) saveHandle.current = null; }; }, [save, saveHandle]);
+  const saveHandler = useCallback(() => save(), [save]);
+  useEffect(() => { saveHandle.current = saveHandler; return () => { if (saveHandle.current === saveHandler) saveHandle.current = null; }; }, [saveHandler, saveHandle]);
   useEffect(() => {
     if (!pane.startsWith('win:')) return;
     return guardClose(pane.slice(4), async () => {
@@ -159,6 +173,40 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     });
   }, [pane, save, toast, logLifecycle]);
   useEffect(() => { logLifecycle('mount'); return () => logLifecycle('unmount'); }, [logLifecycle]);
+  // Мост панели Flux: Word говорит с редактором событиями окна, Таблица — каналами ipc
+  const askFrame = useCallback(<T,>(event: string, answer: string, ms: number, payload?: unknown): Promise<T | null> => {
+    const expectedFrame = frame.current?.contentWindow;
+    return queueOfficeReply(fluxReplyQueue.current, answer, async () => expectedFrame && expectedFrame === frame.current?.contentWindow ? await ask(event, answer, payload, ms) as T | null : null);
+  }, [ask]);
+  const callFluxEvent = useCallback((channel: string, payload: unknown, responseChannel: string, timeout = 15_000) => {
+    const expectedFrame = frame.current?.contentWindow;
+    return queueOfficeReply(fluxReplyQueue.current, responseChannel, () => new Promise<any>(resolve => {
+      if (!expectedFrame || expectedFrame !== frame.current?.contentWindow) { resolve(null); return; }
+      const finish = (value: any) => { clearTimeout(timer); if (fluxEventWaits.current.get(responseChannel) === finish) fluxEventWaits.current.delete(responseChannel); resolve(value); };
+      fluxEventWaits.current.set(responseChannel, finish);
+      send({ event: 'ipc', payload: { channel, args: [payload] } });
+      const timer = setTimeout(() => finish(null), timeout);
+    }));
+  }, [send]);
+  const editorLink = useMemo(() => app === 'docs' ? docsEditorLink(askFrame) : sheetsEditorLink(callFluxEvent), [app, askFrame, callFluxEvent]);
+  const flux = useLocalFluxBridge({
+    app: app === 'docs' ? 'docs' : 'sheets', fileKey: file.fileId, projectId: flowProjectId, editor: editorLink, latest,
+    load: () => io.current.load(), write: bytes => io.current.write(bytes), save, ready: () => lifecycleState.current.ready,
+    rebase: app === 'sheets' ? async sha256 => { await native({ action: 'rebase', session: await ensure(), sha256 }); } : undefined,
+  });
+  const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready,
+    requestState: flux.requestState, updateSchema: flux.updateSchema, insertBinding: flux.insertBinding, isInlineEditing: () => flux.inlineEditingRef.current,
+    requestNative: async (operation, payload) => {
+      const result = await editorLink.native(operation, payload);
+      if (operation === 'formula' && result?.ok && app === 'sheets') flux.inlineEditingRef.current = true;
+      return result;
+    },
+    onError: message => toast(message, 'error') });
+  // Обработчик сообщений редактора живёт дольше одной отрисовки и берёт свежее отсюда
+  // Выпуск ревизий для файлов Проводника — отдельный этап позже (решение владельца)
+  const ribbon = useFluxRibbon({ send, peek: flowProjectId ? flux.peekState : undefined, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже' });
+  const panelOpen = ribbon.open;
+  const fluxHost = useRef({ flux, cellActions, ribbon }); fluxHost.current = { flux, cellActions, ribbon };
   useEffect(() => {
     const receive = async (event: MessageEvent) => {
       if (!fromOwnFrame(event.source, frame.current?.contentWindow, event.origin, window.location.origin) || !isOfficeMsg(event.data)) return;
@@ -167,8 +215,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
         if (!lifecycleState.current.ready) { lifecycleState.current.ready = true; logLifecycle('editor-ready'); }
         setReady(true); return;
       }
-      if (m.op === 'flux:open-panel') { setPanelOpen(true); return; }
-      if (m.op === 'flux:tag-click') { if (activeProjectId) void openEditorTag(activeProjectId, m.payload); return; }
+      if (fluxHost.current.ribbon.handle(m)) return;
+      if (m.op === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, m.payload); return; }
+      if (m.op === 'flux:cell-actions') { void fluxHost.current.cellActions.open(m.payload); return; }
+      if (m.op === 'flux:header-schema-edited') { void fluxHost.current.cellActions.edited(m.payload); return; }
+      if (m.op === 'flux:history-step') { void fluxHost.current.flux.historyStep(m.payload); return; }
+      if (m.op === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(m.payload || null); return; }
       const waiting = waits.current.get(m.op);
       if (waiting) {
         if (m.op === 'closeCheck') {
@@ -186,7 +238,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (m.op === 'open') { const f = await io.current.load(); reply({ fileId: f.fileId, name: f.name, sha256: f.sha256, bytes: base64ToBytes(f.base64).slice().buffer as ArrayBuffer }); }
           else if (m.op === 'theme') reply(themeRef.current);
           else if (m.op === 'isBlank') reply(false);
-          else if (m.op === 'save') { await io.current.write(new Uint8Array(m.payload.bytes)); setDirtyState(false); setError(''); reply({ ok: true }); }
+          else if (m.op === 'save') {
+            // Редактор открыл пакет до записи схемы Flux: часть Flux переносится из файла, иначе связи пропали бы при первом же сохранении
+            const body = await carryFluxPart(base64ToBytes(latest.current.base64), new Uint8Array(m.payload.bytes));
+            latest.current = await io.current.write(body);
+            setDirtyState(false); setError(''); reply({ ok: true });
+          }
           else if (m.op === 'saveCopy') {
             const made = await io.current.copy(new Uint8Array(m.payload.bytes), m.payload.name);
             reply(made ? { ok: true, path: pathOf(file.fileId) } : { ok: false, canceled: true });
@@ -194,7 +251,15 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           return;
         }
         if (m.op === 'ipc-send') {
-          if (channel === 'flux:tag-click') { if (activeProjectId) void openEditorTag(activeProjectId, args[0]); return; }
+          if (channel === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, args[0]); return; }
+          if (channel === 'flux:cell-actions') { void fluxHost.current.cellActions.open(args[0]); return; }
+          if (channel === 'flux:header-formula-edit-started' && args[0]?.ok) fluxHost.current.flux.inlineEditingRef.current = true;
+          if (channel === 'flux:header-formula-edit-cancelled') { fluxHost.current.flux.inlineEditingRef.current = false; return; }
+          if (channel === 'flux:history-step') { void fluxHost.current.flux.historyStep(args[0]); return; }
+          if (channel === 'flux:begin-cell-edit') { void fluxHost.current.cellActions.beginEdit(args[0]); return; }
+          if (channel === 'flux:header-schema-edited') { fluxHost.current.flux.inlineEditingRef.current = false; void fluxHost.current.cellActions.edited(args[0]); return; }
+          if (channel === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(args[0] || null); return; }
+          if (channel.startsWith('flux:')) { const wait = fluxEventWaits.current.get(channel); if (wait) { fluxEventWaits.current.delete(channel); wait(args[0] || null); } }
           if (channel === 'flux:command-result') { const result = args[0]; const done = commandWaits.current.get(result?.id); if (done) done(result); return; }
           if (channel === 'flux:field-inserted') { waits.current.get(channel)?.(args[0] || null); return; }
           if (/dirty-changed$/.test(channel)) setDirtyState(args[0] === true);
@@ -244,7 +309,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [app, ensure, send, file.fileId, file.name, toast, activeProjectId, logLifecycle, setDirtyState]);
+  }, [app, ensure, send, file.fileId, file.name, toast, flowProjectId, logLifecycle, setDirtyState]);
   useEffect(() => {
     const bridge = (window as any).electron?.localOffice;
     const off = bridge?.onEvent((event: any) => { if (event.session === sessionId.current) send({ event: 'ipc', payload: { channel: event.channel, args: event.args } }); });
@@ -260,21 +325,10 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   }, [send, closeSession]);
   useEffect(() => { if (ready) send({ event: 'theme', payload: theme }); }, [theme, ready, send]);
   const insertTable = async (rows: FluxTableRow[]) => {
-    if (app === 'docs') return !!(await ask('insertTable', 'flux:table-inserted', { rows }))?.ok;
-    if (app === 'sheets') return !!(await command('flux:insert-table', { rows }))?.ok;
-    return false;
-  };
-  const insertField = async (field: ProjectField) => {
-    if (app !== 'sheets') return;
-    const answer = new Promise<any>(resolve => {
-      let timer: ReturnType<typeof setTimeout>;
-      const done = (value: any) => { clearTimeout(timer); if (waits.current.get('flux:field-inserted') === done) waits.current.delete('flux:field-inserted'); resolve(value); };
-      waits.current.set('flux:field-inserted', done);
-      timer = setTimeout(() => done(null), 8000);
-    });
-    send({ event: 'ipc', payload: { channel: 'flux:insert-field', args: [{ name: sheetName(field.key), value: cellValue(field.value === '—' ? '' : field.value) }] } });
-    const result = await answer;
-    if (!result?.ok) toast(result?.error || 'Поле не вставлено.', 'error');
+    const result = app === 'docs' ? await ask('insertTable', 'flux:table-inserted', { rows }) : app === 'sheets' ? await command('flux:insert-table', { rows }) : null;
+    // Причину отказа редактора (нет выделенной ячейки, только чтение) видит сотрудник, а не только «не смог»
+    if (app !== 'pdf' && !result?.ok) toast(result?.error || 'Таблица не вставлена', 'error');
+    return !!result?.ok;
   };
   const insertText = async (text: string) => {
     if (app !== 'docs') return;
@@ -285,7 +339,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
       <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
-      {panelOpen && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
+      {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
+        readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
+        requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
+        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
+      {cellActions.dialog}
+      {panelOpen && app === 'pdf' && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
           event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
         }} onPointerMove={event => {
@@ -298,7 +357,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
           event.preventDefault(); resizePanel(visiblePanelWidth + (event.key === 'ArrowLeft' ? 20 : -20));
         }} />
-        <div className="min-h-0 min-w-0 flex-1"><FluxPanel fileId="" fileName={file.name} projectId={activeProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={() => setPanelOpen(false)} onInsertTable={app === 'pdf' ? undefined : insertTable} onInsertField={app === 'sheets' ? insertField : undefined} onInsertText={app === 'docs' ? insertText : undefined} /></div>
+        <div className="min-h-0 min-w-0 flex-1"><FluxPanel fileId="" fileName={file.name} projectId={flowProjectId} editorKind={app} readOnly={app === 'pdf'} localFile onClose={ribbon.close} /></div>
       </div>}
     </div>
     {!ready && <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">Открывается локальный редактор…</div>}

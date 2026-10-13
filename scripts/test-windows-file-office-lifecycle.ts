@@ -1,5 +1,6 @@
 /** Измеряет iframe живого WindowsFileHost после вставки Flux и сохранения для DOCX и XLSX. */
 import { createServer } from 'vite';
+import { mockFluxPanelApi, openTagsSelection } from './officeLocalPanelMocks';
 
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const check = (name: string, condition: unknown, details?: unknown) => {
@@ -17,7 +18,7 @@ const send=(op,payload)=>window.parent.postMessage({flux:'office',op,payload},lo
 const dirty=()=>{window.__dirty=true;${app === 'sheets' ? "send('ipc-send',{channel:'workbook:pending-edits',args:[1]});" : ''}};
 window.addEventListener('message',event=>{
  if(event.source!==window.parent||event.data?.flux!=='office')return;const m=event.data;
- if(m.event==='closeCheck')send('closeCheck',{dirty:true});
+ if(m.event==='closeCheck')send('closeCheck',{dirty:window.__dirty});
  if(m.event==='closeSave'){
   send('save',{bytes:[80,75,1,2],fixture:true});
   const reply=event=>{if(event.source!==window.parent||event.data?.flux!=='office'||event.data.reply===undefined)return;window.removeEventListener('message',reply);send('closeSaveResult',event.data.error?false:true);};window.addEventListener('message',reply);
@@ -50,15 +51,14 @@ async function main() {
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.route(`**/genoffice/${app}/index.html`, route => route.fulfill({ contentType: 'text/html', body: frameHtml(app) }));
-      await page.route('**/api/projects/local-project/tags', route => route.fulfill({ json: { tags: [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }] } }));
+      await mockFluxPanelApi(page, [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }]);
       await page.goto(`${base}/scripts/fixtures/windows-file-office-lifecycle.html?app=${app}`);
       const frame = page.locator(`iframe[title="Flux Office — ${app === 'docs' ? 'Документ' : 'Таблица'}"]`);
       await frame.waitFor();
       await page.getByText('Открывается локальный редактор…').waitFor({ state: 'detached', timeout: 10000 });
       const child = page.frames().find(item => item.url().includes(`/genoffice/${app}/index.html`));
       if (!child) throw new Error(`${app}: не найден iframe редактора`);
-      await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
-      await page.getByRole('complementary', { name: 'Flux' }).waitFor();
+      await openTagsSelection(page, child, 'TAG-42', 10000);
       await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 10000 });
       const initial = await frame.evaluate(el => {
         const node = el as HTMLIFrameElement, r = node.getBoundingClientRect(), s = getComputedStyle(node);
