@@ -30,6 +30,7 @@ import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
+import { installSheetsHistoryMarks } from './sheets-history-marks'
 import { partChipLabel } from './parameter-chip-style'
 
 interface Ipc {
@@ -655,6 +656,12 @@ async function exportCommands(): Promise<void> {
     bound: () => boundHeaderCells(workbook()),
     parts: (anchorId) => knownHeaderParts.get(anchorId) || null,
     isEditing: (anchorId) => !!headerTokenOverlay?.isEditing(anchorId),
+  })
+  // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
+  const historyMarks = installSheetsHistoryMarks(hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
+  link.on('flux:mark-history', (_e, request: any) => {
+    const message = request?.payload ?? request ?? {}
+    link.send('flux:history-marked', { ok: true, marked: historyMarks?.mark(String(message.id || ''), Number(message.since) || 0) ?? 0 })
   })
   link.on('flux:edit-header-formula', (_e, request: any) => {
     const message = request?.payload ?? request ?? {}

@@ -219,6 +219,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       if (m.op === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, m.payload); return; }
       if (m.op === 'flux:cell-actions') { void fluxHost.current.cellActions.open(m.payload); return; }
       if (m.op === 'flux:header-schema-edited') { void fluxHost.current.cellActions.edited(m.payload); return; }
+      if (m.op === 'flux:history-step') { void fluxHost.current.flux.historyStep(m.payload); return; }
       if (m.op === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(m.payload || null); return; }
       const waiting = waits.current.get(m.op);
       if (waiting) {
@@ -254,6 +255,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           if (channel === 'flux:cell-actions') { void fluxHost.current.cellActions.open(args[0]); return; }
           if (channel === 'flux:header-formula-edit-started' && args[0]?.ok) fluxHost.current.flux.inlineEditingRef.current = true;
           if (channel === 'flux:header-formula-edit-cancelled') { fluxHost.current.flux.inlineEditingRef.current = false; return; }
+          if (channel === 'flux:history-step') { void fluxHost.current.flux.historyStep(args[0]); return; }
           if (channel === 'flux:begin-cell-edit') { void fluxHost.current.cellActions.beginEdit(args[0]); return; }
           if (channel === 'flux:header-schema-edited') { fluxHost.current.flux.inlineEditingRef.current = false; void fluxHost.current.cellActions.edited(args[0]); return; }
           if (channel === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(args[0] || null); return; }

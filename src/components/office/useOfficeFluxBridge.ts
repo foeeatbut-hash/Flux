@@ -21,6 +21,25 @@ export interface OfficeEditorLink {
   applyPlan(payload: { writes: OfficeFillPlan['writes']; schema: OfficeHeaderSchema; rows: OfficeAnchorRow[]; sourceRevision: string }): Promise<{ ok: boolean; rows?: OfficeAnchorRow[]; appliedCount?: number; manualRows?: string[]; error?: string } | null>;
   /** Объединение колонок и формула заголовка (окно действий над ячейкой). */
   native(operation: 'merge' | 'formula', payload: unknown): Promise<any>;
+  /**
+   * Пометить шаги «назад», сделанные редактором с начала действия Flux, этим номером: отмена или
+   * повтор такого шага вернёт хосту событие (historyStep), и он перепишет схему в файле.
+   */
+  markHistory(id: string): Promise<any>;
+}
+
+/** Время первого обращения к редактору в текущем действии Flux: с него шаги считаются шагами действия. */
+function withActionClock(link: Omit<OfficeEditorLink, 'markHistory'>, mark: (id: string, since: number) => Promise<any>): OfficeEditorLink {
+  let since = 0;
+  const touch = () => { if (!since) since = Date.now() - 20; };
+  return {
+    readHeaders: link.readHeaders,
+    syncHeaders: (schema, options) => { touch(); return link.syncHeaders(schema, options); },
+    insertField: (anchor, binding, displayText) => { touch(); return link.insertField(anchor, binding, displayText); },
+    applyPlan: link.applyPlan,
+    native: (operation, payload) => { if (operation === 'merge') touch(); return link.native(operation, payload); },
+    markHistory: (id) => { const from = since; since = 0; return from ? mark(id, from) : Promise.resolve(null); },
+  };
 }
 
 /** Файл, с которым работает хост: на сервере или локальный; записи и хеши — его дело. */
@@ -42,21 +61,21 @@ export interface OfficeFileLink {
   messages: { notSaved: string; rowsMissing: string };
 }
 
-export const docsEditorLink = (ask: <T>(event: string, answer: string, ms: number, payload?: unknown) => Promise<T | null>): OfficeEditorLink => ({
+export const docsEditorLink = (ask: <T>(event: string, answer: string, ms: number, payload?: unknown) => Promise<T | null>): OfficeEditorLink => withActionClock({
   readHeaders: (schema) => ask<any>('getFluxHeaderSchema', 'flux:header-schema-read', 15_000, { schema }),
   syncHeaders: (schema, options) => ask<any>(options.captureNative ? 'getFluxHeaderSchema' : 'syncFluxHeaderSchema', options.captureNative ? 'flux:header-schema-read' : 'flux:header-schema-synced', 15_000, { schema, ...options }),
   insertField: (anchor, binding, displayText) => ask<any>('insertFluxField', 'flux:field-inserted', 8_500, { fieldKey: binding.fieldKey, displayText, anchorId: anchor.anchorId, binding }),
   applyPlan: (payload) => ask<any>('applyFluxPlan', 'flux:office-plan-applied', 30_000, payload),
   native: (operation, payload) => ask<any>(operation === 'merge' ? 'mergeFluxHeaderColumns' : 'editFluxHeaderFormula', operation === 'merge' ? 'flux:header-columns-merged' : 'flux:header-formula-edit-started', 30_000, payload),
-});
+}, (id, since) => ask<any>('markFluxHistory', 'flux:history-marked', 8_000, { id, since }));
 
-export const sheetsEditorLink = (call: (channel: string, payload: unknown, responseChannel: string, timeout?: number) => Promise<any>): OfficeEditorLink => ({
+export const sheetsEditorLink = (call: (channel: string, payload: unknown, responseChannel: string, timeout?: number) => Promise<any>): OfficeEditorLink => withActionClock({
   readHeaders: (schema) => call('flux:get-header-schema', { schema }, 'flux:header-schema-read'),
   syncHeaders: (schema, options) => call(options.captureNative ? 'flux:get-header-schema' : 'flux:sync-header-schema', { schema, ...options }, options.captureNative ? 'flux:header-schema-read' : 'flux:header-schema-synced'),
   insertField: (anchor, binding, displayText) => call('flux:insert-field', { name: `FLUX_ANCHOR_${anchor.anchorId.replace(/[^A-Za-z0-9_]/g, '_')}`, value: displayText, anchorId: anchor.anchorId, binding }, 'flux:field-inserted'),
   applyPlan: (payload) => call('flux:apply-office-plan', payload, 'flux:office-plan-applied', 30_000),
   native: (operation, payload) => call(operation === 'merge' ? 'flux:merge-header-columns' : 'flux:edit-header-formula', payload, operation === 'merge' ? 'flux:header-columns-merged' : 'flux:header-formula-edit-started', 30_000),
-});
+}, (id, since) => call('flux:mark-history', { id, since }, 'flux:history-marked', 8_000));
 
 /**
  * identity — то, что меняет файл под панелью: при смене requestState получает
@@ -67,6 +86,8 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
   const inlineEditingRef = useRef(false);
   // Действия живут между отрисовками хоста, а ссылки на редактор и файл — свежие
   const live = useRef({ editor, file }); live.current = { editor, file };
+  // Пары «прежняя / новая схема» действий Flux: шаги «назад» редактора помечены номерами этих записей
+  const history = useRef(new Map<string, { before: { schema: OfficeHeaderSchema; rows?: OfficeAnchorRow[] }; after: { schema: OfficeHeaderSchema; rows?: OfficeAnchorRow[] } }>());
 
   const requestState = useCallback(async (): Promise<OfficeState> => {
     const { editor: ed, file: fl } = live.current;
@@ -118,8 +139,28 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}), ...(template !== undefined ? { template } : {}) });
     // Без переоткрытия: редактор уже содержит записанное, а история «назад» живёт в окне
     fl.remember(stored.baseHash);
+    if (!options.storeOnly) {
+      // Действие Flux запоминает обе схемы и метит свои шаги в редакторе, чтобы «назад» вернуло и схему
+      const id = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const rows = options.rows || current.rows;
+      history.current.set(id, { before: { schema: current.schema, ...(current.rows ? { rows: current.rows } : {}) }, after: { schema: syncedSchema, ...(rows ? { rows } : {}) } });
+      if (history.current.size > 50) history.current.delete(history.current.keys().next().value as string);
+      try { await ed.markHistory(id); } catch { /* без метки «назад» работает как раньше */ }
+    }
     return await fl.state();
   }, []);
 
-  return { activeAnchor, setActiveAnchor, inlineEditingRef, requestState, peekState, insertBinding, applyWrites, updateSchema };
+  /** Шаг «назад» с меткой Flux отменён или повторён: в файл идёт прежняя или новая схема. */
+  const historyStep = useCallback(async (step: { id?: string; direction?: string } | null | undefined) => {
+    const entry = step?.id ? history.current.get(String(step.id)) : undefined;
+    if (!entry) return;
+    const { file: fl } = live.current;
+    if (fl.notReady?.() || fl.writeBlocked?.('schema')) return;
+    const target = step!.direction === 'redo' ? entry.after : entry.before;
+    const { current, savedHash } = await fl.committed('schema');
+    const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: target.schema, ...(target.rows ? { rows: target.rows } : {}) });
+    fl.remember(stored.baseHash);
+  }, []);
+
+  return { activeAnchor, setActiveAnchor, inlineEditingRef, requestState, peekState, insertBinding, applyWrites, updateSchema, historyStep };
 }

@@ -253,6 +253,7 @@ export default function OfficeHost() {
       if (m.op === 'flux:formula-edited') { void cellActionsRef.current?.syncFromNative(); return; }
       if (m.op === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(m.payload); return; }
       if (m.op === 'flux:header-schema-edited') { void cellActionsRef.current?.edited(m.payload); return; }
+      if (m.op === 'flux:history-step') { void flux.historyStep(m.payload); return; }
       if (m.op === 'flux:anchor-selected') { setActiveFluxAnchor(m.payload || null); return; }
       if (m.op === 'flux:tag-click') { void openEditorTag(activeProjectId, m.payload); return; }
       const wait = waits.current.get(m.op);

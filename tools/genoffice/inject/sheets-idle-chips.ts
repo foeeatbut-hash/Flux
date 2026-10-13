@@ -54,14 +54,61 @@ export function createSheetsIdleChips(deps: Deps) {
     const signature = JSON.stringify(pieces)
     if (box.dataset.signature === signature) return signature
     box.dataset.signature = signature
+    box.dataset.title = pieces.map((piece) => piece.text).join('')
     box.replaceChildren(...pieces.map((piece) => {
       const node = document.createElement('span')
       node.textContent = piece.text
-      if (piece.chip) node.className = 'flux-sheet-idle-chip'
+      if (piece.chip) { node.className = 'flux-sheet-idle-chip'; node.style.maxWidth = 'none' }
       else node.style.whiteSpace = 'pre'
       return node
     }))
+    // Естественная ширина содержимого: по ней плашка решает, сколько пустых соседей занять
+    const keep = box.style.width
+    box.style.width = 'max-content'
+    box.dataset.natural = String(box.offsetWidth)
+    box.style.width = keep
     return signature
+  }
+
+  const measure = (() => {
+    let ctx: CanvasRenderingContext2D | null = null
+    return (text: string): number => {
+      ctx ||= document.createElement('canvas').getContext('2d')
+      if (!ctx) return text.length * 8
+      ctx.font = '14.7px Arial, sans-serif'
+      return ctx.measureText(text).width * 1.1
+    }
+  })()
+
+  // Подсказка с полным названием: слой не ловит мышь, поэтому ищем плашку под курсором сами
+  let tip: HTMLDivElement | null = null
+  const onMove = (event: MouseEvent): void => {
+    let hit: HTMLDivElement | null = null
+    for (const { box } of cells.values()) {
+      if (box.style.display === 'none') continue
+      const r = box.getBoundingClientRect()
+      if (event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom) { hit = box; break }
+    }
+    if (!hit || !hit.dataset.title) { if (tip) tip.style.display = 'none'; return }
+    if (!tip || !tip.isConnected) {
+      tip = document.createElement('div')
+      tip.style.cssText = 'position:fixed;z-index:101;pointer-events:none;padding:3px 8px;border-radius:4px;font:12px/1.3 system-ui,sans-serif;background:#0f172a;color:#f8fafc;max-width:420px;box-shadow:0 2px 8px rgba(0,0,0,.3)'
+      document.body.appendChild(tip)
+    }
+    tip.textContent = hit.dataset.title
+    tip.style.display = ''
+    tip.style.left = `${Math.min(event.clientX + 12, window.innerWidth - 430)}px`
+    tip.style.top = `${event.clientY + 18}px`
+  }
+  document.addEventListener('mousemove', onMove, true)
+
+  /** A1 → [строка, столбец] с нуля */
+  const cellIndex = (address: string): [number, number] | null => {
+    const m = /^([A-Z]{1,3})(\d+)$/i.exec(address)
+    if (!m) return null
+    let col = 0
+    for (const ch of m[1].toUpperCase()) col = col * 26 + ch.charCodeAt(0) - 64
+    return [Number(m[2]) - 1, col - 1]
   }
 
   const tick = (): void => {
@@ -103,10 +150,23 @@ export function createSheetsIdleChips(deps: Deps) {
         const rect = range.getCellRect()
         const left = Number(rect.left) * scaleX - headerLeft
         const top = Number(rect.top) * scaleY - headerTop
-        const width = Number(rect.width) * scaleX
+        let width = Number(rect.width) * scaleX
         const height = Number(rect.height) * scaleY
         const text = String(range.getValue?.() ?? '')
         render(box, item.anchorId, text)
+        // Как текст Excel: и плашки, и перелив исходного текста идут в пустые ячейки справа,
+        // поэтому слой закрывает и их; занятая соседка останавливает (тогда многоточие)
+        const need = Math.max(Number(box.dataset.natural || 0) + 2, measure(text) + 6)
+        const at = cellIndex(item.address)
+        if (at && need > width) {
+          for (let k = 1; k <= 30 && width < need; k++) {
+            const next = sheet.getRange(at[0], at[1] + k, 1, 1)
+            if (String(next.getValue?.() ?? '') !== '') break
+            const nextRect = next.getCellRect()
+            if (!(Number(nextRect.width) > 0) || (Number(nextRect.left) * scaleX - headerLeft) + Number(nextRect.width) * scaleX > bounds.width) break
+            width += Number(nextRect.width) * scaleX
+          }
+        }
         // Подложка прячет простой текст холста под плашками; цвет ячейки, если он задан
         const fill = String(range.getBackground?.() || '')
         // Прозрачная или пустая заливка не прячет текст холста: тогда берём цвет темы

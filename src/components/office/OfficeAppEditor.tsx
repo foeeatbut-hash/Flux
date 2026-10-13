@@ -212,6 +212,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         if (channel === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(args[0]); return; }
         if (channel === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(args[0]); return; }
         if (channel === 'flux:header-schema-edited') { inlineEditingRef.current = false; void cellActionsRef.current?.edited(args[0]); return; }
+        if (channel === 'flux:history-step') { void flux.historyStep(args[0]); return; }
         if (channel === 'flux:anchor-selected') { setActiveFluxAnchor(args[0] || null); return; }
         const officeWait = officeEventWaits.current.get(channel);
         if (officeWait) { officeEventWaits.current.delete(channel); officeWait(args[0] || null); }

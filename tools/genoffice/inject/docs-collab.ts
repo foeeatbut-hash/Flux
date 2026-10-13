@@ -21,6 +21,7 @@
  *   - после записи файл не перечитывается (правка в file-actions.ts):
  *     перечитывание заменило бы документ у всех и сменило исходник.
  */
+import { createDocsHistoryMarks } from './docs-history-marks'
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import {
@@ -778,6 +779,13 @@ async function installFluxFields(): Promise<void> {
     })
     const range = ranges[0]
     if (range) view.dispatch(state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+  })
+  // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
+  const historyMarks = createDocsHistoryMarks(() => yUndoPluginKey.getState(editor.state)?.undoManager as any, (step) => p.tell('flux:history-step', step))
+  editor.on('transaction', historyMarks.attach)
+  editor.on('destroy', () => editor.off('transaction', historyMarks.attach))
+  p.on('markFluxHistory', (request: any) => {
+    p.tell('flux:history-marked', { ok: true, marked: historyMarks.mark(String(request?.id || ''), Number(request?.since) || 0) })
   })
   p.on('getFluxHeaderSchema', (request: any) => {
     let result: any
