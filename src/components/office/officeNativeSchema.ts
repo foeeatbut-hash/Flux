@@ -6,6 +6,8 @@ export interface HeaderSchemaSyncOptions {
   rows?: OfficeAnchorRow[];
   displayLabels?: Record<string, string>;
   removedAnchorIds?: string[];
+  /** Схема уже совпадает с ячейками (прочитана из них): документ не перезаписываем, только храним схему */
+  storeOnly?: boolean;
 }
 
 /** Ответ редактора меняет только привязанные ячейки; остальные якоря сохраняем. */

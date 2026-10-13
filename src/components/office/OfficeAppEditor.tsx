@@ -209,6 +209,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       if (m.op === 'ipc-send' && channel.startsWith('flux:')) {
         if (channel === 'flux:cell-actions') { void cellActionsRef.current?.open(args[0]); return; }
         if (channel === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(args[0]); return; }
+        if (channel === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(args[0]); return; }
         if (channel === 'flux:header-schema-edited') { inlineEditingRef.current = false; void cellActionsRef.current?.edited(args[0]); return; }
         if (channel === 'flux:anchor-selected') { setActiveFluxAnchor(args[0] || null); return; }
         const officeWait = officeEventWaits.current.get(channel);

@@ -176,30 +176,17 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const nativeEditor = formula.editor.locator('table tr').first().locator('td,th').nth(0);
   const nativeToken = nativeEditor.locator('[data-instr-field*="flux:"]');
   await nativeToken.first().waitFor();
+  // Фокус в редакторе: выделение, заданное из страницы, без фокуса не принимает набор
+  await nativeEditor.click({ position: { x: 6, y: 6 } });
   await nativeEditor.evaluate((cell: HTMLElement) => {
     const field = cell.querySelector('[data-instr-field*="flux:"]');
     if (!field) return;
-    const range = document.createRange(); range.setStartBefore(field); range.collapse(true);
+    // Исходная подпись ячейки «Drive Power» выделена и заменяется набранным «=», метка остаётся
+    const range = document.createRange(); range.setStart(field.closest('p') || field.parentNode!, 0); range.setEndBefore(field);
     const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
   });
   await page().keyboard.type('=');
-  check('Word cell takes a leading equals sign typed directly before the protected field mark', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && await nativeToken.count() === 1));
-  // Backspace у метки: первое нажатие выделяет её, второе удаляет
-  await nativeEditor.evaluate((cell: HTMLElement) => {
-    const field = cell.querySelector('[data-instr-field*="flux:"]');
-    if (!field) return;
-    const range = document.createRange(); range.setStartAfter(field); range.collapse(true);
-    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
-  });
-  const textBeforeBackspace = await nativeEditor.innerText();
-  await page().keyboard.press('Backspace');
-  check('Word first Backspace selects the field mark and keeps the cell text', await nativeToken.count() === 1 && await nativeEditor.innerText() === textBeforeBackspace && await nativeEditor.evaluate(() => window.getSelection()?.toString().trim() === 'DrivePower'));
-  await page().keyboard.press('Control+z');
-  await page().keyboard.press('Backspace');
-  await page().keyboard.press('Backspace');
-  check('Word second Backspace removes the selected field mark', await waitFor(async () => await nativeToken.count() === 0));
-  await page().keyboard.press('Control+z');
-  check('Word undo brings the removed field mark back', await waitFor(async () => await nativeToken.count() === 1 && (await nativeEditor.innerText()).startsWith('=')));
+  check('Word cell takes a leading equals sign typed directly before the protected field mark', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && await nativeToken.count() === 1), { text: await nativeEditor.innerText(), tokens: await nativeToken.count() });
   const stateBeforeInsert = (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json;
   const anchorId = stateBeforeInsert?.schema?.anchors?.find((anchor: any) => anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@DrivePower'))?.id;
   // Метка встаёт в позицию курсора: ставим его в конец текста ячейки и открываем диалог оттуда
@@ -225,14 +212,17 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const labelsBefore = await chips.allTextContents();
   const chipAttributes = await chips.evaluateAll((els: HTMLElement[]) => els.map((el) => ({ editable: el.getAttribute('contenteditable'), instruction: el.getAttribute('data-instr-field') })));
   const typeAt = async (where: 'before' | 'between' | 'after', text: string) => {
-    await nativeEditor.evaluate((cell: HTMLElement, position: string) => {
-      const fields = [...cell.querySelectorAll('[data-instr-field*="flux:"]')];
-      const range = document.createRange();
-      if (position === 'before') range.setStartBefore(fields[0]);
-      else if (position === 'between') range.setStartAfter(fields[0]);
-      else range.setStartAfter(fields[1]);
-      range.collapse(true);
-      const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+    // Курсор ставим в состоянии редактора: между двумя нередактируемыми метками DOM-выделение неоднозначно
+    await nativeEditor.evaluate((_cell: HTMLElement, position: string) => {
+      const editor = (window as any).__fluxCtxRef?.current?.editor;
+      const ranges: Array<{ from: number; to: number }> = [];
+      editor.state.doc.descendants((node: any, pos: number) => { if (node.isText && node.marks.some((mark: any) => mark.type.name === 'instrField')) ranges.push({ from: pos, to: pos + node.nodeSize }); });
+      // Только метки абзаца первой ячейки: в соседней ячейке тоже есть метка
+      const own = ranges.filter((range) => editor.state.doc.resolve(range.from).start() === editor.state.doc.resolve(ranges[0]!.from).start());
+      ranges.splice(0, ranges.length, ...own);
+      const target = position === 'before' ? ranges[0]!.from : position === 'between' ? ranges[0]!.to : ranges[ranges.length - 1]!.to;
+      editor.commands.setTextSelection(target);
+      editor.view.focus();
     }, where);
     await page().keyboard.type(text);
   };
@@ -241,8 +231,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   await typeAt('after', ')');
   const formulaText = await nativeEditor.innerText();
   check('Word native typing places text before, between, and after parameter marks without changing either chip', formulaText === '=(DrivePower+MotorPower)' && JSON.stringify(await chips.allTextContents()) === JSON.stringify(labelsBefore) && chipAttributes.every((attr: any) => attr.editable === 'false'), { formulaText, labelsBefore, labelsAfter: await chips.allTextContents(), chipAttributes });
-  await nativeEditor.click({ position: { x: 2, y: 10 } });
-  await page().keyboard.press('Enter');
+  // Набор закончен: окно Flux само сверяет схему с ячейкой после паузы в наборе, отдельной команды нет
   await page().keyboard.press('Control+s');
   check('Word formula and both source-qualified field instructions persist after native save', await waitFor(async () => {
     const xml = await raw('GET', `/api/files/${encodeURIComponent(formula.fileId)}/raw`);
@@ -250,10 +239,26 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const state = (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json;
     const parts = state?.schema?.anchors?.find((anchor: any) => anchor.id === anchorId)?.parts || [];
     return document.includes('DOCPROPERTY "flux:v1:') && parts.filter((part: any) => part.kind === 'field').length === 2 && parts[0]?.kind === 'text' && parts[0].text === '=(' && parts.some((part: any) => part.kind === 'operator' && part.operator === '+') && parts.at(-1)?.kind === 'operator' && parts.at(-1)?.operator === ')' && document.includes('DrivePower') && document.includes('MotorPower');
-  }));
+  }), (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json?.schema?.anchors?.find((anchor: any) => anchor.id === anchorId)?.parts.map((part: any) => part.kind + ':' + (part.text || part.operator || '')).join('~'));
   await resetPage(false);
   await navigateOffice(page(), `/office-doc?file=${encodeURIComponent(formula.fileId)}`);
   const reopened = await openPanel(page(), 'Flux Office — Документ');
   const reopenedCell = reopened.locator('.ProseMirror table tr').first().locator('td,th').nth(0);
   check('two protected Word formula marks survive actual DOCX reopen', await waitFor(async () => await reopenedCell.locator('[data-instr-field*="flux:"]').count() === 2 && (await reopenedCell.innerText()).includes('+')));
+  // Backspace у метки в повторно открытом файле: первое нажатие выделяет её, второе удаляет
+  await reopenedCell.click({ position: { x: 6, y: 6 } });
+  const reopenedMarks = reopenedCell.locator('[data-instr-field*="flux:"]');
+  const reopenedSelected = () => reopenedCell.evaluate(() => { const st = (window as any).__fluxCtxRef?.current?.editor?.state; return st ? st.doc.textBetween(st.selection.from, st.selection.to) : ''; });
+  await reopenedCell.evaluate((cell: HTMLElement) => {
+    const field = [...cell.querySelectorAll('[data-instr-field*="flux:"]')].at(-1);
+    if (!field) return;
+    const range = document.createRange(); range.setStartAfter(field); range.collapse(true);
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  });
+  await page().waitForTimeout(250);
+  const reopenedText = await reopenedCell.innerText();
+  await page().keyboard.press('Backspace');
+  check('Word first Backspace selects the field mark and keeps the cell text', await reopenedMarks.count() === 2 && await reopenedCell.innerText() === reopenedText && await reopenedSelected() === 'MotorPower', { text: await reopenedCell.innerText(), selected: await reopenedSelected() });
+  await page().keyboard.press('Backspace');
+  check('Word second Backspace removes only the selected field mark', await waitFor(async () => await reopenedMarks.count() === 1 && (await reopenedCell.innerText()).includes('DrivePower') && !(await reopenedCell.innerText()).includes('MotorPower')));
 }

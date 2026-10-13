@@ -108,6 +108,34 @@ export function useFluxCellActions(options: Options) {
       if (!result?.ok) throw new Error(result?.error || 'Редактор не открыл ячейку.');
     } catch (reason: any) { options.onError(String(reason?.message || reason)); }
   };
+  // Текст, набранный в ячейке Word между метками, живёт в документе; в схему он попадает
+  // при записи файла: сверяем схему с тем, что прочитано из ячеек, и пишем, если разошлись.
+  const syncing = useRef(false);
+  const syncAgain = useRef(false);
+  const syncFromNative = async () => {
+    if (options.readOnly || options.isInlineEditing?.()) return;
+    // Набор продолжился, пока схема сверялась: после сверки повторяем, чтобы не потерять хвост
+    if (syncing.current) { syncAgain.current = true; return; }
+    syncing.current = true;
+    try {
+      const live = await options.requestState();
+      const stored = await officeDataApi.state(options.fileId);
+      if (!live || !stored.schema.anchors.length) return;
+      // Только формулы (ячейка начинается с «=»): обычную подпись рядом с меткой схема не хранит,
+      // и перезапись таких ячеек сбивала бы выделение. Сравниваем состав частей, а не служебные поля.
+      const shape = (parts: OfficeHeaderSchema['anchors'][number]['parts']) => parts.map((part: any) => part.kind === 'field' ? `f:${part.binding.sourceId}:${part.binding.fieldKey}` : part.kind === 'union' ? `u:${part.alternatives.map((item: any) => item.fieldKey).join(',')}` : part.kind === 'operator' ? `o:${part.operator}` : `t:${part.text}`).join('|');
+      const changed = new Map<string, OfficeHeaderSchema['anchors'][number]['parts']>();
+      for (const anchor of live.schema.anchors) {
+        const first: any = anchor.parts[0];
+        const before = stored.schema.anchors.find((item) => item.id === anchor.id);
+        if (before && first?.kind === 'text' && first.text.trimStart().startsWith('=') && shape(anchor.parts) !== shape(before.parts)) changed.set(anchor.id, anchor.parts);
+      }
+      if (!changed.size) return;
+      await options.updateSchema({ ...stored.schema, anchors: stored.schema.anchors.map((anchor) => changed.has(anchor.id) ? { ...anchor, parts: changed.get(anchor.id)! } : anchor) }, { storeOnly: true });
+    } catch (reason: any) { options.onError(String(reason?.message || reason)); }
+    finally { syncing.current = false; }
+    if (syncAgain.current) { syncAgain.current = false; await syncFromNative(); }
+  };
   const edited = async (payload: any) => {
     if (options.readOnly) return;
     setBusy(true);
@@ -125,6 +153,6 @@ export function useFluxCellActions(options: Options) {
     setSelection([]);
     if (anchorId && state && options.isInlineEditing?.()) requestAnimationFrame(() => { void options.requestNative('formula', { anchorId, schema: labeled(state.schema) }).catch((reason) => options.onError(String(reason?.message || reason))); });
   };
-  return { open, beginEdit, edited, dialog: <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy}
+  return { open, beginEdit, syncFromNative, edited, dialog: <FluxCellActionsDialog open={!!selection.length} selectedAnchors={selection} fields={fields} readOnly={options.readOnly} busy={busy}
     onCancel={cancel} onPreviewMerge={(request) => merge(request, false)} onConfirmMerge={(request) => merge(request, true)} onInsertField={insert} /> };
 }

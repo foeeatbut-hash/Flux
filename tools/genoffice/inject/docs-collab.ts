@@ -31,6 +31,7 @@ import type { Editor } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { createWordHeaderActions } from './docs-header-merge'
+import { installParameterChipStyle } from './parameter-chip-style'
 import { isPhasedContentPending } from '../phased-content'
 import { waitForEditor } from './editor-readiness'
 
@@ -259,20 +260,37 @@ function installFluxFieldGuard(editor: Editor): void {
       return !blocked
     },
     props: {
-      handleKeyDown(view, event) {
-        if (event.key !== 'Backspace' && event.key !== 'Delete') return false
-        if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return selectionTouchesFluxField(view.state, event.key)
-        // Поле не стирается случайно: первое нажатие выделяет его целиком, второе
-        // удаляет (как чип). Остальные случаи у поля по-прежнему блокируются.
-        const range = fluxFieldRange(view.state, event.key)
-        if (!range) return selectionTouchesFluxField(view.state, event.key)
-        const { from, to } = view.state.selection
-        if (from === range.from && to === range.to) {
-          view.dispatch(view.state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
-        } else if (view.state.selection.empty) {
-          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
-        } else return true
-        return true
+      // Через событие DOM, а не handleKeyDown: при выделенном поле Backspace раньше нас
+      // перехватывает клавиатурная карта редактора (deleteSelection), и поле не удалялось бы.
+      handleDOMEvents: {
+        keydown(view, event) {
+          // Текст у края или между полей: браузер не ставит каретку между двумя нередактируемыми
+          // метками, а набранный знак унаследовал бы метку поля и был бы заблокирован защитой.
+          // Поэтому знак вставляем сами обычным текстом: так пишутся «(», «+», «)» вокруг полей.
+          if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+            const { state } = view
+            const { from, to } = state.selection
+            if (from !== to || !(state.selection instanceof TextSelection)) return false
+            const $pos = state.doc.resolve(from)
+            const nextToField = [$pos.nodeBefore, $pos.nodeAfter].some((node: any) => node?.isText && (node.marks || []).some(isFluxField))
+            if (!nextToField || !view.editable) return false
+            const marks = ($pos.marks() || []).filter((mark: any) => !isFluxField(mark))
+            view.dispatch(state.tr.replaceWith(from, to, state.schema.text(event.key, marks)).setMeta('fluxFieldCommand', true).scrollIntoView())
+            event.preventDefault()
+            return true
+          }
+          if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+          const stop = (): true => { event.preventDefault(); return true }
+          if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return selectionTouchesFluxField(view.state, event.key) ? stop() : false
+          // Поле не стирается случайно: первое нажатие выделяет его целиком, второе
+          // удаляет (как чип). Остальные случаи у поля по-прежнему блокируются.
+          const range = fluxFieldRange(view.state, event.key)
+          if (!range) return selectionTouchesFluxField(view.state, event.key) ? stop() : false
+          const { from, to, empty } = view.state.selection
+          if (from === range.from && to === range.to) view.dispatch(view.state.tr.delete(range.from, range.to).setMeta('fluxFieldCommand', true).scrollIntoView())
+          else if (empty) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+          return stop()
+        },
       },
     },
   }))
@@ -670,7 +688,20 @@ async function installFluxFields(): Promise<void> {
   let liveHeaderSchema: any = null
   const headerActions = createWordHeaderActions(editor, { validateHeaderSchema, wordParagraphForSchema, readNativeHeader, anchorIdFromBookmark, isFluxField })
   installFluxFieldGuard(editor)
+  installParameterChipStyle()
     const report = () => p.tell('flux:anchor-selected', docAnchor(editor))
+  // Текст, набранный в ячейке-формуле между метками, надо донести до схемы: после паузы в наборе
+  // сообщаем окну Flux, и оно сверяет схему с ячейкой (в ячейке без «=» ничего не делаем)
+  let formulaTimer: ReturnType<typeof setTimeout> | undefined
+  const reportFormulaEdit = () => {
+    clearTimeout(formulaTimer)
+    formulaTimer = setTimeout(() => {
+      const parent = editor.state.selection.$from.parent
+      if (parent.textContent.trimStart().startsWith('=') && docAnchor(editor)) p.tell('flux:formula-edited', {})
+    }, 1500)
+  }
+  editor.on('update', reportFormulaEdit)
+  editor.on('destroy', () => { clearTimeout(formulaTimer); editor.off('update', reportFormulaEdit) })
   editor.on('selectionUpdate', report)
   editor.on('destroy', () => editor.off('selectionUpdate', report))
   const onHeaderContextMenu = (event: MouseEvent) => {

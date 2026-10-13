@@ -1,4 +1,6 @@
 /** Дополнение к canvas-редактору: формула редактируется поверх настоящей ячейки. */
+import { installParameterChipStyle } from './parameter-chip-style'
+
 type Part = Record<string, any>
 
 interface Ipc {
@@ -29,20 +31,19 @@ export function createSheetsTokenOverlay(
   ipc.on('app:theme-changed', (_event, theme: unknown) => setTheme(theme))
 
   const installStyle = (): void => {
+    installParameterChipStyle()
     if (document.getElementById('flux-sheet-token-style')) return
     const style = document.createElement('style')
     style.id = 'flux-sheet-token-style'
     style.textContent = `
 #flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;align-items:center;gap:5px;box-sizing:border-box;min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
 #flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
-#flux-sheet-token-overlay .flux-sheet-token-chip{display:inline-block;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;margin:0 1px;max-width:190px;padding:2px 7px;border:1px solid #bfdbfe;border-radius:999px;background:#eff6ff;color:#1e40af;white-space:nowrap;user-select:all}
 #flux-sheet-token-overlay button{flex:none;border:0;border-radius:5px;padding:4px 7px;background:#f1f5f9;color:#334155;font:inherit;cursor:pointer}
 #flux-sheet-token-overlay button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu{position:fixed;z-index:1201;padding:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;box-shadow:0 5px 16px #0f172a33}
 #flux-sheet-token-menu button{border:0;border-radius:4px;padding:6px 9px;background:transparent;color:#334155;font:12px system-ui,sans-serif;cursor:pointer}
 #flux-sheet-token-menu button:hover{background:#f1f5f9}
 #flux-sheet-token-overlay[data-theme=dark]{border-color:#475569;background:#111827;color:#e2e8f0;box-shadow:0 8px 24px #0009}
-#flux-sheet-token-overlay[data-theme=dark] .flux-sheet-token-chip{border-color:#1d4ed8;background:#172554;color:#bfdbfe}
 #flux-sheet-token-overlay[data-theme=dark] button{background:#334155;color:#e2e8f0}
 #flux-sheet-token-overlay[data-theme=dark] button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu[data-theme=dark]{border-color:#475569;background:#111827;box-shadow:0 5px 16px #0009}

@@ -63,7 +63,7 @@ export default function OfficeHost() {
 
   const frame = useRef<HTMLIFrameElement>(null);
   const pendingCellFocus = useRef<{ anchorId: string; schema: OfficeHeaderSchema } | null>(null);
-  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
+  const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; syncFromNative: () => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [name, setName] = useState('');
   const [frameKey, setFrameKey] = useState(0);
@@ -213,7 +213,7 @@ export default function OfficeHost() {
     }
     if (res.ok) {
       base.current.set(id, data.sha256);
-      if (id === fileId && !data.unchanged) room.saved(data.sha256);
+      if (id === fileId && !data.unchanged) { room.saved(data.sha256); }
       return { ok: true };
     }
     if (together && res.status !== 409) {
@@ -251,6 +251,7 @@ export default function OfficeHost() {
       if (isOfficeEditorReadyMessage('docs', m)) { setPhase('ready'); return; }
       if (m.op === 'flux:open-panel') { setLegacyPanelOpen(false); setDataOpen(true); return; }
       if (m.op === 'flux:cell-actions') { void cellActionsRef.current?.open(m.payload); return; }
+      if (m.op === 'flux:formula-edited') { void cellActionsRef.current?.syncFromNative(); return; }
       if (m.op === 'flux:begin-cell-edit') { void cellActionsRef.current?.beginEdit(m.payload); return; }
       if (m.op === 'flux:header-schema-edited') { void cellActionsRef.current?.edited(m.payload); return; }
       if (m.op === 'flux:anchor-selected') { setActiveFluxAnchor(m.payload || null); return; }

@@ -107,8 +107,8 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     const { editor: ed, file: fl } = live.current;
     const blocked = fl.writeBlocked?.('schema');
     if (blocked) throw new Error(blocked);
-    const response = await ed.syncHeaders(schema, options);
-    const syncedSchema = schemaFromNativeHeaders(schema, response);
+    const response = options.storeOnly ? null : await ed.syncHeaders(schema, options);
+    const syncedSchema = response ? schemaFromNativeHeaders(schema, response) : schema;
     const { current, savedHash } = await fl.committed('schema');
     const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
     // Без переоткрытия: редактор уже содержит записанное, а история «назад» живёт в окне
