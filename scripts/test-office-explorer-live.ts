@@ -157,10 +157,11 @@ void (async () => {
     })));
     check(`${label}: группы ленты — Переводчик, Данные, Шаблоны, Документ`, JSON.stringify(groups.map((g: any) => g.name)) === JSON.stringify(['Переводчик', 'Данные', 'Шаблоны', 'Документ']), groups.map((g: any) => g.name));
     const labels = groups.flatMap((g: any) => g.buttons.map((b: any) => b.label));
-    check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Оборудование', 'Теги', 'Менеджмент', 'E3Flux', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
+    check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Английская версия', 'Поля проекта', 'Оборудование', 'Теги', 'Менеджмент', 'E3Flux', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
     const byId = Object.fromEntries(groups.flatMap((g: any) => g.buttons).map((b: any) => [b.id, b]));
     check(`${label}: Менеджмент и E3Flux серые с подписью «Скоро»`, byId['source-management']?.disabled && byId['source-management']?.soon && byId['source-e3']?.disabled && byId['source-e3']?.soon, [byId['source-management'], byId['source-e3']]);
     check(`${label}: «Исходная шапка» неактивна без шаблона, подсказка «У файла нет шаблона»`, byId['reset-header']?.disabled === true && (await ribbonButton(frame, 'reset-header').getAttribute('title')) === 'У файла нет шаблона');
+    check(`${label}: «Поля проекта» и «Английская версия» для файла Проводника неактивны`, byId['project-fields']?.disabled === true && byId['english']?.disabled === true, [byId['project-fields'], byId['english']]);
     check(`${label}: «Выпустить» для файла Проводника неактивна`, byId['issue']?.disabled === true);
     check(`${label}: на ленте нет строки операторов`, (await frame.locator('[data-flux-command]').count()) === labels.length);
     await shot('ribbon');

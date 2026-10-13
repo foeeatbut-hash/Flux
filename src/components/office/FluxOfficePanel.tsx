@@ -9,6 +9,8 @@ import FluxTemplateControls, { canManageTemplate } from './FluxTemplateControls'
 import FluxRevisionPanel from './FluxRevisionPanel';
 import FluxExportDialog from './FluxExportDialog';
 import TextTranslationPanel from './TextTranslationPanel';
+import ProjectDataPanel from './ProjectDataPanel';
+import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
 import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
 import type { RibbonCommand } from './useFluxRibbon';
@@ -19,7 +21,7 @@ import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAppliedTem
 import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
 
 type Tab = 'selection' | 'fields' | 'update';
-type View = 'data' | 'translator';
+type View = 'data' | 'translator' | 'project-fields';
 type Dialog = 'templates' | 'pinned' | 'save-template' | 'export' | null;
 interface OfficeApplySummary { appliedCount: number; manualRows: string[]; state?: OfficeState }
 export interface FluxOfficeAnchorSelection {
@@ -55,6 +57,12 @@ interface Props {
   /** Переводчик: прочитать выделение редактора и вставить результат. */
   onReadText?: () => Promise<string>;
   onInsertText?: (text: string) => Promise<void> | void;
+  /** «Поля проекта»: метка {{ключ}} в курсор документа или значение в ячейку таблицы; нет — только просмотр. */
+  onInsertField?: (field: { key: string; title: string; value: string }) => Promise<void> | void;
+  /** «Обновить поля»: записать правки, дать серверу подставить значения и открыть файл заново. */
+  onUpdateFields?: () => Promise<void>;
+  /** Английская версия: записать правки на сервер до выпуска перевода. */
+  beforeTranslate?: () => Promise<void>;
   /** Шаблон, применённый к файлу, изменился: лента включает или выключает «Исходную шапку». */
   onTemplateChange?: (template: OfficeAppliedTemplate | null) => void;
   onClose: () => void;
@@ -92,6 +100,7 @@ export default function FluxOfficePanel(props: Props) {
   const userId = useStore((state) => state.user?.id || '');
   const [view, setView] = useState<View>('data');
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [englishOpen, setEnglishOpen] = useState(false);
   /** Шаблон, который открыли, но ещё не сохранили в файл: при сохранении схемы он становится применённым. */
   const [openedTemplate, setOpenedTemplate] = useState<OfficeTemplate | null>(null);
   const [actionMessage, setActionMessage] = useState('');
@@ -404,6 +413,9 @@ export default function FluxOfficePanel(props: Props) {
     setActionMessage('');
     switch (command.name) {
       case 'translator': setView('translator'); break;
+      case 'project-fields': setView('project-fields'); break;
+      // Окно перевода открывается поверх панели: оно само выпускает перевод и ведёт в английский файл
+      case 'english': setEnglishOpen(true); break;
       case 'source-equipment': case 'source-tags': {
         const source = command.name === 'source-tags' ? 'tags' : 'equipment';
         setView('data'); setTab('selection');
@@ -428,7 +440,7 @@ export default function FluxOfficePanel(props: Props) {
         onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth(Math.min(MAX_WIDTH, shownWidth + 24)); if (event.key === 'ArrowRight') setPanelWidth(Math.max(MIN_WIDTH, shownWidth - 24)); }}
         className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600" />
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
-        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">{view === 'translator' ? 'Переводчик' : 'Данные для таблицы'} · {props.fileName || 'Office'}</h2>{view === 'translator' ? <p className="truncate text-xs text-slate-500 dark:text-slate-400">Перевод текста документа</p> : props.onProjectChange
+        <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">{view === 'translator' ? 'Переводчик' : view === 'project-fields' ? 'Поля проекта' : 'Данные для таблицы'} · {props.fileName || 'Office'}</h2>{view === 'translator' ? <p className="truncate text-xs text-slate-500 dark:text-slate-400">Перевод текста документа</p> : view === 'project-fields' ? <p className="truncate text-xs text-slate-500 dark:text-slate-400">Метки {'{{ключ}}'} и обновление значений</p> : props.onProjectChange
           ? <select aria-label="Проект для данных Flux" value={props.projectId} onChange={(event) => props.onProjectChange?.(event.target.value)} className="fx-input mt-1 w-full max-w-[16rem] text-xs">
             <option value="">Выберите проект</option>
             {props.projectId && !projects.some((project) => project.id === props.projectId) && <option value={props.projectId}>{activeProject?.id === props.projectId ? activeProject.name : 'Текущий проект'}</option>}
@@ -465,6 +477,12 @@ export default function FluxOfficePanel(props: Props) {
       </div>}
 
       {view === 'translator' && <div className="min-h-0 flex-1 overflow-auto"><TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} /></div>}
+      {view === 'project-fields' && <div className="min-h-0 flex-1 overflow-auto">
+        <ProjectDataPanel fileId={props.fileId} projectId={props.projectId} kind={props.editorKind === 'sheets' ? 'sheet' : 'doc'} onInsert={props.onInsertField || (() => {})}
+          onUpdate={async () => { await props.onUpdateFields?.(); }}
+          onClose={() => setView('data')} readOnly={props.readOnly || !props.onInsertField} />
+      </div>}
+      {englishOpen && <FileEnglishVersion fileId={props.fileId} name={props.fileName || 'Документ'} onClose={() => setEnglishOpen(false)} beforeIssue={props.beforeTranslate} />}
       {view === 'data' && <>
       <nav className="flex shrink-0 border-b border-slate-200 dark:border-dark-border" aria-label="Этап Flux">
         {([['selection', 'Выборка'], ['fields', 'Поля и шапка'], ['update', 'Обновление']] as const).map(([key, label], index) => <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'step' : undefined}

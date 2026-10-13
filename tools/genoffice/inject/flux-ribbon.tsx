@@ -19,11 +19,14 @@ interface RibbonState {
   resetHint: string
   issueAvailable: boolean
   issueHint: string
+  /** Файл проекта: «Поля проекта» и «Английская версия» работают только с карточкой файла в базе. */
+  projectFile: boolean
+  projectFileHint: string
 }
 
 const NO_TEMPLATE = 'У файла нет шаблона'
 const ISSUE_TIP = 'Выпустить ревизию документа'
-let ribbonState: RibbonState = { resetAvailable: false, resetHint: NO_TEMPLATE, issueAvailable: true, issueHint: ISSUE_TIP }
+let ribbonState: RibbonState = { resetAvailable: false, resetHint: NO_TEMPLATE, issueAvailable: true, issueHint: ISSUE_TIP, projectFile: true, projectFileHint: '' }
 const subscribers = new Set<(state: RibbonState) => void>()
 
 const parentOrigin = (): string =>
@@ -54,6 +57,8 @@ if (typeof window !== 'undefined') {
       resetHint: typeof next?.resetHint === 'string' && next.resetHint ? next.resetHint : NO_TEMPLATE,
       issueAvailable: next?.issueAvailable !== false,
       issueHint: typeof next?.issueHint === 'string' && next.issueHint ? next.issueHint : ISSUE_TIP,
+      projectFile: next?.projectFile !== false,
+      projectFileHint: typeof next?.projectFileHint === 'string' ? next.projectFileHint : '',
     }
     subscribers.forEach((fn) => fn(ribbonState))
   })
@@ -66,6 +71,8 @@ const ICONS: Record<string, string> = {
   tags: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1"/>',
   management: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/>',
   e3: '<path d="m12 2 10 5-10 5L2 7l10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  'project-fields': '<path d="M4 7V5a1 1 0 0 1 1-1h3M20 7V5a1 1 0 0 0-1-1h-3M4 17v2a1 1 0 0 0 1 1h3M20 17v2a1 1 0 0 1-1 1h-3"/><path d="M9 9c-1 0-1.5.5-1.5 1.5v1c0 .7-.4 1-1 1 .6 0 1 .3 1 1v1C7.5 14.5 8 15 9 15M15 9c1 0 1.5.5 1.5 1.5v1c0 .7.4 1 1 1-.6 0-1 .3-1 1v1c0 1-.5 1.5-1.5 1.5"/>',
+  english: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   translator: '<path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/>',
   templates: '<rect x="3" y="3" width="18" height="7" rx="1"/><rect x="3" y="14" width="9" height="7" rx="1"/><rect x="16" y="14" width="5" height="7" rx="1"/>',
   pinned: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1L12 2z"/>',
@@ -81,8 +88,12 @@ interface Command { id: string; label: string; tip: string; soon?: boolean }
 interface Group { label: string; commands: Command[] }
 
 const GROUPS: Group[] = [
-  { label: 'Переводчик', commands: [{ id: 'translator', label: 'Переводчик', tip: 'Перевод текста документа' }] },
+  { label: 'Переводчик', commands: [
+    { id: 'translator', label: 'Переводчик', tip: 'Перевод текста документа' },
+    { id: 'english', label: 'Английская версия', tip: 'Английская версия файла проекта' },
+  ] },
   { label: 'Данные', commands: [
+    { id: 'project-fields', label: 'Поля проекта', tip: 'Метки {{ключ}} в документе и «Обновить поля»' },
     { id: 'source-equipment', label: 'Оборудование', tip: 'Данные оборудования проекта' },
     { id: 'source-tags', label: 'Теги', tip: 'Теги проекта' },
     { id: 'source-management', label: 'Менеджмент', tip: 'Скоро', soon: true },
@@ -120,8 +131,9 @@ export function FluxRibbonTab({ variant }: { variant: Variant }) {
   const button = (command: Command) => {
     const reset = command.id === 'reset-header'
     const issue = command.id === 'issue'
-    const disabled = command.soon === true || (reset && !state.resetAvailable) || (issue && !state.issueAvailable)
-    const tip = reset ? (state.resetAvailable ? state.resetHint : NO_TEMPLATE) : issue ? state.issueHint : command.tip
+    const projectOnly = command.id === 'project-fields' || command.id === 'english'
+    const disabled = command.soon === true || (reset && !state.resetAvailable) || (issue && !state.issueAvailable) || (projectOnly && !state.projectFile)
+    const tip = reset ? (state.resetAvailable ? state.resetHint : NO_TEMPLATE) : issue ? state.issueHint : projectOnly && !state.projectFile ? state.projectFileHint || 'Недоступно для этого файла' : command.tip
     const onClick = () => { if (!disabled) sendFluxCommand(command.id) }
     if (variant === 'docs') {
       return (

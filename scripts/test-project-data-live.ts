@@ -26,6 +26,12 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>
   (c ? console.log('  ✓', n) : (f++, console.error('  ✗', n, d === undefined ? '' : JSON.stringify(d).slice(0, 300))));
+/** Кнопка вкладки Flux ленты редактора (data-flux-command); вкладку выбираем, если редактор её переключил */
+const ribbonClick = async (frame: any, command: string) => {
+  const button = frame.locator(`[data-flux-command="${command}"]`);
+  if (await button.count() === 0) await frame.getByRole('button', { name: 'Flux', exact: true }).click();
+  await button.evaluate((el: any) => el.click());
+};
 let token = '';
 const call = async (method: string, url: string, body?: any, raw?: Uint8Array) => {
   const res = await fetch(BASE + url, {
@@ -81,8 +87,8 @@ const docXml = async (buf: Buffer) => (await JSZip.loadAsync(buf)).file('word/do
     await page.goto(`${BASE}/#/office-doc?file=${doc.id}`, { waitUntil: 'domcontentloaded' });
     const dfr = page.frameLocator('iframe[title="Flux Office — Документ"]');
     ok('документ открылся', await dfr.getByText('Шифр:').first().waitFor({ timeout: 40000 }).then(() => true).catch(() => false));
-    await page.getByRole('button', { name: 'Данные проекта' }).first().click();
-    const panel = page.getByRole('complementary', { name: 'Данные проекта' });
+    await ribbonClick(dfr, 'project-fields');
+    const panel = page.getByRole('complementary', { name: 'Flux Office' });
     ok('панель открылась', await panel.getByText('Проект').first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false));
     // Курсор — в конец строки «Шифр: »
     await dfr.getByText('Шифр:').first().click();
@@ -101,12 +107,19 @@ const docXml = async (buf: Buffer) => (await JSZip.loadAsync(buf)).file('word/do
     if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/project-data-doc.png` });
     ok('документ открылся заново со значением', await dfr.getByText(String(new Date().getFullYear())).first().waitFor({ timeout: 30000 }).then(() => true).catch(() => false));
 
+    await ribbonClick(dfr, 'english');
+    ok('«Английская версия» на ленте открывает связанный английский файл в панели', await page.getByText(/Английская версия — /).waitFor({ timeout: 15000 }).then(() => true).catch(() => false));
+    if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/project-data-english.png` });
+    await page.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
+
     console.log('2. Таблица');
+    // Смена адреса только после «#» не открывает новое окно рабочего стола: перезагружаем страницу
     await page.goto(`${BASE}/#/office-sheet?file=${sheet.id}`, { waitUntil: 'domcontentloaded' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     const sfr = page.frameLocator('iframe[title="Flux Office — Таблица"]');
-    ok('книга открылась', await sfr.getByText('Книга полностью загружена', { exact: false }).first().waitFor({ timeout: 45000 }).then(() => true).catch(() => false));
-    await page.getByRole('button', { name: 'Данные проекта' }).last().click();
-    const spanel = page.getByRole('complementary', { name: 'Данные проекта' }).last();
+    ok('книга открылась', await sfr.getByRole('button', { name: 'Flux', exact: true }).waitFor({ timeout: 45000 }).then(() => true).catch(() => false));
+    await ribbonClick(sfr, 'project-fields');
+    const spanel = page.getByRole('complementary', { name: 'Flux Office' }).last();
     await spanel.getByText('Проект').first().waitFor({ timeout: 15000 }).catch(() => {});
     // Ячейка B2 — «Год»: выделить щелчком по сетке неудобно, берём поле года
     // и выделение по умолчанию (A1), затем проверяем имя и значение в файле

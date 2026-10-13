@@ -35,7 +35,6 @@ import { officeDataApi } from '../components/office/fluxData';
 import { docsEditorLink, useOfficeFluxBridge } from '../components/office/useOfficeFluxBridge';
 import type { OfficeHeaderSchema } from '../lib/officeModel';
 import { openEditorTag } from '../lib/editorTag';
-import FileEnglishVersion from '../components/translate/FileEnglishVersion';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
 import { guardClose } from '../lib/closeGuard';
 import { useStore } from '../store/store';
@@ -443,7 +442,23 @@ export default function OfficeHost() {
   });
   cellActionsRef.current = cellActions;
   useEffect(() => { resumeCellFocus(); }, [phase, editable, issued]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [englishOpen, setEnglishOpen] = useState(false);
+  // «Поля проекта» ленты: метка {{ключ}} в курсор; «Обновить поля» — сервер превращает метки в поля
+  const insertField = async (f: { key: string; title: string }) => {
+    const result = await askFrame<{ ok: boolean; error?: string }>('insertText', 'flux:text-inserted', 8_500, `{{${f.key}}}`);
+    if (result?.ok) addToast(`Поле «${f.title}» вставлено — «Обновить поля» подставит значение`, 'success');
+    else addToast(result?.error || 'Поле не вставлено: редактор ещё загружается', 'error');
+  };
+  const updateFields = async () => {
+    if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
+    const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { addToast(d?.error || 'Поля не обновлены', 'error'); return; }
+    const miss = (d.skipped || []).length;
+    addToast(d.unchanged ? 'Поля уже актуальны' : `Обновлено полей: ${(d.changed || []).length}${miss ? `, без значения: ${miss}` : ''}`, miss ? 'info' : 'success');
+    if (!d.unchanged) reopen(fileId);
+  };
   const holdingRef = useRef(room.holding);
   holdingRef.current = room.holding;
 
@@ -489,7 +504,7 @@ export default function OfficeHost() {
         <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={phase !== 'ready' || !editable || issued} activeAnchor={activeFluxAnchor}
           onIssued={() => { markIssued(); reopen(fileId); }} onDraftCreated={(id) => reopen(id)} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
           schemaWriteAvailable={phase === 'ready' && !issued && editable && (!collabFileRef.current || room.holding)}
-          command={ribbon.command} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close}
+          command={ribbon.command} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close}
           onInsertTable={async (rows) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
           onInsertText={async (text) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertText', 'flux:text-inserted', 8_500, text); if (!r?.ok) addToast(r?.error || 'Редактор ещё загружается — текст не вставлен', 'error'); }} />
       )}

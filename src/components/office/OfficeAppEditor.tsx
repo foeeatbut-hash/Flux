@@ -35,7 +35,7 @@ import { useFluxRibbon } from './useFluxRibbon';
 import { officeDataApi } from './fluxData';
 import { sheetsEditorLink, useOfficeFluxBridge } from './useOfficeFluxBridge';
 import { openEditorTag } from '../../lib/editorTag';
-import FileEnglishVersion from '../translate/FileEnglishVersion';
+import { sheetName, cellValue } from '../../../office/fieldKeys';
 import { useOfficeRoom } from '../collab/useOfficeRoom';
 import OfficePresence from '../collab/OfficePresence';
 import { rememberDoc } from '../../store/recentStore';
@@ -346,7 +346,6 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   // Данные проекта (только Таблица): значение — в выделенную ячейку, на ней
   // имя FLUX_<ключ>; «Обновить поля» — записать книгу, дать серверу подставить
   // значения по именам (server/routes/projectData.ts) и открыть её заново
-  const [englishOpen, setEnglishOpen] = useState(false);
   const saveNow = useCallback(function saveNow(waitingSince = Date.now(), force = false): Promise<boolean> {
     if (Date.now() - waitingSince > 120_000) return Promise.resolve(false);
     // Закрытие ждёт уже начатую запись: второй вызов не должен ответить «нет правок» раньше первого.
@@ -409,6 +408,23 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     onError: (message) => addToast(message, 'error'),
   });
   cellActionsRef.current = cellActions;
+  // «Поля проекта» ленты: значение — в выделенную ячейку с именем FLUX_<ключ>
+  const insertField = async (f: { key: string; title: string; value: string }) => {
+    const r = await callFluxEvent('flux:insert-field', { name: sheetName(f.key), value: cellValue(f.value === '—' ? '' : f.value) }, 'flux:field-inserted', 8_000);
+    if (r?.ok) addToast(`Поле «${f.title}» — в ячейке ${r.cell}`, 'success');
+    else addToast(r?.error || 'Редактор не ответил — поле не вставлено', 'error');
+  };
+  const updateFields = async () => {
+    if (!(collabKey.current && !holdingRef.current) && !(await saveNow())) { addToast('Книга не записана — поля не обновлены', 'error'); return; }
+    const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { addToast(d?.error || 'Поля не обновлены', 'error'); return; }
+    const miss = (d.skipped || []).length;
+    addToast(d.unchanged ? 'Поля уже актуальны' : `Обновлено полей: ${(d.changed || []).length}${miss ? `, без значения: ${miss}` : ''}`, miss ? 'info' : 'success');
+    if (!d.unchanged) reopenRef.current();
+  };
   useImperativeHandle(ref, () => ({ command, save: (force = false) => saveNow(Date.now(), force) }));
   const insertTable = async (rows: (string | number)[][]) => {
     const result = await command('flux:insert-table', { rows });
@@ -448,7 +464,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
           readOnly={issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} activeAnchor={activeFluxAnchor}
           isInlineEditing={() => inlineEditingRef.current} onIssued={() => { markIssued(); reopenRef.current(); }} onDraftCreated={(id) => navigate(editorHref({ id, name }))} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
           schemaWriteAvailable={!issued && (room.mode !== 'together' || room.holding)}
-          command={ribbon.command} onInsertTable={insertTable} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
+          command={ribbon.command} onInsertTable={insertTable} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
           : <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind={app} fileName={name} onClose={ribbon.close}
           readOnly={issued || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} />
       )}
