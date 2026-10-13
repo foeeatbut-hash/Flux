@@ -16,7 +16,8 @@ import {
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
 import { useCreatePanel } from '../files/CreatePanel';
 import { isCreated } from '../files/createEntry';
-import { mergeDesktopEntries } from './desktopEntries';
+import { entryKey } from '../files/useSelection';
+import { mergeDesktopEntries, replaceDesktopEntries } from './desktopEntries';
 import { desktopClickSelection, desktopMarqueeSelection, desktopSelectAll } from './desktopSelection';
 
 type Cell = { col: number; row: number };
@@ -135,7 +136,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
         if (refreshEpoch.current !== flight.epoch) return;
         setRoot(desktop);
         if (rootId !== desktop.id) setCells(readCells(desktop.id));
-        setEntries((previous) => mergeDesktopEntries(previous, allEntries));
+        setEntries((previous) => replaceDesktopEntries(previous, allEntries));
       } catch (cause: any) {
         if (refreshEpoch.current === flight.epoch) setError(cause?.message || 'Не удалось обновить Рабочий стол Windows.');
       } finally {
@@ -197,7 +198,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const shellReady = !!screenOrigin && shellDesktop?.status === 'ready' && !!shellDesktop.view?.iconsVisible;
   const nativeIconsHidden = shellDesktop?.status === 'ready' && !!screenOrigin && !shellDesktop.view?.iconsVisible;
   const fluxEntries = shellReady || nativeIconsHidden ? entries.filter((entry) => entry.storage === 'flux') : entries;
-  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entry.fileId, kind: 'file', entry }));
+  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entryKey(entry), kind: 'file', entry }));
   // Старые ярлыки приложений остаются файлами Windows на диске, но не
   // захламляют зеркальный стол: запуск программы теперь живёт в Пуске/задачах.
   const shellItems: Extract<DesktopItem, { kind: 'shell' }>[] = shellReady
@@ -299,7 +300,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const contents = items.length === 0 && shellItems.length === 0 && !loading && !error;
   const cellSize = iconScale === 'small' ? { width: 88, height: 84, icon: 24 } : iconScale === 'large' ? { width: 120, height: 116, icon: 44 } : { width: CELL_WIDTH, height: CELL_HEIGHT, icon: 32 };
   const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
-  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.id), cells, columns), [items.map((item) => item.id).join('|'), cells, columns]);
+  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id), cells, columns), [items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id).join('|'), cells, columns]);
   const filesHiddenByShell = nativeIconsHidden && fluxEntries.length === 0;
 
   return (
@@ -321,13 +322,13 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
             <span className="line-clamp-2 break-words leading-4 [text-shadow:0_1px_2px_white] dark:[text-shadow:0_1px_2px_black]">{desktopItem.item.name}</span>
           </button>;
         })}
-        {!error && items.length > 0 && (
+        {items.length > 0 && (
           <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize.width}px)`, gridAutoRows: `${cellSize.height}px` }}>
             {items.map((item) => {
-              const cell = positions[item.id] || { col: 0, row: 0 };
+              const cell = positions[item.entry.fileId] || { col: 0, row: 0 };
               const title = fileTitle(item.entry.name);
               const isSelected = selected.includes(item.id);
-              return <div key={item.id} data-desktop-item={item.id} role="button" tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
+              return <div key={item.id} data-desktop-item={item.id} role="button" aria-selected={isSelected} tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.entry.fileId; event.dataTransfer.setData('text/plain', item.entry.fileId); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.entry.fileId) return; const from = positions[id]; const to = positions[item.entry.fileId]; if (from && to) placeCells({ [id]: to, [item.entry.fileId]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
                 <NativeWindowsFileIcon entry={item.entry} fileRef={entryRef(root!.id, item.entry)} size={cellSize.icon} />
                 <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.entry.name}>{title}</span>
                 {item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}

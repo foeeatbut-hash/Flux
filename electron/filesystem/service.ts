@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 21189)
+Total output lines: 1044
+
 import fs from 'node:fs/promises';
 import { watch as watchFolder, type FSWatcher, constants } from 'node:fs';
 import path from 'node:path';
@@ -141,6 +144,10 @@ export class WindowsFilesService {
     const key = hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:${identity}`));
     return this.state.data.identity[key] || key;
   }
+  private pathIdentity(filename: string): string {
+    const stablePath = process.platform === 'win32' ? path.win32.normalize(filename).toLocaleLowerCase('en-US') : path.resolve(filename);
+    return hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:path:${stablePath}`));
+  }
   async identity(filename: string): Promise<string> { return this.identityFromStat(filename, await fs.lstat(filename, { bigint: true })); }
   private async preserveIdentity(filename: string, fileId: string, persist = true) {
     const newId = await this.identity(filename);
@@ -241,8 +248,9 @@ export class WindowsFilesService {
         if (network && filename && !item.draftId) {
           const kind = cached?.kinds.get(item.name) || 'file';
           const absolute = path.join(this.state.root(ref.rootId).path, ...joinRelative(ref.relativePath, item.name).split('/'));
-          const fileId = hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:path:${absolute}`));
-          return { name: item.name, relativePath: joinRelative(ref.relativePath, item.name), storage: 'windows' as const, kind, fileId, size: 0, modifiedAt: '', linked: kind === 'link', rootId: ref.rootId, detailsPending: true };
+          const uiKey = this.pathIdentity(absolute);
+          const fileId = this.state.data.identity[uiKey] || uiKey;
+          return { name: item.name, relativePath: joinRelative(ref.relativePath, item.name), storage: 'windows' as const, kind, fileId, uiKey, size: 0, modifiedAt: '', linked: kind === 'link', rootId: ref.rootId, detailsPending: true };
         }
         return await this.entry({ rootId: ref.rootId, relativePath: joinRelative(ref.relativePath, item.name), ...(item.draftId ? { draftId: item.draftId } : {}) }, true);
       }
@@ -264,7 +272,10 @@ export class WindowsFilesService {
         void this.hydrateNetworkBatch(ref, pending, cached).finally(() => keys.forEach(key => this.hydrating.delete(key)));
       }
     }
-    for (const entry of entries) { const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] }; }
+    for (const entry of entries) {
+      if (entry.detailsPending) continue;
+      const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] };
+    }
     if (!network && this.deps.fileDetails && filename) {
       const physical = entries.filter(entry => !entry.draftId);
       const details = await this.deps.fileDetails(physical.map(entry => path.join(filename, entry.name))).catch(() => []);
@@ -279,10 +290,11 @@ export class WindowsFilesService {
         const filename = path.join(this.state.root(ref.rootId).path, ...provisional.relativePath.split('/'));
         try {
           const stat = await fs.lstat(filename, { bigint: true });
-          const identity = stat.ino !== 0n ? `${stat.dev}:${stat.ino}:${stat.birthtimeNs}` : `path:${filename}`;
-          const identityKey = hashWindowsBytes(Buffer.from(`${this.state.data.deviceId}:${identity}`));
-          this.state.data.identity[identityKey] = provisional.fileId;
-          return { filename, entry: { ...provisional, kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
+          const canonicalId = this.identityFromStat(filename, stat);
+          const uiKey = provisional.uiKey || provisional.fileId;
+          this.state.data.identity[uiKey] = canonicalId;
+          const metadata = this.state.data.metadata[canonicalId];
+          return { filename, entry: { ...provisional, fileId: canonicalId, uiKey, ...(metadata ? { metadata: { ...metadata, history: [] } } : {}), kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
         } catch (error: any) {
           if (['ENOENT', 'EACCES', 'EPERM'].includes(error?.code)) return { filename: '', entry: { ...provisional, detailsPending: false } };
           return null;
@@ -509,61 +521,7 @@ export class WindowsFilesService {
       const id = randomUUID(); const directory = path.join(this.deps.userData, 'windows-files-drafts');
       await fs.mkdir(directory, { recursive: true });
       const filename = path.join(directory, `${id}.bin`);
-      await fs.writeFile(filename, bytes, { flag: 'wx', mode: 0o600 });
-      this.state.data.drafts[id] = { id, kind: 'file', parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
-      const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: id };
-      await this.state.history(this.draftFileId(id), 'create-draft', ref.relativePath, hashWindowsBytes(bytes)); this.changed(ref);
-      if (!opts.silent) await this.record(`Создание «${name}»`, { kind: 'create', at: ref, fingerprint: await fingerprint(this, ref) }, opts);
-      return { ref, file: await this.read(ref) };
-    });
-  }
-  async createDraftFolder(parent: WindowsFileRef, name: string, opts: OpOptions = {}) {
-    parent = this.resolveRef(parent);
-    validateWindowsName(name);
-    if (parent.draftId && this.draft(parent).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Создайте папку внутри папки.');
-    if (!parent.draftId) await this.filename(parent);
-    return this.locked(`draft-parent:${parent.rootId}:${parent.relativePath}:${parent.draftId || ''}`, async () => {
-      await this.ensureFreeName(parent, name);
-      const id = randomUUID();
-      this.state.data.drafts[id] = { id, kind: 'directory', parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
-      const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: id };
-      await this.state.save(); this.changed(ref);
-      if (!opts.silent) await this.record(`Создание папки «${name}»`, { kind: 'create', at: ref, fingerprint: await fingerprint(this, ref) }, opts);
-      return { ref, file: await this.entry(ref) };
-    });
-  }
-  async publishDraft(ref: WindowsFileRef, rawChoices?: unknown) {
-    const draft = this.draft(ref);
-    if (draft.kind === 'directory') return this.publishDraftTree(ref, rawChoices);
-    const choices = parseChoices(rawChoices);
-    return this.locked(`draft-operation:${draft.id}`, async () => {
-    if (draft.publishedRef) return { ref: draft.publishedRef, file: await this.read(draft.publishedRef), alreadyPublished: true };
-    if (!draft.parent.draftId) await this.reconcileDraftParent(draft);
-    const content = await this.read(ref);
-    const realParent = draft.parent.draftId ? this.state.data.drafts[draft.parent.draftId]?.publishedRef : undefined;
-    if (draft.parent.draftId && !realParent) throw new WindowsFilesError('DRAFT_PARENT_UNPUBLISHED', 'Сначала опубликуйте родительскую папку. Черновик сохранён в Flux.');
-    const parentRef = realParent || draft.parent;
-    let publishName = draft.name;
-    const choice = choices[draft.id];
-    // Выбор имеет смысл, только когда имя действительно занято; свободное место публикуется как обычно.
-    const occupied = choice ? await existingAt(this, { rootId: parentRef.rootId, relativePath: joinRelative(parentRef.relativePath, draft.name) }) : null;
-    if (choice && occupied) {
-      if (choice === 'skip') return { skipped: true, draftId: draft.id };
-      if (choice === 'keepBoth') publishName = await freeNameIn(this, parentRef, draft.name, false);
-      else {
-        // «Заменить» идёт через обычное сохранение: проверка версии, снимок прежнего содержимого и ReplaceFile.
-        if (occupied.kind !== 'file') throw new WindowsFilesError('KIND_MISMATCH', 'На месте файла лежит папка. Выберите «Оставить оба» или «Пропустить».');
-        const target = { rootId: parentRef.rootId, relativePath: joinRelative(parentRef.relativePath, draft.name) };
-        const current = await this.read(target);
-        const written = await this.write(target, content.base64, current.sha256);
-        this.state.data.publications[draft.id] = { ref: target, sha256: content.sha256, fileId: current.fileId, status: 'complete' };
-        mergeDraftMetadata(this.state, this.draftFileId(draft.id), current.fileId);
-        draft.publishedRef = target;
-        await this.state.history(current.fileId, 'publish-replace', target.relativePath, content.sha256);
-        return { ref: target, file: written, alreadyPublished: false, replaced: true };
-      }
-    }
-    const published = await this.publish(parentRef, publishName, content.base64, draft.id);
+      await fs.writeFile(filena…1189 tokens truncated….publish(parentRef, publishName, content.base64, draft.id);
     const fileId = this.draftFileId(draft.id);
     await this.preserveIdentity(await this.filename(published.ref), fileId);
     const publication = this.state.data.publications[draft.id]; publication.fileId = fileId;

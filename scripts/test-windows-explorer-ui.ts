@@ -393,6 +393,21 @@ async function loadUntil(page: Page, count: number) {
     ok('Смена папки сбрасывает выделение', await selectedRows() === 0);
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    const projectPane = page.locator('[data-windows-explorer] main .overflow-auto').first();
+    const projectRow = page.locator('[data-windows-explorer] main [data-entry-key]').first();
+    const projectPaneBox = await projectPane.boundingBox();
+    const projectRowBox = await projectRow.boundingBox();
+    if (!projectPaneBox || !projectRowBox) throw new Error('Не нашлась область списка для рамочного выделения');
+    const projectEntryCount = await page.locator('[data-windows-explorer] main [data-entry-key]').count();
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 4, projectPaneBox.y + projectPaneBox.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(projectRowBox.x + projectRowBox.width / 2, projectRowBox.y + projectRowBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const marqueeSelected = await selectedRows();
+    ok('Рамка на пустом месте выделяет пересечённые строки Проводника', marqueeSelected > 0 && marqueeSelected <= projectEntryCount);
+    await page.locator('[data-windows-explorer]').focus();
+    await page.keyboard.press('Control+A');
+    ok('Ctrl+A выделяет все объекты открытой папки Проводника', await selectedRows() === projectEntryCount);
     }
 
     // --- Горячие клавиши: таблица explorerKeys читается здесь же, клавиша без сценария роняет набор
@@ -632,6 +647,28 @@ async function loadUntil(page: Page, count: number) {
     const shellIcon = page.getByRole('button', { name: 'Системная папка' });
     const shellBox = await shellIcon.boundingBox();
     ok('Стенд размещает ответные значки по координатам тестового снимка', !!shellBox && Math.abs(shellBox.x - 80) < 5 && Math.abs(shellBox.y - 100) < 5);
+    await page.evaluate(async () => {
+      await (window as any).electron.windowsFiles.invoke({ action: 'createDraft', parent: { rootId: 'desktop-id', relativePath: '' }, name: 'Выбор рабочего стола.txt' });
+      (window as any).__emitChanged('desktop-id', '');
+    });
+    const desktopFile = page.locator('[data-desktop-item]').first();
+    const desktopFileBox = await desktopFile.boundingBox();
+    if (!desktopFileBox) throw new Error('Не нашёлся файл для рамочного выделения рабочего стола');
+    await page.mouse.move(desktopFileBox.x + desktopFileBox.width + 20, desktopFileBox.y + desktopFileBox.height + 20);
+    await page.mouse.down();
+    await page.mouse.move(desktopFileBox.x + desktopFileBox.width / 2, desktopFileBox.y + desktopFileBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    ok('Рамка на рабочем столе выделяет пересечённый файл', await desktopFile.getAttribute('aria-selected') === 'true');
+    await page.locator('section[aria-label="Рабочий стол Windows"] > div.relative').focus();
+    await page.keyboard.press('Control+A');
+    ok('Ctrl+A выделяет все значки рабочего стола Windows', await page.locator('[data-desktop-item][aria-selected="true"]').count() === await page.locator('[data-desktop-item]').count());
+    const desktopItemCountBeforeFailure = await page.locator('[data-desktop-item]').count();
+    await page.evaluate(() => (window as any).__setExplorerListFault('desktop-refresh-denied'));
+    await desktopArea.click({ button: 'right', position: { x: 500, y: 500 } });
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Обновить', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Не удалось' }).waitFor({ timeout: 5000 }).catch(() => undefined);
+    ok('Ошибка обновления сохраняет уже показанные значки рабочего стола', desktopItemCountBeforeFailure > 0 && await page.locator('[data-desktop-item]').count() === desktopItemCountBeforeFailure);
+    await page.evaluate(() => (window as any).__setExplorerListFault('none'));
     await page.screenshot({ path: '/tmp/flux-desktop-light.png' });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await page.screenshot({ path: '/tmp/flux-desktop-dark.png' });

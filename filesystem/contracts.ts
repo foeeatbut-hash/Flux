@@ -21,6 +21,8 @@ export interface WindowsVolume {
 export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;
+  /** Стабильный ключ строки/выбора, пока сетевой список выясняет канонический fileId. */
+  uiKey?: string;
   rootId?: string; createdAt?: string; hidden?: boolean; author?: string; metadata?: WindowsFileMetadata;
   detailsPending?: boolean;
   /** Названия проектов для показа; идентификаторы остаются в metadata. */

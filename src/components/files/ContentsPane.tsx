@@ -4,7 +4,7 @@ import { windowsFilesRequest, type WindowsFileEntry, type WindowsFileMetadata, t
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
 import { X as T, FONT_STACK } from './explorerTheme';
 import { FOLDER_COLUMNS, contentsRows, extensionOf, type ContentsRow, type FolderColumn, type FolderLayout, type FolderView } from './viewModel';
-import type { useSelection } from './useSelection';
+import { entryKey, type useSelection } from './useSelection';
 
 type Selection = ReturnType<typeof useSelection>;
 export interface ContentsPaneProps {
@@ -346,7 +346,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     });
     if (rubberband && (rubberband.width > 3 || rubberband.height > 3)) {
       selection.clear();
-      const byId = new Map(shownEntries.map((entry) => [entry.fileId, entry]));
+      const byId = new Map(shownEntries.map((entry) => [entryKey(entry), entry]));
       for (const hit of hits) { const entry = byId.get(hit.dataset.entryKey || ''); if (entry) selection.click(entry, { ctrl: true }); }
     } else selection.clear();
     rubberStart.current = null; setRubberband(null);
@@ -358,7 +358,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     typeahead.current += event.key.toLocaleLowerCase('ru');
     if (typeaheadTimer.current) clearTimeout(typeaheadTimer.current);
     typeaheadTimer.current = setTimeout(() => { typeahead.current = ''; }, 800);
-    const focusedIndex = ordered.findIndex((entry) => entry.fileId === selection.focused?.fileId);
+    const focusedIndex = ordered.findIndex((entry) => entryKey(entry) === (selection.focused ? entryKey(selection.focused) : null));
     const rotated = [...ordered.slice(Math.max(0, focusedIndex + 1)), ...ordered.slice(0, Math.max(0, focusedIndex + 1))];
     const found = rotated.find((entry) => displayName(entry, view.extensions).toLocaleLowerCase('ru').startsWith(typeahead.current));
     if (found) {
@@ -368,20 +368,20 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   const revealedFocus = useRef('');
   useEffect(() => {
-    const focusedId = selection.focused?.fileId;
+    const focusedId = selection.focused ? entryKey(selection.focused) : undefined;
     if (!focusedId) { revealedFocus.current = ''; return; }
     // Обновление списка сохраняет прокрутку: показываем фокус только при смене выбора или вида.
     const key = JSON.stringify([focusedId, selection.focusRequest, view.layout, view.group, view.sort, view.descending]);
     if (revealedFocus.current === key) return;
     revealedFocus.current = key;
     if (view.layout === 'list') {
-      const columnIndex = listColumns.findIndex((column) => column.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
+      const columnIndex = listColumns.findIndex((column) => column.some((item) => item.kind === 'entry' && entryKey(item.entry) === focusedId));
       if (columnIndex >= 0) listVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     } else {
-      const rowIndex = rows.findIndex((row) => row.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
+      const rowIndex = rows.findIndex((row) => row.some((item) => item.kind === 'entry' && entryKey(item.entry) === focusedId));
       if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     }
-  }, [selection.focused?.fileId, selection.focusRequest, rows, listColumns, view.layout, view.group, view.sort, view.descending, virtualizer, listVirtualizer]);
+  }, [selection.focused ? entryKey(selection.focused) : null, selection.focusRequest, rows, listColumns, view.layout, view.group, view.sort, view.descending, virtualizer, listVirtualizer]);
 
   useEffect(() => {
     if (!hasMore || !loadMore || busy || !containerRef.current) return;
@@ -398,9 +398,9 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     if (!first) return null;
     if (first.kind === 'group') return <div className={`flex h-full items-center border-b px-3 text-xs font-semibold ${T.line} ${T.muted}`} role="heading">{first.label}</div>;
     if (GRID_LAYOUTS.has(view.layout)) return <div className="grid h-full gap-1 px-2 py-1" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{items.filter((item): item is Extract<ContentsRow, { kind: 'entry' }> => item.kind === 'entry').map(({ entry }) => (
-      <div key={entry.fileId} className="relative min-w-0" onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }}>
+      <div key={entryKey(entry)} className="relative min-w-0" onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }}>
         {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${entry.name}`} checked={selection.isSelected(entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(entry, { ctrl: true })} className="absolute left-1 top-1 z-10" />}
-        <button type="button" data-entry-key={entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} aria-selected={selection.isSelected(entry)} className={`h-full w-full min-w-0 rounded px-2 text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+        <button type="button" data-entry-key={entryKey(entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} aria-selected={selection.isSelected(entry)} className={`h-full w-full min-w-0 rounded px-2 text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
           {renderName(entry, view.layout !== 'small' && view.layout !== 'tiles')}{view.layout === 'tiles' && <span className={`block truncate text-xs ${T.muted}`}>{typeName(entry)} · {entry.kind === 'directory' ? '' : formatSize(entry.size)}</span>}
         </button>
       </div>
@@ -410,7 +410,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     const entry = row.entry;
     const compact = view.layout === 'list';
     const content = view.layout === 'content';
-    return <div key={entry.fileId} role="row" data-entry-key={entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }} aria-selected={selection.isSelected(entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input,button')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} className={`group flex h-full min-w-0 items-center border-b text-xs ${T.line} ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+    return <div key={entryKey(entry)} role="row" data-entry-key={entryKey(entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }} aria-selected={selection.isSelected(entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input,button')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} className={`group flex h-full min-w-0 items-center border-b text-xs ${T.line} ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
       {view.checkboxes && <span className="flex justify-center"><input type="checkbox" aria-label={`Выбрать ${entry.name}`} checked={selection.isSelected(entry)} onClick={(event) => event.stopPropagation()} onChange={(event) => selection.click(entry, { ctrl: true })} /></span>}
       {view.layout === 'details' ? columns.map((column) => <div key={column} role="cell" className={`h-full min-w-0 overflow-hidden border-r px-2 ${T.line} ${column === 'size' ? 'text-right tabular-nums' : ''}`} style={{ width: displayWidth(view, column), flex: `0 0 ${displayWidth(view, column)}px`, lineHeight: '32px' }}>{cellValue(entry, column)}</div>)
         : <div className={`flex min-w-0 flex-1 items-center gap-3 px-2 ${compact ? 'gap-2' : 'py-1'}`}>
@@ -436,7 +436,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
               ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center overflow-hidden px-1 text-xs font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
               : <div key={item.key} className="relative flex h-8 shrink-0 items-center" onDragOver={(event) => { if (item.entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (item.entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, item.entry); } }}>
                 {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${item.entry.name}`} checked={selection.isSelected(item.entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(item.entry, { ctrl: true })} className="mr-1" />}
-                <button type="button" role="row" data-entry-key={item.entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+                <button type="button" role="row" data-entry-key={entryKey(item.entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
                   <Thumbnail entry={item.entry} rootId={rootId} size={20} /><span className="min-w-0 truncate">{displayName(item.entry, view.extensions)}</span>
                 </button>
               </div>)}

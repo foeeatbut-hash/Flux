@@ -46,7 +46,7 @@ let delayedMetadataPath = '';
 let failedMetadataPath = '';
 let delayedListPath = '';
 let delayedSearchMs = 0;
-let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'partial' = 'none';
+let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'desktop-refresh-denied' | 'partial' = 'none';
 (window as any).__setExplorerListFault = (fault: typeof listFault) => { listFault = fault; };
 
 function childPath(ref: WindowsFileRef): WindowsFileEntry[] {
@@ -113,6 +113,9 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     case 'searchCancel': canceledSearches.add(request.requestId); return { ok: true, data: {} };
     case 'children': return { ok: true, data: childFolders(request.ref, request.peek === true) };
     case 'list': {
+      if (listFault === 'desktop-refresh-denied' && request.ref.rootId === 'desktop-id') {
+        return { ok: false, error: { code: 'EPERM', message: 'Windows запретила доступ к этому объекту.' } };
+      }
       if ((listFault === 'root-denied' || listFault === 'refresh-denied') && request.ref.relativePath === '') {
         return { ok: false, error: { code: 'EPERM', message: 'Windows запретила доступ к этому объекту.' } };
       }
