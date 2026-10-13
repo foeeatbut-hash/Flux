@@ -33,7 +33,7 @@ export function createSheetsIdleChips(deps: Deps) {
     layer = document.createElement('div')
     layer.id = 'flux-sheet-chip-layer'
     layer.setAttribute('aria-hidden', 'true')
-    layer.style.cssText = 'position:fixed;z-index:5;overflow:hidden;pointer-events:none;left:0;top:0;width:0;height:0'
+    layer.style.cssText = 'position:fixed;z-index:100;overflow:hidden;pointer-events:none;left:0;top:0;width:0;height:0'
     document.body.appendChild(layer)
     return layer
   }

@@ -231,6 +231,11 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   await typeAt('after', ')');
   const formulaText = await nativeEditor.innerText();
   check('Word native typing places text before, between, and after parameter marks without changing either chip', formulaText === '=(DrivePower+MotorPower)' && JSON.stringify(await chips.allTextContents()) === JSON.stringify(labelsBefore) && chipAttributes.every((attr: any) => attr.editable === 'false'), { formulaText, labelsBefore, labelsAfter: await chips.allTextContents(), chipAttributes });
+  await page().screenshot({ path: '/tmp/office-word-chip-light.png' });
+  await formula.frame.locator('body').evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });
+  await page().waitForTimeout(300);
+  await page().screenshot({ path: '/tmp/office-word-chip-dark.png' });
+  await formula.frame.locator('body').evaluate(() => { document.documentElement.removeAttribute('data-theme'); });
   // Набор закончен: окно Flux само сверяет схему с ячейкой после паузы в наборе, отдельной команды нет
   await page().keyboard.press('Control+s');
   check('Word formula and both source-qualified field instructions persist after native save', await waitFor(async () => {
