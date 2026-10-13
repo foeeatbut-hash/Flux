@@ -58,6 +58,8 @@ export default function FluxExportDialog({ sourceId, columns, result, selectedId
         else downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), file.name);
       }
       setMessage(exportMessage(format, rows.length));
+      // Новая книга открылась в своём окне: окно выгрузки исходному документу больше не нужно
+      if (format === 'office') onClose();
     } catch (reason: any) { setMessage(String(reason?.message || 'Не удалось подготовить файл.')); }
     finally { setBusy(false); }
   };

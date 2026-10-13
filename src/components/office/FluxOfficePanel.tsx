@@ -60,6 +60,10 @@ interface Props {
   onClose: () => void;
 }
 
+/** Ширина панели: перетаскивание левой границы, значение хранится локально (ТЗ §4). */
+const MIN_WIDTH = 270;
+const MAX_WIDTH = 850;
+
 const initialQuery = (projectId: string): OfficeQuery => ({ projectId, sources: ['equipment'], types: [], filters: [], sort: [], excludedEntityIds: [], limit: 1000 });
 
 /** Flux addon panel; the GenOffice canvas, ribbon, and save lifecycle remain owned by the editor. */
@@ -108,13 +112,30 @@ export default function FluxOfficePanel(props: Props) {
 
   useEffect(() => {
     const saved = Number(localStorage.getItem('flux-office-panel-width'));
-    if (Number.isFinite(saved) && saved >= 320 && saved <= 850) setPanelWidth(saved);
+    if (Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH) setPanelWidth(saved);
   }, []);
+  // Ширину панели задаёт окно редактора, а не экран: файл Проводника открыт в окне, которое уже экрана
+  const asideRef = useRef<HTMLElement>(null);
+  const [hostWidth, setHostWidth] = useState(0);
+  useEffect(() => {
+    const host = asideRef.current?.parentElement;
+    if (!host) return;
+    const measure = () => setHostWidth(host.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  /** В узком окне панель ложится поверх редактора, а не сжимает его холст. */
+  const overlay = hostWidth > 0 && hostWidth < 640;
+  const maxWidth = hostWidth ? Math.max(0, Math.min(MAX_WIDTH, hostWidth - (overlay ? 12 : 260))) : MAX_WIDTH;
+  const shownWidth = Math.max(Math.min(MIN_WIDTH, maxWidth), Math.min(panelWidth, maxWidth));
 
   const resizePanel = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const move = (pointer: PointerEvent) => {
-      const next = Math.max(320, Math.min(850, window.innerWidth - pointer.clientX));
+      const edge = asideRef.current?.parentElement?.getBoundingClientRect().right ?? window.innerWidth;
+      const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, edge - pointer.clientX));
       setPanelWidth(next);
       localStorage.setItem('flux-office-panel-width', String(next));
     };
@@ -402,10 +423,10 @@ export default function FluxOfficePanel(props: Props) {
   }, [props.command, officeState, fields.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <aside aria-label="Flux Office" style={{ '--flux-office-panel-width': `${panelWidth}px` } as React.CSSProperties} className="relative z-20 flex h-full w-[var(--flux-office-panel-width)] shrink-0 flex-col border-l border-slate-200 bg-white max-[760px]:absolute max-[760px]:inset-y-0 max-[760px]:right-0 max-[760px]:z-50 max-[760px]:w-full dark:border-dark-border dark:bg-dark-surface">
+    <aside ref={asideRef} aria-label="Flux Office" style={{ width: shownWidth }} className={`z-20 flex h-full shrink-0 flex-col border-l border-slate-200 bg-white dark:border-dark-border dark:bg-dark-surface ${overlay ? 'absolute inset-y-0 right-0 z-50' : 'relative'}`}>
       <div role="separator" aria-orientation="vertical" aria-label="Изменить ширину панели Flux" tabIndex={0} onPointerDown={resizePanel}
-        onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth((width) => Math.min(850, width + 24)); if (event.key === 'ArrowRight') setPanelWidth((width) => Math.max(320, width - 24)); }}
-        className="absolute -left-1 top-0 z-10 hidden h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 md:block" />
+        onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPanelWidth(Math.min(MAX_WIDTH, shownWidth + 24)); if (event.key === 'ArrowRight') setPanelWidth(Math.max(MIN_WIDTH, shownWidth - 24)); }}
+        className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600" />
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
         <div className="min-w-0"><h2 className="text-sm font-semibold text-slate-900 dark:text-dark-text-main">{view === 'translator' ? 'Переводчик' : 'Данные для таблицы'} · {props.fileName || 'Office'}</h2>{view === 'translator' ? <p className="truncate text-xs text-slate-500 dark:text-slate-400">Перевод текста документа</p> : props.onProjectChange
           ? <select aria-label="Проект для данных Flux" value={props.projectId} onChange={(event) => props.onProjectChange?.(event.target.value)} className="fx-input mt-1 w-full max-w-[16rem] text-xs">

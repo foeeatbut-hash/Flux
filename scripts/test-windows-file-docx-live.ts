@@ -1,5 +1,6 @@
 /** Настоящий GenOffice Docs внутри WindowsFileHost: вставка Flux, сохранение и закрытие. */
 import { createServer } from 'vite';
+import { mockFluxPanelApi, openTagsSelection } from './officeLocalPanelMocks';
 import { makeDocx } from './officeHarness';
 
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -22,7 +23,7 @@ async function main() {
     const officeNavigations: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('framenavigated', frame => { if (frame.url().includes('/genoffice/docs/index.html')) officeNavigations.push(frame.url()); });
-    await page.route('**/api/projects/local-project/tags', route => route.fulfill({ json: { tags: [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }] } }));
+    await mockFluxPanelApi(page, [{ id: 'tag-42', identifier: 'TAG-42', name: 'Насос' }]);
     const docx = await makeDocx();
     await page.addInitScript((base64: string) => {
       (window as any).__fixtureDocxBase64 = base64;
@@ -44,9 +45,7 @@ async function main() {
     });
     const frameToken = await child.evaluate(() => { (window as any).__localDocxFrameToken = crypto.randomUUID(); return (window as any).__localDocxFrameToken; });
     check('iframe готов и имеет ненулевой размер', initial.rect[0] > 0 && initial.rect[1] > 0, initial);
-    await child.evaluate(() => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin));
-    // Новая панель открывается первой; возможности прежней проверяются через ссылку на неё
-    await page.getByRole('button', { name: 'Источники и перевод' }).click();
+    await openTagsSelection(page, child, 'TAG-42');
     await page.getByRole('button', { name: 'Вставить все' }).waitFor({ timeout: 15000 });
     await page.evaluate(() => {
       (window as any).__insertEvents = [];

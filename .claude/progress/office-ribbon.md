@@ -8,8 +8,8 @@
 - [x] 2. «Исходная шапка»: templateId + снимок схемы в части Flux (сервер, state, updateState) + тест
 - [x] 3. Лента Flux в патчах GenOffice (docs/sheets): группы и сообщения flux:open-panel + command
 - [x] 4.(код; проверять в браузере) Хосты и панель: команды ленты, шаблоны (FluxTemplateControls как окно), переводчик, исходная шапка
-- [ ] 5. Перенос «Вставить все», XLSX/CSV/«Книга Flux» в новую панель + сверка со старой
-- [ ] 6. Удаление FluxPanel из Word/Excel (OfficeHost, OfficeAppEditor, LocalOfficeEditor), перевод тестов
+- [x] 5. Перенос «Вставить все», XLSX/CSV/«Книга Flux» в новую панель + сверка со старой
+- [x] 6. Удаление FluxPanel из Word/Excel (OfficeHost, OfficeAppEditor, LocalOfficeEditor), перевод тестов
 - [ ] 7. Потолки OfficeHost/OfficeAppEditor в test-architecture.ts, снимки, полные проверки
 
 ## Проверки «до»
