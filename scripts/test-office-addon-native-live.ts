@@ -121,6 +121,12 @@ const openPanel = async (page: any, title: string) => {
   await page.getByRole('complementary', { name: 'Flux Office' }).waitFor({ timeout: 10000 });
   return frame;
 };
+/** Кнопка вкладки Flux ленты редактора: одно сообщение flux:open-panel с полем command. */
+const ribbonCommand = async (page: any, command: string) => {
+  const editor = page.frames().find((item: any) => /\/genoffice\/(docs|sheets)\/index\.html/.test(item.url()));
+  if (!editor) throw new Error('Не найден frame редактора для команды ленты');
+  await editor.evaluate((name: string) => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel', command: name }, location.origin), command);
+};
 const navigateOffice = async (page: any, route: string) => {
   const url = `${BASE}/#${route}`;
   // Use a fresh app page/context for each editor so the window manager consumes
@@ -397,8 +403,11 @@ try {
   check('Word header schema saves prefix, protected field, arithmetic operator, numeric operand, and unit suffix in order', customHeaderState && (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text', (await api('GET', `/api/project-data/files/${docxId}/office-state`)).json?.schema?.anchors?.[0]?.parts);
   check('native Word paragraph serializes custom prefix, field token, arithmetic, and suffix', customHeaderText.includes('Расход: ') && customHeaderText.includes('Расход воздуха') && customHeaderText.includes('*2 м³/ч') && /DOCPROPERTY\s+"flux:/.test(customHeaderXml), customHeaderText.slice(0, 700));
   const templateName = `Native Template ${stamp}`;
-  await headerPanel.getByLabel('Название шаблона').fill(templateName);
-  await headerPanel.getByRole('button', { name: 'Сохранить шаблон' }).click();
+  // Шаблоны — команды ленты, в панели их нет
+  await ribbonCommand(page, 'save-template');
+  const saveTemplateDialog = page.getByRole('dialog', { name: 'Сохранить шапку как шаблон' });
+  await saveTemplateDialog.getByLabel('Название шаблона').fill(templateName);
+  await saveTemplateDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   const templateSaved = await waitFor(async () => (await api('GET', '/api/project-data/office/templates')).json?.templates?.some((item: any) => item.name === templateName));
   check('saved Word header template is available to this project', templateSaved, (await api('GET', '/api/project-data/office/templates')).json?.templates?.map((item: any) => item.name));
   for (let remove = 0; remove < 4; remove++) await headerPanel.getByRole('button', { name: 'Удалить часть заголовка' }).last().click();
@@ -604,7 +613,8 @@ try {
   const targetAnchor = await waitFor(async () => !!(await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema?.anchors?.[0]?.id);
   const targetAnchorId = String((await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json?.schema?.anchors?.[0]?.id || '');
   check('target document has its own native Word anchor UUID', !!targetAnchor && !!targetAnchorId && targetAnchorId !== sourceAnchorId, { sourceAnchorId, targetAnchorId });
-  await targetPanel.getByRole('button', { name: templateName, exact: true }).click();
+  await ribbonCommand(page, 'templates');
+  await page.getByRole('dialog', { name: 'Шаблоны шапки' }).locator('li', { hasText: templateName }).getByRole('button', { name: 'Открыть' }).click();
   const templateAnchorMapping = targetPanel.getByLabel('Целевая ячейка для якоря шаблона 1');
   const templateMappingReady = await waitFor(async () => await templateAnchorMapping.count() > 0 || (await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0), 15000);
   check('template opening finishes loading its mapping decision', templateMappingReady);
