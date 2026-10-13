@@ -4,7 +4,7 @@
  * Run only after Office bridge freeze and editor rebuild:
  * `FLUX_OFFICE_NATIVE_READY=1 node --import tsx scripts/test-office-addon-native-live.ts /tmp/.../fixture.json`
  */
-import { chmod, readFile, stat } from 'node:fs/promises';
+import { chmod, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
@@ -78,6 +78,14 @@ const archiveXml = async (fileId: string) => {
 };
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const xmlText = (xml: string) => xml.replace(/<[^>]*>/g, '').replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'");
+const xlsxCellDisplayText = (worksheetXml: string, sharedStringsXml: string, address: string) => {
+  const cell = worksheetXml.match(new RegExp(`<c\\b[^>]*\\br="${address}"[^>]*>[\\s\\S]*?<\\/c>`))?.[0] || '';
+  const inline = cell.match(/<is\b[^>]*>([\s\S]*?)<\/is>/)?.[1];
+  if (inline !== undefined) return xmlText(inline);
+  const index = Number(cell.match(/<v>(\d+)<\/v>/)?.[1]);
+  const items = sharedStringsXml.match(/<si\b[^>]*>[\s\S]*?<\/si>/g) || [];
+  return Number.isSafeInteger(index) && index >= 0 && items[index] ? xmlText(items[index]!) : '';
+};
 const hasEmptyFormulaTarget = async (fileId: string) =>
   /<c\b[^>]*\br="A2"[^>]*><f>IF\(FALSE,1,(?:&quot;|"){2}\)<\/f><v>\s*<\/v><\/c>/.test(await archiveText(fileId, 'xl/worksheets/sheet1.xml'));
 const sheetCell = async (frame: any, address: string) => frame.locator('body').evaluate((cellAddress: string) => {
@@ -687,9 +695,36 @@ try {
   const expectedSheetHeader = 'Расход: Аэродинамика · Расход воздуха*2 м³/ч';
   check('Sheets schema persists ordered prefix, protected field, arithmetic, operand, and suffix', customSheetHeaderState && (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.map((part: any) => part.kind).join(',') === 'text,field,operator,text,text');
   check('custom header cell is loaded in the native workbook before reading it', await loadSheetAddress(sheets, 'A1'));
-  check('native Excel A1 displays the custom ordered header', await waitFor(async () => await sheetCell(sheets, 'A1') === expectedSheetHeader), await sheetCell(sheets, 'A1'));
+  const customHeaderVisible = await waitFor(async () => await sheetCell(sheets, 'A1') === expectedSheetHeader);
+  if (!customHeaderVisible) {
+    const fileBytes = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
+    await writeFile('/tmp/office-addon-native-sync.xlsx', fileBytes.bytes);
+    const workbookZip = await JSZip.loadAsync(fileBytes.bytes);
+    const worksheetXml = await workbookZip.file('xl/worksheets/sheet1.xml')?.async('string') || '';
+    const sharedStringsXml = await workbookZip.file('xl/sharedStrings.xml')?.async('string') || '';
+    const officeState = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
+    const nativeState = await sheets.locator('body').evaluate(() => {
+      const runtime = (window as any).__fluxSheets;
+      const workbook = runtime?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+      const lazy = runtime?.lazyWorkbookRef?.current;
+      const read = (address: string) => {
+        const range = sheet?.getRange(address);
+        return { value: range?.getValue?.(), values: range?.getValues?.()?.[0]?.[0], formula: range?.getFormulas?.()?.[0]?.[0] };
+      };
+      return { workbookId: workbook?.getId?.(), sheetId: sheet?.getSheetId?.(), a1: read('A1'), a5: read('A5'), lazyFlags: lazy?.flags, loadedRanges: [...(lazy?.loadedRanges?.entries?.() || [])].map(([id, range]: any) => ({ sheetId: id, startRow: range.startRow, endRow: range.endRow, startColumn: range.startColumn, endColumn: range.endColumn })) };
+    }).catch((error: any) => ({ error: String(error) }));
+    const a1Cell = worksheetXml.match(/<c\b[^>]*\br="A1"[^>]*>[\s\S]*?<\/c>/)?.[0] || '';
+    const relevantSharedStrings = (sharedStringsXml.match(/<si\b[^>]*>[\s\S]*?<\/si>/g) || []).map(xmlText).filter((text: string) => /Расход|Аэродинамика|м³\/ч/.test(text)).slice(0, 8);
+    console.log('SHEETS_CUSTOM_HEADER_SYNC_DIAGNOSTIC', JSON.stringify({ artifact: '/tmp/office-addon-native-sync.xlsx', rawStatus: fileBytes.status, byteLength: fileBytes.bytes.length, anchor: officeState?.schema?.anchors?.[0], nativeState, worksheetA1: a1Cell.slice(0, 700), sharedStringsForHeader: relevantSharedStrings, resolvedA1Text: xlsxCellDisplayText(worksheetXml, sharedStringsXml, 'A1') }));
+  }
+  check('native Excel A1 displays the custom ordered header', customHeaderVisible, await sheetCell(sheets, 'A1'));
   await page.keyboard.press('Control+s');
-  check('custom Sheets header is serialized into the actual workbook parts', await waitFor(async () => xmlText(await archiveXml(xlsxId)).includes(expectedSheetHeader)));
+  check('custom Sheets header is serialized in the A1 worksheet cell', await waitFor(async () => {
+    const worksheetXml = await archiveText(xlsxId, 'xl/worksheets/sheet1.xml');
+    const sharedStringsXml = await archiveText(xlsxId, 'xl/sharedStrings.xml');
+    return xlsxCellDisplayText(worksheetXml, sharedStringsXml, 'A1') === expectedSheetHeader;
+  }));
   for (let remove = 0; remove < 4; remove++) await sheetPanel.getByRole('button', { name: 'Удалить часть заголовка' }).last().click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const restoredSheetHeader = await waitFor(async () => {
