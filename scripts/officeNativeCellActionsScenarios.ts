@@ -49,7 +49,7 @@ async function nativeFormula(frame: any, address: string): Promise<string> {
   }, address).catch(() => '');
 }
 
-async function clickCell(frame: any, address: string, modifiers: string[] = [], button: 'left' | 'right' = 'left'): Promise<void> {
+async function clickCell(frame: any, address: string, modifiers: string[] = [], button: 'left' | 'right' = 'left', clickCount = 1): Promise<void> {
   const point = await frame.locator('body').evaluate((_body: HTMLElement, a1: string) => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
@@ -60,7 +60,7 @@ async function clickCell(frame: any, address: string, modifiers: string[] = [], 
     return { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height };
   }, address);
   if (!point) throw new Error(`Could not locate native grid cell ${address}`);
-  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: point, modifiers, button, timeout: 10000 });
+  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: point, modifiers, button, clickCount, timeout: 10000 });
 }
 
 export async function runNativeSheetCellActions(options: SuiteOptions): Promise<void> {
@@ -137,6 +137,47 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   };
 
   const conflict = await prepare('conflict', true);
+  // В покое привязанная ячейка показывает плашки с названием поверх A1 и держит их над ней при масштабе и прокрутке
+  const chipGeometry = () => conflict.frame.locator('body').evaluate(() => {
+    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
+    const cell = sheet?.getRange('A1')?.getCellRect?.();
+    const bounds = canvas?.getBoundingClientRect();
+    if (!canvas || !cell || !bounds) return null;
+    const sx = bounds.width / canvas.width, sy = bounds.height / canvas.height;
+    const area = { left: bounds.left + Number(cell.left) * sx, top: bounds.top + Number(cell.top) * sy, right: bounds.left + (Number(cell.left) + Number(cell.width)) * sx, bottom: bounds.top + (Number(cell.top) + Number(cell.height)) * sy };
+    const chips = [...document.querySelectorAll('#flux-sheet-chip-layer .flux-sheet-idle-chip')].map((chip) => {
+      const box = chip.getBoundingClientRect();
+      const layer = chip.closest('#flux-sheet-chip-layer')!.getBoundingClientRect();
+      return { text: chip.textContent, visible: box.width > 0 && box.height > 0 && box.bottom > layer.top && box.top < layer.bottom && box.right > layer.left && box.left < layer.right, left: box.left, top: box.top, right: box.right, bottom: box.bottom, radius: getComputedStyle(chip).borderTopLeftRadius, background: getComputedStyle(chip).backgroundColor };
+    });
+    return { area, chips };
+  });
+  const insideA1 = (g: any) => !!g && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).length > 0 && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).every((c: any) => c.left >= g.area.left - 3 && c.right <= g.area.right + 3 && c.top >= g.area.top - 3 && c.bottom <= g.area.bottom + 3);
+  await clickCell(conflict.frame, 'D3');
+  const restGeometry = await waitFor(async () => insideA1(await chipGeometry()));
+  const rest = await chipGeometry();
+  check('at rest A1 shows a rounded parameter chip with the label over the cell', restGeometry && rest.chips.some((c: any) => /DrivePower/.test(String(c.text)) && c.visible && c.radius === '4px' && c.background !== 'rgba(0, 0, 0, 0)'), rest);
+  await page().screenshot({ path: '/tmp/office-sheet-chip-light.png' });
+  await conflict.frame.locator('body').evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });
+  await page().waitForTimeout(300);
+  await page().screenshot({ path: '/tmp/office-sheet-chip-dark.png' });
+  await conflict.frame.locator('body').evaluate(() => { document.documentElement.removeAttribute('data-theme'); });
+  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1.5); });
+  const zoomed = await waitFor(async () => { const g = await chipGeometry(); return insideA1(g) && g.area.right - g.area.left > 0; });
+  check('after zoom the chips stay over the same A1 cell', zoomed, await chipGeometry());
+  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1); });
+  await conflict.frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().hover({ position: { x: 300, y: 200 } });
+  await page().mouse.wheel(0, 60);
+  await page().waitForTimeout(400);
+  const scrolled = await chipGeometry();
+  check('after scrolling the chips either follow A1 or leave with it', !scrolled || scrolled.chips.every((c: any) => !c.visible) || insideA1(scrolled), scrolled);
+  await page().mouse.wheel(0, -200);
+  await waitFor(async () => insideA1(await chipGeometry()));
+  // Масштаб и прокрутка сохраняются в книге с задержкой: ждём запись, чтобы она не попала в замер байтов ниже
+  await page().keyboard.press('Control+s');
+  await page().waitForTimeout(2500);
   const conflictBefore = await raw('GET', `/api/files/${conflict.fileId}/raw`);
   await clickCell(conflict.frame, 'A1');
   await clickCell(conflict.frame, 'B1', ['Control']);
@@ -152,14 +193,27 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('rejected conflicting merge leaves the saved XLSX bytes unchanged', hash(conflictBefore.bytes) === hash(conflictAfter.bytes));
   await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-  // Правый щелчок внутри выделенной пары сохраняет пару, как в самом Univer:
-  // для одной ячейки сначала сворачиваем выделение обычным щелчком.
-  await clickCell(conflict.frame, 'A1');
-  await clickCell(conflict.frame, 'A1', [], 'right');
-  const formulaDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
-  await formulaDialog.waitFor();
-  await formulaDialog.getByRole('button', { name: 'Редактировать формулу в ячейке' }).click();
+  // Ввод идёт прямо в ячейке шапки: Enter на выделенной привязанной ячейке открывает окно ввода
+  // поверх неё, без диалога. Для одной ячейки сначала сворачиваем выделение обычным щелчком.
+  await clickCell(conflict.frame, 'A1', [], 'left', 2);
   const formulaEditor = conflict.frame.locator('#flux-sheet-token-overlay .flux-sheet-token-edit');
+  await formulaEditor.waitFor();
+  check('Double-click on a bound header cell opens in-cell input over it without any dialog', await page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' }).count() === 0 && await formulaEditor.locator('.flux-sheet-token-chip').count() === 1);
+  // Backspace у метки: первое нажатие выделяет её, второе удаляет; Escape возвращает ячейку как была
+  await formulaEditor.evaluate((host: HTMLElement) => {
+    const chip = host.querySelector('.flux-sheet-token-chip');
+    if (!chip) return;
+    const range = document.createRange(); range.setStartAfter(chip); range.collapse(true);
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  });
+  await page().keyboard.press('Backspace');
+  check('first Backspace at a label selects it and keeps it in the cell', await formulaEditor.locator('.flux-sheet-token-chip').count() === 1 && await formulaEditor.evaluate(() => window.getSelection()?.toString() === 'DrivePower'));
+  await page().keyboard.press('Backspace');
+  check('second Backspace removes the selected label', await formulaEditor.locator('.flux-sheet-token-chip').count() === 0);
+  await page().keyboard.press('Escape');
+  await formulaEditor.waitFor({ state: 'detached' });
+  check('Escape after deleting the label leaves the native cell unchanged', await nativeCell(conflict.frame, 'A1') === 'DrivePower');
+  await clickCell(conflict.frame, 'A1', [], 'left', 2);
   await formulaEditor.waitFor();
   await formulaEditor.evaluate((host: HTMLElement) => {
     const chip = host.querySelector('.flux-sheet-token-chip');

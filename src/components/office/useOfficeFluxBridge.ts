@@ -112,8 +112,8 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     if (blocked) throw new Error(blocked);
     // Связь с шаблоном касается только файла: редактор о ней не знает
     const { template, ...editorOptions } = options;
-    const response = await ed.syncHeaders(schema, editorOptions);
-    const syncedSchema = schemaFromNativeHeaders(schema, response);
+    const response = options.storeOnly ? null : await ed.syncHeaders(schema, editorOptions);
+    const syncedSchema = response ? schemaFromNativeHeaders(schema, response) : schema;
     const { current, savedHash } = await fl.committed('schema');
     const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}), ...(template !== undefined ? { template } : {}) });
     // Без переоткрытия: редактор уже содержит записанное, а история «назад» живёт в окне
