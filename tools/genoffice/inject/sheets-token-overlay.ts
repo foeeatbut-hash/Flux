@@ -370,6 +370,7 @@ export function createSheetsTokenOverlay(
         menu.remove()
         ipc.send('flux:cell-actions', {
           editorKind: 'sheets',
+          source: 'formula',
           anchors: [{ anchorId: state.anchorId, kind: 'excel-range', sheetName: state.sheetName, address: state.address, parts: partsFromHostFor(state.host, state.parts) }],
           position: { x: event.clientX, y: event.clientY },
         })

@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { makeDocxWithTable } from './officeHarness';
 
 type WordScenarioOptions = {
+  fixture: { projectId: string };
   folderId: string;
   stamp: string;
   created: string[];
@@ -38,7 +39,7 @@ async function makeMergeDocx(conflict: boolean): Promise<Buffer> {
 }
 
 export async function runNativeWordCellActions(options: WordScenarioOptions): Promise<void> {
-  const { folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel } = options;
+  const { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel } = options;
   const page = options.page;
   console.log('\n6. Native Word cell actions, merge conflicts, fallback, formula marks');
 
@@ -121,29 +122,33 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const fresh = await second.boundingBox();
     if (!fresh) throw new Error('Word header cell B1 has no native bounds');
     await page().mouse.click(fresh.x + 6, fresh.y + fresh.height / 2, { button: 'right' });
-    const dialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
-    await dialog.waitFor({ timeout: 10000 });
-    check('native right-click opens the separate Word cell-actions dialog with both real aliases', await dialog.getByText(/DrivePower/).count() > 0 && await dialog.getByText(/MotorPower/).count() > 0);
-    return dialog;
+    const mergeItem = page().getByRole('button', { name: 'Объединить', exact: true });
+    await mergeItem.waitFor({ timeout: 10000 });
+    check('native right-click on two selected Word cells opens a small menu with one Merge item and no dialog', await page().getByRole('dialog').count() === 0);
+    return mergeItem;
   };
 
   const conflict = await makeBoundDoc('conflict', true);
   const conflictBytes = await raw('GET', `/api/files/${encodeURIComponent(conflict.fileId)}/raw`);
-  const conflictDialog = await selectAndOpen(conflict.editor);
-  await conflictDialog.getByLabel('Имя выходного заголовка').fill('Power');
-  await conflictDialog.getByRole('button', { name: 'Проверить объединение' }).click();
-  const conflictsVisible = await waitFor(async () => await conflictDialog.getByRole('alert').filter({ hasText: /конфликт|обе колонки/i }).count() > 0);
-  check('Word preview lists differing manual values and blocks confirmation', conflictsVisible && !await conflictDialog.getByRole('button', { name: 'Подтвердить объединение' }).isEnabled());
+  const conflictMerge = await selectAndOpen(conflict.editor);
+  await conflictMerge.click();
+  const conflictDialog = page().getByRole('dialog', { name: 'Объединение не выполнено' });
+  await conflictDialog.waitFor();
+  const conflictsVisible = await waitFor(async () => await conflictDialog.getByRole('alert').filter({ hasText: /конфликт|разные непустые/i }).count() > 0);
+  check('Word merge explains differing manual values and writes nothing', conflictsVisible && await page().getByRole('button', { name: /Подтвердить объединение|Проверить объединение/ }).count() === 0);
   const afterConflict = await raw('GET', `/api/files/${encodeURIComponent(conflict.fileId)}/raw`);
   check('rejected Word conflict leaves the saved DOCX byte-for-byte unchanged', conflictBytes.bytes.equals(afterConflict.bytes));
   await conflictDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
   const success = await makeBoundDoc('fallback', false);
-  const mergeDialog = await selectAndOpen(success.editor);
-  await mergeDialog.getByLabel('Имя выходного заголовка').fill('DrivePower / MotorPower');
-  await mergeDialog.getByRole('button', { name: 'Проверить объединение' }).click();
-  check('Word merge preview allows source-only, target-only, and identical manual values', await waitFor(async () => await mergeDialog.getByRole('status').filter({ hasText: /Конфликтов ручных значений не найдено/ }).count() > 0));
-  await mergeDialog.getByRole('button', { name: 'Подтвердить объединение' }).click();
+  // Строки документа, уже внесённые в него: по ним плашка находит позиции, где заполнены оба параметра
+  const rowsQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name'], filters: [], sort: [], limit: 10, excludedEntityIds: [] } });
+  const seedEntities = (rowsQuery.json?.rows || []).slice(0, 2);
+  const seeded = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json;
+  await api('PUT', `/api/project-data/files/${success.fileId}/office-state`, { baseHash: seeded.baseHash, sourceRevision: seeded.sourceRevision, schema: seeded.schema,
+    rows: seedEntities.map((entity: any) => ({ entityId: entity.entityId, entityType: 'element', sourceId: 'equipment', sourceRevision: seeded.sourceRevision, anchorIds: [seeded.schema.anchors[0].id] })) });
+  const mergeItem = await selectAndOpen(success.editor);
+  await mergeItem.click();
   const merged = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json;
     return state?.schema?.anchors?.length === 1 && state.schema.anchors[0].parts?.[0]?.kind === 'union' && state.schema.anchors[0].parts[0].alternatives?.map((item: any) => item.fieldKey).join(',') === 'param:@DrivePower,param:@MotorPower';
@@ -168,6 +173,45 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const savedZip = await JSZip.loadAsync(savedWord.bytes);
   const savedXml = await savedZip.file('word/document.xml')!.async('string');
   check('merged Word union header and transferred manual rows persist in saved OOXML', /DrivePower\s*\/\s*MotorPower/.test(savedXml) && savedXml.includes('SOURCE_ONLY') && savedXml.includes('TARGET_ONLY') && savedXml.includes('SAME_KEEP'));
+
+  const wordBadge = page().getByRole('group', { name: 'Приоритет объединения' });
+  check('Word merge goes through in one action and a short badge says both parameters are filled for 2 positions', await wordBadge.waitFor().then(() => true, () => false) && /У 2 позиций заполнены оба параметра/.test(await wordBadge.innerText())
+    && await wordBadge.getByRole('button', { name: 'Брать DrivePower' }).count() === 1 && await wordBadge.getByRole('button', { name: 'Брать MotorPower' }).count() === 1 && await wordBadge.getByRole('button', { name: 'Выбрать по каждой' }).count() === 1);
+  await page().screenshot({ path: '/tmp/merge-badge-word.png' });
+  await wordBadge.getByRole('button', { name: 'Брать MotorPower' }).click();
+  const planFor = async () => {
+    const state = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json;
+    const query = { entity: 'element', columns: ['param:@DrivePower', 'param:@MotorPower'], filters: [], sort: [], limit: 1000, excludedEntityIds: [] };
+    const data = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query });
+    return (await api('POST', `/api/project-data/files/${success.fileId}/preview`, { projectId: fixture.projectId, baseHash: state.baseHash, sourceRevision: data.json?.revision, selectedEntityIds: seedEntities.map((entity: any) => entity.entityId), query, schema: state.schema })).json;
+  };
+  check('Word "Брать MotorPower" stores the choice and refresh plan takes 95 for every position', await waitFor(async () => {
+    const part = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.[0];
+    return part?.resolved === true && part.alternatives?.slice().sort((x: any, y: any) => x.priority - y.priority)[0]?.fieldKey === 'param:@MotorPower';
+  }) && ((await planFor())?.writes || []).length === 2 && ((await planFor()).writes as any[]).every((write: any) => /^95\b/.test(String(write.value))));
+  // Своё имя объединённой колонки Word: в тексте шапки, в схеме, после повторного открытия; данные по ключам
+  const mergedCell = success.editor.locator('table tr').first().locator('td,th').nth(0);
+  await mergedCell.click({ position: { x: 6, y: 6 } });
+  await mergedCell.evaluate((cell: HTMLElement) => {
+    const box = cell.getBoundingClientRect();
+    cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.left + 6, clientY: box.top + box.height / 2 }));
+  });
+  await page().getByRole('button', { name: /^Переименовать/ }).click();
+  const wordRename = page().getByRole('dialog', { name: 'Переименовать' });
+  await wordRename.getByLabel('Отображаемое имя').fill('Мощность, кВт');
+  await wordRename.getByRole('button', { name: 'Сохранить' }).click();
+  const wordLabel = async () => (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json?.schema?.anchors?.[0]?.parts?.[0]?.label;
+  check('Word own name is stored in the union and shown in the header cell', await waitFor(async () => await wordLabel() === 'Мощность, кВт' && (await mergedCell.innerText()).includes('Мощность, кВт')), await mergedCell.innerText());
+  await page().screenshot({ path: '/tmp/chip-rename-word.png' });
+  await page().keyboard.press('Control+s');
+  await page().waitForTimeout(2500);
+  await resetPage(false);
+  await navigateOffice(page(), `/office-doc?file=${encodeURIComponent(success.fileId)}`);
+  const reopenedMerged = await openPanel(page(), 'Flux Office — Документ');
+  const reopenedMergedEditor = reopenedMerged.locator('.ProseMirror').first();
+  await reopenedMergedEditor.waitFor({ timeout: 15000 });
+  check('Word own name survives save and actual reopen and does not break the refresh plan', await waitFor(async () => (await reopenedMergedEditor.locator('table tr').first().locator('td,th').nth(0).innerText()).includes('Мощность, кВт')) && await wordLabel() === 'Мощность, кВт'
+    && ((await planFor())?.writes || []).length === 2 && ((await planFor()).writes as any[]).every((write: any) => /^95\b/.test(String(write.value))));
 
   const formula = await makeBoundDoc('formula', false);
   const first = formula.editor.locator('table tr').first().locator('td,th').nth(0);
@@ -200,6 +244,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const box = cell.getBoundingClientRect();
     cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.right - 6, clientY: box.top + box.height / 2 }));
   });
+  await page().getByRole('button', { name: 'Вставить параметр…' }).click();
   const insertDialog = page().getByRole('dialog', { name: 'Действия с заголовочными ячейками' });
   await insertDialog.waitFor();
   await insertDialog.getByLabel('Параметр из каталога').selectOption({ label: 'MotorPower · equipment' });

@@ -344,7 +344,7 @@ try {
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
   if (process.env.FLUX_NATIVE_ONLY === 'cells') {
     await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
-    await runNativeWordCellActions({ folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+    await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
     await context.close();
     return;
   }
@@ -922,7 +922,7 @@ try {
   check('formula refusal keeps exactly the original entity-to-A2 row identity', formulaAfter?.rows?.length === 1 && formulaAfter.rows[0].entityId === formulaEntity?.entityId && formulaAfter.rows[0].cells?.[formulaAnchor?.id] === 'A2', formulaAfter?.rows);
 
   await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
-  await runNativeWordCellActions({ folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   // Theme screenshot is a second actual editor session; does not alter the workbook.
   await resetPage(true);

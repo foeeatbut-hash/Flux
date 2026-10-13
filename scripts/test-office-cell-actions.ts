@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { collectOfficeCellMergeAlternatives, type FluxCellActionAnchor } from '../src/components/office/FluxCellActionsDialog';
-import type { OfficeBinding } from '../src/lib/officeModel';
+import type { OfficeBinding, OfficeHeaderSchema, OfficeUnionPart } from '../src/lib/officeModel';
+import { applyUnionChoice, defaultUnionLabel, partName, renamePart, takeFirst } from '../src/components/office/fluxMergeChoice';
+import type { OfficeField } from '../src/components/office/fluxData';
 
 function binding(sourceId: string, fieldKey: string, anchorId: string): OfficeBinding {
   return { sourceId, fieldKey, entityType: 'tag', entityId: null, sourceRevision: 'r1', anchorId };
@@ -72,4 +74,28 @@ const conflicted = collectOfficeCellMergeAlternatives([
 assert.equal(conflicted.alternatives.length, 0);
 assert.match(conflicted.error || '', /ручные данные/);
 
-console.log('Office cell actions: 7 contract cases passed');
+// Объединение одним действием: имя по умолчанию, выбор «Брать …», исключения по позициям
+const catalog: OfficeField[] = [
+  { sourceId: 'project-a', entityType: 'tag', fieldKey: 'drive_power', displayName: 'Мощность привода' },
+  { sourceId: 'project-b', entityType: 'tag', fieldKey: 'motor_power', displayName: 'Мощность двигателя' },
+];
+assert.equal(defaultUnionLabel(plan.alternatives, catalog), 'Мощность привода / Мощность двигателя');
+const union: OfficeUnionPart = { kind: 'union', mode: 'first-match', label: 'Мощность', alternatives: plan.alternatives };
+const taken = takeFirst(union, 'motor_power');
+assert.deepEqual(taken.alternatives.map((item) => [item.fieldKey, item.priority]), [['motor_power', 0], ['drive_power', 1]]);
+assert.equal(taken.resolved, true);
+assert.equal(taken.picks, undefined);
+const eachChoice = applyUnionChoice(union, ['drive_power', 'motor_power'], { 'EQ-1': 'motor_power', 'EQ-2': 'drive_power' });
+assert.deepEqual(eachChoice.picks, { 'EQ-1': 'motor_power' }); // совпавшее с общим порядком исключение не храним
+
+// Своё имя: хранится в binding.label, «сбросить» возвращает программное; у объединения — «<имя1> / <имя2>»
+const nameSchema: OfficeHeaderSchema = { version: 1, anchors: [{ id: 'a1', kind: 'excel-range', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'field', binding: first }] }, { id: 'u1', kind: 'excel-range', sheetName: 'Лист1', address: 'B1', parts: [union] }] };
+const renamed = renamePart(nameSchema, 'a1', 0, '  Привод, кВт ', catalog);
+assert.equal((renamed.anchors[0].parts[0] as any).binding.label, 'Привод, кВт');
+assert.equal(partName(renamed.anchors[0].parts[0], catalog), 'Привод, кВт');
+assert.equal((renamePart(renamed, 'a1', 0, null, catalog).anchors[0].parts[0] as any).binding.label, undefined);
+assert.equal((renamePart(renamed, 'a1', 0, 'Мощность привода', catalog).anchors[0].parts[0] as any).binding.label, undefined);
+assert.equal(partName(renamePart(nameSchema, 'u1', 0, 'Мощность, кВт', catalog).anchors[1].parts[0], catalog), 'Мощность, кВт');
+assert.equal(partName(renamePart(nameSchema, 'u1', 0, null, catalog).anchors[1].parts[0], catalog), 'Мощность привода / Мощность двигателя');
+
+console.log('Office cell actions: 11 contract cases passed');
