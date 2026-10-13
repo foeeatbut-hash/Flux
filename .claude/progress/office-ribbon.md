@@ -5,7 +5,7 @@
 
 ## Шаги
 - [x] 1. Права шаблонов на сервере (общий создаёт любой, правит/удаляет только создатель) + тест
-- [ ] 2. «Исходная шапка»: templateId + снимок схемы в части Flux (сервер, state, updateState) + тест
+- [x] 2. «Исходная шапка»: templateId + снимок схемы в части Flux (сервер, state, updateState) + тест
 - [ ] 3. Лента Flux в патчах GenOffice (docs/sheets): группы и сообщения flux:open-panel + command
 - [ ] 4. Хосты и панель: команды ленты, шаблоны (FluxTemplateControls как окно), переводчик, исходная шапка
 - [ ] 5. Перенос «Вставить все», XLSX/CSV/«Книга Flux» в новую панель + сверка со старой
@@ -13,7 +13,7 @@
 - [ ] 7. Потолки OfficeHost/OfficeAppEditor в test-architecture.ts, снимки, полные проверки
 
 ## Проверки «до»
-(идут: /tmp/office-ribbon/tsc-before.log, /tmp/office-ribbon/checks-before.log)
+Чисто (код 0) tsc; run-checks office: без chromium и сервера все *-ui/*-live падают из-за среды (FLUX_CHROME не был задан) — переснять с окружением. Невиновные: test-office-addon-owned-native (6 известных ✗).
 
 ## Остановился
 Разведка закончена, код ещё не правился. Решения:

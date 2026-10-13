@@ -9,7 +9,7 @@ import { cleanQuery, runQuery, blockFingerprint, projectFingerprint, loadProject
 import { fileBytes } from './fileChunks.js';
 import { projectOfFile } from '../projectFields.js';
 import { OFFICE_TEMPLATE_KEY, OFFICE_TEMPLATE_PINS_KEY, cleanOfficeTemplate, parseOfficeTemplates, type OfficeHeaderTemplate } from '../officeTemplates.js';
-import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings } from '../officeBindings.js';
+import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings, type OfficeTemplateSnapshot } from '../officeBindings.js';
 import { writeOfficeFile } from './officeFiles.js';
 import { resolveOfficeUnit } from '../officeData.js';
 import { mutateOfficeSettingArray } from '../officeTemplateStore.js';
@@ -149,10 +149,15 @@ export async function officeStateOfContent(bytes: Buffer, projectId: string) {
   const bindings = await readOfficeBindings(bytes);
   // В OOXML используются короткие имена; API возвращает модель редактора,
   // иначе после сохранения теряется расположение привязанного заголовка.
-  const anchors = bindings?.anchors.map(({ part, sheet, ...anchor }) => ({
+  const toModel = (list: OfficePackageBindings['anchors']) => list.map(({ part, sheet, ...anchor }) => ({
     ...anchor, ...(part ? { documentPart: part } : {}), ...(sheet ? { sheetName: sheet } : {}),
-  })) || [];
-  return { baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) };
+  }));
+  const anchors = toModel(bindings?.anchors || []);
+  // Применённый шаблон: клиент по нему включает «Исходную шапку» и возвращает шапку к снимку
+  const template = bindings?.template
+    ? { templateId: bindings.template.templateId, ...(bindings.template.name ? { name: bindings.template.name } : {}), appliedAt: bindings.template.appliedAt, schema: { version: 1, anchors: toModel(bindings.template.anchors) } }
+    : undefined;
+  return { baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, ...(template ? { template } : {}), rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) };
 }
 
 /** Новые байты пакета со схемой и строками из тела запроса; запись выбирает вызывающий. */
@@ -167,9 +172,19 @@ export async function rebindOfficeContent(before: Buffer, body: any) {
     ...(row?.cells && typeof row.cells === 'object' ? { cells: Object.fromEntries(Object.entries(row.cells).filter(([id, value]) => anchors.has(id) && typeof value === 'string').slice(0, 1000).map(([id, value]) => [id, String(value).slice(0, 100)])) } : {}),
     ...(row?.values && typeof row.values === 'object' ? { values: Object.fromEntries(Object.entries(row.values).filter(([id, value]) => anchors.has(id) && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))).slice(0, 1000).map(([id, value]) => [id, typeof value === 'string' ? value.slice(0, 32767) : value])) } : {}),
   })) : prior?.rows || [];
+  const packed = schema.anchors.map((anchor) => ({ id: anchor.id, kind: anchor.kind, part: anchor.documentPart, sheet: anchor.sheetName, address: anchor.address, parts: anchor.parts }));
+  // Снимок шаблона: новый — когда клиент применил шаблон (в снимок ложится записываемая схема),
+  // null — снять связь, иначе остаётся прежний, как бы ни правили шапку потом
+  const applied = body?.template;
+  const templateId = typeof applied?.templateId === 'string' ? applied.templateId.slice(0, 200) : '';
+  const templateName = typeof applied?.name === 'string' ? applied.name.trim().slice(0, 120) : '';
+  const template: OfficeTemplateSnapshot | undefined = applied === null ? undefined
+    : templateId ? { templateId, ...(templateName ? { name: templateName } : {}), appliedAt: new Date().toISOString(), anchors: JSON.parse(JSON.stringify(packed)) }
+    : prior?.template;
   const bindings: OfficePackageBindings = {
     version: 1, schemaVersion: 1, sourceRevision: String(body?.sourceRevision || prior?.sourceRevision || ''),
-    anchors: schema.anchors.map((anchor) => ({ id: anchor.id, kind: anchor.kind, part: anchor.documentPart, sheet: anchor.sheetName, address: anchor.address, parts: anchor.parts })),
+    anchors: packed,
+    ...(template ? { template } : {}),
     rows,
   };
   return { bytes: await writeOfficeBindings(before, bindings), anchorCount: bindings.anchors.length };

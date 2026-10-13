@@ -124,6 +124,42 @@ void (async () => {
   assert.equal(again.body.schema.anchors[0].kind, 'word-row');
   console.log('  ✓ state: схема читается из записанных байт');
 
+  // Исходная шапка: применение шаблона кладёт в часть Flux templateId и снимок схемы с датой
+  assert.equal(again.body.template, undefined, 'без шаблона снимка нет');
+  const applied = await call('write-state', { projectId: 'project-1', base64: written.body.base64, baseHash: written.body.baseHash, sourceRevision: 'R1', schema: schemaOf('head-1'), template: { templateId: 'tpl-1', name: 'Ведомость' } });
+  assert.equal(applied.statusCode, 200, JSON.stringify(applied.body));
+  const withSnapshot = await call('state', { projectId: 'project-1', base64: applied.body.base64 });
+  assert.equal(withSnapshot.body.template.templateId, 'tpl-1');
+  assert.equal(withSnapshot.body.template.name, 'Ведомость');
+  assert.ok(!Number.isNaN(Date.parse(withSnapshot.body.template.appliedAt)), 'дата применения записана');
+  assert.deepEqual(withSnapshot.body.template.schema.anchors.map((a: any) => a.id), ['head-1']);
+  assert.equal(withSnapshot.body.template.schema.anchors[0].kind, 'word-row');
+  // Правка шапки после применения снимок не трогает: он остаётся таким, каким шаблон был применён
+  const editedHeader = { version: 1, anchors: [{ kind: 'word-row', id: 'head-1', parts: [{ kind: 'text', text: 'Правка после шаблона' }] }, { kind: 'word-row', id: 'head-2', parts: [{ kind: 'text', text: 'Новая ячейка' }] }] };
+  const afterEdit = await call('write-state', { projectId: 'project-1', base64: applied.body.base64, baseHash: applied.body.baseHash, sourceRevision: 'R1', schema: editedHeader });
+  const afterEditState = await call('state', { projectId: 'project-1', base64: afterEdit.body.base64 });
+  assert.deepEqual(afterEditState.body.schema.anchors.map((a: any) => a.id), ['head-1', 'head-2']);
+  assert.equal(afterEditState.body.template.templateId, 'tpl-1');
+  assert.deepEqual(afterEditState.body.template.schema.anchors, withSnapshot.body.template.schema.anchors, 'снимок не изменился');
+  assert.equal(afterEditState.body.template.appliedAt, withSnapshot.body.template.appliedAt);
+  // Возврат к снимку: та же запись схемы с записанной в снимке схемой, шаблон остаётся применённым
+  const restored = await call('write-state', { projectId: 'project-1', base64: afterEdit.body.base64, baseHash: afterEdit.body.baseHash, sourceRevision: 'R1', schema: afterEditState.body.template.schema });
+  const restoredState = await call('state', { projectId: 'project-1', base64: restored.body.base64 });
+  assert.deepEqual(restoredState.body.schema, withSnapshot.body.template.schema, 'шапка равна снимку');
+  assert.equal(restoredState.body.template.templateId, 'tpl-1');
+  // Другой шаблон заменяет снимок: хранится один, последний
+  const second = await call('write-state', { projectId: 'project-1', base64: restored.body.base64, baseHash: restored.body.baseHash, sourceRevision: 'R1', schema: editedHeader, template: { templateId: 'tpl-2' } });
+  const secondState = await call('state', { projectId: 'project-1', base64: second.body.base64 });
+  assert.equal(secondState.body.template.templateId, 'tpl-2');
+  assert.deepEqual(secondState.body.template.schema.anchors.map((a: any) => a.id), ['head-1', 'head-2']);
+  // template: null снимает связь — кнопка «Исходная шапка» снова неактивна
+  const cleared = await call('write-state', { projectId: 'project-1', base64: second.body.base64, baseHash: second.body.baseHash, sourceRevision: 'R1', schema: editedHeader, template: null });
+  assert.equal((await call('state', { projectId: 'project-1', base64: cleared.body.base64 })).body.template, undefined);
+  // Снимок переживает перенос части Flux в байты редактора
+  const carriedSnapshot = await carryFluxPart(new Uint8Array(Buffer.from(second.body.base64, 'base64')), new Uint8Array(docx));
+  assert.equal((await readOfficeBindings(Buffer.from(carriedSnapshot)))?.template?.templateId, 'tpl-2');
+  console.log('  ✓ исходная шапка: templateId и снимок схемы с датой, один последний, возврат без потерь');
+
   // План по содержимому: добавления по выбранным тегам, подтверждение с той же версией
   const query = { entity: 'tag', columns: ['identifier'], filters: [], sort: [], limit: 100, excludedEntityIds: [] };
   const rows = await call('state', { projectId: 'project-1', base64: written.body.base64 });

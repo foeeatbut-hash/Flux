@@ -1,4 +1,4 @@
-import type { OfficeAnchorRow } from './fluxData';
+import type { OfficeAnchorRow, OfficeTemplateLink } from './fluxData';
 import type { OfficeHeaderSchema, OfficePart } from '../../lib/officeModel';
 
 export interface HeaderSchemaSyncOptions {
@@ -6,6 +6,8 @@ export interface HeaderSchemaSyncOptions {
   rows?: OfficeAnchorRow[];
   displayLabels?: Record<string, string>;
   removedAnchorIds?: string[];
+  /** Только для файла: шаблон применён (снимок схемы) или связь снята; редактору не уходит. */
+  template?: OfficeTemplateLink;
 }
 
 /** Ответ редактора меняет только привязанные ячейки; остальные якоря сохраняем. */

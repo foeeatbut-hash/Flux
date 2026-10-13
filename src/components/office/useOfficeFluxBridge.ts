@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { OfficeBinding, OfficeHeaderSchema } from '../../lib/officeModel';
 import type { FluxCellActionAnchor } from './FluxCellActionsDialog';
 import type { FluxOfficeAnchorSelection } from './FluxOfficePanel';
-import type { OfficeAnchorRow, OfficeFillPlan, OfficeState } from './fluxData';
+import type { OfficeAnchorRow, OfficeFillPlan, OfficeState, OfficeTemplateLink } from './fluxData';
 import { schemaFromNativeHeaders, type HeaderSchemaSyncOptions } from './officeNativeSchema';
 
 /**
@@ -28,7 +28,7 @@ export interface OfficeFileLink {
   /** Состояние файла, как он сейчас записан. */
   state(): Promise<OfficeState>;
   /** Записывает схему и строки; возвращает хеш получившейся версии файла. */
-  updateState(body: { baseHash: string; sourceRevision: string; schema: OfficeHeaderSchema; rows?: OfficeAnchorRow[] }): Promise<{ baseHash: string }>;
+  updateState(body: { baseHash: string; sourceRevision: string; schema: OfficeHeaderSchema; rows?: OfficeAnchorRow[]; template?: OfficeTemplateLink }): Promise<{ baseHash: string }>;
   /** Записывает правки редактора в файл; false — не записано. */
   flush(): Promise<boolean>;
   /** Записывает правки и читает состояние записанной версии, сверив хеш; ошибки со словами хоста. */
@@ -107,10 +107,12 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     const { editor: ed, file: fl } = live.current;
     const blocked = fl.writeBlocked?.('schema');
     if (blocked) throw new Error(blocked);
-    const response = await ed.syncHeaders(schema, options);
+    // Связь с шаблоном касается только файла: редактор о ней не знает
+    const { template, ...editorOptions } = options;
+    const response = await ed.syncHeaders(schema, editorOptions);
     const syncedSchema = schemaFromNativeHeaders(schema, response);
     const { current, savedHash } = await fl.committed('schema');
-    const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}) });
+    const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: current.sourceRevision, schema: syncedSchema, ...(options.rows ? { rows: options.rows } : current.rows ? { rows: current.rows } : {}), ...(template !== undefined ? { template } : {}) });
     // Без переоткрытия: редактор уже содержит записанное, а история «назад» живёт в окне
     fl.remember(stored.baseHash);
     return await fl.state();

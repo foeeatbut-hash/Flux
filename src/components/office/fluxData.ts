@@ -68,15 +68,29 @@ export interface OfficeTemplate {
   description?: string;
   scope: 'PERSONAL' | 'SHARED';
   ownerId: string | null;
+  /** Создатель: только он правит и удаляет общий шаблон. */
+  createdById?: string;
   pinned?: boolean;
   schema: unknown;
   query: Record<string, unknown>;
   updatedAt: string;
 }
 
+/** Шаблон, применённый к файлу: снимок его схемы на момент применения (для «Исходной шапки»). */
+export interface OfficeAppliedTemplate {
+  templateId: string;
+  name?: string;
+  appliedAt: string;
+  schema: import('../../lib/officeModel').OfficeHeaderSchema;
+}
+/** Что записать в часть Flux вместе со схемой: шаблон применён (снимок берётся с записываемой схемы) или связь снята. */
+export type OfficeTemplateLink = { templateId: string; name?: string } | null;
+
 export interface OfficeState {
   baseHash: string;
   schema: import('../../lib/officeModel').OfficeHeaderSchema;
+  /** Есть, если к файлу применяли шаблон; одного последнего. */
+  template?: OfficeAppliedTemplate;
   sourceRevision: string;
   rows?: OfficeAnchorRow[];
 }
@@ -148,7 +162,7 @@ export const officeDataApi = {
   state: (source: OfficeFileSource) => isLocalSource(source)
     ? request<OfficeState>(`${LOCAL}/state`, json(withContent(source, {})))
     : request<OfficeState>(fileRoute(source, 'office-state')),
-  updateState: (source: OfficeFileSource, body: { baseHash: string; sourceRevision: string; schema: OfficeState['schema']; rows?: OfficeAnchorRow[] }) => isLocalSource(source)
+  updateState: (source: OfficeFileSource, body: { baseHash: string; sourceRevision: string; schema: OfficeState['schema']; rows?: OfficeAnchorRow[]; template?: OfficeTemplateLink }) => isLocalSource(source)
     ? request<OfficeStateWritten>(`${LOCAL}/write-state`, json(withContent(source, body)))
     : request<OfficeStateWritten>(fileRoute(source, 'office-state'), { ...json(body), method: 'PUT' }),
   preview: (source: OfficeFileSource, body: { projectId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) => isLocalSource(source)

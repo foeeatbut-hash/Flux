@@ -5,11 +5,22 @@ import { FLUX_PART, FLUX_PART_MAX_BYTES, carryFluxPart, putFluxPart } from '../o
 const PART = FLUX_PART;
 const MAX_BYTES = FLUX_PART_MAX_BYTES;
 
+export type OfficePackageAnchor = { id: string; kind: 'word-row' | 'excel-range'; part?: string; sheet?: string; address?: string; parts: unknown[] };
+
+/**
+ * Шаблон, который применён к файлу, и снимок его схемы на момент применения.
+ * Снимок, а не ссылка: шаблон потом изменят или удалят, а «Исходная шапка»
+ * должна вернуть шапку к тому виду, с которого файл начинался. Хранится один,
+ * последний применённый (решение владельца 12.10.2026).
+ */
+export interface OfficeTemplateSnapshot { templateId: string; name?: string; appliedAt: string; anchors: OfficePackageAnchor[] }
+
 export interface OfficePackageBindings {
   version: 1;
   schemaVersion: 1;
   sourceRevision: string;
-  anchors: Array<{ id: string; kind: 'word-row' | 'excel-range'; part?: string; sheet?: string; address?: string; parts: unknown[] }>;
+  anchors: OfficePackageAnchor[];
+  template?: OfficeTemplateSnapshot;
   rows: Array<{ entityId: string; entityType: string; sourceId: string; sourceRevision: string; anchorIds: string[]; cells?: Record<string, string>; values?: Record<string, string | number> }>;
 }
 
@@ -25,6 +36,17 @@ function validBindings(value: any): value is OfficePackageBindings {
     if (!anchor || typeof anchor.id !== 'string' || !anchor.id || ids.has(anchor.id) || !['word-row', 'excel-range'].includes(anchor.kind) || !Array.isArray(anchor.parts)) return false;
     ids.add(anchor.id);
     kinds.set(anchor.id, anchor.kind);
+  }
+  if (value.template !== undefined) {
+    const t = value.template;
+    if (!t || typeof t.templateId !== 'string' || !t.templateId || t.templateId.length > 200 || typeof t.appliedAt !== 'string' || !t.appliedAt) return false;
+    if (t.name !== undefined && typeof t.name !== 'string') return false;
+    if (!Array.isArray(t.anchors) || t.anchors.length > 10000) return false;
+    const snapshotIds = new Set<string>();
+    for (const anchor of t.anchors) {
+      if (!anchor || typeof anchor.id !== 'string' || !anchor.id || snapshotIds.has(anchor.id) || !['word-row', 'excel-range'].includes(anchor.kind) || !Array.isArray(anchor.parts)) return false;
+      snapshotIds.add(anchor.id);
+    }
   }
   for (const row of value.rows) {
     if (!row || !['string'].includes(typeof row.entityId) || !row.entityId || typeof row.entityType !== 'string' || typeof row.sourceId !== 'string' || typeof row.sourceRevision !== 'string' || !Array.isArray(row.anchorIds)) return false;
