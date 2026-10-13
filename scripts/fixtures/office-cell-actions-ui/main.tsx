@@ -26,8 +26,7 @@ function Fixture() {
     <aside className="fixture-controls"><button onClick={() => { setReadOnly(false); setOpen(true); }}>Открыть действия с двумя ячейками</button><button onClick={() => { setReadOnly(true); setOpen(true); }}>Открыть только для просмотра</button><output aria-live="polite">{open ? 'Действия открыты' : 'Действия закрыты'}</output></aside>
     <FluxCellActionsDialog open={open} selectedAnchors={selected} fields={fields} readOnly={readOnly}
       onCancel={() => { ops.push({ type: 'cancel' }); setOpen(false); }}
-      onPreviewMerge={async (request) => { ops.push({ type: 'preview', request }); return { ok: true, previewToken: 'fixture-token', conflicts: [] }; }}
-      onConfirmMerge={async (request) => { ops.push({ type: 'confirm', request }); return { ok: true }; }} />
+      onInsertField={async (field, anchorId) => { ops.push({ type: 'insert', field: field.fieldKey, anchorId }); return true; }} />
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

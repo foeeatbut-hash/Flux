@@ -23,6 +23,8 @@ function cleanBinding(value: any): any | null {
     fieldKey: value.fieldKey.slice(0, 200), sourceId: value.sourceId.slice(0, 120), entityType: value.entityType.slice(0, 80),
     entityId: null, sourceRevision: String(value.sourceRevision || '').slice(0, 120),
     ...(value.unit ? { unit: String(value.unit).slice(0, 80) } : {}), anchorId: String(value.anchorId || '').slice(0, 120),
+    // Своё имя параметра переживает сохранение: без него плашка после повторного открытия вернулась бы к программному
+    ...(typeof value.label === 'string' && value.label.trim() ? { label: value.label.trim().slice(0, 200) } : {}),
   };
 }
 
@@ -36,7 +38,13 @@ function cleanPart(part: any): OfficePart | null {
   if (part?.kind === 'union' && part.mode === 'first-match' && Array.isArray(part.alternatives) && part.alternatives.length > 0 && part.alternatives.length <= 30) {
     const alternatives = part.alternatives.map((item: any) => ({ ...cleanBinding(item), priority: Math.max(0, Math.min(10000, Number(item?.priority) || 0)) }));
     if (alternatives.some((item: any) => !item.fieldKey)) return null;
-    return { kind: 'union', mode: 'first-match', alternatives, ...(typeof part.label === 'string' && part.label.trim() ? { label: part.label.trim().slice(0, 200) } : {}) };
+    // Исключения по позициям: entityId → fieldKey одной из альтернатив, не больше 5000 записей
+    const keys = new Set<string>(alternatives.map((item: any) => item.fieldKey));
+    const picks = part.picks && typeof part.picks === 'object' && !Array.isArray(part.picks)
+      ? Object.fromEntries(Object.entries(part.picks).filter(([id, key]) => id && typeof key === 'string' && keys.has(key)).slice(0, 5000).map(([id, key]) => [id.slice(0, 300), key]))
+      : {};
+    return { kind: 'union', mode: 'first-match', alternatives, ...(typeof part.label === 'string' && part.label.trim() ? { label: part.label.trim().slice(0, 200) } : {}),
+      ...(Object.keys(picks).length ? { picks: picks as Record<string, string> } : {}), ...(part.resolved === true ? { resolved: true } : {}) };
   }
   return null;
 }
