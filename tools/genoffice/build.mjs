@@ -154,6 +154,10 @@ async function buildOne(which, src) {
       cpSync(join(injectDir, file), join(target, file));
     }
   }
+  if (which === 'docs') {
+    // Подключение переводчика к Документу знает устройство редактора Документа — в Таблицу его класть незачем
+    cpSync(join(injectDir, 'translation-docs.ts'), join(src, 'apps/docs', 'src', 'renderer', 'flux', 'translation-docs.ts'));
+  }
   if (which === 'sheets') {
     // Главный процесс использует только узкое расширение Electron-заглушки;
     // обычные типы редактора остаются из установленного electron-пакета.

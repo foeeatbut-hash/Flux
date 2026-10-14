@@ -50,7 +50,38 @@ export interface EditorTranslator {
   rollback(req: TrRollbackRequest): Promise<TrRollbackResult>
 }
 
-/** Подключить переводчик к транспорту редактора. ЗАГОТОВКА: проводку делают дорожки Документа и Таблицы. */
-export function installTranslationBridge(_app: 'docs' | 'sheets', _translator: EditorTranslator): void {
-  throw new Error('not implemented: installTranslationBridge')
+/** Переводчик или способ его получить позже: редактор создаётся после загрузки документа, а мост ставится при старте страницы. */
+export type TranslatorSource = EditorTranslator | (() => Promise<EditorTranslator | null>)
+
+/**
+ * Подключить переводчик к транспорту редактора. Каждый редактор — своя функция,
+ * чтобы дорожки Документа и Таблицы не пересекались в одном теле.
+ */
+export function installTranslationBridge(app: 'docs' | 'sheets', translator: TranslatorSource): void {
+  if (app === 'docs') { installDocsTranslationBridge(translator); return }
+  throw new Error('not implemented: installTranslationBridge(sheets)')
+}
+
+/* ── Документ: события окна Flux → onFluxEvent, ответы → fluxTell ─────── */
+
+function installDocsTranslationBridge(source: TranslatorSource): void {
+  const desktop = (window as any).desktop
+  if (!desktop?.onFluxEvent || !desktop?.fluxTell) return
+  // Страница ставит мост один раз; повторная установка удвоила бы ответы
+  if ((window as any).__fluxTranslationDocs) return
+  ;(window as any).__fluxTranslationDocs = true
+  const channels = TRANSLATION_CHANNELS.docs
+  const serve = <Req, Res extends { ok: boolean }>(spec: { event: string; answer: string }, run: (t: EditorTranslator, req: Req) => Promise<Res>): void => {
+    desktop.onFluxEvent(spec.event, async (payload: Req) => {
+      let result: { ok: boolean; code?: string; error?: string }
+      try {
+        const translator = typeof source === 'function' ? await source() : source
+        result = translator ? await run(translator, (payload || {}) as Req) : { ok: false, code: 'not-ready', error: 'Редактор ещё не загрузил документ' }
+      } catch (err: any) { result = { ok: false, code: 'failed', error: String(err?.message || err) } }
+      desktop.fluxTell(spec.answer, result)
+    })
+  }
+  serve<TrReadRequest, TrReadResult>(channels.read, (t, req) => t.read(req))
+  serve<TrApplyRequest, TrApplyResult>(channels.apply, (t, req) => t.apply(req))
+  serve<TrRollbackRequest, TrRollbackResult>(channels.rollback, (t, req) => t.rollback(req))
 }

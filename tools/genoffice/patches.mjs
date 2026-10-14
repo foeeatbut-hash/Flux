@@ -274,6 +274,16 @@ export const PATCHES = [
       "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
       "    // a throwing construction",
   },
+  // ── Переводчик: Документ (tools/genoffice/inject/translation-docs.ts) ──
+  {
+    // Мост ставится при загрузке App: события fluxTranslation* окна Flux получают ответ даже до первой правки
+    id: 'flux-translation-docs',
+    file: 'apps/docs/src/renderer/App.tsx',
+    find: "  type PendingPdfExport,\n} from './file-actions'\n",
+    replace: "  type PendingPdfExport,\n} from './file-actions'\n" +
+      "import { installDocsTranslation } from './flux/translation-docs'\n" +
+      "installDocsTranslation()\n",
+  },
   // ── Вкладка Flux в ленте Word и Таблицы (inject/flux-ribbon.tsx) ──
   // Раньше здесь была одна кнопка; теперь настоящая вкладка с группами
   // «Переводчик», «Данные», «Шаблоны», «Документ». Каждая кнопка шлёт окну Flux
