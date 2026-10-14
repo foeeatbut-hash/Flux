@@ -12,6 +12,7 @@ import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
+import { runNativeTranslatorWord } from './officeNativeTranslatorWordScenarios';
 
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
@@ -345,6 +346,13 @@ try {
   if (process.env.FLUX_NATIVE_ONLY === 'cells') {
     await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
     await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+    await context.close();
+    return;
+  }
+
+  // FLUX_NATIVE_ONLY=translator-word — переводчик Документа: события моста редактора без панели Flux
+  if (process.env.FLUX_NATIVE_ONLY === 'translator-word') {
+    await runNativeTranslatorWord({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
     await context.close();
     return;
   }
