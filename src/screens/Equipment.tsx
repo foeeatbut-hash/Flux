@@ -316,6 +316,16 @@ export default function Equipment() {
     for (const s of systems) for (const mb of s.monoblocks) for (const c of mb.components) map[c.id] = { block: c, unit: s, mono: mb };
     return map;
   }, [systems]);
+  const xmlSourceLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const system of systems) {
+      labels[system.id] = system.name;
+      for (const monoblock of system.monoblocks) for (const component of monoblock.components) {
+        labels[component.id] = `${blockLabel(component as any)} · ${system.name} / ${monoblock.name}`;
+      }
+    }
+    return labels;
+  }, [systems]);
 
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
   // Тип и вид каждой позиции — одним правилом на дерево, список, карточку и выгрузку
@@ -728,7 +738,7 @@ export default function Equipment() {
         void loadSystems();
         void loadTags();
       }} />}
-      {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} onClose={() => setShowXmlUpdates(false)} onChanged={() => { void checkProjectXmlSources(); void loadSystems(); }} />}
+      {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} sourceLabels={xmlSourceLabels} onClose={() => setShowXmlUpdates(false)} onChanged={() => { void checkProjectXmlSources(); void loadSystems(); }} />}
 
       {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
       <PositionTree

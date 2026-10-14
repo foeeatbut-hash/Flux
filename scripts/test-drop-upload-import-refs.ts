@@ -6,7 +6,7 @@ async function main() {
   const originalFetch = globalThis.fetch;
   const originalWindow = (globalThis as any).window;
   const size = 70 * 1024 * 1024 + 19;
-  const ticket: ImportedFileRef = { ticket: 'ticket-stream', name: 'large.ifc', size };
+  const ticket: ImportedFileRef = { ticket: 'ticket-stream', name: 'large.ifc', size, lastModified: 1_700_000_000_000 };
   let bytesRead = 0; let uploaded = 0; let maxRange = 0; let chunkCount = 0; let released = false;
   (globalThis as any).window = { electron: { windowsFiles: { invoke: async (request: any) => {
     if (request.action === 'readImportRef') {

@@ -56,6 +56,12 @@ async function loadUntil(page: Page, count: number) {
     page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
     await page.locator('[data-windows-explorer]').waitFor();
+    ok('Архив старых файлов находится в панели Проводника без отдельного раздела на главной', await page.getByRole('treeitem', { name: 'Архив Flux' }).count() === 1 && await page.getByRole('button', { name: 'Документы проекта', exact: true }).count() === 0);
+    await page.getByRole('treeitem', { name: 'Архив Flux' }).click();
+    await page.getByTestId('route').filter({ hasText: 'projectFiles=1' }).waitFor();
+    ok('Переход в архив оставляет старый просмотр FileNode доступным без преобразования', (await page.getByTestId('route').textContent())?.includes('projectFiles=1') === true);
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
+    await page.locator('[data-windows-explorer]').waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
     ok('Браузерный стенд помечен как эмуляция моста, а не проверка настоящей Windows', await page.evaluate(() => (window as any).__fixtureKind === 'emulated-windows-files-bridge'));
     ok('Навигация показывает подключённую папку fixture', await page.getByRole('treeitem', { name: /Проекты/ }).isVisible());

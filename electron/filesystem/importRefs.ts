@@ -6,13 +6,13 @@ import { WINDOWS_IMPORT_READ_BYTES, WINDOWS_IMPORT_REFS_PER_PICK, type WindowsFi
 import { WindowsFilesError } from './paths';
 import type { WindowsFilesService } from './service';
 
-export interface WindowsImportRef { ticket: string; name: string; size: number }
+export interface WindowsImportRef { ticket: string; name: string; size: number; lastModified: number }
 const IDLE_TTL_MS = 5 * 60 * 1000;
 const MAX_TICKETS_PER_OWNER = WINDOWS_IMPORT_REFS_PER_PICK;
 export const MAX_IMPORT_READ_BYTES = WINDOWS_IMPORT_READ_BYTES;
 
 type Entry = {
-  owner: number; path: string; name: string; size: number; dev: bigint; ino: bigint;
+  owner: number; path: string; name: string; size: number; lastModified: number; dev: bigint; ino: bigint;
   birthtimeNs: bigint; mtimeNs: bigint; ctimeNs: bigint; expiresAt: number;
 };
 
@@ -36,8 +36,9 @@ export class ImportRefStore {
       if (!stat.isFile() || named.isSymbolicLink() || stat.dev !== named.dev || stat.ino !== named.ino) throw new WindowsFilesError('NOT_FILE', 'Выберите обычный файл без символической ссылки.');
       if (stat.size > BigInt(Number.MAX_SAFE_INTEGER)) throw new WindowsFilesError('FILE_TOO_LARGE', 'Размер файла превышает поддерживаемый диапазон.');
       const ticket = randomUUID();
-      this.entries.set(ticket, { owner, path: filename, name: path.basename(name), size: Number(stat.size), dev: stat.dev, ino: stat.ino, birthtimeNs: stat.birthtimeNs, mtimeNs: stat.mtimeNs, ctimeNs: stat.ctimeNs, expiresAt: Date.now() + IDLE_TTL_MS });
-      return { ticket, name: path.basename(name), size: Number(stat.size) };
+      const lastModified = Math.trunc(Number(stat.mtimeNs) / 1e6);
+      this.entries.set(ticket, { owner, path: filename, name: path.basename(name), size: Number(stat.size), lastModified, dev: stat.dev, ino: stat.ino, birthtimeNs: stat.birthtimeNs, mtimeNs: stat.mtimeNs, ctimeNs: stat.ctimeNs, expiresAt: Date.now() + IDLE_TTL_MS });
+      return { ticket, name: path.basename(name), size: Number(stat.size), lastModified };
     } finally { await handle?.close(); }
   }
 

@@ -109,23 +109,27 @@ const runUpdatesDialog = async () => {
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&theme=dark`);
   const dialog = page.getByRole('dialog', { name: /Обновления XML/ });
   await dialog.waitFor();
-  if (!(await dialog.getByText('Обновления XML · проект 3', { exact: true }).count())) throw new Error('Project counter should equal the three pending/partial source rows');
+  if (!(await dialog.getByText('Обновления XML · на проверку: 3', { exact: true }).count())) throw new Error('Project counter should clearly report three sources needing review');
   const table = dialog.locator('table');
   if (await table.locator('tbody tr').count() !== 4) throw new Error('Dialog must include every source, including source-local errors');
   const status = tag => table.locator('tbody tr').filter({ hasText: tag }).first().locator('td').last();
-  for (const [tag, color] of [['L23', 'text-amber'], ['L24', 'text-amber'], ['L26', 'text-sky'], ['L25', 'text-rose']]) if (!(await status(tag).getAttribute('class')).includes(color)) throw new Error(`${tag} status does not use expected ${color} state`);
+  const taglessLabel = 'Заслонка без тега';
+  for (const [tag, color] of [['L23', 'text-amber'], ['L24', 'text-amber'], ['L25', 'text-rose'], [taglessLabel, 'text-sky']]) if (!(await status(tag).getAttribute('class')).includes(color)) throw new Error(`${tag} status does not use expected ${color} state`);
+  const taglessRow = table.locator('tbody tr').filter({ hasText: taglessLabel });
+  if (!(await taglessRow.count()) || (await taglessRow.innerText()).includes('element-4') || (await taglessRow.innerText()).includes('source-blue')) throw new Error('Tagless source must show its human label without database IDs');
   for (const theme of ['light', 'dark']) {
     await page.locator('main').evaluate((node, dark) => node.classList.toggle('dark', dark), theme === 'dark');
-    const colors = await Promise.all(['L23', 'L24', 'L26', 'L25'].map(async tag => [tag, await status(tag).evaluate(node => getComputedStyle(node).color)]));
+    const colors = await Promise.all(['L23', 'L24', 'L25', taglessLabel].map(async tag => [tag, await status(tag).evaluate(node => getComputedStyle(node).color)]));
     const colorMap = Object.fromEntries(colors);
-    if (colorMap.L23 !== colorMap.L24 || colorMap.L26 === colorMap.L23 || colorMap.L25 === colorMap.L23 || colorMap.L26 === colorMap.L25) throw new Error(`${theme} status colors do not visually distinguish changed, unchanged, and error states: ${JSON.stringify(colorMap)}`);
+    if (colorMap.L23 !== colorMap.L24 || colorMap[taglessLabel] === colorMap.L23 || colorMap.L25 === colorMap.L23 || colorMap[taglessLabel] === colorMap.L25) throw new Error(`${theme} status colors do not visually distinguish changed, unchanged, and error states: ${JSON.stringify(colorMap)}`);
     if (theme === 'light') await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-light.png', fullPage: true });
   }
   await page.locator('main').evaluate(node => node.classList.add('dark'));
   await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-dark.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Выбрать все' }).click();
   await dialog.getByRole('checkbox', { name: 'Выбрать L25' }).uncheck();
-  await dialog.getByRole('checkbox', { name: 'Выбрать L26' }).uncheck();
+  await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).uncheck();
+  await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).uncheck();
   await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
   await dialog.getByText('Перепривязать 2 источника к общей папке и подпапкам по тегу?').waitFor();
   const preview = await dialog.locator('div.max-h-28').innerText();
@@ -137,6 +141,21 @@ const runUpdatesDialog = async () => {
   if (values.length !== 2 || !values.some(binding => binding.relativePath === 'CommonRoot/L23') || !values.some(binding => binding.relativePath === 'CommonRoot/L24') || result.requests?.[0]?.sources?.length !== 2) throw new Error(`Bulk confirmation did not atomically bind both sources: ${JSON.stringify(result)}`);
   await dialog.getByRole('button', { name: 'Отменить перепривязку' }).click();
   if (Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'))).length) throw new Error('Bulk undo did not remove both bindings created on this device');
+  await dialog.getByRole('button', { name: 'Выбрать все' }).click();
+  await dialog.getByRole('checkbox', { name: 'Выбрать L23' }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'Выбрать L24' }).uncheck();
+  await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'Выбрать L25' }).uncheck();
+  await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).check();
+  await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  const taglessPreview = await dialog.locator('div.max-h-28').innerText();
+  if (!taglessPreview.includes(`${taglessLabel} → CommonRoot`) || taglessPreview.includes('element-4')) throw new Error(`Tagless preview did not identify the selected source by its human label: ${taglessPreview}`);
+  await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
+  await dialog.getByText('Папка перепривязана. Кандидаты устарели и будут сравнены заново.').waitFor();
+  const taglessApply = await page.evaluate(() => ({ local: JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'), requests: (window).__rebindPayloads }));
+  if (Object.keys(taglessApply.local).length !== 1 || Object.values(taglessApply.local)[0].sourceId !== 'source-blue' || Object.values(taglessApply.local)[0].relativePath !== 'CommonRoot' || taglessApply.requests?.[1]?.sources?.[0]?.sourceId !== 'source-blue') throw new Error(`Tagless confirmation did not apply to the selected human-labeled source: ${JSON.stringify(taglessApply)}`);
+  await dialog.getByRole('button', { name: 'Отменить перепривязку' }).click();
+  if (Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'))).length) throw new Error('Tagless undo did not remove the binding created on this device');
   await page.close();
 
   const review = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'light' });
@@ -152,6 +171,9 @@ const runUpdatesDialog = async () => {
   if (!writes.includes('POST')) throw new Error(`Review card did not send its explicit keep decision: ${JSON.stringify(writes)}`);
   await reviewDialog.getByRole('button', { name: 'Следующий источник' }).click();
   await reviewDialog.getByText('Проверка 2 / 3').waitFor();
+  await reviewDialog.getByRole('button', { name: 'Следующий источник' }).click();
+  await reviewDialog.getByText(`Проверка 3 / 3 · ${taglessLabel}`).waitFor();
+  if (await reviewDialog.getByText(`Проверка 3 / 3 · ${taglessLabel}`).innerText().then(text => text.includes('element-4'))) throw new Error('Queued tagless review must use its human label, not its element ID');
   await review.screenshot({ path: '/tmp/flux-equipment-xml-updates-review-light.png', fullPage: true });
   await review.close();
 

@@ -38,7 +38,7 @@ const searchEvents: import('../../filesystem/contracts').WindowsSearchEvent[] = 
 let draftSequence = 0;
 // Большая папка: 450 файлов, список отдаётся страницами по offset/limit, как настоящий мост
 const BIG = 'Большая';
-const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false }));
+const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false, ...(index === 149 ? { metadata: { ...metadata, fileId: 'big-150' } } : {}) }));
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/');
 const sourceEntry = (relativePath: string) => [...entries, ...nested, ...bigEntries, ...created, ...drafts].find((item) => item.relativePath === relativePath);
 const draftChildren = new Map<string, WindowsFileEntry[]>();
