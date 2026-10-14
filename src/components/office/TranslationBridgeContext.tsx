@@ -42,33 +42,43 @@ export interface OfficeTranslationApplyResult {
   /** Прежние записи, которые заменяет постановка (повтор без дублей). */
   removeRecords?: OfficeTranslationRecord[];
   stepId?: string;
-  copy?: { bytes: ArrayBuffer; suggestedName?: string };
-  copyRequest?: { kind: 'word-copy'; json: unknown } | { kind: 'sheets-save-as'; packet: unknown };
-  pendingTranslation?: {
-    records: OfficeTranslationRecord[];
-    headerSchema?: unknown;
-    displayLabels?: Record<string, string>;
-  };
+  /** Постановка создала отдельный файл или копию, исходник не тронут. */
+  copied?: boolean;
+  /** Как записан результат: слова для человека («Перевод записан в файл», «Копия сохранена»). */
+  message?: string;
   error?: string;
 }
 
+/** Строка предпросмотра, как её вернул редактор (dryRun): что было и что станет. */
+export interface OfficeTranslationPreviewItem {
+  key: string;
+  location: Record<string, unknown>;
+  before: string;
+  after: string;
+  target: 'same' | 'new-block' | 'new-cell' | 'new-sheet' | 'new-file';
+}
+
+export interface OfficeTranslationApplyPayload {
+  items: OfficeTranslationApplyItem[];
+  placement: TranslationPlacementPayload;
+  direction: TranslationLangDirection;
+  schema?: unknown;
+  displayLabels?: Record<string, string>;
+}
+
+/**
+ * Мост панели с окном. Резервная копия перед «Заменить», копия для «Нового файла»,
+ * постановка и запись одним сохранением — дело хука (useOfficeTranslation): панель
+ * говорит только «прочитай / покажи / поставь».
+ */
 export interface OfficeTranslationBridge {
   app: TranslationApp;
   fileId: string;
   readOnly: boolean;
-  read: (scope: TranslationScope) => Promise<OfficeTranslationRead>;
-  apply: (payload: {
-    items: OfficeTranslationApplyItem[];
-    placement: TranslationPlacementPayload;
-    direction: TranslationLangDirection;
-    schema?: unknown;
-    displayLabels?: Record<string, string>;
-  }) => Promise<OfficeTranslationApplyResult>;
-  /** Сохранить перед заменой исходника отдельную копию его текущих байтов. */
-  saveBackup?: () => Promise<void>;
-  /** Создать отдельный файл с уже сериализованными байтами; исходник не трогается. */
-  saveCopy?: (bytes: ArrayBuffer, name: string, records?: OfficeTranslationRecord[]) => Promise<void>;
-  saveCopyRequest?: (request: NonNullable<OfficeTranslationApplyResult['copyRequest']>, records?: OfficeTranslationRecord[]) => Promise<void>;
+  read: (scope: TranslationScope, direction?: TranslationLangDirection) => Promise<OfficeTranslationRead>;
+  /** Предпросмотр без изменения документа (dryRun редактора). */
+  preview?: (payload: OfficeTranslationApplyPayload) => Promise<{ ok: boolean; items?: OfficeTranslationPreviewItem[]; error?: string }>;
+  apply: (payload: OfficeTranslationApplyPayload) => Promise<OfficeTranslationApplyResult>;
 }
 
 const TranslationBridgeContext = createContext<OfficeTranslationBridge | null>(null);

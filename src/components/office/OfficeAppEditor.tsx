@@ -34,6 +34,8 @@ import FluxOfficePanel from './FluxOfficePanel';
 import { useFluxRibbon } from './useFluxRibbon';
 import { officeDataApi } from './fluxData';
 import { sheetsEditorLink, useOfficeFluxBridge } from './useOfficeFluxBridge';
+import { useOfficeTranslation } from './useOfficeTranslation';
+import { backupName, createTranslationSlot, projectTranslationState, sheetsTranslationEditor, stageProjectTranslation } from './officeTranslationLinks';
 import { openEditorTag } from '../../lib/editorTag';
 import { sheetName, cellValue } from '../../../office/fieldKeys';
 import { useOfficeRoom } from '../collab/useOfficeRoom';
@@ -79,6 +81,8 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
   const theme = useStore((s) => s.theme);
   const addToast = useToastStore((s) => s.addToast);
   const frame = useRef<HTMLIFrameElement>(null);
+  /** Ворота и подготовленная запись переводчика: сохранение книги ждёт постановку и несёт её журнал. */
+  const [slot] = useState(() => createTranslationSlot());
   const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
   const obsoleteFrames = useRef(new WeakSet<object>());
   const [phase, setPhase] = useState<'loading' | 'ready' | 'missing'>('loading');
@@ -265,10 +269,18 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
         }
         const isCopy = channel === 'workbook:save' && args[0]?.mode === 'save-as';
         const copyName = isCopy ? await useModalStore.getState().openPrompt('Сохранить копию книги', 'Копия появится рядом. Исходный файл останется без изменений.', 'Имя файла', name.replace(/(\.[^.]+)$/, ' (копия)$1')) : undefined;
-        if (isCopy && !copyName) { respond({ reply: m.id, result: { canceled: true } }); return; }
-        const auto = channel === 'workbook:save' && autoSave.current;
+        if (isCopy && !copyName) { if (slot.armed()?.copy) slot.settle(false, 'Имя копии не указано: новая книга не создана.'); respond({ reply: m.id, result: { canceled: true } }); return; }
+        // Обычное сохранение ждёт конец постановки перевода; запись самого перевода ворота не ждёт
+        if (channel === 'workbook:save') await slot.beforeSave();
+        const armed = channel === 'workbook:save' ? slot.armed() : null;
+        const auto = channel === 'workbook:save' && autoSave.current && !armed;
         if (channel === 'workbook:save') { autoSave.current = false; savingNow.current = Date.now(); }
-        const r = await room.request<{ result?: unknown; error?: string; copy?: { name: string } }>('office:ipc', { session: id, channel, args, auto, copyName });
+        const r = await room.request<{ result?: unknown; error?: string; copy?: { name: string } }>('office:ipc', { session: id, channel, args, auto, copyName, ...(armed?.token ? { translationToken: armed.token } : {}) });
+        if (armed) {
+          const written: any = r?.result;
+          const ok = !r?.error && (armed.copy ? !!r?.copy : written?.ok !== false && written?.canceled === false);
+          slot.settle(ok, r?.error || written?.error || (written?.canceled ? 'Файл записывает другой участник. Перевод не записан.' : undefined));
+        }
         if (!currentFrame()) return;
         if (channel === 'workbook:save') {
           const done = r && !r.error && (r.result as any)?.canceled === false;
@@ -290,7 +302,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [send, ensureSession, room.emit, room.request, activeProjectId, name]);
+  }, [send, ensureSession, room.emit, room.request, activeProjectId, name, slot]);
 
   // Сервер → редактор: сообщения главного процесса своему окну
   useEffect(() => room.listen('office:ipc-event', (m) => {
@@ -399,6 +411,50 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
       ? (kind === 'plan' ? 'Только держатель общей книги может завершить заполнение.' : 'Только держатель общей книги может записать схему; запросите запись у держателя.') : '',
     messages: { notSaved: 'Книга не записана. Сначала сохраните правки.', rowsMissing: 'Редактор не вернул сведения о заполненных строках. Сохраните книгу и проверьте результат.' },
   }, fileId);
+  // Переводчик Таблицы: правки → файл → постановка в редакторе → одно сохранение с журналом (токен подготовленной записи)
+  const translationReadOnly = issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together));
+  const translation = useOfficeTranslation({
+    app: 'sheets', fileId, readOnly: translationReadOnly, gate: slot.gate, editor: sheetsTranslationEditor(callFluxEvent),
+    file: {
+      state: () => projectTranslationState(fileId),
+      committed: () => slot.own(async () => {
+        if (!(await saveNow(Date.now(), true))) throw new Error('Книга не записана. Сохраните правки и повторите перевод.');
+        const state = await projectTranslationState(fileId);
+        if (!savedHashRef.current || state.baseHash !== savedHashRef.current) throw new Error('Книга изменилась после сохранения. Обновите её и повторите перевод.');
+        return state;
+      }),
+      writeBlocked: () => collabKey.current && !holdingRef.current ? 'Только держатель общей книги может записать перевод.' : '',
+      saveWithTranslation: (delta, baseHash) => slot.own(async () => {
+        slot.arm({ delta, token: await stageProjectTranslation(fileId, baseHash, delta) });
+        try {
+          if (!(await saveNow(Date.now(), true))) throw new Error(slot.lastError() || 'Книга не записана.');
+          return true;
+        } finally { slot.disarm(); }
+      }),
+      saveBackup: async () => {
+        const res = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/open`);
+        if (!res.ok) throw new Error(`исходник не прочитан: сервер ответил ${res.status}`);
+        const made = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/copy?name=${encodeURIComponent(backupName(name || 'Книга.xlsx'))}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: await res.arrayBuffer(),
+        });
+        const data = await made.json().catch(() => ({}));
+        if (!made.ok || !data?.id) throw new Error(String(data?.error || `сервер ответил ${made.status}`));
+        addToast(`Копия исходника сохранена: «${data.name}»`, 'info');
+      },
+      saveCopy: async () => { throw new Error('Новый файл из Таблицы сохраняет движок книги.'); },
+      // Новая книга: «Сохранить как» движка; имя спрашивает окно, журнал уходит в метаданные копии
+      saveSheetsCopy: (records) => slot.own(async () => {
+        const delta = { records };
+        slot.arm({ delta, token: await stageProjectTranslation(fileId, (await projectTranslationState(fileId)).baseHash, delta), copy: true });
+        try {
+          const done = slot.completion(180_000);
+          send({ event: 'ipc', payload: { channel: 'menu:action', args: ['save-as'] } });
+          const result = await done;
+          if (!result.ok) throw new Error(result.error || 'Новая книга не создана.');
+        } finally { slot.disarm(); }
+      }),
+    },
+  });
   const { activeAnchor: activeFluxAnchor, setActiveAnchor: setActiveFluxAnchor, inlineEditingRef, requestState: requestOfficeState, insertBinding: insertOfficeBinding, applyWrites: applyOfficeWrites, updateSchema: updateOfficeSchema } = flux;
   const ribbon = useFluxRibbon({ send, peek: flux.peekState, issueAvailable: true });
   ribbonRef.current = ribbon;
@@ -469,7 +525,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
           readOnly={issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} activeAnchor={activeFluxAnchor}
           isInlineEditing={() => inlineEditingRef.current} onIssued={() => { markIssued(); reopenRef.current(); }} onDraftCreated={(id) => navigate(editorHref({ id, name }))} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
           schemaWriteAvailable={!issued && (room.mode !== 'together' || room.holding)}
-          command={ribbon.command} onInsertTable={insertTable} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
+          translation={translation} command={ribbon.command} onInsertTable={insertTable} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
           : <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind={app} fileName={name} onClose={ribbon.close}
           readOnly={issued || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} />
       )}

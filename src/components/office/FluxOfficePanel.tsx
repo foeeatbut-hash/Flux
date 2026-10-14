@@ -9,6 +9,7 @@ import FluxTemplateControls, { canManageTemplate } from './FluxTemplateControls'
 import FluxRevisionPanel from './FluxRevisionPanel';
 import FluxExportDialog from './FluxExportDialog';
 import TextTranslationPanel from './TextTranslationPanel';
+import { TranslationBridgeProvider, type OfficeTranslationBridge } from './TranslationBridgeContext';
 import ProjectDataPanel from './ProjectDataPanel';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
@@ -55,6 +56,8 @@ interface Props {
   /** Вставка таблицы в документ (Word — таблица, Таблица — диапазон); нет — кнопки «Вставить все» нет. */
   onInsertTable?: (rows: TableCell[][]) => Promise<boolean>;
   /** Переводчик: прочитать выделение редактора и вставить результат. */
+  /** Мост переводчика окна (useOfficeTranslation): с ним вкладка «Переводчик» работает с документом, без него — с текстом. */
+  translation?: OfficeTranslationBridge | null;
   onReadText?: () => Promise<string>;
   onInsertText?: (text: string) => Promise<void> | void;
   /** «Поля проекта»: метка {{ключ}} в курсор документа или значение в ячейку таблицы; нет — только просмотр. */
@@ -476,7 +479,9 @@ export default function FluxOfficePanel(props: Props) {
         </div>
       </div>}
 
-      {view === 'translator' && <div className="min-h-0 flex-1 overflow-auto"><TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} /></div>}
+      {view === 'translator' && <div className="min-h-0 flex-1 overflow-auto">{props.translation
+        ? <TranslationBridgeProvider value={props.translation}><TextTranslationPanel /></TranslationBridgeProvider>
+        : <TextTranslationPanel onReadText={props.onReadText} onInsertText={props.readOnly ? undefined : props.onInsertText} />}</div>}
       {view === 'project-fields' && <div className="min-h-0 flex-1 overflow-auto">
         <ProjectDataPanel fileId={props.fileId} projectId={props.projectId} kind={props.editorKind === 'sheets' ? 'sheet' : 'doc'} onInsert={props.onInsertField || (() => {})}
           onUpdate={async () => { await props.onUpdateFields?.(); }}

@@ -7,6 +7,9 @@ import FluxOfficePanel from './FluxOfficePanel';
 import { docsEditorLink, sheetsEditorLink } from './useOfficeFluxBridge';
 import { useLocalFluxBridge } from './useLocalFluxBridge';
 import { useFluxRibbon } from './useFluxRibbon';
+import { useOfficeTranslation } from './useOfficeTranslation';
+import { backupName, createTranslationSlot, docsTranslationEditor, localTranslationState, sheetsTranslationEditor, withJournal } from './officeTranslationLinks';
+import { mergeOfficeTranslationPackage } from '../../../office/translationPackage';
 import { useFluxCellActions } from './useFluxCellActions';
 import { queueOfficeReply } from './officeReplyQueue';
 import { carryFluxPart } from '../../../office/fluxPart';
@@ -37,6 +40,8 @@ async function native(request: object): Promise<any> {
 /** Тот же редактор работает с локальным capability; байты не идут на сервер компании. */
 export default function LocalOfficeEditor({ app, file, fileRef, load, write, copy, saveHandle }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
+  /** Ворота и подготовленная запись переводчика: сохранение ждёт постановку и несёт её журнал. */
+  const [slot] = useState(() => createTranslationSlot());
   const io = useRef({ load, write, copy }); io.current = { load, write, copy };
   const theme = useStore(s => s.theme);
   const activeProjectId = useStore(s => s.activeProject?.id || '');
@@ -132,6 +137,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     return session.current;
   }, [app, fileRef.rootId, fileRef.relativePath, fileRef.draftId, closeSession]);
   const save = useCallback(async (force = false) => {
+    await slot.beforeSave();
     if (busySave.current) return busySave.current;
     if (!ready) return !dirty.current;
     // Документ сообщает dirty через свой closeCheck; локальный dirty ref
@@ -142,9 +148,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     const operation = (async () => {
       try {
         if (app === 'docs') {
-          const state = await ask('closeCheck', 'closeCheck');
-          if (!state) return false;
-          if (!state.dirty) return true;
+          // Запись перевода не спрашивает «есть ли правки»: документ изменила постановка
+          if (!slot.armed()) {
+            const state = await ask('closeCheck', 'closeCheck');
+            if (!state) return false;
+            if (!state.dirty) return true;
+          }
           return await ask('closeSave', 'closeSaveResult') === true;
         }
         const result = await new Promise<boolean>(resolve => {
@@ -160,7 +169,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     })();
     busySave.current = operation;
     try { return await operation; } finally { if (busySave.current === operation) busySave.current = null; }
-  }, [ready, app, ask, send, logLifecycle, setDirtyState]);
+  }, [ready, app, ask, send, logLifecycle, setDirtyState, slot]);
   const saveHandler = useCallback(() => save(), [save]);
   useEffect(() => { saveHandle.current = saveHandler; return () => { if (saveHandle.current === saveHandler) saveHandle.current = null; }; }, [saveHandler, saveHandle]);
   useEffect(() => {
@@ -193,6 +202,44 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     app: app === 'docs' ? 'docs' : 'sheets', fileKey: file.fileId, projectId: flowProjectId, editor: editorLink, latest,
     load: () => io.current.load(), write: bytes => io.current.write(bytes), save, ready: () => lifecycleState.current.ready,
     rebase: app === 'sheets' ? async sha256 => { await native({ action: 'rebase', session: await ensure(), sha256 }); } : undefined,
+  });
+  // Переводчик файла Проводника: байты у окна, журнал — в пакете; запись одна (docs: write, sheets: invoke с translationDelta)
+  const translation = useOfficeTranslation({
+    app: app === 'docs' ? 'docs' : 'sheets', fileId: file.fileId, readOnly: !ready, gate: slot.gate,
+    editor: app === 'docs' ? docsTranslationEditor(askFrame) : sheetsTranslationEditor(callFluxEvent),
+    file: {
+      state: async () => { const content = await io.current.load(); latest.current = content; return localTranslationState(content); },
+      committed: () => slot.own(async () => {
+        if (!(await save(true))) throw new Error('Файл не записан. Сохраните правки в редакторе и повторите перевод.');
+        const content = await io.current.load(); latest.current = content;
+        return localTranslationState(content);
+      }),
+      saveWithTranslation: (delta) => slot.own(async () => {
+        slot.arm({ delta });
+        try {
+          if (!(await save(true))) throw new Error(slot.lastError() || 'Файл не записан.');
+          return true;
+        } finally { slot.disarm(); }
+      }),
+      saveBackup: async () => {
+        if (!(await io.current.copy(base64ToBytes(latest.current.base64), backupName(file.name)))) throw new Error('копия не создана');
+        toast('Копия исходника сохранена рядом', 'info');
+      },
+      saveCopy: async (bytes, name, records) => {
+        const made = await io.current.copy(await withJournal(bytes, records), name);
+        if (!made) throw new Error('Новый файл не создан.');
+        toast(`Перевод сохранён в новый файл: «${made.file.name}»`, 'success');
+      },
+      saveSheetsCopy: (records) => slot.own(async () => {
+        slot.arm({ delta: { records }, copy: true });
+        try {
+          const done = slot.completion(180_000);
+          send({ event: 'ipc', payload: { channel: 'menu:action', args: ['save-as'] } });
+          const result = await done;
+          if (!result.ok) throw new Error(result.error || 'Новая книга не создана.');
+        } finally { slot.disarm(); }
+      }),
+    },
   });
   const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready,
     requestState: flux.requestState, updateSchema: flux.updateSchema, insertBinding: flux.insertBinding, isInlineEditing: () => flux.inlineEditingRef.current,
@@ -240,8 +287,13 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
           else if (m.op === 'isBlank') reply(false);
           else if (m.op === 'save') {
             // Редактор открыл пакет до записи схемы Flux: часть Flux переносится из файла, иначе связи пропали бы при первом же сохранении
-            const body = await carryFluxPart(base64ToBytes(latest.current.base64), new Uint8Array(m.payload.bytes));
-            latest.current = await io.current.write(body);
+            let body = await carryFluxPart(base64ToBytes(latest.current.base64), new Uint8Array(m.payload.bytes));
+            const armed = slot.armed();
+            // Журнал перевода ложится в тот же пакет, что и содержимое: одна запись, одна проверка версии
+            if (armed) body = await mergeOfficeTranslationPackage(body, armed.delta);
+            try { latest.current = await io.current.write(body); }
+            catch (e: any) { if (armed) slot.settle(false, String(e?.message || e)); throw e; }
+            if (armed) slot.settle(true);
             setDirtyState(false); setError(''); reply({ ok: true });
           }
           else if (m.op === 'saveCopy') {
@@ -294,8 +346,12 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
         if (channel === 'flux:x-config') { reply({ collab: false, key: '' }); return; }
         const isCopy = channel === 'workbook:save' && args[0]?.mode === 'save-as';
         const copyName = isCopy ? await useModalStore.getState().openPrompt('Сохранить копию книги', 'Копия появится в этой же папке.', 'Имя файла', file.name.replace(/(\.[^.]+)$/, ' (копия)$1')) : undefined;
-        if (isCopy && !copyName) { reply({ canceled: true }); return; }
-        const result = await native({ action: 'invoke', session: await ensure(), channel, args, ...(copyName ? { copyName } : {}) });
+        if (isCopy && !copyName) { if (slot.armed()?.copy) slot.settle(false, 'Имя копии не указано: новая книга не создана.'); reply({ canceled: true }); return; }
+        const armed = channel === 'workbook:save' ? slot.armed() : null;
+        let result: any;
+        try { result = await native({ action: 'invoke', session: await ensure(), channel, args, ...(copyName ? { copyName } : {}), ...(armed ? { translationDelta: armed.delta } : {}) }); }
+        catch (e: any) { if (armed) slot.settle(false, String(e?.message || e)); throw e; }
+        if (armed) slot.settle(armed.copy ? result?.fluxCopySaved === true : result?.ok !== false && !result?.canceled, result?.error);
         const confirmed = !!result && result.ok !== false && (!result.canceled || result.fluxCopySaved === true);
         if ((channel === 'pdf:save' || channel === 'workbook:save') && confirmed) {
           setError('');
@@ -309,7 +365,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [app, ensure, send, file.fileId, file.name, toast, flowProjectId, logLifecycle, setDirtyState]);
+  }, [app, ensure, send, file.fileId, file.name, toast, flowProjectId, logLifecycle, setDirtyState, slot]);
   useEffect(() => {
     const bridge = (window as any).electron?.localOffice;
     const off = bridge?.onEvent((event: any) => { if (event.session === sessionId.current) send({ event: 'ipc', payload: { channel: event.channel, args: event.args } }); });
@@ -342,7 +398,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
         readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
         requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
-        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
+        translation={translation} command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
       {cellActions.dialog}
       {panelOpen && app === 'pdf' && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
