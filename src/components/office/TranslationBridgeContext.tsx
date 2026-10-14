@@ -11,6 +11,10 @@ export interface OfficeTranslationUnit {
   location: Record<string, unknown>;
   verified?: boolean;
   stale?: boolean;
+  /** Состояние относительно журнала: new / current / stale / detached / replaced. */
+  status?: 'new' | 'current' | 'stale' | 'detached' | 'replaced';
+  /** Сколько плашек вынуто из исходника (знаки U+E5C0…). */
+  chips?: number;
   origin?: string;
   missing?: string[];
 }
@@ -35,6 +39,9 @@ export interface OfficeTranslationApplyItem extends OfficeTranslationUnit {
 export interface OfficeTranslationApplyResult {
   ok: boolean;
   records?: OfficeTranslationRecord[];
+  /** Прежние записи, которые заменяет постановка (повтор без дублей). */
+  removeRecords?: OfficeTranslationRecord[];
+  stepId?: string;
   copy?: { bytes: ArrayBuffer; suggestedName?: string };
   copyRequest?: { kind: 'word-copy'; json: unknown } | { kind: 'sheets-save-as'; packet: unknown };
   pendingTranslation?: {

@@ -11,7 +11,7 @@ import { createLocalOfficeWorkerHost } from './localOfficeWorkerHost';
 import { isOfficeOperation, type OfficeHostDiagnostic } from '../diagnostics/officeOperations';
 import { safeError } from '../diagnostics/event';
 import { carryFluxPart } from '../office/fluxPart';
-import { mergeOfficeTranslationPackage, type OfficeTranslationDelta } from '../src/lib/officeTranslationPackage';
+import { mergeOfficeTranslationPackage, type OfficeTranslationDelta } from '../office/translationPackage';
 
 export type LocalOfficeApp = 'pdf' | 'sheets';
 export interface LocalOfficeHost {

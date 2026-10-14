@@ -1,6 +1,13 @@
 import JSZip from 'jszip';
-import { FLUX_PART, FLUX_PART_MAX_BYTES, putFluxPart, utf8Length } from '../../office/fluxPart';
-import type { OfficeTranslationRecord } from '../translate/placement';
+import { FLUX_PART, FLUX_PART_MAX_BYTES, putFluxPart, utf8Length } from './fluxPart';
+
+/** Запись журнала перевода в части Flux файла; src/translate/placement.ts её переиспользует. */
+export interface OfficeTranslationRecord {
+  sourceId: string; key: string; destination: string; revision: string; time: number;
+  mode: string; scope: string; targetLocation: Record<string, unknown>; targetText: string; sourceText: string;
+  /** Хеш исходного текста на момент перевода: по нему находят устаревшие переводы. */
+  sourceHash?: string;
+}
 
 /** Метаданные пакета не зависят от React-панели: их читает и нативный процесс. */
 export interface OfficeTranslationMetadata {

@@ -9,10 +9,7 @@ export type TranslationSeparator = 'newline' | 'slash' | 'dash' | 'pipe' | 'cust
 export type TranslationOrder = 'source-first' | 'target-first';
 export type TranslationLangDirection = 'ru-en' | 'en-ru';
 
-export interface OfficeTranslationRecord {
-  sourceId: string; key: string; destination: string; revision: string; time: number;
-  mode: string; scope: TranslationScope; targetLocation: Record<string, unknown>; targetText: string; sourceText: string;
-}
+export type { OfficeTranslationRecord } from '../../office/translationPackage';
 
 export interface TranslationPlacementOptions {
   mode: TranslationMode;

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import { FLUX_PART, putFluxPart } from '../office/fluxPart.js';
-import { mergeOfficeTranslationPackage, readOfficeTranslationPackage } from '../src/lib/officeTranslationPackage.js';
-import type { OfficeTranslationRecord } from '../src/translate/placement.js';
+import { mergeOfficeTranslationPackage, readOfficeTranslationPackage } from '../office/translationPackage.js';
+import type { OfficeTranslationRecord } from '../office/translationPackage.js';
 
 void (async () => {
   const zip = new JSZip();
