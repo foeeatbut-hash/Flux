@@ -16,7 +16,7 @@
  *     копию сохраняет окно Flux (Save-As), затем откатывает шаг — оригинал не тронут;
  *   - каналы flux:translation-*-request → flux:translation-read|applied|rolled-back.
  */
-import { IUndoRedoService } from '@univerjs/core'
+import { ICommandService, IUndoRedoService } from '@univerjs/core'
 import { colLetters, planSheetsApply, readSheets } from './translation-sheets'
 import type { SheetCellData, SheetData, SheetPart, SheetsEnv, SheetsTranslator } from './translation-sheets'
 import type { SheetCell, TrApplyRequest, TrApplyResult, TrErrorCode, TrReadRequest, TrReadResult } from './translation-common'
@@ -24,7 +24,7 @@ import { TRANSLATION_CHANNELS } from './translation-bridge'
 
 type Names = Record<string, string>
 interface Mutation { id?: string; params?: { name?: string } }
-interface Step { undoMutations: Mutation[]; redoMutations: Mutation[] }
+interface Step { undoMutations: Mutation[]; redoMutations: Mutation[]; fluxTr?: string }
 interface UndoService { _undoStacks?: Map<string, Step[]>; _redoStacks?: Map<string, Step[]>; undoRedoStatus$?: { subscribe: (fn: () => void) => { unsubscribe: () => void } }; __tempBatchingUndoRedo(unitId: string): { dispose(): void } }
 
 const hooks = (): { univerRef: { current: any }; lazyWorkbookRef: { current: any }; } | undefined => (window as any).__fluxSheets
@@ -123,46 +123,39 @@ function snapshot(wb: any): SheetsEnv {
 
 const isFluxNameMutation = (m: Mutation): boolean => /^formula\.mutation\.(?:set|remove)-defined-name$/.test(String(m.id)) && String(m.params?.name ?? '').startsWith('FLUX_')
 
-/** Записи имён в «назад» не кладём (см. шапку): что успело попасть в шаг — выбрасываем. */
-function withoutHistory<T>(wb: any, run: () => T): T {
-  const stack = undoService()?._undoStacks?.get(wb.getId())
-  const before = stack?.length ?? 0
-  const top = before ? stack![before - 1]! : null
-  const undoLength = top?.undoMutations.length ?? 0
-  const redoLength = top?.redoMutations.length ?? 0
-  // Любая запись в «назад» очищает «вперёд»; имена возвращаются после отмены, и повтор нужен целым
-  const redo = undoService()?._redoStacks?.get(wb.getId())
-  const redoKept = redo ? [...redo] : []
-  try { return run() } finally {
-    if (redo) { redo.length = 0; redo.push(...redoKept) }
-    if (stack && stack.length > before) stack.length = before
-    if (top) { top.undoMutations.length = undoLength; top.redoMutations.length = redoLength }
-  }
-}
-
-function putName(wb: any, name: string, ref: string): void {
+/**
+ * Имя пишется мутацией напрямую, а не командой фасада: команда кладёт запись в «назад» и тем
+ * очищает «вперёд», а имена возвращаются как раз после отмены.
+ */
+function writeName(wb: any, name: string, ref: string | null): void {
+  const commands = hooks()?.univerRef.current?.univer?.__getInjector?.().get(ICommandService)
+  if (!commands) throw new Error('Univer не готов')
   const existing = wb.getDefinedName?.(name)
-  if (!existing) { wb.insertDefinedName(name, ref); return }
-  if (plain(existing.getRef?.() ?? existing.getFormulaOrRefString?.()).replace(/'/g, '') === plain(ref).replace(/'/g, '')) return
-  existing.setRef(ref)
+  const param = existing?._definedNameParam as { unitId: string; id: string; name: string; formulaOrRefString: string } | undefined
+  if (ref === null) {
+    if (param) commands.syncExecuteCommand('formula.mutation.remove-defined-name', { unitId: param.unitId, id: param.id, name: param.name })
+    return
+  }
+  if (param) {
+    if (plain(param.formulaOrRefString).replace(/'/g, '') === plain(ref).replace(/'/g, '')) return
+    commands.syncExecuteCommand('formula.mutation.set-defined-name', { ...param, formulaOrRefString: ref })
+  } else {
+    commands.syncExecuteCommand('formula.mutation.set-defined-name', { unitId: wb.getId(), id: `fluxtr-${hex(8)}`, name, formulaOrRefString: ref })
+  }
 }
 
 /** Имена FLUX_ — как в снимке; те, что есть только сейчас, удаляются. Меняются лишь `names`. */
 function restoreNames(wb: any, target: Names, names: Iterable<string>): void {
-  withoutHistory(wb, () => {
-    for (const name of names) {
-      const want = target[name]
-      try {
-        if (want === undefined) { if (wb.getDefinedName?.(name)) wb.deleteDefinedName?.(name) } else putName(wb, name, want)
-      } catch (error) { console.warn('[flux] имя перевода не восстановлено', name, error) }
-    }
-  })
+  for (const name of names) {
+    try { writeName(wb, name, target[name] ?? null) } catch (error) { console.warn('[flux] имя перевода не восстановлено', name, error) }
+  }
 }
 
 /* ── Шаги «назад», поставленные переводчиком ──────────────────────────── */
 
-interface Tracked { id: string; step: Step; before: Names; after: Names; where: 'undo' | 'redo' | 'gone' }
+interface Tracked { id: string; step: Step; before: Names; after: Names; where: 'undo' | 'redo'; lostAt?: number; active?: string }
 const tracked: Tracked[] = []
+const trace: string[] = []
 let watching = false
 
 function stacksOf(wb: any): { undo: Step[]; redo: Step[] } {
@@ -174,15 +167,28 @@ function stacksOf(wb: any): { undo: Step[]; redo: Step[] } {
 function scanTracked(): void {
   const wb = workbook()
   if (!wb) return
-  const { undo, redo } = stacksOf(wb)
+  // Стеки всех единиц: после отмены добавления листа Univer кладёт шаг «вперёд» под другим ключом
+  const service = undoService()
+  const undo = [...(service?._undoStacks?.values() || [])].flat()
+  const redo = [...(service?._redoStacks?.values() || [])].flat()
   for (const t of tracked) {
-    const where = undo.includes(t.step) ? 'undo' : redo.includes(t.step) ? 'redo' : 'gone'
+    // Шаг ищем по метке, а не по объекту: повтор («вперёд») кладёт в стек копию записи
+    const inUndo = undo.find((x) => x === t.step || x.fluxTr === t.id)
+    const inRedo = inUndo ? undefined : redo.find((x) => x === t.step || x.fluxTr === t.id)
+    const where = inUndo ? 'undo' : inRedo ? 'redo' : null
+    if (inUndo || inRedo) t.step = (inUndo || inRedo)!
+    // Во время самой отмены шаг на мгновение не лежит ни в одном стеке: «потерян» — только если пропал надолго
+    if (!where) { if (t.lostAt === undefined) trace.push(`lost ${t.id} undo=${undo.length} redo=${redo.length}`); t.lostAt = t.lostAt ?? Date.now(); continue }
+    t.lostAt = undefined
     if (where === t.where) continue
     t.where = where
-    if (where === 'redo') restoreNames(wb, t.before, new Set([...Object.keys(t.before), ...Object.keys(t.after)]))
-    else if (where === 'undo') restoreNames(wb, t.after, new Set([...Object.keys(t.before), ...Object.keys(t.after)]))
+    trace.push(`${Date.now() % 100000} ${t.id} -> ${where}`)
+    const all = new Set([...Object.keys(t.before), ...Object.keys(t.after)])
+    restoreNames(wb, where === 'redo' ? t.before : t.after, all)
+    // После отмены создания листа Univer переключает вид на соседний лист — возвращаем тот, где человек был
+    if (where === 'redo' && t.active) { try { const back = wb.getSheetByName(t.active); if (back && wb.getActiveSheet()?.getSheetName() !== t.active) wb.setActiveSheet(back) } catch { /* вид не важен */ } }
   }
-  for (let i = tracked.length - 1; i >= 0; i--) if (tracked[i]!.where === 'gone') tracked.splice(i, 1)
+  for (let i = tracked.length - 1; i >= 0; i--) if (tracked[i]!.lostAt !== undefined && Date.now() - tracked[i]!.lostAt! > 3000) tracked.splice(i, 1)
 }
 
 function watch(): void {
@@ -208,7 +214,8 @@ const codeOf = (error: unknown): TrErrorCode => /только для чтени�
 
 async function undoOwn(wb: any, entry: Tracked): Promise<boolean> {
   const { undo } = stacksOf(wb)
-  if (undo[undo.length - 1] !== entry.step) return false
+  const top = undo[undo.length - 1]
+  if (!top || (top !== entry.step && top.fluxTr !== entry.id)) return false
   await api().undo()
   scanTracked()
   return true
@@ -225,8 +232,8 @@ export function createSheetsTranslator(): SheetsTranslator {
     if (req.dryRun) return { ok: false, result: { ok: true, preview: planned.preview, applied: planned.applied, skipped: planned.skipped } }
     const namesBefore = nameRefs(wb, 'FLUX_')
     const active = wb.getActiveSheet()?.getSheetName()
-    const { undo } = stacksOf(wb)
-    const depth = undo.length
+    // Стек «назад» ограничен (20 записей): при переполнении он сдвигается, поэтому записи узнаём по объекту, а не по номеру
+    const topBefore = stacksOf(wb).undo.at(-1)
     const batch = undoService()!.__tempBatchingUndoRedo(wb.getId())
     let failure: unknown
     // Univer дописывает «назад» операций группы подряд (в прямом порядке), а откатывать их надо
@@ -244,12 +251,12 @@ export function createSheetsTranslator(): SheetsTranslator {
           else if (op.op === 'insertRow') sheet.insertRows(op.index, 1)
           else sheet.getRange(op.row, op.col, 1, 1).setValues([[{ v: op.value, t: 1 }]])
         }
-        const group = stacksOf(wb).undo[depth]
-        if (group) { segments.push(group.undoMutations.slice(taken)); taken = group.undoMutations.length }
+        const group = stacksOf(wb).undo.at(-1)
+        if (group && group !== topBefore) { segments.push(group.undoMutations.slice(taken)); taken = group.undoMutations.length }
       }
     } catch (error) { failure = error } finally { batch.dispose() }
-    const grew = stacksOf(wb).undo.length > depth
-    const step = grew ? stacksOf(wb).undo.at(-1)! : null
+    const last = stacksOf(wb).undo.at(-1)
+    const step = last && last !== topBefore ? last : null
     try { if (active && wb.getActiveSheet()?.getSheetName() !== active) wb.setActiveSheet(wb.getSheetByName(active)) } catch { /* вид не важен */ }
     if (!failure && step) {
       try {
@@ -257,7 +264,7 @@ export function createSheetsTranslator(): SheetsTranslator {
         // Метки Flux сдвигаются Univer-ом вместе со вставкой; в шаг «назад» они не входят (см. шапку)
         step.undoMutations = step.undoMutations.filter((m) => !isFluxNameMutation(m))
         step.redoMutations = step.redoMutations.filter((m) => !isFluxNameMutation(m))
-        withoutHistory(wb, () => { for (const op of planned.nameOps || []) putName(wb, op.name, refOf(op.cell)) })
+        for (const op of planned.nameOps || []) writeName(wb, op.name, refOf(op.cell))
       } catch (error) { failure = error }
     }
     if (failure || !step) {
@@ -266,8 +273,11 @@ export function createSheetsTranslator(): SheetsTranslator {
       restoreNames(wb, namesBefore, new Set([...Object.keys(namesBefore), ...Object.keys(nameRefs(wb, 'FLUX_'))]))
       return { ok: false, result: { ok: false, error: String((failure as Error)?.message || failure || 'Постановка не изменила книгу'), code: codeOf(failure) } }
     }
-    const entry: Tracked = { id: `tr-${hex(10)}`, step, before: namesBefore, after: nameRefs(wb, 'FLUX_'), where: 'undo' }
+    const stepId = `tr-${hex(10)}`
+    step.fluxTr = stepId
+    const entry: Tracked = { id: stepId, step, before: namesBefore, after: nameRefs(wb, 'FLUX_'), where: 'undo', active }
     tracked.push(entry)
+    trace.push(`created ${entry.id} len=${stacksOf(wb).undo.length}`)
     return { ok: true, entry, result: { ok: true, records: planned.records, removeRecords: planned.removeRecords, stepId: entry.id, applied: planned.applied, skipped: planned.skipped } }
   }
 
@@ -335,7 +345,7 @@ const translator = createSheetsTranslator()
 ;(translator as any).debug = () => {
   const wb = workbook()
   const { undo, redo } = stacksOf(wb)
-  const sum = (steps: Step[]) => steps.map((s) => ({ undo: s.undoMutations.map((m) => m.id), redo: s.redoMutations.length }))
-  return { undo: sum(undo), redo: sum(redo), tracked: tracked.map((t) => [t.id, t.where]) }
+  const sum = (steps: Step[]) => steps.map((s) => ({ own: s.fluxTr, seq: s.undoMutations.map((m) => String(m.id).replace(/^sheet\.(mutation|operation)\./, '').replace('set-range-values', 'V').replace('set-selections', 'S').replace('remove-col', 'RC').replace('remove-rows', 'RR')).join(','), keys: Object.keys(s).join('/') }))
+  return { undo: sum(undo), redo: sum(redo), tracked: tracked.map((t) => [t.id, t.where]), trace: trace.slice(-12) }
 }
 installSheetsTranslationBridge(translator)
