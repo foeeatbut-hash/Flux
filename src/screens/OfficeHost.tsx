@@ -33,6 +33,8 @@ import { useFluxRibbon } from '../components/office/useFluxRibbon';
 import FluxOfficePanel from '../components/office/FluxOfficePanel';
 import { officeDataApi } from '../components/office/fluxData';
 import { docsEditorLink, useOfficeFluxBridge } from '../components/office/useOfficeFluxBridge';
+import { useOfficeTranslation } from '../components/office/useOfficeTranslation';
+import { backupName, createTranslationSlot, docsTranslationEditor, projectTranslationState, stageProjectTranslation, withJournal } from '../components/office/officeTranslationLinks';
 import type { OfficeHeaderSchema } from '../lib/officeModel';
 import { openEditorTag } from '../lib/editorTag';
 import { useWindowTitle, usePaneId } from '../lib/paneTitle';
@@ -61,6 +63,8 @@ export default function OfficeHost() {
   const addToast = useToastStore((s) => s.addToast);
 
   const frame = useRef<HTMLIFrameElement>(null);
+  /** Ворота и подготовленная запись переводчика: сохранение окна ждёт постановку и несёт её журнал. */
+  const [slot] = useState(() => createTranslationSlot());
   const pendingCellFocus = useRef<{ anchorId: string; schema: OfficeHeaderSchema } | null>(null);
   const cellActionsRef = useRef<{ open: (payload: any) => Promise<void>; beginEdit: (payload: any) => Promise<void>; syncFromNative: () => Promise<void>; edited: (payload: any) => Promise<void> } | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
@@ -143,7 +147,7 @@ export default function OfficeHost() {
     return { fileId, name: fileName, bytes, sha256: sha };
   }, [fileId]);
 
-  const save = useCallback(async (p: { path?: string; bytes: ArrayBuffer; auto?: boolean }) => {
+  const saveInner = useCallback(async (p: { path?: string; bytes: ArrayBuffer; auto?: boolean }) => {
     const id = fileIdOf(p?.path) || fileId;
     const from = base.current.get(id);
     if (!id || !from) return { ok: false, error: 'Файл не открыт — сохранять некуда' };
@@ -181,6 +185,8 @@ export default function OfficeHost() {
       headers: {
         'Content-Type': 'application/octet-stream', 'X-Base-Sha256': sha,
         ...(autoRef.current ? { 'X-Autosave': '1' } : {}),
+        // Журнал перевода пишется тем же сохранением, что и содержимое (подготовлен на сервере)
+        ...(slot.armed()?.token ? { 'X-Flux-Translation-Token': slot.armed()!.token! } : {}),
         ...(collabRef.current.sessionKey() ? { 'X-Office-Session': collabRef.current.sessionKey() } : {}),
       },
       body: p.bytes,
@@ -219,6 +225,10 @@ export default function OfficeHost() {
       // Ещё раз не вышло — правки остаются в общем документе и уйдут со следующей записью; диалога нет
       return { ok: false, error: String(data?.error || `сервер ответил ${res.status}`) };
     }
+    if ((res.status === 409 || res.status === 423) && slot.armed()) {
+      // Запись перевода не должна открывать окно выбора: хук откатит перевод и скажет причину
+      return { ok: false, error: String(data?.error || 'Файл изменили, пока шёл перевод. Перевод не записан.') };
+    }
     if (res.status === 409 || res.status === 423) {
       // Правка человека не пропадает: байты держим до его решения
       setConflict((c) => c || {
@@ -228,7 +238,14 @@ export default function OfficeHost() {
       return { ok: false, reason: 'external-modified' };
     }
     return { ok: false, error: String(data?.error || `сервер ответил ${res.status}`) };
-  }, [fileId, room.saved, room.holding, askFrame, addToast, name]);
+  }, [fileId, room.saved, room.holding, askFrame, addToast, name, slot]);
+  /** Обычное сохранение ждёт конец постановки перевода; запись самого перевода сообщает слоту итог. */
+  const save = useCallback(async (p: { path?: string; bytes: ArrayBuffer; auto?: boolean }) => {
+    await slot.beforeSave();
+    const result = await saveInner(p) as { ok?: boolean; error?: string; reason?: string };
+    if (slot.armed()) slot.settle(result.ok === true, result.error || (result.reason ? 'Файл сейчас записать нельзя. Перевод не записан.' : undefined));
+    return result;
+  }, [saveInner, slot]);
 
   const saveCopy = useCallback(async (fromId: string, wanted: string, bytes: ArrayBuffer) => {
     const res = await fetch(`/api/office/files/${encodeURIComponent(fromId)}/copy?name=${encodeURIComponent(wanted)}`, {
@@ -428,6 +445,39 @@ export default function OfficeHost() {
   const { activeAnchor: activeFluxAnchor, setActiveAnchor: setActiveFluxAnchor, requestState: requestOfficeState, insertBinding: insertOfficeBinding, applyWrites: applyOfficeWrites, updateSchema: updateOfficeSchema } = flux;
   const ribbon = useFluxRibbon({ send, peek: flux.peekState, issueAvailable: true });
   ribbonRef.current = ribbon;
+  // Переводчик: правки → файл → постановка в редакторе → одно сохранение с журналом (токен подготовленной записи)
+  const translation = useOfficeTranslation({
+    app: 'docs', fileId, readOnly: phase !== 'ready' || !editable || issued, gate: slot.gate, editor: docsTranslationEditor(askFrame),
+    file: {
+      state: () => projectTranslationState(fileId),
+      committed: () => slot.own(async () => {
+        if (!(await saveBeforeServer())) throw new Error('Документ не записан. Сохраните правки через редактор и повторите перевод.');
+        const state = await projectTranslationState(fileId);
+        if (!base.current.get(fileId) || state.baseHash !== base.current.get(fileId)) throw new Error('Документ изменился после сохранения. Обновите его и повторите перевод.');
+        return state;
+      }),
+      writeBlocked: () => collabFileRef.current && !room.holding ? 'Только держатель общей версии может записать перевод.' : '',
+      saveWithTranslation: (delta, baseHash) => slot.own(async () => {
+        slot.arm({ delta, token: await stageProjectTranslation(fileId, baseHash, delta) });
+        try {
+          if ((await askFrame<boolean>('closeSave', 'closeSaveResult', 120_000)) !== true) throw new Error(slot.lastError() || 'Документ не записан.');
+          return true;
+        } finally { slot.disarm(); }
+      }),
+      saveBackup: async () => {
+        const res = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/open`);
+        if (!res.ok) throw new Error(`исходник не прочитан: сервер ответил ${res.status}`);
+        const made = await saveCopy(fileId, backupName(names.current.get(fileId) || name), await res.arrayBuffer());
+        addToast(`Копия исходника сохранена: «${made.name}»`, 'info');
+      },
+      saveCopy: async (bytes, wanted, records) => {
+        const body = await withJournal(bytes, records);
+        const made = await saveCopy(fileId, wanted, body.slice().buffer as ArrayBuffer);
+        addToast(`Перевод сохранён в новый файл: «${made.name}»`, 'success');
+      },
+      saveSheetsCopy: async () => { throw new Error('Новая книга относится к Таблице.'); },
+    },
+  });
   const issuedRef = useRef(issued);
   issuedRef.current = issued;
   // Курсор возвращается в ячейку сразу после записи схемы: окно больше не переоткрывается, и ждать
@@ -507,7 +557,7 @@ export default function OfficeHost() {
         <FluxOfficePanel fileId={fileId} projectId={activeProjectId} editorKind="docs" fileName={name} readOnly={phase !== 'ready' || !editable || issued} activeAnchor={activeFluxAnchor}
           onIssued={() => { markIssued(); reopen(fileId); }} onDraftCreated={(id) => reopen(id)} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
           schemaWriteAvailable={phase === 'ready' && !issued && editable && (!collabFileRef.current || room.holding)}
-          command={ribbon.command} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close}
+          translation={translation} command={ribbon.command} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveBeforeServer())) throw new Error('Документ не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close}
           onInsertTable={async (rows) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertTable', 'flux:table-inserted', 10000, { rows }); if (!r?.ok) addToast(r?.error || 'Таблица не вставлена', 'error'); return !!r?.ok; }}
           onInsertText={async (text) => { const r = await askFrame<{ ok: boolean; error?: string }>('insertText', 'flux:text-inserted', 8_500, text); if (!r?.ok) addToast(r?.error || 'Редактор ещё загружается — текст не вставлен', 'error'); }} />
       )}

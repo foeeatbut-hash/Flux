@@ -72,6 +72,8 @@ export interface TranslationSlot {
   armed(): ArmedTranslation | null;
   /** Сохранение окна сообщает, чем закончилась запись с переводом. */
   settle(ok: boolean, error?: string): void;
+  /** Ждать итог записи, которую начнёт сам редактор (Сохранить как → копия). */
+  completion(ms: number): Promise<{ ok: boolean; error: string }>;
   lastError(): string;
   disarm(): void;
 }
@@ -80,13 +82,18 @@ export function createTranslationSlot(gate: OfficeTranslationGate = createTransl
   let owned = 0;
   let item: ArmedTranslation | null = null;
   let error = '';
+  let waiter: ((result: { ok: boolean; error: string }) => void) | null = null;
   return {
     gate,
     beforeSave: () => (owned > 0 ? Promise.resolve() : gate.wait()),
     own: async (work) => { owned++; try { return await work(); } finally { owned--; } },
     arm: (next) => { item = next; error = ''; },
     armed: () => item,
-    settle: (ok, why) => { error = ok ? '' : why || 'Файл не записан.'; },
+    settle: (ok, why) => { error = ok ? '' : why || 'Файл не записан.'; waiter?.({ ok, error }); },
+    completion: (ms) => new Promise((resolve) => {
+      const timer = setTimeout(() => { waiter = null; resolve({ ok: false, error: 'Редактор не ответил на сохранение копии.' }); }, ms);
+      waiter = (result) => { clearTimeout(timer); waiter = null; resolve(result); };
+    }),
     lastError: () => error,
     disarm: () => { item = null; },
   };
