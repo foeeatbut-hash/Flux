@@ -44,7 +44,15 @@ export async function claimStagedOfficeTranslation(db: any, token: string, fileI
   if (!item || item.state !== 'ready' || item.expiresAt <= Date.now() || item.fileId !== fileId || item.userId !== userId || item.baseSha !== baseSha) return null;
   const claimed: StagedTranslation = { ...item, state: 'inFlight' };
   const claimedValue = JSON.stringify(claimed);
-  const won = await db.appSetting.updateMany({ where: { id, value: row.value }, data: { value: claimedValue } });
+  let won: { count: number };
+  try { won = await db.appSetting.updateMany({ where: { id, value: row.value }, data: { value: claimedValue } }); }
+  catch (error) {
+    // SQLite may report SQLITE_BUSY for a losing Prisma client instead of a zero-row CAS.
+    // Only suppress the error if another writer demonstrably changed the staged value.
+    const latest = await db.appSetting.findUnique({ where: { id } });
+    if (latest && latest.value !== row.value) return null;
+    throw error;
+  }
   if (won.count !== 1) return null;
   return {
     delta: item.delta,
