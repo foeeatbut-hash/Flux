@@ -115,13 +115,13 @@ const runUpdatesDialog = async () => {
   const status = tag => table.locator('tbody tr').filter({ hasText: tag }).first().locator('td').last();
   for (const [tag, color] of [['L23', 'text-amber'], ['L24', 'text-amber'], ['L26', 'text-sky'], ['L25', 'text-rose']]) if (!(await status(tag).getAttribute('class')).includes(color)) throw new Error(`${tag} status does not use expected ${color} state`);
   for (const theme of ['light', 'dark']) {
-    await page.emulateMedia({ colorScheme: theme });
+    await page.locator('main').evaluate((node, dark) => node.classList.toggle('dark', dark), theme === 'dark');
     const colors = await Promise.all(['L23', 'L24', 'L26', 'L25'].map(async tag => [tag, await status(tag).evaluate(node => getComputedStyle(node).color)]));
     const colorMap = Object.fromEntries(colors);
     if (colorMap.L23 !== colorMap.L24 || colorMap.L26 === colorMap.L23 || colorMap.L25 === colorMap.L23 || colorMap.L26 === colorMap.L25) throw new Error(`${theme} status colors do not visually distinguish changed, unchanged, and error states: ${JSON.stringify(colorMap)}`);
     if (theme === 'light') await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-light.png', fullPage: true });
   }
-  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.locator('main').evaluate(node => node.classList.add('dark'));
   await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-dark.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Выбрать все' }).click();
   await dialog.getByRole('checkbox', { name: 'Выбрать L25' }).uncheck();
