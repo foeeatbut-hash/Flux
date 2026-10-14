@@ -34,7 +34,9 @@ import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import WindowsExplorer from '../components/explorer/WindowsExplorer';
 import SharedFilesFolder from '../components/explorer/SharedFilesFolder';
-import { uploadDropped } from '../lib/dropUpload';
+import { uploadDropped, type UploadFile } from '../lib/dropUpload';
+import { windowsFilesRequest } from '../lib/windowsFiles';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../components/ImportFileChooser';
 import { heavyOnes, MB } from '../lib/dropFiles';
 import { saveExplorerItem, openInWindowsSaid } from '../lib/saveToWindows';
 import {
@@ -237,7 +239,7 @@ function ProjectExplorer() {
   
   const [assignTagModal, setAssignTagModal] = useState<{ fileId: string, mainTags: string[], additionalTags: string[] } | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<ImportFileChooserHandle>(null);
   const mainPaneRef = useRef<HTMLDivElement>(null);
 
   // Synchronizing state references for memory-safe and efficient hotkey event listener
@@ -633,9 +635,14 @@ function ProjectExplorer() {
     return await response.json();
   };
 
-  const uploadFiles = async (files: FileList | File[], targetFolderId: string | null = currentFolderId) => {
+  const uploadFiles = async (files: FileList | UploadFile[], targetFolderId: string | null = currentFolderId) => {
+    const releaseRefs = async () => {
+      const tickets = Array.from(files).filter((file): file is Extract<UploadFile, { ticket: string }> => 'ticket' in file).map(file => file.ticket);
+      if (tickets.length) await windowsFilesRequest({ action: 'releaseImportRefs', tickets });
+    };
     if (!targetFolderId) {
       addToast('Откройте раздел «Общий» или «Личный», чтобы загрузить файлы.', 'error');
+      await releaseRefs();
       return;
     }
     // У диска корень настоящий — файл ложится в него, а не «без папки»
@@ -651,7 +658,7 @@ function ProjectExplorer() {
       `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
       + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
       { confirmLabel: 'Загрузить' },
-    )) return;
+    )) { await releaseRefs(); return; }
 
     // Имена, уже занятые в целевой папке: по ним считается «Смета (2).xlsx»
     const existingNames = (realFolderId === null
@@ -679,10 +686,7 @@ function ProjectExplorer() {
     fetchData();
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files.length > 0) uploadFiles(event.target.files);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  const handleFileUpload = (files: File[]) => { if (files.length) void uploadFiles(files); };
 
   const createEmptyFile = async (name: string, type: string, defaultContent: string) => {
      if (!currentFolderId) {
@@ -1387,11 +1391,11 @@ function ProjectExplorer() {
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.open()} title="Загрузить файлы"
              className="fx-btn fx-btn-primary fx-btn-sm">
               <Upload className="w-4 h-4" /> Загрузить
            </button>
-           <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
+           <ImportFileChooser ref={fileInputRef} multiple label="Загрузить файлы" trigger={() => null} onFiles={handleFileUpload} onImportRefs={files => { void uploadFiles(files); }} />
 
            {selectedFileCount > 0 && (
              <>
@@ -1701,7 +1705,7 @@ function ProjectExplorer() {
                              {!searchQuery && !isSmartId(currentFolderId) && (
                                <>
                                  <div className="flex items-center gap-2 pt-3">
-                                   <button type="button" onClick={() => fileInputRef.current?.click()}
+                                   <button type="button" onClick={() => fileInputRef.current?.open()}
                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
                                      <Upload className="w-3.5 h-3.5" /> Загрузить файлы
                                    </button>
@@ -1902,7 +1906,7 @@ function ProjectExplorer() {
           createFolder={createFolder}
           createDoc={createOfficeFile}
           createTxt={() => createEmptyFile('Новый документ.txt', 'TXT', '')}
-          upload={() => fileInputRef.current?.click()}
+          upload={() => fileInputRef.current?.open()}
           paste={handlePaste}
           toEquipment={openImportPicker}
           attachVdr={setVdrAttachFileId}
