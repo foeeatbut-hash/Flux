@@ -12,7 +12,7 @@ export interface ProjectFolderBinding {
 export interface ProjectFolderBindingLedger {
   revision: number;
   bindings: ProjectFolderBinding[];
-  undo: Array<{ id: string; beforeRevision: number; afterRevision: number; before: ProjectFolderBinding[] }>;
+  undo: Array<{ id: string; beforeRevision: number; afterRevision: number; before: ProjectFolderBinding[]; after: ProjectFolderBinding[] }>;
 }
 
 export interface ProjectIdentity {
@@ -22,6 +22,10 @@ export interface ProjectIdentity {
 }
 
 const cleanPath = (value: string) => value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
+
+export function normalizedBindingPath(value: string): string {
+  return cleanPath(value).split('/').filter(Boolean).join('/').toLocaleLowerCase('en-US');
+}
 
 export function isSafeBindingPath(value: unknown): value is string {
   if (typeof value !== 'string' || value.length > 4096) return false;
