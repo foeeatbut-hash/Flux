@@ -61,6 +61,139 @@ const runViewerReadOnly = async () => {
   await page.close();
 };
 
+const runSingleFolderRebind = async theme => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: theme });
+  page.on('pageerror', error => failures.push(`folder-rebind/${theme}: ${error.message}`));
+  page.on('console', message => { if (message.type() === 'error') failures.push(`folder-rebind/${theme}: ${message.text()}`); });
+  await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
+  await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?rebind=1&theme=${theme}`);
+  await page.getByRole('button', { name: 'Подробнее' }).click();
+  await page.getByRole('button', { name: 'Перепривязать папку' }).click();
+  const preview = page.getByRole('group', { name: 'Подтверждение перепривязки папки' });
+  await preview.waitFor();
+  if (await page.evaluate(() => localStorage.getItem('flux.equipmentSources.local.v1'))) throw new Error('Folder selection wrote a local binding before confirmation');
+  await page.screenshot({ path: `/tmp/flux-equipment-xml-single-rebind-${theme}-preview.png`, fullPage: true });
+  await preview.getByRole('button', { name: 'Подтвердить перепривязку' }).click();
+  await page.getByText('Папка перепривязана. Кандидаты требуют повторной проверки.').waitFor();
+  const result = await page.evaluate(() => ({ local: JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'), posts: (window).__rebindPayloads }));
+  const binding = Object.values(result.local)[0];
+  if (binding?.relativePath !== 'NewRoot' || result.posts.length !== 1 || result.posts[0].sources[0].latestCandidate.id !== 'candidate-b') throw new Error(`Confirmed folder rebind omitted local state or server candidate CAS: ${JSON.stringify(result)}`);
+  await page.getByRole('button', { name: 'Отменить перепривязку' }).click();
+  if (Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'))).length) throw new Error('Undo did not remove the source binding created on this device');
+  await page.screenshot({ path: `/tmp/flux-equipment-xml-single-rebind-${theme}-undo.png`, fullPage: true });
+  await page.close();
+};
+
+const runFolderRebindCasConflict = async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 850 } });
+  page.on('pageerror', error => failures.push(`folder-rebind-cas: ${error.message}`));
+  await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
+  await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?rebind=1`);
+  await page.getByRole('button', { name: 'Подробнее' }).click();
+  await page.getByRole('button', { name: 'Перепривязать папку' }).click();
+  await page.getByRole('group', { name: 'Подтверждение перепривязки папки' }).waitFor();
+  await page.evaluate(() => localStorage.setItem('flux.equipmentSources.local.v1', JSON.stringify({ 'fixture-user:project-fixture:source-old:element-1': { sourceId: 'source-old', projectId: 'project-fixture', userId: 'fixture-user', tagId: 'tag-1', elementId: 'element-1', targetType: 'component', rootId: 'equipment-source-fixture', relativePath: 'NewerFolder', revisionOrder: ['A', 'B'], selectedRule: { kind: 'exact-tag' } } })));
+  await page.getByRole('button', { name: 'Подтвердить перепривязку' }).click();
+  await page.getByText(/Сервер пометил прежние кандидаты устаревшими, но локальную папку сохранить не удалось/).waitFor();
+  const binding = await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'));
+  if (binding['fixture-user:project-fixture:source-old:element-1']?.relativePath !== 'NewerFolder') throw new Error('Apply CAS overwrote a newer local folder binding');
+  await page.close();
+};
+
+const runUpdatesDialog = async () => {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'dark' });
+  page.on('pageerror', error => failures.push(`updates-dialog: ${error.message}`));
+  page.on('console', message => { if (message.type() === 'error') failures.push(`updates-dialog: ${message.text()}`); });
+  page.on('response', response => { if (response.status() >= 400) failures.push(`updates-dialog: HTTP ${response.status()} ${response.url()}`); });
+  await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
+  await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&theme=dark`);
+  const dialog = page.getByRole('dialog', { name: /Обновления XML/ });
+  await dialog.waitFor();
+  if (!(await dialog.getByText('Обновления XML · проект 3', { exact: true }).count())) throw new Error('Project counter should equal the three pending/partial source rows');
+  const table = dialog.locator('table');
+  if (await table.locator('tbody tr').count() !== 4) throw new Error('Dialog must include every source, including source-local errors');
+  const status = tag => table.locator('tbody tr').filter({ hasText: tag }).first().locator('td').last();
+  for (const [tag, color] of [['L23', 'text-amber'], ['L24', 'text-amber'], ['L26', 'text-sky'], ['L25', 'text-rose']]) if (!(await status(tag).getAttribute('class')).includes(color)) throw new Error(`${tag} status does not use expected ${color} state`);
+  for (const theme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: theme });
+    const colors = await Promise.all(['L23', 'L24', 'L26', 'L25'].map(async tag => [tag, await status(tag).evaluate(node => getComputedStyle(node).color)]));
+    const colorMap = Object.fromEntries(colors);
+    if (colorMap.L23 !== colorMap.L24 || colorMap.L26 === colorMap.L23 || colorMap.L25 === colorMap.L23 || colorMap.L26 === colorMap.L25) throw new Error(`${theme} status colors do not visually distinguish changed, unchanged, and error states: ${JSON.stringify(colorMap)}`);
+  }
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-dark.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Выбрать все' }).click();
+  await dialog.getByRole('checkbox', { name: 'Выбрать L25' }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'Выбрать L26' }).uncheck();
+  await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  await dialog.getByText('Перепривязать 2 источника к общей папке и подпапкам по тегу?').waitFor();
+  const preview = await dialog.locator('div.max-h-28').innerText();
+  if (!preview.includes('L23 → CommonRoot/L23') || !preview.includes('L24 → CommonRoot/L24')) throw new Error(`Bulk preview does not list exact tag folders: ${preview}`);
+  await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
+  await dialog.getByText('Папка перепривязана. Кандидаты устарели и будут сравнены заново.').waitFor();
+  const result = await page.evaluate(() => ({ local: JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'), requests: (window).__rebindPayloads }));
+  const values = Object.values(result.local);
+  if (values.length !== 2 || !values.some(binding => binding.relativePath === 'CommonRoot/L23') || !values.some(binding => binding.relativePath === 'CommonRoot/L24') || result.requests?.[0]?.sources?.length !== 2) throw new Error(`Bulk confirmation did not atomically bind both sources: ${JSON.stringify(result)}`);
+  await dialog.getByRole('button', { name: 'Отменить перепривязку' }).click();
+  if (Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'))).length) throw new Error('Bulk undo did not remove both bindings created on this device');
+  await page.close();
+
+  const review = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'light' });
+  review.on('pageerror', error => failures.push(`updates-review: ${error.message}`));
+  await review.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); });
+  await review.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1`);
+  const reviewDialog = review.getByRole('dialog', { name: /Обновления XML/ });
+  await reviewDialog.getByRole('button', { name: 'Рассмотреть обновления' }).click();
+  await reviewDialog.getByText('Проверка 1 / 3').waitFor();
+  await reviewDialog.getByRole('button', { name: 'Подробнее' }).click();
+  await reviewDialog.getByRole('button', { name: 'Оставить всё' }).click();
+  const writes = await review.evaluate(() => (window).__fixtureWrites);
+  if (!writes.includes('POST')) throw new Error(`Review card did not send its explicit keep decision: ${JSON.stringify(writes)}`);
+  await reviewDialog.getByRole('button', { name: 'Следующий источник' }).click();
+  await reviewDialog.getByText('Проверка 2 / 3').waitFor();
+  await review.screenshot({ path: '/tmp/flux-equipment-xml-updates-review-light.png', fullPage: true });
+  await review.close();
+
+  const viewer = await browser.newPage({ viewport: { width: 900, height: 800 } });
+  await viewer.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&viewer=1`);
+  const readOnlyDialog = viewer.getByRole('dialog', { name: /Обновления XML/ });
+  await readOnlyDialog.waitFor();
+  for (const name of ['Выбрать все', 'Перепривязать папку XML', 'Рассмотреть обновления']) if (await readOnlyDialog.getByRole('button', { name: new RegExp(name) }).count()) throw new Error(`Read-only user sees updates write control: ${name}`);
+  await viewer.close();
+
+  const narrow = await browser.newPage({ viewport: { width: 360, height: 800 } });
+  await narrow.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&theme=dark&width=narrow`);
+  const narrowDialog = narrow.getByRole('dialog', { name: /Обновления XML/ });
+  await narrowDialog.waitFor();
+  const geometry = await narrow.evaluate(() => ({ body: document.documentElement.scrollWidth, width: innerWidth, dialog: document.querySelector('[role="dialog"]')?.clientWidth }));
+  if (geometry.body > geometry.width || geometry.dialog > geometry.width) throw new Error(`Updates dialog overflows at narrow width: ${JSON.stringify(geometry)}`);
+  await narrow.close();
+};
+
+const runUpdatesProjectSwitch = async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
+  page.on('pageerror', error => failures.push(`updates-project-switch: ${error.message}`));
+  page.on('console', message => { if (message.type() === 'error') failures.push(`updates-project-switch: ${message.text()}`); });
+  await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
+  await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&switch=1&theme=dark`);
+  const dialog = page.getByRole('dialog', { name: /Обновления XML/ });
+  await page.getByRole('button', { name: 'Сменить проект' }).evaluate(button => button.click());
+  await dialog.getByText('Q90', { exact: true }).waitFor();
+  await page.waitForTimeout(600);
+  const table = dialog.locator('table');
+  if (await table.locator('tbody tr').count() !== 1 || await table.getByText('L23').count()) throw new Error('Delayed source response from the previous project replaced current rows');
+  await dialog.getByRole('button', { name: 'Выбрать все' }).click();
+  await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  await dialog.getByText('Q90 → CommonRoot').waitFor();
+  await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
+  await dialog.getByText('Папка перепривязана. Кандидаты устарели и будут сравнены заново.').waitFor();
+  const result = await page.evaluate(() => ({ local: JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'), urls: (window).__rebindUrls, requests: (window).__rebindPayloads }));
+  const binding = Object.values(result.local)[0];
+  if (binding?.projectId !== 'project-other' || result.urls?.length !== 1 || !result.urls[0].includes('/project-other/') || result.requests[0]?.sources?.[0]?.sourceId !== 'source-other') throw new Error(`Project switch sent a stale source to rebind: ${JSON.stringify(result)}`);
+  await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-project-switch-dark.png', fullPage: true });
+  await page.close();
+};
+
 const runUntaggedBindingAndRemap = async (width, theme) => {
   const page = await browser.newPage({ viewport: { width, height: 850 }, colorScheme: theme });
   page.on('pageerror', error => failures.push(`untagged/${width}/${theme}: ${error.message}`));
@@ -99,7 +232,11 @@ try {
   for (const width of [360, 1100]) for (const theme of ['light', 'dark']) await run(width, theme);
   await runTagSwitchRace();
   await runViewerReadOnly();
+  for (const theme of ['light', 'dark']) await runSingleFolderRebind(theme);
+  await runFolderRebindCasConflict();
+  await runUpdatesDialog();
+  await runUpdatesProjectSwitch();
   for (const width of [360, 1100]) for (const theme of ['light', 'dark']) await runUntaggedBindingAndRemap(width, theme);
   if (failures.length) throw new Error(failures.join('\n'));
-  console.log(JSON.stringify({ result: 'passed', previewBindingRevisionComparison: 'passed', tagSwitchRace: 'passed', geometries, screenshots: [360, 1100].flatMap(width => ['light', 'dark'].flatMap(theme => [`/tmp/flux-equipment-xml-source-preview-${width}-${theme}.png`, `/tmp/flux-equipment-xml-source-${width}-${theme}.png`])) }, null, 2));
+  console.log(JSON.stringify({ result: 'passed', previewBindingRevisionComparison: 'passed', tagSwitchRace: 'passed', geometries, screenshots: [360, 1100].flatMap(width => ['light', 'dark'].flatMap(theme => [`/tmp/flux-equipment-xml-source-preview-${width}-${theme}.png`, `/tmp/flux-equipment-xml-source-${width}-${theme}.png`])).concat(['/tmp/flux-equipment-xml-single-rebind-light-preview.png', '/tmp/flux-equipment-xml-single-rebind-dark-preview.png', '/tmp/flux-equipment-xml-updates-dialog-dark.png', '/tmp/flux-equipment-xml-updates-review-light.png', '/tmp/flux-equipment-xml-updates-project-switch-dark.png']) }, null, 2));
 } finally { await browser.close(); }

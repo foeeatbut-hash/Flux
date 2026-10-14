@@ -30,8 +30,8 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const [candidates, setCandidates] = useState<CandidateDto[]>([]);
   const [activeCandidateId, setActiveCandidateId] = useState('');
   const [preview, setPreview] = useState<Extract<EquipmentSourcePreview, { status: 'ready' }> | null>(null);
-  const [folderPreview, setFolderPreview] = useState<{ folder: { rootId: string; relativePath: string }; plan: Array<{ sourceId: string; folder: { rootId: string; relativePath: string }; binding: LocalEquipmentSourceBinding }>; expectedBefore: ReturnType<typeof captureEquipmentSourceBindings> } | null>(null);
-  const [folderUndo, setFolderUndo] = useState<ReturnType<typeof rebindEquipmentSourceFolders> | null>(null);
+  const [folderPreview, setFolderPreview] = useState<{ contextKey: string; sourceId: string; folder: { rootId: string; relativePath: string }; plan: Array<{ sourceId: string; folder: { rootId: string; relativePath: string }; binding: LocalEquipmentSourceBinding }>; expectedBefore: ReturnType<typeof captureEquipmentSourceBindings> } | null>(null);
+  const [folderUndo, setFolderUndo] = useState<{ contextKey: string; undo: ReturnType<typeof rebindEquipmentSourceFolders> } | null>(null);
   const [targetChoices, setTargetChoices] = useState<XmlTargetChoice[]>([]);
   const [selectedTargetIdentity, setSelectedTargetIdentity] = useState<EquipmentXmlTargetIdentity | null>(null);
   const [remappingXml, setRemappingXml] = useState(false);
@@ -51,6 +51,9 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const loadGenerationRef = useRef(0);
   const latestRef = useRef({ source, binding });
   latestRef.current = { source, binding };
+  const panelContextKey = [projectId, tag?.id || '', elementId, targetType, systemId || ''].join('|');
+  const panelContextRef = useRef(panelContextKey);
+  panelContextRef.current = panelContextKey;
 
   const load = useCallback(async () => {
     const generation = ++loadGenerationRef.current;
@@ -83,6 +86,7 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const saveLocal = (next: LocalEquipmentSourceBinding) => { saveEquipmentSourceBinding(next); setBinding(next); };
 
   useEffect(() => {
+    setFolderPreview(null); setFolderUndo(null); setPreview(null); setSource(null); setBinding(null); setCandidates([]); setActiveCandidateId('');
     void load();
     return () => { loadGenerationRef.current += 1; };
   }, [load]);
@@ -176,35 +180,38 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
 
   const rebindFolder = async () => {
     if (!canManage || busyRef.current) return;
+    const requestContext = panelContextRef.current;
+    const requestSourceId = source?.sourceId;
+    if (!source || source.projectId !== projectId) return;
     busyRef.current = true;
     setBusy(true); setMessage('');
     try {
       const picked = await pickEquipmentSourceFolder();
       if ('error' in picked) throw new Error(picked.error.message);
-      if (!picked.data || !source) return;
+      if (!picked.data || panelContextRef.current !== requestContext || latestRef.current.source?.sourceId !== requestSourceId) return;
       const planned = planEquipmentSourceFolderRebind([{ sourceId: source.sourceId, tagIdentifier: tag?.identifier }], picked.data);
       const seed: LocalEquipmentSourceBinding = binding || { sourceId: source.sourceId, projectId, ...(source.tagId ? { tagId: source.tagId } : {}), ...(tag?.identifier ? { tagIdentifier: tag.identifier } : {}), ...(source.xmlTargetIdentity ? { xmlTargetIdentity: source.xmlTargetIdentity } : {}), elementId, targetType, ...(systemId ? { systemId } : {}), rootId: picked.data.rootId, relativePath: picked.data.relativePath, revisionOrder: source.revisionOrder || ['A','B','C','D','E'], selectedRule: source.selectedRule };
       const plan = planned.map(item => ({ ...item, binding: seed }));
       const expectedBefore = captureEquipmentSourceBindings(projectId, [{ sourceId: source.sourceId, binding: seed }]);
-      setFolderPreview({ folder: picked.data, plan, expectedBefore });
+      setFolderPreview({ contextKey: requestContext, sourceId: source.sourceId, folder: picked.data, plan, expectedBefore });
     } catch (error: any) { setMessage(error?.message || 'Не удалось выбрать папку'); }
     finally { busyRef.current = false; setBusy(false); }
   };
 
   const confirmFolderRebind = async () => {
-    if (!canManage || !source || !folderPreview || busyRef.current) return;
+    if (!canManage || !source || !folderPreview || busyRef.current || folderPreview.contextKey !== panelContextRef.current || folderPreview.sourceId !== source.sourceId || source.projectId !== projectId) return;
     busyRef.current = true; setBusy(true); setMessage('');
     try {
       const response = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources/rebind-folder`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sources: [{ sourceId: source.sourceId, updatedAt: source.updatedAt, latestCandidate: source.latestCandidate ? { id: source.latestCandidate.id, revision: source.latestCandidate.revision, updatedAt: source.latestCandidate.updatedAt } : null }] }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Источник изменился. Обновите карточку и повторите перепривязку.');
-      try { setFolderUndo(rebindEquipmentSourceFolders(projectId, folderPreview.plan, folderPreview.expectedBefore)); setFolderPreview(null); setMessage('Папка перепривязана. Кандидаты требуют повторной проверки.'); await load(); onChanged?.(); }
+      try { setFolderUndo({ contextKey: panelContextRef.current, undo: rebindEquipmentSourceFolders(projectId, folderPreview.plan, folderPreview.expectedBefore) }); setFolderPreview(null); setMessage('Папка перепривязана. Кандидаты требуют повторной проверки.'); await load(); onChanged?.(); }
       catch (error: any) { setFolderPreview(null); setMessage(`Сервер пометил прежние кандидаты устаревшими, но локальную папку сохранить не удалось: ${error?.message || 'ошибка хранилища'}. Повторно выберите папку и выполните проверку XML.`); await load(); onChanged?.(); }
     } catch (error: any) { setMessage(error?.message || 'Не удалось перепривязать папку XML.'); }
     finally { busyRef.current = false; setBusy(false); }
   };
 
-  const undoFolderRebind = () => { if (!folderUndo || busyRef.current) return; try { restoreEquipmentSourceBindings(folderUndo.before, folderUndo.after); setFolderUndo(null); setMessage('Локальную папку восстановили. Серверная история остаётся устаревшей; запустите проверку XML.'); onChanged?.(); } catch (error: any) { setMessage(error?.message || 'Не удалось безопасно отменить перепривязку.'); } };
+  const undoFolderRebind = () => { if (!folderUndo || busyRef.current || folderUndo.contextKey !== panelContextRef.current) return; try { restoreEquipmentSourceBindings(folderUndo.undo.before, folderUndo.undo.after); setFolderUndo(null); setMessage('Локальную папку восстановили. Серверная история остаётся устаревшей; запустите проверку XML.'); onChanged?.(); } catch (error: any) { setMessage(error?.message || 'Не удалось безопасно отменить перепривязку.'); } };
 
   const openFolder = async () => {
     if (!binding) return;
@@ -447,7 +454,7 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
         {message && <span className="min-w-0 basis-full text-slate-500 dark:text-slate-400" role="status">{message}</span>}
       </div>
       {expanded && <div className="mt-2 space-y-2">
-        {folderPreview && canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" role="group" aria-label="Подтверждение перепривязки папки"><div className="font-medium">Проверьте новую папку источника</div><p className="mt-1 break-all">{[sourceRootName, folderPreview.folder.relativePath].filter(Boolean).join(' · ') || 'Выбранная папка'}</p><p className="mt-1">Прежнее сравнение станет устаревшим. Текущие значения оборудования не изменятся.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void confirmFolderRebind()} disabled={busy || !source?.updatedAt} className="rounded bg-amber-700 px-2 py-1 text-white disabled:opacity-50">Подтвердить перепривязку</button><button type="button" onClick={() => setFolderPreview(null)} disabled={busy} className="rounded border border-amber-500 px-2 py-1">Отмена</button></div></div>}
+        {folderPreview?.contextKey === panelContextKey && canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" role="group" aria-label="Подтверждение перепривязки папки"><div className="font-medium">Проверьте новую папку источника</div><p className="mt-1 break-all">{[sourceRootName, folderPreview.folder.relativePath].filter(Boolean).join(' · ') || 'Выбранная папка'}</p><p className="mt-1">Прежнее сравнение станет устаревшим. Текущие значения оборудования не изменятся.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void confirmFolderRebind()} disabled={busy || !source?.updatedAt || folderPreview.sourceId !== source?.sourceId} className="rounded bg-amber-700 px-2 py-1 text-white disabled:opacity-50">Подтвердить перепривязку</button><button type="button" onClick={() => setFolderPreview(null)} disabled={busy} className="rounded border border-amber-500 px-2 py-1">Отмена</button></div></div>}
         {preview && canManage && <div className="rounded border border-sky-300 bg-sky-50 p-2 text-slate-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-slate-300">
           <div className="font-medium">Проверьте найденный источник перед сохранением</div>
           <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1">{tag ? <><dt>Тег</dt><dd className="break-all">{tag.identifier}</dd></> : <><dt>Позиция</dt><dd>Источник XML выбран для этой позиции проекта</dd></>}<dt>Файл</dt><dd className="break-all">{preview.selectedFile.name}</dd><dt>Ревизия</dt><dd>{preview.revision || 'не определена'}</dd><dt>Папка</dt><dd className="break-all">{[sourceRootName, preview.sourceFolder.relativePath].filter(Boolean).join(' · ') || 'Выбранная папка'}</dd><dt>Правило XML</dt><dd><select aria-label="Правило выбора XML" value={preview.selectedRule.kind} onChange={event => setPreview({ ...preview, selectedRule: event.target.value === 'exact-tag' && tag ? { kind: 'exact-tag' } : { kind: 'selected-name', fileName: preview.selectedFile.name } })} className="rounded border border-slate-300 bg-white px-1 py-0.5 dark:border-slate-700 dark:bg-slate-950"><option value="exact-tag" disabled={!tag || preview.selectedFile.name.slice(0, -4).normalize('NFC').trim().toLocaleLowerCase() !== tag.identifier.normalize('NFC').trim().toLocaleLowerCase()}>Точное имя тега</option><option value="selected-name">Закрепить выбранное имя файла</option></select></dd></dl>
@@ -456,7 +463,7 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
           <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => void changePreviewFolder()} disabled={busy} className="rounded border border-slate-300 px-2 py-1 hover:bg-white dark:border-slate-700 dark:hover:bg-slate-900">Исправить папку</button><button type="button" onClick={() => void (remappingXml ? confirmXmlRemap() : confirmBinding())} disabled={busy || (!tag && !selectedTargetIdentity)} className="rounded bg-emerald-700 px-2 py-1 text-white hover:bg-emerald-600 disabled:opacity-50">{remappingXml ? 'Подтвердить перепривязку' : 'Подтвердить привязку'}</button><button type="button" onClick={() => { setPreview(null); setRemappingXml(false); }} disabled={busy} className="rounded border border-slate-300 px-2 py-1 dark:border-slate-700">Отмена</button></div>
         </div>}
         <div className="flex flex-wrap gap-2">
-          {folderUndo && canManage && <button type="button" onClick={undoFolderRebind} disabled={busy} className="rounded border border-amber-400 px-2 py-1 text-amber-800 disabled:opacity-50 dark:text-amber-300">Отменить перепривязку</button>}
+          {folderUndo?.contextKey === panelContextKey && canManage && <button type="button" onClick={undoFolderRebind} disabled={busy} className="rounded border border-amber-400 px-2 py-1 text-amber-800 disabled:opacity-50 dark:text-amber-300">Отменить перепривязку</button>}
           {unbound ? canManage ? <button type="button" onClick={() => void chooseInitialFile()} disabled={busy || !!preview} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 hover:bg-white disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><Upload className="h-3 w-3" />Выбрать XML</button> : <span className="text-slate-500 dark:text-slate-400">Источник XML не привязан</span> : <>
             {canManage && <>
             <button type="button" onClick={() => void rebindFolder()} disabled={busy} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 hover:bg-white disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><FolderOpen className="h-3 w-3" />Перепривязать папку</button>

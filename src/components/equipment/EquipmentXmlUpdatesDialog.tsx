@@ -24,24 +24,35 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [reviewSourceIds, setReviewSourceIds] = useState<string[]>([]);
   const busyRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+  const activeProjectRef = useRef(projectId);
+  activeProjectRef.current = projectId;
+  const [loadedProjectId, setLoadedProjectId] = useState(projectId);
   const load = async () => {
-    const response = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources`));
+    const requestedProjectId = projectId;
+    const generation = ++loadGenerationRef.current;
+    const response = await fetch(api(`/equipment/projects/${encodeURIComponent(requestedProjectId)}/sources`));
     const payload = await response.json().catch(() => ({}));
+    if (generation !== loadGenerationRef.current || activeProjectRef.current !== requestedProjectId) return;
     if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить источники XML.');
     const rows: Source[] = payload.sources || [];
+    setLoadedProjectId(requestedProjectId);
     setSources(rows);
     setSelected(current => current.filter(id => rows.some(row => row.sourceId === id)));
   };
-  useEffect(() => { void load().catch(error => setMessage(error.message)); }, [projectId]);
+  useEffect(() => { loadGenerationRef.current += 1; setSources([]); setSelected([]); setFolder(null); setFolderPlan([]); setFolderSnapshot([]); setUndo(null); setReviewIndex(null); setReviewSourceIds([]); setMessage(''); void load().catch(error => setMessage(error.message)); return () => { loadGenerationRef.current += 1; }; }, [projectId]);
 
   const chooseFolder = async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || loadedProjectId !== projectId) return;
+    const requestProjectId = projectId;
+    const requestSourceIds = [...selected];
     busyRef.current = true; setBusy(true); setMessage('');
     try {
       const result = await pickEquipmentSourceFolder();
       if ('error' in result) throw new Error(result.error.message);
-      if (!result.data) return;
-      const selectedRows = sources.filter(row => selected.includes(row.sourceId));
+      if (!result.data || activeProjectRef.current !== requestProjectId || requestProjectId !== projectId) return;
+      const selectedRows = sources.filter(row => requestSourceIds.includes(row.sourceId) && row.projectId === requestProjectId);
+      if (!selectedRows.length || selectedRows.length !== requestSourceIds.length) throw new Error('Список источников изменился при выборе папки. Обновите список и повторите действие.');
       const plan = planEquipmentSourceFolderRebind(selectedRows, result.data).map(item => {
         const row = selectedRows.find(source => source.sourceId === item.sourceId)!;
         const binding = getEquipmentSourceBinding(projectId, row.sourceId, row.tagId, row.elementId) || { sourceId: row.sourceId, projectId, ...(row.tagId ? { tagId: row.tagId } : {}), ...(row.tagIdentifier ? { tagIdentifier: row.tagIdentifier } : {}), ...(row.xmlTargetIdentity ? { xmlTargetIdentity: row.xmlTargetIdentity } : {}), elementId: row.elementId, targetType: row.targetType, ...(row.systemId ? { systemId: row.systemId } : {}), rootId: item.folder.rootId, relativePath: item.folder.relativePath, revisionOrder: row.revisionOrder || ['A','B','C'], ...(row.selectedRule ? { selectedRule: row.selectedRule } : {}) };
@@ -55,7 +66,8 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   };
 
   const confirmRebind = async () => {
-    if (!folder || !selected.length || busyRef.current) return;
+    if (!folder || !selected.length || busyRef.current || loadedProjectId !== projectId) return;
+    const requestProjectId = projectId;
     busyRef.current = true; setBusy(true); setMessage('');
     try {
       const rows = folderPlan.map(item => sources.find(row => row.sourceId === item.sourceId)!).filter(Boolean);
@@ -65,6 +77,7 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Не удалось перепривязать папку XML.');
+      if (activeProjectRef.current !== requestProjectId) return;
       try {
         const saved = rebindEquipmentSourceFolders(projectId, folderPlan, folderSnapshot);
         setUndo(saved); setMessage('Папка перепривязана. Кандидаты устарели и будут сравнены заново.');
@@ -78,7 +91,7 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   };
 
   const undoRebind = () => {
-    if (!undo || busyRef.current) return;
+    if (!undo || busyRef.current || loadedProjectId !== projectId) return;
     try { restoreEquipmentSourceBindings(undo.before, undo.after); setUndo(null); setMessage('Локальные папки восстановлены. Кандидаты остаются устаревшими; запустите проверку XML.'); onChanged(); }
     catch (error: any) { setMessage(error?.message || 'Не удалось безопасно отменить перепривязку.'); }
   };
