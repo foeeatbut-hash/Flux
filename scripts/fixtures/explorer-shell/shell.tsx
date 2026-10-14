@@ -10,6 +10,7 @@
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import '../../../src/index.css';
 import { installBridge } from './bridge';
 import ExplorerTabs from '../../../src/components/files/ExplorerTabs';
@@ -82,4 +83,4 @@ function Shell() {
   );
 }
 
-createRoot(document.getElementById('mount')!).render(<Shell />);
+createRoot(document.getElementById('mount')!).render(<MemoryRouter><Shell /></MemoryRouter>);

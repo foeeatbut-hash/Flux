@@ -133,7 +133,8 @@ function pumpThumbnails() {
     if (job.signal?.aborted) { thumbnailCache.delete(job.key); job.resolve(null); continue; }
     activeThumbnails++;
     void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size, thumbnailOnly: true }, { signal: job.signal }).then((answer) => {
-      const value = answer.ok && answer.data.dataUrl.startsWith('data:image/') ? answer.data.dataUrl : null;
+      // Только настоящая миниатюра содержимого: картинка без `thumbnail` — это значок типа от Windows, его не показываем
+      const value = answer.ok && answer.data?.thumbnail === true && answer.data.dataUrl.startsWith('data:image/') ? answer.data.dataUrl : null;
       if (!value && thumbnailCache.get(job.key)) thumbnailCache.delete(job.key);
       job.resolve(value);
     }).catch(() => { thumbnailCache.delete(job.key); job.resolve(null); }).finally(() => { activeThumbnails--; pumpThumbnails(); });

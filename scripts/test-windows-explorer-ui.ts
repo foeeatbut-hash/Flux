@@ -139,8 +139,11 @@ async function loadUntil(page: Page, count: number) {
     ok('Сохранённый адрес «Файлы Windows» открывает ту же программу', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
-    await page.getByRole('row', { name: /Проекты/ }).locator('img[src^="data:image/png;"]').waitFor();
-    ok('Папка использует PNG, возвращённый тестовым мостом', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
+    // Значки Проводника рисует Flux: картинка, которую отдаёт мост (getIcon), в строке не показывается
+    const folderRow = page.getByRole('row', { name: /Проекты/ });
+    await folderRow.locator('svg').first().waitFor();
+    ok('Папка рисуется значком Flux 16 точек, а не PNG из моста', await folderRow.locator('img').count() === 0 && await folderRow.locator('svg').first().evaluate((element) => { const box = element.getBoundingClientRect(); return Math.round(box.width) === 16 && Math.round(box.height) === 16; }));
+    ok('Файл рисуется листом Flux по расширению: .docx — документ, .bin — закрытый лист', await page.getByRole('row', { name: /Инструкция\.docx/ }).locator('svg[data-kind="doc"]').count() === 1 && await page.getByRole('row', { name: /Архив\.bin/ }).locator('svg[data-kind="closed"]').count() === 1);
 
     await page.getByRole('row', { name: /Проекты/ }).dblclick();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
