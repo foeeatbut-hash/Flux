@@ -66,6 +66,7 @@ export default function WindowsExplorer() {
   const rootId = ref?.rootId || '';
   const [bindingDialog, setBindingDialog] = React.useState<WindowsFileRef | null>(null);
   const [bindingRefresh, setBindingRefresh] = React.useState(0);
+  const [lastBindingUndo, setLastBindingUndo] = React.useState<{ undoId: string; afterRevision: number; deviceId: string; rootId: string; actorId: string } | null>(null);
   const [projectBindings, setProjectBindings] = React.useState<ProjectFolderBinding[]>([]);
   const deviceId = React.useMemo(() => {
     const key = 'flux.explorer.device.v1';
@@ -74,6 +75,17 @@ export default function WindowsExplorer() {
     return value;
   }, []);
   const root = [...catalog.roots, ...catalog.volumes.map((v) => v.root)].find((r) => r.id === rootId);
+  React.useEffect(() => { setLastBindingUndo(null); }, [user?.id, deviceId, rootId]);
+  const undoFolderBinding = async () => {
+    const undo = lastBindingUndo;
+    if (!undo || !user?.id || undo.actorId !== user.id || undo.rootId !== rootId) return;
+    const response = await fetch('/api/explorer/project-bindings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId: undo.deviceId, rootId: undo.rootId, expectedRevision: undo.afterRevision, operation: { kind: 'undo', undoId: undo.undoId } }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(body.error || 'Отмена не выполнена: журнал привязок изменился.', 'error'); setLastBindingUndo(null); return; }
+    setLastBindingUndo(body.undo?.length ? { ...undo, undoId: body.undo.at(-1).id, afterRevision: body.revision } : null);
+    setBindingRefresh(value => value + 1);
+    void folder.reload();
+  };
   React.useEffect(() => {
     let alive = true;
     if (!rootId || !user?.id) { setProjectBindings([]); return; }
@@ -283,6 +295,7 @@ export default function WindowsExplorer() {
     {title}
     <AddressBar place={place} catalog={catalog} canBack={tabs.canBack} canForward={tabs.canForward} recent={tabs.recent} search={search} onBack={back} onForward={forward} onUp={up} onRefresh={refresh} onOpen={go} onJump={tabs.jump} focusAddressToken={addressToken} focusSearchToken={searchToken} />
     <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} onBindFolder={ref && root?.available ? () => setBindingDialog(ref) : undefined} />
+    {lastBindingUndo && user?.id === lastBindingUndo.actorId && rootId === lastBindingUndo.rootId && <button type="button" className="mx-3 my-1 self-start text-xs text-sky-700 underline dark:text-sky-300" onClick={() => void undoFolderBinding()}>Отменить последнее изменение привязки папки</button>}
     <div className="flex min-h-0 flex-1">
       <NavPane place={place} onOpen={go} onOpenInNewTab={(next) => tabs.open(next, false)} />
       <main ref={main} className="flex min-w-0 flex-1 flex-col" onDragOver={(e) => { if (canWrite) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } }} onDrop={(e) => { if (ref) operations.drop(e); }} onContextMenu={(e) => { if (ref) { e.preventDefault(); setShellMenu(null); setContext({ x: e.clientX, y: e.clientY }); } }}>
@@ -299,7 +312,7 @@ export default function WindowsExplorer() {
     <footer data-explorer-status className={`flex h-6 shrink-0 items-center gap-3 px-3 text-xs bg-[#f3f3f3] dark:bg-[#1c1c1c] ${T.text}`}><span>Элементов: {ref || search.results.active ? entries.length : locations.length}{folder.nextOffset !== null && ref ? '+' : ''}</span>{selection.selected.length > 0 && <span>Выбрано: {selection.selected.length} · {bytes(selection.selected.reduce((n, e) => n + (e.kind === 'file' ? e.size : 0), 0))}</span>}{operations.progress && <span role="status">{operations.progress.label} {operations.progress.done}/{operations.progress.total}</span>}<span className="flex-1" /><button type="button" title="Таблица" aria-label="Таблица" onClick={() => setView({ ...view, layout: 'details' })}><List size={16} /></button><button type="button" title="Крупные значки" aria-label="Крупные значки" onClick={() => setView({ ...view, layout: 'large' })}><Grid2X2 size={16} /></button></footer>
     {context && <ContextMenu x={context.x} y={context.y} items={contextItems} onClose={() => { setContext(null); setShellMenu(null); }} />}
     {properties && <PropertiesWindow key={`${properties.rootId}:${properties.entry.fileId}`} {...properties} onClose={() => setProperties(null)} />}
-    {bindingDialog && <ProjectFolderBindingDialog folder={bindingDialog} title={bindingDialog.relativePath.split(/[\\/]/u).filter(Boolean).pop() || place.name} onClose={() => setBindingDialog(null)} onChanged={() => { setBindingRefresh(value => value + 1); void folder.reload(); }} />}
+    {bindingDialog && <ProjectFolderBindingDialog folder={bindingDialog} title={bindingDialog.relativePath.split(/[\\/]/u).filter(Boolean).pop() || place.name} onClose={() => setBindingDialog(null)} onChanged={(undo) => { setLastBindingUndo(undo ? { ...undo, actorId: user?.id || '' } : null); setBindingRefresh(value => value + 1); void folder.reload(); }} />}
     {share && user?.id && <FileShareDialog actorId={user.id} source={entryRef(share, rootId)} name={share.name} onClose={() => setShare(null)} />}
 
     {handlers && single && <Dialog title="Открыть с помощью" onClose={() => setHandlers(null)}>{handlers.length ? handlers.map((handler) => <button className={`block w-full rounded p-3 text-left text-xs ${T.paneHover}`} key={handler.id} onClick={() => { void command({ action: 'openWith', ref: entryRef(single, rootId), handlerId: handler.id }); setHandlers(null); }}>{handler.name}</button>) : <p className="text-xs">Windows не сообщила подходящие приложения.</p>}</Dialog>}

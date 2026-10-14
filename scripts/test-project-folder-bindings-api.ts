@@ -69,9 +69,17 @@ const checks: Array<[string, () => Promise<void>]> = [
     const undone = await call('POST', 'u1', {}, { ...scope, expectedRevision: 2, operation: { kind: 'undo', undoId } });
     assert.equal(undone.status, 200); assert.equal(undone.payload.bindings.length, 1); assert.equal(undone.payload.revision, 3);
   }],
+  ['reanchors a renamed folder only by the same canonical ID and supports CAS undo', async () => {
+    const moved = await call('POST', 'u1', {}, { ...scope, expectedRevision: 3, operation: { kind: 'upsert', binding: { id: 'b1', canonicalFolderId: 'folder-1', relativePath: 'Engineering/Renamed', projectId: 'p1' } } });
+    assert.equal(moved.status, 200); assert.equal(moved.payload.bindings[0].relativePath, 'Engineering/Renamed');
+    const stale = await call('POST', 'u1', {}, { ...scope, expectedRevision: 3, operation: { kind: 'undo', undoId: moved.payload.undo.at(-1).id } });
+    assert.equal(stale.status, 409);
+    const undone = await call('POST', 'u1', {}, { ...scope, expectedRevision: 4, operation: { kind: 'undo', undoId: moved.payload.undo.at(-1).id } });
+    assert.equal(undone.status, 200); assert.equal(undone.payload.bindings[0].relativePath, 'Engineering\\Unit 1');
+  }],
   ['rejects a failed compare-and-swap write', async () => {
     forceCasFailure = true;
-    const result = await call('POST', 'u1', {}, { ...scope, expectedRevision: 3, operation: { kind: 'remove', bindingId: 'b1' } });
+    const result = await call('POST', 'u1', {}, { ...scope, expectedRevision: 5, operation: { kind: 'remove', bindingId: 'b1' } });
     assert.equal(result.status, 409); assert.equal(JSON.parse(settings.values().next().value.value).bindings.length, 1);
   }],
   ['scopes the persistent ledger by authenticated actor', async () => {

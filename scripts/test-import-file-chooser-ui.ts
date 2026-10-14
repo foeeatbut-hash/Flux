@@ -17,15 +17,25 @@ void (async () => {
       const encode = bytes => btoa(String.fromCharCode(...bytes));
       window.__requests = [];
       window.__readRefs = [];
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => String(input).includes('/api/settings/explorer_file_picker')
+        ? new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : originalFetch(input, init);
       window.electron = { windowsFiles: { invoke: async request => {
         window.__requests.push(request);
-        if (request.action === 'pickImport') return { ok: true, data: { canceled: false, files: [{ name: 'native.xlsx', size: nativeBytes.length, base64: encode(nativeBytes) }] } };
+        if (request.action === 'pickImportRefs') return { ok: true, data: { canceled: false, files: [{ name: 'native.xlsx', size: nativeBytes.length, ticket: 'native-1' }] } };
+        if (request.action === 'readImportRef' && request.ticket === 'native-1') return { ok: true, data: { name: 'native.xlsx', size: nativeBytes.length, offset: request.offset, base64: encode(nativeBytes.slice(request.offset, request.offset + request.length)) } };
+        if (request.action === 'releaseImportRefs') return { ok: true, data: { released: request.tickets } };
         if (request.action === 'roots') return { ok: true, data: [{ id: 'network-root', name: 'Общая папка', kind: 'custom', network: true, available: true }] };
         if (request.action === 'list' && request.ref.relativePath === '') return { ok: true, data: { entries: [{ name: 'Импорты', relativePath: 'Импорты', storage: 'windows', kind: 'directory', fileId: 'dir-1', size: 0, modifiedAt: '', linked: false }], nextOffset: null } };
         if (request.action === 'list' && request.ref.relativePath === 'Импорты') return { ok: true, data: { entries: [{ name: 'mirror.xlsx', relativePath: 'Импорты/mirror.xlsx', storage: 'flux', draftId: 'draft-7', kind: 'file', fileId: 'file-7', size: mirrorBytes.length, modifiedAt: '', linked: false }], nextOffset: null } };
-        if (request.action === 'read') {
-          window.__readRefs.push(request.ref);
-          return { ok: true, data: { name: 'mirror.xlsx', size: mirrorBytes.length, base64: encode(mirrorBytes) } };
+        if (request.action === 'stat' && request.ref.relativePath === 'Импорты/mirror.xlsx') return { ok: true, data: { name: 'mirror.xlsx', relativePath: request.ref.relativePath, rootId: 'network-root', storage: 'flux', draftId: 'draft-7', kind: 'file', fileId: 'file-7', size: mirrorBytes.length, modifiedAt: '', linked: false } };
+        if (request.action === 'prepareImportRefs') {
+          window.__readRefs.push(...request.refs);
+          return { ok: true, data: { files: [{ name: 'mirror.xlsx', size: mirrorBytes.length, ticket: 'mirror-1' }] } };
+        }
+        if (request.action === 'readImportRef' && request.ticket === 'mirror-1') {
+          return { ok: true, data: { name: 'mirror.xlsx', size: mirrorBytes.length, offset: request.offset, base64: encode(mirrorBytes.slice(request.offset, request.offset + request.length)) } };
         }
         return { ok: false, error: { code: 'UNEXPECTED', message: 'Unexpected ' + request.action } };
       } } };

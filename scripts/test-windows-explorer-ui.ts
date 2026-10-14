@@ -70,6 +70,9 @@ async function loadUntil(page: Page, count: number) {
     ok('Дополнительные параметры передают выбор в имитированный shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenu' && request.extended === true)));
     await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).click();
     ok('Выбор пункта меню передаётся имитированному shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuInvoke')));
+    await page.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
+    ok('Контекстное меню папки содержит явное действие привязки к проекту', await page.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).isVisible());
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Новая вкладка' }).click();
     ok('Кнопка добавляет активную вкладку Проводника', await page.getByRole('tab').count() === 2 && await page.getByRole('tab').nth(1).getAttribute('aria-selected') === 'true');
     await page.getByRole('tab').first().click();
