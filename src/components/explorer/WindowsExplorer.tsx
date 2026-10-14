@@ -20,6 +20,7 @@ import NavPane from '../files/NavPane';
 import PlaceIcon from '../files/PlaceIcon';
 import CommandBar from '../files/CommandBar';
 import ContentsPane from '../files/ContentsPane';
+import { entryKey } from '../files/useSelection';
 import SelectionPane from '../files/SelectionPane';
 import RecyclePane from '../files/RecyclePane';
 import { useExplorerTabs } from '../files/useExplorerTabs';
@@ -138,7 +139,7 @@ export default function WindowsExplorer() {
     if (!loaded || !place.ref || place.trail[0]?.name !== 'Папка') return;
     tabs.go(placeForRef(place.ref, catalog));
   }, [loaded, catalog]);
-  React.useEffect(() => { revealEntry(folder.scrollRef.current, selection.focused?.fileId || null); }, [selection.focused?.fileId]);
+  React.useEffect(() => { revealEntry(folder.scrollRef.current, selection.focused ? entryKey(selection.focused) : null); }, [selection.focused]);
   // Ссылка и активная вкладка описывают одно место. Собственный переход не создаёт вторую запись истории.
   const ownUrl = React.useRef('');
   React.useEffect(() => {

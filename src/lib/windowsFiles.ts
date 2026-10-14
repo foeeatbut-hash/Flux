@@ -12,7 +12,7 @@ export type {
 
 type WindowsFilesBridge = {
   getIcon?: (ref: WindowsFileRef) => Promise<string | null>;
-  invoke: (request: WindowsFilesRequest) => Promise<WindowsFilesResponse>;
+  invoke: (request: WindowsFilesRequest, signal?: AbortSignal) => Promise<WindowsFilesResponse>;
   onChanged: (callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void) => () => void;
   /** Старые сборки моста этих двух методов не имеют: вызов обязан пережить их отсутствие. */
   onSearch?: (callback: (event: import('../../filesystem/contracts').WindowsSearchEvent) => void) => () => void;
@@ -24,10 +24,10 @@ function bridge(): WindowsFilesBridge | null {
 }
 
 /** Браузерный запуск не выдаёт фиктивный список: действия требуют нативного Проводника. */
-export async function windowsFilesRequest<T = unknown>(request: WindowsFilesRequest): Promise<WindowsFilesResponse<T>> {
+export async function windowsFilesRequest<T = unknown>(request: WindowsFilesRequest, options: { signal?: AbortSignal } = {}): Promise<WindowsFilesResponse<T>> {
   const api = bridge();
   if (!api) return { ok: false, error: { code: 'PORTABLE', message: 'Папки компьютера доступны в установленной версии Flux. В браузере открыт архив документов проекта.' } };
-  try { return await api.invoke(request) as WindowsFilesResponse<T>; }
+  try { return await api.invoke(request, options.signal) as WindowsFilesResponse<T>; }
   catch { return { ok: false, error: { code: 'BRIDGE_UNAVAILABLE', message: 'Связь с Проводником прервалась. Обновите окно и повторите действие.' } }; }
 }
 

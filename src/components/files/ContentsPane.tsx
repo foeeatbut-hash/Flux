@@ -4,7 +4,7 @@ import { windowsFilesRequest, type WindowsFileEntry, type WindowsFileMetadata, t
 import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
 import { X as T, FONT_STACK } from './explorerTheme';
 import { FOLDER_COLUMNS, contentsRows, extensionOf, type ContentsRow, type FolderColumn, type FolderLayout, type FolderView } from './viewModel';
-import type { useSelection } from './useSelection';
+import { entryKey, type useSelection } from './useSelection';
 
 type Selection = ReturnType<typeof useSelection>;
 export interface ContentsPaneProps {
@@ -29,17 +29,21 @@ const COLUMN_LABEL = Object.fromEntries(FOLDER_COLUMNS.map((column) => [column.i
 const THUMB_CACHE_LIMIT = 256;
 const METADATA_CACHE_LIMIT = 512;
 const THUMB_CONCURRENCY = 4;
-type ThumbJob = { key: string; ref: WindowsFileRef; size: number; resolve: (url: string | null) => void };
+type ThumbJob = { key: string; ref: WindowsFileRef; size: number; resolve: (url: string | null) => void; signal?: AbortSignal };
 type SystemProperties = { author: string; createdAt: string; hidden: boolean };
-type SystemJob = { key: string; ref: WindowsFileRef; resolve: (value: SystemProperties | null) => void };
+type SystemJob = { key: string; ref: WindowsFileRef; resolve: (value: SystemProperties | null) => void; signal?: AbortSignal };
 const thumbnailCache = new Map<string, Promise<string | null>>();
 const metadataCache = new Map<string, WindowsFileMetadata>();
 const metadataPending = new Map<string, Promise<WindowsFileMetadata | null>>();
 const metadataQueue: Array<{ key: string; ref: WindowsFileRef; resolve: (value: WindowsFileMetadata | null) => void }> = [];
 const systemPropertiesCache = new Map<string, SystemProperties>();
 const systemPropertiesPending = new Map<string, Promise<SystemProperties | null>>();
+const systemControllers = new Map<string, AbortController>();
+const systemSubscribers = new Map<string, Map<AbortSignal, () => void>>();
 const systemPropertiesQueue: SystemJob[] = [];
 const thumbnailQueue: ThumbJob[] = [];
+const thumbnailControllers = new Map<string, AbortController>();
+const thumbnailSubscribers = new Map<string, Map<AbortSignal, () => void>>();
 let activeThumbnails = 0;
 let activeMetadata = 0;
 let activeSystemProperties = 0;
@@ -75,25 +79,29 @@ function pumpMetadata() {
   }
 }
 
-function requestSystemProperties(key: string, ref: WindowsFileRef): Promise<SystemProperties | null> {
+function requestSystemProperties(key: string, ref: WindowsFileRef, signal?: AbortSignal): Promise<SystemProperties | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const cached = systemPropertiesCache.get(key);
   if (cached) return Promise.resolve(cached);
   const pending = systemPropertiesPending.get(key);
-  if (pending) return pending;
+  if (pending) { subscribe(key, signal, systemControllers, systemSubscribers, pending); return pending; }
+  const controller = new AbortController(); systemControllers.set(key, controller);
   const result = new Promise<SystemProperties | null>((resolve) => {
-    systemPropertiesQueue.push({ key, ref, resolve });
+    systemPropertiesQueue.push({ key, ref, resolve, signal: controller.signal });
     pumpSystemProperties();
   });
   systemPropertiesPending.set(key, result);
-  void result.finally(() => systemPropertiesPending.delete(key));
+  subscribe(key, signal, systemControllers, systemSubscribers, result);
+  void result.finally(() => { systemPropertiesPending.delete(key); systemControllers.delete(key); systemSubscribers.delete(key); });
   return result;
 }
 
 function pumpSystemProperties() {
   while (activeSystemProperties < 4 && systemPropertiesQueue.length) {
     const job = systemPropertiesQueue.shift()!;
+    if (job.signal?.aborted) { job.resolve(null); continue; }
     activeSystemProperties++;
-    void windowsFilesRequest<SystemProperties>({ action: 'systemProperties', ref: job.ref }).then((answer) => {
+    void windowsFilesRequest<SystemProperties>({ action: 'systemProperties', ref: job.ref }, { signal: job.signal }).then((answer) => {
       const value = answer.ok ? answer.data : null;
       if (value) {
         systemPropertiesCache.set(job.key, value);
@@ -104,11 +112,26 @@ function pumpSystemProperties() {
   }
 }
 
+function subscribe<T>(key: string, signal: AbortSignal | undefined, controllers: Map<string, AbortController>, subscribers: Map<string, Map<AbortSignal, () => void>>, promise: Promise<T>) {
+  if (!signal || signal.aborted || !controllers.has(key)) return;
+  let listeners = subscribers.get(key);
+  if (!listeners) { listeners = new Map(); subscribers.set(key, listeners); }
+  if (listeners.has(signal)) return;
+  const release = () => {
+    signal.removeEventListener('abort', release);
+    const current = subscribers.get(key); current?.delete(signal);
+    if (current && !current.size) { subscribers.delete(key); controllers.get(key)?.abort(); }
+  };
+  listeners.set(signal, release); signal.addEventListener('abort', release, { once: true });
+  void promise.finally(() => { signal.removeEventListener('abort', release); const current = subscribers.get(key); current?.delete(signal); if (current && !current.size) subscribers.delete(key); });
+}
+
 function pumpThumbnails() {
   while (activeThumbnails < THUMB_CONCURRENCY && thumbnailQueue.length) {
     const job = thumbnailQueue.shift()!;
+    if (job.signal?.aborted) { thumbnailCache.delete(job.key); job.resolve(null); continue; }
     activeThumbnails++;
-    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size }).then((answer) => {
+    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size }, { signal: job.signal }).then((answer) => {
       const value = answer.ok && answer.data.dataUrl.startsWith('data:image/') ? answer.data.dataUrl : null;
       if (!value && thumbnailCache.get(job.key)) thumbnailCache.delete(job.key);
       job.resolve(value);
@@ -116,15 +139,19 @@ function pumpThumbnails() {
   }
 }
 
-function requestThumbnail(ref: WindowsFileRef, size: number, modifiedAt: string): Promise<string | null> {
+function requestThumbnail(ref: WindowsFileRef, size: number, modifiedAt: string, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const key = `${ref.rootId}\0${ref.relativePath}\0${ref.draftId || ''}\0${modifiedAt}\0${size}`;
   const cached = thumbnailCache.get(key);
-  if (cached) return cached;
+  if (cached) { subscribe(key, signal, thumbnailControllers, thumbnailSubscribers, cached); return cached; }
+  const controller = new AbortController(); thumbnailControllers.set(key, controller);
   let resolve!: (url: string | null) => void;
   const result = new Promise<string | null>((done) => { resolve = done; });
   thumbnailCache.set(key, result);
   if (thumbnailCache.size > THUMB_CACHE_LIMIT) thumbnailCache.delete(thumbnailCache.keys().next().value!);
-  thumbnailQueue.push({ key, ref, size, resolve });
+  thumbnailQueue.push({ key, ref, size, resolve, signal: controller.signal });
+  subscribe(key, signal, thumbnailControllers, thumbnailSubscribers, result);
+  void result.finally(() => { thumbnailControllers.delete(key); thumbnailSubscribers.delete(key); });
   pumpThumbnails();
   return result;
 }
@@ -134,11 +161,12 @@ function Thumbnail({ entry, rootId, size }: { entry: WindowsFileEntry; rootId: s
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     setUrl(null);
-    if (entry.kind !== 'file') return () => { alive = false; };
-    void requestThumbnail({ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, size, entry.modifiedAt)
+    if (entry.kind !== 'file') return () => { alive = false; controller.abort(); };
+    void requestThumbnail({ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, size, entry.modifiedAt, controller.signal)
       .then((value) => { if (alive) setUrl(value); });
-    return () => { alive = false; };
+    return () => { alive = false; controller.abort(); };
   }, [entry.kind, entry.modifiedAt, entry.relativePath, entry.draftId, actualRootId, size]);
   return url
     ? <img src={url} alt="" draggable={false} width={size} height={size} className="shrink-0 rounded-sm object-contain" />
@@ -219,6 +247,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   const [metadataValues, setMetadataValues] = useState<Record<string, WindowsFileMetadata | null>>({});
   const [systemValues, setSystemValues] = useState<Record<string, SystemProperties | null>>({});
+  const systemValuesRef = useRef(systemValues); systemValuesRef.current = systemValues;
   const wantsMetadata = view.layout === 'details' && view.columns.some((column) => ['tags', 'project', 'revision', 'responsible'].includes(column));
   const wantsSystemProperties = view.layout === 'details' && view.columns.some((column) => ['created', 'author'].includes(column));
   useEffect(() => {
@@ -235,15 +264,18 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   useEffect(() => {
     if (!wantsSystemProperties) return;
+    const controllers: AbortController[] = [];
     for (const virtualRow of visibleRows) for (const item of rows[virtualRow.index] || []) {
       if (item.kind !== 'entry') continue;
       const entry = item.entry;
       const key = entryMetadataKey(rootId, entry);
-      if (systemPropertiesCache.has(key) || systemValues[key] !== undefined || (entry.author && entry.createdAt)) continue;
-      void requestSystemProperties(key, { rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) })
-        .then((properties) => setSystemValues((current) => current[key] === properties ? current : { ...current, [key]: properties }));
+      if (systemPropertiesCache.has(key) || systemValuesRef.current[key] !== undefined || (entry.author && entry.createdAt)) continue;
+      const controller = new AbortController(); controllers.push(controller);
+      void requestSystemProperties(key, { rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, controller.signal)
+        .then((properties) => { if (!controller.signal.aborted) setSystemValues((current) => current[key] === properties ? current : { ...current, [key]: properties }); });
     }
-  }, [wantsSystemProperties, visibleRows, rows, rootId, systemValues]);
+    return () => controllers.forEach((controller) => controller.abort());
+  }, [wantsSystemProperties, visibleRows, rows, rootId]);
 
   const choose = (entry: WindowsFileEntry, event: React.MouseEvent | React.PointerEvent) => selection.click(entry, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey });
   const renderName = (entry: WindowsFileEntry, large = false) => <span className={`flex min-w-0 items-center ${large ? 'flex-col justify-center gap-2 text-center' : 'gap-2'}`}>
@@ -314,7 +346,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     });
     if (rubberband && (rubberband.width > 3 || rubberband.height > 3)) {
       selection.clear();
-      const byId = new Map(shownEntries.map((entry) => [entry.fileId, entry]));
+      const byId = new Map(shownEntries.map((entry) => [entryKey(entry), entry]));
       for (const hit of hits) { const entry = byId.get(hit.dataset.entryKey || ''); if (entry) selection.click(entry, { ctrl: true }); }
     } else selection.clear();
     rubberStart.current = null; setRubberband(null);
@@ -326,7 +358,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     typeahead.current += event.key.toLocaleLowerCase('ru');
     if (typeaheadTimer.current) clearTimeout(typeaheadTimer.current);
     typeaheadTimer.current = setTimeout(() => { typeahead.current = ''; }, 800);
-    const focusedIndex = ordered.findIndex((entry) => entry.fileId === selection.focused?.fileId);
+    const focusedIndex = ordered.findIndex((entry) => entryKey(entry) === (selection.focused ? entryKey(selection.focused) : null));
     const rotated = [...ordered.slice(Math.max(0, focusedIndex + 1)), ...ordered.slice(0, Math.max(0, focusedIndex + 1))];
     const found = rotated.find((entry) => displayName(entry, view.extensions).toLocaleLowerCase('ru').startsWith(typeahead.current));
     if (found) {
@@ -336,20 +368,20 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   const revealedFocus = useRef('');
   useEffect(() => {
-    const focusedId = selection.focused?.fileId;
+    const focusedId = selection.focused ? entryKey(selection.focused) : undefined;
     if (!focusedId) { revealedFocus.current = ''; return; }
     // Обновление списка сохраняет прокрутку: показываем фокус только при смене выбора или вида.
     const key = JSON.stringify([focusedId, selection.focusRequest, view.layout, view.group, view.sort, view.descending]);
     if (revealedFocus.current === key) return;
     revealedFocus.current = key;
     if (view.layout === 'list') {
-      const columnIndex = listColumns.findIndex((column) => column.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
+      const columnIndex = listColumns.findIndex((column) => column.some((item) => item.kind === 'entry' && entryKey(item.entry) === focusedId));
       if (columnIndex >= 0) listVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     } else {
-      const rowIndex = rows.findIndex((row) => row.some((item) => item.kind === 'entry' && item.entry.fileId === focusedId));
+      const rowIndex = rows.findIndex((row) => row.some((item) => item.kind === 'entry' && entryKey(item.entry) === focusedId));
       if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     }
-  }, [selection.focused?.fileId, selection.focusRequest, rows, listColumns, view.layout, view.group, view.sort, view.descending, virtualizer, listVirtualizer]);
+  }, [selection.focused ? entryKey(selection.focused) : null, selection.focusRequest, rows, listColumns, view.layout, view.group, view.sort, view.descending, virtualizer, listVirtualizer]);
 
   useEffect(() => {
     if (!hasMore || !loadMore || busy || !containerRef.current) return;
@@ -366,9 +398,9 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     if (!first) return null;
     if (first.kind === 'group') return <div className={`flex h-full items-center border-b px-3 text-xs font-semibold ${T.line} ${T.muted}`} role="heading">{first.label}</div>;
     if (GRID_LAYOUTS.has(view.layout)) return <div className="grid h-full gap-1 px-2 py-1" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{items.filter((item): item is Extract<ContentsRow, { kind: 'entry' }> => item.kind === 'entry').map(({ entry }) => (
-      <div key={entry.fileId} className="relative min-w-0" onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }}>
+      <div key={entryKey(entry)} className="relative min-w-0" onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }}>
         {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${entry.name}`} checked={selection.isSelected(entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(entry, { ctrl: true })} className="absolute left-1 top-1 z-10" />}
-        <button type="button" data-entry-key={entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} aria-selected={selection.isSelected(entry)} className={`h-full w-full min-w-0 rounded px-2 text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+        <button type="button" data-entry-key={entryKey(entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} aria-selected={selection.isSelected(entry)} className={`h-full w-full min-w-0 rounded px-2 text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
           {renderName(entry, view.layout !== 'small' && view.layout !== 'tiles')}{view.layout === 'tiles' && <span className={`block truncate text-xs ${T.muted}`}>{typeName(entry)} · {entry.kind === 'directory' ? '' : formatSize(entry.size)}</span>}
         </button>
       </div>
@@ -378,7 +410,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     const entry = row.entry;
     const compact = view.layout === 'list';
     const content = view.layout === 'content';
-    return <div key={entry.fileId} role="row" data-entry-key={entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }} aria-selected={selection.isSelected(entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input,button')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} className={`group flex h-full min-w-0 items-center border-b text-xs ${T.line} ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+    return <div key={entryKey(entry)} role="row" data-entry-key={entryKey(entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, entry)} onDragOver={(event) => { if (entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, entry); } }} aria-selected={selection.isSelected(entry)} onMouseDown={(event) => { if (!(event.target as HTMLElement).closest('input,button')) containerRef.current?.focus(); }} onClick={(event) => choose(entry, event)} onDoubleClick={() => onOpen(entry)} onContextMenu={(event) => onContext(event, entry)} className={`group flex h-full min-w-0 items-center border-b text-xs ${T.line} ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
       {view.checkboxes && <span className="flex justify-center"><input type="checkbox" aria-label={`Выбрать ${entry.name}`} checked={selection.isSelected(entry)} onClick={(event) => event.stopPropagation()} onChange={(event) => selection.click(entry, { ctrl: true })} /></span>}
       {view.layout === 'details' ? columns.map((column) => <div key={column} role="cell" className={`h-full min-w-0 overflow-hidden border-r px-2 ${T.line} ${column === 'size' ? 'text-right tabular-nums' : ''}`} style={{ width: displayWidth(view, column), flex: `0 0 ${displayWidth(view, column)}px`, lineHeight: '32px' }}>{cellValue(entry, column)}</div>)
         : <div className={`flex min-w-0 flex-1 items-center gap-3 px-2 ${compact ? 'gap-2' : 'py-1'}`}>
@@ -404,7 +436,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
               ? <div key={item.key} role="heading" className={`flex h-8 shrink-0 items-center overflow-hidden px-1 text-xs font-semibold ${T.muted}`} title={item.label}>{item.label}</div>
               : <div key={item.key} className="relative flex h-8 shrink-0 items-center" onDragOver={(event) => { if (item.entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (item.entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, item.entry); } }}>
                 {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${item.entry.name}`} checked={selection.isSelected(item.entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(item.entry, { ctrl: true })} className="mr-1" />}
-                <button type="button" role="row" data-entry-key={item.entry.fileId} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
+                <button type="button" role="row" data-entry-key={entryKey(item.entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
                   <Thumbnail entry={item.entry} rootId={rootId} size={20} /><span className="min-w-0 truncate">{displayName(item.entry, view.extensions)}</span>
                 </button>
               </div>)}

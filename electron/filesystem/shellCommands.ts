@@ -9,7 +9,7 @@ import { OpaqueIds } from './opaque';
 import type { WindowsFilesService } from './service';
 
 /** Что нужно от нативного помощника. Настоящая реализация — NativeShellHost; проверки подставляют свою. */
-export interface NativeShellCaller { call(command: string, args?: Record<string, unknown>, timeoutMs?: number): Promise<any> }
+export interface NativeShellCaller { call(command: string, args?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal): Promise<any> }
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const THUMB_SIZES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512];
@@ -37,11 +37,11 @@ function pngUrl(base64: unknown): string | null {
 export class ShellCommands {
   private thumbs = new Map<string, { value: WindowsThumbnail | null; bytes: number }>();
   private thumbBytes = 0;
-  private flying = new Map<string, Promise<WindowsThumbnail | null>>();
+  private flying = new Map<string, { promise: Promise<WindowsThumbnail | null>; controller: AbortController; subscribers: Map<AbortSignal, () => void>; unabortable: number }>();
   private ids = new OpaqueIds<string>();
   private platform: string; private accept: (value: unknown) => string | null;
   /** acceptPath — для проверок: на Linux путей с буквой диска не существует, и настоящий разбор адресов Windows выкинул бы все строки. */
-  constructor(private service: WindowsFilesService, private host: NativeShellCaller, options: { platform?: string; acceptPath?: (value: unknown) => string | null } = {}) {
+  constructor(private service: WindowsFilesService, private host: NativeShellCaller, options: { platform?: string; acceptPath?: (value: unknown) => string | null } = {}, private detailsHost: NativeShellCaller = host) {
     this.platform = options.platform ?? process.platform; this.accept = options.acceptPath ?? windowsPath;
   }
   private get windows() { return this.platform === 'win32'; }
@@ -78,10 +78,10 @@ export class ShellCommands {
     return { pinned: typeof result?.pinned === 'boolean' ? result.pinned : pinned, changed: result?.changed === true };
   }
 
-  async fileProperties(ref: WindowsFileRef): Promise<{ author: string; createdAt: string; hidden: boolean }> {
+  async fileProperties(ref: WindowsFileRef, signal?: AbortSignal): Promise<{ author: string; createdAt: string; hidden: boolean }> {
     const filename = await this.service.filename(ref);
     if (!this.windows) { const entry = await this.service.entry(ref); return { author: '', createdAt: entry.createdAt || '', hidden: !!entry.hidden }; }
-    const raw = await this.host.call('file-properties', { path: filename }) as any;
+    const raw = await this.detailsHost.call('file-properties', { path: filename }, undefined, signal) as any;
     return { author: text(raw?.author, 2000) || '', createdAt: text(raw?.createdAt, 50) || '', hidden: raw?.hidden === true };
   }
 
@@ -104,7 +104,7 @@ export class ShellCommands {
   }
 
   /** Миниатюра файла. Размер округляется вверх до ступени, чтобы кэш не множился на каждый пиксель. */
-  async thumbnail(ref: WindowsFileRef, requested: unknown, thumbOnly: boolean): Promise<WindowsThumbnail | null> {
+  async thumbnail(ref: WindowsFileRef, requested: unknown, thumbOnly: boolean, signal?: AbortSignal): Promise<WindowsThumbnail | null> {
     if (!this.windows) throw new WindowsFilesError('NOT_WINDOWS', NOT_WINDOWS);
     if (typeof requested !== 'number' || !Number.isFinite(requested) || requested < 1) throw new WindowsFilesError('INVALID_REQUEST', 'Укажите размер миниатюры.');
     const size = THUMB_SIZES.find(step => step >= requested) ?? THUMB_SIZES[THUMB_SIZES.length - 1];
@@ -115,9 +115,11 @@ export class ShellCommands {
     const hit = this.thumbs.get(key);
     if (hit) { this.thumbs.delete(key); this.thumbs.set(key, hit); return hit.value; }
     const running = this.flying.get(key);
-    if (running) return running;
+    if (signal?.aborted) throw new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.');
+    if (running) { this.subscribeThumbnail(running, signal); return running.promise; }
+    const controller = new AbortController();
     const work = (async () => {
-      const raw = await this.host.call('thumbnail', { path: filename, size, thumbOnly }, 20_000);
+      const raw = await this.detailsHost.call('thumbnail', { path: filename, size, thumbOnly }, 20_000, controller.signal);
       const url = raw && pngUrl(raw.base64);
       const width = Number(raw?.width), height = Number(raw?.height);
       const value = url && Number.isInteger(width) && Number.isInteger(height) && width > 0 && height > 0 ? { dataUrl: url, width, height, thumbnail: raw.thumbnail === true } : null;
@@ -125,9 +127,27 @@ export class ShellCommands {
       this.thumbs.set(key, { value, bytes }); this.thumbBytes += bytes;
       for (const [oldKey, old] of this.thumbs) { if (this.thumbBytes <= THUMB_CACHE_BYTES) break; this.thumbs.delete(oldKey); this.thumbBytes -= old.bytes; }
       return value;
-    })().finally(() => this.flying.delete(key));
-    this.flying.set(key, work);
+    })();
+    const flight = { promise: work, controller, subscribers: new Map<AbortSignal, () => void>(), unabortable: 0 };
+    this.flying.set(key, flight);
+    this.subscribeThumbnail(flight, signal);
+    const cleanup = () => {
+      for (const [subscriber, release] of flight.subscribers) { subscriber.removeEventListener('abort', release); }
+      flight.subscribers.clear();
+      if (this.flying.get(key) === flight) this.flying.delete(key);
+    };
+    void work.then(cleanup, cleanup);
     return work;
+  }
+
+  private subscribeThumbnail(flight: { controller: AbortController; subscribers: Map<AbortSignal, () => void>; unabortable: number }, signal?: AbortSignal) {
+    if (!signal) { flight.unabortable++; return; }
+    if (signal.aborted || flight.subscribers.has(signal)) return;
+    const release = () => {
+      signal.removeEventListener('abort', release); flight.subscribers.delete(signal);
+      if (!flight.subscribers.size && !flight.unabortable) flight.controller.abort();
+    };
+    flight.subscribers.set(signal, release); signal.addEventListener('abort', release, { once: true });
   }
 
   async placeIcon(place: string, size: number): Promise<WindowsThumbnail | null> {

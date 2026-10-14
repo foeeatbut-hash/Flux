@@ -56,7 +56,7 @@ export function NativeWindowsFileIcon({ entry, fileRef, size = 18, className = '
     const key = `${fileRef.rootId}\0${fileRef.relativePath}\0${fileRef.draftId || ''}\0${entry.modifiedAt}`;
     const bridge = (window as any).electron?.windowsFiles?.getIcon;
     setNativeIcon(null);
-    if (typeof bridge !== 'function' || entry.draftId) return () => { active = false; };
+    if (typeof bridge !== 'function' || entry.draftId || entry.detailsPending) return () => { active = false; };
     let cached = iconCache.get(key);
     if (!cached || Date.now() - cached.at > 60000) {
       if (iconCache.size >= 512) iconCache.delete(iconCache.keys().next().value!);

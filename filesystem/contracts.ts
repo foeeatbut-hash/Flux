@@ -21,7 +21,10 @@ export interface WindowsVolume {
 export interface WindowsFileEntry {
   name: string; relativePath: string; storage: 'flux' | 'windows'; draftId?: string; kind: 'file' | 'directory' | 'link' | 'other';
   fileId: string; size: number; modifiedAt: string; linked: boolean;
+  /** Стабильный ключ строки/выбора, пока сетевой список выясняет канонический fileId. */
+  uiKey?: string;
   rootId?: string; createdAt?: string; hidden?: boolean; author?: string; metadata?: WindowsFileMetadata;
+  detailsPending?: boolean;
   /** Названия проектов для показа; идентификаторы остаются в metadata. */
   projectNames?: string[];
 }
@@ -30,7 +33,7 @@ export interface WindowsFileMetadata {
   fileId: string; tags: string[]; projectIds: string[]; revision: string; responsible: string;
   history: { at: string; action: string; relativePath: string; sha256?: string }[];
 }
-export interface WindowsFilesChanged { rootId: string; relativePath: string; rescan: true }
+export interface WindowsFilesChanged { rootId: string; relativePath: string; rescan?: true; entries?: WindowsFileEntry[] }
 export type WindowsFilesRequest =
   | { action: 'roots' }
   | { action: 'volumes' }

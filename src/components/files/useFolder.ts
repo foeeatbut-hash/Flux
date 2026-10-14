@@ -103,7 +103,16 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
     if (!ref || !enabled) return;
     const watched = ref;
     void windowsFilesRequest({ action: 'watch', ref: watched });
-    const stop = onWindowsFilesChanged((change) => { if (changeTouches(watched, change)) void load('refresh'); });
+    const stop = onWindowsFilesChanged((change) => {
+      if (!changeTouches(watched, change)) return;
+      if (change.entries?.length) {
+        setListing((current) => {
+          if (!current) return current;
+          const updates = new Map(change.entries!.map((entry) => [entry.relativePath, entry]));
+          return { ...current, entries: current.entries.map((entry) => updates.get(entry.relativePath) || entry) };
+        });
+      } else if (change.rescan) void load('refresh');
+    });
     return () => { stop(); void windowsFilesRequest({ action: 'unwatch', ref: watched }); };
   }, [key, enabled, load]);
 

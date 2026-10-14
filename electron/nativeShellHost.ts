@@ -11,7 +11,7 @@ export interface NativeHostOptions {
   platform?: string;
   startupMs?: number; requestMs?: number; idleMs?: number;
 }
-interface Pending { id: number; line: string; timeoutMs: number; resolve: (value: unknown) => void; reject: (error: unknown) => void }
+interface Pending { id: number; line: string; timeoutMs: number; resolve: (value: unknown) => void; reject: (error: unknown) => void; signal?: AbortSignal; abort?: () => void }
 
 const MAX_LINE = 32 * 1024 * 1024;
 
@@ -30,6 +30,7 @@ export class NativeShellHost {
   private directory: string | null = null;
   private queue: Pending[] = [];
   private current: { request: Pending; timer: ReturnType<typeof setTimeout> } | null = null;
+  private starting: Pending | null = null;
   private sequence = 0;
   /** Запрос взят из очереди и ещё не завершён — в том числе пока поднимается процесс. */
   private busy = false;
@@ -38,20 +39,25 @@ export class NativeShellHost {
   private idle: ReturnType<typeof setTimeout> | null = null;
   private failures: number[] = [];
   private closed = false;
+  private generation = 0;
   constructor(private options: NativeHostOptions = {}) {}
 
   private get platform() { return this.options.platform ?? process.platform; }
   get running() { return !!this.child; }
 
   /** Выполняет команду помощника и возвращает её данные. Ошибка помощника — WindowsFilesError с кодом NATIVE_*. */
-  call(command: string, args: Record<string, unknown> = {}, timeoutMs?: number): Promise<any> {
+  call(command: string, args: Record<string, unknown> = {}, timeoutMs?: number, signal?: AbortSignal): Promise<any> {
     if (this.platform !== 'win32' && !this.options.command) return Promise.reject(new WindowsFilesError('NOT_WINDOWS', 'Эта возможность доступна только в Windows.'));
     if (this.closed) return Promise.reject(new WindowsFilesError('NATIVE_CLOSED', 'Помощник Windows остановлен.'));
+    if (signal?.aborted) return Promise.reject(new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.'));
     // Прокрутка сетки значков может поставить сотни миниатюр сразу; очередь длиннее — признак того, что помощник завис.
     if (this.queue.length >= 300) return Promise.reject(new WindowsFilesError('NATIVE_BUSY', 'Помощник Windows занят. Повторите через мгновение.'));
     return new Promise((resolve, reject) => {
       const id = ++this.sequence;
-      this.queue.push({ id, line: JSON.stringify({ id, cmd: command, args }), timeoutMs: timeoutMs ?? this.options.requestMs ?? 15_000, resolve, reject });
+      const request: Pending = { id, line: JSON.stringify({ id, cmd: command, args }), timeoutMs: timeoutMs ?? this.options.requestMs ?? 15_000, resolve, reject, signal };
+      request.abort = () => this.cancel(request);
+      signal?.addEventListener('abort', request.abort, { once: true });
+      this.queue.push(request);
       this.pump();
     });
   }
@@ -61,16 +67,39 @@ export class NativeShellHost {
     this.busy = true;
     if (this.idle) { clearTimeout(this.idle); this.idle = null; }
     const request = this.queue.shift()!;
+    this.starting = request;
     void this.ensure().then(() => {
+      if (this.starting !== request) return;
+      this.starting = null;
       if (!this.child) throw new WindowsFilesError('NATIVE_UNAVAILABLE', 'Помощник Windows не запущен.');
       const timer = setTimeout(() => this.timeout(request), request.timeoutMs);
       this.current = { request, timer };
       this.child.stdin.write(`${request.line}\n`, error => { if (error) this.fail(new WindowsFilesError('NATIVE_CRASHED', 'Помощник Windows оборвал связь.')); });
-    }).catch(error => { this.busy = false; request.reject(error); this.pump(); });
+    }).catch(error => { if (this.starting !== request) return; this.starting = null; this.busy = false; this.finish(request); request.reject(error); this.pump(); });
+  }
+
+  private finish(request: Pending) { if (request.abort) request.signal?.removeEventListener('abort', request.abort); }
+  private cancel(request: Pending) {
+    const queued = this.queue.indexOf(request);
+    if (queued >= 0) { this.queue.splice(queued, 1); this.finish(request); request.reject(new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.')); return; }
+    if (this.starting === request) {
+      const startup = this.ready;
+      this.starting = null; this.busy = false; this.finish(request);
+      request.reject(new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.'));
+      this.kill();
+      if (startup) void startup.catch(() => undefined).finally(() => this.pump()); else this.pump();
+      return;
+    }
+    if (this.current?.request === request) {
+      clearTimeout(this.current.timer); this.current = null; this.busy = false; this.finish(request);
+      request.reject(new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.'));
+      this.kill(); this.pump();
+    }
   }
 
   private ensure(): Promise<void> {
     if (this.child && this.ready) return this.ready;
+    const generation = this.generation;
     const recent = this.failures.filter(at => Date.now() - at < 30_000);
     // Помощник, который трижды подряд не запустился (политика Windows запрещает PowerShell, нет .NET), не стоит опрашивать на каждую миниатюру.
     if (recent.length >= 3) return Promise.reject(new WindowsFilesError('NATIVE_UNAVAILABLE', 'Помощник Windows недоступен: политика компьютера или повреждённая установка. Повторите позже.'));
@@ -81,6 +110,7 @@ export class NativeShellHost {
         const script = join(this.directory, 'host.ps1');
         // Windows PowerShell 5.1 распознаёт UTF-8 по BOM; код фиксирован и не содержит данных renderer.
         await writeFile(script, `﻿${NATIVE_SHELL_SCRIPT}`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+        if (generation !== this.generation || this.closed) throw new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.');
         command = 'powershell.exe';
         args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', script];
       }
@@ -97,7 +127,8 @@ export class NativeShellHost {
         this.onReady = () => { clearTimeout(timer); resolve(); };
         this.onStartFailed = () => { clearTimeout(timer); reject(new WindowsFilesError('NATIVE_UNAVAILABLE', 'Помощник Windows не запустился. Файлы доступны без миниатюр и меню Windows.')); };
       });
-    })().catch(error => { this.failures.push(Date.now()); this.ready = null; this.kill(); throw error; });
+      if (generation !== this.generation || this.closed) throw new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.');
+    })().catch(error => { if (generation === this.generation) { this.failures.push(Date.now()); this.ready = null; this.kill(); } throw error; });
     return this.ready;
   }
   private onReady: (() => void) | null = null;
@@ -119,6 +150,7 @@ export class NativeShellHost {
     const current = this.current;
     if (!current || message?.id !== current.request.id) return; // ответ на уже отменённый запрос
     clearTimeout(current.timer); this.current = null; this.busy = false;
+    this.finish(current.request);
     if (message.ok === true) current.request.resolve(message.data);
     else {
       const code = typeof message.code === 'string' && /^[A-Z_]{1,40}$/u.test(message.code) ? message.code : 'HELPER_FAILED';
@@ -136,11 +168,12 @@ export class NativeShellHost {
   private timeout(request: Pending) {
     if (this.current?.request !== request) return;
     this.current = null; this.busy = false; request.reject(new WindowsFilesError('NATIVE_TIMEOUT', 'Windows не ответила вовремя. Расширение оболочки могло зависнуть; повторите действие.'));
+    this.finish(request);
     this.kill(); this.pump();
   }
   private fail(error: WindowsFilesError) {
     const current = this.current; this.current = null;
-    if (current) { this.busy = false; clearTimeout(current.timer); current.request.reject(error); }
+    if (current) { this.busy = false; clearTimeout(current.timer); this.finish(current.request); current.request.reject(error); }
   }
   private onExit() {
     const starting = !this.started; const diagnostic = this.stderr.match(/FLUX_SHELL_HOST_FAILED:([A-Za-z]{1,48}):([A-F0-9]{8})/u);
@@ -157,7 +190,9 @@ export class NativeShellHost {
   /** Хвост stderr последнего упавшего процесса: ошибка сборки C# видна только здесь. Человеку не показывается. */
   lastStderr = '';
   private kill() {
+    this.generation++;
     const child = this.child; this.child = null; this.ready = null; this.started = false;
+    if (this.onStartFailed) { this.onStartFailed(); this.onStartFailed = null; this.onReady = null; }
     if (this.idle) { clearTimeout(this.idle); this.idle = null; }
     if (child) { try { child.stdin.end(); } catch { /* уже закрыт */ } child.kill(); }
     void this.cleanup();
@@ -169,7 +204,7 @@ export class NativeShellHost {
   /** Остановка при выходе из программы: ожидающие запросы получают отказ, процесс не остаётся сиротой. */
   close() {
     this.closed = true;
-    for (const request of this.queue.splice(0)) request.reject(new WindowsFilesError('NATIVE_CLOSED', 'Помощник Windows остановлен.'));
+    for (const request of this.queue.splice(0)) { this.finish(request); request.reject(new WindowsFilesError('NATIVE_CLOSED', 'Помощник Windows остановлен.')); }
     this.fail(new WindowsFilesError('NATIVE_CLOSED', 'Помощник Windows остановлен.'));
     this.kill();
   }
