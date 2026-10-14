@@ -142,6 +142,18 @@ async function buildOne(which, src) {
     mkdirSync(join(src, dir, 'src', 'renderer', 'flux'), { recursive: true });
     cpSync(join(injectDir, file), join(src, dir, 'src', 'renderer', 'flux', file));
   }
+  // Переводчик использует тот же алгоритм защиты Flux, что и обычный экран.
+  // Один набор модулей подключается в Word и Таблице — отдельного движка здесь нет.
+  for (const dir of ['apps/docs', 'apps/sheets']) {
+    const target = join(src, dir, 'src', 'renderer', 'flux');
+    mkdirSync(target, { recursive: true });
+    // Источник protect.ts остаётся единственным: в bundle кладётся его копия,
+    // чтобы редактор мог импортировать код без второго движка и npm-пути.
+    cpSync(join(root, 'src', 'translate', 'protect.ts'), join(target, 'translation-protect.ts'));
+    for (const file of ['translation-common.ts', 'translation-word.ts', 'translation-sheets.ts', 'translation-bridge.ts']) {
+      cpSync(join(injectDir, file), join(target, file));
+    }
+  }
   if (which === 'sheets') {
     // Главный процесс использует только узкое расширение Electron-заглушки;
     // обычные типы редактора остаются из установленного electron-пакета.

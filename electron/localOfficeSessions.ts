@@ -11,6 +11,7 @@ import { createLocalOfficeWorkerHost } from './localOfficeWorkerHost';
 import { isOfficeOperation, type OfficeHostDiagnostic } from '../diagnostics/officeOperations';
 import { safeError } from '../diagnostics/event';
 import { carryFluxPart } from '../office/fluxPart';
+import { mergeOfficeTranslationPackage, type OfficeTranslationDelta } from '../src/lib/officeTranslationPackage';
 
 export type LocalOfficeApp = 'pdf' | 'sheets';
 export interface LocalOfficeHost {
@@ -26,7 +27,7 @@ export interface LocalOfficeHost {
 }
 export type LocalOfficeRequest =
   | { action: 'open'; app: LocalOfficeApp; ref: WindowsFileRef }
-  | { action: 'invoke'; session: number; channel: string; args?: unknown[]; copyName?: string }
+  | { action: 'invoke'; session: number; channel: string; args?: unknown[]; copyName?: string; translationDelta?: OfficeTranslationDelta }
   | { action: 'send'; session: number; channel: string; args?: unknown[] }
   | { action: 'copy'; session: number; name: string }
   /** Хост записал в файл только часть Flux: сеанс принимает новую версию файла за свою. */
@@ -230,14 +231,15 @@ export class LocalOfficeSessions {
     if (bytes.length > MAX_BYTES) fail('TOO_LARGE', 'Файл превышает допустимый размер 64 МБ.');
     return bytes;
   }
-  private async persist(s: Session, auth: LocalOfficeAuthorization) {
+  private async persist(s: Session, auth: LocalOfficeAuthorization, translationDelta?: OfficeTranslationDelta) {
     this.alive(s); await this.writePermission(auth); this.alive(s);
     const current = await this.options.files.read(s.ref);
     if (current.fileId !== s.fileId || current.sha256 !== s.sha) fail('CONFLICT', 'Файл изменён вне этого окна. Сохраните правки отдельной копией.');
     // Редактор открыл книгу до записи схемы Flux и вернул бы в файл её старую
     // часть (или никакой): часть, что сейчас в файле, переносится как есть.
     const edited = await this.privateBytes(s.path);
-    const bytes = s.app === 'sheets' ? Buffer.from(await carryFluxPart(Buffer.from(current.base64, 'base64'), edited)) : edited;
+    let bytes = s.app === 'sheets' ? Buffer.from(await carryFluxPart(Buffer.from(current.base64, 'base64'), edited)) : edited;
+    if (translationDelta) bytes = Buffer.from(await mergeOfficeTranslationPackage(bytes, translationDelta));
     await this.writePermission(auth); this.alive(s);
     const saved = await this.options.files.write(s.ref, bytes.toString('base64'), s.sha);
     s.sha = saved.sha256;
@@ -261,8 +263,13 @@ export class LocalOfficeSessions {
     if (extname(value).toLowerCase() !== extname(s.path).toLowerCase()) fail('INVALID_NAME', 'Расширение копии должно совпадать с форматом открытого файла.');
     return value;
   }
-  private async publishCopy(s: Session, path: string, name: string, auth: LocalOfficeAuthorization) {
-    const bytes = await this.privateBytes(path);
+  private async publishCopy(s: Session, path: string, name: string, auth: LocalOfficeAuthorization, translationDelta?: OfficeTranslationDelta) {
+    let bytes = await this.privateBytes(path);
+    if (translationDelta) {
+      const source = await this.options.files.read(this.options.files.resolveRef(s.ref));
+      bytes = Buffer.from(await carryFluxPart(Buffer.from(source.base64, 'base64'), bytes));
+      bytes = Buffer.from(await mergeOfficeTranslationPackage(bytes, translationDelta));
+    }
     await this.writePermission(auth); this.alive(s);
     const ref = this.options.files.resolveRef(s.ref);
     const source = await this.options.files.read(ref);
@@ -302,16 +309,16 @@ export class LocalOfficeSessions {
     let committed = false;
     if (baseline) await copyFile(s.path, baseline);
     try {
-      const commit = s.app === 'sheets' && normalSave ? async () => { await this.persist(s, auth); committed = true; } : undefined;
+      const commit = s.app === 'sheets' && normalSave ? async () => { await this.persist(s, auth, request.translationDelta); committed = true; } : undefined;
       const result = await s.host.invoke(s.nativeId, channel, args, copyTarget, commit);
       this.alive(s);
       const successful = result && result.ok !== false && (!result.canceled || result.fluxCopySaved);
       if (successful && (copyTarget || pdfTarget)) {
         if (pdfTarget && (s.copy !== pdfCopy || pdfCopy?.canceled)) return { ok: false, canceled: true };
-        const made = await this.publishCopy(s, copyTarget || pdfCopy!.path, copyName || pdfCopy!.name, auth);
+        const made = await this.publishCopy(s, copyTarget || pdfCopy!.path, copyName || pdfCopy!.name, auth, request.translationDelta);
         if (pdfTarget) pdfCopy!.made = made;
         else return { canceled: true, fluxCopySaved: true, copy: made };
-      } else if (successful && normalSave && !committed) { await this.persist(s, auth); committed = true; }
+      } else if (successful && normalSave && !committed) { await this.persist(s, auth, request.translationDelta); committed = true; }
       return result;
     } catch (error) {
       // Keep the original native session usable for SaveAs after a CAS/licence failure.
