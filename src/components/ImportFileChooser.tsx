@@ -143,7 +143,11 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     }
     if (bridge || onWindowsFile || selectFolder) setOpen(true); else input.current?.click();
   };
-  useImperativeHandle(ref, () => ({ open: () => { if (!disabled && !busy) void pickNative(); } }), [disabled, busy, systemPicker, accept, multiple]);
+  // pickNative замыкает onFiles/onWindowsFile/systemPicker и прочие свойства текущего рендера; ручка с узким
+  // списком зависимостей держала бы старый рендер и вызывала бы устаревшие обработчики, поэтому читаем через ref.
+  const latest = useRef({ pickNative, disabled, busy });
+  latest.current = { pickNative, disabled, busy };
+  useImperativeHandle(ref, () => ({ open: () => { const cur = latest.current; if (!cur.disabled && !cur.busy) void cur.pickNative(); } }), []);
 
   const filesFromTickets = async (tickets: ImportedFileRef[]) => {
     const files: File[] = [];
@@ -231,11 +235,14 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     }
   };
 
+  // Кнопка «Проводник» — часть видимого триггера: у выборщиков с trigger={() => null} (вызов только через ref.open())
+  // она не должна появляться отдельно от интерфейса экрана.
+  const triggerNode = trigger ? trigger(() => void pickNative(), disabled || busy) : <button type="button" className={className || 'fx-btn'} disabled={disabled || busy} onClick={() => void pickNative()}><Upload className="h-3.5 w-3.5" />{label}</button>;
   return <>
     <div className="inline-flex flex-wrap items-center gap-2">
-      {trigger ? trigger(() => void pickNative(), disabled || busy) : <button type="button" className={className || 'fx-btn'} disabled={disabled || busy} onClick={() => void pickNative()}><Upload className="h-3.5 w-3.5" />{label}</button>}
+      {triggerNode}
       <input ref={input} type="file" accept={accept} multiple={multiple} className="hidden" disabled={disabled} onChange={event => { const files = [...(event.currentTarget.files || [])]; event.currentTarget.value = ''; if (files.length) onFiles(files); }} />
-      {(window as Window & { electron?: { windowsFiles?: unknown } }).electron?.windowsFiles && <button type="button" className="fx-btn fx-btn-quiet" disabled={disabled || busy} onClick={() => setOpen(true)}><FolderOpen className="h-3.5 w-3.5" />Проводник</button>}
+      {triggerNode != null && triggerNode !== false && (window as Window & { electron?: { windowsFiles?: unknown } }).electron?.windowsFiles && <button type="button" className="fx-btn fx-btn-quiet" disabled={disabled || busy} onClick={() => setOpen(true)}><FolderOpen className="h-3.5 w-3.5" />Проводник</button>}
     </div>
     {error && !open && <span role="status" className="text-xs text-rose-600 dark:text-rose-400">{error}</span>}
     {open && <Dialog title={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} label={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} onClose={() => !busy && setOpen(false)} busy={busy} width="max-w-2xl" scrollBody footer={<><span className="mr-auto text-xs text-slate-500">{selected.length ? `${selected.length} · ${(selectedBytes / 1024 / 1024).toFixed(1)} МБ` : selectFolder ? 'Будет выбрана открытая папка.' : 'Выберите файл для импорта.'}</span>{onWindowsFolder ? <Btn disabled={busy || !rootId} onClick={() => void chooseCurrentFolder()}>Выбрать эту папку</Btn> : <Btn disabled={busy || !selected.length} onClick={() => void importSelected()}>{onWindowsFile ? 'Выбрать файл' : 'Импортировать выбранное'}</Btn>}</>}>

@@ -19,6 +19,8 @@ useStore.setState({ user: { id: 'fixture-user', role: 'ADMIN' } as any } as any)
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
   const method = init?.method || 'GET';
+  // Настройка «системное окно выбора файла»: без неё ImportFileChooser открывает компактный выбор Flux вместо замоканного нативного.
+  if (url.endsWith('/api/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   (window as any).__importLog.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (url.endsWith('/equipment/source-import/preview')) {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));
