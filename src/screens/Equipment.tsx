@@ -38,6 +38,7 @@ import { canDelete, deleteWarning, deletedNote } from '../lib/equipmentDelete';
 import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs';
 import BlockCard from '../components/equipment/BlockCard';
 import EquipmentXmlSourcePanel from '../components/equipment/EquipmentXmlSourcePanel';
+import EquipmentXmlUpdatesDialog from '../components/equipment/EquipmentXmlUpdatesDialog';
 import EquipmentSourceImportDialog from '../components/equipment/EquipmentSourceImportDialog';
 import { getEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
@@ -97,6 +98,7 @@ export default function Equipment() {
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
   const [showSourceImport, setShowSourceImport] = useState(false);
+  const [showXmlUpdates, setShowXmlUpdates] = useState(false);
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -120,8 +122,9 @@ export default function Equipment() {
       const next: Record<string, { status: string; revision?: string }> = {};
       const setSourceStatus = (source: any, status: string, revision?: string) => {
         const targets: any[] = Array.isArray(source.targetTags) ? source.targetTags : [{ elementId: source.elementId, tagIds: [source.tagId] }];
-        for (const target of targets) for (const tagId of target.tagIds || [source.tagId]) {
-          next[sourceStatusKey(String(tagId), String(target.elementId))] = { status, revision };
+        for (const target of targets) {
+          const tagIds = target.tagIds?.length ? target.tagIds : source.tagId ? [source.tagId] : [''];
+          for (const tagId of tagIds) next[sourceStatusKey(String(tagId), String(target.elementId))] = { status, revision };
         }
       };
       if (!canManageEquipment) {
@@ -312,6 +315,16 @@ export default function Equipment() {
     const map: Record<string, { block: Component; unit: SystemUnit; mono: Monoblock }> = {};
     for (const s of systems) for (const mb of s.monoblocks) for (const c of mb.components) map[c.id] = { block: c, unit: s, mono: mb };
     return map;
+  }, [systems]);
+  const xmlSourceLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const system of systems) {
+      labels[system.id] = system.name;
+      for (const monoblock of system.monoblocks) for (const component of monoblock.components) {
+        labels[component.id] = `${blockLabel(component as any)} · ${system.name} / ${monoblock.name}`;
+      }
+    }
+    return labels;
   }, [systems]);
 
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
@@ -626,6 +639,7 @@ export default function Equipment() {
     <div className="fx-page @container equipment-page">
       <SectionHead title="Оборудование" count={(categories.find(c => c.id === activeCat)?.label || '') + (catCount(activeCat) ? ` · ${catCount(activeCat)}` : '')}
         actions={<>
+          <Btn tone="ghost" onClick={() => setShowXmlUpdates(true)} title="Просмотреть ревизии XML и перепривязать папки источников"><RefreshCw />Обновления XML{xmlNeedsReviewCount > 0 ? ` · ${xmlNeedsReviewCount}` : ''}</Btn>
           {xmlNeedsReviewCount > 0 && <Btn tone={showXmlUpdatesOnly ? 'primary' : 'ghost'} onClick={() => { setShowXmlUpdatesOnly(value => !value); setListMode(false); }} title="Показать только позиции с найденными XML-ревизиями или проблемами локального источника"><RefreshCw />{showXmlUpdatesOnly ? 'Все позиции' : `Есть обновления · ${xmlNeedsReviewCount}`}</Btn>}
           {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
               «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
@@ -724,6 +738,7 @@ export default function Equipment() {
         void loadSystems();
         void loadTags();
       }} />}
+      {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} sourceLabels={xmlSourceLabels} onClose={() => setShowXmlUpdates(false)} onChanged={() => { void checkProjectXmlSources(); void loadSystems(); }} />}
 
       {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
       <PositionTree

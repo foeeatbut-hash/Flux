@@ -171,6 +171,31 @@ try {
   const rechecked = await call('POST', checkPath, params, rawSource(xml('2'), 'B'));
   check('перепривязка блокирует старые решения и требует повторного сравнения даже для прежнего SHA', rebound.statusCode === 200 && staleDecision.statusCode === 409 && rechecked.statusCode === 200 && rechecked.body.rebased === true);
 
+  const updatesPath = '/api/equipment/projects/:projectId/sources';
+  let updateRows = await call('GET', updatesPath, { projectId: 'project-a' });
+  const freeRow = updateRows.body.sources.find((item: any) => item.sourceId === freeSourceId);
+  const pendingRebind = await call('POST', '/api/equipment/projects/:projectId/sources/rebind-folder', { projectId: 'project-a' }, { sources: [{ sourceId: freeSourceId, updatedAt: new Date(freeRow.updatedAt).toISOString(), latestCandidate: { id: freeRow.latestCandidate.id, revision: freeRow.latestCandidate.revision, updatedAt: new Date(freeRow.latestCandidate.updatedAt).toISOString() } }] });
+  const staleFreeCandidate = await prisma.equipmentXmlCandidate.findUnique({ where: { id: freeRow.latestCandidate.id } });
+  check('перепривязка устаревляет только pending-кандидат и сохраняет историю решения с автором', pendingRebind.statusCode === 200 && staleFreeCandidate.status === 'stale' && JSON.parse(staleFreeCandidate.decisionHistory).at(-1).actorId === 'fixture-admin');
+  const systemRow = updateRows.body.sources.find((item: any) => item.sourceId === sourceId);
+  // The route fixture uses coarse SQLite timestamps; make the selected row a
+  // completed decision, then read its fresh CAS token from the endpoint.
+  const approvedCandidate = await prisma.equipmentXmlCandidate.update({ where: { id: systemRow.latestCandidate.id }, data: { status: 'complete' } });
+  updateRows = await call('GET', updatesPath, { projectId: 'project-a' });
+  const refreshedSystemRow = updateRows.body.sources.find((item: any) => item.sourceId === sourceId);
+  const folderRebindPath = '/api/equipment/projects/:projectId/sources/rebind-folder';
+  const folderRebind = await call('POST', folderRebindPath, { projectId: 'project-a' }, { sources: [{ sourceId, updatedAt: new Date(refreshedSystemRow.updatedAt).toISOString(), latestCandidate: { id: refreshedSystemRow.latestCandidate.id, revision: refreshedSystemRow.latestCandidate.revision, updatedAt: new Date(refreshedSystemRow.latestCandidate.updatedAt).toISOString() } }] });
+  check('перепривязка папки проходит при совпавших источнике и последнем кандидате, не меняя подтверждённый кандидат', folderRebind.statusCode === 200 && (await prisma.equipmentXmlCandidate.findUnique({ where: { id: approvedCandidate.id } })).status === approvedCandidate.status && new Date(folderRebind.body.sources[0].updatedAt).getTime() > new Date(refreshedSystemRow.updatedAt).getTime());
+  const afterFolderRebind = await prisma.equipmentXmlSource.findUnique({ where: { id: sourceId } });
+  const staleCas = await call('POST', folderRebindPath, { projectId: 'project-a' }, { sources: [{ sourceId, updatedAt: new Date(systemRow.updatedAt).toISOString(), latestCandidate: { id: systemRow.latestCandidate.id, revision: systemRow.latestCandidate.revision, updatedAt: new Date(systemRow.latestCandidate.updatedAt).toISOString() } }] });
+  check('перепривязка отклоняет устаревший sourceUpdatedAt CAS', staleCas.statusCode === 409 && (await prisma.equipmentXmlSource.findUnique({ where: { id: sourceId } })).updatedAt.getTime() === afterFolderRebind.updatedAt.getTime());
+  const badBatch = await call('POST', folderRebindPath, { projectId: 'project-a' }, { sources: [{ sourceId, updatedAt: afterFolderRebind.updatedAt.toISOString(), latestCandidate: { id: systemRow.latestCandidate.id, revision: systemRow.latestCandidate.revision, updatedAt: new Date(systemRow.latestCandidate.updatedAt).toISOString() } }, { sourceId: 'missing-source', updatedAt: new Date().toISOString(), latestCandidate: null }] });
+  check('неполная массовая перепривязка откатывается целиком', badBatch.statusCode === 409 && (await prisma.equipmentXmlSource.findUnique({ where: { id: sourceId } })).updatedAt.getTime() === afterFolderRebind.updatedAt.getTime());
+  const wrongCandidateCas = await call('POST', folderRebindPath, { projectId: 'project-a' }, { sources: [{ sourceId, updatedAt: afterFolderRebind.updatedAt.toISOString(), latestCandidate: { id: 'other-candidate', revision: systemRow.latestCandidate.revision, updatedAt: new Date(systemRow.latestCandidate.updatedAt).toISOString() } }] });
+  check('перепривязка отклоняет несовпавший latestCandidate CAS', wrongCandidateCas.statusCode === 409 && (await prisma.equipmentXmlSource.findUnique({ where: { id: sourceId } })).updatedAt.getTime() === afterFolderRebind.updatedAt.getTime());
+  const unauthorizedFolderRebind = await call('POST', folderRebindPath, { projectId: 'project-a' }, { sources: [{ sourceId, updatedAt: afterFolderRebind.updatedAt.toISOString(), latestCandidate: { id: systemRow.latestCandidate.id, revision: systemRow.latestCandidate.revision, updatedAt: new Date(systemRow.latestCandidate.updatedAt).toISOString() } }] }, { id: 'outsider', role: 'ENGINEER_VENT', isActive: true });
+  check('перепривязка требует права управления оборудованием', unauthorizedFolderRebind.statusCode === 403);
+
   const unauthorized = await call('GET', '/api/equipment/projects/:projectId/sources/:sourceId/candidates', params, {}, { id: 'outsider', role: 'ENGINEER_VENT', isActive: true });
   check('посторонний участник не читает кандидатов закрытого проекта', unauthorized.statusCode === 403);
   const foreign = await call('GET', '/api/equipment/projects/:projectId/sources/:sourceId/candidates', { projectId: 'project-b', sourceId }, {});

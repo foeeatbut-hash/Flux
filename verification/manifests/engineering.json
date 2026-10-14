@@ -4126,6 +4126,7 @@
       "label": "Связать XML источника и рассмотреть новую ревизию",
       "sources": [
         "src/screens/Equipment.tsx",
+        "src/components/equipment/EquipmentXmlUpdatesDialog.tsx",
         "src/components/equipment/EquipmentXmlSourcePanel.tsx",
         "src/lib/equipmentSourcesLocal.ts",
         "server/routes/equipmentXmlSources.ts",
@@ -4138,27 +4139,35 @@
       "triggers": [
         "source XML picker",
         "check revisions",
+        "open XML updates for all project sources",
+        "preview and rebind one or many source folders",
+        "review selected candidates sequentially",
         "accept/keep change",
         "import first XML revision",
         "undo review"
       ],
       "risk": "critical",
       "expected": [
-        "Папка и Windows file refs остаются локальными; сервер проверяет исходный SHA и хранит только разобранные характеристики. Проверка не меняет импортированный baseline; частичные решения не удаляют отсутствующие параметры, ручные значения требуют явного подтверждения, undo пропускает конфликтующие правки."
+        "Папка и Windows file refs остаются локальными; сервер проверяет исходный SHA и хранит только разобранные характеристики. Проверка не меняет импортированный baseline; частичные решения не удаляют отсутствующие параметры, ручные значения требуют явного подтверждения, undo пропускает конфликтующие правки.",
+        "Ревизии A/B/C и числовые номера сортируются естественно, включая 10 после 3; дополнительные имена учитываются только из порядка источника.",
+        "Обновления XML показывает проектные теги, текущую и новую ревизию, число полевых и структурных отличий, а также локальные ошибки без кандидата.",
+        "Перепривязка папок показывает точный путь-план, проверяет source/candidate CAS, инвалидирует только pending/partial кандидаты и поддерживает CAS-откат локальных capability-ссылок."
       ],
       "checks": [
         {
           "suite": "eng-equipment-xml-revisions",
           "layer": "unit",
           "claims": [
-            "Поддерживаются все legacy-форматы характеристик; повреждённые данные блокируют применение; ручные и отсутствующие параметры видны и требуют явного решения."
+            "Поддерживаются все legacy-форматы характеристик; повреждённые данные блокируют применение; ручные и отсутствующие параметры видны и требуют явного решения.",
+            "Естественный порядок ставит 10 после 3, принимает C1 только из настроенного порядка и игнорирует обычные каталоги вроде Backups; импортёр подставляет только точный тег из XML."
           ]
         },
         {
           "suite": "eng-equipment-xml-routes-sqlite",
           "layer": "api-db",
           "claims": [
-            "SQLite fixture проверяет component and installation root+nested parameter candidates, atomic multi-position apply/undo, stale child CAS, failed XML, imported/reviewed baseline, same-SHA rebase, manual override, project permissions and restart persistence."
+            "SQLite fixture проверяет component and installation root+nested parameter candidates, atomic multi-position apply/undo, stale child CAS, failed XML, imported/reviewed baseline, same-SHA rebase, manual override, project permissions and restart persistence.",
+            "Folder rebind atomically checks every source and latest-candidate snapshot, rolls back the entire batch on a mismatch, stales only pending/partial candidates with actor history, and leaves approved candidates untouched."
           ]
         },
         {
@@ -4193,9 +4202,9 @@
       "manual": [
         {
           "layer": "browser-live",
-          "scenario": "В двух темах открыть позицию с XML source, проверить найденную ревизию, выбрать ambiguity, применить одну характеристику и сохранить другую; сузить окно до 280px.",
+          "scenario": "В двух темах открыть «Обновления XML» для проекта, проверить колонки и структурное число изменений, выбрать один и несколько источников, просмотреть точный план папок по тегам, подтвердить и отменить перепривязку; открыть позиции последовательно, решить одно поле и оставить другое. Сузить окно до 280px.",
           "expected": [
-            "Показаны текущие/предложенные значения и manual/catalog origin; scan warnings видны; partial review сохраняется после перезагрузки, baseline обновляется только после завершённого решения."
+            "Таблица не показывает абсолютные пути; полевая разница подсвечена жёлтым до решения, ручной конфликт заметен отдельно; локальная ошибка видна без кандидата; partial review сохраняется после перезагрузки, baseline обновляется только после завершённого решения."
           ]
         }
       ]

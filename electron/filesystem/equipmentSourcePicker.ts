@@ -9,13 +9,16 @@ export interface EquipmentSourceRootProvider {
 export interface EquipmentSourceSelection {
   selectedFile: { ref: WindowsFileRef; name: string };
   sourceFolder: WindowsFileRef;
+  suggestedTag?: string;
 }
 
 /** Выбранный файл превращается в ограниченные ссылки; имя диска не уходит в renderer. */
 export async function resolveEquipmentSourceSelection(service: EquipmentSourceRootProvider, filename: string): Promise<EquipmentSourceSelection> {
   if (path.extname(filename).toLocaleLowerCase() !== '.xml') throw Object.assign(new Error('Выберите XML-файл оборудования.'), { code: 'INVALID_REQUEST' });
   const revisionFolder = path.dirname(filename);
-  const sourceFolder = /^[A-Z]$/iu.test(path.basename(revisionFolder)) ? path.dirname(revisionFolder) : revisionFolder;
+  const revisionName = path.basename(revisionFolder);
+  const hasRevisionParent = /^[A-Z]$/iu.test(revisionName) || /^\d{1,20}$/u.test(revisionName);
+  const sourceFolder = hasRevisionParent ? path.dirname(revisionFolder) : revisionFolder;
   let sourceFolderRef = await service.refForShellPath(sourceFolder);
   if (!sourceFolderRef) {
     const root = await service.addRoot(sourceFolder, path.basename(sourceFolder));
@@ -26,6 +29,7 @@ export async function resolveEquipmentSourceSelection(service: EquipmentSourceRo
   return {
     selectedFile: { ref: { rootId: sourceFolderRef.rootId, relativePath: [sourceFolderRef.relativePath, relativeFile].filter(Boolean).join('/') }, name: path.basename(filename) },
     sourceFolder: sourceFolderRef,
+    ...(hasRevisionParent && path.basename(sourceFolder) ? { suggestedTag: path.basename(sourceFolder) } : {}),
   };
 }
 
