@@ -87,10 +87,9 @@ export default function OfficeTranslationPanel() {
   const translateRows = (pick: (row: ReviewedUnit) => boolean) => {
     if (busy) return;
     try {
-      let count = 0;
+      const count = rows.filter(pick).length;
       setRows((current) => current.map((row) => {
         if (!pick(row)) return row;
-        count++;
         const segments: Segment[] = many(row.item.source, from, to);
         return {
           ...row, item: { ...row.item, targetText: joinSegments(segments) },
