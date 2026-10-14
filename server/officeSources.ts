@@ -71,6 +71,7 @@ const MANAGEMENT_FIELDS: OfficeSourceField[] = [
   { path: 'vdr.fileNodeId', title: 'ID файла замечаний', entityType: 'vdr' },
   { path: 'vdr.itemRevisionHistory', title: 'История ревизий документа ВДР', entityType: 'vdr' },
   { path: 'vdr.tags', title: 'Теги документа ВДР', entityType: 'vdr' },
+  { path: 'vdr.tagsConflict', title: 'Неоднозначные теги документа ВДР', entityType: 'vdr' },
 ];
 
 const E3_FIELDS: OfficeSourceField[] = [
@@ -99,8 +100,12 @@ const E3_FIELDS: OfficeSourceField[] = [
 const json = (raw: unknown): any => {
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
-  try { return JSON.parse(String(raw)); } catch { return {}; }
+  try { const parsed = JSON.parse(String(raw)); return parsed && typeof parsed === 'object' ? parsed : {}; } catch { return {}; }
 };
+// Битая настройка (items не массив, null и т.п.) читается как пустая, а не роняет весь источник.
+const list = (value: unknown): any[] => Array.isArray(value) ? value : [];
+// Таблицы ВДР и E3 создаются лениво (vdr.ts, e3ExportStore): если их ещё нет, источник пуст, а не отвечает 500.
+const soft = <T>(promise: Promise<T>, fallback: T): Promise<T> => promise.catch(() => fallback);
 const scalar = (value: unknown): string | number | null => {
   if (value == null) return null;
   if (typeof value === 'string' || typeof value === 'number') return value;
@@ -155,14 +160,14 @@ function managementRows(tags: any[], registers: any[], stages: any[], revisions:
     if (!key) continue;
     tagByIdentifier.set(key, [...(tagByIdentifier.get(key) || []), tag]);
   }
-  for (const register of registers) for (const item of register.items || []) {
+  for (const register of registers) for (const item of list(register.items)) {
     const tagCodes: string[] = (() => {
       const parsed = json(item.equipmentTags);
       return Array.isArray(parsed) ? parsed.map((value: any) => String(value).trim()).filter(Boolean) : [];
     })();
     const matchedTags = tagCodes.flatMap((code) => tagByIdentifier.get(code.toLocaleLowerCase('ru-RU')) || []);
     const ambiguous = [...new Set(tagCodes.filter((code) => (tagByIdentifier.get(code.toLocaleLowerCase('ru-RU')) || []).length > 1))];
-    if (ambiguous.length) throw Object.assign(new Error(`Неоднозначное сопоставление ВДР по тегу: ${ambiguous.join(', ')}`), { status: 409 });
+    // Неоднозначный тег портит только значение «vdr.tags» этой строки, а не весь источник закупок.
     const extra = json(item.extra);
     const meta = json(item.meta);
     rows.push({
@@ -186,7 +191,8 @@ function managementRows(tags: any[], registers: any[], stages: any[], revisions:
         'vdr.reviewCode': String(item.reviewCode || ''), 'vdr.dueDate': dateValue(item.dueDate), 'vdr.assigneeId': item.assigneeId || null,
         'vdr.docId': item.docId || null, 'vdr.fileNodeId': item.fileNodeId || null,
         'vdr.itemRevisionHistory': scalar(revisions.filter((revision) => revision.itemId === item.id).map(({ id, itemId, ...revision }) => revision)),
-        'vdr.tags': matchedTags.map((tag) => String(tag.identifier || '')).join('; ') || (tagCodes.length ? tagCodes.join('; ') : null),
+        'vdr.tags': ambiguous.length ? null : matchedTags.map((tag) => String(tag.identifier || '')).join('; ') || (tagCodes.length ? tagCodes.join('; ') : null),
+        'vdr.tagsConflict': ambiguous.length ? `Неоднозначное сопоставление ВДР по тегу: ${ambiguous.join(', ')}` : null,
         ...Object.fromEntries(Object.entries(extra).map(([key, value]) => [`vdr.extra.${key}`, scalar(value)])),
         ...Object.fromEntries(Object.entries(meta).map(([key, value]) => [`vdr.meta.${key}`, scalar(value)])),
       },
@@ -197,14 +203,16 @@ function managementRows(tags: any[], registers: any[], stages: any[], revisions:
 
 function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3SolutionBook): OfficeSourceRow[] {
   const solutionIds = new Set<string>();
-  for (const solution of book.solutions || []) {
+  for (const solution of book.solutions) {
     const id = String(solution.id || '');
     if (id && solutionIds.has(id)) throw Object.assign(new Error(`В каталоге E3 неоднозначный ID типового решения: ${id}`), { status: 409 });
     if (id) solutionIds.add(id);
   }
+  const projectById = new Map(projects.map((item) => [item.id, item]));
+  const solutionById = new Map(book.solutions.map((item) => [String(item.id), item]));
   const byElement = new Map<string, { project: any; binding: any }[]>();
   for (const binding of bindings) {
-    const project = projects.find((item) => item.id === binding.e3ProjectId);
+    const project = projectById.get(binding.e3ProjectId);
     if (!project) continue;
     byElement.set(binding.elementId, [...(byElement.get(binding.elementId) || []), { project, binding }]);
   }
@@ -213,6 +221,19 @@ function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3Solut
   for (const [elementId, matches] of byElement) {
     if (matches.length > 1) throw Object.assign(new Error(`У позиции ${elementId} несколько привязок E3 в проекте Flux`), { status: 409 });
   }
+  const elementTag = (item: any) => (item.tags || []).map((tag: any) => String(tag.identifier || '')).find(Boolean) || '';
+  const parentTag = (item: any) => {
+    const parent = elementById.get(String(item.parentElementId || ''));
+    return parent ? elementTag(parent) : '';
+  };
+  // Список позиций одинаков для всех привязок: строим один раз, иначе выйдет O(N²) на 1000+ позиций.
+  const positionOf = (item: any): E3Position => ({
+    id: String(item.id), cls: String(item.equipClass || item.equipType || ''), role: String(item.role || ''),
+    tag: elementTag(item), parentElementId: item.parentElementId || undefined, parentTag: parentTag(item), read: () => '',
+  } as E3Position);
+  const ioById = new Map(book.ioTable.map((row) => [row.id, row]));
+  const allPositions = elements.map(positionOf);
+  const positionById = new Map(allPositions.map((item) => [item.id, item]));
   return [...byElement.entries()].flatMap(([elementId, matches]) => {
     const element = elementsById.get(elementId);
     if (!element) return [];
@@ -220,20 +241,10 @@ function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3Solut
     const tagCodes = (element.tags || []).map((tag: any) => String(tag.identifier || '')).filter(Boolean);
     const attrs = json(binding.sentAttrsJson);
     const overrides = json(binding.overridesJson);
-    const solution = (book.solutions || []).find((item) => item.id === String(binding.solutionId || ''));
+    const solution = solutionById.get(String(binding.solutionId || ''));
     const features = { ...(solution?.features || {}), ...json(binding.answersJson) };
-    const elementTag = (item: any) => (item.tags || []).map((tag: any) => String(tag.identifier || '')).find(Boolean) || '';
-    const parentTag = (item: any) => {
-      const parent = elementById.get(String(item.parentElementId || ''));
-      return parent ? elementTag(parent) : '';
-    };
-    const recipe = solution ? buildRecipeFor({ ...solution, features }, {
-      id: String(element.id), cls: String(element.equipClass || element.equipType || ''), role: String(element.role || ''),
-      tag: tagCodes[0] || '', parentElementId: element.parentElementId || undefined, parentTag: parentTag(element), read: () => '',
-    } as E3Position, elements.map((item) => ({
-      id: String(item.id), cls: String(item.equipClass || item.equipType || ''), role: String(item.role || ''),
-      tag: elementTag(item), parentElementId: item.parentElementId || undefined, parentTag: parentTag(item), read: () => '',
-    } as E3Position)), book) : null;
+    const self = positionById.get(String(element.id)) as E3Position;
+    const recipe = solution ? buildRecipeFor({ ...solution, features }, self, allPositions, book) : null;
     const values: Record<string, string | number | null> = {
       'element.itemCode': String(element.itemCode || ''), 'element.name': String(element.name || ''), 'element.tag': tagCodes.join('; '),
       'e3.project': String(project.name || ''), 'e3.version': String(project.e3Version || ''), 'e3.partsDb': String(project.partsDb || ''), 'e3.path': String(project.path || ''),
@@ -242,14 +253,27 @@ function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3Solut
       'e3.sheet': String(binding.sheet || ''), 'e3.state': String(binding.state || ''), 'e3.sentVersion': String(binding.sentVersion || ''),
       'e3.manualSolution': binding.manualSolution ? 'Да' : 'Нет',
       'e3.devices': recipe?.items.length ? recipe.items.map((item) => {
-        const io = (book.ioTable || []).find((row) => row.id === item.ioRowId);
+        const io = ioById.get(item.ioRowId);
         return `${item.role}: ${io?.name || io?.code || item.ioRowId || 'изделие'}${item.component ? ` (${item.component})` : ''}`;
       }).join('; ') : null,
       'e3.di': recipe?.total.di ?? null, 'e3.do': recipe?.total.do ?? null, 'e3.ai': recipe?.total.ai ?? null, 'e3.ao': recipe?.total.ao ?? null,
     };
     for (const [key, value] of Object.entries(attrs)) values[`e3.attr:${key}`] = scalar(value);
+    // Настроенные колонки идут без владельца («e3.attr:|ИМЯ»), а в привязке ключ — «владелец|ИМЯ».
+    // Для такой колонки берём значение, если владелец с этим именем один; при нескольких не угадываем.
+    const byName = new Map<string, Set<string | number | null>>();
+    for (const [key, value] of Object.entries(attrs)) {
+      const bar = key.indexOf('|');
+      if (bar <= 0) continue;
+      const name = key.slice(bar + 1);
+      byName.set(name, (byName.get(name) || new Set()).add(scalar(value)));
+    }
+    for (const [name, found] of byName) {
+      const field = `e3.attr:|${name}`;
+      if (!(field in values)) values[field] = found.size === 1 ? [...found][0] : null;
+    }
     for (const [key, value] of Object.entries(overrides)) values[`e3.override:${key}`] = scalar(value);
-    if (recipe) for (const io of book.ioTable || []) {
+    if (recipe) for (const io of book.ioTable) {
       const count = recipe.items.filter((item) => item.ioRowId === io.id).length;
       if (count) for (const signal of ['di', 'do', 'ai', 'ao'] as const) values[`e3.io:${io.id}|${signal}`] = io[signal] * count;
     }
@@ -260,28 +284,28 @@ function e3Rows(elements: any[], projects: any[], bindings: any[], book: E3Solut
 export async function officeSourceCatalog(projectId: string) {
   const db = getPrisma();
   const [attributeSetting, solutionSetting, registers, projects] = await Promise.all([
-    db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }),
-    db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }),
-    db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }),
-    db.e3Project.findMany({ where: { fluxProjectId: projectId }, select: { id: true, name: true } }),
+    soft(db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }), null),
+    soft(db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }), null),
+    soft(db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }), [] as any[]),
+    soft(db.e3Project.findMany({ where: { fluxProjectId: projectId }, select: { id: true, name: true } }), [] as any[]),
   ]);
-  const attributes = json(attributeSetting?.value).items || [];
+  const attributes = list(json(attributeSetting?.value).items);
   const solutions = json(solutionSetting?.value);
-  const extras = registers.flatMap((register: any) => (register.items || []).map((item: any) => ({ extra: json(item.extra), meta: json(item.meta) })));
+  const extras = registers.flatMap((register: any) => list(register.items).map((item: any) => ({ extra: json(item.extra), meta: json(item.meta) })));
   const dynamicVdr = extras.flatMap((record) => [
     ...Object.keys(record.extra).map((key) => ({ path: `vdr.extra.${key}`, title: `ВДР · ${key}`, entityType: 'vdr' as const })),
     ...Object.keys(record.meta).map((key) => ({ path: `vdr.meta.${key}`, title: `ВДР · ${key}`, entityType: 'vdr' as const })),
   ]);
   const attrKeys = new Set<string>(), overrideKeys = new Set<string>();
-  const bindings = projects.length ? await db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((project: any) => project.id) } }, select: { sentAttrsJson: true, overridesJson: true } }) : [];
+  const bindings = projects.length ? await soft(db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((project: any) => project.id) } }, select: { sentAttrsJson: true, overridesJson: true } }), [] as any[]) : [];
   for (const binding of bindings) {
     for (const key of Object.keys(json(binding.sentAttrsJson))) attrKeys.add(key);
     for (const key of Object.keys(json(binding.overridesJson))) overrideKeys.add(key);
   }
-  const configured = attributes.filter((item: any) => !item.removed).map((item: any) => ({ path: `e3.attr:|${item.name}`, title: `E3 · ${item.title || item.name}`, entityType: 'e3' as const }));
+  const configured = attributes.filter((item: any) => item && item.name && !item.removed).map((item: any) => ({ path: `e3.attr:|${item.name}`, title: `E3 · ${item.title || item.name}`, entityType: 'e3' as const }));
   const dynamicAttrs = [...attrKeys].map((key) => ({ path: `e3.attr:${key}`, title: `E3 · ${key}`, entityType: 'e3' as const }));
   const dynamicOverrides = [...overrideKeys].map((key) => ({ path: `e3.override:${key}`, title: `E3 · ручная правка · ${key}`, entityType: 'e3' as const }));
-  const ioFields = (solutions.ioTable || []).flatMap((io: any) => [
+  const ioFields = list(solutions.ioTable).flatMap((io: any) => [
     { path: `e3.io:${io.id}|di`, title: `E3 IO · ${io.group} · ${io.name} · DI`, type: 'number' as const, entityType: 'e3' as const },
     { path: `e3.io:${io.id}|do`, title: `E3 IO · ${io.group} · ${io.name} · DO`, type: 'number' as const, entityType: 'e3' as const },
     { path: `e3.io:${io.id}|ai`, title: `E3 IO · ${io.group} · ${io.name} · AI`, type: 'number' as const, entityType: 'e3' as const },
@@ -299,26 +323,27 @@ export async function queryOfficeSource(projectId: string, sourceId: 'management
   if (sourceId === 'management') {
     const [tags, registers, setting] = await Promise.all([
       db.tag.findMany({ where: { projectId }, orderBy: { id: 'asc' } }),
-      db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }),
-      db.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } }),
+      soft(db.docRegister.findMany({ where: { projectId }, include: { items: true }, orderBy: { id: 'asc' } }), [] as any[]),
+      soft(db.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } }), null),
     ]);
     const stages = json(setting?.value);
-    const itemIds = registers.flatMap((register: any) => (register.items || []).map((item: any) => item.id));
-    const revisions = itemIds.length ? await db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] }) : [];
+    const itemIds = registers.flatMap((register: any) => list(register.items).map((item: any) => item.id));
+    const revisions = itemIds.length ? await soft(db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] }), [] as any[]) : [];
     const rows = managementRows(tags, registers, Array.isArray(stages) ? stages : [], revisions);
     return { rows, revision: digest({ projectId, stages, tags: tags.map((tag: any) => [tag.id, tag.updatedAt, tag.metadata]), registers: registers.map((register: any) => [register.id, register.updatedAt, register.items]), revisions }) };
   }
   const [projects, elements, attrSetting, solutionSetting] = await Promise.all([
-    db.e3Project.findMany({ where: { fluxProjectId: projectId }, orderBy: { id: 'asc' } }),
+    soft(db.e3Project.findMany({ where: { fluxProjectId: projectId }, orderBy: { id: 'asc' } }), [] as any[]),
     db.componentElement.findMany({ where: { monoblock: { system: { projectId } } }, include: { tags: { select: { identifier: true } } }, orderBy: { id: 'asc' } }),
-    db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }),
-    db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }),
+    soft(db.appSetting.findFirst({ where: { key: 'e3_attributes', userId: null } }), null),
+    soft(db.appSetting.findFirst({ where: { key: 'e3_solutions', userId: null } }), null),
   ]);
   const bindings = projects.length
-    ? await db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((item: any) => item.id) } }, orderBy: { id: 'asc' } })
+    ? await soft(db.e3Binding.findMany({ where: { e3ProjectId: { in: projects.map((item: any) => item.id) } }, orderBy: { id: 'asc' } }), [] as any[])
     : [];
-  const attributes = json(attrSetting?.value).items || [];
-  const book = { solutions: [], features: [], ioTable: [], ioRules: [], ...json(solutionSetting?.value) } as E3SolutionBook;
+  const attributes = list(json(attrSetting?.value).items);
+  const storedBook = json(solutionSetting?.value);
+  const book = { ...storedBook, solutions: list(storedBook.solutions), features: list(storedBook.features), ioTable: list(storedBook.ioTable), ioRules: list(storedBook.ioRules) } as E3SolutionBook;
   return { rows: e3Rows(elements, projects, bindings, book), revision: digest({ projectId, projects, bindings, attributes, book, elements }) };
 }
 

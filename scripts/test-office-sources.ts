@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import { toProjectQuery } from '../src/components/office/fluxData.js';
+import { officeEntityId } from '../src/lib/officeModel.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -190,7 +191,12 @@ async function main() {
   db.prepare('INSERT INTO Tag (id, identifier, projectId, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run(`tag_dup2_${stamp}`, 'DUP', projectId, '{}', now, now);
   db.prepare('INSERT INTO DocRegisterItem (id, registerId, projectId, contractorNo, equipmentTags, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`doc_amb_${stamp}`, `reg_${stamp}`, projectId, 'C-2', JSON.stringify(['DUP']), now, now);
   const ambiguous = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: vdrQuery });
-  pass('ambiguous VDR tag mapping fails explicitly', ambiguous.status === 409 && /неоднозначное сопоставление/i.test(ambiguous.json?.error || ''), ambiguous.json);
+  const ambiguousRow = ambiguous.json?.rows?.find((row: any) => row.entityId === officeEntityId('management', 'vdr', `doc_amb_${stamp}`));
+  const goodRow = ambiguous.json?.rows?.find((row: any) => row.entityId === officeEntityId('management', 'vdr', `doc_${stamp}`));
+  const ambiguousProc = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
+  pass('ambiguous VDR tag breaks only that row value, other VDR and procurement rows stay readable', ambiguous.status === 200 && ambiguousRow?.values?.['vdr.tags']?.value === null && goodRow?.values?.['vdr.tags']?.value === 'TAG-1' && ambiguousProc.status === 200 && ambiguousProc.json?.rows?.some((row: any) => row.tag === 'TAG-1'), { status: ambiguous.status, ambiguousRow, goodRow });
+  const ambiguousWarn = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { ...vdrQuery, columns: ['vdr.tags', 'vdr.tagsConflict'] } });
+  pass('ambiguity is reported in the per-row vdr.tagsConflict field', /DUP/.test(String(ambiguousWarn.json?.rows?.find((row: any) => row.entityId === ambiguousRow?.entityId)?.values?.['vdr.tagsConflict']?.value)), ambiguousWarn.json);
 
   console.log('4. Project permissions');
   const denied = await request(outsiderToken, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
@@ -203,6 +209,51 @@ async function main() {
     .run(`e3b2_${stamp}`, `e3p2_${stamp}`, `element_${stamp}`, 'SOL-1', '{}', 0, 'XV-1', 'Лист 2', 'v1', '{}', '{}', 'PLACED', '', now);
   const duplicateE3 = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: e3Query });
   pass('two E3 project bindings for one Flux element fail explicitly', duplicateE3.status === 409 && /несколько привязок E3/i.test(duplicateE3.json?.error || ''), duplicateE3.json);
+
+  console.log('5. Scale, owner-keyed attributes, malformed settings, missing lazy tables');
+  const bigProject = `office_src_big_${stamp}`, bigCount = 3000;
+  db.transaction(() => {
+    db.prepare('INSERT INTO Project (id, name, createdAt) VALUES (?, ?, ?)').run(bigProject, 'Office big E3', now);
+    db.prepare('INSERT INTO ProjectMember (id, projectId, userId, addedBy, addedAt) VALUES (?, ?, ?, ?, ?)').run(`membership_big_${stamp}`, bigProject, user.id, user.id, now);
+    db.prepare('INSERT INTO EquipmentSystem (id, name, projectId, category, createdAt) VALUES (?, ?, ?, ?, ?)').run(`bsys_${stamp}`, 'П2', bigProject, 'AHU', now);
+    db.prepare('INSERT INTO Monoblock (id, name, systemId, createdAt) VALUES (?, ?, ?, ?)').run(`bmono_${stamp}`, 'МБ-2', `bsys_${stamp}`, now);
+    db.prepare('INSERT INTO E3Project (id, fluxProjectId, key, name, path, e3Version, partsDb, lastSeenAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(`bige3_${stamp}`, bigProject, `bigkey-${stamp}`, 'Большая схема', '', '', '', now, now);
+    const addElement = db.prepare('INSERT INTO ComponentElement (id, name, itemCode, monoblockId, specs, equipType, status, hasConflict, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)');
+    const addBinding = db.prepare('INSERT INTO E3Binding (id, e3ProjectId, elementId, solutionId, answersJson, manualSolution, designation, sheet, sentVersion, sentAttrsJson, overridesJson, state, lastExportId, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (let i = 0; i < bigCount; i++) {
+      addElement.run(`bel_${stamp}_${i}`, `Узел ${i}`, `BE-${i}`, `bmono_${stamp}`, '{}', 'КЛАПАН', 'OK', now, now);
+      addBinding.run(`bbind_${stamp}_${i}`, `bige3_${stamp}`, `bel_${stamp}_${i}`, 'SOL-1', '{}', 0, `XV-${i}`, 'Лист 1', 'v1', JSON.stringify({ 'Двигатель|MOTOR_POWER': `${i} kW` }), '{}', 'PLACED', '', now);
+    }
+  })();
+  const bigQuery = { entity: 'e3flux', columns: ['element.itemCode', 'e3.di', 'e3.attr:|MOTOR_POWER'], filters: [], sort: [], limit: 5000 };
+  const bigStart = Date.now();
+  const big = await request(token, 'POST', '/api/project-data/office/query', { projectId: bigProject, query: bigQuery });
+  const bigElapsed = Date.now() - bigStart;
+  pass(`E3 with ${bigCount} bound elements is read in linear time`, big.status === 200 && big.json?.total === bigCount && bigElapsed < 3000, { status: big.status, elapsed: bigElapsed, total: big.json?.total });
+  console.log(`    (${bigCount} E3 rows in ${bigElapsed} ms)`);
+  const bigRow = big.json?.rows?.find((row: any) => row.values?.['element.itemCode']?.value === 'BE-7');
+  pass('configured E3 column resolves a value stored under an owner key', bigRow?.values?.['e3.attr:|MOTOR_POWER']?.value === '7 kW' && bigRow?.values?.['e3.di']?.value === 2, bigRow);
+
+  const attrSettingId = `setting-attr-${stamp}`, stageSettingId = `setting-stage-${stamp}`;
+  const originalAttrs = db.prepare('SELECT value FROM AppSetting WHERE id = ?').get(attrSettingId)?.value;
+  const originalStages = db.prepare('SELECT value FROM AppSetting WHERE id = ?').get(stageSettingId)?.value;
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(JSON.stringify({ version: 1, items: 'oops' }), attrSettingId);
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run('null', stageSettingId);
+  const malformedCatalog = await request(token, 'GET', `/api/project-data/catalog?projectId=${projectId}`);
+  const malformedRows = await request(token, 'POST', '/api/project-data/office/query', { projectId: bigProject, query: { ...bigQuery, columns: ['element.itemCode'] } });
+  const malformedMgmt = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
+  pass('malformed settings (items not an array, null) are treated as empty', malformedCatalog.status === 200 && malformedRows.status === 200 && malformedMgmt.status === 200, [malformedCatalog.status, malformedRows.status, malformedMgmt.status]);
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(originalAttrs, attrSettingId);
+  db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(originalStages, stageSettingId);
+
+  // Таблицы ВДР и E3 создаются лениво: на свежей базе их может не быть, каталог и ряды не должны отвечать 500.
+  for (const table of ['DocRegisterItemRevision', 'DocRegisterItem', 'DocRegister', 'E3Binding', 'E3Project']) db.exec(`DROP TABLE IF EXISTS "${table}"`);
+  const bareCatalog = await request(token, 'GET', `/api/project-data/catalog?projectId=${projectId}`);
+  const bareManagement = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: mgmtQuery });
+  const bareE3 = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { ...e3Query, columns: ['element.itemCode', 'e3.sheet'] } });
+  const bareVdr = await request(token, 'POST', '/api/project-data/office/query', { projectId, query: { ...vdrQuery, columns: ['vdr.register', 'vdr.titleRu'] } });
+  pass('catalog keeps Tags/Equipment and static source fields when VDR/E3 tables are missing', bareCatalog.status === 200 && Array.isArray(bareCatalog.json?.managementFields) && (bareCatalog.json?.e3fluxFields || []).some((field: any) => field.path === 'e3.sheet'), [bareCatalog.status, bareCatalog.text.slice(0, 200)]);
+  pass('rows of missing-table sources are empty, procurement rows still readable', bareManagement.status === 200 && bareManagement.json?.rows?.some((row: any) => row.tag === 'TAG-1') && bareE3.status === 200 && bareE3.json?.total === 0 && bareVdr.status === 200 && bareVdr.json?.total === 0, [bareManagement.status, bareE3.status, bareE3.json?.total, bareVdr.status, bareVdr.json?.total]);
 }
 
 void (async () => {
