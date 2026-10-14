@@ -13,7 +13,7 @@
  * потому что высота в миллиметрах задаётся всей картинке вместе с полями.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Upload, ClipboardPaste, PenLine, RotateCw, Trash2, X, AlertTriangle, Check } from 'lucide-react';
+import { ClipboardPaste, PenLine, RotateCw, Trash2, X, AlertTriangle, Check } from 'lucide-react';
 import {
   cutBackground, inkBounds, suggestThreshold, looksEmpty, checkFile,
   fitToHeight, STORE_HEIGHT_PX, DEFAULT_THRESHOLD,
@@ -22,6 +22,7 @@ import { formatName } from '../lib/names';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { useEscapeClose } from '../lib/useDismiss';
+import ImportFileChooser from './ImportFileChooser';
 
 interface Props {
   /** Чью подпись правим */
@@ -308,11 +309,7 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
 
           {/* Способы получить картинку */}
           <div className="flex flex-wrap items-center gap-2">
-            <label className={`${btn} ${!canEdit ? 'pointer-events-none opacity-40' : ''}`}>
-              <Upload className="w-3.5 h-3.5" /> Выбрать файл
-              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) takeFile(f); e.currentTarget.value = ''; }} />
-            </label>
+            <ImportFileChooser accept=".png,.jpg,.jpeg,.webp" disabled={!canEdit} className={btn} label="Выбрать файл" onFiles={files => { if (files[0]) takeFile(files[0]); }} />
             <button type="button" className={btn} disabled={!canEdit} onClick={startDraw}>
               <PenLine className="w-3.5 h-3.5" /> Нарисовать
             </button>
